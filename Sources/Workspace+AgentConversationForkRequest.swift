@@ -11,12 +11,22 @@ extension Workspace {
     func forkAgentConversation(
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
-        request: AgentConversationForkRequest
+        request: AgentConversationForkRequest,
+        exportService: AgentConversationExportService = .live
     ) async -> Bool {
+        guard let sourcePanel = panels[panelId] as? TerminalPanel else {
+            return false
+        }
+        let sourceIsRemote = isRemoteTerminalSurface(panelId)
+        let sourceSnapshotFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(
+            snapshot,
+            isRemoteTerminal: sourceIsRemote
+        )
         let startupCommandOverride: String?
         do {
             startupCommandOverride = try await request.startupCommandOverride(
-                sourceSnapshot: snapshot
+                sourceSnapshot: snapshot,
+                exportService: exportService
             )
         } catch {
             agentConversationForkRequestLogger.error(
@@ -25,12 +35,23 @@ extension Workspace {
             return false
         }
 
-        let isRemoteFork = isRemoteTerminalSurface(panelId)
+        let refreshedSelection = forkAgentConversationContextMenuOpenSelection(forPanelId: panelId)
+        guard panels[panelId] as? TerminalPanel === sourcePanel,
+              isRemoteTerminalSurface(panelId) == sourceIsRemote,
+              refreshedSelection.availability.isAvailable,
+              let refreshedSnapshot = refreshedSelection.snapshot,
+              ContentView.commandPaletteForkSnapshotFingerprint(
+                  refreshedSnapshot,
+                  isRemoteTerminal: sourceIsRemote
+              ) == sourceSnapshotFingerprint else {
+            return false
+        }
+
         let startupInputOverride = startupCommandOverride.flatMap {
             snapshot.customStartupInput(
                 command: $0,
-                allowLauncherScript: !isRemoteFork,
-                allowOversizedInlineInput: isRemoteFork
+                allowLauncherScript: !sourceIsRemote,
+                allowOversizedInlineInput: sourceIsRemote
             )
         }
         if startupCommandOverride != nil, startupInputOverride == nil {

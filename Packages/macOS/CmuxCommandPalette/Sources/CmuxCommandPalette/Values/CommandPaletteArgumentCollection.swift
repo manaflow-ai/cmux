@@ -29,9 +29,9 @@ public struct CommandPaletteArgumentCollection: Sendable, Equatable {
     /// Total number of declared collection steps.
     public var stepCount: Int { arguments.count }
 
-    /// Creates an in-progress collection at its first missing argument.
+    /// Creates an in-progress collection at its first missing or invalid argument.
     ///
-    /// Returns `nil` when `initialValues` already supplies every declared argument.
+    /// Returns `nil` when `initialValues` already supplies a declared choice for every argument.
     /// - Parameters:
     ///   - commandID: Stable identity of the command receiving the values.
     ///   - arguments: Ordered finite-choice declarations.
@@ -41,15 +41,22 @@ public struct CommandPaletteArgumentCollection: Sendable, Equatable {
         arguments: [CommandPaletteChoiceArgument],
         initialValues: [String: String] = [:]
     ) {
-        guard let firstMissingIndex = arguments.indices.first(where: { index in
-            initialValues[arguments[index].name] == nil
+        var validatedValues = initialValues
+        for argument in arguments {
+            if let value = validatedValues[argument.name],
+               !argument.choices.contains(where: { $0.value == value }) {
+                validatedValues.removeValue(forKey: argument.name)
+            }
+        }
+        guard let firstUncollectedIndex = arguments.indices.first(where: { index in
+            validatedValues[arguments[index].name] == nil
         }) else {
             return nil
         }
         self.commandID = commandID
         self.arguments = arguments
-        self.values = initialValues
-        currentArgumentIndex = firstMissingIndex
+        self.values = validatedValues
+        currentArgumentIndex = firstUncollectedIndex
     }
 
     /// Accepts a declared value for the current argument.

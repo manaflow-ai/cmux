@@ -144,6 +144,7 @@ struct AgentConversationCrossHarnessForkTests {
         let snapshot = try makeCodexSnapshot(in: fixture)
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
 
         let didFork = await workspace.forkAgentConversation(
             fromPanelId: sourcePanelId,
@@ -168,6 +169,7 @@ struct AgentConversationCrossHarnessForkTests {
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)
         let sourcePaneId = try #require(workspace.paneId(forPanelId: sourcePanelId))
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
 
         let didFork = await workspace.forkAgentConversation(
             fromPanelId: sourcePanelId,
@@ -192,6 +194,7 @@ struct AgentConversationCrossHarnessForkTests {
         let tabManager = TabManager()
         let sourceWorkspace = try #require(tabManager.tabs.first)
         let sourcePanelId = try #require(sourceWorkspace.focusedPanelId)
+        sourceWorkspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
 
         let didFork = await sourceWorkspace.forkAgentConversation(
             fromPanelId: sourcePanelId,
@@ -205,6 +208,37 @@ struct AgentConversationCrossHarnessForkTests {
         let forkPanelId = try #require(forkWorkspace.focusedPanelId)
         let forkPanel = try #require(forkWorkspace.terminalPanel(for: forkPanelId))
         #expect(forkPanel.surface.initialInput?.contains("Preserve destination behavior") == true)
+    }
+
+    @Test
+    func crossHarnessForkCancelsWhenConversationChangesDuringExport() async throws {
+        let snapshot = SessionRestorableAgentSnapshot(kind: .codex, sessionId: "original-session")
+        let replacement = SessionRestorableAgentSnapshot(kind: .codex, sessionId: "replacement-session")
+        let transcriptGate = SuspendingTranscriptGate()
+        let exportService = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                SuspendingSourceAdapter(gate: transcriptGate),
+            ])
+        )
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
+
+        let forkTask = Task { @MainActor in
+            await workspace.forkAgentConversation(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                request: .init(targetHarness: .claude, destination: .right),
+                exportService: exportService
+            )
+        }
+        await transcriptGate.waitUntilReadStarts()
+        workspace.setRestoredAgentSnapshotForTesting(replacement, panelId: sourcePanelId)
+        await transcriptGate.finishRead()
+
+        #expect(await forkTask.value == false)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        #expect(workspace.focusedPanelId == sourcePanelId)
     }
 
     @Test
@@ -299,6 +333,45 @@ private struct FailingSourceAdapter: AgentConversationSourceAdapter {
 
     func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
         throw OpenCodeFixtureError.unexpectedRead
+    }
+}
+
+private struct SuspendingSourceAdapter: AgentConversationSourceAdapter {
+    let gate: SuspendingTranscriptGate
+
+    func supports(_ source: AgentConversationSource) -> Bool { true }
+
+    func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
+        await gate.read()
+    }
+}
+
+private actor SuspendingTranscriptGate {
+    private var readStarted = false
+    private var readStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var readContinuation: CheckedContinuation<[SessionTranscriptTurn], Never>?
+
+    func read() async -> [SessionTranscriptTurn] {
+        readStarted = true
+        readStartWaiters.forEach { $0.resume() }
+        readStartWaiters.removeAll()
+        return await withCheckedContinuation { continuation in
+            readContinuation = continuation
+        }
+    }
+
+    func waitUntilReadStarts() async {
+        guard !readStarted else { return }
+        await withCheckedContinuation { continuation in
+            readStartWaiters.append(continuation)
+        }
+    }
+
+    func finishRead() {
+        readContinuation?.resume(returning: [
+            SessionTranscriptTurn(id: 0, role: .user, text: "Continue the original work"),
+        ])
+        readContinuation = nil
     }
 }
 
