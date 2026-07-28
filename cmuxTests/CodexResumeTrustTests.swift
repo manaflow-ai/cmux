@@ -267,6 +267,31 @@ struct CodexResumeTrustTests {
         isDirectory: false
       )
     )
+    let configResponse = root.appendingPathComponent(
+      "config-response.jsonl",
+      isDirectory: false
+    )
+    let response = try codexRequire(
+      String(
+        data: JSONSerialization.data(withJSONObject: [
+          "id": 2,
+          "result": [
+            "config": [
+              "projects": [:],
+              "padding": String(repeating: "x", count: 512 * 1024),
+            ],
+            "origins": [:],
+            "layers": NSNull(),
+          ],
+        ]),
+        encoding: .utf8
+      )
+    )
+    try (response + "\n").write(
+      to: configResponse,
+      atomically: true,
+      encoding: .utf8
+    )
 
     let fakeCodex = root.appendingPathComponent(
       "codex",
@@ -291,7 +316,7 @@ struct CodexResumeTrustTests {
     IFS= read -r config_read || exit 25
     case "$config_read" in
       *'"method":"config'*'read"'*)
-        printf '%s\n' '{"id":2,"result":{"config":{"projects":{}},"origins":{},"layers":null}}'
+        /bin/cat "\(configResponse.path)"
         ;;
       *) exit 26 ;;
     esac
