@@ -1803,6 +1803,7 @@ final class SocketClient {
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
+    private static let receiveTimeoutReconfigurationToleranceSeconds: TimeInterval = 0.001
     private static let maxSocketTimeoutSeconds: TimeInterval = 9_007_199_254_740_991
     private static let connectRetryDeadline: TimeInterval = 0.35
     private static let connectRetryIntervalMicros: useconds_t = 25_000
@@ -1993,9 +1994,7 @@ final class SocketClient {
         }
 
         let initialResponseTimeout = try boundedTimeout(requestedResponseTimeout)
-        if lastConfiguredReceiveTimeout != initialResponseTimeout {
-            try configureReceiveTimeout(initialResponseTimeout)
-        }
+        try configureResponseReceiveTimeout(initialResponseTimeout)
         _ = try? configureSocketWriteSafety(initialResponseTimeout)
         var operation = CLISocketOperationTelemetry.State(
             name: CLISocketOperationTelemetry.operationName(for: command),
@@ -2024,9 +2023,7 @@ final class SocketClient {
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
             recordOperation(operation)
-            if lastConfiguredReceiveTimeout != currentTimeout {
-                try configureReceiveTimeout(currentTimeout)
-            }
+            try configureResponseReceiveTimeout(currentTimeout)
 
             var buffer = [UInt8](repeating: 0, count: 8192)
             let count = Darwin.read(socketFD, &buffer, buffer.count)
@@ -2659,6 +2656,22 @@ final class SocketClient {
             throw CLIError(message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))")
         }
         lastConfiguredReceiveTimeout = timeout
+    }
+
+    private func configureResponseReceiveTimeout(_ timeout: TimeInterval) throws {
+        if let lastConfiguredReceiveTimeout,
+           abs(lastConfiguredReceiveTimeout - timeout) <= Self.receiveTimeoutReconfigurationToleranceSeconds {
+            return
+        }
+        do {
+            try configureReceiveTimeout(timeout)
+        } catch {
+            close()
+            throw CLIError(message: String(localized:
+                "cli.socket.error.socketRead",
+                defaultValue: "Socket read error"
+            ))
+        }
     }
 
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
