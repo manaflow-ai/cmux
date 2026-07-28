@@ -160,6 +160,50 @@ struct TerminalClipboardInputSequencerTests {
         #expect(!identity.matches(surfaceAddress: 0x7550, generation: 7))
     }
 
+    @Test("pointer input waits for the clipboard request to complete")
+    func pointerInputWaitsForClipboardRequest() throws {
+        let terminalView = GhosttyNSView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 200)
+        )
+        let priorResponder = NSTextField(
+            frame: NSRect(x: 0, y: 0, width: 100, height: 20)
+        )
+        let contentView = NSView(frame: terminalView.frame)
+        contentView.addSubview(terminalView)
+        contentView.addSubview(priorResponder)
+        let window = NSWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = contentView
+        window.makeFirstResponder(priorResponder)
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 10, y: 10),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        terminalView.terminalClipboardInputSequencer.beginRequest(id: 1)
+        terminalView.mouseDown(with: event)
+        #expect(window.firstResponder === priorResponder)
+
+        terminalView.completeClipboardRead(1, confirmed: false)
+        #expect(window.firstResponder === terminalView)
+    }
+
     @Test("bounded input queue flushes instead of dropping overflow")
     func boundedInputQueueFlushesOverflow() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
