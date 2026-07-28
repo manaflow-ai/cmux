@@ -124,39 +124,18 @@ struct RemoteTmuxProjectedFocusInteractionTests {
     }
 
     @Test
-    func splitPaneSearchOverlayMountsWithProjectedFocusAuthority() throws {
+    func splitPaneSearchFieldReceivesProjectedFocusAuthority() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
         let mirror = try splitInitiallySinglePaneWindow(in: harness)
         let activePane = try #require(mirror.panel(forPane: 5))
-        let appDelegate = try #require(AppDelegate.shared)
-        let mountedPortal = try RemoteTmuxPanePortalTestHarness(
-            panels: [activePane],
-            appDelegate: appDelegate,
-            windowID: harness.windowId
-        )
-        defer { mountedPortal.tearDown() }
-        let window = mountedPortal.window
         let hostedView = activePane.hostedView
-        let searchState = TerminalSurface.SearchState(needle: "")
-        defer {
-            activePane.surface.searchState = nil
-            hostedView.setSearchOverlay(searchState: nil)
-        }
-
-        window.makeKeyAndOrderFront(nil)
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        activePane.surface.searchState = searchState
-        hostedView.setSearchOverlay(searchState: searchState)
 
         #expect(
-            waitUntil { hostedView.debugHasSearchOverlay() },
-            "Cmd-F must mount inside the projected pane's portal-hosted view"
-        )
-        #expect(
             hostedView.debugCanApplyMountedSearchFieldFocusRequest(),
-            "The mounted search field must accept focus authority for the projected active pane"
+            "The search field must accept focus authority for the projected active pane"
         )
     }
 

@@ -71,6 +71,16 @@ import Testing
         ))
     }
 
+    @Test func focusedSplitRequestsTheCreatedPaneID() {
+        #expect(
+            RemoteTmuxSplitFocusIntent.focusCreatedPane.command(
+                vertical: false,
+                windowID: 2,
+                paneID: 4
+            ) == "split-window -P -F '#{pane_id}' -h -t @2.%4"
+        )
+    }
+
     /// `new-split --focus false` must ask tmux to create the pane detached.
     /// Without `-d`, tmux selects the new pane and its authoritative active-pane
     /// publication also changes the mirror's internal focus (#7733).
