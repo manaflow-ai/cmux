@@ -229,12 +229,15 @@ _SWIFT_CLOCK_EVENT = re.compile(
         (
             r"(?P<open_brace>\{)",
             r"(?P<close_brace>\})",
+            r"^(?P<case_label>[ \t]*(?:case\b[^\n]*|"
+            r"(?:@unknown\s+)?default)\s*:)",
             rf"(?P<typed_let>{_SWIFT_CLOCK_TYPED_LET})",
             rf"(?P<inferred_let>{_SWIFT_CLOCK_INFERRED_LET})",
             rf"(?P<simple_binding>{_SWIFT_SIMPLE_BINDING})",
             rf"(?P<named_call>{_SWIFT_NAMED_SLEEP_CALL})",
         )
-    )
+    ),
+    re.MULTILINE,
 )
 _PYTHON_SLEEP_MODULES = frozenset(("time", "asyncio", "trio", "anyio", "gevent"))
 _JS_SLEEP_CALL = re.compile(
@@ -824,6 +827,96 @@ def _swift_conditional_bindings(
     return bindings, declaration_offsets
 
 
+def _swift_switch_case_scopes(
+    text: str,
+) -> tuple[set[int], dict[int, dict[str, bool]]]:
+    """Return switch-body braces and direct case-label binding scopes."""
+
+    def pattern_binding_names(pattern: str) -> set[str]:
+        names = {
+            declaration.group("name")
+            for declaration in re.finditer(
+                rf"\b(?:let|var)\s+"
+                rf"(?P<name>{_SWIFT_IDENTIFIER_PATTERN})\b",
+                pattern,
+            )
+        }
+        if re.match(r"\s*(?:let|var)\b", pattern) is None:
+            return names
+
+        ignored = {
+            "as",
+            "case",
+            "false",
+            "is",
+            "let",
+            "nil",
+            "true",
+            "var",
+            "where",
+        }
+        for identifier in re.finditer(_SWIFT_IDENTIFIER_PATTERN, pattern):
+            name = identifier.group()
+            before = pattern[: identifier.start()].rstrip()
+            after = pattern[identifier.end() :].lstrip()
+            previous_word = re.search(
+                rf"({_SWIFT_IDENTIFIER_PATTERN})\s*$",
+                before,
+            )
+            if (
+                name in ignored
+                or before.endswith(".")
+                or after.startswith(("(", ":"))
+                or (
+                    previous_word is not None
+                    and previous_word.group() in ("as", "is")
+                )
+            ):
+                continue
+            names.add(name)
+        return names
+
+    brace_stack: list[int] = []
+    matching_braces: dict[int, int] = {}
+    depth_before: list[int] = [0] * (len(text) + 1)
+    depth = 0
+    for index, character in enumerate(text):
+        depth_before[index] = depth
+        if character == "{":
+            brace_stack.append(index)
+            depth += 1
+        elif character == "}" and brace_stack:
+            depth -= 1
+            matching_braces[brace_stack.pop()] = index
+    depth_before[len(text)] = depth
+
+    switch_openings = {
+        match.end() - 1
+        for match in re.finditer(r"\bswitch\b[^{}]*\{", text)
+    }
+    case_bindings: dict[int, dict[str, bool]] = {}
+    case_pattern = re.compile(
+        r"(?m)^(?P<label>[ \t]*(?:case\b(?P<pattern>[^\n]*)|"
+        r"(?:@unknown\s+)?default)\s*:)"
+    )
+    for opening in switch_openings:
+        closing = matching_braces.get(opening)
+        if closing is None:
+            continue
+        switch_depth = depth_before[opening] + 1
+        for case in case_pattern.finditer(text, opening + 1, closing):
+            if depth_before[case.start()] != switch_depth:
+                continue
+            bindings: dict[str, bool] = {}
+            pattern = case.group("pattern")
+            if pattern is not None:
+                bindings.update(
+                    {name: False for name in pattern_binding_names(pattern)}
+                )
+            case_bindings[case.start()] = bindings
+    return switch_openings, case_bindings
+
+
 def _swift_named_clock_sleep_positions(text: str) -> set[int]:
     """Resolve immutable standard-clock bindings through lexical Swift scopes."""
     callable_parameters = _swift_callable_parameter_scopes(text)
@@ -832,6 +925,7 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
     conditional_bindings, conditional_declaration_offsets = (
         _swift_conditional_bindings(text)
     )
+    switch_scopes, switch_case_bindings = _swift_switch_case_scopes(text)
     scopes: list[tuple[str, dict[str, bool]]] = [("file", {})]
     result: set[int] = set()
 
@@ -842,6 +936,8 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
                 if event.start() in callable_parameters
                 else "type"
                 if event.start() in type_scopes
+                else "switch"
+                if event.start() in switch_scopes
                 else "block"
             )
             bindings = type_members.get(event.start(), {}).copy()
@@ -853,8 +949,19 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
             scopes.append((scope_kind, bindings))
             continue
         if event.group("close_brace") is not None:
+            if len(scopes) > 1 and scopes[-1][0] == "case":
+                scopes.pop()
             if len(scopes) > 1:
                 scopes.pop()
+            continue
+        if event.group("case_label") is not None:
+            bindings = switch_case_bindings.get(event.start())
+            if bindings is None:
+                continue
+            if len(scopes) > 1 and scopes[-1][0] == "case":
+                scopes.pop()
+            if len(scopes) > 1 and scopes[-1][0] == "switch":
+                scopes.append(("case", bindings.copy()))
             continue
         if (
             event.group("typed_let") is not None
@@ -1027,18 +1134,16 @@ def _javascript_callable_parameter_scope(
     """Return aliases and source range for one function-like parameter list."""
     prefix_start = max(0, opening - 4096)
     prefix = text[prefix_start:opening]
-    alias_pattern = "|".join(
-        re.escape(alias)
-        for alias in sorted(aliases, key=len, reverse=True)
-    )
     simple_arrow = re.search(
-        rf"(?<![$\w])(?P<parameter>{alias_pattern})(?![$\w])\s*=>\s*$",
+        rf"(?<![$\w])(?P<parameter>{_JAVASCRIPT_IDENTIFIER_PATTERN})"
+        rf"(?![$\w])\s*=>\s*$",
         prefix,
     )
     if simple_arrow is not None:
         start = prefix_start + simple_arrow.start("parameter")
         end = prefix_start + simple_arrow.end("parameter")
-        return {simple_arrow.group("parameter")}, (start, end)
+        parameter = simple_arrow.group("parameter")
+        return ({parameter} if parameter in aliases else set()), (start, end)
 
     control_keywords = {
         "if",
@@ -1062,7 +1167,8 @@ def _javascript_callable_parameter_scope(
         callable_signature = arrow_signature is not None
         if normal_signature is not None:
             if re.search(
-                rf"\bfunction(?:\s+{_JAVASCRIPT_IDENTIFIER_PATTERN})?\s*$",
+                rf"\bfunction\s*\*?"
+                rf"(?:\s*{_JAVASCRIPT_IDENTIFIER_PATTERN})?\s*$",
                 before,
             ):
                 callable_signature = True
@@ -1154,9 +1260,10 @@ def _javascript_timer_alias_positions(
             (
                 r"(?P<open_brace>\{)",
                 r"(?P<close_brace>\})",
-                r"(?P<destructuring>\b(?:let|const|var)\s*"
+                r"(?P<destructuring>\b(?P<destructuring_kind>let|const|var)\s*"
                 r"[\{\[](?P<binding_pattern>[^\}\]\n;]*)[\}\]])",
-                rf"(?P<declaration>\b(?:let|const|var|function|class)\s+"
+                rf"(?P<declaration>\b(?P<declaration_kind>"
+                rf"let|const|var|function|class)\s+"
                 rf"(?P<declared>{alias_pattern})(?![$\w]))",
                 rf"(?P<assignment>(?<![.$\w])"
                 rf"(?P<assigned>{alias_pattern})(?![$\w])\s*=(?!=|>))",
@@ -1203,6 +1310,19 @@ def _javascript_timer_alias_positions(
         **for_loop_declarations,
     }
     scope_openings: list[Optional[int]] = [None]
+
+    def declaration_scope(kind: str) -> Optional[int]:
+        if kind != "var":
+            return scope_openings[-1]
+        return next(
+            (
+                opening
+                for opening in reversed(scope_openings)
+                if opening in callable_parameter_bindings
+            ),
+            None,
+        )
+
     for event in event_pattern.finditer(text):
         if event.group("open_brace") is not None:
             scope_openings.append(event.start())
@@ -1215,21 +1335,43 @@ def _javascript_timer_alias_positions(
                 event.start() not in for_loop_declaration_offsets
                 and not in_callable_parameters(event.start())
             ):
-                declarations.setdefault(scope_openings[-1], set()).add(
+                target_scope = declaration_scope(
+                    event.group("declaration_kind")
+                )
+                declarations.setdefault(target_scope, set()).add(
                     event.group("declared")
                 )
         elif event.group("destructuring") is not None:
             if not in_callable_parameters(event.start()):
-                declarations.setdefault(scope_openings[-1], set()).update(
+                target_scope = declaration_scope(
+                    event.group("destructuring_kind")
+                )
+                declarations.setdefault(target_scope, set()).update(
                     destructured_aliases(event.group("binding_pattern"))
                 )
 
-    scopes: list[dict[str, bool]] = [
-        {
-            alias: alias not in declarations[None]
-            for alias in aliases
-        }
+    scopes: list[tuple[Optional[int], dict[str, bool]]] = [
+        (
+            None,
+            {
+                alias: alias not in declarations[None]
+                for alias in aliases
+            },
+        )
     ]
+
+    def runtime_declaration_scope(kind: str) -> dict[str, bool]:
+        if kind != "var":
+            return scopes[-1][1]
+        return next(
+            (
+                bindings
+                for opening, bindings in reversed(scopes)
+                if opening in callable_parameter_bindings
+            ),
+            scopes[0][1],
+        )
+
     result: set[int] = set()
     for event in event_pattern.finditer(text):
         if event.group("open_brace") is not None:
@@ -1246,7 +1388,7 @@ def _javascript_timer_alias_positions(
                     )
                 }
             )
-            scopes.append(bindings)
+            scopes.append((event.start(), bindings))
             continue
         if event.group("close_brace") is not None:
             if len(scopes) > 1:
@@ -1257,24 +1399,28 @@ def _javascript_timer_alias_positions(
                 event.start() not in for_loop_declaration_offsets
                 and not in_callable_parameters(event.start())
             ):
-                scopes[-1][event.group("declared")] = False
+                runtime_declaration_scope(
+                    event.group("declaration_kind")
+                )[event.group("declared")] = False
             continue
         if event.group("destructuring") is not None:
             if not in_callable_parameters(event.start()):
                 for alias in destructured_aliases(
                     event.group("binding_pattern")
                 ):
-                    scopes[-1][alias] = False
+                    runtime_declaration_scope(
+                        event.group("destructuring_kind")
+                    )[alias] = False
             continue
         if event.group("assignment") is not None:
             if not in_callable_parameters(event.start()):
-                scopes[-1][event.group("assigned")] = False
+                scopes[-1][1][event.group("assigned")] = False
             continue
         if event.group("call") is None:
             continue
 
         alias = event.group("called")
-        for scope in reversed(scopes):
+        for _, scope in reversed(scopes):
             if alias not in scope:
                 continue
             if scope[alias]:
@@ -3531,26 +3677,115 @@ def _shell_function_declaration_at(line: str, sleep_position: int) -> bool:
     return index == len(line) or line[index] == "{"
 
 
+def _shell_explicit_command_sleep_position(
+    raw_line: str,
+    masked_line: str,
+    start: int,
+) -> Optional[int]:
+    """Return the external sleep selected by the shell ``command`` builtin."""
+    index = _shell_command_name_position(raw_line, start)
+    if not re.match(r"command(?:\s|$)", masked_line[index:]):
+        return None
+    index += len("command")
+    while True:
+        while index < len(masked_line) and masked_line[index].isspace():
+            index += 1
+        option = re.match(r"(?:--|-p)(?=\s|$)", masked_line[index:])
+        if option is None:
+            break
+        index += option.end()
+    if re.match(r"sleep(?:\s|$)", masked_line[index:]):
+        return index
+    return None
+
+
+def _shell_sleep_binding_event(
+    raw_line: str,
+    masked_line: str,
+    start: int,
+) -> Optional[tuple[int, bool]]:
+    """Return an offset and whether a shell command defines ``sleep``."""
+    index = _shell_command_name_position(raw_line, start)
+    if (
+        masked_line.startswith("sleep", index)
+        and _shell_function_declaration_at(masked_line, index)
+    ):
+        return index, True
+
+    function = re.match(r"function(?:\s|$)", masked_line[index:])
+    if function is not None:
+        cursor = index + function.end()
+        while cursor < len(masked_line) and masked_line[cursor].isspace():
+            cursor += 1
+        name = re.match(r"sleep\b", masked_line[cursor:])
+        if name is None:
+            return None
+        cursor += name.end()
+        while cursor < len(masked_line) and masked_line[cursor].isspace():
+            cursor += 1
+        if masked_line.startswith("()", cursor):
+            cursor += 2
+            while cursor < len(masked_line) and masked_line[cursor].isspace():
+                cursor += 1
+        if cursor == len(masked_line) or masked_line[cursor] == "{":
+            return index, True
+        return None
+
+    unset = re.match(
+        r"unset\s+-[A-Za-z]*f[A-Za-z]*(?:\s+--)?(?P<arguments>[^;&|]*)",
+        masked_line[index:],
+    )
+    if unset is not None and re.search(
+        r"(?:^|\s)sleep(?:\s|$)",
+        unset.group("arguments"),
+    ):
+        return index, False
+    return None
+
+
 def _shell_real_sleep_positions(
     raw_lines: list[str],
     masked_lines: list[str],
 ) -> dict[int, set[int]]:
     positions: dict[int, set[int]] = {}
     case_state: tuple[int, ...] = ()
+    sleep_is_function = False
     for line_index, (raw_line, masked_line) in enumerate(
         zip(raw_lines, masked_lines)
     ):
+        candidates: set[int] = set()
+        explicit_external: set[int] = set()
+        binding_events: dict[int, bool] = {}
         for match in _SHELL_BARE_SLEEP.finditer(masked_line):
             sleep_position = match.start() + match.group().rfind("sleep")
-            if not _shell_function_declaration_at(
+            if _shell_function_declaration_at(
                 raw_line,
                 sleep_position,
             ):
-                positions.setdefault(line_index, set()).add(sleep_position)
+                binding_events[sleep_position] = True
+            else:
+                candidates.add(sleep_position)
         for command_start in _shell_command_start_indices(
             masked_line,
             case_state,
         ):
+            binding_event = _shell_sleep_binding_event(
+                raw_line,
+                masked_line,
+                command_start,
+            )
+            if binding_event is not None:
+                offset, is_definition = binding_event
+                binding_events[offset] = is_definition
+
+            explicit_sleep = _shell_explicit_command_sleep_position(
+                raw_line,
+                masked_line,
+                command_start,
+            )
+            if explicit_sleep is not None:
+                explicit_external.add(explicit_sleep)
+
             sleep_position = _shell_prefixed_sleep_position(
                 raw_line,
                 masked_line,
@@ -3563,7 +3798,17 @@ def _shell_real_sleep_positions(
                     sleep_position,
                 )
             ):
-                positions.setdefault(line_index, set()).add(sleep_position)
+                candidates.add(sleep_position)
+
+        for offset in sorted(
+            candidates | explicit_external | binding_events.keys()
+        ):
+            if offset in binding_events:
+                sleep_is_function = binding_events[offset]
+            if offset in explicit_external or (
+                offset in candidates and not sleep_is_function
+            ):
+                positions.setdefault(line_index, set()).add(offset)
         case_state = _shell_case_state_after_prefix(
             masked_line,
             len(masked_line),
