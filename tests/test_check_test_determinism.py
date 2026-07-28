@@ -170,6 +170,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    #expect(finished)\n"
                 "}\n"
             ),
+            "continuous-clock-after-if-let-shadow.swift": (
+                "func verify(clock: ContinuousClock, candidate: TestClock?) async throws {\n"
+                "    if let clock = candidate {\n"
+                "        try await clock.sleep(until: deadline)\n"
+                "        #expect(fakeFinished)\n"
+                "    }\n"
+                "    try await clock.sleep(until: deadline)\n"
+                "    #expect(finished)\n"
+                "}\n"
+            ),
             "posix.swift": "sleep(1)\n#expect(finished)\n",
             "darwin.swift": "Darwin.sleep(1)\n#expect(finished)\n",
             "glibc.swift": "Glibc.sleep(1)\n#expect(finished)\n",
@@ -211,6 +221,21 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    expect(fakeFinished).toBe(true)\n"
                 "}\n"
                 "await sleep(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
+            "timer-alias-after-unrelated-import.ts": (
+                'import { helper } from "./helper"\n'
+                'import { setTimeout as delay } from "node:timers/promises"\n'
+                "await delay(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
+            "timer-alias-after-default-parameter-shadow.ts": (
+                'import { setTimeout as delay } from "timers/promises"\n'
+                "function verify(delay = makeDelay()) {\n"
+                "    await delay(1)\n"
+                "    expect(fakeFinished).toBe(true)\n"
+                "}\n"
+                "await delay(1)\n"
                 "expect(finished).toBe(true)\n"
             ),
             "timer-delay-alias.ts": (
@@ -556,6 +581,8 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 in (
                     "deferred-nonlocal-write.py",
                     "timer-alias-after-for-shadow.ts",
+                    "continuous-clock-after-if-let-shadow.swift",
+                    "timer-alias-after-default-parameter-shadow.ts",
                 )
                 else
                 4
@@ -578,6 +605,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "shorthand-clock-capture.swift",
                     "swift-multiline-interpolation.swift",
                     "swift-raw-multiline-interpolation.swift",
+                    "timer-alias-after-unrelated-import.ts",
                     "shell-assert-multiline-substitution.sh",
                     "class-name-visible-during-body.py",
                     "case-esac-argument.sh",
@@ -742,6 +770,35 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "for (const sleep of fakeSleeps) {\n"
                     "    await sleep(1)\n"
                     "    expect(completed).toBe(true)\n"
+                    "}\n"
+                ),
+                "timer-alias-function-default-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "function verify(delay = makeDelay()) {\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "}\n"
+                ),
+                "timer-alias-arrow-default-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "run(async (delay = makeDelay()) => {\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "})\n"
+                ),
+                "timer-alias-function-type-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "function verify(delay: () => Promise<void>) {\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "}\n"
+                ),
+                "swift-if-let-clock-shadow.swift": (
+                    "func verify(clock: ContinuousClock, candidate: TestClock?) async throws {\n"
+                    "    if let clock = candidate {\n"
+                    "        try await clock.sleep(until: deadline)\n"
+                    "        #expect(completed)\n"
+                    "    }\n"
                     "}\n"
                 ),
                 "spaced-members.ts": (
@@ -970,6 +1027,30 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    time.sleep(0.01)\n"
                     "    assert finished\n"
                 ),
+                "assigned-module-alias.py": (
+                    "import time\n"
+                    "clock = time\n"
+                    "clock.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "assigned-function-alias.py": (
+                    "from time import sleep\n"
+                    "pause = sleep\n"
+                    "pause(0.01)\n"
+                    "assert finished\n"
+                ),
+                "assigned-module-member.py": (
+                    "import time\n"
+                    "pause = time.sleep\n"
+                    "pause(0.01)\n"
+                    "assert finished\n"
+                ),
+                "chained-module-alias.py": (
+                    "import time\n"
+                    "clock = other_clock = time\n"
+                    "other_clock.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
             }
         )
 
@@ -1000,6 +1081,10 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "nested-call-before-rebind.py",
             "shadow-then-trusted-import.py",
             "deferred-shadow-then-trusted-import.py",
+            "assigned-module-alias.py",
+            "assigned-function-alias.py",
+            "assigned-module-member.py",
+            "chained-module-alias.py",
         ):
             line = (
                 4
@@ -1016,6 +1101,10 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "call-before-module-rebind.py",
                     "branch-call-before-module-rebind.py",
                     "shadow-then-trusted-import.py",
+                    "assigned-module-alias.py",
+                    "assigned-function-alias.py",
+                    "assigned-module-member.py",
+                    "chained-module-alias.py",
                 )
                 else 3
                 if relative_path == "deferred-trusted-alias.py"
