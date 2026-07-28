@@ -4,7 +4,7 @@ public import AppKit
 @MainActor
 public final class CmuxResolvedIconImageView: NSView {
     private static let renderedImageCacheLimit = 128
-    private static var renderedImageCache: [ReusableRenderKey: NSImage] = [:]
+    private static var renderedImageCache: [ReusableRenderKey: CachedRenderedImage] = [:]
     private static var renderedImageCacheOrder: [ReusableRenderKey] = []
 
     private let imageView = NSImageView(frame: .zero)
@@ -65,11 +65,12 @@ public final class CmuxResolvedIconImageView: NSView {
         guard force || renderKey != nextKey else { return }
         guard force || blankRenderKey?.shouldSkipBlankRetry(for: nextKey) != true else { return }
         if let reusableKey = nextKey.reusableKey,
-           let cachedImage = Self.renderedImageCache[reusableKey] {
+           let cachedEntry = Self.renderedImageCache[reusableKey],
+           cachedEntry.matches(nextKey) {
             renderKey = nextKey
             lastVisibleRenderKey = nextKey
             blankRenderKey = nil
-            imageView.image = cachedImage
+            imageView.image = cachedEntry.image
             imageView.contentTintColor = nil
             return
         }
@@ -80,7 +81,7 @@ public final class CmuxResolvedIconImageView: NSView {
             blankRenderKey = nil
             imageView.image = image
             if let reusableKey = nextKey.reusableKey {
-                Self.cache(image, for: reusableKey)
+                Self.cache(image, for: reusableKey, renderKey: nextKey)
             }
         case .failure(.sourceUnavailable):
             renderKey = nextKey
@@ -99,14 +100,18 @@ public final class CmuxResolvedIconImageView: NSView {
         imageView.contentTintColor = nil
     }
 
-    private static func cache(_ image: NSImage, for key: ReusableRenderKey) {
+    private static func cache(_ image: NSImage, for key: ReusableRenderKey, renderKey: RenderKey) {
         guard renderedImageCache[key] == nil else { return }
         if renderedImageCache.count >= renderedImageCacheLimit,
            let oldestKey = renderedImageCacheOrder.first {
             renderedImageCacheOrder.removeFirst()
             renderedImageCache.removeValue(forKey: oldestKey)
         }
-        renderedImageCache[key] = image
+        renderedImageCache[key] = CachedRenderedImage(
+            image: image,
+            appearance: renderKey.appearance,
+            assetBundle: renderKey.assetBundle
+        )
         renderedImageCacheOrder.append(key)
     }
 
@@ -130,6 +135,8 @@ public final class CmuxResolvedIconImageView: NSView {
         private let symbolWeight: CGFloat
         private let appearanceName: NSAppearance.Name
         private let appearanceIdentity: ObjectIdentifier
+        fileprivate let appearance: NSAppearance
+        fileprivate let assetBundle: Bundle?
 
         init(request: CmuxResolvedIconRequest, appearance: NSAppearance) {
             self.source = SourceKey(request.source)
@@ -140,6 +147,12 @@ public final class CmuxResolvedIconImageView: NSView {
             self.symbolWeight = request.symbolWeight.rawValue
             self.appearanceName = appearance.name
             self.appearanceIdentity = ObjectIdentifier(appearance)
+            self.appearance = appearance
+            if case .asset(_, let bundle) = request.source {
+                self.assetBundle = bundle
+            } else {
+                self.assetBundle = nil
+            }
         }
 
         static func == (lhs: RenderKey, rhs: RenderKey) -> Bool {
@@ -219,5 +232,18 @@ public final class CmuxResolvedIconImageView: NSView {
         let symbolWeight: CGFloat
         let appearanceName: NSAppearance.Name
         let appearanceIdentity: ObjectIdentifier
+    }
+
+    private struct CachedRenderedImage {
+        let image: NSImage
+        // Keep identity-bearing objects alive for the cache entry's lifetime.
+        // ObjectIdentifier values are only unique while their objects exist.
+        let appearance: NSAppearance
+        let assetBundle: Bundle?
+
+        func matches(_ renderKey: RenderKey) -> Bool {
+            appearance === renderKey.appearance &&
+                assetBundle === renderKey.assetBundle
+        }
     }
 }
