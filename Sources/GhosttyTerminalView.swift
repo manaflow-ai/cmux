@@ -8997,7 +8997,7 @@ final class GhosttySurfaceScrollView: NSView {
               let workspace = manager.tabs.first(where: { $0.id == terminalSurface.tabId }) else {
             return false
         }
-        return workspace.focusedPanelId == terminalSurface.id
+        return workspace.isFocusedTerminalInputSurface(terminalSurface.id)
     }
 
     private func requestMountedSearchFieldFocus(
