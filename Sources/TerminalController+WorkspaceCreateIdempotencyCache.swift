@@ -4,6 +4,11 @@ import OSLog
 extension TerminalController {
     /// Bounded durable tombstones and live workspace IDs for idempotent creates.
     final class WorkspaceCreateIdempotencyCache {
+        private struct AcceptanceRollbackEntry {
+            let operationID: UUID
+            let workspaceID: UUID?
+        }
+
         private static let legacyPersistenceKey = "cmux.workspaceCreate.completedOperationIDs.v1"
 
         private let capacity: Int
@@ -17,6 +22,7 @@ extension TerminalController {
         private var insertionOrder: [UUID] = []
         private var stateRevision: UInt64 = 0
         private var pendingMutation: (id: UUID, task: Task<Bool, any Error>)?
+        private var rollbackEntriesByOperationID: [UUID: AcceptanceRollbackEntry] = [:]
 
         convenience init(capacity: Int) {
             self.init(
@@ -106,8 +112,13 @@ extension TerminalController {
             try retryInitialLoadSynchronouslyIfNeeded()
 
             let nextOrder = orderByAppending(operationID)
+            let rollbackEntry = rollbackEntry(for: nextOrder)
             try persistence.saveOperationIDs(nextOrder)
-            commitAcceptedOrder(nextOrder)
+            commitNewAcceptance(
+                operationID: operationID,
+                nextOrder: nextOrder,
+                rollbackEntry: rollbackEntry
+            )
         }
 
         /// Persists on a serial background actor while the caller awaits. The
@@ -129,9 +140,14 @@ extension TerminalController {
                 while true {
                     let expectedRevision = stateRevision
                     let nextOrder = orderByAppending(operationID)
+                    let rollbackEntry = rollbackEntry(for: nextOrder)
                     try await persistenceWriter.saveOperationIDs(nextOrder)
                     guard stateRevision != expectedRevision else {
-                        commitAcceptedOrder(nextOrder)
+                        commitNewAcceptance(
+                            operationID: operationID,
+                            nextOrder: nextOrder,
+                            rollbackEntry: rollbackEntry
+                        )
                         return true
                     }
                     // Session restore can add an in-memory tombstone while this
@@ -178,7 +194,11 @@ extension TerminalController {
                     }
 
                     let expectedRevision = stateRevision
-                    let nextOrder = insertionOrder.filter { $0 != operationID }
+                    let rollbackEntry = rollbackEntriesByOperationID[operationID]
+                    let nextOrder = orderByReleasing(
+                        operationID,
+                        rollbackEntry: rollbackEntry
+                    )
                     try await persistenceWriter.saveOperationIDs(nextOrder)
                     persistedRemoval = true
                     guard stateRevision == expectedRevision,
@@ -186,7 +206,7 @@ extension TerminalController {
                           workspaceIDs[operationID] == nil else {
                         continue
                     }
-                    commitAcceptedOrder(nextOrder)
+                    commitAcceptedOrder(nextOrder, restoring: rollbackEntry)
                     return true
                 }
             }
@@ -205,7 +225,10 @@ extension TerminalController {
         /// Associates a live workspace after construction. This mapping is an
         /// in-memory convenience; durable acceptance remains authoritative.
         func associate(operationID: UUID, workspaceID: UUID) {
-            guard workspaceIDs[operationID] != workspaceID else { return }
+            let removedRollbackEntry = rollbackEntriesByOperationID.removeValue(
+                forKey: operationID
+            ) != nil
+            guard workspaceIDs[operationID] != workspaceID || removedRollbackEntry else { return }
             workspaceIDs[operationID] = workspaceID
             stateRevision &+= 1
         }
@@ -225,13 +248,22 @@ extension TerminalController {
             }
         }
 
-        private func commitInMemory(_ nextOrder: [UUID]) {
+        private func commitInMemory(
+            _ nextOrder: [UUID],
+            restoring rollbackEntry: AcceptanceRollbackEntry? = nil
+        ) {
             let evictedIDs = completedOperationIDs.subtracting(nextOrder)
             for evictedID in evictedIDs {
                 workspaceIDs.removeValue(forKey: evictedID)
+                rollbackEntriesByOperationID.removeValue(forKey: evictedID)
             }
             insertionOrder = nextOrder
             completedOperationIDs = Set(nextOrder)
+            if let rollbackEntry,
+               let workspaceID = rollbackEntry.workspaceID,
+               workspaceIDs[rollbackEntry.operationID] == nil {
+                workspaceIDs[rollbackEntry.operationID] = workspaceID
+            }
             stateRevision &+= 1
         }
 
@@ -242,11 +274,49 @@ extension TerminalController {
             return nextOrder
         }
 
-        private func commitAcceptedOrder(_ nextOrder: [UUID]) {
+        private func rollbackEntry(for nextOrder: [UUID]) -> AcceptanceRollbackEntry? {
+            guard let evictedOperationID = insertionOrder.first(where: {
+                !nextOrder.contains($0)
+            }) else {
+                return nil
+            }
+            return AcceptanceRollbackEntry(
+                operationID: evictedOperationID,
+                workspaceID: workspaceIDs[evictedOperationID]
+            )
+        }
+
+        private func orderByReleasing(
+            _ operationID: UUID,
+            rollbackEntry: AcceptanceRollbackEntry?
+        ) -> [UUID] {
+            var nextOrder = insertionOrder.filter { $0 != operationID }
+            if let rollbackEntry,
+               !nextOrder.contains(rollbackEntry.operationID) {
+                nextOrder.insert(rollbackEntry.operationID, at: 0)
+            }
+            return nextOrder
+        }
+
+        private func commitNewAcceptance(
+            operationID: UUID,
+            nextOrder: [UUID],
+            rollbackEntry: AcceptanceRollbackEntry?
+        ) {
+            commitAcceptedOrder(nextOrder)
+            if workspaceIDs[operationID] == nil {
+                rollbackEntriesByOperationID[operationID] = rollbackEntry
+            }
+        }
+
+        private func commitAcceptedOrder(
+            _ nextOrder: [UUID],
+            restoring rollbackEntry: AcceptanceRollbackEntry? = nil
+        ) {
             if let legacyDefaults, let legacyPersistenceKey {
                 legacyDefaults.removeObject(forKey: legacyPersistenceKey)
             }
-            commitInMemory(nextOrder)
+            commitInMemory(nextOrder, restoring: rollbackEntry)
         }
 
         private func retryInitialLoadSynchronouslyIfNeeded() throws {
