@@ -228,7 +228,32 @@ import Testing
         #expect(DiagnosticEventCode.hostAuthenticationFailed.rawValue == 49)
         #expect(DiagnosticEventCode.rpcFailed.rawValue == 50)
         #expect(DiagnosticEventCode.transportSessionLifecycle.rawValue == 51)
+        #expect(DiagnosticEventCode.transportCloseAttribution.rawValue == 54)
+        #expect(DiagnosticEventCode.transportPathEvent.rawValue == 55)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
+    }
+
+    @Test func closeAttributionAndPathEventsExposeTypedPayloads() {
+        let close = DiagnosticEvent(
+            code: .transportCloseAttribution,
+            tNanos: 10,
+            ms: 42,
+            a: 2,
+            b: DiagnosticFailureKind.connectionClosed.rawValue,
+            c: 7
+        )
+        let path = DiagnosticEvent(
+            code: .transportPathEvent,
+            tNanos: 11,
+            a: 3,
+            b: DiagnosticPathKind.privateNetwork.rawValue,
+            c: 7
+        )
+
+        #expect(close.diagnosticFailureKind == .connectionClosed)
+        #expect(close.diagnosticSessionID == 7)
+        #expect(path.diagnosticPathKind == .privateNetwork)
+        #expect(path.diagnosticSessionID == 7)
     }
 
     @Test func diagnosticTaxonomyHasStableRawValuesAndRedactedMappings() {
