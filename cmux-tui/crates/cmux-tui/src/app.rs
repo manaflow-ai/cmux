@@ -6496,26 +6496,6 @@ impl App {
         self.agent_record(surface).filter(|record| Self::is_omp_root_record(record))
     }
 
-    pub(crate) fn omp_root_session_counts(&self) -> (usize, usize, usize) {
-        let mut running = 0;
-        let mut idle = 0;
-        let mut waiting = 0;
-        for record in self
-            .agent_records
-            .values()
-            .filter(|record| self.tree.surface(record.surface).is_some())
-            .filter(|record| Self::is_omp_root_record(record))
-        {
-            match record.state {
-                AgentState::Working => running += 1,
-                AgentState::Idle => idle += 1,
-                AgentState::Blocked => waiting += 1,
-                AgentState::Done | AgentState::Error | AgentState::Unknown => {}
-            }
-        }
-        (running, idle, waiting)
-    }
-
     pub(crate) fn omp_root_workspace_summary(
         &self,
         workspace: &crate::session::WorkspaceView,
