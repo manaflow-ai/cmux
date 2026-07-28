@@ -1321,6 +1321,53 @@ def _javascript_matching_opening_parenthesis(
     return None
 
 
+def _javascript_bound_aliases_in_pattern(
+    pattern: str,
+    aliases: set[str],
+) -> set[str]:
+    """Return trusted aliases occurring in JavaScript binding positions."""
+    without_computed_keys = re.sub(
+        r"\[[^\[\]]*\]\s*(?=:)",
+        "",
+        pattern,
+    )
+    return {
+        alias
+        for alias in aliases
+        if re.search(
+            rf"(?:^|[\{{\[,:]|\.\.\.)\s*"
+            rf"{re.escape(alias)}(?![$\w])\s*"
+            rf"(?=$|[,\}}\]=])",
+            without_computed_keys,
+        )
+    }
+
+
+def _javascript_catch_bindings(
+    text: str,
+    aliases: set[str],
+) -> tuple[dict[int, set[str]], list[tuple[int, int]]]:
+    """Map catch body braces to aliases bound by their catch patterns."""
+    bindings: dict[int, set[str]] = {}
+    parameter_ranges: list[tuple[int, int]] = []
+    for handler in re.finditer(r"\bcatch\s*\(", text):
+        opening = handler.end() - 1
+        closing = _swift_matching_parenthesis(text, opening)
+        if closing is None:
+            continue
+        body_opening = closing + 1
+        while body_opening < len(text) and text[body_opening].isspace():
+            body_opening += 1
+        if body_opening >= len(text) or text[body_opening] != "{":
+            continue
+        parameter_ranges.append((opening + 1, closing))
+        bindings[body_opening] = _javascript_bound_aliases_in_pattern(
+            text[opening + 1 : closing],
+            aliases,
+        )
+    return bindings, parameter_ranges
+
+
 def _javascript_callable_parameter_scope(
     text: str,
     opening: int,
@@ -1341,6 +1388,7 @@ def _javascript_callable_parameter_scope(
         return ({parameter} if parameter in aliases else set()), (start, end)
 
     control_keywords = {
+        "catch",
         "if",
         "for",
         "while",
@@ -1633,6 +1681,11 @@ def _javascript_timer_alias_positions(
         _javascript_expression_arrow_scopes(text, aliases)
     )
     callable_parameter_ranges.extend(expression_parameter_ranges)
+    catch_bindings, catch_parameter_ranges = _javascript_catch_bindings(
+        text,
+        aliases,
+    )
+    callable_parameter_ranges.extend(catch_parameter_ranges)
 
     def in_callable_parameters(offset: int) -> bool:
         return any(
@@ -1732,6 +1785,12 @@ def _javascript_timer_alias_positions(
                         event.start(),
                         set(),
                     )
+                }
+            )
+            bindings.update(
+                {
+                    alias: False
+                    for alias in catch_bindings.get(event.start(), set())
                 }
             )
             scopes.append((event.start(), bindings))
@@ -2309,6 +2368,106 @@ def _python_match_is_exhaustive(cases: list[ast.match_case]) -> bool:
     )
 
 
+def _python_statement_has_owned_break(statement: ast.stmt) -> bool:
+    """Return whether a reachable break belongs to the enclosing loop."""
+    if isinstance(statement, ast.Break):
+        return True
+    if isinstance(
+        statement,
+        (
+            ast.For,
+            ast.AsyncFor,
+            ast.While,
+            ast.FunctionDef,
+            ast.AsyncFunctionDef,
+            ast.ClassDef,
+            ast.Lambda,
+        ),
+    ):
+        return False
+    if isinstance(statement, ast.If):
+        literal_condition = _python_literal_boolean(statement.test)
+        blocks = (
+            [statement.body if literal_condition else statement.orelse]
+            if literal_condition is not None
+            else [statement.body, statement.orelse]
+        )
+        return any(_python_block_has_owned_break(block) for block in blocks)
+    if isinstance(statement, (ast.Try, getattr(ast, "TryStar", ast.Try))):
+        if statement.finalbody and not _python_block_may_complete(
+            statement.finalbody
+        ):
+            blocks = [statement.finalbody]
+        else:
+            blocks = [
+                statement.body,
+                *(handler.body for handler in statement.handlers),
+                statement.orelse,
+                statement.finalbody,
+            ]
+        return any(_python_block_has_owned_break(block) for block in blocks)
+    match_type = getattr(ast, "Match", None)
+    if match_type is not None and isinstance(statement, match_type):
+        return any(
+            _python_block_has_owned_break(case.body)
+            for case in statement.cases
+        )
+    return any(
+        _python_statement_has_owned_break(child)
+        for child in ast.iter_child_nodes(statement)
+        if isinstance(child, ast.stmt)
+    )
+
+
+def _python_block_has_owned_break(body: list[ast.stmt]) -> bool:
+    for statement in body:
+        if _python_statement_has_owned_break(statement):
+            return True
+        if not _python_statement_may_complete(statement):
+            return False
+    return False
+
+
+def _python_loop_break_binding_variants(
+    body: list[ast.stmt],
+    bindings: dict[str, str],
+) -> list[dict[str, str]]:
+    """Return exact simple-break states and conservative compound states."""
+    variants: list[dict[str, str]] = []
+    current = bindings.copy()
+    for statement in body:
+        if isinstance(statement, ast.Break):
+            variants.append(current.copy())
+        elif isinstance(statement, ast.If):
+            condition_bindings = current.copy()
+            condition_bindings.update(
+                _python_binding_updates(statement.test)
+            )
+            literal_condition = _python_literal_boolean(statement.test)
+            blocks = (
+                [statement.body if literal_condition else statement.orelse]
+                if literal_condition is not None
+                else [statement.body, statement.orelse]
+            )
+            for block in blocks:
+                variants.extend(
+                    _python_loop_break_binding_variants(
+                        block,
+                        condition_bindings,
+                    )
+                )
+        elif _python_statement_has_owned_break(statement):
+            completed = _python_bindings_after_statement(statement, current)
+            variants.append(
+                _python_merge_binding_variants([current, completed])
+            )
+
+        current = _python_bindings_after_statement(statement, current)
+        if not _python_statement_may_complete(statement):
+            break
+    return variants
+
+
 def _python_bindings_after_statement(
     statement: ast.stmt,
     bindings: dict[str, str],
@@ -2392,18 +2551,41 @@ def _python_bindings_after_statement(
     if isinstance(statement, ast.While):
         condition_bindings = bindings.copy()
         condition_bindings.update(_python_binding_updates(statement.test))
-        return _python_merge_binding_variants(
-            [
+        literal_condition = _python_literal_boolean(statement.test)
+        if literal_condition is False:
+            return _python_bindings_after_block(
+                statement.orelse,
                 condition_bindings,
-                _python_bindings_after_block(
+            )
+
+        variants = _python_loop_break_binding_variants(
+            statement.body,
+            condition_bindings,
+        )
+        if literal_condition is not True:
+            if _python_block_may_complete(statement.orelse):
+                variants.append(
+                    _python_bindings_after_block(
+                        statement.orelse,
+                        condition_bindings,
+                    )
+                )
+            if _python_block_may_complete(statement.body):
+                body_bindings = _python_bindings_after_block(
                     statement.body,
                     condition_bindings,
-                ),
-                _python_bindings_after_block(
-                    statement.orelse,
-                    condition_bindings,
-                ),
-            ]
+                )
+                if _python_block_may_complete(statement.orelse):
+                    variants.append(
+                        _python_bindings_after_block(
+                            statement.orelse,
+                            body_bindings,
+                        )
+                    )
+        return (
+            _python_merge_binding_variants(variants)
+            if variants
+            else condition_bindings
         )
 
     if isinstance(statement, (ast.With, ast.AsyncWith)):
@@ -2543,18 +2725,21 @@ def _python_direct_calls_in_statement(
             [bindings, condition_bindings]
         )
         result = _python_direct_calls_in_node(statement.test, test_bindings)
-        result.extend(
-            _python_direct_calls_in_block(
-                statement.body,
-                condition_bindings,
+        literal_condition = _python_literal_boolean(statement.test)
+        if literal_condition is not False:
+            result.extend(
+                _python_direct_calls_in_block(
+                    statement.body,
+                    condition_bindings,
+                )
             )
-        )
-        result.extend(
-            _python_direct_calls_in_block(
-                statement.orelse,
-                condition_bindings,
+        if literal_condition is not True:
+            result.extend(
+                _python_direct_calls_in_block(
+                    statement.orelse,
+                    condition_bindings,
+                )
             )
-        )
         return result
 
     if isinstance(statement, (ast.With, ast.AsyncWith)):
@@ -2685,6 +2870,8 @@ def _python_direct_call_bindings(
             statement,
             ordered_bindings,
         )
+        if not _python_statement_may_complete(statement):
+            break
     return result
 
 
@@ -2703,6 +2890,15 @@ def _python_statement_may_complete(statement: ast.stmt) -> bool:
         return _python_block_may_complete(
             statement.body
         ) or _python_block_may_complete(statement.orelse)
+    if isinstance(statement, ast.While):
+        literal_condition = _python_literal_boolean(statement.test)
+        if literal_condition is False:
+            return _python_block_may_complete(statement.orelse)
+        if literal_condition is True:
+            return bool(
+                _python_loop_break_binding_variants(statement.body, {})
+            )
+        return True
     if isinstance(statement, (ast.With, ast.AsyncWith)):
         return _python_block_may_complete(statement.body)
     if isinstance(statement, (ast.Try, getattr(ast, "TryStar", ast.Try))):
@@ -2902,6 +3098,12 @@ class _PythonSleepVisitor(ast.NodeVisitor):
     def _merge_scope_states(self, states: list[_PythonScopeState]) -> None:
         self._restore_scope_state(self._merged_scope_state(states))
 
+    def _visit_statements(self, statements: list[ast.stmt]) -> None:
+        for statement in statements:
+            self.visit(statement)
+            if not _python_statement_may_complete(statement):
+                break
+
     def _visit_branch_blocks(
         self,
         blocks: list[list[ast.stmt]],
@@ -2910,16 +3112,16 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         states: list[_PythonScopeState] = []
         for block in blocks:
             self._restore_scope_state(base)
-            for statement in block:
-                self.visit(statement)
-                if not _python_statement_may_complete(statement):
-                    break
+            self._visit_statements(block)
             if _python_block_may_complete(block):
                 states.append(self._scope_state())
         if states:
             self._merge_scope_states(states)
         else:
             self._restore_scope_state(base)
+
+    def visit_Module(self, node: ast.Module) -> None:
+        self._visit_statements(node.body)
 
     def _argument_nodes(self, arguments: ast.arguments) -> list[ast.arg]:
         result = list(arguments.posonlyargs) + list(arguments.args)
@@ -2998,8 +3200,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
                 )
                 for argument in self._argument_nodes(node.args):
                     self._bind(argument.arg)
-                for statement in node.body:
-                    self.visit(statement)
+                self._visit_statements(node.body)
         finally:
             for scope, bindings in scope_snapshots:
                 scope.bindings = bindings
@@ -3067,8 +3268,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             nonlocal_names,
             {node.name: _PYTHON_SHADOWED_BINDING},
         )
-        for statement in node.body:
-            self.visit(statement)
+        self._visit_statements(node.body)
         self.scope = previous_scope
         # The class name becomes visible only after its body has executed.
         self._bind(node.name)
@@ -3176,12 +3376,9 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self.visit(node.test)
         literal_condition = _python_literal_boolean(node.test)
         if literal_condition is not None:
-            for statement in (
+            self._visit_statements(
                 node.body if literal_condition else node.orelse
-            ):
-                self.visit(statement)
-                if not _python_statement_may_complete(statement):
-                    break
+            )
             return
         self._visit_branch_blocks([node.body, node.orelse])
 
@@ -3190,32 +3387,32 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         body: list[ast.stmt],
         orelse: list[ast.stmt],
         target: Optional[ast.expr] = None,
+        *,
+        body_reachable: bool = True,
+        zero_iteration_reachable: bool = True,
+        normal_exit_reachable: bool = True,
     ) -> None:
         base = self._scope_state()
         states: list[_PythonScopeState] = []
 
-        self._restore_scope_state(base)
-        for statement in orelse:
-            self.visit(statement)
-            if not _python_statement_may_complete(statement):
-                break
-        if _python_block_may_complete(orelse):
-            states.append(self._scope_state())
+        if zero_iteration_reachable:
+            self._restore_scope_state(base)
+            self._visit_statements(orelse)
+            if _python_block_may_complete(orelse):
+                states.append(self._scope_state())
 
-        self._restore_scope_state(base)
-        if target is not None:
-            self._visit_target_expressions(target)
-            self._bind_target(target)
-        self.loop_break_states.append([])
-        for statement in body:
-            self.visit(statement)
-            if not _python_statement_may_complete(statement):
-                break
-        states.extend(self.loop_break_states.pop())
-        if _python_block_may_complete(body):
-            for statement in orelse:
-                self.visit(statement)
-            states.append(self._scope_state())
+        if body_reachable:
+            self._restore_scope_state(base)
+            if target is not None:
+                self._visit_target_expressions(target)
+                self._bind_target(target)
+            self.loop_break_states.append([])
+            self._visit_statements(body)
+            states.extend(self.loop_break_states.pop())
+            if normal_exit_reachable and _python_block_may_complete(body):
+                self._visit_statements(orelse)
+                if _python_block_may_complete(orelse):
+                    states.append(self._scope_state())
 
         if states:
             self._merge_scope_states(states)
@@ -3235,7 +3432,14 @@ class _PythonSleepVisitor(ast.NodeVisitor):
 
     def visit_While(self, node: ast.While) -> None:
         self.visit(node.test)
-        self._visit_loop(node.body, node.orelse)
+        literal_condition = _python_literal_boolean(node.test)
+        self._visit_loop(
+            node.body,
+            node.orelse,
+            body_reachable=literal_condition is not False,
+            zero_iteration_reachable=literal_condition is not True,
+            normal_exit_reachable=literal_condition is not True,
+        )
 
     def visit_With(self, node: ast.With) -> None:
         for item in node.items:
