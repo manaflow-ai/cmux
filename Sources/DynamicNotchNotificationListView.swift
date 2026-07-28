@@ -1,3 +1,5 @@
+import AppKit
+import CmuxAppKitSupportUI
 import CmuxSettings
 import SwiftUI
 
@@ -65,11 +67,18 @@ struct DynamicNotchNotificationListView: View {
             .onGeometryChange(for: CGFloat.self, of: \.size.height) {
                 contentHeightChanged($0)
             }
+            .background {
+                SidebarScrollViewResolver { scrollView in
+                    scrollView?.applyDynamicNotchScrollerConfiguration(
+                        showsIndicators: trayAppearance.boolean(
+                            .showScrollIndicators
+                        )
+                    )
+                }
+                .frame(width: 0, height: 0)
+            }
         }
         .scrollPosition(id: $scrollTargetID, anchor: .top)
-        .scrollIndicators(
-            trayAppearance.boolean(.showScrollIndicators) ? .visible : .hidden
-        )
         .contentMargins(.horizontal, 0, for: .scrollContent)
         .contentMargins(.horizontal, 0, for: .scrollIndicators)
         .frame(
@@ -102,5 +111,40 @@ struct DynamicNotchNotificationListView: View {
 
     private var animationDuration: Double {
         Double(trayAppearance.dimension(.animationDuration))
+    }
+}
+
+private extension NSScrollView {
+    @MainActor
+    func applyDynamicNotchScrollerConfiguration(
+        showsIndicators: Bool
+    ) {
+        applyOverlayScrollerConfiguration(
+            showsVerticalScroller: showsIndicators
+        )
+        if automaticallyAdjustsContentInsets {
+            automaticallyAdjustsContentInsets = false
+        }
+
+        let currentContentInsets = contentInsets
+        if currentContentInsets.left != 0 || currentContentInsets.right != 0 {
+            contentInsets = NSEdgeInsets(
+                top: currentContentInsets.top,
+                left: 0,
+                bottom: currentContentInsets.bottom,
+                right: 0
+            )
+        }
+
+        let currentScrollerInsets = scrollerInsets
+        if currentScrollerInsets.left != 0
+            || currentScrollerInsets.right != 0 {
+            scrollerInsets = NSEdgeInsets(
+                top: currentScrollerInsets.top,
+                left: 0,
+                bottom: currentScrollerInsets.bottom,
+                right: 0
+            )
+        }
     }
 }

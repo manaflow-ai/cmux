@@ -31,6 +31,25 @@ import Testing
   }
 
   @MainActor
+  @Test func indicatorVisibilityDoesNotChangeViewportWidth() {
+    let scrollView = makeScrollView(documentHeight: 800)
+
+    scrollView.applyOverlayScrollerConfiguration(
+      showsVerticalScroller: true
+    )
+    scrollView.layoutSubtreeIfNeeded()
+    let visibleWidth = scrollView.contentView.frame.width
+
+    scrollView.applyOverlayScrollerConfiguration(
+      showsVerticalScroller: false
+    )
+    scrollView.layoutSubtreeIfNeeded()
+    let hiddenWidth = scrollView.contentView.frame.width
+
+    #expect(visibleWidth == hiddenWidth)
+  }
+
+  @MainActor
   private func makeScrollView(documentHeight: CGFloat) -> NSScrollView {
     let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 400))
     scrollView.documentView = NSView(
