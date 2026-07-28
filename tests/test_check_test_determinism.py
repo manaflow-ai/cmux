@@ -1612,6 +1612,46 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             negative.stdout + negative.stderr,
         )
 
+    def test_python_terminal_loop_does_not_crash(self) -> None:
+        result = self.run_checker(
+            {
+                "terminal-loop.py": (
+                    "def verify(flag):\n"
+                    "    while flag:\n"
+                    "        return\n"
+                    "    else:\n"
+                    "        raise RuntimeError\n"
+                    "# sleep keeps this fixture on the Python scan path\n"
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_python_exhaustive_match_omits_impossible_fallthrough(self) -> None:
+        result = self.run_checker(
+            {
+                "exhaustive-match.py": (
+                    "def verify(value):\n"
+                    "    import fake_time as time\n"
+                    "    match value:\n"
+                    "        case 0:\n"
+                    "            import time\n"
+                    "        case _:\n"
+                    "            import time\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "fixtures/exhaustive-match.py:9: sleep-then-assert:",
+            result.stdout,
+        )
+
     def test_python_local_shadows_do_not_leak_to_later_scopes(self) -> None:
         fixtures = {
             "function-shadow.py": (
