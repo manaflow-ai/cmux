@@ -77,12 +77,6 @@ const blockedPrefixes = [
   "/agent-page-variant",
   "/handler",
 ];
-const englishOnlyPages = [
-  "/privacy-policy",
-  "/terms-of-service",
-  "/eula",
-] as const;
-
 const comparePageTitles = {
   bestTerminalForAgents: "Best terminals and agent workspaces for AI coding agents",
   cmuxVsAlacritty: "cmux vs Alacritty",
@@ -397,7 +391,6 @@ function normalizeCanonicalPagePath(pathWithoutExtension: string): string | null
   }
 
   path = normalizeEnglishLocalePrefix(path);
-  path = normalizeEnglishOnlyPage(path);
 
   if (path !== "/" && path.endsWith("/")) {
     path = path.slice(0, -1);
@@ -412,17 +405,6 @@ function normalizeEnglishLocalePrefix(path: string): string {
   }
   if (path.startsWith("/en/")) {
     return path.slice("/en".length) || "/";
-  }
-  return path;
-}
-
-function normalizeEnglishOnlyPage(path: string): string {
-  for (const locale of locales) {
-    for (const page of englishOnlyPages) {
-      if (path === `/${locale}${page}`) {
-        return page;
-      }
-    }
   }
   return path;
 }

@@ -1,40 +1,22 @@
 import { locales, type Locale } from "./routing";
 
-export const featureWorkflowContentLocales = [
-  "en",
-  "ja",
-] as const satisfies readonly Locale[];
+// Every shipped message catalog contains every English source message. Keep
+// route discovery, navigation, metadata, and agent-readable variants aligned
+// with the complete locale list.
+export const translatedContentLocales = locales;
+export const featureWorkflowContentLocales = translatedContentLocales;
 
 export const featureWorkflowDocPaths = [
   "/docs/vault",
   "/docs/task-manager",
 ] as const;
 
-export const remoteTmuxDocsLocales = [
-  "en",
-  "ja",
-] as const satisfies readonly Locale[];
+export const remoteTmuxDocsLocales = translatedContentLocales;
+export const fallbackContentLocales = translatedContentLocales;
+export const englishFallbackContentLocales = translatedContentLocales;
+const extendedAgentIntegrationContentLocales = translatedContentLocales;
 
-// Routes in this registry intentionally expose only their authored locales.
-export const fallbackContentLocales = [
-  "en",
-  "ja",
-] as const satisfies readonly Locale[];
-
-export const englishFallbackContentLocales = [
-  "en",
-] as const satisfies readonly Locale[];
-
-const extendedAgentIntegrationContentLocales = [
-  "en",
-  "ja",
-  "uk",
-] as const satisfies readonly Locale[];
-
-// Routes in this registry render fallback messages outside these authored
-// locales. Keep redirects, sitemap entries, page metadata, and internal links
-// on this shared source of truth so crawlers never receive duplicate locale
-// URLs with self-referencing canonicals.
+// Keep route metadata and internal links on one source of truth.
 export const authoredContentLocalesByPath = {
   "/ios": fallbackContentLocales,
   "/pricing": fallbackContentLocales,

@@ -1,4 +1,4 @@
-import type { Locale } from "../../../i18n/routing";
+import { locales, type Locale } from "../../../i18n/routing";
 import {
   docsPathAvailableInChannel,
   type DocsChannel,
@@ -19,7 +19,7 @@ export type NavLink = {
 export type NavSection = { sectionKey: string; children: NavLink[] };
 export type NavEntry = NavLink | NavSection;
 
-export const baseDocsLocales = ["en"] as const satisfies readonly Locale[];
+export const baseDocsLocales = locales;
 
 export function isSection(entry: NavEntry): entry is NavSection {
   return "sectionKey" in entry;
