@@ -119,19 +119,8 @@ struct PasteboardTextContentsTests {
         )
     }
 
-    @Test func convertsUTF8HTMLDataToPlainText() {
-        let pasteboard = DataOnlyHTMLPasteboard(
-            html: "<p>Data-only &amp; responsive</p>"
-        )
-        let service = TerminalPasteboardService()
-
-        #expect(
-            service.stringContents(from: pasteboard)
-                == "Data-only & responsive"
-        )
-    }
-
     @Test func convertsUTF16BOMHTMLDataToPlainText() throws {
+        let scratch = ScratchPasteboard()
         let html = "<p>Data-only 日本語 &amp; responsive</p>"
         let data = try #require(html.data(using: .utf16))
         let byteOrderMark = Data(data.prefix(2))
@@ -139,11 +128,13 @@ struct PasteboardTextContentsTests {
             byteOrderMark == Data([0xFF, 0xFE])
                 || byteOrderMark == Data([0xFE, 0xFF])
         )
-        let pasteboard = DataOnlyHTMLPasteboard(data: data)
+        scratch.pasteboard.declareTypes([.html], owner: nil)
+        #expect(scratch.pasteboard.setData(data, forType: .html))
+        #expect(scratch.pasteboard.string(forType: .html) == nil)
         let service = TerminalPasteboardService()
 
         #expect(
-            service.stringContents(from: pasteboard)
+            service.stringContents(from: scratch.pasteboard)
                 == "Data-only 日本語 & responsive"
         )
     }

@@ -104,6 +104,16 @@ struct HTMLPlainTextParserTests {
         #expect(parser.plainText(from: html) == "Café € “quoted”")
     }
 
+    @Test("decodes UTF-16 data with a byte-order mark")
+    func decodesUTF16BOMData() throws {
+        let parser = HTMLPlainTextParser()
+        let html = try #require(
+            "<p>日本語 &amp; responsive</p>".data(using: .utf16)
+        )
+
+        #expect(parser.plainText(from: html) == "日本語 & responsive")
+    }
+
     @Test("preserves block and line-break boundaries")
     func preservesBlockAndLineBreakBoundaries() {
         let parser = HTMLPlainTextParser()
