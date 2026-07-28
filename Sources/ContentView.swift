@@ -6914,7 +6914,7 @@ struct ContentView: View {
         explicit: Bool?,
         source: CmuxActionInvocationSource
     ) -> Bool? {
-        explicit ?? (source == .automation ? true : nil)
+        explicit ?? (source == .automation ? false : nil)
     }
 
     static func commandPaletteShouldFocus(
@@ -6922,7 +6922,7 @@ struct ContentView: View {
         interactiveDefault: Bool
     ) -> Bool {
         invocation.bool("focus")
-            ?? (invocation.source == .automation ? true : interactiveDefault)
+            ?? (invocation.source == .automation ? false : interactiveDefault)
     }
 
     static func commandPaletteOpenWorkspacePullRequestsShouldFocus(
@@ -11856,8 +11856,10 @@ struct ContentView: View {
         _ invocation: CmuxActionInvocation,
         targetIsSelected: Bool
     ) -> Bool {
-        invocation.bool("focus")
-            ?? (invocation.source == .automation ? true : targetIsSelected)
+        commandPaletteShouldFocus(
+            invocation,
+            interactiveDefault: targetIsSelected
+        )
     }
 
     static func commandPaletteBrowserBackEnabled(

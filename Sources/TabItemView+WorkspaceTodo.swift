@@ -288,10 +288,11 @@ enum WorkspaceTodoPaletteCommands {
                 if invocation.source == .commandPalette { NSSound.beep() }
                 return .targetUnavailable
             }
-            let focus = invocation.bool("focus")
-                ?? (invocation.source == .automation
-                    ? true
-                    : context.tabManager.selectedTabId == workspace.id)
+            let focus = ContentView.commandPaletteShouldFocus(
+                invocation,
+                interactiveDefault:
+                    context.tabManager.selectedTabId == workspace.id
+            )
             guard WorkspaceTodoActions.openTodoPane(
                 for: workspace,
                 sourcePanelID: panelID,

@@ -124,11 +124,12 @@ nonisolated struct TextBoxPreparedFileAttachment: Sendable {
             globalCapacity: 1
         )
 
-    /// Snapshots a command-palette attachment in a killable bundled helper.
+    /// Validates a command-palette attachment in a killable bundled helper.
     ///
-    /// Both local and remote submissions use the immutable app-owned snapshot.
-    /// The helper contains every potentially blocking operation on the
-    /// caller-controlled path; the app only opens its own local staging file.
+    /// Local submissions preserve the caller-owned path that the local process
+    /// will consume. Remote submissions promote the validated staging file to
+    /// an immutable app-owned upload snapshot. The helper contains every
+    /// potentially blocking operation on the caller-controlled path.
     #if compiler(>=6.2)
     @concurrent
     #endif
@@ -222,6 +223,7 @@ nonisolated struct TextBoxPreparedFileAttachment: Sendable {
             : standardizedFileURL.lastPathComponent
         return prepareFromOwnedStagingSnapshot(
             stagingURL,
+            sourceURL: standardizedFileURL,
             displayName: displayName,
             uploadTarget: uploadTarget
         )
@@ -229,10 +231,10 @@ nonisolated struct TextBoxPreparedFileAttachment: Sendable {
 
     private static func prepareFromOwnedStagingSnapshot(
         _ stagingURL: URL,
+        sourceURL: URL,
         displayName: String,
         uploadTarget: TerminalImageTransferTarget
     ) -> TextBoxPreparedFileAttachment? {
-        _ = uploadTarget
         let descriptor = stagingURL.withUnsafeFileSystemRepresentation {
             path -> Int32 in
             guard let path else { return -1 }
@@ -250,39 +252,76 @@ nonisolated struct TextBoxPreparedFileAttachment: Sendable {
               metadata.st_size >= 0,
               metadata.st_size
                 <= TextBoxDraftAttachmentStorageQuotaLimits.maximumFileBytes,
-              let snapshotURL = TextBoxAttachment.makeOwnedRemoteUploadSnapshot(
+              !Task.isCancelled else {
+            return nil
+        }
+
+        switch uploadTarget {
+        case .local:
+            let sourceDisposition =
+                TextBoxAttachment.localFileDispositionForBackgroundPreparation(
+                    sourceURL
+                )
+            let cleanupIdentity = sourceDisposition.cleanupLocalURLWhenDisposed
+                ? TextBoxPreparedLocalFileIdentity.capture(at: sourceURL)
+                : nil
+            guard !sourceDisposition.cleanupLocalURLWhenDisposed
+                    || cleanupIdentity != nil else {
+                return nil
+            }
+            let preparedDisposition =
+                TextBoxAttachment.prepareLocalFileForBackgroundInsertion(
+                    sourceURL,
+                    capturedDisposition: sourceDisposition
+                )
+            return TextBoxPreparedFileAttachment(
+                fileURL: sourceURL,
+                thumbnailPixelData: nil,
+                thumbnailPixelWidth: 0,
+                thumbnailPixelHeight: 0,
+                thumbnailBytesPerRow: 0,
+                localFileDisposition: preparedDisposition,
+                cleanupPathEntryIdentity: cleanupIdentity,
+                displayName: displayName
+            )
+        case .remote:
+            guard let snapshotURL =
+                    TextBoxAttachment.makeOwnedRemoteUploadSnapshot(
                 fromValidatedDescriptor: descriptor,
                 byteCount: metadata.st_size,
                 displayName: displayName
-              ) else {
-            return nil
-        }
-        guard let snapshotIdentity =
-                TextBoxPreparedLocalFileIdentity.capture(at: snapshotURL) else {
-            TextBoxAttachment.disposePreparedLocalFileIfNeeded(
-                at: snapshotURL,
-                disposition: .cmuxDraftCopy
+            ) else {
+                return nil
+            }
+            guard let snapshotIdentity =
+                    TextBoxPreparedLocalFileIdentity.capture(at: snapshotURL) else {
+                TextBoxAttachment.disposePreparedLocalFileIfNeeded(
+                    at: snapshotURL,
+                    disposition: .cmuxDraftCopy
+                )
+                return nil
+            }
+            guard !Task.isCancelled else {
+                disposeOwnedLocalFileIfIdentityMatches(
+                    at: snapshotURL,
+                    disposition: .cmuxDraftCopy,
+                    identity: snapshotIdentity
+                )
+                return nil
+            }
+            return TextBoxPreparedFileAttachment(
+                fileURL: snapshotURL,
+                thumbnailPixelData: nil,
+                thumbnailPixelWidth: 0,
+                thumbnailPixelHeight: 0,
+                thumbnailBytesPerRow: 0,
+                localFileDisposition: .cmuxDraftCopy,
+                cleanupPathEntryIdentity: snapshotIdentity,
+                displayName: displayName
             )
+        case .unknown:
             return nil
         }
-        guard !Task.isCancelled else {
-            disposeOwnedLocalFileIfIdentityMatches(
-                at: snapshotURL,
-                disposition: .cmuxDraftCopy,
-                identity: snapshotIdentity
-            )
-            return nil
-        }
-        return TextBoxPreparedFileAttachment(
-            fileURL: snapshotURL,
-            thumbnailPixelData: nil,
-            thumbnailPixelWidth: 0,
-            thumbnailPixelHeight: 0,
-            thumbnailBytesPerRow: 0,
-            localFileDisposition: .cmuxDraftCopy,
-            cleanupPathEntryIdentity: snapshotIdentity,
-            displayName: displayName
-        )
     }
 
     #if DEBUG
