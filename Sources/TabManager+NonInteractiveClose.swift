@@ -37,16 +37,16 @@ extension TabManager {
         guard appDelegate.closeMainWindow(windowId: windowId, recordHistory: recordHistory) else {
             return false
         }
-        // Window unregister temporarily retains a recoverable route while any
-        // terminal surfaces remain registered. A noninteractive last-workspace
-        // close is final, so tear down those surfaces after the close snapshot is
-        // captured; the terminal registry then retires the route instead of
-        // leaving a scriptable, unclosable window behind (#7992).
+        // Window unregister briefly records a recoverable route because the terminal
+        // surface registry still contains this workspace's surfaces. Its unregister
+        // notification retires routes on a later MainActor turn; this close is final,
+        // so retire the route synchronously after capturing the close snapshot.
         workspace.withClosedPanelHistorySuppressed {
             workspace.teardownAllPanels()
         }
         workspace.teardownRemoteConnection()
         workspace.owningTabManager = nil
+        appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
         return true
     }
 }
