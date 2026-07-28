@@ -7,6 +7,7 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, 
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use base64::Engine;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
@@ -33,6 +34,8 @@ pub struct ScreencastFrame {
     pub data_b64: String,
     pub css_width: u32,
     pub css_height: u32,
+    pub image_width: u32,
+    pub image_height: u32,
     pub ack_id: u64,
 }
 
@@ -795,19 +798,45 @@ fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame>
         .get("deviceWidth")
         .and_then(|v| v.as_u64())
         .or_else(|| metadata.get("width").and_then(|v| v.as_u64()))
-        .unwrap_or(0) as u32;
+        .and_then(|width| u32::try_from(width).ok())
+        .unwrap_or(0);
     let css_height = metadata
         .get("deviceHeight")
         .and_then(|v| v.as_u64())
         .or_else(|| metadata.get("height").and_then(|v| v.as_u64()))
-        .unwrap_or(0) as u32;
+        .and_then(|height| u32::try_from(height).ok())
+        .unwrap_or(0);
+    let (image_width, image_height) = png_dimensions(supplied).unwrap_or((css_width, css_height));
     Some(ScreencastFrame {
         session_id: session_id.to_string(),
         data_b64: supplied.to_string(),
         css_width,
         css_height,
+        image_width,
+        image_height,
         ack_id,
     })
+}
+
+fn png_dimensions(data_b64: &str) -> Option<(u32, u32)> {
+    const PNG_HEADER_BYTES: usize = 24;
+    const PNG_HEADER_BASE64_BYTES: usize = 32;
+    const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+
+    let encoded_header = data_b64.get(..PNG_HEADER_BASE64_BYTES)?;
+    let mut header = [0_u8; PNG_HEADER_BYTES];
+    let decoded =
+        base64::engine::general_purpose::STANDARD.decode_slice(encoded_header, &mut header).ok()?;
+    if decoded != PNG_HEADER_BYTES
+        || &header[..8] != PNG_SIGNATURE
+        || header[8..12] != [0, 0, 0, 13]
+        || &header[12..16] != b"IHDR"
+    {
+        return None;
+    }
+    let width = u32::from_be_bytes(header[16..20].try_into().ok()?);
+    let height = u32::from_be_bytes(header[20..24].try_into().ok()?);
+    (width > 0 && height > 0).then_some((width, height))
 }
 
 fn canonical_base64_decoded_len(input: &str) -> Option<usize> {
@@ -1068,7 +1097,22 @@ mod tests {
             "metadata": {"deviceWidth": 80, "deviceHeight": 24}
         });
 
-        assert_eq!(screencast_frame(&params, "session-1").unwrap().data_b64, "aGk=");
+        let frame = screencast_frame(&params, "session-1").unwrap();
+        assert_eq!(frame.data_b64, "aGk=");
+        assert_eq!((frame.image_width, frame.image_height), (80, 24));
+    }
+
+    #[test]
+    fn screencast_frame_preserves_encoded_png_dimensions_separately_from_css_dimensions() {
+        let params = json!({
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAMAAAAC",
+            "sessionId": 7,
+            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+        });
+
+        let frame = screencast_frame(&params, "session-1").unwrap();
+        assert_eq!((frame.css_width, frame.css_height), (80, 24));
+        assert_eq!((frame.image_width, frame.image_height), (3, 2));
     }
 
     #[test]
