@@ -49,6 +49,9 @@ struct ManagedLauncherNonLaunchTests {
         #expect(classifier.omoLaunchIsNonLaunch(args: ["github", "install"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "--help"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "run", "--help"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["run", "--help"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["run", "message", "--version"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["run", "--log-level", "WARN", "--help"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["--log-level", "WARN", "models"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["--mdns", "models"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["--port", "4096", "models"]))
@@ -70,6 +73,9 @@ struct ManagedLauncherNonLaunchTests {
             ["session", "--", "--help"],
             ["github", "run"],
             ["run", "hello"],
+            ["run", "--", "--help"],
+            ["run", "--log-level", "--help"],
+            ["run", "--unknown-option", "--help"],
             ["unknown-command"],
             ["--session", "session-id"],
             ["--model", "--version"],
@@ -108,6 +114,7 @@ struct ManagedLauncherNonLaunchTests {
         #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "shutdown", "demo"]))
         #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "--help"]))
         #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "-h"]))
+        #expect(classifier.omcLaunchIsNonLaunch(args: ["team", "resume", "--help"]))
     }
 
     @Test("OMC rejects agent and team launch commands")
@@ -151,6 +158,7 @@ struct ManagedLauncherNonLaunchTests {
         #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "shutdown", "demo"]))
         #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "--help"]))
         #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "-h"]))
+        #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "resume", "--help"]))
     }
 
     @Test("OMX rejects sessions, unknown commands, and command-shaped values")
