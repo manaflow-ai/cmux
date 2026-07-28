@@ -115,6 +115,7 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
 }
 
 private final class CountingFileExplorerOutlineView: NSOutlineView {
+    private(set) var reloadDataCallCount = 0
     private(set) var reloadItemCallCount = 0
     private(set) var reloadRowsCallCount = 0
     private(set) var lastReloadedRowCount = 0
@@ -123,6 +124,11 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
     override func reloadItem(_ item: Any?, reloadChildren: Bool) {
         reloadItemCallCount += 1
         super.reloadItem(item, reloadChildren: reloadChildren)
+    }
+
+    override func reloadData() {
+        reloadDataCallCount += 1
+        super.reloadData()
     }
 
     override func reloadData(
@@ -140,6 +146,7 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
     }
 
     func resetMetrics() {
+        reloadDataCallCount = 0
         reloadItemCallCount = 0
         reloadRowsCallCount = 0
         lastReloadedRowCount = 0
@@ -260,11 +267,12 @@ struct FileExplorerStoreTests {
 
         store.expand(node: directory)
         try await waitFor("scoped node refresh") {
-            outlineView.reloadItemCallCount > 0
+            outlineView.reloadRowsCallCount > 0
         }
         coordinator.reloadIfNeeded()
 
-        #expect(outlineView.reloadItemCallCount <= 2)
+        #expect(outlineView.reloadRowsCallCount == 1)
+        #expect(outlineView.reloadItemCallCount == 0)
         #expect(outlineView.itemAtRowCallCount < 20)
     }
 
@@ -296,9 +304,52 @@ struct FileExplorerStoreTests {
         }
 
         try await waitFor("coalesced outline refresh") {
-            outlineView.reloadItemCallCount == 1
+            outlineView.reloadRowsCallCount == 1
         }
-        #expect(outlineView.reloadItemCallCount == 1)
+        #expect(outlineView.reloadRowsCallCount == 1)
+        #expect(outlineView.lastReloadedRowCount == 1)
+        #expect(outlineView.reloadItemCallCount == 0)
+    }
+
+    @Test
+    func distinctNodeBurstFallsBackToOneOutlineReload() async throws {
+        let store = FileExplorerStore()
+        let nodes = (0..<1_000).map {
+            FileExplorerNode(
+                name: "File\($0).swift",
+                path: "/project/File\($0).swift",
+                isDirectory: false
+            )
+        }
+        store.rootPath = "/project"
+        store.rootNodes = nodes
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        outlineView.resetMetrics()
+
+        for node in nodes {
+            coordinator.enqueueOutlineChange(.nodeChanged(node: node, reloadChildren: false))
+        }
+
+        try await waitFor("bounded outline fallback") {
+            outlineView.reloadDataCallCount == 1
+        }
+        #expect(outlineView.reloadDataCallCount == 1)
+        #expect(outlineView.reloadItemCallCount == 0)
     }
 
     @Test
