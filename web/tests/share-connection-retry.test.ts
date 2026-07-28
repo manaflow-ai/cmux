@@ -1247,6 +1247,63 @@ describe("ShareClient delivery credit acknowledgements", () => {
     });
   });
 
+  test("keeps paced terminal input bounded behind a stalled xterm ACK", async () => {
+    let now = 40_000;
+    Date.now = () => now;
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "snapshot" });
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    socket.receiveBinary(terminalFrame());
+    socket.receive({ t: "ack-request", nonce: "stalled-terminal" });
+    await settle();
+    const binaryBefore = socket.sent.filter(
+      (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+    ).length;
+
+    expect(
+      client.sendTerminalData(
+        "workspace:1",
+        "surface:terminal",
+        "x".repeat(25 * MAX_TERMINAL_INPUT_BYTES),
+      ),
+    ).toBe(true);
+
+    expect(
+      socket.sent.filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      ),
+    ).toHaveLength(binaryBefore);
+    expect(scheduledTimers.size).toBe(0);
+
+    terminal.completions[0]?.();
+    await settle();
+
+    expect(ackMessages(socket).at(-1)).toEqual({
+      t: "ack",
+      nonce: "stalled-terminal",
+    });
+    expect(
+      socket.sent.filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      ),
+    ).toHaveLength(binaryBefore + 24);
+    expect(scheduledTimers.size).toBe(1);
+
+    now += 1_000;
+    await runOnlyTimer();
+    expect(
+      socket.sent.filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      ),
+    ).toHaveLength(binaryBefore + 25);
+  });
+
   test("retains all 128 delivery credits while xterm serially consumes frames", async () => {
     const { client, socket } = await connectedClient();
     socket.receive(snapshot());

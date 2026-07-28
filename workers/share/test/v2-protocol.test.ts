@@ -516,7 +516,7 @@ describe("terminal binary authorization and routing", () => {
     }
   });
 
-  it("does not lose the first editor input that wakes a hibernated session", () => {
+  it("requires a restored editor to replay its subscription before binary input", () => {
     let core = bootedCore();
     approveGuest(core, "c-alice", ALICE, "editor");
 
@@ -529,9 +529,11 @@ describe("terminal binary authorization and routing", () => {
       T0 + 1,
     );
 
-    const forwarded = binarySends(
-      routeFrame(core, "c-alice", inputFrame(encoder.encode("first-after-wake")), T0 + 2),
-    );
+    const input = inputFrame(encoder.encode("first-after-wake"));
+    expect(binarySends(routeFrame(core, "c-alice", input, T0 + 2))).toEqual([]);
+
+    core.handleGuest("c-alice", { t: "sub", ws: WS, pane: PANE }, T0 + 3);
+    const forwarded = binarySends(routeFrame(core, "c-alice", input, T0 + 4));
     expect(forwarded).toHaveLength(1);
     expect(forwarded[0]?.to).toBe("c-host");
     expect(decodeTerminalFrame(forwarded[0]?.data ?? new Uint8Array())?.payload).toEqual(

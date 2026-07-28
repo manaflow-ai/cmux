@@ -314,6 +314,37 @@ describe("join and approval flow", () => {
     ]);
   });
 
+  it("admits another socket for an existing user at the unique pending-user cap", () => {
+    const core = bootedCore();
+    const pending = Array.from(
+      { length: MAX_PENDING_REQUESTS_PER_SESSION },
+      (_, index) => ({
+        user: `u-pending-${index}`,
+        email: `pending-${index}@example.com`,
+        hostToken: false,
+      }),
+    );
+    for (const [index, identity] of pending.entries()) {
+      core.connect(`c-pending-${index}`, identity, T0 + index);
+    }
+
+    const duplicate = core.connect(
+      "c-pending-duplicate",
+      pending[0]!,
+      T0 + pending.length,
+    );
+
+    expect(sends(duplicate, "c-pending-duplicate")).toContainEqual({
+      t: "access-pending",
+    });
+    expect(
+      sends(duplicate, "c-pending-duplicate").some(
+        (message) => message.t === "error" && message.code === "too_many_pending",
+      ),
+    ).toBe(false);
+    expect(closes(duplicate)).toEqual([]);
+  });
+
   it("approve activates the pending connection with a snapshot and color", () => {
     const core = bootedCore();
     core.connect("c-alice", ALICE, T0);
@@ -326,6 +357,11 @@ describe("join and approval flow", () => {
       expect(snapshot.shared).toHaveLength(1);
       expect(snapshot.layouts).toHaveLength(1);
     }
+    expect(sends(effects, "c-host")).toContainEqual({
+      t: "access-request-cancelled",
+      user: ALICE.user,
+      pending: [],
+    });
   });
 
   it("approval is remembered for the session: a rejoin skips the ask", () => {
@@ -342,6 +378,11 @@ describe("join and approval flow", () => {
     core.connect("c-alice", ALICE, T0);
     const denyEffects = core.handleHost("c-host", { t: "deny", user: ALICE.user });
     expect(sends(denyEffects, "c-alice")).toContainEqual({ t: "access-denied" });
+    expect(sends(denyEffects, "c-host")).toContainEqual({
+      t: "access-request-cancelled",
+      user: ALICE.user,
+      pending: [],
+    });
     expect(closes(denyEffects)).toContainEqual({ to: "c-alice", code: 4003 });
     // Re-request is refused without bothering the host.
     const retry = core.connect("c-alice2", ALICE, T0 + 1000);

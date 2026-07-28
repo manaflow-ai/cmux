@@ -276,6 +276,65 @@ struct WorkspaceShareHostPresentationTests {
         await socket.stop()
     }
 
+    @Test("A stale pending snapshot cannot resurrect a resolved request")
+    func stalePendingSnapshotCannotResurrectResolvedRequest() async throws {
+        let controller = ShareSessionController { nil }
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/connect"))
+        )
+        await socket.installWebSocketTaskForTesting(task, connection: 1)
+        controller.installActiveSocketForTesting(socket, connection: 1)
+
+        await controller.handleServerTextForTesting(
+            #"{"t":"access-request","user":"guest-1","email":"guest@example.com","pending":[{"user":"guest-1","email":"guest@example.com"}]}"#,
+            connection: 1,
+            sequence: 0
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"ack-request","nonce":"initial-request"}"#,
+            connection: 1,
+            sequence: 1
+        )
+        controller.approve(user: "guest-1", role: .editor)
+        await controller.handleServerTextForTesting(
+            #"{"t":"access-request","user":"guest-1","email":"guest@example.com","pending":[{"user":"guest-1","email":"guest@example.com"}]}"#,
+            connection: 1,
+            sequence: 2
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"ack-request","nonce":"stale-request"}"#,
+            connection: 1,
+            sequence: 3
+        )
+
+        #expect(!controller.feed.contains(\.isPendingAccessRequest))
+        #expect(controller.feed.contains {
+            if case .accessRequest(
+                user: "guest-1",
+                email: "guest@example.com",
+                resolution: .approvedEditor
+            ) = $0.kind {
+                return true
+            }
+            return false
+        })
+        await socket.stop()
+    }
+
     @Test("Guest bubble renders passively and stale expiry cannot clear its replacement")
     func guestBubbleRendersPassivelyAndExpiresByGeneration() throws {
         _ = NSApplication.shared
@@ -681,6 +740,54 @@ struct WorkspaceShareSocketRequestTests {
         await socket.stop()
     }
 
+    @Test("A bulk rejection emits one capacity signal after the mailbox drains")
+    func bulkBackpressureSignalsCapacityAfterDrain() async throws {
+        let counter = LockedCounter()
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            },
+            maximumPendingMessages: 146,
+            onOutboundCapacityAvailable: {
+                counter.increment()
+            }
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/connect"))
+        )
+        await socket.installWebSocketTaskForTesting(task, connection: 1)
+        let frame = try WorkspaceShareTerminalFrame(
+            kind: .baseline,
+            streamEpoch: UUID(),
+            sequenceStart: 0,
+            sequenceEnd: 0,
+            rows: 24,
+            columns: 80,
+            workspaceID: "workspace",
+            paneID: UUID().uuidString,
+            userID: nil,
+            bytes: Data("baseline".utf8)
+        ).encoded()
+
+        #expect(socket.send(data: frame) == .admitted)
+        #expect(socket.send(data: frame) == .admitted)
+        #expect(socket.send(data: frame) == .backpressured)
+        #expect(counter.value == 0)
+        #expect(await socket.completeNextOutboundForTesting())
+        #expect(counter.value == 1)
+
+        await socket.stop()
+    }
+
     @Test("Critical backpressure joins an existing reconnect instead of ending the share")
     func criticalBackpressureDuringReconnectRemainsRecoverable() async {
         let lifecycle = WorkspaceShareSessionLifecycle(
@@ -978,6 +1085,21 @@ struct WorkspaceShareSocketRequestTests {
             let didReconnect = await group.next() ?? false
             group.cancelAll()
             return didReconnect
+        }
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = 0
+
+    var value: Int {
+        lock.withLock { storage }
+    }
+
+    func increment() {
+        lock.withLock {
+            storage += 1
         }
     }
 }
