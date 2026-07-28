@@ -97,6 +97,40 @@ struct WorkspaceAdjacentPaneMoveTests {
         #expect(workspace.focusedPanelId == panelId)
     }
 
+    @Test func cycleFocusReturnsFalseInCanvasModeWithoutHiddenSplitMutation() throws {
+        let workspace = Workspace()
+        let leftPanelId = try #require(workspace.focusedPanelId)
+        _ = try #require(
+            workspace.newTerminalSplit(
+                from: leftPanelId,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        workspace.focusPanel(leftPanelId)
+        workspace.setLayoutMode(.canvas)
+
+        let focusedPanelBefore = try #require(workspace.focusedPanelId)
+        let focusedPaneBefore = try #require(workspace.bonsplitController.focusedPaneId)
+        let selectedTabsBefore = Dictionary(
+            uniqueKeysWithValues: workspace.bonsplitController.allPaneIds.compactMap { paneId in
+                workspace.bonsplitController.selectedTab(inPane: paneId).map { (paneId, $0.id) }
+            }
+        )
+
+        #expect(!workspace.cycleFocus(forward: true))
+        #expect(!workspace.cycleFocus(forward: false))
+        #expect(workspace.focusedPanelId == focusedPanelBefore)
+        #expect(workspace.bonsplitController.focusedPaneId == focusedPaneBefore)
+        #expect(
+            Dictionary(
+                uniqueKeysWithValues: workspace.bonsplitController.allPaneIds.compactMap { paneId in
+                    workspace.bonsplitController.selectedTab(inPane: paneId).map { (paneId, $0.id) }
+                }
+            ) == selectedTabsBefore
+        )
+    }
+
     @Test func directionalMovementUsesPaneAdjacency() throws {
         try expectDirectionalMovement(
             .right,

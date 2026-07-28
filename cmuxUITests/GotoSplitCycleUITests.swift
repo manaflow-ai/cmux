@@ -86,17 +86,23 @@ final class GotoSplitCycleUITests: XCTestCase {
         let shortcut = setup[shortcutKey] ?? ""
         XCTAssertFalse(shortcut.isEmpty, "Expected Ghostty goto_split:\(directionName) shortcut", file: file, line: line)
 
+        let expectedVisited = (0...3).map { offset in
+            let rawIndex = startIndex + (step * offset)
+            let wrappedIndex = (rawIndex % orderedPaneIds.count + orderedPaneIds.count) % orderedPaneIds.count
+            return orderedPaneIds[wrappedIndex]
+        }
+
         // Send the shortcut 3 times: visit all panes once, then wrap to the start.
         var visited = [startPane]
         for i in 0..<3 {
-            typeShortcut(shortcut, in: app, file: file, line: line)
+            guard typeShortcut(shortcut, in: app, file: file, line: line) else { return }
+            let expectedPane = expectedVisited[i + 1]
 
             XCTAssertTrue(
-                waitForDataMatch(timeout: 3.0) { data in
-                    guard let focused = data["focusedPaneId"], !focused.isEmpty else { return false }
-                    return focused != visited.last
+                waitForDataMatch(timeout: 10.0) { data in
+                    data["focusedPaneId"] == expectedPane
                 },
-                "Focus did not change after goto_split:\(directionName) #\(i + 1)",
+                "goto_split:\(directionName) #\(i + 1) did not focus expected pane \(shortPaneId(expectedPane))",
                 file: file,
                 line: line
             )
@@ -108,11 +114,6 @@ final class GotoSplitCycleUITests: XCTestCase {
             visited.append(focused)
         }
 
-        let expectedVisited = (0...3).map { offset in
-            let rawIndex = startIndex + (step * offset)
-            let wrappedIndex = (rawIndex % orderedPaneIds.count + orderedPaneIds.count) % orderedPaneIds.count
-            return orderedPaneIds[wrappedIndex]
-        }
         XCTAssertEqual(visited, expectedVisited, "goto_split:\(directionName) should cycle in ordered panes", file: file, line: line)
         XCTAssertEqual(Set(visited.prefix(3)), allPaneIds, "goto_split:\(directionName) should visit all 3 panes", file: file, line: line)
         XCTAssertEqual(visited[3], visited[0], "goto_split:\(directionName) should wrap back to start", file: file, line: line)
@@ -175,6 +176,7 @@ final class GotoSplitCycleUITests: XCTestCase {
             }
         } catch {
             XCTFail("Failed to write Ghostty config: \(error)")
+            cleanup()
             return (XCUIApplication(), {})
         }
 
@@ -190,12 +192,18 @@ final class GotoSplitCycleUITests: XCTestCase {
 
     // MARK: - Data Polling
 
+    @discardableResult
     private func typeShortcut(
         _ shortcut: String,
         in app: XCUIApplication,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) {
+    ) -> Bool {
+        guard ensureForeground(app, timeout: 20.0) else {
+            XCTFail("App failed to enter foreground before shortcut. state=\(app.state.rawValue)", file: file, line: line)
+            return false
+        }
+
         var flags: XCUIElement.KeyModifierFlags = []
         if shortcut.contains("⌘") { flags.insert(.command) }
         if shortcut.contains("⌃") { flags.insert(.control) }
@@ -217,10 +225,11 @@ final class GotoSplitCycleUITests: XCTestCase {
             key = "p"
         } else {
             XCTFail("Unsupported goto_split shortcut: \(shortcut)", file: file, line: line)
-            return
+            return false
         }
 
         app.typeKey(key, modifierFlags: flags)
+        return true
     }
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
@@ -260,14 +269,27 @@ final class GotoSplitCycleUITests: XCTestCase {
         }
 
         if app.state == .runningForeground { return }
-        if app.state == .runningBackground {
-            app.activate()
-            if waitForCondition(timeout: timeout, predicate: { app.state == .runningForeground }) {
-                return
-            }
-            XCTFail("App failed to enter foreground. state=\(app.state.rawValue)")
+        if ensureForeground(app, timeout: timeout) {
             return
         }
         XCTFail("App failed to start. state=\(app.state.rawValue)")
+    }
+
+    private func ensureForeground(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if app.state == .runningForeground {
+                return true
+            }
+            if app.state == .runningBackground {
+                app.activate()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        } while Date() < deadline
+        return app.state == .runningForeground
+    }
+
+    private func shortPaneId(_ paneId: String) -> String {
+        String(paneId.prefix(5))
     }
 }

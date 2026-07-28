@@ -199,6 +199,8 @@ extension Workspace {
     /// Cycles focus to the next or previous split pane in tree order, wrapping at the ends.
     @discardableResult
     func cycleFocus(forward: Bool) -> Bool {
+        guard layoutMode != .canvas else { return false }
+
         let panesById = Dictionary(
             uniqueKeysWithValues: bonsplitController.allPaneIds.map { ($0.id, $0) }
         )
