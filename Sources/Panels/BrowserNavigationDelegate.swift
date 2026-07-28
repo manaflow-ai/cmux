@@ -467,29 +467,33 @@ import WebKit
         in webView: WKWebView,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) -> Bool {
-        guard navigationAction.targetFrame?.isMainFrame == true else { return false }
         guard let requestNavigation else {
-            webView.applyBrowserUserAgentPolicy(for: navigationAction.request.url)
-            return false
-        }
-        guard let restartRequest = webView.browserUserAgentPolicyRestartRequest(
-            for: navigationAction.request
-        ) else {
+            _ = webView.browserUserAgentPolicyRestartRequest(
+                for: navigationAction.request,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            )
             return false
         }
 
         let replacedNavigation = activeMainFrameNavigation
-        willReplaceNavigationForUserAgentPolicy?(webView, replacedNavigation)
-        decisionHandler(.cancel)
-        requestNavigation(restartRequest, .currentTab, { [weak self, weak webView] replacementNavigation in
-            guard let self, let webView else { return }
-            self.didReplaceNavigationForUserAgentPolicy?(
-                webView,
-                replacedNavigation,
-                replacementNavigation
-            )
-        })
-        return true
+        let reportReplacementWillStart = willReplaceNavigationForUserAgentPolicy
+        return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
+            navigationAction,
+            decisionHandler: decisionHandler,
+            willRestart: {
+                reportReplacementWillStart?(webView, replacedNavigation)
+            },
+            startReplacement: { restartRequest in
+                requestNavigation(restartRequest, .currentTab, { [weak self, weak webView] replacementNavigation in
+                    guard let self, let webView else { return }
+                    self.didReplaceNavigationForUserAgentPolicy?(
+                        webView,
+                        replacedNavigation,
+                        replacementNavigation
+                    )
+                })
+            }
+        )
     }
 
     private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {

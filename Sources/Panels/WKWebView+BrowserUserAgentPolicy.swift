@@ -18,4 +18,33 @@ extension WKWebView {
         restartRequest.setValue(nil, forHTTPHeaderField: "User-Agent")
         return restartRequest
     }
+
+    @MainActor
+    func browserUserAgentPolicyRestartRequest(
+        for request: URLRequest,
+        targetFrameIsMainFrame: Bool?
+    ) -> URLRequest? {
+        guard targetFrameIsMainFrame == true else { return nil }
+        return browserUserAgentPolicyRestartRequest(for: request)
+    }
+
+    @MainActor
+    func restartNavigationForBrowserUserAgentPolicyIfNeeded(
+        _ navigationAction: WKNavigationAction,
+        decisionHandler: (WKNavigationActionPolicy) -> Void,
+        willRestart: () -> Void = {},
+        startReplacement: (URLRequest) -> Void
+    ) -> Bool {
+        guard let restartRequest = browserUserAgentPolicyRestartRequest(
+            for: navigationAction.request,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+        ) else {
+            return false
+        }
+
+        willRestart()
+        decisionHandler(.cancel)
+        startReplacement(restartRequest)
+        return true
+    }
 }

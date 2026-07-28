@@ -731,20 +731,21 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         in webView: WKWebView,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) -> Bool {
-        guard navigationAction.targetFrame?.isMainFrame != false else { return false }
         guard let controller else {
-            webView.applyBrowserUserAgentPolicy(for: navigationAction.request.url)
-            return false
-        }
-        guard let restartRequest = webView.browserUserAgentPolicyRestartRequest(
-            for: navigationAction.request
-        ) else {
+            _ = webView.browserUserAgentPolicyRestartRequest(
+                for: navigationAction.request,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            )
             return false
         }
 
-        decisionHandler(.cancel)
-        controller.requestNavigation(restartRequest, in: webView)
-        return true
+        return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
+            navigationAction,
+            decisionHandler: decisionHandler,
+            startReplacement: { restartRequest in
+                controller.requestNavigation(restartRequest, in: webView)
+            }
+        )
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

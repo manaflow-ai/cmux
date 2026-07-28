@@ -40,4 +40,18 @@ struct BrowserUserAgentPolicyWebKitTests {
         #expect(webView.customUserAgent == nil)
         #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
     }
+
+    @Test func restartRequestIgnoresSubframesAndNewWindowTargets() throws {
+        let request = URLRequest(url: URL(string: "https://workspace.google.com/")!)
+
+        for targetFrameIsMainFrame: Bool? in [false, nil] {
+            let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+            #expect(webView.browserUserAgentPolicyRestartRequest(
+                for: request,
+                targetFrameIsMainFrame: targetFrameIsMainFrame
+            ) == nil)
+            #expect(webView.customUserAgent == nil)
+        }
+    }
 }
