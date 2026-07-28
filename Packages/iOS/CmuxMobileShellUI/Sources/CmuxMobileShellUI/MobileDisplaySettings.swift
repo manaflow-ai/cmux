@@ -128,7 +128,7 @@ public final class MobileDisplaySettings {
         }
     }
 
-    /// The transcript's vertical and metadata-type register. Defaults to comfortable.
+    /// The transcript's vertical and metadata-type register. Defaults to compact.
     /// Mutating this writes the raw value through to the injected ``UserDefaults``.
     public var transcriptDensity: TranscriptDensity {
         didSet { defaults.set(transcriptDensity.rawValue, forKey: Self.transcriptDensityKey) }
@@ -182,7 +182,7 @@ public final class MobileDisplaySettings {
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
         )
         self.transcriptDensity = defaults.string(forKey: Self.transcriptDensityKey)
-            .flatMap(TranscriptDensity.init(rawValue:)) ?? .comfortable
+            .flatMap(TranscriptDensity.init(rawValue:)) ?? .compact
         let storedUnreadLeftShift = defaults.object(forKey: Self.unreadIndicatorLeftShiftKey) as? Double
         self.unreadIndicatorLeftShift = Self.clamped(
             storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,

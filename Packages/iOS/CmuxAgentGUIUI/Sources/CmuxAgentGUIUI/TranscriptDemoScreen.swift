@@ -21,12 +21,13 @@ public struct TranscriptDemoScreen: View {
         let rawDensity = UITestEnvironmentConfig(
             environment: ProcessInfo.processInfo.environment
         ).transcriptDensity
-        _density = State(initialValue: rawDensity.flatMap(TranscriptDensity.init(rawValue:)) ?? .comfortable)
+        _density = State(initialValue: rawDensity.flatMap(TranscriptDensity.init(rawValue:)) ?? .compact)
     }
 
     public var body: some View {
         let theme = AgentGUITheme(terminalTheme: .monokai)
         let appearance = AgentTranscriptAppearance(theme: theme, density: density)
+        let title = AgentGUIL10n.string("agent.demo.title", defaultValue: "Transcript Demo")
         ConversationKeyboardContainer {
             NativeConversationTranscript(
                 rows: model.renderedRows,
@@ -66,8 +67,19 @@ public struct TranscriptDemoScreen: View {
         .environment(\.colorScheme, appearance.colorScheme)
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .background(Color(theme.background).ignoresSafeArea())
-        .navigationTitle(AgentGUIL10n.string("agent.demo.title", defaultValue: "Transcript Demo"))
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(title)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(Color(theme.foreground))
+                    .accessibilityAddTraits(.isHeader)
+            }
+        }
+        .toolbarBackground(Color(theme.background), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(appearance.colorScheme, for: .navigationBar)
         .sheet(item: $activityDetails) { details in
             TranscriptActivityTimelineView(details: details, terminalTheme: .monokai)
                 .presentationDetents([.medium, .large])

@@ -20,10 +20,10 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.workspacePreviewLineCount") == nil)
     }
 
-    @Test func transcriptDensityDefaultsToComfortableWithoutAWrite() throws {
+    @Test func transcriptDensityDefaultsToCompactWithoutAWrite() throws {
         let defaults = try makeDefaults("transcriptDensityDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)
-        #expect(settings.transcriptDensity == .comfortable)
+        #expect(settings.transcriptDensity == .compact)
         #expect(defaults.object(forKey: "cmux.mobile.transcriptDensity") == nil)
     }
 
@@ -35,10 +35,10 @@ import Testing
         #expect(defaults.string(forKey: "cmux.mobile.transcriptDensity") == "compact")
     }
 
-    @Test func invalidStoredTranscriptDensityFallsBackToComfortable() throws {
+    @Test func invalidStoredTranscriptDensityFallsBackToCompact() throws {
         let defaults = try makeDefaults("transcriptDensityInvalid")
         defaults.set("dense", forKey: "cmux.mobile.transcriptDensity")
-        #expect(MobileDisplaySettings(defaults: defaults).transcriptDensity == .comfortable)
+        #expect(MobileDisplaySettings(defaults: defaults).transcriptDensity == .compact)
     }
 
     @Test func showAltScreenNoticeDefaultsToTrueWithoutAWrite() throws {
