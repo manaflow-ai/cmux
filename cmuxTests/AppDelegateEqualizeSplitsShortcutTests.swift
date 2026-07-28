@@ -3178,6 +3178,105 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testCrossWindowTransferredDescendantInheritsPendingSourceRequest() {
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        guard let sourceWorkspace = sourceManager.selectedWorkspace,
+              let sourcePane =
+                sourceWorkspace.bonsplitController.focusedPaneId,
+              let destinationWorkspace =
+                destinationManager.selectedWorkspace,
+              let destinationPane =
+                destinationWorkspace.bonsplitController
+                    .focusedPaneId else {
+            XCTFail("Expected source and destination workspace panes")
+            return
+        }
+
+        let movedPanel = TerminalPanel(
+            workspaceId: sourceWorkspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        movedPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
+        )
+        guard sourceWorkspace.attachDetachedSurface(
+            makeDormantTerminalTransfer(
+                panel: movedPanel,
+                sourceWorkspaceId: sourceWorkspace.id
+            ),
+            inPane: sourcePane,
+            focus: false
+        ) != nil else {
+            XCTFail("Expected a movable source terminal")
+            return
+        }
+
+        let arbiter = WorkspaceTerminalFontSizeCoordinator.Arbiter()
+        let sourceCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: sourceManager,
+                arbiter: arbiter,
+                schedule:
+                    ManualWorkspaceFontSizeDrainScheduler()
+                        .schedule(delay:action:)
+            )
+        defer { sourceCoordinator.cancelAll() }
+        XCTAssertTrue(
+            sourceCoordinator.enqueue(
+                .relative([-1]),
+                workspaceId: sourceWorkspace.id,
+                deferFlush: true
+            )
+        )
+
+        guard let detached =
+                sourceWorkspace.detachSurface(
+                    panelId: movedPanel.id
+                ),
+              destinationWorkspace.attachDetachedSurface(
+                detached,
+                inPane: destinationPane,
+                focus: false
+              ) != nil,
+              let descendant =
+                destinationWorkspace.newTerminalSplit(
+                    from: movedPanel.id,
+                    orientation: .horizontal,
+                    focus: false
+                ) else {
+            XCTFail("Expected a moved terminal and descendant")
+            return
+        }
+        XCTAssertEqual(
+            descendant.surface.fontSizeLineageSnapshot()?
+                .basePoints,
+            19,
+            "A descendant must inherit source work still pending on its moved parent"
+        )
+
+#if DEBUG
+        sourceCoordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        XCTAssertEqual(
+            movedPanel.surface.fontSizeLineageSnapshot()?
+                .basePoints,
+            19
+        )
+        XCTAssertEqual(
+            descendant.surface.fontSizeLineageSnapshot()?
+                .basePoints,
+            19,
+            "The source request must not replay on the projected descendant"
+        )
+    }
+
     func testSourceWindowTeardownPreservesMovedWorkspaceFontSizeWork() {
         let sourceManager = TabManager()
         let destinationManager = TabManager()
