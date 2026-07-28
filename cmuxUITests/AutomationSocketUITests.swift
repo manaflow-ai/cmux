@@ -238,6 +238,18 @@ final class AutomationSocketUITests: XCTestCase {
 
         let activationOptions = XCTExpectedFailure.Options()
         activationOptions.isStrict = false
+        activationOptions.issueMatcher = { issue in
+            let diagnostics = [
+                issue.compactDescription,
+                issue.detailedDescription,
+                issue.associatedError?.localizedDescription,
+            ]
+                .compactMap { $0 }
+                .joined(separator: "\n")
+            return issue.type == .system &&
+                diagnostics.contains("Failed to activate application") &&
+                diagnostics.contains("Running Background")
+        }
         XCTExpectFailure("App activation may fail on headless CI runners", options: activationOptions) {
             app.launch()
         }
@@ -252,7 +264,7 @@ final class AutomationSocketUITests: XCTestCase {
 
         let marker = "CMUX_SCREENSHOT_MARKER_9065"
         let markerCommand = """
-        i=0; while [ $i -lt 8 ]; do printf '\\033[48;2;245;40;210m%-80s\\033[0m\\n' '\(marker)'; i=$((i+1)); done; sleep 60
+        i=0; while [ $i -lt 8 ]; do printf '\\033[48;2;245;40;210m%-80s\\033[0m\\n' '\(marker)'; i=$((i+1)); done; tail -f /dev/null
         """
         let workspace = try XCTUnwrap(
             socketResult(
