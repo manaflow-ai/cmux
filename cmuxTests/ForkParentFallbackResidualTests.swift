@@ -157,7 +157,8 @@ struct ForkParentFallbackResidualTests {
                 .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
         )
         #expect(snapshot.workingDirectory == fixture.cwd.path)
-        #expect(snapshot.resumeStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)
+        #expect(snapshot.resumeStartupInput()?.contains("CMUX_AGENT_RESTORE_LAUNCH=1") == true)
+        #expect(snapshot.resumeCommand?.contains("cd -- '\(fixture.cwd.path)'") == true)
         #expect(snapshot.forkStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)
 
         let cwdless = SessionRestorableAgentSnapshot(

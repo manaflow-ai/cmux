@@ -32,6 +32,7 @@ def run_wrapper(
     socket_state: str,
     argv: list[str],
     hooks_disabled: bool = False,
+    restore_launch: bool = False,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -64,6 +65,7 @@ done
   printf 'CMUX_CODEX_HOOK_CMUX_BIN=%s\\n' "${CMUX_CODEX_HOOK_CMUX_BIN-__UNSET__}"
   printf 'CMUX_AGENT_LAUNCH_KIND=%s\\n' "${CMUX_AGENT_LAUNCH_KIND-__UNSET__}"
   printf 'CMUX_AGENT_RESUME_LAUNCH=%s\\n' "${CMUX_AGENT_RESUME_LAUNCH-__UNSET__}"
+  printf 'CMUX_AGENT_RESTORE_LAUNCH=%s\\n' "${CMUX_AGENT_RESTORE_LAUNCH-__UNSET__}"
 } > "$FAKE_REAL_ENV_LOG"
 """,
         )
@@ -118,6 +120,10 @@ exit 1
             env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
         else:
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
+        if restore_launch:
+            env["CMUX_AGENT_RESTORE_LAUNCH"] = "1"
+        else:
+            env.pop("CMUX_AGENT_RESTORE_LAUNCH", None)
 
         try:
             proc = subprocess.run(
@@ -145,6 +151,7 @@ def assert_resume_is_instrumented(socket_state: str, failures: list[str]) -> Non
     code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
         socket_state=socket_state,
         argv=["resume", SESSION_ID],
+        restore_launch=True,
     )
     label = f"resume/{socket_state}"
     expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
@@ -166,6 +173,8 @@ def assert_resume_is_instrumented(socket_state: str, failures: list[str]) -> Non
            f"{label}: missing launch kind: {observed_env}", failures)
     expect(observed_env.get("CMUX_AGENT_RESUME_LAUNCH") == "1",
            f"{label}: missing resume diagnostic marker: {observed_env}", failures)
+    expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
+           f"{label}: app restore marker leaked to Codex: {observed_env}", failures)
 
 
 def test_resume_hook_injection_survives_transient_startup_outages(failures: list[str]) -> None:
@@ -202,6 +211,35 @@ def test_stale_socket_fresh_launch_preserves_native_behavior(failures: list[str]
            f"fresh/stale: resume marker leaked into ordinary launch: {observed_env}", failures)
 
 
+def test_unmarked_stale_socket_resume_preserves_native_behavior(failures: list[str]) -> None:
+    code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
+        socket_state="stale",
+        argv=["resume", SESSION_ID],
+    )
+    expect(code == 0, f"manual resume/stale: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["resume", SESSION_ID],
+           f"manual resume/stale: expected passthrough, got {real_argv}", failures)
+    expect(any("ping" in line for line in cmux_log),
+           f"manual resume/stale: expected bounded ownership probe, got {cmux_log}", failures)
+    expect(observed_env.get("CMUX_CODEX_HOOK_CMUX_BIN") == "__UNSET__",
+           f"manual resume/stale: cmux hooks should remain disabled: {observed_env}", failures)
+
+
+def test_restore_marker_without_explicit_id_still_requires_live_socket(failures: list[str]) -> None:
+    code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
+        socket_state="stale",
+        argv=["resume", "--last"],
+        restore_launch=True,
+    )
+    expect(code == 0, f"marker without id: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["resume", "--last"],
+           f"marker without id: expected passthrough, got {real_argv}", failures)
+    expect(any("ping" in line for line in cmux_log),
+           f"marker without id: expected bounded ownership probe, got {cmux_log}", failures)
+    expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
+           f"marker without id: app restore marker leaked to Codex: {observed_env}", failures)
+
+
 def test_non_session_command_still_bypasses_hooks(failures: list[str]) -> None:
     code, real_argv, cmux_log, _, stderr = run_wrapper(
         socket_state="stale",
@@ -217,6 +255,8 @@ def main() -> int:
     test_resume_hook_injection_survives_transient_startup_outages(failures)
     test_explicit_disable_still_bypasses_hooks(failures)
     test_stale_socket_fresh_launch_preserves_native_behavior(failures)
+    test_unmarked_stale_socket_resume_preserves_native_behavior(failures)
+    test_restore_marker_without_explicit_id_still_requires_live_socket(failures)
     test_non_session_command_still_bypasses_hooks(failures)
     if failures:
         print("FAIL: Codex resume wrapper reliability checks failed")

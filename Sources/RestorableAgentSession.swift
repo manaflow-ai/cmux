@@ -777,8 +777,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         allowOversizedInlineInput: Bool = false,
         requireLauncherScript: Bool = false
     ) -> String? {
-        startupInput(
-            command: resumeCommand,
+        let restoreCommand = resumeCommand.map {
+            "/usr/bin/env CMUX_AGENT_RESTORE_LAUNCH=1 /bin/sh -c \(shellSingleQuoted($0))"
+        }
+        return startupInput(
+            command: restoreCommand,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript,

@@ -2410,22 +2410,36 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
     }
 
-    /// Resolves a resume startup input to the line holding the resume command:
-    /// inline inputs are returned directly; `/bin/zsh '<script>'` launcher-script
-    /// inputs (used when the inline form exceeds the startup-input byte budget)
-    /// are read and the script line carrying the resume command is returned.
+    /// Resolves inline or launcher-script startup input and unwraps cmux's
+    /// one-shot app-restore environment marker to the underlying resume command.
     private func inlineResumeCommandResolvingLauncherScript(from startupInput: String) throws -> String {
         let trimmed = startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("/bin/zsh '") else { return trimmed }
-        let quotedPath = String(trimmed.dropFirst("/bin/zsh ".count))
-        let scriptPath = try XCTUnwrap(
-            singleQuotedValueForTest(quotedPath),
-            "unparseable launcher-script startup input: \(trimmed)"
-        )
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        let markedCommand: String
+        if trimmed.hasPrefix("/bin/zsh '") {
+            let quotedPath = String(trimmed.dropFirst("/bin/zsh ".count))
+            let scriptPath = try XCTUnwrap(
+                singleQuotedValueForTest(quotedPath),
+                "unparseable launcher-script startup input: \(trimmed)"
+            )
+            let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+            markedCommand = try XCTUnwrap(
+                script.split(separator: "\n").map(String.init).last(where: {
+                    $0.hasPrefix("/usr/bin/env CMUX_AGENT_RESTORE_LAUNCH=1 /bin/sh -c ")
+                }),
+                "no marked resume command line in launcher script: \(script)"
+            )
+        } else {
+            markedCommand = trimmed
+        }
+
+        let markerPrefix = "/usr/bin/env CMUX_AGENT_RESTORE_LAUNCH=1 /bin/sh -c "
+        guard markedCommand.hasPrefix(markerPrefix) else {
+            XCTFail("resume startup input omitted app restore marker: \(markedCommand)")
+            return markedCommand
+        }
         return try XCTUnwrap(
-            script.split(separator: "\n").map(String.init).last(where: { $0.contains(" && ") }),
-            "no resume command line in launcher script: \(script)"
+            singleQuotedValueForTest(String(markedCommand.dropFirst(markerPrefix.count))),
+            "unparseable marked resume command: \(markedCommand)"
         )
     }
 
@@ -2543,7 +2557,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(stdout, expectedPath, file: file, line: line)
     }
 
-    func testRestorableAgentStartupInputUsesInlineCommandWhenShort() {
+    func testRestorableAgentStartupInputUsesInlineCommandWhenShort() throws {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "claude-session-123",
@@ -2563,7 +2577,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(snapshot.resumeStartupInput(), snapshot.resumeCommand.map { $0 + "\n" })
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertEqual(
+            snapshot.resumeStartupInput(),
+            "/usr/bin/env CMUX_AGENT_RESTORE_LAUNCH=1 /bin/sh -c "
+                + shellQuotedForTest(resumeCommand)
+                + "\n"
+        )
+        XCTAssertFalse(resumeCommand.contains("CMUX_AGENT_RESTORE_LAUNCH"))
     }
 
     func testRestorableAgentStartupInputUsesLauncherScriptWhenCommandExceedsTerminalInputBudget() throws {
@@ -2604,9 +2625,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let prefix = "/bin/zsh '"
         let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        XCTAssertTrue(scriptContents.contains(longPath))
-        XCTAssertTrue(scriptContents.contains("'resume'"))
-        XCTAssertTrue(scriptContents.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
+        XCTAssertTrue(scriptContents.contains("CMUX_AGENT_RESTORE_LAUNCH=1"))
+        let command = try inlineResumeCommandResolvingLauncherScript(from: input)
+        XCTAssertTrue(command.contains(longPath))
+        XCTAssertTrue(command.contains("'resume'"))
+        XCTAssertTrue(command.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
 
         let attributes = try FileManager.default.attributesOfItem(atPath: scriptPath)
         let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue & 0o777
