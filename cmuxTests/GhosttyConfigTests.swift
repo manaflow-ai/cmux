@@ -6230,7 +6230,21 @@ struct GhosttyAppearanceSynchronizationTests {
         }
         #expect(colorScheme == .light)
         #expect(!plan.shouldReloadConfiguration)
-        #expect(!plan.shouldSynchronizeRuntimeColorScheme)
+    }
+
+    @Test("Appearance matching the committed scheme still defers during a reload")
+    func committedAppearanceDefersDuringConfigurationReload() {
+        let plan = GhosttyApp.appearanceSynchronizationPlan(
+            previousColorScheme: .dark,
+            currentColorScheme: .dark,
+            isConfigurationReloadInProgress: true
+        )
+
+        guard case let .deferred(colorScheme) = plan else {
+            Issue.record("Expected the latest appearance observation to defer")
+            return
+        }
+        #expect(colorScheme == .dark)
     }
 }
 

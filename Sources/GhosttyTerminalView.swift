@@ -447,6 +447,7 @@ class GhosttyApp {
     private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
     private var runtimeColorSchemeSynchronizationDepth = 0
     private var reloadConfigurationDepth = 0
+    private var pendingAppearanceSynchronization: PendingAppearanceSynchronization?
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private(set) var hasUserGhosttyCommand = false
@@ -1556,11 +1557,6 @@ class GhosttyApp {
                 return true
             }
         }
-
-        var shouldSynchronizeRuntimeColorScheme: Bool {
-            if case .reload = self { return true }
-            return false
-        }
     }
 
     enum RuntimeColorSchemeSynchronizationDecision: Equatable {
@@ -1582,8 +1578,12 @@ class GhosttyApp {
     static func appearanceSynchronizationPlan(
         previousColorScheme: GhosttyConfig.ColorSchemePreference?,
         currentColorScheme: GhosttyConfig.ColorSchemePreference,
-        isConfigurationReloadInProgress _: Bool = false
+        isConfigurationReloadInProgress: Bool = false
     ) -> AppearanceSynchronizationPlan {
+        if isConfigurationReloadInProgress {
+            return .deferred(colorScheme: currentColorScheme)
+        }
+
         guard shouldReloadConfigurationForAppearanceChange(
             previousColorScheme: previousColorScheme,
             currentColorScheme: currentColorScheme
@@ -1781,7 +1781,10 @@ class GhosttyApp {
             return
         }
         reloadConfigurationDepth += 1
-        defer { reloadConfigurationDepth -= 1 }
+        defer {
+            reloadConfigurationDepth -= 1
+            drainPendingAppearanceSynchronization()
+        }
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
         }
@@ -1882,9 +1885,28 @@ class GhosttyApp {
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
         let (currentColorScheme, colorSchemeSource) =
             GhosttyConfig.appearanceSyncColorSchemePreference(passedAppearance: appearance)
+        synchronizeThemeWithResolvedAppearance(
+            currentColorScheme,
+            colorSchemeSource: colorSchemeSource,
+            source: source
+        )
+    }
+
+    private struct PendingAppearanceSynchronization {
+        let colorScheme: GhosttyConfig.ColorSchemePreference
+        let colorSchemeSource: String
+        let source: String
+    }
+
+    private func synchronizeThemeWithResolvedAppearance(
+        _ currentColorScheme: GhosttyConfig.ColorSchemePreference,
+        colorSchemeSource: String,
+        source: String
+    ) {
         let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
-            currentColorScheme: currentColorScheme
+            currentColorScheme: currentColorScheme,
+            isConfigurationReloadInProgress: reloadConfigurationDepth > 0
         )
         if backgroundLogEnabled {
             let previousLabel: String
@@ -1901,17 +1923,41 @@ class GhosttyApp {
                 "appearance sync source=\(source) colorSchemeSource=\(colorSchemeSource) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
             )
         }
-        guard case let .reload(colorScheme, runtimeColorScheme) = plan else { return }
-        synchronizeGhosttyRuntimeColorScheme(
-            runtimeColorScheme,
-            colorScheme: colorScheme,
-            source: source
-        )
-        lastAppearanceColorScheme = colorScheme
-        reloadConfiguration(
-            source: "appearanceSync:\(source)",
-            reloadSettingsFromFile: false,
-            preferredColorScheme: colorScheme
+        switch plan {
+        case .unchanged:
+            return
+        case let .deferred(colorScheme):
+            pendingAppearanceSynchronization = PendingAppearanceSynchronization(
+                colorScheme: colorScheme,
+                colorSchemeSource: colorSchemeSource,
+                source: source
+            )
+            if backgroundLogEnabled {
+                logBackground("appearance sync deferred source=\(source)")
+            }
+            return
+        case let .reload(colorScheme, runtimeColorScheme):
+            synchronizeGhosttyRuntimeColorScheme(
+                runtimeColorScheme,
+                colorScheme: colorScheme,
+                source: source
+            )
+            reloadConfiguration(
+                source: "appearanceSync:\(source)",
+                reloadSettingsFromFile: false,
+                preferredColorScheme: colorScheme
+            )
+        }
+    }
+
+    private func drainPendingAppearanceSynchronization() {
+        guard reloadConfigurationDepth == 0,
+              let pendingAppearanceSynchronization else { return }
+        self.pendingAppearanceSynchronization = nil
+        synchronizeThemeWithResolvedAppearance(
+            pendingAppearanceSynchronization.colorScheme,
+            colorSchemeSource: pendingAppearanceSynchronization.colorSchemeSource,
+            source: pendingAppearanceSynchronization.source
         )
     }
 
