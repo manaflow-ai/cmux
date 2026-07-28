@@ -1,3 +1,5 @@
+import CMUXAgentLaunch
+
 extension CmuxVaultAgentRegistration {
     static var builtInCampfire: CmuxVaultAgentRegistration {
         CmuxVaultAgentRegistration(
@@ -12,7 +14,7 @@ extension CmuxVaultAgentRegistration {
                 ]
             ),
             sessionIdSource: .argvOption("--session"),
-            resumeCommand: "{{executable}} --session {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.campfire.commandTemplate,
             cwd: .preserve,
             sessionDirectory: "~/.campfire/agent/sessions"
         )

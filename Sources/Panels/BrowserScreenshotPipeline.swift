@@ -1,5 +1,4 @@
 import AppKit
-import UniformTypeIdentifiers
 
 enum BrowserScreenshotError: LocalizedError {
     case automationTimedOut
@@ -183,41 +182,6 @@ enum BrowserScreenshotCrop {
     }
 }
 
-enum BrowserScreenshotPasteboardWriter {
-    static func pngData(for image: NSImage) throws -> Data {
-        guard let tiffData = image.tiffRepresentation else {
-            throw BrowserScreenshotError.invalidImageRepresentation
-        }
-        return try pngData(fromTIFF: tiffData)
-    }
-
-    private static func pngData(fromTIFF tiffData: Data) throws -> Data {
-        guard let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            throw BrowserScreenshotError.invalidImageRepresentation
-        }
-        return pngData
-    }
-
-    static func write(_ image: NSImage, to pasteboard: NSPasteboard = .general) throws {
-        let item = try pasteboardItem(for: image)
-        pasteboard.clearContents()
-        guard pasteboard.writeObjects([item]) else {
-            throw BrowserScreenshotError.pasteboardWriteFailed
-        }
-    }
-
-    static func pasteboardItem(for image: NSImage) throws -> NSPasteboardItem {
-        guard let tiffData = image.tiffRepresentation else { throw BrowserScreenshotError.invalidImageRepresentation }
-        let pngData = try pngData(fromTIFF: tiffData)
-
-        let item = NSPasteboardItem()
-        item.setData(pngData, forType: NSPasteboard.PasteboardType(UTType.png.identifier))
-        item.setData(tiffData, forType: NSPasteboard.PasteboardType(UTType.tiff.identifier))
-        return item
-    }
-}
-
 enum BrowserScreenshotPipeline {
     typealias SnapshotProvider = @MainActor () async throws -> NSImage
 
@@ -225,7 +189,8 @@ enum BrowserScreenshotPipeline {
     static func captureAndWrite(
         mode: BrowserScreenshotCaptureMode,
         snapshot: SnapshotProvider,
-        pasteboard: NSPasteboard = .general
+        pasteboard: NSPasteboard = .general,
+        pasteboardWriter: BrowserScreenshotPasteboardWriter = .init()
     ) async throws -> BrowserScreenshotResult {
         let captured = try await snapshot()
         let output: NSImage
@@ -240,7 +205,7 @@ enum BrowserScreenshotPipeline {
             )
         }
 
-        try BrowserScreenshotPasteboardWriter.write(output, to: pasteboard)
+        try await pasteboardWriter.write(output, to: pasteboard)
         return BrowserScreenshotResult(outputSize: output.size)
     }
 }
