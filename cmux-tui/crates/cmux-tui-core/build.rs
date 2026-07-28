@@ -362,4 +362,32 @@ mod tests {
 
         assert_ne!(changed, clean, "Ghostty package changes retained the clean build identity");
     }
+
+    #[test]
+    fn cmux_identity_tracks_vendored_crossterm_sources() {
+        let repository = TestRepository::new("vendored-crossterm");
+        fs::create_dir(repository.root.join("bindings")).unwrap();
+        fs::create_dir(repository.root.join("bindings/rust")).unwrap();
+        fs::create_dir(repository.root.join("crates")).unwrap();
+        fs::create_dir(repository.root.join("vendor")).unwrap();
+        fs::create_dir(repository.root.join("vendor/crossterm")).unwrap();
+        fs::write(repository.root.join("Cargo.toml"), b"[workspace]").unwrap();
+        fs::write(repository.root.join("Cargo.lock"), b"version = 4").unwrap();
+        fs::write(repository.root.join("bindings/rust/input"), b"bindings").unwrap();
+        fs::write(repository.root.join("crates/input"), b"crate").unwrap();
+        fs::write(repository.root.join("vendor/crossterm/input"), b"one").unwrap();
+        run_git(&repository.root, &["add", "."]);
+        run_git(&repository.root, &["commit", "-qm", "add cmux inputs"]);
+        let clean =
+            source_identity(&repository.root, &repository.root, CMUX_TUI_SOURCE_PATHS).unwrap();
+
+        fs::write(repository.root.join("vendor/crossterm/input"), b"two").unwrap();
+        let changed =
+            source_identity(&repository.root, &repository.root, CMUX_TUI_SOURCE_PATHS).unwrap();
+
+        assert_ne!(
+            changed, clean,
+            "vendored Crossterm changes retained the clean cmux-tui build identity"
+        );
+    }
 }
