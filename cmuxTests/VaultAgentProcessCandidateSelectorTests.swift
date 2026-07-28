@@ -616,14 +616,7 @@ struct VaultAgentProcessCandidateSelectorTests {
     }
 
     private var builtInRegistry: CmuxVaultAgentRegistry {
-        CmuxVaultAgentRegistry(registrations: [
-            .builtInPi,
-            .builtInOmp,
-            .builtInCampfire,
-            .builtInAntigravity,
-            .builtInGrok,
-            .builtInKimi,
-        ])
+        .builtIn
     }
 
     private func processSnapshot(_ processes: [CmuxTopProcessInfo]) -> CmuxTopProcessSnapshot {

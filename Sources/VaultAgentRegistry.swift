@@ -392,6 +392,23 @@ enum CmuxVaultAgentCWDPolicy: String, Codable, Hashable, Sendable {
 struct CmuxVaultAgentRegistry: Sendable {
     private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "VaultAgentRegistry")
 
+    private static let builtInRegistrations: [CmuxVaultAgentRegistration] = [
+        .builtInPi,
+        .builtInOmp,
+        .builtInCampfire,
+        .builtInAntigravity,
+        .builtInGrok,
+        .builtInKimi,
+    ]
+
+    private static let builtInRegistrationsByID = Dictionary(
+        uniqueKeysWithValues: builtInRegistrations.map { ($0.id, $0) }
+    )
+
+    static let builtIn = CmuxVaultAgentRegistry(
+        registrations: builtInRegistrations
+    )
+
     var registrations: [CmuxVaultAgentRegistration]
 
     init(registrations: [CmuxVaultAgentRegistration]) {
@@ -406,6 +423,12 @@ struct CmuxVaultAgentRegistry: Sendable {
             }
         }
         self.registrations = ordered
+    }
+
+    var usesBuiltInProcessCandidateFastPath: Bool {
+        registrations.allSatisfy { registration in
+            Self.builtInRegistrationsByID[registration.id] == registration
+        }
     }
 
     func registration(id: String) -> CmuxVaultAgentRegistration? {
@@ -433,13 +456,7 @@ struct CmuxVaultAgentRegistry: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> CmuxVaultAgentRegistry {
-        var registrations = [
-            CmuxVaultAgentRegistration.builtInPi,
-            CmuxVaultAgentRegistration.builtInOmp,
-            CmuxVaultAgentRegistration.builtInCampfire,
-            CmuxVaultAgentRegistration.builtInAntigravity,
-            CmuxVaultAgentRegistration.builtInGrok, CmuxVaultAgentRegistration.builtInKimi,
-        ]
+        var registrations = builtInRegistrations
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
             registrations.append(contentsOf: config.vault?.agents ?? [])

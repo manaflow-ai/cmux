@@ -8,7 +8,8 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         scopedProcessIDsByPanelKey: [PanelKey: Set<Int>],
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
+        launchExecutableMatcher: AgentLaunchExecutableMatcher
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         var resolved: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
 
@@ -25,7 +26,8 @@ extension RestorableAgentSessionIndex {
                 processName: process.name,
                 processPath: process.path,
                 arguments: arguments,
-                environment: environment
+                environment: environment,
+                launchExecutableMatcher: launchExecutableMatcher
             ) else {
                 continue
             }
@@ -60,7 +62,8 @@ extension RestorableAgentSessionIndex {
         processName: String,
         processPath: String?,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        launchExecutableMatcher: AgentLaunchExecutableMatcher
     ) -> (
         kind: RestorableAgentKind,
         parentSessionId: String,
@@ -79,7 +82,8 @@ extension RestorableAgentSessionIndex {
             processName: processName,
             processPath: processPath,
             arguments: arguments,
-            environment: environment
+            environment: environment,
+            launchExecutableMatcher: launchExecutableMatcher
         ),
            let parentSessionId = arguments.claudeForkFallbackParentSessionId,
            let launchCommand = claudeTeamsPersistentForkLaunchCommand(
@@ -98,7 +102,8 @@ extension RestorableAgentSessionIndex {
             processName: processName,
             processPath: processPath,
             arguments: arguments,
-            environment: environment
+            environment: environment,
+            launchExecutableMatcher: launchExecutableMatcher
         ),
            let parentSessionId = arguments.codexForkFallbackParentSessionId,
            let launchCommand = codexForkFallbackLaunchCommand(
@@ -116,7 +121,8 @@ extension RestorableAgentSessionIndex {
         processName: String,
         processPath: String?,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        launchExecutableMatcher: AgentLaunchExecutableMatcher
     ) -> Bool {
         let executableCandidates = [
             arguments.first,
@@ -141,10 +147,11 @@ extension RestorableAgentSessionIndex {
         }
 
         let launchCandidates = executableCandidates + [arguments.dropFirst().first].compactMap(normalized)
-        return CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
-            kind: .claude,
+        return launchExecutableMatcher.matches(
+            kind: "claude",
             executableCandidates: launchCandidates,
-            environment: environment
+            recordedKind: environment["CMUX_AGENT_LAUNCH_KIND"],
+            recordedExecutable: environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]
         )
     }
 
@@ -252,7 +259,8 @@ extension RestorableAgentSessionIndex {
         processName: String,
         processPath: String?,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        launchExecutableMatcher: AgentLaunchExecutableMatcher
     ) -> Bool {
         let executableCandidates = [arguments.first, processPath, processName].compactMap(normalized)
         if executableCandidates.contains(where: { executableBasename($0).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame }) {
@@ -268,10 +276,11 @@ extension RestorableAgentSessionIndex {
             return true
         }
         let launchCandidates = executableCandidates + [arguments.dropFirst().first].compactMap(normalized)
-        return CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
-            kind: .codex,
+        return launchExecutableMatcher.matches(
+            kind: "codex",
             executableCandidates: launchCandidates,
-            environment: environment
+            recordedKind: environment["CMUX_AGENT_LAUNCH_KIND"],
+            recordedExecutable: environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]
         )
     }
 

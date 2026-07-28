@@ -5,6 +5,8 @@ public struct AgentProcessCandidateSelector: Sendable {
     /// Process identifiers that should be fully decoded without raw metadata admission.
     public let processIDs: Set<Int>
 
+    private let executableIdentityMatcher: AgentProcessExecutableIdentityMatcher
+    private let launchExecutableMatcher: AgentLaunchExecutableMatcher
     private let normalizedArgumentNeedles: [[UInt8]]
 
     /// Creates a selector from app-owned process and registry projections.
@@ -12,10 +14,17 @@ public struct AgentProcessCandidateSelector: Sendable {
     /// - Parameters:
     ///   - processes: Scoped processes that may represent agents.
     ///   - policy: The active detection and executable policy.
+    ///   - launchExecutableMatcher: The launch-metadata trust policy.
     public init(
         processes: [AgentProcessCandidate],
-        policy: AgentProcessCandidatePolicy
+        policy: AgentProcessCandidatePolicy,
+        launchExecutableMatcher: AgentLaunchExecutableMatcher
     ) {
+        let executableIdentityMatcher = AgentProcessExecutableIdentityMatcher(
+            policy: policy
+        )
+        self.executableIdentityMatcher = executableIdentityMatcher
+        self.launchExecutableMatcher = launchExecutableMatcher
         normalizedArgumentNeedles = unconstrainedArgumentNeedles(
             in: policy.detectionRules
         ).map {
@@ -26,21 +35,10 @@ public struct AgentProcessCandidateSelector: Sendable {
             return
         }
 
-        let registeredBasenames = registeredBasenames(
-            in: policy.detectionRules
-        )
-        let builtInAgentBasenames = Set(
-            policy.builtInAgentBasenames.compactMap(normalizedBasename)
-        )
-        let wrapperBasenames = Set(
-            policy.wrapperBasenames.compactMap(normalizedBasename)
-        )
         processIDs = Set(processes.compactMap { process in
             isCandidate(
                 process,
-                registeredBasenames: registeredBasenames,
-                builtInAgentBasenames: builtInAgentBasenames,
-                wrapperBasenames: wrapperBasenames
+                executableIdentityMatcher: executableIdentityMatcher
             ) ? process.processID : nil
         })
     }
@@ -73,18 +71,22 @@ public struct AgentProcessCandidateSelector: Sendable {
             return true
         }
 
+        if executableIdentityMatcher.matches(metadata.executableArgument) {
+            return true
+        }
+
         let executableCandidates = [
             process.name,
             process.path,
             metadata.executableArgument,
             metadata.firstArgumentAfterExecutable,
         ].compactMap { $0 }
-        return agentLaunchExecutableMatches(
+        return launchExecutableMatcher.matches(
             kind: "claude",
             executableCandidates: executableCandidates,
             recordedKind: metadata.agentLaunchKind,
             recordedExecutable: metadata.agentLaunchExecutable
-        ) || agentLaunchExecutableMatches(
+        ) || launchExecutableMatcher.matches(
             kind: "codex",
             executableCandidates: executableCandidates,
             recordedKind: metadata.agentLaunchKind,
@@ -109,40 +111,13 @@ private func unconstrainedArgumentNeedles(
     }
 }
 
-private func registeredBasenames(
-    in rules: [AgentProcessDetectionRule]
-) -> Set<String> {
-    Set(rules.flatMap { rule in
-        ([rule.processName].compactMap { $0 }
-            + rule.processNames
-            + rule.alternateProcessNames)
-            .compactMap(normalizedBasename)
-    })
-}
-
 private func isCandidate(
     _ process: AgentProcessCandidate,
-    registeredBasenames: Set<String>,
-    builtInAgentBasenames: Set<String>,
-    wrapperBasenames: Set<String>
+    executableIdentityMatcher: AgentProcessExecutableIdentityMatcher
 ) -> Bool {
     if process.isTerminalForegroundProcessGroup || process.shouldInspectArguments {
         return true
     }
 
-    let basenames = [process.name, process.path]
-        .compactMap { $0 }
-        .compactMap(normalizedBasename)
-    return basenames.contains { basename in
-        registeredBasenames.contains(basename)
-            || builtInAgentBasenames.contains(basename)
-            || wrapperBasenames.contains(basename)
-    }
-}
-
-private func normalizedBasename(_ value: String) -> String? {
-    let basename = (value as NSString).lastPathComponent
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
-    return basename.isEmpty ? nil : basename
+    return executableIdentityMatcher.matches(process.name, process.path)
 }

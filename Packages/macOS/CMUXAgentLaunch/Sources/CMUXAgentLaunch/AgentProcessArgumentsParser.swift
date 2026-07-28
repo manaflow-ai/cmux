@@ -166,18 +166,16 @@ public struct AgentProcessArgumentsParser: Sendable {
         )
         guard traversal != nil else { return nil }
 
-        let executableArgument: String?
+        let executableArgument = executableArgumentRange.flatMap {
+            String(bytes: bytes[$0], encoding: .utf8)
+        }
         let firstArgumentAfterExecutable: String?
         if agentLaunchKind != nil,
            agentLaunchExecutable != nil {
-            executableArgument = executableArgumentRange.flatMap {
-                String(bytes: bytes[$0], encoding: .utf8)
-            }
             firstArgumentAfterExecutable = firstArgumentAfterExecutableRange.flatMap {
                 String(bytes: bytes[$0], encoding: .utf8)
             }
         } else {
-            executableArgument = nil
             firstArgumentAfterExecutable = nil
         }
 

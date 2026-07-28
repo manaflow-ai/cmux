@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CMUXAgentLaunch
 
 struct SharedLiveAgentIndexLoader {
     typealias LoadResult = (
@@ -42,7 +43,9 @@ struct SharedLiveAgentIndexLoader {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
         },
-        cachedAgentProcessValidator: CachedAgentProcessIdentityValidator = CachedAgentProcessIdentityValidator()
+        cachedAgentProcessValidator: CachedAgentProcessIdentityValidator = CachedAgentProcessIdentityValidator(
+            launchExecutableMatcher: AgentLaunchExecutableMatcher()
+        )
     ) {
         self.homeDirectory = homeDirectory
         self.fileManager = fileManager

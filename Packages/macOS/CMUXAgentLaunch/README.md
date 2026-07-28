@@ -14,7 +14,8 @@ Build a process scan from app-owned projections:
 ```swift
 let selector = AgentProcessCandidateSelector(
     processes: candidates,
-    policy: policy
+    policy: policy,
+    launchExecutableMatcher: AgentLaunchExecutableMatcher()
 )
 var scan = AgentProcessArgumentScan(
     processes: candidates,

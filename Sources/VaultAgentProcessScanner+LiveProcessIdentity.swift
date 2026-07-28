@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 extension RestorableAgentSessionIndex {
     /// Whether a live scoped process's executable is credibly the agent the hook
@@ -10,15 +11,17 @@ extension RestorableAgentSessionIndex {
         liveExecutable: String,
         recordedExecutable: String,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        launchExecutableMatcher: AgentLaunchExecutableMatcher
     ) -> Bool {
         if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
             return true
         }
-        if CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
-            kind: kind,
+        if launchExecutableMatcher.matches(
+            kind: kind.rawValue,
             executableCandidates: [liveExecutable],
-            environment: environment
+            recordedKind: environment["CMUX_AGENT_LAUNCH_KIND"],
+            recordedExecutable: environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]
         ) {
             return true
         }

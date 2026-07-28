@@ -33,13 +33,8 @@ extension AgentProcessDetectionRule {
 extension AgentProcessCandidatePolicy {
     /// Projects the app-owned Vault registry and agent catalog into selection policy.
     init(cmux registry: CmuxVaultAgentRegistry) {
-        let builtInsByID = Dictionary(
-            uniqueKeysWithValues: Self.builtInRegistrations.map { ($0.id, $0) }
-        )
         self.init(
-            usesBuiltInFastPath: registry.registrations.allSatisfy { registration in
-                builtInsByID[registration.id] == registration
-            },
+            usesBuiltInFastPath: registry.usesBuiltInProcessCandidateFastPath,
             detectionRules: registry.registrations.map {
                 AgentProcessDetectionRule(cmux: $0.detect)
             },
@@ -47,18 +42,9 @@ extension AgentProcessCandidatePolicy {
                 CmuxTaskManagerCodingAgentDefinition.builtIns
                     .flatMap(\.directBasenames)
             ).union([".opencode"]),
-            wrapperBasenames: ["cmux"]
+            wrapperBasenames: CmuxTaskManagerCodingAgentDefinition
+                .argumentHostBasenames
+                .union(["cmux"])
         )
-    }
-
-    private static var builtInRegistrations: [CmuxVaultAgentRegistration] {
-        [
-            .builtInPi,
-            .builtInOmp,
-            .builtInCampfire,
-            .builtInAntigravity,
-            .builtInGrok,
-            .builtInKimi,
-        ]
     }
 }

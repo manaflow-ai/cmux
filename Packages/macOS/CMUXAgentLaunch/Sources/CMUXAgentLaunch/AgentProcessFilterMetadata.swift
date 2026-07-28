@@ -12,9 +12,10 @@ public struct AgentProcessFilterMetadata: Sendable {
     /// The agent executable recorded by cmux at launch.
     public let agentLaunchExecutable: String?
 
-    /// The process executable at `argv[0]`.
+    /// The process executable at `argv[0]`, retained for identity matching.
     public let executableArgument: String?
 
-    /// The first argv element after the process executable.
+    /// The first argv element after the process executable when cmux launch
+    /// metadata is present.
     public let firstArgumentAfterExecutable: String?
 }

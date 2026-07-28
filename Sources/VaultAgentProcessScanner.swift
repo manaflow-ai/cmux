@@ -58,9 +58,11 @@ extension RestorableAgentSessionIndex {
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         let scopedProcesses = processSnapshot.cmuxScopedProcesses()
         let processCandidates = scopedProcesses.map(AgentProcessCandidate.init(cmux:))
+        let launchExecutableMatcher = AgentLaunchExecutableMatcher()
         let candidateSelector = AgentProcessCandidateSelector(
             processes: processCandidates,
-            policy: AgentProcessCandidatePolicy(cmux: registry)
+            policy: AgentProcessCandidatePolicy(cmux: registry),
+            launchExecutableMatcher: launchExecutableMatcher
         )
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
@@ -110,7 +112,13 @@ extension RestorableAgentSessionIndex {
             scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
             processArgumentsProvider: cachedProcessArguments
         )) { existing, _ in existing }
-        resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
+        resolved.merge(processDetectedForkParentFallbackSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: cachedProcessArguments,
+            launchExecutableMatcher: launchExecutableMatcher
+        )) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
 
         for process in scopedProcesses {

@@ -26,7 +26,8 @@ struct AgentProcessCandidateSelectorTests {
                     ),
                 ],
                 builtInAgentBasenames: ["codex"]
-            )
+            ),
+            launchExecutableMatcher: AgentLaunchExecutableMatcher()
         )
 
         #expect(selector.processIDs == [1, 2, 3, 4, 5])
@@ -39,7 +40,8 @@ struct AgentProcessCandidateSelectorTests {
         ]
         let selector = AgentProcessCandidateSelector(
             processes: processes,
-            policy: policy(usesBuiltInFastPath: false)
+            policy: policy(usesBuiltInFastPath: false),
+            launchExecutableMatcher: AgentLaunchExecutableMatcher()
         )
 
         #expect(selector.processIDs == [10, 11])
@@ -71,7 +73,8 @@ struct AgentProcessCandidateSelectorTests {
                         alternateArgvContainsAny: []
                     ),
                 ]
-            )
+            ),
+            launchExecutableMatcher: AgentLaunchExecutableMatcher()
         )
         var rawFetchCount = 0
         var fullDecodeCount = 0
@@ -100,10 +103,47 @@ struct AgentProcessCandidateSelectorTests {
         #expect(fullDecodeCount == 1)
     }
 
+    @Test func scanDecodesBuiltInExecutableIdentityFromArgvZero() {
+        let process = candidate(
+            processID: 22,
+            name: "agent-shim",
+            path: "/opt/tools/agent-shim"
+        )
+        let bytes = kernProcArgs(
+            arguments: ["/opt/tools/claude", "--resume", "session-id"],
+            environmentEntries: []
+        )
+        let selector = AgentProcessCandidateSelector(
+            processes: [process],
+            policy: policy(builtInAgentBasenames: ["claude"]),
+            launchExecutableMatcher: AgentLaunchExecutableMatcher()
+        )
+        var fullDecodeCount = 0
+        var scan = AgentProcessArgumentScan(
+            processes: [process],
+            selector: selector,
+            injectedArgumentsProvider: nil,
+            processArgumentBytesProvider: { _ in bytes },
+            processArgumentsDecoder: { bytes in
+                fullDecodeCount += 1
+                return AgentProcessArgumentsParser().argumentsAndEnvironment(
+                    fromKernProcArgs: bytes
+                )
+            },
+            additionalMetadataRequiresFullDecode: { _ in false }
+        )
+
+        #expect(selector.processIDs.isEmpty)
+        #expect(scan.candidateProcessIDs == [22])
+        #expect(scan.arguments(for: 22)?.arguments.first == "/opt/tools/claude")
+        #expect(fullDecodeCount == 1)
+    }
+
     @Test func recordedLaunchMetadataAdmitsExecutableFromArgvZeroOrOne() throws {
         let selector = AgentProcessCandidateSelector(
             processes: [],
-            policy: policy()
+            policy: policy(),
+            launchExecutableMatcher: AgentLaunchExecutableMatcher()
         )
         let recordedExecutable = "/opt/tools/claude-custom"
         let argumentVectors = [
