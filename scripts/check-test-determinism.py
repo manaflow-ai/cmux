@@ -1208,7 +1208,7 @@ def _swift_real_sleep_positions(
 _JAVASCRIPT_IDENTIFIER_PATTERN = r"[$A-Za-z_][$A-Za-z0-9_]*"
 _JAVASCRIPT_TIMER_IMPORT = re.compile(
     r"""(?msx)
-    ^[ \t]*import\s*\{
+    ^[ \t]*(?P<import_keyword>import)\s*\{
     (?P<imports>[^{}]*)
     \}\s*from\s*
     (?P<quote>["'])
@@ -1218,7 +1218,7 @@ _JAVASCRIPT_TIMER_IMPORT = re.compile(
 )
 _JAVASCRIPT_TIMER_NAMESPACE_IMPORT = re.compile(
     rf"""(?msx)
-    ^[ \t]*import\s*\*\s*as\s*
+    ^[ \t]*(?P<import_keyword>import)\s*\*\s*as\s*
     (?P<namespace>{_JAVASCRIPT_IDENTIFIER_PATTERN})
     \s*from\s*
     (?P<quote>["'])
@@ -1235,7 +1235,10 @@ def _javascript_timer_aliases(
     """Return promise-timer aliases imported from trusted ESM modules."""
     aliases: set[str] = set()
     for timer_import in _JAVASCRIPT_TIMER_IMPORT.finditer(raw_text):
-        if not masked_text.startswith("import", timer_import.start()):
+        if not masked_text.startswith(
+            "import",
+            timer_import.start("import_keyword"),
+        ):
             continue
         for specifier in timer_import.group("imports").split(","):
             imported = re.fullmatch(
@@ -1258,7 +1261,10 @@ def _javascript_timer_namespaces(
         for timer_import in _JAVASCRIPT_TIMER_NAMESPACE_IMPORT.finditer(
             raw_text
         )
-        if masked_text.startswith("import", timer_import.start())
+        if masked_text.startswith(
+            "import",
+            timer_import.start("import_keyword"),
+        )
     }
 
 
@@ -4134,8 +4140,11 @@ def _shell_subshell_scope_events(
 
 def _shell_function_scope_events(
     masked_lines: list[str],
-) -> dict[int, dict[int, list[bool]]]:
-    """Map function-body braces to deferred binding-scope enter/leave events."""
+) -> tuple[
+    dict[int, dict[int, list[bool]]],
+    dict[int, dict[int, Optional[bool]]],
+]:
+    """Map function bodies and classified sleep definitions to scope events."""
     text = "\n".join(masked_lines)
     line_starts = [0]
     line_starts.extend(
@@ -4152,11 +4161,34 @@ def _shell_function_scope_events(
 
     identifier = r"[A-Za-z_][A-Za-z0-9_]*"
     declaration = re.compile(
-        rf"(?:\bfunction\s+{identifier}\s*(?:\(\s*\))?"
-        rf"|(?<![A-Za-z0-9_]){identifier}\s*\(\s*\))\s*"
+        rf"(?:\bfunction\s+(?P<function_name>{identifier})"
+        rf"\s*(?:\(\s*\))?"
+        rf"|(?<![A-Za-z0-9_])(?P<posix_name>{identifier})"
+        rf"\s*\(\s*\))\s*"
         rf"(?P<opening>\{{)"
     )
+    false_branch_ranges: list[tuple[int, int]] = []
+    false_if = re.compile(r"\bif\s+false\s*(?:;|\n)\s*then\b")
+    branch_keyword = re.compile(r"\b(?:if|elif|else|fi)\b")
+    for conditional in false_if.finditer(text):
+        depth = 1
+        branch_end = len(text)
+        for keyword in branch_keyword.finditer(text, conditional.end()):
+            token = keyword.group()
+            if token == "if":
+                depth += 1
+            elif token == "fi":
+                depth -= 1
+                if depth == 0:
+                    branch_end = keyword.start()
+                    break
+            elif token in ("elif", "else") and depth == 1:
+                branch_end = keyword.start()
+                break
+        false_branch_ranges.append((conditional.end(), branch_end))
+
     absolute_events: dict[int, list[bool]] = {}
+    absolute_sleep_bindings: dict[int, Optional[bool]] = {}
     for function in declaration.finditer(text):
         opening = function.start("opening")
         closing = matching_braces.get(opening)
@@ -4165,12 +4197,42 @@ def _shell_function_scope_events(
         absolute_events.setdefault(opening, []).append(True)
         absolute_events.setdefault(closing, []).append(False)
 
+        name = function.group("function_name") or function.group("posix_name")
+        if name != "sleep":
+            continue
+        binding_offset = (
+            function.start()
+            if function.group("function_name") is not None
+            else function.start("posix_name")
+        )
+        if any(
+            start <= binding_offset < end
+            for start, end in false_branch_ranges
+        ):
+            absolute_sleep_bindings[binding_offset] = None
+            continue
+        body = text[opening + 1 : closing]
+        wraps_real_sleep = bool(
+            re.search(r"/(?:usr/)?bin/sleep(?=\s|$)", body)
+            or re.search(
+                r"(?:^|[;&|({])\s*command"
+                r"(?:\s+(?:--|-p))*\s+sleep(?=\s|$)",
+                body,
+            )
+        )
+        absolute_sleep_bindings[binding_offset] = not wraps_real_sleep
+
     events: dict[int, dict[int, list[bool]]] = {}
     for absolute_offset, transitions in absolute_events.items():
         line_index = bisect_right(line_starts, absolute_offset) - 1
         column = absolute_offset - line_starts[line_index]
         events.setdefault(line_index, {})[column] = transitions
-    return events
+    sleep_bindings: dict[int, dict[int, Optional[bool]]] = {}
+    for absolute_offset, binding in absolute_sleep_bindings.items():
+        line_index = bisect_right(line_starts, absolute_offset) - 1
+        column = absolute_offset - line_starts[line_index]
+        sleep_bindings.setdefault(line_index, {})[column] = binding
+    return events, sleep_bindings
 
 
 def _shell_real_sleep_positions(
@@ -4182,7 +4244,9 @@ def _shell_real_sleep_positions(
     sleep_function_scopes = [False]
     subshell_frames: list[str] = []
     arithmetic_depth = 0
-    function_scope_events = _shell_function_scope_events(masked_lines)
+    function_scope_events, function_sleep_bindings = (
+        _shell_function_scope_events(masked_lines)
+    )
     for line_index, (raw_line, masked_line) in enumerate(
         zip(raw_lines, masked_lines)
     ):
@@ -4246,6 +4310,15 @@ def _shell_real_sleep_positions(
                 )
             ):
                 candidates.add(sleep_position)
+
+        for offset, binding in function_sleep_bindings.get(
+            line_index,
+            {},
+        ).items():
+            if binding is None:
+                binding_events.pop(offset, None)
+            else:
+                binding_events[offset] = binding
 
         for offset in sorted(
             candidates
