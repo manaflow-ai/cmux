@@ -10,10 +10,11 @@ interface DecodedPixels {
   pixels: Uint8ClampedArray<ArrayBuffer>;
 }
 
-function sameImageGenerations(
+export function sameImageGenerations(
   left: readonly RenderGraphicImage[],
   right: readonly RenderGraphicImage[],
 ): boolean {
+  if (left === right) return true;
   if (left.length !== right.length) return false;
   const leftKeys = new Set(left.map(renderGraphicImageKey));
   return right.every((image) => leftKeys.has(renderGraphicImageKey(image)));

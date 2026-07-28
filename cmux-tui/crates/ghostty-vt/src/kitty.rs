@@ -891,6 +891,17 @@ fn image_value<T: Default>(
     Ok(value)
 }
 
+fn snapshot_image_format(raw: sys::GhosttyKittyImageFormat) -> Result<KittyImageFormat> {
+    // Ghostty's Kitty parser accepts raw RGB/RGBA and normalizes PNGs to RGBA.
+    // Its grayscale enum values cannot reach image storage through that parser,
+    // so reject them instead of expanding bytes beyond the transport budget.
+    match raw {
+        sys::GHOSTTY_KITTY_IMAGE_FORMAT_RGB => Ok(KittyImageFormat::Rgb),
+        sys::GHOSTTY_KITTY_IMAGE_FORMAT_RGBA => Ok(KittyImageFormat::Rgba),
+        _ => Err(Error::InvalidValue),
+    }
+}
+
 fn copy_image(
     image: sys::GhosttyKittyGraphicsImage,
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
@@ -902,16 +913,11 @@ fn copy_image(
     let height = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_HEIGHT)?;
     let raw_format: sys::GhosttyKittyImageFormat =
         image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_FORMAT)?;
+    let format = snapshot_image_format(raw_format)?;
     let data_ptr: *const u8 = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR)?;
     let data_len: usize = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_DATA_LEN)?;
 
     if let Some(data) = pixel_cache.get(&generation) {
-        let format = match raw_format {
-            sys::GHOSTTY_KITTY_IMAGE_FORMAT_RGB | sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY => {
-                KittyImageFormat::Rgb
-            }
-            _ => KittyImageFormat::Rgba,
-        };
         return Ok(KittyImage {
             id,
             number,
@@ -931,22 +937,7 @@ fn copy_image(
     } else {
         unsafe { std::slice::from_raw_parts(data_ptr, data_len) }
     };
-    let (format, data): (KittyImageFormat, Arc<[u8]>) = match raw_format {
-        sys::GHOSTTY_KITTY_IMAGE_FORMAT_RGB => (KittyImageFormat::Rgb, Arc::from(bytes)),
-        sys::GHOSTTY_KITTY_IMAGE_FORMAT_RGBA => (KittyImageFormat::Rgba, Arc::from(bytes)),
-        sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY => {
-            let converted = bytes.iter().flat_map(|value| [*value; 3]).collect::<Vec<_>>();
-            (KittyImageFormat::Rgb, converted.into())
-        }
-        sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY_ALPHA => {
-            let converted = bytes
-                .chunks_exact(2)
-                .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
-                .collect::<Vec<_>>();
-            (KittyImageFormat::Rgba, converted.into())
-        }
-        _ => return Err(Error::InvalidValue),
-    };
+    let data: Arc<[u8]> = Arc::from(bytes);
     let expected = usize::try_from(width)
         .ok()
         .and_then(|width| usize::try_from(height).ok().and_then(|height| width.checked_mul(height)))
@@ -1113,10 +1104,9 @@ mod tests {
 
     #[test]
     fn snapshot_format_rejects_unreachable_grayscale_storage() {
-        for raw in [
-            sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY,
-            sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY_ALPHA,
-        ] {
+        for raw in
+            [sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY, sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY_ALPHA]
+        {
             assert!(matches!(snapshot_image_format(raw), Err(Error::InvalidValue)));
         }
     }
