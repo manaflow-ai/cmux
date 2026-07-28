@@ -1004,17 +1004,21 @@ impl LocalPtyProcess {
                 move |cleanup_succeeded| {
                     if reap_process.child_wait_ownership_lost.load(Ordering::Acquire) {
                         let _signal = reap_process.child_signal_lock.lock().unwrap();
-                        if !reap_process.pty_drained.load(Ordering::Acquire)
-                            || !matches!(child_identity.matches_current(), Ok(false))
-                        {
-                            return false;
+                        if !reap_process.pty_drained.load(Ordering::Acquire) {
+                            return crate::process_session::NaturalReapFinish::Pending;
+                        }
+                        match child_identity.matches_current() {
+                            Ok(false) => {}
+                            Ok(true) | Err(_) => {
+                                return crate::process_session::NaturalReapFinish::Failed;
+                            }
                         }
                         drop(child.take());
                         reap_process.child_reaped.store(true, Ordering::Release);
                         drop(_signal);
                         *reap_process.exited.0.lock().unwrap() = true;
                         reap_process.exited.1.notify_all();
-                        return true;
+                        return crate::process_session::NaturalReapFinish::Complete;
                     }
                     let done = crate::process_session::poll_reserved_session_leader(
                         crate::process_session::ReservedChildReap {
@@ -1035,7 +1039,11 @@ impl LocalPtyProcess {
                         *reap_process.exited.0.lock().unwrap() = true;
                         reap_process.exited.1.notify_all();
                     }
-                    done
+                    if done {
+                        crate::process_session::NaturalReapFinish::Complete
+                    } else {
+                        crate::process_session::NaturalReapFinish::Pending
+                    }
                 },
             );
             Ok(())

@@ -2757,9 +2757,9 @@ mod unix {
             signal: libc::c_int,
             deadline: Instant,
         ) -> std::io::Result<()> {
-            // The wait thread observes exit with WNOWAIT, then takes this lock
-            // before reaping. Holding it reserves the session leader and its
-            // numeric session id across enumeration and signaling.
+            // The shared reaper observes exit with WNOWAIT, then takes this
+            // lock before reaping. Holding it reserves the session leader and
+            // its numeric session id across enumeration and signaling.
             let _signal = self.child_signal_lock.lock().unwrap();
             let Some(session) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
                 return Err(std::io::Error::other("PTY child has no process id"));
@@ -3418,86 +3418,82 @@ mod unix {
             crate::process_session::wake_child_reaper();
             reader_host.publish_exit_if_drained();
         })?;
-        let child_host = shared.clone();
-        thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
-            #[cfg(test)]
-            HOST_CHILD_OBSERVER_SPAWNS.fetch_add(1, Ordering::AcqRel);
-            let observation = loop {
-                match crate::process_session::observe_child_without_reaping(session, false) {
-                    Ok(crate::process_session::ChildWaitState::Running) => continue,
-                    observation => break observation,
-                }
-            };
-            if matches!(observation, Ok(crate::process_session::ChildWaitState::Waitable)) {
-                child_host.child_waitable.store(true, Ordering::Release);
-                child_host.child_exit.1.notify_all();
-                let cleanup_host = child_host.clone();
-                let prepare_host = child_host.clone();
-                let reap_host = child_host.clone();
-                let mut child = Some(child);
-                crate::process_session::enqueue_reserved_session_leader(
-                    reaper,
-                    session,
-                    HOST_KILL_WAIT,
-                    || Ok(true),
-                    move || {
-                        crate::process_session::reserved_child_needs_cleanup(
-                            crate::process_session::ReservedChildReap {
-                                signal_lock: &cleanup_host.child_signal_lock,
-                                pty_drained: &cleanup_host.pty_drained,
-                                termination_started: &cleanup_host.termination_started,
-                                cleanup_complete: &cleanup_host.group_escalation_complete,
-                                child_reaped: &cleanup_host.child_reaped,
-                                wait_ownership_lost: &cleanup_host.child_wait_ownership_lost,
-                            },
-                        )
+        let observe_host = shared.clone();
+        let cleanup_host = shared.clone();
+        let prepare_host = shared.clone();
+        let reap_host = shared.clone();
+        let mut child = Some(child);
+        crate::process_session::enqueue_reserved_session_leader(
+            reaper,
+            session,
+            HOST_KILL_WAIT,
+            move || {
+                let _signal = observe_host.child_signal_lock.lock().unwrap();
+                let state = observe_host.observe_child_wait_state_locked(session, true)?;
+                Ok(state != crate::process_session::ChildWaitState::Running)
+            },
+            move || {
+                crate::process_session::reserved_child_needs_cleanup(
+                    crate::process_session::ReservedChildReap {
+                        signal_lock: &cleanup_host.child_signal_lock,
+                        pty_drained: &cleanup_host.pty_drained,
+                        termination_started: &cleanup_host.termination_started,
+                        cleanup_complete: &cleanup_host.group_escalation_complete,
+                        child_reaped: &cleanup_host.child_reaped,
+                        wait_ownership_lost: &cleanup_host.child_wait_ownership_lost,
                     },
-                    move || prepare_host.prepare_natural_cleanup(),
-                    move |cleanup_succeeded| {
-                        let done = crate::process_session::poll_reserved_session_leader(
-                            crate::process_session::ReservedChildReap {
-                                signal_lock: &reap_host.child_signal_lock,
-                                pty_drained: &reap_host.pty_drained,
-                                termination_started: &reap_host.termination_started,
-                                cleanup_complete: &reap_host.group_escalation_complete,
-                                child_reaped: &reap_host.child_reaped,
-                                wait_ownership_lost: &reap_host.child_wait_ownership_lost,
-                            },
-                            cleanup_succeeded,
-                            || {
-                                let mut child =
-                                    child.take().expect("reserved child is reaped once");
-                                let _ = child.wait();
-                            },
-                        );
-                        if done {
-                            let mut exited = reap_host.child_exit.0.lock().unwrap();
-                            *exited = true;
-                            drop(exited);
-                            reap_host.child_exit.1.notify_all();
-                            reap_host.publish_exit_if_drained();
+                )
+            },
+            move || prepare_host.prepare_natural_cleanup(),
+            move |cleanup_succeeded| {
+                if reap_host.child_wait_ownership_lost.load(Ordering::Acquire) {
+                    let _signal = reap_host.child_signal_lock.lock().unwrap();
+                    if !reap_host.pty_drained.load(Ordering::Acquire) {
+                        return crate::process_session::NaturalReapFinish::Pending;
+                    }
+                    match child_identity.matches_current() {
+                        Ok(false) => {}
+                        Ok(true) | Err(_) => {
+                            return crate::process_session::NaturalReapFinish::Failed;
                         }
-                        done
+                    }
+                    drop(child.take());
+                    reap_host.child_reaped.store(true, Ordering::Release);
+                    drop(_signal);
+                    let mut exited = reap_host.child_exit.0.lock().unwrap();
+                    *exited = true;
+                    drop(exited);
+                    reap_host.child_exit.1.notify_all();
+                    reap_host.publish_exit_if_drained();
+                    return crate::process_session::NaturalReapFinish::Complete;
+                }
+                let done = crate::process_session::poll_reserved_session_leader(
+                    crate::process_session::ReservedChildReap {
+                        signal_lock: &reap_host.child_signal_lock,
+                        pty_drained: &reap_host.pty_drained,
+                        termination_started: &reap_host.termination_started,
+                        cleanup_complete: &reap_host.group_escalation_complete,
+                        child_reaped: &reap_host.child_reaped,
+                        wait_ownership_lost: &reap_host.child_wait_ownership_lost,
+                    },
+                    cleanup_succeeded,
+                    || {
+                        let mut child = child.take().expect("reserved child is reaped once");
+                        let _ = child.wait();
                     },
                 );
-            } else {
-                {
-                    let _signal = child_host.child_signal_lock.lock().unwrap();
-                    child_host.child_wait_ownership_lost.store(true, Ordering::Release);
+                if done {
+                    let mut exited = reap_host.child_exit.0.lock().unwrap();
+                    *exited = true;
+                    drop(exited);
+                    reap_host.child_exit.1.notify_all();
+                    reap_host.publish_exit_if_drained();
+                    crate::process_session::NaturalReapFinish::Complete
+                } else {
+                    crate::process_session::NaturalReapFinish::Pending
                 }
-                child_host.child_exit.1.notify_all();
-                while !matches!(child_identity.matches_current(), Ok(false)) {
-                    thread::sleep(Duration::from_millis(25));
-                }
-                drop(child);
-                child_host.child_reaped.store(true, Ordering::Release);
-                let mut exited = child_host.child_exit.0.lock().unwrap();
-                *exited = true;
-                child_host.child_exit.1.notify_all();
-                drop(exited);
-                child_host.publish_exit_if_drained();
-            }
-        })?;
+            },
+        );
         Ok(shared)
     }
 

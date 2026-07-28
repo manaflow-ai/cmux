@@ -18,7 +18,10 @@ const SESSION_KILL_POLL: Duration = Duration::from_millis(5);
 const PROCESS_SESSION_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(1);
 const NATURAL_REAP_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const NATURAL_REAP_RETRY_MAX: Duration = Duration::from_secs(1);
+#[cfg(not(test))]
 const NATURAL_REAP_DEGRADED_RETRY: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const NATURAL_REAP_DEGRADED_RETRY: Duration = Duration::from_millis(500);
 const NATURAL_REAP_BATCH_WINDOW: Duration = Duration::from_millis(5);
 const NATURAL_REAP_CAPACITY: usize = 4_096;
 #[cfg(not(test))]
@@ -83,6 +86,19 @@ pub(crate) enum ChildWaitState {
     OwnershipLost,
 }
 
+pub(crate) enum NaturalReapFinish {
+    Complete,
+    Pending,
+    Failed,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum NaturalChildObservation {
+    Ready,
+    Pending,
+    Failed,
+}
+
 enum NaturalReaperCommand {
     Add(NaturalReapRequest),
     Wake,
@@ -95,12 +111,49 @@ struct NaturalReapRequest {
     child_observed: bool,
     needs_cleanup: Box<dyn Fn() -> bool + Send>,
     prepare_cleanup: Box<dyn FnMut() -> bool + Send>,
-    finish: Box<dyn FnMut(bool) -> bool + Send>,
+    finish: Box<dyn FnMut(bool) -> NaturalReapFinish + Send>,
     _lease: ReservedChildReaperLease,
     next_attempt: Instant,
     retry_delay: Duration,
     attempts: usize,
     degraded: bool,
+}
+
+impl NaturalReapRequest {
+    fn clear_degraded(&mut self) {
+        if self.degraded {
+            self.degraded = false;
+            self._lease.degraded.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+
+    fn recover_from_failure(&mut self) {
+        if self.attempts != 0 || self.degraded {
+            self.attempts = 0;
+            self.retry_delay = NATURAL_REAP_RETRY_INITIAL;
+            self.clear_degraded();
+        }
+    }
+
+    fn schedule_pending(&mut self) {
+        self.recover_from_failure();
+        self.next_attempt = Instant::now() + self.retry_delay;
+        self.retry_delay = (self.retry_delay * 2).min(NATURAL_REAP_RETRY_MAX);
+    }
+
+    fn schedule_failure(&mut self) {
+        self.attempts = self.attempts.saturating_add(1);
+        if self.attempts >= NATURAL_REAP_MAX_ATTEMPTS {
+            if !self.degraded {
+                self.degraded = true;
+                self._lease.degraded.fetch_add(1, Ordering::AcqRel);
+            }
+            self.next_attempt = Instant::now() + NATURAL_REAP_DEGRADED_RETRY;
+        } else {
+            self.next_attempt = Instant::now() + self.retry_delay;
+            self.retry_delay = (self.retry_delay * 2).min(NATURAL_REAP_RETRY_MAX);
+        }
+    }
 }
 
 struct NaturalReaper {
@@ -236,7 +289,7 @@ pub(crate) fn enqueue_reserved_session_leader(
     observe_child: impl FnMut() -> io::Result<bool> + Send + 'static,
     needs_cleanup: impl Fn() -> bool + Send + 'static,
     prepare_cleanup: impl FnMut() -> bool + Send + 'static,
-    finish: impl FnMut(bool) -> bool + Send + 'static,
+    finish: impl FnMut(bool) -> NaturalReapFinish + Send + 'static,
 ) {
     let sender = lease.sender.clone();
     sender
@@ -339,25 +392,41 @@ fn run_natural_reaper(
             continue;
         }
 
-        let child_observed = due
+        let observations = due
             .iter_mut()
             .map(|request| {
-                if !request.child_observed {
-                    request.child_observed = (request.observe_child)().unwrap_or(false);
+                if request.child_observed {
+                    return NaturalChildObservation::Ready;
                 }
-                request.child_observed
+                match (request.observe_child)() {
+                    Ok(true) => {
+                        request.child_observed = true;
+                        request.recover_from_failure();
+                        request.retry_delay = NATURAL_REAP_RETRY_INITIAL;
+                        NaturalChildObservation::Ready
+                    }
+                    Ok(false) => {
+                        request.recover_from_failure();
+                        NaturalChildObservation::Pending
+                    }
+                    Err(_) => NaturalChildObservation::Failed,
+                }
             })
             .collect::<Vec<_>>();
         let needs_cleanup = due
             .iter()
-            .zip(&child_observed)
-            .map(|(request, observed)| *observed && (request.needs_cleanup)())
+            .zip(&observations)
+            .map(|(request, observation)| {
+                *observation == NaturalChildObservation::Ready && (request.needs_cleanup)()
+            })
             .collect::<Vec<_>>();
         let prepared = due
             .iter_mut()
-            .zip(child_observed.iter().zip(&needs_cleanup))
-            .map(|(request, (observed, needed))| {
-                !observed || !needed || (request.prepare_cleanup)()
+            .zip(observations.iter().zip(&needs_cleanup))
+            .map(|(request, (observation, needed))| {
+                *observation != NaturalChildObservation::Ready
+                    || !needed
+                    || (request.prepare_cleanup)()
             })
             .collect::<Vec<_>>();
         let sessions = due
@@ -388,37 +457,41 @@ fn run_natural_reaper(
                 .unwrap_or_default()
         };
 
-        for (((mut request, observed), needed), prepared) in
-            due.into_iter().zip(child_observed).zip(needs_cleanup).zip(prepared)
+        for (((mut request, observation), needed), prepared) in
+            due.into_iter().zip(observations).zip(needs_cleanup).zip(prepared)
         {
-            if !observed {
-                request.next_attempt = Instant::now() + request.retry_delay;
-                request.retry_delay = (request.retry_delay * 2).min(NATURAL_REAP_RETRY_MAX);
-                pending.push(request);
-                continue;
+            match observation {
+                NaturalChildObservation::Pending => {
+                    request.schedule_pending();
+                    pending.push(request);
+                    continue;
+                }
+                NaturalChildObservation::Failed => {
+                    request.schedule_failure();
+                    pending.push(request);
+                    continue;
+                }
+                NaturalChildObservation::Ready => {}
             }
             let cleanup_succeeded = needed && prepared && cleaned.contains(&request.session);
-            let done = (request.finish)(cleanup_succeeded);
-            if done {
-                if request.degraded {
-                    request._lease.degraded.fetch_sub(1, Ordering::AcqRel);
+            let cleanup_failed = needed && !cleanup_succeeded;
+            match (request.finish)(cleanup_succeeded) {
+                NaturalReapFinish::Complete => {
+                    request.clear_degraded();
                 }
-                continue;
-            }
-            if needed {
-                request.attempts = request.attempts.saturating_add(1);
-            }
-            if request.attempts >= NATURAL_REAP_MAX_ATTEMPTS {
-                if !request.degraded {
-                    request.degraded = true;
-                    request._lease.degraded.fetch_add(1, Ordering::AcqRel);
+                NaturalReapFinish::Failed => {
+                    request.schedule_failure();
+                    pending.push(request);
                 }
-                request.next_attempt = Instant::now() + NATURAL_REAP_DEGRADED_RETRY;
-            } else {
-                request.next_attempt = Instant::now() + request.retry_delay;
-                request.retry_delay = (request.retry_delay * 2).min(NATURAL_REAP_RETRY_MAX);
+                NaturalReapFinish::Pending if cleanup_failed => {
+                    request.schedule_failure();
+                    pending.push(request);
+                }
+                NaturalReapFinish::Pending => {
+                    request.schedule_pending();
+                    pending.push(request);
+                }
             }
-            pending.push(request);
         }
     }
 }
@@ -509,7 +582,7 @@ fn accept_natural_reaper_command(
         NaturalReaperCommand::Wake => {
             wake_pending.store(false, Ordering::Release);
             let now = Instant::now();
-            for request in pending {
+            for request in pending.iter_mut().filter(|request| !request.degraded) {
                 request.next_attempt = now;
             }
         }
@@ -1498,7 +1571,7 @@ mod tests {
             || true,
             move |_| {
                 let _ = finished_sender.send(());
-                true
+                NaturalReapFinish::Complete
             },
         );
 
@@ -1536,9 +1609,9 @@ mod tests {
                 let _ = attempt_sender.send(());
                 if finish_release.load(Ordering::Acquire) {
                     let _ = finished_sender.send(());
-                    true
+                    NaturalReapFinish::Complete
                 } else {
-                    false
+                    NaturalReapFinish::Failed
                 }
             },
         );
