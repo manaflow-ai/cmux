@@ -590,17 +590,25 @@ final class TerminalPanel: Panel, ObservableObject {
 #endif
 
     func focus() {
+        focus(focusTransactionId: nil)
+    }
+
+    func focus(focusTransactionId: UUID?) {
         if isAgentHibernated {
             _ = requestAgentHibernationResume(focus: true)
             return
         }
-        focusTerminalSurface(respectForeignFirstResponder: true)
+        focusTerminalSurface(
+            respectForeignFirstResponder: true,
+            focusTransactionId: focusTransactionId
+        )
     }
 
     @discardableResult
     private func focusTerminalSurface(
         respectForeignFirstResponder: Bool,
-        clearTextBoxHideArm: Bool = true
+        clearTextBoxHideArm: Bool = true,
+        focusTransactionId: UUID? = nil
     ) -> Bool {
         if clearTextBoxHideArm {
             shouldHideTextBoxOnNextEscape = false
@@ -637,7 +645,8 @@ final class TerminalPanel: Panel, ObservableObject {
         hostedView.ensureFocus(
             for: workspaceId,
             surfaceId: id,
-            respectForeignFirstResponder: respectForeignFirstResponder
+            respectForeignFirstResponder: respectForeignFirstResponder,
+            focusTransactionId: focusTransactionId
         )
         return true
     }
