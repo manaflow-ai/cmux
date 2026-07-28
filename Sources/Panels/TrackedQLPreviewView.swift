@@ -12,12 +12,16 @@ import Quartz
 /// detached instance instead of reusing it.
 final class TrackedQLPreviewView: QLPreviewView {
     private(set) var didDetachFromWindow = false
+    private var hasAttachedToWindow = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // `viewDidMoveToWindow` fires both on attach (window != nil) and detach
-        // (window == nil). Only the detach transition deactivates the view.
-        if window == nil {
+        // (window == nil). An initial move into an off-window container is not
+        // a detach transition and must not retire the preview before mounting.
+        if window != nil {
+            hasAttachedToWindow = true
+        } else if hasAttachedToWindow {
             didDetachFromWindow = true
         }
     }

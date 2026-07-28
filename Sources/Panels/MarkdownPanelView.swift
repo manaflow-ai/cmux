@@ -46,11 +46,15 @@ struct MarkdownPanelView: View {
     }
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 0) {
+            filePathHeader
+
+            Divider()
+
             if panel.isFileUnavailable {
                 fileUnavailableView
             } else {
-                markdownContentView
+                markdownBody
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -65,16 +69,6 @@ struct MarkdownPanelView: View {
     }
 
     // MARK: - Content
-
-    private var markdownContentView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            filePathHeader
-
-            Divider()
-
-            markdownBody
-        }
-    }
 
     @ViewBuilder
     private var markdownBody: some View {
@@ -134,6 +128,11 @@ struct MarkdownPanelView: View {
             }
             if panel.displayMode == .preview {
                 MarkdownTypographyControl(panel: panel)
+                PanelHeaderIconButton(
+                    systemName: "arrow.clockwise",
+                    label: String(localized: "filePreview.refresh", defaultValue: "Refresh"),
+                    action: { panel.reloadFromDisk() }
+                )
             }
             markdownModeButton
             MarkdownPanelToolbar(
