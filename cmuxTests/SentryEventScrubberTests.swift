@@ -234,4 +234,25 @@ import Testing
             ).shouldStart == false
         )
     }
+
+    @Test func explicitUITestMarkerPreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: ["CMUX_UI_TEST_PROCESS": "1"],
+                telemetryEnabled: true
+            ).shouldStart == false
+        )
+    }
+
+    @Test func explicitTestTelemetryOptInOverridesUITestMarker() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [
+                    "CMUX_UI_TEST_PROCESS": "1",
+                    "CMUX_TEST_SENTRY_ENABLED": "1"
+                ],
+                telemetryEnabled: true
+            ).shouldStart == true
+        )
+    }
 }
