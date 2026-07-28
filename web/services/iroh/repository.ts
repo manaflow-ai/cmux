@@ -442,7 +442,16 @@ function makeLiveRepository(): IrohRepositoryShape {
             pathHints: accountPrivatePathHints,
             pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
             lastSeenAt: input.now,
-            registeredAt: input.now,
+            // Seed the slot's registration high-water mark from this challenge's
+            // MINT time, not the register-request landing time. Two challenges
+            // can be outstanding for a slot that does not exist yet; if an older
+            // one lands first and stamps its later landing time here, the
+            // staleness gate above would reject a genuinely newer outstanding
+            // challenge (its mint time falls below the landing time) and strand
+            // the older registration. Mint time keeps registeredAt a true,
+            // ordering-consistent high-water mark across insert, reincarnation,
+            // and heartbeat alike.
+            registeredAt: challenge.createdAt,
             updatedAt: input.now,
           })
           .returning();
