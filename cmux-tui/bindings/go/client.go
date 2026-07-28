@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -36,10 +37,62 @@ func validateWorkspaceSelector(workspace *uint64, key *string) error {
 	return nil
 }
 
+func validateViewportPaneWidth(width float32) error {
+	value := float64(width)
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0.1 || value > 1.0 {
+		return fmt.Errorf(
+			"%w: viewport pane width must be between 0.1 and 1.0",
+			ErrInvalidArgument,
+		)
+	}
+	return nil
+}
+
+type layoutUndoWire struct {
+	Undone               *bool     `json:"undone"`
+	ConfirmationRequired *bool     `json:"confirmation_required"`
+	Screen               *uint64   `json:"screen"`
+	Revision             *uint64   `json:"revision"`
+	ClosesPanes          *[]uint64 `json:"closes_panes"`
+}
+
+func decodeLayoutUndoResult(wire layoutUndoWire) (LayoutUndoResult, error) {
+	if wire.Screen == nil {
+		return nil, &decodeError{msg: "layout undo response omitted screen"}
+	}
+	if wire.Revision == nil {
+		return nil, &decodeError{msg: "layout undo response omitted revision"}
+	}
+
+	switch {
+	case wire.Undone != nil &&
+		*wire.Undone &&
+		(wire.ConfirmationRequired == nil || !*wire.ConfirmationRequired):
+		return LayoutUndoUndone{Screen: *wire.Screen, Revision: *wire.Revision}, nil
+	case wire.Undone != nil &&
+		!*wire.Undone &&
+		wire.ConfirmationRequired != nil &&
+		*wire.ConfirmationRequired:
+		if wire.ClosesPanes == nil {
+			return nil, &decodeError{
+				msg: "layout undo confirmation closes_panes must be an array of pane IDs",
+			}
+		}
+		return LayoutUndoConfirmationRequired{
+			Screen: *wire.Screen, Revision: *wire.Revision, ClosesPanes: *wire.ClosesPanes,
+		}, nil
+	default:
+		return nil, &decodeError{
+			msg: "layout undo response does not contain exactly one valid outcome",
+		}
+	}
+}
+
 type CommandError struct {
-	Message  string
-	ID       any
-	Delivery ErrorDelivery
+	Message   string
+	ID        any
+	ErrorCode string
+	Delivery  ErrorDelivery
 }
 
 func (e *CommandError) Error() string { return e.Message }
@@ -59,11 +112,13 @@ func commandErrorFromResponse(response map[string]any) *CommandError {
 	if msg == "" {
 		msg = "unknown error"
 	}
+	code, _ := response["error_code"].(string)
 	delivery, _ := response["error_delivery"].(string)
 	return &CommandError{
-		Message:  msg,
-		ID:       response["id"],
-		Delivery: ErrorDelivery(delivery),
+		Message:   msg,
+		ID:        response["id"],
+		ErrorCode: code,
+		Delivery:  ErrorDelivery(delivery),
 	}
 }
 
@@ -440,6 +495,29 @@ func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) 
 	return result, c.request(ctx, "new-pane", params, &result)
 }
 
+func (c *Client) NewPaneRight(ctx context.Context, pane uint64, opts NewPaneRightOptions) (SurfaceResult, error) {
+	if opts.Width != nil {
+		if err := validateViewportPaneWidth(*opts.Width); err != nil {
+			return SurfaceResult{}, err
+		}
+	}
+	if err := c.requireCapability(ctx, "viewport-splits-v1", "viewport panes"); err != nil {
+		return SurfaceResult{}, err
+	}
+	params := map[string]any{"pane": pane}
+	if opts.Width != nil {
+		params["width"] = *opts.Width
+	}
+	if opts.Cols != nil {
+		params["cols"] = *opts.Cols
+	}
+	if opts.Rows != nil {
+		params["rows"] = *opts.Rows
+	}
+	var result SurfaceResult
+	return result, c.request(ctx, "new-pane-right", params, &result)
+}
+
 func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitOptions) (SurfaceResult, error) {
 	params := commandMap(opts)
 	params["pane"] = pane
@@ -453,10 +531,65 @@ func (c *Client) SetRatio(ctx context.Context, pane uint64, dir string, ratio fl
 }
 
 func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32) error {
+	return c.setSplitRatio(ctx, split, ratio, nil)
+}
+
+// SetSplitRatioInTransaction coalesces samples that share one client-scoped transaction.
+func (c *Client) SetSplitRatioInTransaction(ctx context.Context, split uint64, ratio float32, transaction uint64) error {
+	return c.setSplitRatio(ctx, split, ratio, &transaction)
+}
+
+func (c *Client) setSplitRatio(ctx context.Context, split uint64, ratio float32, transaction *uint64) error {
 	if err := c.requireProtocol(ctx, 8, "set-split-ratio"); err != nil {
 		return err
 	}
-	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
+	params := map[string]any{"split": split, "ratio": ratio}
+	if transaction != nil {
+		params["transaction"] = *transaction
+	}
+	return c.request(ctx, "set-split-ratio", params, nil)
+}
+
+func (c *Client) SetViewportPaneWidth(ctx context.Context, pane uint64, width float32) error {
+	return c.setViewportPaneWidth(ctx, pane, width, nil)
+}
+
+// SetViewportPaneWidthInTransaction coalesces samples that share one client-scoped transaction.
+func (c *Client) SetViewportPaneWidthInTransaction(ctx context.Context, pane uint64, width float32, transaction uint64) error {
+	return c.setViewportPaneWidth(ctx, pane, width, &transaction)
+}
+
+func (c *Client) setViewportPaneWidth(ctx context.Context, pane uint64, width float32, transaction *uint64) error {
+	if err := validateViewportPaneWidth(width); err != nil {
+		return err
+	}
+	if err := c.requireCapability(ctx, "viewport-column-resize-v1", "viewport pane resizing"); err != nil {
+		return err
+	}
+	params := map[string]any{"pane": pane, "width": width}
+	if transaction != nil {
+		params["transaction"] = *transaction
+	}
+	return c.request(ctx, "set-viewport-pane-width", params, nil)
+}
+
+// UndoLayout previews the latest layout undo when confirmationRevision is nil.
+// To confirm a pane-closing undo, pass the exact revision returned by
+// LayoutUndoConfirmationRequired.
+func (c *Client) UndoLayout(ctx context.Context, pane uint64, confirmationRevision *uint64) (LayoutUndoResult, error) {
+	if err := c.requireCapability(ctx, "layout-undo-v1", "layout undo"); err != nil {
+		return nil, err
+	}
+	params := map[string]any{"pane": pane}
+	if confirmationRevision != nil {
+		params["revision"] = *confirmationRevision
+		params["confirm_close"] = true
+	}
+	var wire layoutUndoWire
+	if err := c.request(ctx, "undo-layout", params, &wire); err != nil {
+		return nil, err
+	}
+	return decodeLayoutUndoResult(wire)
 }
 
 func (c *Client) SetDefaultColors(ctx context.Context, fg, bg *string) error {

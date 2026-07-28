@@ -12,15 +12,53 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `4a6c443c3`, the merged head of
-https://github.com/manaflow-ai/ghostty/pull/160. It preserves bounded plain-text
-copies when optional HTML exceeds its byte budget on top of the mixed clipboard
-output from https://github.com/manaflow-ai/ghostty/pull/159, the work bounds and
-atomic runtime cursor snapshot from https://github.com/manaflow-ai/ghostty/pull/157,
-the tracked navigation from https://github.com/manaflow-ai/ghostty/pull/156,
-the native selection geometry from
-https://github.com/manaflow-ai/ghostty/pull/154, and the current
-`manaflow-ai/ghostty` `main`.
+The submodule pinned by this branch is `0b1734f1e`, the current
+`manaflow-ai/ghostty` `main` merge head. It combines the `os/open` stderr drain
+fix from `8f31fb57c` with the keyboard copy-mode selection, cursor geometry,
+bounded rich clipboard, and plain-text fallback fixes through `4a6c443c3`.
+
+### `os/open` stderr drain spin and zombie leak
+
+`openThread` drained a spawned child's stderr with
+`std.Io.Reader.takeDelimiterExclusive`, which advances only *up to* the
+delimiter. Once the seek position sits on a `\n` it returns a zero-length slice
+forever, without progressing and without erroring, so the loop spun at 100% CPU
+after the very first stderr line, emitting empty `open stderr=` records until
+macOS throttled the process-wide logging firehose
+(`__FIREHOSE_CLIENT_THROTTLED_DUE_TO_HEAVY_LOGGING__`, which makes *every*
+`os_log` call in the process expensive). `exe.wait()` was only reachable by
+exiting that loop, so the child was never reaped either.
+
+Measured live on cmux 0.64.20 after ~1 day uptime: 11 zombie children matched
+one-for-one by 11 threads burning ~12.4% CPU each, ~95% of the process total
+(500-600% observed), each with 94-97% of its stack inside
+`zig_os_log_with_type`.
+
+The fix switches to `takeDelimiter` (consumes the delimiter, reports
+end-of-stream as `null`), reaps via `defer` so `wait()` is unconditional, and
+caps reporting at 32 lines while still draining so a child blocked writing into
+a full pipe can finish and exit. The drain loop is extracted as `drainStderr`
+with tests covering termination, blank-line input, and the reporting cap.
+
+- Commits:
+  - `8f31fb57c` (os/open: stop the stderr drain from spinning and leaking zombies)
+- Files:
+  - `src/os/open.zig`
+
+The intermediate `8f31fb57c` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-8f31fb57cde291e7b8fecb46203bc398c44459f4-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Inherited from `af4dfb43f`
+
+The common base for both merged lines is `af4dfb43f`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/152. It adds teardown-safe action
+lease release on top of transactional menu-owned key binding consumption and
+modifier-independent paired-release tracking from
+https://github.com/manaflow-ai/ghostty/pull/151, based on the current
+`manaflow-ai/ghostty` `main`, including the synchronous embedder teardown from
+https://github.com/manaflow-ai/ghostty/pull/146 and the render-grid work from
+https://github.com/manaflow-ai/ghostty/pull/147.
 
 `4cc0933cf` adds the screen-anchored render-grid export for the iOS
 local-scrollback scroll work: `buildRenderGridJson` gains an active-area
@@ -59,9 +97,9 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-No prebuilt checksum is pinned yet for `4a6c443c3`.
-`scripts/ensure-ghosttykit.sh` therefore builds its universal ReleaseFast
-GhosttyKit archive locally.
+The pinned `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Bounded renderer mailbox turns and continuation recovery
 

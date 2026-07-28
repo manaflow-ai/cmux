@@ -22001,6 +22001,57 @@
         }
       }
     },
+    "browser.designMode.handoff.contextJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細: %1$@"
+          }
+        }
+      }
+    },
+    "browser.designMode.handoff.contextOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Design-mode context for the selected page elements."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したページ要素のデザインモードコンテキストです。"
+          }
+        }
+      }
+    },
+    "browser.designMode.handoff.pageURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page: %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ: %1$@"
+          }
+        }
+      }
+    },
     "browser.designMode.mode.draw": {
       "extractionState": "manual",
       "localizations": {
