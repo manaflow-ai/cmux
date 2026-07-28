@@ -149,17 +149,21 @@ extension AppDelegate {
         return agentDeliveryTargetCombining(ttyTarget: ttyTarget, envTarget: envTarget)
     }
 
-    /// Delivery-time target for a notification addressed to
-    /// (`claimedTabId`, `surfaceId`). A surface-scoped notification follows
-    /// the surface to whichever workspace currently owns it; a workspace-only
-    /// notification requires the claimed workspace to still exist. Returns nil
-    /// when the target is gone (surface closed, workspace closed) — the
-    /// notification is undeliverable, matching the previous drop semantics.
+    /// Delivery-time target for an agent event addressed to
+    /// (`claimedTabId`, `surfaceId`). A surface-scoped event follows the
+    /// surface to whichever workspace or Dock currently owns it. A
+    /// workspace-only event requires the claimed workspace or window-Dock
+    /// owner to still exist. Returns nil when the target is gone (surface,
+    /// workspace, or window closed).
     func agentNotificationDeliveryTarget(
-        claimedTabId: UUID,
+        claimedTabId: UUID?,
         surfaceId: UUID?
     ) -> (tabId: UUID, surfaceId: UUID?)? {
         guard let surfaceId else {
+            guard let claimedTabId else { return nil }
+            if tabManagerForWindowDockOwner(claimedTabId) != nil {
+                return (claimedTabId, nil)
+            }
             let manager = tabManagerFor(tabId: claimedTabId) ?? tabManager
             guard manager?.tabs.contains(where: { $0.id == claimedTabId }) == true else { return nil }
             return (claimedTabId, nil)
