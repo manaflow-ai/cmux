@@ -24,6 +24,50 @@ struct ClosedMainWindowRoutingTests {
         return window
     }
 
+    @Test("Captured main window is not refocused after its context is removed")
+    func capturedMainWindowIsNotRefocusedAfterContextRemoval() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        window.isReleasedWhenClosed = false
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.orderOut(nil)
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            window.close()
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(app.contextForMainTerminalWindow(window, reindex: false) != nil)
+        app.unregisterMainWindowContextForTesting(windowId: windowId)
+        #expect(app.contextForMainTerminalWindow(window, reindex: false) == nil)
+        #expect(!window.isVisible)
+
+        app.bringToFront(window, reason: .focusMainWindow)
+
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
+    }
+
     @Test("Closed main window is not listed or focusable while its objects linger")
     func closedMainWindowIsNotListedOrFocusableWhileItsObjectsLinger() throws {
         _ = NSApplication.shared
