@@ -16,7 +16,7 @@ extension TerminalController {
         private var completedOperationIDs: Set<UUID> = []
         private var insertionOrder: [UUID] = []
         private var stateRevision: UInt64 = 0
-        private var pendingAcceptance: (id: UUID, task: Task<Bool, any Error>)?
+        private var pendingMutation: (id: UUID, task: Task<Bool, any Error>)?
 
         convenience init(capacity: Int) {
             self.init(
@@ -100,8 +100,8 @@ extension TerminalController {
         /// Memory changes only after the durable transaction commits.
         func accept(operationID: UUID) throws {
             guard !completedOperationIDs.contains(operationID) else { return }
-            guard pendingAcceptance == nil else {
-                throw WorkspaceCreateIdempotencyCacheError.acceptanceInProgress
+            guard pendingMutation == nil else {
+                throw WorkspaceCreateIdempotencyCacheError.mutationInProgress
             }
             try retryInitialLoadSynchronouslyIfNeeded()
 
@@ -114,10 +114,10 @@ extension TerminalController {
         /// main actor remains available for UI and later RPCs, and concurrent
         /// accepts are ordered from the last committed snapshot.
         func acceptAsynchronously(operationID: UUID) async throws -> Bool {
-            while let pendingAcceptance {
-                _ = try? await pendingAcceptance.task.value
-                if self.pendingAcceptance?.id == pendingAcceptance.id {
-                    self.pendingAcceptance = nil
+            while let pendingMutation {
+                _ = try? await pendingMutation.task.value
+                if self.pendingMutation?.id == pendingMutation.id {
+                    self.pendingMutation = nil
                 }
             }
             guard !completedOperationIDs.contains(operationID) else { return false }
@@ -140,13 +140,64 @@ extension TerminalController {
                 }
             }
             let pendingID = UUID()
-            pendingAcceptance = (pendingID, task)
+            pendingMutation = (pendingID, task)
             do {
                 let accepted = try await task.value
-                if pendingAcceptance?.id == pendingID { pendingAcceptance = nil }
+                if pendingMutation?.id == pendingID { pendingMutation = nil }
                 return accepted
             } catch {
-                if pendingAcceptance?.id == pendingID { pendingAcceptance = nil }
+                if pendingMutation?.id == pendingID { pendingMutation = nil }
+                throw error
+            }
+        }
+
+        /// Removes a durable acceptance only while it remains unassociated
+        /// with a live workspace, allowing a pre-start failure to be retried.
+        func releaseUnassociatedAcceptanceAsynchronously(operationID: UUID) async throws -> Bool {
+            while let pendingMutation {
+                _ = try? await pendingMutation.task.value
+                if self.pendingMutation?.id == pendingMutation.id {
+                    self.pendingMutation = nil
+                }
+            }
+            guard completedOperationIDs.contains(operationID),
+                  workspaceIDs[operationID] == nil else {
+                return false
+            }
+
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return false }
+                var persistedRemoval = false
+                while true {
+                    guard completedOperationIDs.contains(operationID),
+                          workspaceIDs[operationID] == nil else {
+                        if persistedRemoval {
+                            try await persistCurrentOrderUntilStable()
+                        }
+                        return false
+                    }
+
+                    let expectedRevision = stateRevision
+                    let nextOrder = insertionOrder.filter { $0 != operationID }
+                    try await persistenceWriter.saveOperationIDs(nextOrder)
+                    persistedRemoval = true
+                    guard stateRevision == expectedRevision,
+                          completedOperationIDs.contains(operationID),
+                          workspaceIDs[operationID] == nil else {
+                        continue
+                    }
+                    commitAcceptedOrder(nextOrder)
+                    return true
+                }
+            }
+            let pendingID = UUID()
+            pendingMutation = (pendingID, task)
+            do {
+                let released = try await task.value
+                if pendingMutation?.id == pendingID { pendingMutation = nil }
+                return released
+            } catch {
+                if pendingMutation?.id == pendingID { pendingMutation = nil }
                 throw error
             }
         }
@@ -154,7 +205,9 @@ extension TerminalController {
         /// Associates a live workspace after construction. This mapping is an
         /// in-memory convenience; durable acceptance remains authoritative.
         func associate(operationID: UUID, workspaceID: UUID) {
+            guard workspaceIDs[operationID] != workspaceID else { return }
             workspaceIDs[operationID] = workspaceID
+            stateRevision &+= 1
         }
 
         /// Session restore may discover a live operation created by an older
@@ -208,6 +261,15 @@ extension TerminalController {
             reconcileReloadedOperationIDs(loaded)
         }
 
+        private func persistCurrentOrderUntilStable() async throws {
+            while true {
+                let expectedRevision = stateRevision
+                let currentOrder = insertionOrder
+                try await persistenceWriter.saveOperationIDs(currentOrder)
+                guard stateRevision != expectedRevision else { return }
+            }
+        }
+
         private func reconcileReloadedOperationIDs(_ loaded: [UUID]) {
             let retained = Self.uniqueSuffix(loaded + insertionOrder, capacity: capacity)
             commitInMemory(retained)
@@ -223,7 +285,7 @@ extension TerminalController {
 }
 
 private enum WorkspaceCreateIdempotencyCacheError: Error {
-    case acceptanceInProgress
+    case mutationInProgress
 }
 
 private actor WorkspaceCreateIdempotencyPersistenceWriter {
