@@ -2,7 +2,8 @@ extension KeyboardShortcutSettings.Action {
     var isSystemWideHotkey: Bool { self == .showHideAllWindows }
 
     var allowsChordShortcut: Bool {
-        self != .fileExplorerOpenSelection
+        self != .showHideAllWindows
+            && self != .fileExplorerOpenSelection
             && self != .fileExplorerOpenSelectionFinderAlias
             && self != .cycleTextBoxSubmitAction
     }
