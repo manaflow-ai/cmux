@@ -7,7 +7,10 @@ internal import Foundation
 /// The persistent PTY wrappers therefore need stderr context before deciding
 /// whether an initial authentication attempt belongs in their reconnect loop.
 public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
+    /// Maximum consecutive transport failures before foreground auth surfaces the outage.
+    public let maximumConsecutiveTransientFailures = 20
     private let transientFailurePattern: String
+    private let permanentFailurePattern: String
 
     /// Creates the policy used by cmux's foreground SSH authentication wrappers.
     public init() {
@@ -19,6 +22,21 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "temporary failure in name resolution",
             "connection closed by unknown port 65535",
             "connection to unknown port 65535: broken pipe",
+        ].joined(separator: "|")
+        permanentFailurePattern = [
+            "permission denied",
+            "host key verification failed",
+            "remote host identification has changed",
+            "authentication failed",
+            "too many authentication failures",
+            "bad configuration option",
+            "no matching host key type found",
+            "no matching cipher found",
+            "no matching mac found",
+            "no matching key exchange method found",
+            "could not resolve hostname",
+            "name or service not known",
+            "nodename nor servname provided",
         ].joined(separator: "|")
     }
 
@@ -64,7 +82,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "cmux_ssh_auth_capture_status=$?",
             "wait \"$cmux_ssh_auth_capture_tee_pid\" 2>/dev/null || true",
             "cmux_ssh_auth_capture_tee_pid=",
-            "if [ \"$cmux_ssh_auth_capture_status\" -eq 255 ] && LC_ALL=C /usr/bin/grep -Eiq \(shellQuote(transientFailurePattern)) \"$cmux_ssh_auth_capture_log\"; then",
+            "if [ \"$cmux_ssh_auth_capture_status\" -eq 255 ] \\",
+            "  && ! LC_ALL=C /usr/bin/grep -Eiq \(shellQuote(permanentFailurePattern)) \"$cmux_ssh_auth_capture_log\" \\",
+            "  && LC_ALL=C /usr/bin/grep -Eiq \(shellQuote(transientFailurePattern)) \"$cmux_ssh_auth_capture_log\"; then",
             "  cmux_ssh_auth_capture_status=254",
             "fi",
             "trap - EXIT HUP INT TERM",

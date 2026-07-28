@@ -25,6 +25,21 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
+    @Test func permanentFailureTakesPrecedenceOverEarlierTransportDiagnostic() throws {
+        let result = try run(
+            """
+            printf '%s\\n' 'debug1: connect to address 2001:db8::1 port 22: Network is unreachable' >&2
+            printf '%s\\n' 'user@example.test: Permission denied (publickey,password).' >&2
+            exit 255
+            """
+        )
+
+        #expect(result.status == 255)
+        #expect(result.stderr.contains("Network is unreachable"))
+        #expect(result.stderr.contains("Permission denied"))
+        #expect(result.temporaryFiles.isEmpty)
+    }
+
     private func run(_ command: String) throws -> (
         status: Int32,
         stderr: String,

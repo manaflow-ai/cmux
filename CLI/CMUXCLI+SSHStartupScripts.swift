@@ -297,6 +297,7 @@ extension CMUXCLI {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOneTimeCommand = oneTimeCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasOneTimeCommand = trimmedOneTimeCommand?.isEmpty == false
+        let authRetryLimit = SSHForegroundAuthenticationRetryPolicy().maximumConsecutiveTransientFailures
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
@@ -356,6 +357,7 @@ extension CMUXCLI {
             "export CMUX_SSH_STARTUP_PID",
         ] + reconnectConfiguration + [
             "cmux_ssh_retry=0",
+            "cmux_ssh_auth_retry_limit=\(authRetryLimit); cmux_ssh_auth_retry=0",
             // Initial transient foreground-auth failures are a reconnect phase, so boot-time outages share this loop.
             "cmux_ssh_reauth_required=\(hasOneTimeCommand ? 1 : 0)",
             "CMUX_SSH_CHILD_PID=",
@@ -371,7 +373,7 @@ extension CMUXCLI {
         ]
         if hasOneTimeCommand {
             scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")
-            scriptLines += ["    ( cmux_ssh_foreground_auth )", "    cmux_ssh_status=$?", "    if [ \"$cmux_ssh_status\" -eq 0 ]; then cmux_ssh_reauth_required=0; elif [ \"$cmux_ssh_status\" -ne 254 ]; then break; fi", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
+            scriptLines += ["    ( cmux_ssh_foreground_auth )", "    cmux_ssh_status=$?", "    if [ \"$cmux_ssh_status\" -eq 0 ]; then cmux_ssh_reauth_required=0; cmux_ssh_auth_retry=0; elif [ \"$cmux_ssh_status\" -eq 254 ]; then if [ \"$cmux_ssh_auth_retry\" -ge \"$cmux_ssh_auth_retry_limit\" ]; then cmux_ssh_status=255; break; fi; cmux_ssh_auth_retry=$((cmux_ssh_auth_retry + 1)); else break; fi", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
         }
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty,
            !hasOneTimeCommand {
