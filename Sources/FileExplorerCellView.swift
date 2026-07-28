@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import UniformTypeIdentifiers
 
+@MainActor
 final class FileExplorerCellView: NSTableCellView {
     private let iconView: CmuxResolvedIconImageView
     private let nameLabel = NSTextField(labelWithString: "")
@@ -11,10 +12,14 @@ final class FileExplorerCellView: NSTableCellView {
     private var nameLabelTrailingToLoadingConstraint: NSLayoutConstraint!
     private var nameLabelTrailingToContainerConstraint: NSLayoutConstraint!
 
-    init(
-        identifier: NSUserInterfaceItemIdentifier,
-        iconRenderContext: CmuxResolvedIconRenderContext = CmuxResolvedIconRenderContext()
-    ) {
+    convenience init(identifier: NSUserInterfaceItemIdentifier) {
+        self.init(
+            identifier: identifier,
+            iconRenderContext: CmuxResolvedIconRenderContext()
+        )
+    }
+
+    init(identifier: NSUserInterfaceItemIdentifier, iconRenderContext: CmuxResolvedIconRenderContext) {
         iconView = CmuxResolvedIconImageView(frame: .zero, renderContext: iconRenderContext)
         super.init(frame: .zero)
         self.identifier = identifier
