@@ -9,7 +9,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use base64::Engine as _;
-use cmux_tui_core::{Rect, SurfaceId};
+use cmux_tui_core::{BrowserFrame, Rect, SurfaceId};
 use ghostty_vt::{KittyImage, KittyImageFormat, KittyPlacement};
 
 const ESC: &str = "\x1b";
@@ -74,14 +74,18 @@ impl GraphicFormat {
 
 #[derive(Debug, Clone)]
 pub enum GraphicData {
+    #[cfg(test)]
     Base64(Arc<str>),
+    BrowserFrame(Arc<BrowserFrame>),
     Bytes(Arc<[u8]>),
 }
 
 impl GraphicData {
     fn base64(&self) -> Cow<'_, str> {
         match self {
+            #[cfg(test)]
             Self::Base64(encoded) => Cow::Borrowed(encoded),
+            Self::BrowserFrame(frame) => Cow::Borrowed(&frame.data_b64),
             Self::Bytes(bytes) => {
                 Cow::Owned(base64::engine::general_purpose::STANDARD.encode(bytes))
             }
@@ -121,6 +125,35 @@ pub struct GraphicPlacement {
 }
 
 impl GraphicPlacement {
+    pub fn browser_frame(
+        namespace: u64,
+        surface: SurfaceId,
+        rect: Rect,
+        frame: Arc<BrowserFrame>,
+        source: Option<GraphicSourceRect>,
+    ) -> Self {
+        let image_key = GraphicImageKey { namespace, surface, image_id: 0 };
+        Self {
+            key: GraphicPlacementKey { image: image_key, placement_id: 0, ordinal: 0 },
+            image: Arc::new(GraphicImage {
+                key: image_key,
+                generation: frame.seq,
+                width: frame.image_width,
+                height: frame.image_height,
+                format: GraphicFormat::Png,
+                data: GraphicData::BrowserFrame(frame),
+            }),
+            rect,
+            columns: Some(u32::from(rect.width)),
+            rows: Some(u32::from(rect.height)),
+            source,
+            x_offset: 0,
+            y_offset: 0,
+            z: 0,
+        }
+    }
+
+    #[cfg(test)]
     pub fn browser(
         namespace: u64,
         surface: SurfaceId,

@@ -5,7 +5,7 @@ use std::io::Write;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread::{JoinHandle, ThreadId};
 use std::time::Duration;
 #[cfg(unix)]
@@ -300,7 +300,7 @@ struct WritePermit<'a> {
 
 impl WritePermit<'_> {
     fn superseded(&self) -> bool {
-        self.slot.lock().unwrap().revision != self.revision
+        lock_recover(self.slot).revision != self.revision
     }
 
     fn should_abort(&self) -> bool {
@@ -515,7 +515,7 @@ impl GraphicsWriter {
             return;
         }
         let Some(tx) = &self.notify else { return };
-        let mut pending = self.slot.lock().unwrap();
+        let mut pending = lock_recover(&self.slot);
         pending.revision = pending.revision.wrapping_add(1).max(1);
         pending.host_scene_epoch = pending.host_scene_epoch.wrapping_add(1);
         if pending.host_scene_epoch == 0 {
@@ -550,7 +550,7 @@ impl Drop for GraphicsWriter {
 }
 
 fn submit_snapshot(slot: &Arc<Mutex<PendingGraphics>>, tx: &SyncSender<()>, scene: GraphicsScene) {
-    let mut pending = slot.lock().unwrap();
+    let mut pending = lock_recover(slot);
     pending.revision = pending.revision.wrapping_add(1).max(1);
     pending.scene = Some(scene);
     drop(pending);
@@ -568,7 +568,7 @@ fn take_pending_update(
     slot: &Arc<Mutex<PendingGraphics>>,
     applied_host_scene_epoch: u64,
 ) -> Option<PendingUpdate> {
-    let mut pending = slot.lock().unwrap();
+    let mut pending = lock_recover(slot);
     if pending.scene.is_none() && pending.host_scene_epoch == applied_host_scene_epoch {
         return None;
     }
@@ -633,7 +633,7 @@ fn writer_loop<O>(
                 if control.is_cancelled() {
                     break 'writer;
                 }
-                if slot.lock().unwrap().revision != update.revision {
+                if lock_recover(&slot).revision != update.revision {
                     host_reset_required |= wrote_batch;
                     completed = false;
                     break;
@@ -671,7 +671,7 @@ fn writer_loop<O>(
         }
     }
     if !control.is_cancelled() && control.failure().is_none() {
-        let revision = slot.lock().unwrap().revision;
+        let revision = lock_recover(&slot).revision;
         for batch in graphics.frame_batches(&[]) {
             if !matches!(
                 write_batch(&mut output, &stdout_lock, &slot, &control, revision, &batch,),
@@ -947,6 +947,10 @@ fn next_graphics_write_end(batch: &[u8], start: usize) -> Option<usize> {
         }
     }
     (end > start).then_some(end)
+}
+
+fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 struct DoneOnDrop(Arc<WriterControl>);
