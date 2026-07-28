@@ -1,10 +1,16 @@
 import Foundation
 
+enum AgentHibernationReclaimTrigger: Sendable {
+    case scheduled
+    case systemMemoryPressure
+}
+
 enum AgentHibernationPlanner {
     static func selectedPanelKeys(
         inputs: [AgentHibernationPlannerInput],
         settings: AgentHibernationSettings.Values,
-        now: TimeInterval
+        now: TimeInterval,
+        trigger: AgentHibernationReclaimTrigger = .scheduled
     ) -> Set<AgentHibernationPanelKey> {
         guard settings.enabled else { return [] }
         let liveRestorable = inputs.filter { $0.hasRestorableAgent && $0.isLive }

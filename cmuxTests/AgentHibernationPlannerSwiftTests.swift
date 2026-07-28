@@ -230,6 +230,90 @@ struct AgentHibernationPlannerSwiftTests {
         #expect(selected == Set([safeAgent]))
     }
 
+    @Test
+    func criticalPressureSelectsOnlySafeIdleAgentsWhenScheduledHibernationIsDisabled() {
+        let workspaceId = UUID()
+        let now: TimeInterval = 1_000
+        let idle = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let visible = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let running = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let liveProcess = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let unconfirmedInput = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let unableToProtect = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: false,
+            idleSeconds: 60,
+            maxLiveTerminals: 256,
+            confirmationSeconds: 5
+        )
+
+        let selected = AgentHibernationPlanner.selectedPanelKeys(
+            inputs: [
+                .init(
+                    key: idle,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: now
+                ),
+                .init(
+                    key: visible,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: true,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: 0
+                ),
+                .init(
+                    key: running,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: false,
+                    lifecycle: .running,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: 0
+                ),
+                .init(
+                    key: liveProcess,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    hasLiveProcess: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: 0
+                ),
+                .init(
+                    key: unconfirmedInput,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: true,
+                    lastActivityAt: 0
+                ),
+                .init(
+                    key: unableToProtect,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    isTemporarilyUnableToProtect: true,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: 0
+                ),
+            ],
+            settings: settings,
+            now: now,
+            trigger: .systemMemoryPressure
+        )
+
+        #expect(selected == Set([idle]))
+    }
+
     @MainActor
     @Test
     func unableToProtectMarkerExpiresSoTransientSnapshotFailuresRetry() {
