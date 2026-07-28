@@ -7,27 +7,11 @@ import {
 } from "@/i18n/seo";
 
 export function legalMetadata(
-  path: string,
-  title: string,
-  summary: string,
-): Metadata;
-export function legalMetadata(
   locale: string,
   path: string,
   title: string,
   summary: string,
-): Metadata;
-export function legalMetadata(
-  localeOrPath: string,
-  pathOrTitle: string,
-  titleOrSummary: string,
-  localizedSummary?: string,
 ): Metadata {
-  const locale = localizedSummary === undefined ? "en" : localeOrPath;
-  const path = localizedSummary === undefined ? localeOrPath : pathOrTitle;
-  const title = localizedSummary === undefined ? pathOrTitle : titleOrSummary;
-  const summary =
-    localizedSummary === undefined ? titleOrSummary : localizedSummary;
   const description = seoDescription(locale, summary, { minLength: 0 });
   const alternates = buildAlternates(locale, path);
 
@@ -43,4 +27,19 @@ export function legalMetadata(
     },
     twitter: twitterSummary(locale, title, description),
   };
+}
+
+type RawMessageReader = {
+  raw(key: string): unknown;
+};
+
+export function rawStringList(
+  translator: RawMessageReader,
+  key: string,
+): readonly string[] {
+  const value = translator.raw(key);
+  return Array.isArray(value) &&
+    value.every((item): item is string => typeof item === "string")
+    ? value
+    : [];
 }

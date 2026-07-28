@@ -574,7 +574,7 @@
         "superRepoP1": "超級倉庫是一種控制檢查，它知道所有真實倉庫的位置、如何創建工作樹、如何配對相關倉庫、哪些腳本準備每個工作區以及如何審查和合併 PR。 cmuxterm-hq 是一個超級儲存庫：它包含主要 cmux 簽出、每個任務的 cmux 工作樹、Zed 簽出、hq 腳本、可重用技能以及代理遵循的規則以避免相互幹擾。",
         "superRepoP2": "<code>AGENTS.md</code> 檔案是控制平面。它會命名代理可能需要的儲存庫，定義每個任務工作樹的位置，並指向每個庫的設定指令。一個任務可以為終端機、瀏覽器整合和路由器建立相符的工作樹，而不必為每個任務複製三個。",
         "agentTitle": "讓代理管理工作樹",
-        "agentP1": "cmux 在內部使用這種模式。公開來源存在於 <cmux>manaflow-ai/cmux</cmux>，而我們的私有控制倉庫則是 <hq>manaflow-ai/cmuxterm-hq</hq>。從總部根起，我們可以請求 Codex 或 Claude Code 修正可能觸及 cmux的子路由器問題。代理程式只建立它需要的工作樹，讀取每個儲存庫的 .md AGENTS，啟動設定腳本，並在這些腳本執行時開始檢查程式碼。",
+        "agentP1": "cmux 在內部使用這種模式。公開原始碼存在於 <cmux>manaflow-ai/cmux</cmux>，而我們的私有控制倉庫則<hq>manaflow-ai/cmuxterm-hq</hq>。從總部根節點，我們可以請求Codex或Claude Code修正可能觸及cmux的子路由器問題。代理程式只建立它需要的工作樹，讀取每個倉庫的AGENTS.md，啟動設定腳本，並在這些腳本執行時開始檢查程式碼。",
         "agentP2": "<code>./scripts/new-worktree.sh</code> 指令實作一種拓撲。代理可以選擇第二個檢查對象來處理不相容的子模組、遠端沙盒用於不受信任的設定、虛擬機用於其他作業系統，或GPU排程器來執行實驗，然後再用腳本來處理確定性部分。",
         "limitsTitle": "為什麼內建工作樹支援丟失",
         "limitsP1": "產品級工作樹功能可以針對常見情況進行完善，但邊緣情況會立即出現：沒有 Git、多個儲存庫、產生的用戶端、私有設定腳本、配對的後端/前端分支、不尋常的合併策略，或故意將小的內部變更推送到 main 的團隊。",
@@ -582,7 +582,7 @@
         "cmuxTitle": "cmux 為工作流程提供了一個介面",
         "cmuxP1": "cmux 不需要內建一個通用 worktree 管理器。它提供<customCommands>自訂命令</customCommands>、可程式化的<api>CLI 和 socket API</api>，以及可重複使用的<skills>技能</skills>。加號按鈕可以啟動你自己的 worktree 命令、多 repo 設定、非 Git 沙盒或遠端環境。",
         "cmuxP2": "這就是 <home>cmux home</home> 重要的原因。最好的 worktree 管理器，是當工作流程改變時你的代理也能修改的那個；而最適合這個循環的終端機，會把通知、Cmd+Shift+U 和 Cmd+Control+U 接到介面裡。",
-        "agentsExample": "你正在 cmux總部工作。任務可能包括：\n- Manaflow-AI/cmux\n- Manaflow-AI/cmux-瀏覽器\n- Manaflow-AI/Subrouter\n\n當使用者要求新任務時：\n1. 決定任務需要哪些儲存庫。\n2. 在 worktrees/[task]/[repo] 中建立相符的工作樹。\n3. 閱讀每個工作樹的 AGENTS.md.\n4. 立即啟動設定腳本，然後繼續執行任務。",
+        "agentsExample": "你正在cmux總部工作。任務可能包括：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\n當使用者要求新任務時：\n1. 決定任務需要哪些儲存庫。\n2. 在worktrees/[task]/[repo]中建立相符的工作樹。\n3. 閱讀每個工作樹的AGENTS.md。\n4. 立即啟動設定腳本，然後繼續執行任務。",
         "launchCommand": "光碟 ~/fun/cmux-hq\nCodex --yolo 「修正 subrouter xyz 問題，可能以 xyz 方式與 cmux 相關」"
       },
       "cmuxFork": {
@@ -691,7 +691,7 @@
         "limitsP": "tmux、vim、shell 與未支援工具會以一般終端機重新開啟，除非它們有 cmux 整合可記錄安全的原生還原指令。這讓還原保持可預期，並避免重播過期提示或密鑰。",
         "docsCta": "閱讀<link>工作階段還原文件</link>，了解設定指令、支援代理與疑難排解。",
         "workflowTitle": "推薦配置",
-        "workflowInstall": "安裝你使用的代理 CLI ，然後執行 cmux hook 設定，這樣 cmux 就能擷取原生 session ID。",
+        "workflowInstall": "安裝你使用的代理 CLI，然後執行 cmux hooks setup，讓cmux能擷取原生 session ID。",
         "workflowWork": "在一般的 cmux 終端機中執行代理。掛鉤會記錄工作階段 ID、cwd、workspace 和 surface。",
         "workflowRelaunch": "重新啟動後， cmux 會重建視窗和窗格樹，然後再開始任何已儲存的代理程式續航指令。",
         "workflowVerify": "檢查恢復的代理是否繼續進行同一個上游會話，然後繼續在同一個工作區工作。",
@@ -806,12 +806,11 @@
         "summary": "其中一個指令會給你持久的遠端會話、可到達遠端埠口的瀏覽器窗格，以及會送回的代理通知。",
         "date": "2026年3月30日",
         "p1": "<code>cmux ssh user@remote</code> 為遠端機器建立一個工作區。把圖片拖到遠端 Claude Code 會話，它會自動上傳。瀏覽器的面板會透過遠端網路路由，所以 localhost 就這樣運作。會用你的 <code>~/.ssh/config</code>，斷線時會重新連線。",
-        "features": "瀏覽器窗格會將流量路由遠端網路，因此 localhost：3000 會直接到達遠端開發伺服器且不會有 -L 標記。遠端主機上的編碼代理會將通知發送到你本地側邊欄。 cmux Claude-Teams 和 cmux omo 會透過 SSH運作，在本地生成隊友視窗，而計算則遠端進行。將檔案拖入遠端終端機，透過 SCP 上傳。側邊欄會顯示連線狀態和偵測到的監聽埠。",
         "featureItems": [
           "瀏覽器窗格會透過遠端機器路由，因此 localhost：3000 能直接到達遠端開發伺服器，無需埠轉發",
           "把圖片拖到遠端終端機，透過 SCP 上傳",
           "遠端機器上的編碼代理會將通知傳送到你本地側邊欄",
-          "cmux Claude 團隊和 cmux omo 在 SSH上工作，會生成本地隊友視窗，而遠端執行",
+          "cmux claude-teams 和 cmux omo 會在同一SSH上運作，讓隊友在本地生成窗格，而遠端運算則在",
           "側邊欄顯示連線狀態和偵測到的聆聽埠"
         ],
         "videoTitle": "cmux SSH 示範",
@@ -1011,27 +1010,27 @@
       "rowSession": "側邊欄有專門的工作區。",
       "rowWindow": "在那個工作區裡的一個分頁。",
       "rowPane": "在那個分頁裡的原生分割區裡。",
-      "mappingPanes": "新功能是分頁內有窗格： cmux 分頁過去只用來放置單一終端機，但 tmux 視窗中有多個窗格，現在會以一個分頁內的真實 cmux 分割版面呈現——每個遠端窗格都是帶有常見鍍鉻功能的 cmux 終端機窗格。橋接是雙向的：分割或關閉該分頁中的窗格會 tmux 分割視窗，重新排序分頁則會用交換視窗重新排序 tmux 視窗。",
+      "mappingPanes": "新功能是分頁內的窗格：cmux分頁過去只存放單一終端機，但tmux視窗包含多個窗格，現在會以一個分頁內的真實cmux分割版面呈現——每個遠端窗格都是帶有常見鍍鉻功能的cmux終端窗格。橋接是雙向的：分割或關閉該分頁中的窗格會tmux split-window，重新排序標籤則會重新排序tmux視窗，並以swap-window重新排序。",
       "requirementsTitle": "需求",
       "requirementsDesc": "一個可連線的 SSH 主機（cmux 讀取你的 ~/.ssh/config），且安裝 tmux 3.2 或更新版本。控制模式（tmux -CC）是標準的 tmux 功能，因此不需要特殊建置; cmux 在連接前會檢查遠端 tmux 版本，且在舊伺服器上明顯失敗。 cmux 透過 SSH ControlMaster 連線連接，且遠端 tmux 伺服器在你斷開時仍會繼續運行。",
       "enableTitle": "啟用它",
       "enableDesc": "打開 Beta Features →設定並開啟遠端 tmux。預設是關閉這個開關，所以在你選擇加入之前，本地終端機的設定不會改變。",
       "attachTitle": "連接",
-      "attachIntro": "在終端機中執行 ssh-tmux <destination> cmux — ~/.ssh/config別名或user@host。cmux 會將該主機的 tmux 會話鏡像到目前視窗的側邊欄：每個工作階段變成工作區，每個視窗變成分頁，多窗格視窗則變成分頁內分割。",
+      "attachIntro": "在終端機執行 cmux ssh-tmux <destination> — 用 ~/.ssh/config 別名或 user@host。cmux 會將該主機的tmux 會話鏡像到目前視窗的側邊欄：每個工作階段變成工作區，每個視窗變成分頁，多窗格視窗則變成分頁內分割。",
       "attachNewWindow": "傳 --new-window 讓鏡子在專用的新視窗中開啟，而不是目前的視窗。",
-      "attachSockets": "遙控器。tmux.* socket 指令（如下）提供更細緻的控制。遙控器。tmux.mirror 是鏡像的入口點;它接受視窗/呼叫者路由，並可選擇鏡像工作區。",
+      "attachSockets": "remote.tmux.* socket 指令（如下）提供更細緻的控制。remote.tmux.mirror 是鏡像入口點;它接受視窗/呼叫者路由，並可選擇鏡像工作區。",
       "attachCli": "非互動式認證的主機（如 ssh-agent，或 ~/.ssh/config中的金鑰）會無提示地連接。若主機需要互動式驗證（密碼、主機金鑰確認或 MFA）， cmux 會在終端機內聯執行 ssh，讓你能進行認證，然後鏡像到目前視窗。接受 --port、 --identity和 --no-focus。",
       "troubleshootTitle": "如果你收到「許可被拒」",
       "troubleshootDesc": "目的地會直接交給 ssh，因此別名必須包含 ssh 登入所需的所有資訊——最常見的是 User（沒有別名，ssh 會嘗試你的本地使用者名稱）和 IdentityFile：",
       "troubleshootFallback": "或者明確傳達使用者： cmux ssh-tmux dev@my-ssh-alias。如果普通的 ssh <destination> 不讓你登入， cmux ssh-tmux <destination> 也不會。",
       "howTitle": "運作原理",
-      "howDesc": "cmux 產生 ssh ... tmux -CC attach 並解析控制模式串流本身，而非依賴內建的 tmux 檢視器，因此協定與 %bestart/%end 指令關聯完全由 cmux擁有。每個遠端窗格渲染成由 %output 輸入的專用終端 tmux ，你的輸入——按鍵與滑鼠——會以 tmux 發送金鑰轉發。遠端 tmux 伺服器擁有窗格大小與重流處理; cmux 會讓其面板與其同步，且不會在本地重流。",
+      "howDesc": "cmux 生成 ssh ...tmux -CC 連接並解析控制模式串流本身，而非依賴內建的 tmux 檢視器，因此協定與 %bestart/%end 指令關聯完全由 cmux 擁有。每個遠端窗格渲染成tmux由 %output 輸入的專用終端面板，輸入——按鍵與滑鼠——會隨 tmux send-keys 轉發。遠端tmux伺服器擁有面板大小與回流;cmux 會與其面板同步，且不會在本地重新流排。",
       "behaviorTitle": "它所支援的是什麼",
       "behaviorSize": "尺寸調整：遠端客戶端會調整到渲染後的格子大小（refresh-client -C），所以 TUI 不會停留在 tmux預設的 80×24。",
-      "behaviorSplit": "分割：在鏡像視窗中分割或關閉窗格會透過分割視窗傳播到 tmux ，因此 cmux 版面配置與 tmux 版面配置保持同步。程式化分割（cmux 新分割或透過 socket surface.split ）報告接受且無 surface id——新窗格在確認版面變更後 tmux 非同步抵達。攜帶路由分割無法執行選項（啟動指令、工作目錄、分隔器位置、左/上放置）的請求會在遠端工作階段變異前被拒絕。",
-      "behaviorReorder": "重新排序：拖曳鏡像分頁會用交換視窗重新排序 tmux 視窗。",
+      "behaviorSplit": "分割：在鏡像視窗中分割或關閉窗格會與 split-window 一起傳播到 tmux，因此cmux版面配置與 tmux 版面會保持同步。程式化分割（cmux new-split 或 surface.split 透過 socket）報告接受，但沒有 surface ID——當tmux確認版面變更後，新窗格會非同步抵達。攜帶路由分割無法執行選項的請求（啟動指令、工作目錄、分隔器位置、左/上放置）會在遠端工作階段變異前被拒絕。",
+      "behaviorReorder": "重新排序：拖曳重排序鏡像分頁會重新排序tmux視窗，並swap-window。",
       "behaviorCwd": "工作目錄：遠端窗格目前的資料夾會被追蹤並在分頁中顯示。",
-      "behaviorPaste": "貼上與刪除：貼上文字和刪除的圖片/檔案會經過 tmux 貼上緩衝區 -p，因此遠端應用程式（例如程式代理程式）會收到真正的括號貼上——圖片以 [圖片 #N]（圖片]形式抵達，而非本地路徑。",
+      "behaviorPaste": "貼上與放置：貼上文字和丟棄的圖片/檔案會經過tmux paste-buffer -p，因此遠端應用程式（例如程式代理）會收到真正的括號貼上——圖片以 [圖片 #N]（圖片]形式抵達，而非本地路徑。",
       "behaviorMouse": "滑鼠：當遠端應用程式開啟滑鼠模式時，點擊、捲動並拖曳即可到達。拖曳時按住 Shift 鍵，可以選擇 cmux 文字（就像任何運行滑鼠模式應用程式的終端機一樣）。",
       "behaviorUnicode": "Unicode 正確的輸出：即使 tmux 在更新中拆分多位元組字元，仍會保留，因此繪製框框及其他寬度內容能清晰呈現。",
       "socketTitle": "套接字指令",
@@ -1046,8 +1045,8 @@
       "methodState": "回報控制客戶端觀察到的狀態（診斷結果）。",
       "socketSafetyDesc": "破折號前綴的主機或身份檔案會在信任邊界被拒絕，作為防止選項注入 SSH 防禦。",
       "limitationsTitle": "限制",
-      "limitReconnect": "暫態 SSH 掉落會自動重新連線：如果連線在會話中途閃爍，鏡像會凍結， cmux 會以上限指數退回重試，恢復時重新播種窗格。鏡像只有在遠端工作結束或關閉鏡子視窗或退出 cmux 時才會永久關閉——而且重啟時不會恢復（用 ssh 重新連接 cmuxtmux）。",
-      "limitPaste": "只有單行貼上/刪除（例如檔案或圖片路徑）會以真實的括號貼上方式透過貼上緩衝區 -p 傳送;多行文字是以純按鍵方式傳送，因此遠端應用程式不會將其視為單一貼上。",
+      "limitReconnect": "暫時SSH斷線會自動重新連線：如果連線在會話中途閃爍，鏡像會凍結，cmux會以上限指數退回方式重試，恢復時會重新播種窗格。鏡像只有在遠端會話結束時，或是關閉鏡子視窗或退出cmux時才會永久關閉，且重啟時不會恢復（用cmux ssh-tmux重新連接）。",
+      "limitPaste": "只有單行貼上/放置（例如檔案或圖片路徑）會以真實的括號貼paste-buffer -p形式呈現;多行文字則以純按鍵方式傳送，因此遠端應用程式不會將其視為單一貼上。",
       "limitCwd": "即時工作目錄更新會使用控制模式訂閱，這也是為什麼 cmux 需要 tmux 3.2 或更新版本才能開啟鏡像。",
       "limitReflow": "主螢幕捲動在重新調整大小時不會重新包裝—— cmux 留回流流為 tmux，因此舊線條可以保持原寬度直到應用程式重新繪製。全螢幕 TUI 在重新繪製時不會受影響。"
     },
@@ -1443,13 +1442,13 @@
       "actionTypeWorkspace": "從內嵌工作區定義建立工作區，並可選地啟動操作。此功能可自動在 new-workspace 加按鈕選單中提供。",
       "actionFieldNewWorkspaceMenu": "設為 true 以提供 new-workspace plus 按鈕選單中的任何動作，或設為 false 以隱藏工作區的動作。",
       "workspaceActions": "工作區佈局",
-      "workspaceActionsDesc": "工作區佈局以 <workspace>工作區</workspace> 動作形式儲存，將完整工作區定義直接嵌入動作中，因此不需要單獨的 <commands>指令</commands> 輸入。它支援相同的工作區欄位，還有 <setup>設定</setup>，並在該終端機自身指令之前，先發送到第一個終端機：",
-      "workspaceActionsMenuDesc": "工作區的配置會自動出現在加號右鍵選單中。將 <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> 設 <falseValue>為 false</falseValue> 以隱藏其中一頁，或將其他動作設 <trueValue>為 true</trueValue> ，以新增到選單中。",
-      "workspaceActionsSaveDesc": "你也可以不寫 JSON來建立這些檔案：右鍵加號按鈕，選擇 <saveLayout>將工作區儲存為版面</saveLayout> ，將目前工作區的分割、目錄、執行中的代理和瀏覽器分頁都匯入 <configPath>~/.config/cmux/cmux.json</configPath>。這些會以條目形式儲存在 <actions>動作</actions> 區塊中。 <customize>自訂工作區版面</customize> 會在你的編輯器中開啟該檔案。",
+      "workspaceActionsDesc": "工作區佈局以 <workspace>workspace</workspace> 動作形式儲存，將完整工作區定義直接嵌入動作中，因此不需要單獨的 <commands>commands</commands> 輸入。它支援相同的工作區欄位，還有 <setup>setup</setup>，並在該終端機自身指令之前，先發送到第一個終端機：",
+      "workspaceActionsMenuDesc": "工作區的配置會自動出現在加號右鍵選單中。將 <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> 設 <falseValue>false</falseValue> 以隱藏其中一頁，或將其他動作設 <trueValue>true</trueValue> ，以新增到選單中。",
+      "workspaceActionsSaveDesc": "你也可以不寫 JSON來建立這些檔案：右鍵加號按鈕，選擇 <saveLayout>Save Workspace as Layout</saveLayout> ，將目前工作區的分割、目錄、執行中的代理和瀏覽器分頁都匯入 <configPath>~/.config/cmux/cmux.json</configPath>。這些會以條目形式儲存在 <actions>actions</actions> 區塊中。 <customize>Customize Workspace Layouts</customize> 會在你的編輯器中開啟該檔案。",
       "wsFieldEnv": "環境變數由工作區中每個 shell 繼承",
       "wsFieldSetup": "Bootstrap 指令先傳送到工作區的第一個終端機，再先送出該終端機的指令",
       "workspaceActionsDefaultTitle": "新工作區的預設",
-      "workspaceActionsDefaultDesc": "使用<defaultMenu>「新工作區預設</defaultMenu>」子選單選擇應該執行哪個已儲存的工作區配置，或選擇「無」以返回空白終端機。儲存對話框中也有「<checkbox>新工作區預設使用</checkbox>」的勾選框。設定為 <action>ui.newWorkspace.action</action>;一個專案本地<localConfig>。cmux/cmux.json</localConfig> 值勝過 <globalConfig>~/.config/cmux/cmux.json</globalConfig>。"
+      "workspaceActionsDefaultDesc": "使用<defaultMenu>Default for New Workspace</defaultMenu>」子選單選擇應該執行哪個已儲存的工作區配置，或選擇「無」以返回空白終端機。儲存對話框中也有「<checkbox>Use as default for new workspaces</checkbox>」的勾選框。設定為 <action>ui.newWorkspace.action</action>;一個專案本地<localConfig>.cmux/cmux.json</localConfig> 值勝過 <globalConfig>~/.config/cmux/cmux.json</globalConfig>。"
     },
     "keyboardShortcuts": {
       "title": "鍵盤快捷鍵",
@@ -1860,7 +1859,7 @@
       "base": "基地",
       "ssh": "SSH",
       "remoteTmux": "遠端 tmux",
-      "ohMyPi": "喔，我的——",
+      "ohMyPi": "oh-my-pi",
       "vault": "跳馬",
       "taskManager": "工作管理員"
     },
@@ -1986,7 +1985,7 @@
       "dragDropTitle": "拖放",
       "dragDropDesc": "將影像或檔案拖曳到遠端終端中，cmux 透過現有 SSH 連線透過 scp 上傳。 cmux 透過 TTY 偵測前台 SSH 進程，並透過 ControlMaster 多路復用路由上傳。",
       "notificationsTitle": "通知",
-      "notificationsDesc": "遠端電腦上的進程可以執行在本機執行個體上執行的 cmux 命令。當編碼代理程式在遠端盒子上呼叫 cmux 通知時，通知會顯示在本機側邊欄中。工作區選項卡上的藍色環亮起。 Cmd+Shift+U 跳到它。透過每台主機的冷卻時間來抑制來自不穩定連線的通知垃圾郵件。",
+      "notificationsDesc": "遠端機器上的程序可以執行cmux指令，這些指令會在你的本地實例執行。當程式代理在遠端主機呼叫cmux notify時，通知會出現在你的本地側邊欄。工作區分頁上的藍色環會亮起。按 Cmd+Shift+U 跳到那裡。來自不穩定連線的通知垃圾訊息會被抑制，並有每個主機的冷卻時間。",
       "agentsTitle": "透過 SSH 編碼代理",
       "agentsDesc": "cmux claude-teams 和 cmux omo 都在 SSH 會話中工作。遠端主機上的 Go 中繼守護程式處理與本機 Swift CLI 相同的 tmux-compat 轉換。當計算在遠端機器上運行時，隊友代理會在本機上本機 cmux 分割時產生。",
       "reconnectTitle": "重新連接",
@@ -2043,7 +2042,7 @@
       "firstRunStep4": "在 oh-my-opencode 設定中啟用 tmux 模式（tmux.enabled 預設為 false，cmux omo 會開啟它）",
       "firstRunSafe": "你原本的 ~/.config/opencode/ 設定永遠不會被修改。執行純開放程式碼的運作方式和以前一樣。",
       "howItWorks": "運作原理",
-      "howItWorksDesc": "與 cmux claude 團隊的模式相同。tmux shim 攔截 oh-my-openagent的 TmuxSessionManager tmux指令，並將其轉譯成cmux API呼叫。",
+      "howItWorksDesc": "模式與cmux claude-teams相同。tmux shim 會攔截 oh-my-openagent 的 TmuxSessionManager tmux指令，並將其轉換成cmux API 呼叫。",
       "shimStep1": "在~/.cmuxterm/omo-bin/tmux產生一個tmux墊片，並導向 cmux __tmux-compat",
       "shimStep2": "設定 TMUX 和 TMUX_PANE 以模擬 tmux 會話",
       "shimStep3": "啟用oh-my-opencode設定中的 tmux.enabled（視覺窗格生成所需）",
@@ -2168,11 +2167,11 @@
       "metaTitle": "Claude Code 隊伍 - cmux",
       "metaDescription": "Claude Codecmux內的特工團隊一起跑。隊友特工會以原生cmux分割生成，而不是tmux窗格。",
       "nightlyWarning": "僅在 <nightly>夜間版本</nightly> 中提供。",
-      "intro": "cmux Claude-Teams 啟動 Claude Code 時啟用了代理團隊。當 Claude 生成隊友代理時，他們會以原生 cmux 分割顯示，而非 tmux 面板，並附有完整的側邊欄元資料和通知。",
+      "intro": "cmux claude-teams 啟動時啟用了代理團隊Claude Code。當 Claude 生成隊友代理時，他們會以原生cmux分割呈現，而非tmux面板，並附有完整的側邊欄元資料和通知。",
       "usage": "使用情況",
       "usageDesc": "所有 claude 團隊之後的參數都會轉發到 Claude Code。指令預設隊友模式為自動，並設定環境使 Claude 使用 cmux 分割。",
       "howItWorks": "運作原理",
-      "howItWorksDesc": "cmux Claude 團隊會建立一個 tmux shim 腳本，並設定環境讓 Claude Code 以為它在 tmux內執行。當 Claude 發出 tmux 指令來管理隊友面板時，shim 會將它們轉譯成 cmux socket API 呼叫。",
+      "howItWorksDesc": "cmux claude-teams 建立一個 tmux shim 腳本，並設定環境，讓 Claude Code 以為它在 tmux 內執行。當 Claude 發出管理隊友面板的 tmux 指令時，shim 會將它們轉譯成cmux socket API 呼叫。",
       "shimStep1": "在~/.cmuxterm/claude-teams-bin/tmux產生一個tmux墊片，並導向 cmux __tmux-compat",
       "shimStep2": "設定 TMUX 並 TMUX_PANE 環境變數以模擬 tmux 會話",
       "shimStep3": "在 PATH 前加上 shim 目錄，讓Claude在實際 tmux 之前找到 shim",
@@ -2200,8 +2199,8 @@
       "mapList": "清單 cmux 窗格或工作區"
     },
     "ohMyCodex": {
-      "title": "喔，我的法典",
-      "metaTitle": "喔，我的法典 - cmux",
+      "title": "oh-my-codex",
+      "metaTitle": "oh-my-codex - cmux",
       "metaDescription": "在 cmux 裡執行 Oh My Codex（OMX）並內建分割面板整合，用於團隊模式和代理協調。",
       "intro": "cmux omx 在一個cmux感知環境中啟動 Oh My Codex（OMX）。OMX 是 OpenAI Codex CLI 的多代理協調層，擁有 30+ 個專業代理角色、工作流程技能，以及基於 tmux的平行團隊執行。當 OMX 生成團隊面板或HUD顯示時，這些頁面會成為原生的 cmux 分割。",
       "usage": "使用情況",
@@ -2233,8 +2232,8 @@
       "envSocket": "連接墊片的 cmux 控制插座路徑"
     },
     "ohMyPi": {
-      "title": "喔，我的——",
-      "metaTitle": "天啊—— cmux",
+      "title": "oh-my-pi",
+      "metaTitle": "oh-my-pi - cmux",
       "metaDescription": "用狀態、通知、會話還原、自動命名和工作管理員歸屬等掛鉤，將 oh-my-pi（omp）連接到 cmux 。",
       "intro": "oh-my-pi 是 Pi 的分支，重寫為以編碼為優先的代理。它的二進位是 omp， cmux 透過 omp hooks 擴充與之整合。",
       "setupUsage": "設置與使用",
@@ -2259,8 +2258,8 @@
       "envCmuxBin": "覆蓋鉤子延伸所呼叫的 cmux 二進位"
     },
     "ohMyClaudeCode": {
-      "title": "天啊，我的克勞德密碼",
-      "metaTitle": "喔，我的克勞德密碼 - cmux",
+      "title": "oh-my-claudecode",
+      "metaTitle": "oh-my-claudecode - cmux",
       "metaDescription": "在 cmux 裡執行 Oh My Claude Code （OMC） 並內建分割面板整合，方便多代理協調。",
       "intro": "cmux omc 在cmux感知環境中啟動 Oh My Claude Code（OMC）。OMC 是一個多代理協調Claude Code系統，擁有 19 個專門代理、智慧模型路由及基於 tmux的團隊管線。當 OMC 生成團隊面板時，團隊面板會成為原生cmux分割。",
       "usage": "使用情況",
@@ -2274,7 +2273,7 @@
       "prerequisites": "先決條件",
       "prerequisitesDesc": "OMC 需要安裝並驗證 Claude Code CLI 。",
       "howItWorks": "運作原理",
-      "howItWorksDesc": "模式與cmux克勞德團隊相同。tmux shim 攔截OMCtmux指令並轉譯成cmux API呼叫。",
+      "howItWorksDesc": "模式和cmux claude-teams一樣。tmux shim 會攔截來自 OMC 的tmux指令，並將其轉換成cmux API 呼叫。",
       "shimStep1": "在~/.cmuxterm/omc-bin/tmux產生一個tmux墊片，並導向 cmux __tmux-compat",
       "shimStep2": "設定 TMUX 和 TMUX_PANE 以模擬 tmux 會話",
       "shimStep3": "在 shim 目錄前加上 PATH",
@@ -2317,7 +2316,7 @@
     "taskManager": {
       "title": "工作管理員",
       "metaTitle": "工作管理員",
-      "metaDescription": "使用工作管理員或cmux Top，cmux 查找來自程式代理、終端程序和瀏覽器窗格的高 CPU 與RAM使用率。",
+      "metaDescription": "使用cmux工作管理員或cmux top來查找程式代理程式、終端程序和瀏覽器窗格中CPU和RAM使用率高的問題。",
       "intro": "工作管理員顯示 cmux 視窗、工作區、窗格、終端程序、編碼代理程式及瀏覽器網頁檢視的資源使用情況。",
       "openTitle": "開放任務管理器",
       "openDesc": "從任一cmux終端機執行 CLI 指令：",
@@ -3116,7 +3115,7 @@
                 "macOS 上有許多可見的代理會話"
               ],
               [
-                "cmux 克勞德團隊",
+                "cmux claude-teams",
                 "隊友會話的本機窗格映射",
                 "強的",
                 "使用原生 cmux 分割而不是 tmux/iTerm2 窗格的 Claude Code 代理團隊"
@@ -4413,8 +4412,8 @@
     "metaDescriptionNoVault": "cmux 是一個免費且開源的 AI 編碼代理程式 macOS 終端。升級到 Pro for Cloud VM 和模型閘道器。Enterprise 加入了 SSO 與自架。",
     "metaDescriptionNoVaultShort": "cmux 是一個免費且開源的 macOS 終端機。Pro 加入雲端虛擬機與模型閘道;Enterprise 則加入 SSO 與自架。",
     "title": "定價",
-    "perMonth": "/month",
-    "perUserMonth": "/user/month",
+    "perMonth": "/月",
+    "perUserMonth": "/使用者/月",
     "currentPlan": "現行計畫",
     "manageBilling": "管理帳單",
     "free": {
@@ -4434,7 +4433,7 @@
     "pro": {
       "name": "優點",
       "price": "$30",
-      "cta": "Get Pro",
+      "cta": "取得 Pro",
       "featuresLead": "所有內容都是免費的，還有：",
       "features": [
         "雲端代理程式在隔離遠端沙盒中的雲端虛擬機",
@@ -4484,24 +4483,24 @@
       "rows": [
         {
           "label": "原生 macOS 終端機，開源",
-          "free": "沒錯",
-          "pro": "沒錯",
-          "team": "沒錯",
-          "enterprise": "沒錯"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "擁有自己鑰匙的在地 CLI 代理",
-          "free": "沒錯",
-          "pro": "沒錯",
-          "team": "沒錯",
-          "enterprise": "沒錯"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "垂直分頁、分割、通知、socket API",
-          "free": "沒錯",
-          "pro": "沒錯",
-          "team": "沒錯",
-          "enterprise": "沒錯"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "會議歷史",
@@ -4513,18 +4512,18 @@
         },
         {
           "label": "cmux Vault：雲端會話備份",
-          "free": "錯誤",
-          "pro": "沒錯",
-          "team": "沒錯",
-          "enterprise": "沒錯",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
           "label": "在所有療程中搜尋",
-          "free": "錯誤",
-          "pro": "沒錯",
-          "team": "沒錯",
-          "enterprise": "沒錯",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
@@ -4543,17 +4542,17 @@
         },
         {
           "label": "模型閘道：路由與使用分析",
-          "free": "錯誤",
-          "pro": "沒錯",
-          "team": "沒錯",
-          "enterprise": "沒錯"
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "iOS 應用程式",
-          "free": "錯誤",
-          "pro": "沒錯",
-          "team": "沒錯",
-          "enterprise": "沒錯"
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "網路連線，讓你的 Mac",
@@ -4565,52 +4564,52 @@
         },
         {
           "label": "統一帳單與席位管理",
-          "free": "錯誤",
-          "pro": "錯誤",
-          "team": "沒錯",
-          "enterprise": "沒錯"
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "SSO 與 SAML 登入",
-          "free": "錯誤",
-          "pro": "錯誤",
-          "team": "錯誤",
-          "enterprise": "沒錯"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "自架與空中隔離執行",
-          "free": "錯誤",
-          "pro": "錯誤",
-          "team": "錯誤",
-          "enterprise": "沒錯"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "集中管理與共享團隊規則",
-          "free": "錯誤",
-          "pro": "錯誤",
-          "team": "沒錯",
-          "enterprise": "沒錯"
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "稽核日誌：會話、網路、瀏覽器",
-          "free": "錯誤",
-          "pro": "錯誤",
-          "team": "錯誤",
-          "enterprise": "沒錯"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "承諾使用與量價",
-          "free": "錯誤",
-          "pro": "錯誤",
-          "team": "錯誤",
-          "enterprise": "沒錯"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "SOC 2 和 SLA",
-          "free": "錯誤",
-          "pro": "錯誤",
-          "team": "錯誤",
-          "enterprise": "沒錯"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "支持",

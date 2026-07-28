@@ -5,7 +5,6 @@ import {
 } from "@/app/lib/docs-channel";
 import {
   authoredContentLocalesByPath,
-  fallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
@@ -115,7 +114,10 @@ export const navItems: NavEntry[] = [
       {
         titleKey: "ohMyPi",
         href: "/docs/agent-integrations/oh-my-pi",
-        contentLocales: fallbackContentLocales,
+        contentLocales:
+          authoredContentLocalesByPath[
+            "/docs/agent-integrations/oh-my-pi"
+          ],
       },
       {
         titleKey: "ohMyClaudeCode",

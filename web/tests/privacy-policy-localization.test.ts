@@ -9,7 +9,8 @@ import {
 import sitemap from "../app/sitemap";
 import { locales } from "../i18n/routing";
 
-const markdownLinkPattern = /\[[^\]]+]\((https?:\/\/[^)]+|mailto:[^)]+)\)/g;
+const markdownLinkPattern =
+  /\[[^\]]+]\(((?:https?:\/\/|mailto:|\/)[^)]+)\)/g;
 
 describe("privacy policy localization", () => {
   test("provides complete content for every routed locale", () => {
@@ -24,15 +25,12 @@ describe("privacy policy localization", () => {
     }
   });
 
-  test("links each translation to its localized terms and preserves contact targets", () => {
+  test("uses locale-aware relative terms links and preserves contact targets", () => {
     const englishTargets = linkTargets(privacyPolicyContent.en);
     for (const locale of locales) {
-      const expectedTargets = englishTargets.map((target) =>
-        target === "https://cmux.com/terms-of-service" && locale !== "en"
-          ? `https://cmux.com/${locale}/terms-of-service`
-          : target,
-      );
+      const expectedTargets = [...englishTargets].sort();
       expect(linkTargets(privacyPolicyContent[locale])).toEqual(expectedTargets);
+      expect(expectedTargets).toContain("/terms-of-service");
     }
   });
 

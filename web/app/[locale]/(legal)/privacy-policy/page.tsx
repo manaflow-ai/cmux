@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import type { Locale } from "../../../../i18n/routing";
+import { locales } from "../../../../i18n/routing";
 import { buildAlternates } from "../../../../i18n/seo";
+import { ContentLocaleLink } from "../../components/content-locale-link";
 import {
   type PrivacyPolicySection,
   type PrivacyPolicySubsection,
@@ -37,7 +39,7 @@ export default async function PrivacyPolicyPage({ params }: PageProps) {
       <h1>{content.title}</h1>
       <p>{lastUpdatedForLocale(locale)}</p>
       {sections.map((section, index) => (
-        <PolicySection key={index} section={section} />
+        <PolicySection key={index} locale={locale} section={section} />
       ))}
     </>
   );
@@ -217,70 +219,93 @@ function irohDisclosureForLocale(locale: string): PrivacyPolicySection {
   return irohDisclosures[locale as Locale] ?? irohDisclosures.en;
 }
 
-function PolicySection({ section }: { readonly section: PrivacyPolicySection }) {
+function PolicySection({
+  locale,
+  section,
+}: {
+  readonly locale: string;
+  readonly section: PrivacyPolicySection;
+}) {
   return (
     <>
       {section.heading ? <h2>{section.heading}</h2> : null}
-      <PolicyBody content={section} />
+      <PolicyBody content={section} locale={locale} />
       {section.subsections?.map((subsection, index) => (
-        <PolicySubsection key={index} subsection={subsection} />
+        <PolicySubsection key={index} locale={locale} subsection={subsection} />
       ))}
     </>
   );
 }
 
 function PolicySubsection({
+  locale,
   subsection,
 }: {
+  readonly locale: string;
   readonly subsection: PrivacyPolicySubsection;
 }) {
   return (
     <>
       <h3>{subsection.heading}</h3>
-      <PolicyBody content={subsection} />
+      <PolicyBody content={subsection} locale={locale} />
     </>
   );
 }
 
 function PolicyBody({
   content,
+  locale,
 }: {
   readonly content: Pick<
     PrivacyPolicySection,
     "paragraphs" | "bullets" | "afterBullets"
   >;
+  readonly locale: string;
 }) {
   return (
     <>
       {content.paragraphs?.map((paragraph, index) => (
-        <p key={`paragraph-${index}`}>{linkedText(paragraph)}</p>
+        <p key={`paragraph-${index}`}>{linkedText(paragraph, locale)}</p>
       ))}
       {content.bullets?.length ? (
         <ul>
           {content.bullets.map((bullet, index) => (
-            <li key={index}>{linkedText(bullet)}</li>
+            <li key={index}>{linkedText(bullet, locale)}</li>
           ))}
         </ul>
       ) : null}
       {content.afterBullets?.map((paragraph, index) => (
-        <p key={`after-${index}`}>{linkedText(paragraph)}</p>
+        <p key={`after-${index}`}>{linkedText(paragraph, locale)}</p>
       ))}
     </>
   );
 }
 
-const markdownLinkPattern = /\[([^\]]+)]\((https?:\/\/[^)]+|mailto:[^)]+)\)/g;
+const markdownLinkPattern =
+  /\[([^\]]+)]\(((?:https?:\/\/|mailto:|\/)[^)]+)\)/g;
 
-function linkedText(text: string): ReactNode[] {
+function linkedText(text: string, locale: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let cursor = 0;
   for (const match of text.matchAll(markdownLinkPattern)) {
     const index = match.index ?? 0;
     if (index > cursor) nodes.push(text.slice(cursor, index));
+    const href = match[2];
     nodes.push(
-      <a key={`${index}-${match[2]}`} href={match[2]}>
-        {match[1]}
-      </a>,
+      href.startsWith("/") ? (
+        <ContentLocaleLink
+          key={`${index}-${href}`}
+          contentLocales={locales}
+          currentLocale={locale}
+          href={href}
+        >
+          {match[1]}
+        </ContentLocaleLink>
+      ) : (
+        <a key={`${index}-${href}`} href={href}>
+          {match[1]}
+        </a>
+      ),
     );
     cursor = index + match[0].length;
   }

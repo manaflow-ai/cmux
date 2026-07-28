@@ -200,7 +200,7 @@
         "loading": "加载中…"
       },
       "eyebrow": "账号",
-      "title": "片头",
+      "title": "账单",
       "description": "请审查您的 cmux 套餐并管理订阅账单。",
       "banners": {
         "cancelled": "你的计划将在当前计费期结束时取消。",
@@ -248,7 +248,7 @@
         "manageBilling": "管理账单",
         "cancelSummary": "取消计划",
         "confirmCancel": "确认取消",
-        "resume": "简历计划"
+        "resume": "恢复计划"
       }
     },
     "nav": {
@@ -260,7 +260,7 @@
       "subrouterGroup": "分布路器",
       "subrouterOverview": "概述",
       "accountGroup": "账号",
-      "billing": "片头",
+      "billing": "账单",
       "testflight": "iOS TestFlight"
     },
     "home": {
@@ -582,7 +582,7 @@
         "cmuxTitle": "cmux 为工作流程提供了一个界面",
         "cmuxP1": "cmux 不需要内置一个通用 worktree 管理器。它提供<customCommands>自定义命令</customCommands>、可编程的<api>CLI 和 socket API</api>，以及可复用的<skills>技能</skills>。加号按钮可以启动你自己的 worktree 命令、多仓库设置、非 Git 沙盒或远程环境。",
         "cmuxP2": "这就是 <home>cmux home</home> 重要的原因。最好的 worktree 管理器，是当工作流变化时你的代理也能修改的那个；而最适合这个循环的终端，会把通知、Cmd+Shift+U 和 Cmd+Control+U 接到界面里。",
-        "agentsExample": "你正在 cmux-hq工作。任务可能包括：\n- Manaflow-AI/cmux\n- Manaflow-AI/cmux-浏览器\n- Manaflow-AI/Subrouter\n\n当用户请求新任务时：\n1. 确定任务需要哪些仓库。\n2. 在工作树/[任务]/[仓库]中创建匹配的工作树。\n3. 阅读每个工作树的 AGENTS.md.\n4. 立即启动其设置脚本，然后继续执行任务。",
+        "agentsExample": "你正在cmux部工作。任务可能包括：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\n当用户请求新任务时：\n1. 确定任务需要哪些仓库。\n2. 在worktrees/[task]/[repo]中创建匹配的工作树。\n3. 阅读每个工作树的 AGENTS.md。\n4. 立即启动其设置脚本，然后继续执行任务。",
         "launchCommand": "CD的 ~/fun/cmux-hq\nCodex --yolo “修复子路由器 xyz 问题，可能以 xyz 方式与 cmux 相关”"
       },
       "cmuxFork": {
@@ -665,7 +665,7 @@
         "faqAgentsTitle": "它能识别编码代理吗？",
         "faqAgentsBody": "是的。 cmux 将已知代理进程属性到工作区和它们运行的表面，这样资源视图就能匹配你的侧边栏布局。",
         "faqCliTitle": "我能不用开窗户就用吗？",
-        "faqCliBody": "是的。当你想在脚本、SSH会话或普通 shell 中获得相同信息时，运行 cmuxtop 来做终端快照。",
+        "faqCliBody": "是的。当你想在脚本、SSH会话或普通 shell 中获得相同信息时，运行cmux top来做终端快照。",
         "docsCta": "请阅读 <link>任务管理器文档</link> 中的命令、窗口入口点和推荐的排查流程。"
       },
       "sessionRestore": {
@@ -691,7 +691,7 @@
         "limitsP": "tmux、vim、shell 和不受支持的工具会作为普通终端重新打开，除非它们有 cmux 集成来记录安全的原生恢复命令。这让恢复保持可预测，并避免重放过期提示或密钥。",
         "docsCta": "阅读<link>会话恢复文档</link>，了解设置命令、受支持代理和故障排查。",
         "workflowTitle": "推荐配置",
-        "workflowInstall": "安装你用 CLI 的代理，然后运行 cmux 钩子设置，这样 cmux 就能捕获本地会话ID。",
+        "workflowInstall": "安装你用的代理CLI，然后运行cmux hooks setup，这样cmux就能捕获本地会话ID。",
         "workflowWork": "在普通 cmux 终端中运行代理。钩子记录会话ID、cwd、工作区和表面。",
         "workflowRelaunch": "重启后， cmux 在启动任何保存的代理恢复命令前，重建窗口和窗格树。",
         "workflowVerify": "检查恢复后的代理是否继续在同一个上游会话，然后继续在同一工作区工作。",
@@ -806,12 +806,11 @@
         "summary": "其中一个命令会给你持久的远程会话、指向远程端口的浏览器面板，以及回归的代理通知。",
         "date": "2026年3月30日",
         "p1": "<code>cmux ssh user@remote</code> 为远程机器创建一个工作区。把图片拖到远程 Claude Code 会话，它会自动上传。浏览器面板会通过远程网络路由，所以localhost就能正常工作。它会使用你的 <code>~/.ssh/config</code>，断线时重新连接。",
-        "features": "浏览器面板通过远程网络路由流量，因此 localhost：3000 能在无 -L 标记的情况下到达远程开发服务器。远程主机上的编码代理会向你的本地侧边栏发送通知。 cmux Claude-Teams 和 cmux omo 在 SSH上工作，在本地生成队友面板，同时远程进行计算。将文件拖入远程终端，通过 SCP 上传。侧边栏显示连接状态和检测到的监听端口。",
         "featureItems": [
           "浏览器面板通过远程机器路由，因此 localhost：3000 能够在没有端口转发的情况下到达远程开发服务器",
           "把图片拖到远程终端，通过SCP上传",
           "远程机器上的编码代理会向你本地侧边栏发送通知",
-          "cmux Claude 团队和 cmux omo 在 SSH上工作，在本地生成队友面板，而计算则远程运行",
+          "cmux claude-teams和cmux omo 在SSH上工作，在本地生成队友面板，而计算则远程进行",
           "侧边栏显示连接状态和检测到的监听端口"
         ],
         "videoTitle": "cmux SSH 演示",
@@ -1011,27 +1010,27 @@
       "rowSession": "侧边栏有专门的工作区。",
       "rowWindow": "在那个工作区里开一个标签页。",
       "rowPane": "在那个标签页内的原生分割窗口中。",
-      "mappingPanes": "新功能是标签页内的窗格： cmux 标签页过去只存放一个终端，但带有多个窗格的 tmux 窗口现在被渲染为一个标签页内的真实 cmux 分割布局——每个远程窗格都是带有常见Chrome的原生 cmux 终端窗格。桥接是双向的：在该标签页中分割或关闭窗格时，分 tmux 分窗，重新排序标签页则用交换窗口重新排序 tmux 窗口。",
+      "mappingPanes": "新功能是标签页内的窗格：cmux标签页过去只存放一个终端，但tmux窗口中多个窗格现在被渲染为一个标签页内的真实cmux分割布局——每个远程窗格都是带有常见Chrome的本地cmux终端窗格。桥接是双向的：在该标签页中拆分或关闭窗格会tmux split-window，重新排序标签页则会用swap-window重新排序tmux窗口。",
       "requirementsTitle": "要求",
       "requirementsDesc": "安装tmux 3.2或更新版本的可达SSH主机（cmux读取您的 ~/.ssh/config）。控制模式（tmux -CC）是标准tmux功能，因此不需要特殊构建;cmux在连接前会检查远程tmux版本，在旧服务器上明显失败。cmux通过 SSH ControlMaster 连接连接，断开后远程 tmux 服务器仍能运行。",
       "enableTitle": "启用它",
       "enableDesc": "打开设置 →测试版功能，并开启远程 tmux。默认情况下，这个开关是关闭的，所以在你选择加入之前，本地终端不会有任何变化。",
       "attachTitle": "附加",
-      "attachIntro": "在终端中运行 cmux ssh--tmux <destination> —— ~/.ssh/config 别名或 user@host。 cmux 将该主机的 tmux 会话镜像到当前窗口的侧边栏：每个会话变成工作区，每个窗口变成标签页，多窗格窗口变成标签内的分拆。",
+      "attachIntro": "在终端中运行cmux ssh-tmux <destination>——用 ~/.ssh/config 别名或 user@host。cmux 将该主机的 tmux 会话镜像到当前窗口的侧边栏：每个会话变成工作区，每个窗口变成标签页，多窗格窗口变成标签页内的分割。",
       "attachNewWindow": "通过 --new-window ，在专用新窗口中打开镜子，而不是当前窗口。",
-      "attachSockets": "远程。tmux.* socket 命令（如下）提供了更细致的控制。远程。tmux.mirror 是镜像入口点;它接受窗口/呼叫者路由，并可选择镜像工作区。",
+      "attachSockets": "remote.tmux.*套接字命令（如下图）提供了更细致的控制。remote.tmux.mirror 是镜像入口点;它接受窗口/调用者路由，并可选择镜像工作区。",
       "attachCli": "非交互式认证的主机（ssh-agent，或 ~/.ssh/config中的密钥）无需提示即可连接。如果主机需要交互式认证（密码、主机密钥确认或 MFA）， cmux 会在终端内联运行ssh以便认证，然后镜像到当前窗口。接受 --port、 --identity和 --no-focus。",
       "troubleshootTitle": "如果你收到“许可被拒”",
       "troubleshootDesc": "目的地是按原样交给 ssh，因此别名必须包含 ssh 登录所需的一切——最常见的是 User（没有别名，ssh 会尝试你的本地用户名）和 IdentityFile：",
       "troubleshootFallback": "或者明确传递给用户： cmux ssh-tmux dev@my-ssh-alias。如果普通 ssh <destination> 不让你登录， cmux ssh-tmux <destination> 也不会。",
       "howTitle": "工作原理",
-      "howDesc": "cmux 生成 ssh ... tmux -CC 附着并解析控制模式流本身，而非依赖内置的 tmux 查看器，因此协议和 %bestart/%end 命令关联完全由 cmux拥有。每个远程窗格渲染为专用终端表面，由 %output 输入 tmux ，你的输入——按键和鼠标——通过 tmux 发送键转发。远程 tmux 服务器拥有面板大小和回流; cmux 保持其表面与其同步，绝不本地重流。",
+      "howDesc": "cmux 生成 ssh ...tmux -CC 连接并解析控制模式流本身，而不是依赖内置的tmux查看器，因此协议和 %bestart/%end 命令关联完全由 cmux 拥有。每个远程面板渲染成由 %output 输入的专用终端tmux，你的输入——按键和鼠标——会随 tmux send-keys 转发。远程tmux服务器拥有面板大小和回流;cmux 保持其表面与面板同步，且从不在本地重流。",
       "behaviorTitle": "它支持的内容",
       "behaviorSize": "尺寸调整：远程客户端被调整到渲染后的网格大小（refresh-client -C），所以TUI不会停留在 tmux默认的80×24。",
-      "behaviorSplit": "拆分：在镜像窗口中拆分或关闭窗格会传播到 tmux ，因此 cmux 布局和 tmux 布局保持同步。程序化拆分（cmux 新分或 surface.split 套接字）报告接受且无表面ID——新窗格在确认布局变更后异步到达 tmux 。携带路由拆分无法响应选项（启动命令、工作目录、分隔器位置、左/上位置）的请求会在远程会话变异前被拒绝。",
-      "behaviorReorder": "重新排序：拖动镜像标签页时， tmux 窗口的替换窗口重新排序。",
+      "behaviorSplit": "分割：在镜像窗口中拆分或关闭窗格会传播到tmux，split-window，因此cmux布局和 tmux 布局保持同步。程序分割（cmux new-split 或 surface.split 通过套接字）报告接受且无 surface ID——新窗格在确认布局变更后异步到达tmux。携带路由分割无法响应选项（启动命令、工作目录、分隔器位置、左/上位置）的请求会在远程会话变异前被拒绝。",
+      "behaviorReorder": "重新排序：拖动重排镜像标签页会重新排序tmux窗口，并用swap-window重新排序。",
       "behaviorCwd": "工作目录：远程面板当前文件夹会被追踪并在标签页上显示。",
-      "behaviorPaste": "粘贴与删除：粘贴的文本和丢弃的图片/文件 tmux 会经过粘贴缓冲区 -p ，因此远程应用（例如编码代理）会收到真实的括号粘贴——图像以 [图片 #N]（图片]形式到达，而非本地路径。",
+      "behaviorPaste": "粘贴与删除：粘贴的文本和丢弃的图片/文件会经过tmux paste-buffer -p，因此远程应用（例如编码代理）会收到真正的括号粘贴——图像以[图片 #N]形式到达，而非本地路径。",
       "behaviorMouse": "鼠标：在开启鼠标模式时，点击、滚动和拖动触向远程应用。拖动时按住Shift键，实现原生 cmux 文本选择/复制（与运行鼠标模式应用的终端相同）。",
       "behaviorUnicode": "Unicode正确输出：即使 tmux 在更新中拆分多字节字符，仍保持不变，因此框绘制和其他宽内容渲染干净。",
       "socketTitle": "套接字命令",
@@ -1047,7 +1046,7 @@
       "socketSafetyDesc": "在信任边界处拒绝带有破折号前缀的主机或身份文件，作为对选项注入的防御 SSH 。",
       "limitationsTitle": "局限性",
       "limitReconnect": "瞬时 SSH 断开会自动重新连接：如果连接在会话中途闪烁，镜像会冻结， cmux 以指数退回上限重试，恢复时会重新种回。镜像只有在远程会话结束时，或者你关闭镜像窗口或退出 cmux 时才会永久关闭——而且重启时不会恢复（用 cmux ssh-tmux重新连接）。",
-      "limitPaste": "只有单行粘贴/删除（如文件或图片路径）通过粘贴缓冲区 -p 作为真实的括号粘贴传递;多行文本则以纯按键发送，因此远程应用不会将其视为一个粘贴。",
+      "limitPaste": "只有单行粘贴/删除（如文件或图片路径）通过paste-buffer -p以真实的括号粘贴形式传递;多行文本以普通按键发送，因此远程应用不会将其视为单一粘贴。",
       "limitCwd": "实时工作目录更新使用控制模式订阅，这也是为什么 cmux 需要 tmux 3.2或更新版本才能打开镜像。",
       "limitReflow": "主屏滚动回放在缩小时不会重新包裹—— cmux 留回流流到 tmux，所以旧的线条可以保持之前的宽度直到应用重新绘制。全屏的TUI在调整大小时会重新绘制，则不受影响。"
     },
@@ -1443,13 +1442,13 @@
       "actionTypeWorkspace": "从内联工作区定义创建工作区，并可选重启行为。可在新工作区加按钮菜单中自动提供。",
       "actionFieldNewWorkspaceMenu": "设置 true 以提供 new-workspace plus 按钮菜单中的任何操作，或 false 以隐藏工作区操作。",
       "workspaceActions": "工作区布局",
-      "workspaceActionsDesc": "工作区布局作为 <workspace>工作区</workspace> 动作存储，直接嵌入完整的工作区定义，因此不需要单独的 <commands>命令</commands> 条目。它支持相同的工作区字段和 <setup>设置</setup>，以及在该终端自身命令之前发送到第一个终端的引导命令：",
-      "workspaceActionsMenuDesc": "工作区布局会自动出现在加号右键菜单中。将 <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> 设置为 <falseValue>false</falseValue> 以隐藏一个，或在其他添加该功能时设 <trueValue>为 true</trueValue> 。",
-      "workspaceActionsSaveDesc": "你也可以不写 JSON创建这些：右键点击加号按钮，选择 <saveLayout>“将工作区保存为布局</saveLayout> ”，将当前工作区的分割、目录、运行中的代理和浏览器标签页都集成到 <configPath>~/.config/cmux/cmux.json</configPath>。它们会作为 <actions>动作</actions> 块中的条目存储。 <customize>自定义工作区布局</customize> 在编辑器中打开该文件。",
+      "workspaceActionsDesc": "工作区布局作为 <workspace>workspace</workspace> 动作存储，直接嵌入完整的工作区定义，因此不需要单独的 <commands>commands</commands> 条目。它支持相同的工作区字段和 <setup>setup</setup>，以及在该终端自身命令之前发送到第一个终端的引导命令：",
+      "workspaceActionsMenuDesc": "工作区布局会自动出现在加号右键菜单中。将 <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> 设置为 <falseValue>false</falseValue> 以隐藏一个，或在其他添加该功能时设 <trueValue>true</trueValue> 。",
+      "workspaceActionsSaveDesc": "你也可以不写 JSON创建这些：右键点击加号按钮，选择 <saveLayout>Save Workspace as Layout</saveLayout> ”，将当前工作区的分割、目录、运行中的代理和浏览器标签页都集成到 <configPath>~/.config/cmux/cmux.json</configPath>。它们会作为 <actions>actions</actions> 块中的条目存储。 <customize>Customize Workspace Layouts</customize> 在编辑器中打开该文件。",
       "wsFieldEnv": "环境变量被工作区中每个 shell 继承",
       "wsFieldSetup": "引导指令先发送到工作空间的第一个终端，然后再发送该终端的自身命令",
       "workspaceActionsDefaultTitle": "新工作区的默认设置",
-      "workspaceActionsDefaultDesc": "使用<defaultMenu>“新工作区默认”</defaultMenu>子菜单选择应运行的普通新工作区的已保存工作区布局，或选择“无”返回空白终端。保存对话框中还有“<checkbox>新工作区默认使用</checkbox>”复选框。设置为<action>ui.newWorkspace.action</action>;项目本地。<localConfig>cmux/cmux.json</localConfig> 值胜过<globalConfig>~/.config/cmux/cmux.json</globalConfig>。"
+      "workspaceActionsDefaultDesc": "使用<defaultMenu>Default for New Workspace</defaultMenu>子菜单选择应运行的普通新工作区的已保存工作区布局，或选择“无”返回空白终端。保存对话框中还有“<checkbox>Use as default for new workspaces</checkbox>”复选框。设置为<action>ui.newWorkspace.action</action>;项目本地。<localConfig>.cmux/cmux.json</localConfig> 值胜过<globalConfig>~/.config/cmux/cmux.json</globalConfig>。"
     },
     "keyboardShortcuts": {
       "title": "快捷键",
@@ -1808,8 +1807,8 @@
       "customizationExamplesCallout": "详细的摘要存在于 <code>skills/cmux-customization/references/examples.md</code>中。代理仅在需要示例库模式时加载该文件。",
       "customizationExamplePrompts": "示例提示",
       "customizationPromptWorktree": "使用 $cmux-customization 来设置 worktree-agents 的示例。",
-      "customizationPromptFullStack": "使用cmux-customization创建带有Dock控件的项目本地全栈开发布局。",
-      "customizationPromptAgentButtons": "使用$cmux自定义添加快速代理按钮，用于 Codex 和 Claude。",
+      "customizationPromptFullStack": "用$cmux-customization创建带有Dock控件的项目-本地全栈开发布局。",
+      "customizationPromptAgentButtons": "用$cmux-customization添加快速代理按钮，用于Codex和Claude。",
       "diagnosticsScope": "只读健康检查，包括 CLI 可达性、套接字访问、 cmux 环境、设置验证、挂钩安装标记、会话存储、自动恢复设置和支持的代理二进制。",
       "diagnosticsReferences": "捆绑支持安全的诊断脚本、钩子设置命令、会话恢复解释、通知检查以及敏感文件编辑规则。",
       "browserScope": "cmux网页视图内的浏览器自动化功能，包括导航、DOM操作、等待、状态捕获、截图和快照。",
@@ -1861,7 +1860,7 @@
       "base": "基地",
       "ssh": "SSH",
       "remoteTmux": "远程 tmux",
-      "ohMyPi": "哦——我的——",
+      "ohMyPi": "oh-my-pi",
       "vault": "金库",
       "taskManager": "任务管理器"
     },
@@ -1987,7 +1986,7 @@
       "dragDropTitle": "拖放",
       "dragDropDesc": "将图像或文件拖到远程终端中，cmux 通过现有 SSH 连接通过 scp 上传。 cmux 通过 TTY 检测前台 SSH 进程，并通过 ControlMaster 多路复用路由上传。",
       "notificationsTitle": "通知",
-      "notificationsDesc": "远程计算机上的进程可以运行在本地实例上执行的 cmux 命令。当编码代理在远程盒子上调用 cmux 通知时，通知会显示在本地侧边栏中。工作区选项卡上的蓝色环亮起。 Cmd+Shift+U 跳转到它。通过每台主机的冷却时间来抑制来自不稳定连接的通知垃圾邮件。",
+      "notificationsDesc": "远程机器上的进程可以执行cmux命令，这些命令会在本地实例上执行。当编码代理在远程机上调用cmux notify时，通知会出现在你的本地侧边栏。工作区标签页上的蓝色环会亮起。按 Cmd+Shift+U 跳转到它。由于连接不稳定而产生的通知垃圾邮件会被按主机冷却时间抑制。",
       "agentsTitle": "通过 SSH 编码代理",
       "agentsDesc": "cmux claude-teams 和 cmux omo 都在 SSH 会话中工作。远程主机上的 Go 中继守护进程处理与本地 Swift CLI 相同的 tmux-compat 转换。当计算在远程机器上运行时，队友代理会在本地计算机上本地 cmux 拆分时生成。",
       "reconnectTitle": "重新连接",
@@ -2041,10 +2040,10 @@
       "firstRunStep1": "在 ~/.cmuxterm/omo-config/ 创建一个阴影配置， oh-my-opencode 注册在插件数组中",
       "firstRunStep2": "如果还没有，则用bun或npm安装 oh-my-opencode npm包",
       "firstRunStep3": "符号链接node_modules、 package.json和插件配置，来自你原始的 ~/.config/opencode/ 目录",
-      "firstRunStep4": "在oh-my-opencode配置中启用tmux模式（tmux.enabled默认为false，cmuxomo会开启它）",
+      "firstRunStep4": "在oh-my-opencode配置中启用tmux模式（tmux.enabled 默认为 false，cmux omo开启）",
       "firstRunSafe": "你原本的 ~/.config/opencode/ 配置永远不会被修改。运行纯开放代码和以前一样。",
       "howItWorks": "工作原理",
-      "howItWorksDesc": "与cmux claude 团队的模式相同。tmux shim 会截获来自 oh-my-openagent的 TmuxSessionManager 的 tmux 命令，并将其翻译成 cmux API 调用。",
+      "howItWorksDesc": "和cmux claude-teams一样的模式。tmux shim 拦截oh-my-openagent的 TmuxSessionManager 的tmux命令，并将其转换成 cmux API 调用。",
       "shimStep1": "在~/.cmuxterm/omo-bin/tmux处产生一个tmux垫片，重定向到cmux __tmux-compat",
       "shimStep2": "设置 TMUX 和 TMUX_PANE 以模拟 tmux 会话",
       "shimStep3": "在oh-my-opencode配置中启用tmux.enabled（可视化窗格生成必不可少）",
@@ -2169,11 +2168,11 @@
       "metaTitle": "Claude Code 球队 - cmux",
       "metaDescription": "在cmux内运行Claude Code代理团队。队友代理生成为原生cmux分割，而不是tmux面板。",
       "nightlyWarning": "仅在 <nightly>夜间构建</nightly> 中获得。",
-      "intro": "cmux Claude-Teams 启动时启用了代理团队 Claude Code 。当 Claude 生成队友代理时，他们会以原生 cmux 分割显示，而不是 tmux 面板，并且有完整的侧边栏元数据和通知。",
+      "intro": "cmux claude-teams启动时启用了代理团队Claude Code。当Claude生成队友代理时，他们以原生cmux分割显示，而非tmux面板，并带有完整的侧边栏元数据和通知。",
       "usage": "用途",
       "usageDesc": "所有在 claude 团队之后的参数都会转发到 Claude Code。该命令默认队友模式为自动，并设置环境使 Claude 使用 cmux 分段。",
       "howItWorks": "工作原理",
-      "howItWorksDesc": "cmux Claude 团队创建了一个 tmux shim 脚本，并配置环境，使 Claude Code 认为它在 tmux中运行。当 Claude 发出管理队友面板的命令 tmux 时，shim 会将其翻译成 cmux socket API 调用。",
+      "howItWorksDesc": "cmux claude-teams 创建一个 tmux shim 脚本，并配置环境，让Claude Code以为它在 tmux 内运行。当 Claude 发出tmux命令管理队友面板时，shim 会将其转换成cmux套接字 API 调用。",
       "shimStep1": "在~/.cmuxterm/claude-teams-bin/tmux处产生一个tmux垫片，重定向到cmux __tmux-compat",
       "shimStep2": "设置 TMUX 和 TMUX_PANE 环境变量以模拟 tmux 会话",
       "shimStep3": "在PATH前加上垫片目录，让Claude在实际tmux之前找到垫片",
@@ -2201,8 +2200,8 @@
       "mapList": "列表 cmux 面板或工作区"
     },
     "ohMyCodex": {
-      "title": "哦——我的法典",
-      "metaTitle": "哦，我的法典—— cmux",
+      "title": "oh-my-codex",
+      "metaTitle": "oh-my-codex - cmux",
       "metaDescription": "在cmux中运行 Oh My Codex （OMX） 并内置团队模式和代理编排的分割面板集成。",
       "intro": "cmux omx 在cmux感知环境中启动 Oh My Codex（OMX）。OMX 是一个多代理编排层，支持 OpenAI Codex CLI，拥有 30+ 个专业代理角色、工作流程技能和基于 tmux的并行团队执行。当 OMX 生成团队面板或HUD显示时，它们会成为原生的 cmux 分割。",
       "usage": "用途",
@@ -2214,7 +2213,7 @@
       "whatYouGet3": "自动布局管理将代理面板排列成主垂直网格",
       "whatYouGet4": "你的主会议会留在主窗格内，工作人员则在旁边操作",
       "prerequisites": "前提条件",
-      "prerequisitesDesc": "OMX 需要OpenAI的 Codex CLI 和可正常的 Codex 认证设置。运行 omx 医生来验证你的安装。",
+      "prerequisitesDesc": "OMX需要OpenAI Codex CLI和可正常工作的Codex认证设置。运行omx doctor以验证你的安装。",
       "howItWorks": "工作原理",
       "howItWorksDesc": "与其他cmux代理集成的模式相同。tmux shim 会拦截OMXtmux命令并将其转换为cmux API调用。",
       "shimStep1": "在~/.cmuxterm/omx-bin/tmux处产生一个tmux垫片，重定向到cmux __tmux-compat",
@@ -2234,8 +2233,8 @@
       "envSocket": "垫片连接 cmux 控制插座的路径"
     },
     "ohMyPi": {
-      "title": "哦——我的——",
-      "metaTitle": "哦，我的—— cmux",
+      "title": "oh-my-pi",
+      "metaTitle": "oh-my-pi - cmux",
       "metaDescription": "通过状态、通知、会话恢复、自动命名和任务管理器归属的钩子，将oh-my-pi（omp）连接到 cmux 。",
       "intro": "oh-my-pi 是 Pi 的一个分支，重写为编码优先代理。它的二进制是 omp， cmux 通过 omp 钩子扩展与之积分。",
       "setupUsage": "设置与使用",
@@ -2260,8 +2259,8 @@
       "envCmuxBin": "覆盖钩子扩展调用的 cmux 二进制"
     },
     "ohMyClaudeCode": {
-      "title": "哦，我的克劳德密码",
-      "metaTitle": "哦，我的克劳德密码—— cmux",
+      "title": "oh-my-claudecode",
+      "metaTitle": "oh-my-claudecode - cmux",
       "metaDescription": "在cmux中运行 Oh My Claude Code （OMC） 并支持原生分割窗集成，实现多代理编排。",
       "intro": "cmux omc 在cmux感知环境中启动 Oh My Claude Code（OMC）。OMC 是一个多代理编排Claude Code系统，拥有 19 个专业代理、智能模型路由和基于 tmux的团队管道。当 OMC 生成团队面板时，它们会成为原生的 cmux 分割。",
       "usage": "用途",
@@ -2275,7 +2274,7 @@
       "prerequisites": "前提条件",
       "prerequisitesDesc": "OMC 需要安装和认证 Claude Code CLI 。",
       "howItWorks": "工作原理",
-      "howItWorksDesc": "与cmux克劳德团队的模式相同。tmux shim 会截获OMCtmux指令并将其转换为 cmux API 呼叫。",
+      "howItWorksDesc": "和cmux claude-teams的模式一样。tmux shim 会拦截来自 OMC 的tmux命令，并将其转换成cmux API 调用。",
       "shimStep1": "在~/.cmuxterm/omc-bin/tmux处产生一个tmux垫片，重定向到cmux __tmux-compat",
       "shimStep2": "设置 TMUX 和 TMUX_PANE 以模拟 tmux 会话",
       "shimStep3": "在 shim 目录前 PATH",
@@ -2318,7 +2317,7 @@
     "taskManager": {
       "title": "任务管理器",
       "metaTitle": "任务管理器",
-      "metaDescription": "使用任务管理器或cmux顶部，查找编码代理、终端进程和浏览器窗格cmux高CPU和RAM使用率。",
+      "metaDescription": "使用任务管理器或cmux top cmux查找编码代理、终端进程和浏览器面板的高CPU和RAM使用情况。",
       "intro": "任务管理器显示 cmux 窗口、工作区、窗格、终端进程、编码代理和浏览器网页视图的资源使用情况。",
       "openTitle": "开放任务管理器",
       "openDesc": "从任意cmux终端运行CLI命令：",
@@ -3117,7 +3116,7 @@
                 "macOS 上有许多可见的代理会话"
               ],
               [
-                "cmux 克劳德团队",
+                "cmux claude-teams",
                 "队友会话的本机窗格映射",
                 "强的",
                 "使用原生 cmux 分屏而不是 tmux/iTerm2 窗格的 Claude Code 代理团队"
@@ -4467,7 +4466,7 @@
     },
     "enterprise": {
       "name": "企业号",
-      "price": "习俗",
+      "price": "定制",
       "cta": "联系销售",
       "featuresLead": "Team中的所有内容，以及：",
       "features": [
@@ -4485,24 +4484,24 @@
       "rows": [
         {
           "label": "原生 macOS 终端，开源",
-          "free": "确实如此",
-          "pro": "确实如此",
-          "team": "确实如此",
-          "enterprise": "确实如此"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "本地 CLI 代理拥有自己的钥匙",
-          "free": "确实如此",
-          "pro": "确实如此",
-          "team": "确实如此",
-          "enterprise": "确实如此"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "垂直标签页、分段、通知、套接字 API",
-          "free": "确实如此",
-          "pro": "确实如此",
-          "team": "确实如此",
-          "enterprise": "确实如此"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "会议历史",
@@ -4514,18 +4513,18 @@
         },
         {
           "label": "cmux Vault：云会话备份",
-          "free": "错误",
-          "pro": "确实如此",
-          "team": "确实如此",
-          "enterprise": "确实如此",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
           "label": "在所有会话中搜索",
-          "free": "错误",
-          "pro": "确实如此",
-          "team": "确实如此",
-          "enterprise": "确实如此",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
@@ -4540,21 +4539,21 @@
           "free": "1",
           "pro": "基于使用情况",
           "team": "基于使用情况",
-          "enterprise": "习俗"
+          "enterprise": "定制"
         },
         {
           "label": "模型网关：路由与使用分析",
-          "free": "错误",
-          "pro": "确实如此",
-          "team": "确实如此",
-          "enterprise": "确实如此"
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "iOS 应用",
-          "free": "错误",
-          "pro": "确实如此",
-          "team": "确实如此",
-          "enterprise": "确实如此"
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "网络连接你的Mac。",
@@ -4566,52 +4565,52 @@
         },
         {
           "label": "统一计费与座位管理",
-          "free": "错误",
-          "pro": "错误",
-          "team": "确实如此",
-          "enterprise": "确实如此"
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "SSO 和 SAML 登录",
-          "free": "错误",
-          "pro": "错误",
-          "team": "错误",
-          "enterprise": "确实如此"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "自主机和空中隔离执行",
-          "free": "错误",
-          "pro": "错误",
-          "team": "错误",
-          "enterprise": "确实如此"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "集中管理与共享团队规则",
-          "free": "错误",
-          "pro": "错误",
-          "team": "确实如此",
-          "enterprise": "确实如此"
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "审计日志：会话、网络、浏览器",
-          "free": "错误",
-          "pro": "错误",
-          "team": "错误",
-          "enterprise": "确实如此"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "承诺使用量和批量定价",
-          "free": "错误",
-          "pro": "错误",
-          "team": "错误",
-          "enterprise": "确实如此"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "SOC 2 和 SLA",
-          "free": "错误",
-          "pro": "错误",
-          "team": "错误",
-          "enterprise": "确实如此"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "支持",
@@ -4646,7 +4645,7 @@
         }
       ]
     },
-    "help": "有问题吗？加入我们的 <discord>Discord</discord>，开启 <github>GitHub 期，</github>或 <email>发送邮件联系我们</email>。",
+    "help": "有问题？请提交 <github>GitHub issue</github>，或发送电子邮件至 <email>founders@manaflow.com</email>。",
     "faq": {
       "title": "FAQ",
       "items": [

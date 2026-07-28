@@ -474,7 +474,7 @@
       "p083": "Kreirajte stabla rada iz ramo.json, pokrenite komande za podešavanje, kopirajte env fajlove i otvorite rezultat u cmux radnim prostorima i podelama",
       "p084": "Pratite napredak pod-agenta radnika sa bočne trake cmux koristeći strukturirane beleške o primopredaji napisanim u namenski direktorijum - pristup koordinaciji zasnovan na fajlovima je u suprotnosti sa monitorima vođenim utičnicom ili demonima",
       "p085": "Povežite Google Antigravity CLI zakačice za cmux obavijesti preko Antigravity hooks.json ugovora, uz rukovanje JSON bezbednim za stdout tako da kuka za obavještenje ne poništi vrijeme izvođenja agenta",
-      "p086": "Pokrijte automatizaciju pretraživača kao deo široke taksonomije CLI koja jedinstveno dokumentuje unutrašnje elemente okna za snimanje i CMUX_SOCKET_PASSWORD autentifikaciju - više reference nego vodič",
+      "p086": "Pokrijte automatizaciju preglednika kao dio široke CLI taksonomije koja jedinstveno dokumentuje capture-pane unutrašnjost i CMUX_SOCKET_PASSWORD autentifikaciju – više referenci nego tutorijala",
       "p087": "Razdvojite cmux-svjesne kuke na SSH hostove, Hermes i omp/Pi, a zatim prenesite aktivnost agenta nazad kao lokalna obavještenja i bedževe bočne trake preko stdlib pomoćnika, a ne ručno pisanih skripti po agentu",
       "p088": "Obezbedite c-help CLI: cheatsheet koji se može pretraživati van mreže za sve cmux prečice na tastaturi, CLI komande, bočnu traku API, automatizaciju pretraživača i env vars u English i Japanese",
       "p089": "Preskače statusne pilule u korist IDE ergonomije: automatski otvara editovane fajlove u Vim podokviru i prebacuje bočnu traku broot pretraživača datoteka, pretvarajući cmux u lako okruženje za uređivanje",
@@ -670,7 +670,7 @@
         "limitsP": "tmux, vim, shellovi i nepodržani alati ponovo se otvaraju kao obični terminali osim ako imaju cmux integraciju koja bilježi sigurnu nativnu resume komandu. To vraćanje čini predvidljivim i izbjegava ponavljanje zastarjelih promptova ili tajni.",
         "docsCta": "Pročitajte <link>dokumentaciju za vraćanje sesije</link> za setup komande, podržane agente i rješavanje problema.",
         "workflowTitle": "Preporučeno postavljanje",
-        "workflowInstall": "Instalirajte agenta CLI koji koristite, a zatim pokrenite cmux podešavanje zakačivaca tako da cmux može uhvatiti izvorne ID-ove sesije.",
+        "workflowInstall": "Instaliraj CLI agenta koji koristiš, pa pokreni cmux hooks setup da cmux može uhvatiti nativne ID-jeve sesija.",
         "workflowWork": "Pokrenite agente u normalnim cmux terminalima. Zakačilice snimaju ID sesije, cwd, radni prostor i površinu kako se rad odvija.",
         "workflowRelaunch": "Nakon ponovnog pokretanja, cmux ponovo gradi stablo prozora i okna prije pokretanja bilo koje spremljene naredbe za nastavak rada agenta.",
         "workflowVerify": "Provjerite da li vraćeni agent nastavlja istu uzvodnu sesiju, a zatim nastavite s radom u istom radnom prostoru.",
@@ -775,7 +775,7 @@
         "cmuxTitle": "cmux daje workflowu površinu",
         "cmuxP1": "cmux ne treba ugrađeni univerzalni worktree menadžer. Daje vam <customCommands>prilagođene komande</customCommands>, programabilni <api>CLI i socket API</api> i ponovo upotrebljive <skills>skills</skills>. Plus dugme može pokrenuti vašu worktree komandu, multi-repo setup, no-git sandbox ili udaljeno okruženje.",
         "cmuxP2": "Zato je <home>cmux home</home> važan. Najbolji worktree menadžer je onaj koji vaši agenti mogu promijeniti kada se workflow promijeni, a najbolji terminal za taj krug drži notifikacije, Cmd+Shift+U i Cmd+Control+U ugrađene u površinu.",
-        "agentsExample": "Radite u cmux-hq. Zadaci mogu uključivati:\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nKada korisnik zatraži novi zadatak:\n1. Odlučite koja spremišta treba zadatku.\n2. Kreirajte odgovarajuća radna stabla u radnim stablima/[zadatak]/[repo].\n3. Pročitajte AGENTS.md svakog radnog stabla.\n4. Odmah pokrenite skripte za postavljanje, a zatim nastavite zadatak.",
+        "agentsExample": "Radite u cmux-sjedištu. Zadaci mogu uključivati: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nKada korisnik traži novi zadatak: \n1. Odlučite koji repozitoriji su potrebni zadatku. \n2. Kreirati odgovarajuća radna stabla u worktrees/[task]/[repo]. \n3. Pročitaj AGENTS.md svakog radnog stabla. \n4. Odmah pokrenite njegove skripte za podešavanje, a zatim nastavite zadatak.",
         "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"popravi probleme xyz podrutera, može se odnositi na cmux na xyz način\""
       },
       "cmuxClaudeTeams": {
@@ -806,7 +806,6 @@
         "summary": "Jedna komanda vam daje stalne udaljene sesije, okna pretraživača koja dopiru do udaljenih portova i obavještenja agenta koja dolaze kući.",
         "date": "30. mart 2026",
         "p1": "<code>cmux ssh user@remote</code> kreira radni prostor za udaljenu mašinu. Prevucite sliku u udaljenu Claude Code sesiju i ona će se automatski učitati. Okna pretraživača prolaze kroz udaljenu mrežu, tako da localhost jednostavno radi. Koristi vaš <code>~/.ssh/config</code>, ponovo se povezuje nakon pada.",
-        "features": "Okna pretraživača usmjeravaju promet kroz udaljenu mrežu, tako da localhost:3000 stiže do udaljenog dev servera bez -L zastavica. Agenti za kodiranje na udaljenoj kutiji šalju obavijesti na vašu lokalnu bočnu traku. cmux claude-teams i cmux omo rade preko SSH-a, pokrećući panele timskih kolega lokalno dok se računanje izvodi na daljinu. Prevucite datoteku na udaljeni terminal za otpremanje putem scp-a. Bočna traka prikazuje stanje veze i otkrivene portove za slušanje.",
         "featureItems": [
           "Okna pretraživača rutiraju kroz udaljenu mašinu, tako da localhost:3000 stiže do udaljenog dev servera bez prosljeđivanja porta",
           "Prevucite sliku na udaljeni terminal da je otpremite putem scp-a",
@@ -1025,11 +1024,11 @@
       "troubleshootDesc": "Odredište se predaje ssh-u kakvo je, tako da pseudonim mora sadržavati sve što je ssh-u potrebno za prijavu - najčešće User (bez njega, ssh pokušava vaše lokalno korisničko ime) i IdentityFile:",
       "troubleshootFallback": "Ili eksplicitno proslijedite korisnika: cmux ssh-tmux dev@my-ssh-alias. Ako vas obični ssh <destination> ne prijavi, neće ni cmux ssh-tmux <destination>.",
       "howTitle": "Kako to radi",
-      "howDesc": "cmux stvara ssh … tmux -CC prilaže i analizira sam tok kontrolnog režima umjesto da se oslanja na ugrađeni tmux preglednik, tako da su protokol i korelacija naredbi %begin/%end u potpunosti u vlasništvu cmuxa. Svako udaljeno okno prikazuje se u namjensku terminalnu površinu napajanu tmux %outputom, a vaš unos — pritiskom na tipke i mišem — se prosljeđuje pomoću tmux send-tipki. Udaljeni tmux server posjeduje veličinu okna i reflow; cmux održava svoje površine u zaključanom koraku s njim i nikada se ne vraća lokalno.",
+      "howDesc": "cmux pokreće ssh ... tmux -CC se priključuje i parsira tok kontrolnog režima umjesto da se oslanja na ugrađeni tmux preglednik, tako da su protokol i korelacija naredbi %start/%end u potpunosti u vlasništvu cmux. Svaki udaljeni panel renderuje se u posvećenu terminalnu površinu napajanu tmux% izlaza, a vaš unos — pritiski tipki i miš — se prosljeđuje putem tmux send-keys. Remote tmux server posjeduje veličinu panela i reflow; cmux održava svoje površine u skladu s njim i nikada ne reflowa lokalno.",
       "behaviorTitle": "Šta podržava",
       "behaviorSize": "Dimenzioniranje: udaljenom klijentu se mijenja veličina na prikazanu mrežu (refresh-client -C), tako da TUI-ovi nisu zaglavljeni na tmux-ovim zadanim 80×24.",
       "behaviorSplit": "Podjele: cijepanje ili zatvaranje okna u zrcaljenom prozoru se propagira na tmux sa split-window, tako da cmux izgled i tmux izgled ostaju sinkronizirani. Izvještaj o programskim podjelama (cmux new-split ili surface.split preko utičnice) prihvaćen bez ID-a površine — novo okno stiže asinhrono kada tmux potvrdi promjenu izgleda. Zahtjevi koji nose opcije koje rutirani split ne može ispuniti (komanda za pokretanje, radni direktorij, pozicija razdjelnika, položaj lijevo/gore) se odbijaju unaprijed, prije nego što se udaljena sesija mutira.",
-      "behaviorReorder": "Promena redosleda: prevlačenjem preuređenih kartica u ogledalu menja se redosled tmux prozora sa zamenljivim prozorom.",
+      "behaviorReorder": "Promjena redoslijeda: prevlačenje i preuređivanje ogledalnih tabova preuređuje tmux prozore pomoću swap-window.",
       "behaviorCwd": "Radni direktorij: trenutni folder udaljenog okna se prati i prikazuje na kartici.",
       "behaviorPaste": "Zalijepi i ispusti: zalijepljeni tekst i ispuštene slike/datoteke prolaze kroz tmux paste-buffer -p, tako da udaljena aplikacija (npr. agent za kodiranje) prima pravo lijepljenje u zagradama — slika stiže kao [Slika #N], a ne kao lokalna putanja.",
       "behaviorMouse": "Miš: klikovi, skrolovanje i prevlačenje do udaljene aplikacije kada je uključen način rada miša. Držite Shift dok prevlačite za izvorni cmux odabir/kopiranje teksta (isto kao bilo koji terminal koji pokreće aplikaciju za rad miša).",
@@ -1445,11 +1444,11 @@
       "workspaceActions": "Rasporedi radnog prostora",
       "workspaceActionsDesc": "Izgled radnog prostora se pohranjuje kao radnja <workspace>workspace</workspace>, ugrađujući punu definiciju radnog prostora direktno u radnju tako da ne treba poseban unos <commands>commands</commands>. Podržava ista polja radnog prostora plus <setup>setup</setup>, bootstrap naredbu koja se šalje na prvi terminal prije vlastite naredbe tog terminala:",
       "workspaceActionsMenuDesc": "Rasporedi radnog prostora se automatski pojavljuju u meniju desnog klika dugmeta plus. Postavite <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> na <falseValue>false</falseValue> da ga sakrijete ili na <trueValue>true</trueValue> na bilo koju drugu radnju da ga dodate u meni.",
-      "workspaceActionsSaveDesc": "Možete ih kreirati i bez pisanja JSON-a: desnom tipkom miša kliknite na dugme plus i odaberite <saveLayout>Sačuvaj radni prostor kao raspored</saveLayout> da biste snimili podjele trenutnog radnog prostora, direktorije, pokrenute agente i kartice preglednika u <configPath>~/.config/cmux/cmux.json</configPath>. Oni su pohranjeni kao unosi u blok <actions>actions</actions>. <customize>Customize Workspace Layouts</customize> otvara tu datoteku u vašem uređivaču.",
+      "workspaceActionsSaveDesc": "Možete ih kreirati i bez pisanja JSON-a: desnom tipkom miša kliknite na dugme plus i odaberite <saveLayout>Save Workspace as Layout</saveLayout> da biste snimili podjele trenutnog radnog prostora, direktorije, pokrenute agente i kartice preglednika u <configPath>~/.config/cmux/cmux.json</configPath>. Oni su pohranjeni kao unosi u blok <actions>actions</actions>. <customize>Customize Workspace Layouts</customize> otvara tu datoteku u vašem uređivaču.",
       "wsFieldEnv": "Varijable okruženja naslijeđene od strane svake ljuske u radnom prostoru",
       "wsFieldSetup": "Bootstrap naredba se šalje na prvi terminal radnog prostora prije vlastite naredbe tog terminala",
       "workspaceActionsDefaultTitle": "Zadano za nove radne prostore",
-      "workspaceActionsDefaultDesc": "Koristite podmeni <defaultMenu>Default for New Workspace</defaultMenu> da odaberete koji sačuvani izgled radnog prostora običan Novi radni prostor treba pokrenuti, ili odaberite Ništa da se vratite na prazan terminal. Dijalog za spremanje također ima potvrdni okvir <checkbox>Koristi kao zadano za nove radne prostore</checkbox>. Postavka je <action>ui.newWorkspace.action</action>; vrijednost projekta-local <localConfig>.cmux/cmux.json</localConfig> pobjeđuje nad <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
+      "workspaceActionsDefaultDesc": "Koristite podmeni <defaultMenu>Default for New Workspace</defaultMenu> da odaberete koji sačuvani izgled radnog prostora običan Novi radni prostor treba pokrenuti, ili odaberite Ništa da se vratite na prazan terminal. Dijalog za spremanje također ima potvrdni okvir <checkbox>Use as default for new workspaces</checkbox>. Postavka je <action>ui.newWorkspace.action</action>; vrijednost projekta-local <localConfig>.cmux/cmux.json</localConfig> pobjeđuje nad <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
       "title": "Prečice na tastaturi",
@@ -2026,11 +2025,11 @@
       "metaDescriptionShort": "cmux omo pokreće OpenCode uz oh-my-openagent i koordinira Claude, GPT, Gemini i Grok kao paralelne agente u izvornim cmux podjelama.",
       "title": "oh-my-opencode",
       "nightlyWarning": "Dostupno samo u <nightly>noćnim verzijama</nightly> .",
-      "intro": "cmux OMO pokreće OpenCode sa oh-my-openagent dodatkom u okruženju svjesnom cmux. oh-my-openagent orkestrira više AI modela (Claude, GPT, Gemini, Grok) kao specijalizirane agente koji rade paralelno. Kada generiše panele agenata, oni postaju nativni cmux se dijele.",
+      "intro": "cmux omo pokreće OpenCode sa oh-my-openagent dodatkom u okruženju koje cmux svjesno. oh-my-openagent orkestrira više AI modela (Claude, GPT, Gemini, Grok) kao specijalizirane agente koji rade paralelno. Kada generiše panele agenata, oni postaju nativni cmux se dijele.",
       "usage": "Upotreba",
       "usageDesc": "Svi argumenti nakon omo se prosljeđuju OpenCode.",
       "whatYouGet": "Šta dobiješ",
-      "whatYouGetDesc": "oh-my-openagentTmuxSessionManager generiše svakog pozadinskog agenta u svom panelu. Sa cmux omo, ti paneli postaju nativni cmux se dijele umjesto tmux panela:",
+      "whatYouGetDesc": "TmuxSessionManager iz oh-my-openagent pokreće svakog pozadinskog agenta u zasebnom panelu. Uz cmux omo, ti paneli postaju izvorne cmux podjele umjesto tmux panela:",
       "whatYouGet1": "Svaki podagent (Hefest, Atlas, Oracle, itd.) dobija svoj cmux split, vidljiv u radnom prostoru",
       "whatYouGet2": "Upravljanje automatskim rasporedom: agenti su raspoređeni u mrežu (po defaultu glavna vertikalna) i mijenjaju veličinu kako agenti dolaze i odlaze",
       "whatYouGet3": "Neaktivni agenti se automatski čiste nakon 3 uzastopna neaktivna polla bez novih poruka",
@@ -2044,7 +2043,7 @@
       "firstRunStep4": "Omogućava tmux mod u oh-my-opencode konfiguraciji (tmux.enabled podrazumijeva false, cmux omo ga uključuje)",
       "firstRunSafe": "Vaša originalna ~/.config/opencode/ konfiguracija se nikada ne mijenja. Pokretanje običnog openkoda radi isto kao i prije.",
       "howItWorks": "Kako to radi",
-      "howItWorksDesc": "Isti obrazac kao cmux claude-timovima. tmux shim presreće tmux naredbe iz oh-my-openagentTmuxSessionManager i prevodi ih u cmux API pozive.",
+      "howItWorksDesc": "Isti obrazac kao cmux claude-teams. tmux shim presreće tmux komande iz oh-my-openagent-ovog TmuxSessionManager i prevodi ih u cmux API pozive.",
       "shimStep1": "Stvara tmux podlošku na ~/.cmuxterm/omo-bin/tmux koja preusmjerava na cmux __tmux-kompat.",
       "shimStep2": "Postavlja TMUX i TMUX_PANE za simulaciju tmux sesije",
       "shimStep3": "Omogućava tmux.enabled u oh-my-opencode konfiguraciji (potrebno za pojavljivanje vizuelnog panela)",
@@ -2208,7 +2207,7 @@
       "usage": "Upotreba",
       "usageDesc": "Svi argumenti nakon omx se prosljeđuju OMX CLI.",
       "whatYouGet": "Šta dobiješ",
-      "whatYouGetDesc": "OMXtimski mod i HUD koristiti tmux za upravljanje panelima. Sa cmux OMX-om, ti paneli postaju nativni cmux se dijele:",
+      "whatYouGetDesc": "OMX-ov timski mod i HUD koriste tmux za upravljanje panelima. Sa cmux omx, ti paneli postaju nativni cmux se dijele:",
       "whatYouGet1": "Paneli za radnike tima (Codex/Claude sesije) pojavljuju se kao cmux podjele u radnom prostoru",
       "whatYouGet2": "HUD prikaz statusa prikazuje korištenje modela, grane, konteksta i tokena u podijeljenom panelu",
       "whatYouGet3": "Upravljanje automatskim rasporedom raspoređuje panele agenata u glavno-vertikalnu mrežu",
@@ -2235,7 +2234,7 @@
     },
     "ohMyPi": {
       "title": "oh-my-pi",
-      "metaTitle": "Oh-my-pi - cmux",
+      "metaTitle": "oh-my-pi - cmux",
       "metaDescription": "Povežite oh-my-pi (omp) na cmux sa hookovima za status, obavijesti, vraćanje sesije, automatsko imenovanje i atribuciju u Task Manageru.",
       "intro": "oh-my-pi je fork Pi prepisan kao agent koji prvo kodira. Njegov binarni program je omp, i cmux se integriše s njim putem OMP hooks ekstenzije.",
       "setupUsage": "Postavljanje i upotreba",
@@ -2267,7 +2266,7 @@
       "usage": "Upotreba",
       "usageDesc": "Svi argumenti nakon OMC se prosljeđuju OMC-u CLI.",
       "whatYouGet": "Šta dobiješ",
-      "whatYouGetDesc": "OMC-ov timski mod koristi tmux za upravljanje panelima. Sa cmux OMC-om, ti paneli postaju nativni cmux se dijele:",
+      "whatYouGetDesc": "OMC-ov timski mod koristi tmux za upravljanje panelima. Sa cmux omc, ti paneli postaju nativni cmux splitovi:",
       "whatYouGet1": "Paneli timskih radnika (Claude/Codex/Gemini sesije) pojavljuju se kao cmux podjele u radnom prostoru",
       "whatYouGet2": "HUD monitor prikazuje status uživo u podijeljenom panelu",
       "whatYouGet3": "Upravljanje automatskim rasporedom raspoređuje panele agenata u glavno-vertikalnu mrežu",
@@ -2275,7 +2274,7 @@
       "prerequisites": "Preduslovi",
       "prerequisitesDesc": "OMC zahtijeva Claude Code CLI instalaciju i autentifikaciju.",
       "howItWorks": "Kako to radi",
-      "howItWorksDesc": "Isti obrazac kao cmux claude-timovima. tmux shim presreće tmux naredbe od OMC i prevodi ih u cmux API pozive.",
+      "howItWorksDesc": "Isti obrazac kao cmux claude-teams. tmux shim presreće tmux komande iz OMC-a i prevodi ih u cmux API pozive.",
       "shimStep1": "Stvara tmux podlošku na ~/.cmuxterm/omc-bin/tmux koja preusmjerava na cmux __tmux-kompat.",
       "shimStep2": "Postavlja TMUX i TMUX_PANE za simulaciju tmux sesije",
       "shimStep3": "Priprema shim direktorij za PATH",
@@ -2318,7 +2317,7 @@
     "taskManager": {
       "title": "Task Manager",
       "metaTitle": "Task Manager",
-      "metaDescription": "Koristite cmux Task Manager ili cmux vrh da pronađete visoku CPU i RAM korištenje kod agenata za kodiranje, terminalskih procesa i panela preglednika.",
+      "metaDescription": "Koristite cmux Task Manager ili cmux top da pronađete visoku potrošnju CPU-a i RAM-a od strane programerskih agenata, terminalskih procesa i preglednika.",
       "intro": "Task Manager prikazuje korištenje resursa za cmux prozore, radne prostore, panele, terminalske procese, agente za kodiranje i web prikaze preglednika.",
       "openTitle": "Otvoreni Task Manager",
       "openDesc": "Pokrenite CLI komandu sa bilo kojeg cmux terminala:",
@@ -4485,24 +4484,24 @@
       "rows": [
         {
           "label": "Izvorni macOS terminal, otvoreni kod",
-          "free": "istina",
-          "pro": "istina",
-          "team": "istina",
-          "enterprise": "istina"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Lokalni CLI agenti sa vašim vlastitim ključevima",
-          "free": "istina",
-          "pro": "istina",
-          "team": "istina",
-          "enterprise": "istina"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Vertikalne kartice, podjele, obavijesti, utičnica API",
-          "free": "istina",
-          "pro": "istina",
-          "team": "istina",
-          "enterprise": "istina"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Istorija sesije",
@@ -4515,17 +4514,17 @@
         {
           "label": "cmux Trezor: sigurnosna kopija sesije u oblaku",
           "free": "false",
-          "pro": "istina",
-          "team": "istina",
-          "enterprise": "istina",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
           "label": "Pretražite sve svoje sesije",
           "free": "false",
-          "pro": "istina",
-          "team": "istina",
-          "enterprise": "istina",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
@@ -4545,16 +4544,16 @@
         {
           "label": "Model gatewaya: usmjeravanje i analiza upotrebe",
           "free": "false",
-          "pro": "istina",
-          "team": "istina",
-          "enterprise": "istina"
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "iOS aplikacija",
           "free": "false",
-          "pro": "istina",
-          "team": "istina",
-          "enterprise": "istina"
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Umrežavanje kako biste došli do vašeg Maca",
@@ -4568,50 +4567,50 @@
           "label": "Jedinstveni obračun i upravljanje sjedištima",
           "free": "false",
           "pro": "false",
-          "team": "istina",
-          "enterprise": "istina"
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "SSO i SAML prijava",
           "free": "false",
           "pro": "false",
           "team": "false",
-          "enterprise": "istina"
+          "enterprise": "true"
         },
         {
           "label": "Self-hosted i air-gapped izvedba",
           "free": "false",
           "pro": "false",
           "team": "false",
-          "enterprise": "istina"
+          "enterprise": "true"
         },
         {
           "label": "Centralizirani administrator i zajednička pravila tima",
           "free": "false",
           "pro": "false",
-          "team": "istina",
-          "enterprise": "istina"
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Dnevnici revizije: sesije, mreža, pretraživač",
           "free": "false",
           "pro": "false",
           "team": "false",
-          "enterprise": "istina"
+          "enterprise": "true"
         },
         {
           "label": "Predano korištenje i cijena obima",
           "free": "false",
           "pro": "false",
           "team": "false",
-          "enterprise": "istina"
+          "enterprise": "true"
         },
         {
           "label": "SOC 2 i SLA",
           "free": "false",
           "pro": "false",
           "team": "false",
-          "enterprise": "istina"
+          "enterprise": "true"
         },
         {
           "label": "Podrška",

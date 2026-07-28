@@ -90,8 +90,8 @@ export default async function CmuxSshPage({
       ) : null}
 
       <ul className="mt-4 space-y-1">
-        {featureItems.map((item) => (
-          <li key={item}>{item}</li>
+        {featureItems.map((item, index) => (
+          <li key={index}>{item}</li>
         ))}
       </ul>
 

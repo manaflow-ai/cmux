@@ -44,7 +44,7 @@
     "changelog": "Ændringslog",
     "community": "Fællesskab",
     "github": "GitHub",
-    "pricing": "Prisfastsættelse"
+    "pricing": "Priser"
   },
   "footer": {
     "product": "Produkt",
@@ -69,7 +69,7 @@
     "openSource": "Open source",
     "guides": "Guides",
     "compare": "Sammenlign",
-    "pricing": "Prisfastsættelse"
+    "pricing": "Priser"
   },
   "home": {
     "taglinePrefix": "Terminalen bygget til ",
@@ -199,8 +199,8 @@
         "pro": "Pro",
         "loading": "Indlæser…"
       },
-      "eyebrow": "Beretning",
-      "title": "fakturering",
+      "eyebrow": "Konto",
+      "title": "Fakturering",
       "description": "Gennemgå din cmux plan og administrer abonnementsfakturering.",
       "banners": {
         "cancelled": "Din plan vil blive annulleret ved udgangen af den nuværende faktureringsperiode.",
@@ -248,29 +248,29 @@
         "manageBilling": "Styr fakturering",
         "cancelSummary": "Annuller planen",
         "confirmCancel": "Bekræft annullering",
-        "resume": "CV-plan"
+        "resume": "Genoptag plan"
       }
     },
     "nav": {
       "brand": "cmux",
-      "vaultGroup": "hvælving",
-      "vaultOverview": "overblik",
+      "vaultGroup": "Vault",
+      "vaultOverview": "Overblik",
       "vaultSessions": "Sessioner",
       "vaultCliSetup": "CLI-opsætning",
       "subrouterGroup": "Subrouter",
-      "subrouterOverview": "overblik",
-      "accountGroup": "Beretning",
-      "billing": "fakturering",
+      "subrouterOverview": "Overblik",
+      "accountGroup": "Konto",
+      "billing": "Fakturering",
       "testflight": "iOS TestFlight"
     },
     "home": {
       "title": "Instrumentbræt",
       "description": "Vælg et produktdashboard.",
-      "vaultName": "hvælving",
+      "vaultName": "Vault",
       "vaultDescription": "Gennemse synkroniserede agentsessioner og administrer CLI-adgang.",
-      "vaultLink": "Åben hvælving",
+      "vaultLink": "Åbn Vault",
       "subrouterName": "Subrouter",
-      "subrouterDescription": "Dirsér LLM-anmodninger på tværs af udbyderkonti med failover og brugsbevidst planlægning.",
+      "subrouterDescription": "Dirigér LLM-anmodninger på tværs af udbyderkonti med failover og brugsbevidst planlægning.",
       "subrouterLink": "Åbn subrouter"
     },
     "subrouter": {
@@ -278,7 +278,7 @@
       "description": "Subrouteren videresender LLM-anmodninger på tværs af udbyderkonti med failover og brugsbevidst planlægning."
     },
     "testflight": {
-      "eyebrow": "Beretning",
+      "eyebrow": "Konto",
       "title": "iOS TestFlight",
       "description": "Deltag i cmux iOS beta fra dit aktive abonnement.",
       "banners": {
@@ -303,7 +303,7 @@
       },
       "join": {
         "title": "Deltag i iOS betaen",
-        "body": "Apple sender en TestFlight invitation til {email}. Installer TestFlight på din iPhoneog accepter derefter invitationen."
+        "body": "Apple sender en TestFlight invitation til {email}. Installer TestFlight på din iPhone og accepter derefter invitationen."
       },
       "enrolled": {
         "title": "Du er tilmeldt",
@@ -317,10 +317,11 @@
       },
       "actions": {
         "viewPricing": "Se priser",
-        "join": "Bliv medlem iOS TestFlight",
-        "leave": "Lad TestFlight"
+        "join": "Bliv medlem af iOS TestFlight",
+        "leave": "Forlad TestFlight"
       }
-    }
+    },
+    "title": "Fakturering"
   },
   "community": {
     "title": "Fællesskab",
@@ -670,7 +671,7 @@
         "limitsP": "tmux, vim, shells og ikke-understøttede værktøjer åbner igen som normale terminaler, medmindre de har en cmux-integration, der gemmer en sikker native resume-kommando. Det gør gendannelse forudsigelig og undgår at afspille gamle prompts eller hemmeligheder.",
         "docsCta": "Læs <link>dokumentationen for sessionsgendannelse</link> for setup-kommandoer, understøttede agenter og fejlfinding.",
         "workflowTitle": "Anbefalet opsætning",
-        "workflowInstall": "Installer agenten CLI du bruger, og kør derefter cmux hooks-opsætning, så cmux kan fange native session-ID'er.",
+        "workflowInstall": "Installer den agent CLI, du bruger, og kør cmux hooks setup, så cmux kan fange native sessions-ID'er.",
         "workflowWork": "Kør agenter i normale cmux terminaler. Hooks registrerer sessions-ID, cwd, workspace og surface, mens arbejdet sker.",
         "workflowRelaunch": "Efter en genstart genopbygger cmux vindues- og paneltræet, før de starter eventuelle kommandoer for at genoptage gemte agenter.",
         "workflowVerify": "Tjek at den gendannede agent fortsætter den samme upstream-session, og fortsæt derefter med at arbejde i det samme arbejdsområde.",
@@ -775,11 +776,11 @@
         "cmuxTitle": "cmux giver workflowet en flade",
         "cmuxP1": "cmux behøver ikke en indbygget universel worktree-manager. Det giver dig <customCommands>brugerdefinerede kommandoer</customCommands>, en programmerbar <api>CLI og socket-API</api> og genbrugelige <skills>skills</skills>. Plus-knappen kan starte din egen worktree-kommando, multi-repo-setup, sandbox uden Git eller fjernmiljø.",
         "cmuxP2": "Det er derfor <home>cmux home</home> betyder noget. Den bedste worktree-manager er den, dine agenter kan ændre, når din arbejdsgang ændres, og den bedste terminal til den løkke holder meddelelser, Cmd+Shift+U og Cmd+Control+U tilsluttet overfladen.",
-        "agentsExample": "Du arbejder i cmux-hq. Opgaver kan indebære: \n- manaflow-ai/cmux \n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nNår brugeren beder om en ny opgave: \n1. Beslut hvilke repositories opgaven har brug for. \n2. Opret matchende arbejdstræer i arbejdstræer/[opgave]/[repo]. \n3. Læs hvert arbejdstræs AGENTS.md. \n4. Start opsætningsscripts med det samme, og fortsæt derefter opgaven.",
-        "launchCommand": "CD ~/fun/cmux-hq \nCodex --yolo \"Fix subrouter xyz-problemer, kan relatere til cmux på xyz-måde\""
+        "agentsExample": "Du arbejder i cmux-hq. Opgaver kan omfatte:\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nNår brugeren beder om en ny opgave:\n1. Beslut, hvilke repositories opgaven kræver.\n2. Opret de tilsvarende worktrees i worktrees/[task]/[repo].\n3. Læs AGENTS.md i hvert worktree.\n4. Start opsætningsscripts med det samme, og fortsæt derefter opgaven.",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"Fix subrouter xyz-problemer, som kan relatere til cmux på xyz-måde\""
       },
       "cmuxClaudeTeams": {
-        "title": "Claude Code holdkammeratagenter som oprindelige cmux ruter",
+        "title": "Claude Code-holdkammeratagenter som native cmux-paneler",
         "summary": "Claude Codes holdkammerat-tilstand kræver tmux. cmux faker det, så holdkammerater bliver native splits med sidebar-metadata og notifikationer.",
         "date": "30. marts 2026",
         "p1": "Claude Code har en eksperimentel <agentTeamsLink>teammat-tilstand</agentTeamsLink> , der spawner subagenter parallelt. Den kræver tmux og indstilling <code>CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1</code>. <code>cmux claude-teams</code> håndterer alt det for dig: den sætter env-varen, placerer en tmux shim på PATH , der oversætter alle tmux kommandoer (<code>split-window</code>, <code>send-keys</code>, <code>capture-pane</code>) til cmux's native split/workspace API, og execs ind i <code>claude --teammate-mode auto</code>. Én kommando.",
@@ -797,16 +798,15 @@
       },
       "gpl": {
         "title": "cmux er nu GPL",
-        "summary": "cmux omlicenseret fra AGPL-3,0 til GPL-3,0.",
+        "summary": "cmux omlicenseret fra AGPL-3.0 til GPL-3.0.",
         "date": "30. marts 2026",
-        "p1": "cmux omlicenseret fra AGPL-3,0 til GPL-3,0. AGPL's netværksbrugsklausul er irrelevant for en desktop-app, men mange virksomheder forbyder AGPL helt. GPL fjerner den klausul, men kræver stadig, at forks forbliver open source. Dobbeltlicens (GPL + kommerciel) forbliver den samme."
+        "p1": "cmux omlicenseret fra AGPL-3.0 til GPL-3.0. AGPL's netværksbrugsklausul er irrelevant for en desktop-app, men mange virksomheder forbyder AGPL helt. GPL fjerner den klausul, men kræver stadig, at forks forbliver open source. Dobbeltlicens (GPL + kommerciel) forbliver den samme."
       },
       "cmuxSsh": {
         "title": "cmux SSH",
         "summary": "En kommando giver dig vedvarende fjernsessioner, browserpaneler, der når fjernporte, og agentnotifikationer, der kommer hjem.",
         "date": "30. marts 2026",
         "p1": "<code>cmux ssh user@remote</code> opretter et arbejdsområde til den eksterne maskine. Træk et billede ind i en fjern Claude Code session, og det bliver uploadet automatisk. Browserpaneler går gennem det eksterne netværk, så localhost fungerer bare. Bruger din <code>~/.ssh/config</code>, genopretter forbindelsen ved drops.",
-        "features": "Browserpaneler dirigerer trafik gennem det fjernnetværk, så localhost:3000 når den fjernudviklede server uden -L-flag. Kodningsagenter på fjernboksen sender notifikationer til din lokale sidebar. cmux claude-teams og cmux omo arbejder over SSH, spawnende holdkammerat-vinduer lokalt, mens beregningen kører fjernt. Træk en fil ind i en fjernterminal for at uploade via SCP. Sidebaren viser forbindelsesstatus og registrerede lytteporte.",
         "featureItems": [
           "Browserpaneler ruter gennem den eksterne maskine, så localhost:3000 når den eksterne udviklerserver uden port forwarding",
           "Træk et billede ind i en fjernterminal for at uploade det via SCP",
@@ -821,7 +821,7 @@
         "workflowNotify": "Kør Claude Code, Codex, OpenCode, eller en anden agent på den eksterne maskine og lad cmux sende notifikationer tilbage til din Mac.",
         "workflowUpload": "Træk filer eller billeder ind i den eksterne terminal, når agenten har brug for lokal kontekst eller testfixtures.",
         "faqTitle": "FAQ",
-        "faqPortTitle": "Skal jeg stadig bruge ssh-L for localhost?",
+        "faqPortTitle": "Skal jeg stadig have ssh -L for localhost?",
         "faqPortBody": "Normalt ikke. Browserpaneler inde i det eksterne arbejdsområde ruter HTTP og WebSocket-trafik gennem den eksterne maskine, så lokale forhåndsvisnings-URL'er løses fra den eksterne host.",
         "faqConfigTitle": "Bruger den min eksisterende SSH konfiguration?",
         "faqConfigBody": "Ja. cmux læser ~/.ssh/config for aliaser, identitetsfiler, proxyindstillinger og host-indstillinger, og tilføjer derefter cmux-specifik routing- og genforbindelsesadfærd.",
@@ -980,7 +980,7 @@
       ]
     },
     "cmuxClaudeTeams": {
-      "metaTitle": "Claude Code holdkammeratagenter som oprindelige cmux ruter",
+      "metaTitle": "Claude Code-holdkammeratagenter som native cmux-paneler",
       "metaDescription": "Claude Codes holdkammerat-tilstand kræver tmux. cmux faker det, så holdkammerater bliver native splits med sidebar-metadata og notifikationer."
     },
     "cmuxOmo": {
@@ -989,7 +989,7 @@
     },
     "gpl": {
       "metaTitle": "cmux er nu GPL",
-      "metaDescription": "cmux omlicenseret fra AGPL-3,0 til GPL-3,0."
+      "metaDescription": "cmux omregistreret fra AGPL-3.0 til GPL-3.0."
     },
     "cmuxSsh": {
       "metaTitle": "cmux SSH",
@@ -1011,7 +1011,7 @@
       "rowSession": "Et dedikeret arbejdsområde i sidebaren.",
       "rowWindow": "En fane i det arbejdsområde.",
       "rowPane": "Et panel i en native del var delt inde i den fane.",
-      "mappingPanes": "Den nye funktion er paneler inde i en fane: en cmux fane, der bruges til at holde en enkelt terminal, men et tmux vindue med flere paneler gengives nu som et rigtigt cmux split-layout i én fane — hvert fjernpanel er et indbygget cmux terminalpanel med den sædvanlige krom. Broen er tovejs: at splitte eller lukke et panel i fanen kører tmux split-vindue, og omorganisering af fanerne omarrangerer de tmux vinduer med swap-vindue.",
+      "mappingPanes": "Den nye funktion er paneler inde i en fane: en cmux fane, der bruges til at holde en enkelt terminal, men et tmux vindue med flere paneler gengives nu som et rigtigt cmux delt layout i én fane — hver fjernpanel er en native cmux terminalpanel med den sædvanlige krom. Broen er tovejs: at splitte eller lukke et panel i den fane kører tmux split-window, og omorganisering af fanerne omarrangerer de tmux vinduer med swap-window.",
       "requirementsTitle": "Krav",
       "requirementsDesc": "En tilgængelig SSH host (cmux læser din ~/.ssh/config) med tmux 3.2 eller nyere installeret. Kontroltilstand (tmux -CC) er en standard tmux -funktion, så der er ikke behov for en særlig build; cmux tjekker den eksterne tmux -version, før den tilsluttes, og fejler tydeligt på ældre servere. cmux tilsluttes over en SSH ControlMaster-forbindelse, og den eksterne tmux -server fortsætter med at køre, når du kobler fra.",
       "enableTitle": "Aktiver det",
@@ -1019,17 +1019,17 @@
       "attachTitle": "Vedhæftning",
       "attachIntro": "Kør cmux ssh-tmux <destination> i en terminal — et ~/.ssh/config alias eller user@host. cmux spejler værtens tmux sessioner ind i sidebjælken i det aktuelle vindue: hver session bliver et arbejdsområde, hvert vindue en fane, og flerpanelvinduer bliver til opdelinger i fanen.",
       "attachNewWindow": "Send --new-window til at åbne spejlet i et dedikeret nyt vindue i stedet for det nuværende vindue.",
-      "attachSockets": "Fjernbetjeningen.tmux.* socket-kommandoer (nedenfor) giver finere kontrol. fjernbetjening.tmux.mirror er spejlindgangspunktet; den accepterer vindues-/kalderrouting og kan valgfrit vælge det spejlede arbejdsområde.",
+      "attachSockets": "Socket-kommandoerne remote.tmux.* nedenfor giver finere kontrol. remote.tmux.mirror er spejlets indgangspunkt; den accepterer vindues- og kalderrouting og kan valgfrit vælge det spejlede workspace.",
       "attachCli": "Værter, der autentificerer ikke-interaktivt (ssh-agent eller en nøgle i ~/.ssh/config) tilknyttes uden nogen prompt. Hvis værten har brug for interaktiv autentificering (en adgangskode, værtsnøglebekræftelse eller MFA), kører cmux ssh inline i din terminal, så du kan autentificere, og spejler derefter ind i det aktuelle vindue. Accepterer --port, --identity, og --no-focus.",
       "troubleshootTitle": "Hvis du får \"Tilladelse nægtet\"",
       "troubleshootDesc": "Destinationen gives til ssh som den er, så et alias skal indeholde alt, hvad ssh behøver for at logge ind — oftest bruger (uden det prøver ssh dit lokale brugernavn) og IdentityFile:",
       "troubleshootFallback": "Eller send brugeren eksplicit: cmux ssh-tmux dev@my-ssh-alias. Hvis almindelig ssh <destination> ikke logger dig ind, så gør cmux ssh-tmux <destination> heller ikke.",
       "howTitle": "Hvordan det virker",
-      "howDesc": "cmux spawns ssh ... tmux -CC tilknytter og parser selve kontroltilstandsstrømmen i stedet for at stole på en indbygget tmux -viewer, så protokollen og %begin/%end-kommandokorrelationen ejes fuldt ud af cmux. Hver fjernpanel renderes til en dedikeret terminaloverflade, der fodres af tmux %output, og dit input — tastetryk og mus — videresendes med tmux send-taster. Den eksterne tmux -server ejer panelets størrelse og reflow; cmux holder sine overflader i lås med den og reflower aldrig lokalt.",
+      "howDesc": "cmux spawner ssh ... tmux -CC tilknytter og parser selve kontroltilstandsstrømmen i stedet for at stole på en indbygget tmux-viewer, så protokollen og korrelationen %begin/%end-kommandoer ejes fuldt ud af cmux. Hver fjernpanel renderes til en dedikeret terminaloverflade, der fodres af tmux %output, og dit input — tastetryk og mus — videresendes med tmux send-keys. Den eksterne tmux-server ejer panelets størrelse og reflow; cmux holder sine overflader i takt med den og reflower aldrig lokalt.",
       "behaviorTitle": "Hvad den understøtter",
       "behaviorSize": "Størrelse: den fjernklient tilpasses det renderede gitter (refresh-client -C), så TUI'er ikke sidder fast på tmuxstandardniveau 80×24.",
-      "behaviorSplit": "Splits: opdeling eller lukning af et panel i et spejlet vindue videreføres til tmux med split-vindue, så det cmux layout og det tmux layout forbliver synkroniserede. Programmatiske splits (cmux ny-split eller surface.split over socket) rapporteres accepteret uden overflade-id — det nye panel ankommer asynkront, når tmux bekræfter layoutændringen. Anmodninger med muligheder, som den roudede split ikke kan opfylde (startkommando, arbejdsmappe, delerposition, venstre/op-placering), afvises fra starten, før den fjernbehandlede session muteres.",
-      "behaviorReorder": "Omarrangering: Træk-omarrangering af de spejlede faner omarrangerer de tmux vinduer med swap-vindue.",
+      "behaviorSplit": "Splits: opdeling eller lukning af et panel i et spejlet vindue videreføres til tmux med split-window, så det cmux layout og det tmux layout forbliver synkroniserede. Programmatiske splits (cmux new-split eller surface.split over socket) rapporteres accepteret uden overflade-id — det nye panel ankommer asynkront, når tmux bekræfter layoutændringen. Anmodninger med muligheder, som den roudede split ikke kan opfylde (startkommando, arbejdsmappe, delerposition, venstre/op-placering), afvises fra starten, før den fjernbehandlede session muteres.",
+      "behaviorReorder": "Omarrangering: Træk-omarrangering af de spejlede faner omarrangerer de tmux vinduer med swap-window.",
       "behaviorCwd": "Arbejdsmappe: den nuværende mappe i fjernpanelet spores og vises på fanen.",
       "behaviorPaste": "Indsæt & slip: indsat tekst og droppede billeder/filer går gennem tmux paste-buffer -p, så en fjernapp (f.eks. en kodningsagent) modtager en ægte bracketed paste — et billede ankommer som [Image #N], ikke som en lokal sti.",
       "behaviorMouse": "Mus: Klik, rul og træk for at nå fjernappen, når den har musetilstand slået til. Hold Shift nede mens du trækker for en native cmux tekstvalg/kopiering (det samme som enhver terminal, der kører en mustilstandsapp).",
@@ -1443,13 +1443,13 @@
       "actionTypeWorkspace": "Opret et arbejdsområde ud fra en inline arbejdsområde-definition med valgfri genstartsfunktion. Tilbydes automatisk i menuen med ny-arbejdsområde plus-knap.",
       "actionFieldNewWorkspaceMenu": "Sæt true for at tilbyde enhver handling i menuen med ny-arbejdsområde plus-knap, eller falsk for at skjule en arbejdsområde-handling fra den.",
       "workspaceActions": "Arbejdsområde-layouts",
-      "workspaceActionsDesc": "Et arbejdsområdelayout gemmes som en <workspace>arbejdsområde-handling</workspace> , hvor en fuld arbejdsområde-definition indlejres direkte i handlingen, så der ikke er behov for separate <commands>kommandoer</commands> . Det understøtter de samme arbejdsområdefelter plus <setup>opsætning</setup>, en bootstrap-kommando sendt til den første terminal før terminalens egen kommando:",
-      "workspaceActionsMenuDesc": "Arbejdsområde-layouts vises automatisk i plus-knap højreklikmenuen. Sæt <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> til <falseValue>falsk</falseValue> for at skjule en, eller til <trueValue>true</trueValue> ved enhver anden handling for at tilføje den til menuen.",
-      "workspaceActionsSaveDesc": "Du kan også oprette disse uden at skrive JSON: højreklik på plus-knappen og vælg <saveLayout>Gem Arbejdsområde som Layout</saveLayout> for at fange det aktuelle arbejdsområdes opdelinger, mapper, kørende agenter og browserfaner i <configPath>~/.config/cmux/cmux.json</configPath>. De gemmes som poster i <actions>handlingsblokken</actions>. <customize>Customize Workspace Layouts</customize> åbner den fil i din editor.",
+      "workspaceActionsDesc": "Et arbejdsområdelayout gemmes som en <workspace>workspace</workspace> , hvor en fuld arbejdsområde-definition indlejres direkte i handlingen, så der ikke er behov for separate <commands>commands</commands> . Det understøtter de samme arbejdsområdefelter plus <setup>setup</setup>, en bootstrap-kommando sendt til den første terminal før terminalens egen kommando:",
+      "workspaceActionsMenuDesc": "Arbejdsområde-layouts vises automatisk i plus-knap højreklikmenuen. Sæt <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> til <falseValue>false</falseValue> for at skjule en, eller til <trueValue>true</trueValue> ved enhver anden handling for at tilføje den til menuen.",
+      "workspaceActionsSaveDesc": "Du kan også oprette disse uden at skrive JSON: højreklik på plus-knappen og vælg <saveLayout>Save Workspace as Layout</saveLayout> for at fange det aktuelle arbejdsområdes opdelinger, mapper, kørende agenter og browserfaner i <configPath>~/.config/cmux/cmux.json</configPath>. De gemmes som poster i <actions>actions</actions>. <customize>Customize Workspace Layouts</customize> åbner den fil i din editor.",
       "wsFieldEnv": "Miljøvariabler arvet af hver shell i arbejdsområdet",
       "wsFieldSetup": "Bootstrap-kommandoen sendes til arbejdsområdets første terminal før terminalens egen kommando",
       "workspaceActionsDefaultTitle": "Standard for nye arbejdsområder",
-      "workspaceActionsDefaultDesc": "Brug <defaultMenu>undermenuen Standard for Nyt Arbejdsområde</defaultMenu> til at vælge, hvilket gemt arbejdsområdelayout der skal køre helt enkelt Nyt arbejdsområde, eller vælg Ingen for at vende tilbage til en tom terminal. Gemmedialogen har også en afkrydsningsboks Brug <checkbox>som standard for nye arbejdsområder</checkbox>. Indstillingen er <action>ui.newWorkspace.action</action>; en projekt-lokal <localConfig>.cmux/cmux.json</localConfig> værdi vinder over <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
+      "workspaceActionsDefaultDesc": "Brug <defaultMenu>Default for New Workspace</defaultMenu> til at vælge, hvilket gemt arbejdsområdelayout der skal køre helt enkelt Nyt arbejdsområde, eller vælg Ingen for at vende tilbage til en tom terminal. Gemmedialogen har også en afkrydsningsboks Brug <checkbox>Use as default for new workspaces</checkbox>. Indstillingen er <action>ui.newWorkspace.action</action>; en projekt-lokal <localConfig>.cmux/cmux.json</localConfig> værdi vinder over <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
       "title": "Tastaturgenveje",
@@ -1806,9 +1806,9 @@
       "exampleAgentButtonsUse": "Tilføjelse af ét-klik Codex, Claudeeller brugerdefinerede agent-launchere, mens de indbyggede faneknapper holdes synlige.",
       "customizationExamplesCallout": "Detaljerede uddrag findes i <code>skills/cmux-customization/references/examples.md</code>. Agenter indlæser kun filen, når et eksempel-bibliotek-mønster er nødvendigt.",
       "customizationExamplePrompts": "Eksempelprompts",
-      "customizationPromptWorktree": "Brug $cmux-tilpasning til at sætte worktree-agents eksemplet op.",
-      "customizationPromptFullStack": "Brug $cmux-tilpasning til at skabe et projektlokalt full-stack-udviklingslayout med Dock-kontroller.",
-      "customizationPromptAgentButtons": "Brug $cmux-tilpasning til at tilføje hurtige agentknapper til Codex og Claude.",
+      "customizationPromptWorktree": "Brug $cmux-customization til at opsætte worktree-agent-eksemplet.",
+      "customizationPromptFullStack": "Brug $cmux-customization til at lave et projekt-lokalt full-stack-udviklingslayout med Dock-kontroller.",
+      "customizationPromptAgentButtons": "Brug $cmux-customization til at tilføje hurtigagent-knapper til Codex og Claude.",
       "diagnosticsScope": "Skrivebeskyttede sundhedstjek for CLI tilgængelighed, socket-adgang, cmux miljø, indstillingsvalidering, hook-installationsmarkører, sessionslagre, auto-genoptagelsesindstillinger og understøttede agent-binære filer.",
       "diagnosticsReferences": "Inkluderet supportsikkert diagnostisk script, hook setup-kommandoer, fortolkning af sessionsgendannelse, notifikationstjek og regler for redigering af følsomme filer.",
       "browserScope": "Browserautomatisering inde i cmux webview-overflader, herunder navigation, DOM handlinger, ventetider, tilstandsoptagelser, skærmbilleder og snapshots.",
@@ -1860,7 +1860,7 @@
       "base": "Base",
       "ssh": "SSH",
       "remoteTmux": "Fjernbetjent tmux",
-      "ohMyPi": "Åh-min-Pi",
+      "ohMyPi": "oh-my-pi",
       "vault": "Vault",
       "taskManager": "Jobliste"
     },
@@ -2027,7 +2027,7 @@
       "usage": "Anvendelse",
       "usageDesc": "Alle argumenter efter omo sendes videre til OpenCode.",
       "whatYouGet": "Hvad du får",
-      "whatYouGetDesc": "oh-my-openagents TmuxSessionManager opretter hver baggrundsagent i sit eget panel. Med cmux omo bliver disse paneler native cmux splits i stedet for tmux paneler:",
+      "whatYouGetDesc": "TmuxSessionManager fra oh-my-openagent starter hver baggrundsagent i sin egen rude. Med cmux omo bliver ruderne til native cmux-opdelinger i stedet for tmux-ruder:",
       "whatYouGet1": "Hver subagent (Hephaestus, Atlas, Oracle osv.) får sin egen cmux split, synlig i arbejdsområdet",
       "whatYouGet2": "Auto-layout management: agenter arrangeres i et gitter (hovedvertikal som standard) og ændres i størrelse, efterhånden som agenter kommer og går",
       "whatYouGet3": "Inaktive agenter bliver automatisk ryddet op efter 3 på hinanden følgende inaktive afstemninger uden nye beskeder",
@@ -2198,8 +2198,8 @@
       "mapList": "lister cmux ruder eller arbejdsområder"
     },
     "ohMyCodex": {
-      "title": "Åh-min-kodeks",
-      "metaTitle": "Åh-min-kodex - cmux",
+      "title": "oh-my-codex",
+      "metaTitle": "oh-my-codex - cmux",
       "metaDescription": "Kør Oh My Codex (OMX) inde i cmux med native split pane-integration til teamtilstand og agentorkestrering.",
       "intro": "cmux omx lancerer Oh My Codex (OMX) i et cmux-bevidst miljø. OMX er et multi-agent orkestreringslag for OpenAI- Codex CLI med 30+ specialiserede agentroller, workflow-færdigheder og tmux-baseret parallel teameksekvering. Når OMX opretter teampaneler eller HUD displays, bliver de native cmux splits.",
       "usage": "Anvendelse",
@@ -2231,8 +2231,8 @@
       "envSocket": "Sti til den cmux kontrolstik, som shim'en kan forbinde til"
     },
     "ohMyPi": {
-      "title": "Åh-min-Pi",
-      "metaTitle": "Oh-My-Pi - cmux",
+      "title": "oh-my-pi",
+      "metaTitle": "oh-my-pi - cmux",
       "metaDescription": "Forbind oh-my-pi (OMP) til cmux med hooks til status, notifikationer, sessionsgendannelse, automatisk navngivning og Task Manager-attribution.",
       "intro": "oh-my-pi er en forgrening af Pi, omskrevet som en coding-first agent. Dens binære er omp, og cmux integreres med den via omp hooks-udvidelsen.",
       "setupUsage": "Opsætning og brug",
@@ -2257,8 +2257,8 @@
       "envCmuxBin": "Overskriver den cmux binære fil, som hooks-udvidelsen kalder"
     },
     "ohMyClaudeCode": {
-      "title": "Åh-min-Claudecode",
-      "metaTitle": "Åh-min-Claudecode - cmux",
+      "title": "oh-my-claudecode",
+      "metaTitle": "oh-my-claudecode - cmux",
       "metaDescription": "Kør Oh My Claude Code (OMC) inde i cmux med native split pane-integration til multi-agent orkestrering.",
       "intro": "cmux omc lancerer Oh My Claude Code (OMC) i et cmux-bevidst miljø. OMC er et multi-agent orkestreringssystem til Claude Code med 19 specialiserede agenter, smart model-routing og tmux-baserede teampipelines. Når OMC opretter team-paneler, bliver de native cmux splits.",
       "usage": "Anvendelse",
@@ -2391,7 +2391,7 @@
         },
         "disputes": {
           "heading": "8. Tvistbilæggelse",
-          "arbitration": "Du accepterer, at enhver tvist mellem dig og virksomheden vedrørende ansøgningen eller disse vilkår vil blive løst ved bindende voldgift og ikke i retten, bortset fra at begge parter kan fremsætte individuelle krav i småsagsretten eller søge rimelig erstatning for misbrug af intellektuel ejendom. Voldgiften vil blive gennemført af JAMS under deres gældende regler.",
+          "arbitration": "Du accepterer, at enhver tvist mellem dig og virksomheden vedrørende applikationen eller disse vilkår vil blive løst ved bindende voldgift og ikke i retten, bortset fra at begge parter kan fremsætte individuelle krav i småsagsretten eller søge rimelig erstatning for misbrug af intellektuel ejendom. Voldgiften vil blive gennemført af JAMS under deres gældende regler.",
           "juryWaiver": "DU OG VIRKSOMHEDEN FRASIGER DIG ENHVER FORFATNINGSMÆSSIG OG LOVBESTEMT RET TIL AT SAGSØGE I RETTEN OG HAR EN RETSSAG FORAN EN DOMMER ELLER EN JURY.",
           "classWaiver": "DU OG VIRKSOMHEDEN ER ENIGE OM, AT HVER KUN MÅ REJSE KRAV MOD DEN ANDEN PÅ INDIVIDUELT GRUNDLAG OG IKKE PÅ GRUPPE-, REPRÆSENTATIONS- ELLER KOLLEKTIVT GRUNDLAG.",
           "optOut": "Du har ret til at fravælge denne voldgiftsaftale ved at sende skriftlig meddelelse til <email>founders@manaflow.com</email> inden for 30 dage efter, at du først blev underlagt den."
@@ -2421,7 +2421,7 @@
           "intro": "Med henblik på denne aftale:",
           "agreementTerm": "\"Aftale\"",
           "agreementText": "betyder denne slutbrugerlicensaftale, der udgør hele aftalen mellem dig og virksomheden vedrørende brugen af applikationen.",
-          "applicationTerm": "\"Anvendelse\"",
+          "applicationTerm": "\"Applikation\"",
           "applicationText": "betyder cmux desktop-applikationen til macOS, en native terminalapplikation bygget på Ghostty.",
           "companyTerm": "\"Selskab\"",
           "companyText": "(omtalt som \"Selskabet\", \"Vi\", \"Os\" eller \"Vores\") henviser til Manaflow.",
@@ -2453,7 +2453,7 @@
         },
         "intellectualProperty": {
           "heading": "Intellektuel ejendomsret",
-          "ownership": "Ansøgningen, inklusive alle ophavsrettigheder, patenter, varemærker, forretningshemmeligheder og andre intellektuelle ejendomsrettigheder, er og skal forblive selskabets eneste og eksklusive ejendom.",
+          "ownership": "Applikationen, inklusive alle ophavsrettigheder, patenter, varemærker, forretningshemmeligheder og andre intellektuelle ejendomsrettigheder, er og skal forblive selskabets eneste og eksklusive ejendom.",
           "userOwnership": "Du beholder ejerskabet af al kode eller indhold, du skaber ved hjælp af applikationen."
         },
         "modifications": {
@@ -2478,7 +2478,7 @@
         },
         "liability": {
           "heading": "Ansvarsbegrænsning",
-          "limit": "Selskabets fulde ansvar i henhold til denne aftale skal være begrænset til det beløb, du faktisk har betalt for ansøgningen, eller 100 USD, hvis du ikke har købt noget.",
+          "limit": "Selskabets fulde ansvar i henhold til denne aftale skal være begrænset til det beløb, du faktisk har betalt for applikationen, eller 100 USD, hvis du ikke har købt noget.",
           "damages": "I det omfang, loven tillader, skal selskabet under ingen omstændigheder holdes ansvarlig for nogen særlige, tilfældige, indirekte eller følgeskader overhovedet."
         },
         "indemnification": {
@@ -2491,7 +2491,7 @@
         },
         "governingLaw": {
           "heading": "Gældende lov",
-          "body": "USA's love, med undtagelse af regler om konfliktlovgivning, skal regulere denne aftale og din brug af ansøgningen."
+          "body": "USA's love, med undtagelse af regler om konfliktlovgivning, skal regulere denne aftale og din brug af applikationen."
         },
         "changes": {
           "heading": "Ændringer i denne aftale",
@@ -2508,7 +2508,7 @@
   "wallOfLove": {
     "title": "Wall of Love",
     "description": "Hvad folk siger om cmux.",
-    "metaTitle": "Kærlighedens Væg — cmux",
+    "metaTitle": "Wall of Love — cmux",
     "metaDescription": "Hvad folk siger om cmux, terminalen bygget til multitasking."
   },
   "testimonials": {
@@ -4405,12 +4405,12 @@
   },
   "pricing": {
     "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere.",
-    "metaTitle": "Prisfastsættelse — cmux",
+    "metaTitle": "Priser — cmux",
     "metaDescription": "cmux er en gratis, open source macOS terminal for AI-kodningsagenter. Opgrader til Pro for Cloud VMs, cmux Vault-sessionsbackup og en modelgateway. Enterprise tilføjer SSO og selvhosting.",
     "metaDescriptionShort": "cmux er en gratis, open source macOS terminal. Pro tilføjer Cloud VM'er, Vault-sessionsbackup og en modelgateway; Enterprise tilføjer SSO og selvhosting.",
     "metaDescriptionNoVault": "cmux er en gratis, open source macOS terminal til AI-kodningsagenter. Opgrader til Pro for Cloud VM'er og en modelgateway. Enterprise tilføjer SSO og selvhosting.",
     "metaDescriptionNoVaultShort": "cmux er en gratis, open source macOS terminal. Pro tilføjer Cloud VM'er og en modelgateway; Enterprise tilføjer SSO og selvhosting.",
-    "title": "Prisfastsættelse",
+    "title": "Priser",
     "perMonth": "/month",
     "perUserMonth": "/user/month",
     "currentPlan": "Nuværende plan",
@@ -4430,7 +4430,7 @@
       ]
     },
     "pro": {
-      "name": "Fordel",
+      "name": "Pro",
       "price": "$30",
       "cta": "Get Pro",
       "featuresLead": "Alt er gratis, plus:",
@@ -4449,7 +4449,7 @@
       ]
     },
     "team": {
-      "name": "Holdet",
+      "name": "Team",
       "price": "$35",
       "cta": "Få Teams",
       "featuresLead": "Alt i Pro, plus:",
@@ -4464,7 +4464,7 @@
     },
     "enterprise": {
       "name": "Enterprise",
-      "price": "Skik",
+      "price": "Tilpasset",
       "cta": "Kontakt salg",
       "featuresLead": "Alt i Team, plus:",
       "features": [
@@ -4482,24 +4482,24 @@
       "rows": [
         {
           "label": "Native macOS terminal, open source",
-          "free": "Sandt",
-          "pro": "Sandt",
-          "team": "Sandt",
-          "enterprise": "Sandt"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Lokale CLI agenter med egne nøgler",
-          "free": "Sandt",
-          "pro": "Sandt",
-          "team": "Sandt",
-          "enterprise": "Sandt"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Vertikale faner, splits, notifikationer, sokler API",
-          "free": "Sandt",
-          "pro": "Sandt",
-          "team": "Sandt",
-          "enterprise": "Sandt"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Sessionens historie",
@@ -4511,18 +4511,18 @@
         },
         {
           "label": "cmux Vault: cloud session backup",
-          "free": "falsk",
-          "pro": "Sandt",
-          "team": "Sandt",
-          "enterprise": "Sandt",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
           "label": "Søg på tværs af alle dine sessioner",
-          "free": "falsk",
-          "pro": "Sandt",
-          "team": "Sandt",
-          "enterprise": "Sandt",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
@@ -4537,21 +4537,21 @@
           "free": "1",
           "pro": "Brugsbaseret",
           "team": "Brugsbaseret",
-          "enterprise": "Skik"
+          "enterprise": "Tilpasset"
         },
         {
           "label": "Modelgateway: routing og brugsanalyse",
-          "free": "falsk",
-          "pro": "Sandt",
-          "team": "Sandt",
-          "enterprise": "Sandt"
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "iOS app",
-          "free": "falsk",
-          "pro": "Sandt",
-          "team": "Sandt",
-          "enterprise": "Sandt"
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Netværk for at nå din Mac",
@@ -4563,52 +4563,52 @@
         },
         {
           "label": "Samlet fakturering og sædestyring",
-          "free": "falsk",
-          "pro": "falsk",
-          "team": "Sandt",
-          "enterprise": "Sandt"
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "SSO og SAML login ind",
-          "free": "falsk",
-          "pro": "falsk",
-          "team": "falsk",
-          "enterprise": "Sandt"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "Selvhostet og air-gapet udførelse",
-          "free": "falsk",
-          "pro": "falsk",
-          "team": "falsk",
-          "enterprise": "Sandt"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "Centraliseret administration og delte teamregler",
-          "free": "falsk",
-          "pro": "falsk",
-          "team": "Sandt",
-          "enterprise": "Sandt"
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Revisionslogfiler: sessioner, netværk, browser",
-          "free": "falsk",
-          "pro": "falsk",
-          "team": "falsk",
-          "enterprise": "Sandt"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "Forpligtet brug og volumenprissætning",
-          "free": "falsk",
-          "pro": "falsk",
-          "team": "falsk",
-          "enterprise": "Sandt"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "SOC 2 og en SLA",
-          "free": "falsk",
-          "pro": "falsk",
-          "team": "falsk",
-          "enterprise": "Sandt"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "Støtte",
@@ -4739,7 +4739,7 @@
     "notificationsDesc": ": Bliv pinget, når Claude, Codex eller en anden agent har brug for dit input",
     "keyboard": "Fuldt tastatur",
     "keyboardDesc": ": hardwaregenveje og en inputlinje i terminalkvalitet med pile, faner og modifikatorer",
-    "native": "Indfødt og hurtig",
+    "native": "Native og hurtig",
     "nativeDesc": ": GPU-accelereret gengivelse på samme motor som Mac-appen",
     "howTitle": "Hvordan det virker",
     "howBody": "Par din iPhone med din Mac fra Mobile Connect-vinduet, og tilslut derefter ethvert arbejdsområde. Forbindelsen kører over dit eget Tailscale eller lokale netværk, så dine terminaler rører aldrig en tredjepartsserver.",
@@ -4761,7 +4761,7 @@
       "never": "Aldrig"
     },
     "cliAuth": {
-      "section": "hvælving",
+      "section": "Vault",
       "eyebrow": "cmux Vault",
       "title": "Godkend CLI adgang",
       "description": "Bekræft koden vist af cmux-vault for at forbinde denne enhed til din indloggede cmux konto.",
@@ -4772,7 +4772,7 @@
       "error": "Kunne ikke godkende denne kode. Tjek at den ikke er udløbet."
     },
     "sessions": {
-      "section": "hvælving",
+      "section": "Vault",
       "eyebrow": "cmux Vault",
       "title": "Synkroniserede sessioner",
       "description": "Nylige kodeagent-transskriptioner synkroniseret fra dine lokale maskiner.",
@@ -4794,7 +4794,7 @@
       "scrollForMore": "Scroll for flere sessioner",
       "noResults": "Ingen sessioner matcher disse filtre.",
       "endOfList": "Afslutning på sessionerne",
-      "copySession": "Modtaget",
+      "copySession": "Kopiér",
       "copiedSession": "Kopieret"
     },
     "detail": {
@@ -4846,12 +4846,12 @@
       "modelGateway": {
         "title": "Modelgateway",
         "body": "Rute udbydere med forbrugs- og omkostningsanalyser samt 20 compute-timer om måneden.",
-        "action": "Åben model gateway"
+        "action": "Åbn modelgateway"
       },
       "aiAccounts": {
         "title": "Forbind dine AI-konti",
         "body": "Tilføj udbyderkonti, så cmux kan rute arbejde gennem dem.",
-        "action": "Connect-udbydere"
+        "action": "Forbind udbydere"
       },
       "iosApp": {
         "title": "cmux iOS app",
@@ -4927,12 +4927,12 @@
       "modelGateway": {
         "title": "Modelgateway",
         "body": "Rute udbydere med brugs- og omkostningsanalyser.",
-        "action": "Åben model gateway"
+        "action": "Åbn modelgateway"
       },
       "aiAccounts": {
         "title": "Forbind dine AI-konti",
         "body": "Tilføj udbyderkonti, så cmux kan rute arbejde gennem dem.",
-        "action": "Connect-udbydere"
+        "action": "Forbind udbydere"
       },
       "iosApp": {
         "title": "cmux iOS app",
@@ -4942,7 +4942,7 @@
       "billing": {
         "title": "Administrer din plan",
         "body": "Se din plan, fakturaer og aflysning.",
-        "action": "Styringsplan"
+        "action": "Administrér plan"
       }
     }
   }

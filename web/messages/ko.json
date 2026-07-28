@@ -200,7 +200,7 @@
         "loading": "불러오는 중…"
       },
       "eyebrow": "계정",
-      "title": "명칭",
+      "title": "청구",
       "description": "cmux 요금제를 검토하고 구독 청구를 관리하세요.",
       "banners": {
         "cancelled": "현재 청구 기간 종료 시 요금제가 취소됩니다.",
@@ -230,17 +230,17 @@
         "price": "좌석당 월 $35"
       },
       "details": {
-        "renewsOn": "갱신 중계",
-        "endsOn": "끝",
+        "renewsOn": "갱신일",
+        "endsOn": "종료일",
         "price": "가격",
-        "seats": "의석"
+        "seats": "좌석"
       },
       "dates": {
         "unknown": "알 수 없음"
       },
       "cancel": {
-        "body": "프로 접근 권한은 {date}년까지 유효합니다. 학기 종료 시 취소 확인 박스를 확인하세요.",
-        "teamBody": "팀 접근은 {date}일까지 유효합니다. 학기 종료 시 취소 확인 박스를 확인하세요.",
+        "body": "프로 접근 권한은 {date}년까지 유효합니다. 현재 결제 기간 종료 시 취소 확인 박스를 확인하세요.",
+        "teamBody": "팀 접근은 {date}일까지 유효합니다. 현재 결제 기간 종료 시 취소 확인 박스를 확인하세요.",
         "checkbox": "제 계획은 현재 기간 종료 시점에 종료된다는 것을 알고 있습니다."
       },
       "actions": {
@@ -248,19 +248,19 @@
         "manageBilling": "청구 관리",
         "cancelSummary": "취소 계획",
         "confirmCancel": "취소 확인",
-        "resume": "이력서 계획"
+        "resume": "플랜 재개"
       }
     },
     "nav": {
       "brand": "cmux",
-      "vaultGroup": "금고",
+      "vaultGroup": "Vault",
       "vaultOverview": "개요",
       "vaultSessions": "세션",
       "vaultCliSetup": "CLI 설정",
       "subrouterGroup": "서브라우터",
       "subrouterOverview": "개요",
       "accountGroup": "계정",
-      "billing": "명칭",
+      "billing": "청구",
       "testflight": "iOS TestFlight"
     },
     "home": {
@@ -582,7 +582,7 @@
         "cmuxTitle": "cmux는 워크플로우에 표면을 제공합니다.",
         "cmuxP1": "cmux에는 내장된 범용 작업 트리 관리자가 필요하지 않습니다. <customCommands>사용자 정의 명령</customCommands>, 프로그래밍 가능한 <api>CLI 및 소켓 API</api>, 재사용 가능한 <skills>skills</skills>를 제공합니다. 더하기 버튼을 사용하면 자체 작업 트리 명령, 다중 저장소 설정, git 없는 샌드박스 또는 원격 환경을 시작할 수 있습니다.",
         "cmuxP2": "이것이 <home>cmux home</home>가 중요한 이유입니다. 최고의 작업 트리 관리자는 워크플로가 변경될 때 에이전트가 변경할 수 있는 관리자이며, 해당 루프에 가장 적합한 터미널은 알림, Cmd+Shift+U 및 Cmd+Control+U를 표면에 연결해 유지합니다.",
-        "agentsExample": "당신은 cmux-본부에서 일하고 있습니다. 업무는 다음과 같을 수 있습니다: \n- 마나플로우-아이/cmux \n- manaflow-ai/cmux-브라우저\n- Manaflow-AI/서브라우터\n\n사용자가 새 작업을 요청할 때: \n1. 작업에 필요한 저장소를 결정한다. \n2. worktrees/[task]/[저장소]에서 매칭되는 워크트리를 생성합니다. \n3. 각 워크트리의 AGENTS.md. \n4. 설정 스크립트를 즉시 시작한 후 작업을 계속합니다.",
+        "agentsExample": "당신은 cmux사에서 근무하고 있습니다. 업무는 다음과 같을 수 있습니다: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\n사용자가 새 작업을 요청할 때: \n1. 작업에 필요한 저장소를 결정한다. \n2. worktrees/[task]/[repo]에서 매칭되는 워크트리를 생성합니다. \n3. 각 워크트리의 AGENTS.md을 읽으세요. \n4. 설정 스크립트를 즉시 시작한 후 작업을 계속합니다.",
         "launchCommand": "CD ~/fun/cmux-hq \n코덱스 --yolo \"서브라우터 XYZ 문제를 해결하기, xyz 방식으로 cmux 와 관련이 있을 수 있다\"고 적혀 있습니다."
       },
       "cmuxFork": {
@@ -691,7 +691,7 @@
         "limitsP": "tmux, vim, 셸, 지원되지 않는 도구는 안전한 기본 resume 명령을 기록하는 cmux 통합이 없는 한 일반 터미널로 다시 열립니다. 이렇게 하면 복원이 예측 가능하고 오래된 프롬프트나 비밀값을 재생하지 않습니다.",
         "docsCta": "설정 명령, 지원 에이전트, 문제 해결은 <link>세션 복원 문서</link>를 읽어보세요.",
         "workflowTitle": "권장 세팅",
-        "workflowInstall": "사용하는 에이전트를 설치한 후, CLI cmux 훅을 설정해 네이티브 세션 ID cmux 캡처하세요.",
+        "workflowInstall": "사용하는 에이전트 CLI를 설치한 후, cmux hooks setup 실행해서 네이티브 세션 ID를 캡처할 수 있도록 cmux 하세요.",
         "workflowWork": "일반 cmux 터미널에서 에이전트를 실행하세요. 훅은 작업 진행 시 세션 ID, cwd, 작업 공간, 표면을 기록합니다.",
         "workflowRelaunch": "재부팅 후에는 저장된 에이전트 재개 명령을 시작하기 전에 창과 창 트리를 다시 cmux 합니다.",
         "workflowVerify": "복원된 에이전트가 같은 업스트림 세션을 계속 진행하는지 확인한 후 같은 작업 공간에서 계속 작업하세요.",
@@ -789,7 +789,7 @@
       },
       "cmuxOmo": {
         "title": "oh-my-openagent 하위 에이전트를 네이티브 cmux 창으로 활용하세요",
-        "summary": "oh-my-openagent 전문 Claude, GPT, 제미니 요원들을 병행하여 조율합니다. cmux 오모는 각 tmux 창을 네이티브 분할로 변환합니다.",
+        "summary": "oh-my-openagent 전문 클로드, GPT, 제미니 요원들을 병렬로 조율합니다. cmux omo 각 tmux 창을 네이티브 분할로 변환합니다.",
         "date": "2026년 3월 30일",
         "p1": "<code>cmux omo</code> oh-my-openagent(이전 명칭: oh-my-opencode)를 통합하는데, OpenCode용 플러그인으로, Claude, GPT, Gemini 간 전문 에이전트를 병렬로 조정합니다. 각 에이전트는 자체 tmux 창을 가지고 있습니다. <code>cmux omo</code> <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>와 같은 tmux shim을 사용합니다: fake <code>TMUX</code> env var, 모든 tmux 명령어를 cmux 분할로 변환합니다. 플러그인을 그림자 설정에 자동으로 설치해 <code>~/.config/opencode</code> 손상되지 않습니다.",
         "p2": "심은 또한 <code>terminal-notifier</code> 통화를 가로채 <code>cmux notify</code>를 통해 라우팅합니다. Go 릴레이 데몬을 통해 SSH 작동합니다.",
@@ -806,17 +806,16 @@
         "summary": "한 명령은 지속적인 원격 세션, 원격 포트에 도달하는 브라우저 창, 그리고 집으로 돌아오는 에이전트 알림을 제공합니다.",
         "date": "2026년 3월 30일",
         "p1": "<code>cmux ssh user@remote</code> 원격 기기용 작업 공간을 만듭니다. 이미지를 원격 Claude Code 세션에 드래그하면 자동으로 업로드됩니다. 브라우저 창은 원격 네트워크를 통해 라우팅되므로 localhost가 그냥 작동합니다. <code>~/.ssh/config</code>를 사용하고, 끊길 때 다시 연결됩니다.",
-        "features": "브라우저 창은 트래픽을 원격 네트워크를 통해 라우팅하므로, localhost:3000이 -L 플래그 없이 원격 개발 서버에 도달합니다. 원격 박스의 코딩 에이전트는 로컬 사이드바로 알림을 보냅니다. cmux Claude-Teams와 cmux omo SSH에서 작업하며, 계산은 원격으로 진행되는 동안 팀원이 로컬에 생성됩니다. 파일을 원격 터미널로 드래그하여 SCP를 통해 업로드하세요. 사이드바는 연결 상태와 감지된 청취 포트를 보여줍니다.",
         "featureItems": [
           "브라우저 창은 원격 기기를 통해 라우팅되므로, localhost:3000이 포트 포워딩 없이 원격 개발자 서버에 도달합니다",
           "이미지를 원격 터미널로 드래그해서 SCP로 업로드하세요",
           "원격 머신의 코딩 에이전트는 로컬 사이드바로 알림을 보냅니다",
-          "cmux 클로드 팀과 cmux 오모가 SSH작업하며, 팀원이 로컬에 생성되고 연산은 원격으로 진행됩니다",
+          "cmux claude-teams와 cmux omo SSH 위에서 작업하며, 팀원은 로컬에 생성되고 연산은 원격으로 실행됩니다",
           "사이드바에는 연결 상태와 감지된 청취 포트가 표시됩니다"
         ],
         "videoTitle": "cmux SSH 데모",
         "workflowTitle": "원격 개발 워크플로우",
-        "workflowConnect": "SSH cmux 연결해서 원격 호스트 cmux 전용 작업 공간을 만들어 주세요.",
+        "workflowConnect": "cmux ssh와 연결하여 원격 호스트cmux 전용 작업 공간을 만들 수 있게 하세요.",
         "workflowPreview": "터미널 옆에 브라우저 창을 열고 개발자 서버가 로컬인 것처럼 localhost URL을 사용하세요.",
         "workflowNotify": "원격 기기에서 Claude Code, Codex, OpenCode또는 다른 에이전트를 실행하고 cmux Mac으로 알림을 전달하게 하세요.",
         "workflowUpload": "에이전트가 로컬 컨텍스트나 테스트 조명 장치가 필요할 때 파일이나 이미지를 원격 터미널로 드래그하세요.",
@@ -985,7 +984,7 @@
     },
     "cmuxOmo": {
       "metaTitle": "oh-my-openagent 하위 에이전트를 네이티브 cmux 창으로 활용하세요",
-      "metaDescription": "oh-my-openagent 전문 Claude, GPT, 제미니 요원들을 병행하여 조율합니다. cmux 오모는 각 tmux 창을 네이티브 분할로 변환합니다."
+      "metaDescription": "oh-my-openagent 전문 클로드, GPT, 제미니 요원들을 병렬로 조율합니다. cmux omo 각 tmux 창을 네이티브 분할로 변환합니다."
     },
     "gpl": {
       "metaTitle": "cmux 이제 GPL",
@@ -1011,27 +1010,27 @@
       "rowSession": "사이드바에 전용 작업 공간이 있습니다.",
       "rowWindow": "그 작업 공간에 탭을 넣는 거죠.",
       "rowPane": "그 탭 안에 네이티브 스플릿 창을 넣는 거죠.",
-      "mappingPanes": "새로운 기능은 탭 안에 창을 넣는 것입니다: cmux 탭은 원래 단일 터미널을 담았지만, 여러 창이 있는 tmux 창은 이제 하나의 탭 내에서 실제 cmux 분할 레이아웃으로 렌더링됩니다 — 각 원격 창은 일반적인 크롬 처리가 있는 네이티브 cmux 터미널 창입니다. 브릿지는 양방향입니다: 해당 탭의 창을 분할하거나 닫으면 분할 창 tmux 실행되고, 탭 순서를 바꾸면 스왑 창으로 tmux 창의 순서가 재정렬됩니다.",
+      "mappingPanes": "새로운 기능은 탭 내부의 창입니다: cmux 탭은 단일 터미널을 보관했지만, 여러 창이 있는 tmux 창은 하나의 탭 내에서 실제 cmux 분할 레이아웃으로 렌더링됩니다 — 각 원격 창은 일반적인 크롬 처리가 있는 네이티브 cmux 터미널 창입니다. 브릿지는 양방향입니다: 해당 탭의 창을 분할하거나 닫으면 tmux split-window 처리되고, 탭 순서를 바꾸면 tmux 창이 swap-window 순서가 재정렬됩니다.",
       "requirementsTitle": "요구 사항",
       "requirementsDesc": "3.2 이상이 설치된 SSH 호스트(cmux ~/.ssh/config읽음)에 접근할 수 있는 tmux 3.2 이상이 설치되어 있습니다. 제어 모드(tmux -CC)는 표준 tmux 기능이므로 특별한 빌드가 필요하지 않습니다; cmux 연결 전에 원격 tmux 버전을 확인하며, 구형 서버에서는 명확히 실패합니다. cmux SSH ControlMaster 연결을 통해 연결하며, 분리 후에도 원격 tmux 서버는 계속 작동합니다.",
       "enableTitle": "활성화하세요",
       "enableDesc": "설정→ 베타 기능을 열고 원격 tmux을 켜세요. 토글은 기본적으로 꺼져 있어서, 로컬 터미널에서는 가입 전까지 아무 변화가 없습니다.",
       "attachTitle": "부착",
-      "attachIntro": "터미널에서 ssh-tmux <destination> cmux 실행하세요 — ~/.ssh/config 별칭이나 user@host. cmux 해당 호스트의 tmux 세션을 현재 창의 사이드바에 미러링합니다: 각 세션은 작업 공간이 되고, 각 창은 탭이 되며, 다중 창은 탭 분할이 됩니다.",
+      "attachIntro": "터미널에서 cmux ssh-tmux <destination> 실행하세요 — ~/.ssh/config 별칭 또는 user@host. cmux 해당 호스트의 tmux 세션을 현재 창의 사이드바에 미러링합니다: 각 세션은 작업 공간이 되고, 각 창은 탭이 되며, 다중 창은 탭 분할이 됩니다.",
       "attachNewWindow": "--new-window 현재 창 대신 전용 새 창에서 거울을 열도록 패스하세요.",
-      "attachSockets": "리모컨.tmux.* 소켓 명령어(아래)가 더 세밀한 제어를 제공합니다. 리모컨.tmux.mirror는 미러 진입점입니다; 창/호출자 라우팅을 수락하며 선택적으로 미러된 작업 공간을 선택할 수 있습니다.",
+      "attachSockets": "아래의 remote.tmux.* 소켓 명령어가 더 세밀한 제어를 제공합니다. remote.tmux.mirror는 미러 진입점이며; 창/호출자 라우팅을 수락하며 선택적으로 미러된 작업 공간을 선택할 수 있습니다.",
       "attachCli": "비인터랙티브로 인증하는 호스트(ssh-agent 또는 ~/.ssh/config키)는 아무런 안내 없이 연결합니다. 호스트가 대화형 인증(비밀번호, 호스트 키 확인, MFA)이 필요하면, cmux 터미널에서 ssh를 인라인으로 실행하여 인증한 후 현재 창에 미러링합니다. --port, --identity, --no-focus를 받습니다.",
       "troubleshootTitle": "만약 \"허가 거부됨\"을 받는다면,",
       "troubleshootDesc": "목적지는 있는 그대로 ssh에 전달되므로, 별칭은 ssh가 로그인하는 데 필요한 모든 것을 담아야 합니다 — 가장 흔히 User(별칭 없이는 ssh가 로컬 사용자 이름을 시도합니다)와 IdentityFile입니다:",
       "troubleshootFallback": "또는 사용자에게 명시적으로 전달할 수 있습니다: cmux ssh-tmux dev@my-ssh-alias. 일반 ssh <destination> 가 로그인하지 않는다면, cmux ssh-tmux <destination> 도 로그인하지 않습니다.",
       "howTitle": "작동 원리",
-      "howDesc": "cmux ssh ... tmux -CC attach를 생성하고 내장 tmux 뷰어에 의존하지 않고 제어 모드 스트림을 직접 파싱하여 프로토콜과 %begin/%end 명령 상관관계가 완전히 cmux소유합니다. 각 원격 창은 %output tmux 으로 공급되는 전용 터미널 표면으로 렌더링되며, 입력인 키와 마우스는 tmux 전송 키로 전달됩니다. 원격 tmux 서버는 창 크기와 리플로우를 소유하며; cmux 표면을 동기화하여 로컬에서 리플로우하지 않습니다.",
+      "howDesc": "cmux ssh ... tmux -CC는 내장 tmux 뷰어에 의존하지 않고 제어 모드 스트림을 직접 부착하고 파싱하기 때문에 프로토콜과 %begin/%end 명령 상관관계는 완전히 cmux가 소유합니다. 각 원격 창은 %output tmux으로 공급되는 전용 터미널 표면으로 렌더링되며, 입력인 키와 마우스는 tmux send-keys와 함께 전달됩니다. 원격 tmux 서버는 창 크기와 리플로우를 소유하며; cmux 표면을 동기화하며 로컬에서 리플로우하지 않습니다.",
       "behaviorTitle": "지원하는 바",
       "behaviorSize": "크기 조절: 원격 클라이언트가 렌더링된 그리드에 맞게 리사이즈되어 (refresh-client -C), TUI가 tmux기본 80×24에 머무르지 않습니다.",
-      "behaviorSplit": "분할: 미러 창에서 창을 분할하거나 닫는 것은 분할 창으로 tmux 전파되어 cmux 레이아웃과 tmux 레이아웃이 동기화됩니다. 프로그래밍 분할(cmux 소켓을 통한 새 분할 또는 surface.split )은 표면 ID가 없고 승인되었다고 보고하며, 레이아웃 변경을 확인 tmux 비동기적으로 새 창이 도착합니다. 라우팅된 분할이 인정할 수 없는 옵션(시작 명령어, 작업 디렉터리, 나누기 위치, 왼쪽/위 위치)을 담은 요청은 원격 세션이 변형되기 전에 처음에 거부됩니다.",
-      "behaviorReorder": "순서 변경: 미러 탭을 드래그-재정렬하면 스왑 윈도우로 tmux 창의 순서가 바뀝니다.",
+      "behaviorSplit": "분할: 미러 창에서 창을 분할하거나 닫으면 split-window와 함께 tmux 전파되어 cmux 레이아웃과 tmux 레이아웃이 동기화됩니다. 프로그래밍 분할(cmux new-split 또는 소켓을 통한 surface.split)은 surface ID가 없지만 승인된다고 보고하며, 레이아웃 변경을 확인하면 새 창tmux 비동기적으로 도착합니다. 라우팅된 분할이 인정할 수 없는 옵션(시작 명령, 작업 디렉터리, 나누기 위치, 좌위/위 배치)을 담은 요청은 원격 세션이 변형되기 전에 처음에 거부됩니다.",
+      "behaviorReorder": "순서 변경: 미러링 탭을 드래그-재정렬하면 tmux 창이 swap-window로 재정렬됩니다.",
       "behaviorCwd": "작업 디렉터리: 원격 창의 현재 폴더를 추적하여 탭에 표시합니다.",
-      "behaviorPaste": "붙여넣기 및 삭제: 붙여넣은 텍스트와 삭제된 이미지/파일은 붙여넣기 버퍼 -p tmux 거쳐, 원격 앱(예: 코딩 에이전트)은 실제 괄호 붙여넣기를 받습니다 — 이미지는 로컬 경로가 아닌 [이미지 #N]로 도착합니다.",
+      "behaviorPaste": "붙여넣고 뺐다: 붙여넣은 텍스트와 뺐은 이미지/파일이 tmux paste-buffer -p 거쳐, 원격 앱(예: 코딩 에이전트)은 실제 괄호 붙여넣기를 받게 됩니다 — 이미지는 로컬 경로가 아니라 [이미지 #N]로 도착합니다.",
       "behaviorMouse": "마우스: 클릭, 스크롤, 드래그로 마우스 모드가 켜져 있을 때 원격 앱에 도달합니다. 드래그하면서 Shift 키를 누르고 있으면 네이티브 cmux 텍스트 선택/복사가 가능합니다(마우스 모드 앱을 실행하는 모든 터미널과 동일).",
       "behaviorUnicode": "유니코드 올바른 출력: 멀티바이트 문자를 업데이트에 나누 tmux 해도 보존되어 박스 그리기나 다른 넓은 콘텐츠가 깔끔하게 렌더링됩니다.",
       "socketTitle": "소켓 명령어",
@@ -1046,8 +1045,8 @@
       "methodState": "통제 클라이언트의 관찰된 상태(진단)를 보고하세요.",
       "socketSafetyDesc": "대시 접두사가 붙은 호스트 또는 아이덴티티 파일은 SSH 옵션 주입에 대한 방어책으로 신뢰 경계에서 거부됩니다.",
       "limitationsTitle": "한계",
-      "limitReconnect": "일시적 SSH 끊기면 자동으로 재연결됩니다: 세션 중에 연결이 끊기면 미러가 멈추고 cmux 지수 백오프 제한을 두고 재시도하며, 재개할 때 창을 다시 시딩합니다. 미러는 원격 세션이 종료되거나 미러 창을 닫거나 종료할 때만 완전히 닫cmux — 재실행(ssh- cmuxtmux으로 다시 연결)에서도 복구되지 않습니다.",
-      "limitPaste": "파일이나 이미지 경로와 같은 단일 줄 붙여넣기/드롭만이 붙여넣기 버퍼 -p를 통해 실제 괄호 붙여넣기로 전달됩니다; 다중 줄 텍스트는 단순한 키 입력으로 전송되므로 원격 앱에서는 하나의 붙여넣기로 간주하지 않습니다.",
+      "limitReconnect": "일시적 SSH 끊김은 자동으로 재연결됩니다: 세션 중 연결이 끊기면 미러가 멈추고 cmux 기수 백오프 제한을 두고 재시도하며, 재개할 때 창을 다시 시딩합니다. 미러는 원격 세션이 종료되거나 미러 창을 닫거나 종료할 때만 완전히 닫cmux — 재실행(cmux ssh-tmux으로 다시 연결)할 때만 복구됩니다.",
+      "limitPaste": "paste-buffer -p를 통해 실제 괄호 붙여넣기/삭제(예: 파일이나 이미지 경로)만 전달됩니다; 다중 줄 텍스트는 단순한 키 입력으로 전송되므로 원격 앱에서는 하나의 붙여넣기로 처리하지 않습니다.",
       "limitCwd": "실시간 작업 디렉터리 업데이트는 제어 모드 구독을 사용하기 때문에, 미러를 열기 전에 tmux 3.2 이상이 cmux 필요합니다.",
       "limitReflow": "주요 화면 스크롤백은 크기 조정 시 리랩되지 않으며, 리플로우가 tmux로 남cmux 이전 라인은 앱이 다시 칠할 때까지 이전 너비로 유지됩니다. 전체 화면 TUI는 크기 조절 시 다시 그려지는 경우 영향을 받지 않습니다."
     },
@@ -1443,13 +1442,13 @@
       "actionTypeWorkspace": "인라인 작업 공간 정의에서 작업 공간을 생성하며, 선택적으로 재시작 동작을 선택할 수 있습니다. new-workspace plus 버튼 메뉴에서 자동으로 제공됩니다.",
       "actionFieldNewWorkspaceMenu": "true로 설정하면 new-workspace plus button 메뉴에서 모든 동작을 제공하거나, false로 설정하면 작업 공간 동작을 숨기세요.",
       "workspaceActions": "작업 공간 배치",
-      "workspaceActionsDesc": "워크workspace 레이아웃은 <workspace>워크스페이스</workspace> 액션으로 저장되며, 액션에 전체 워크스페이스 정의를 직접 내장하여 별도의 <commands>명령</commands> 입력이 필요 없습니다. 동일한 워크스페이스 필드와 <setup>설정을</setup> 지원하며, 해당 터미널의 자체 명령 전에 첫 번째 터미널로 전송되는 부트스트랩 명령이 있습니다:",
-      "workspaceActionsMenuDesc": "작업 공간 레이아웃은 플러스 버튼 우클릭 메뉴에 자동으로 나타납니다. <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> 를 <falseValue>false</falseValue> 로 설정해 하나를 숨기거나, 다른 행동을 <trueValue>선택하면 true</trueValue> 로 설정해 메뉴에 추가하세요.",
-      "workspaceActionsSaveDesc": "JSON작성 없이 생성할 수도 있습니다: 플러스 버튼을 우클릭하고 '<saveLayout>레이아웃으로 저장</saveLayout>'을 선택하면 현재 작업 공간의 분할, 디렉터리, 실행 중인 에이전트, 브라우저 탭을 <configPath>~/.config/cmux/cmux.json</configPath>에 캡처합니다. 이들은 <actions>액션</actions> 블록의 항목으로 저장됩니다. <customize>Custom Workspace Layouts</customize>는 해당 파일을 편집기에서 엽니다.",
+      "workspaceActionsDesc": "워크workspace 레이아웃은 <workspace>workspace</workspace> 액션으로 저장되며, 액션에 전체 워크스페이스 정의를 직접 내장하여 별도의 <commands>commands</commands> 입력이 필요 없습니다. 동일한 워크스페이스 필드와 <setup>setup</setup> 지원하며, 해당 터미널의 자체 명령 전에 첫 번째 터미널로 전송되는 부트스트랩 명령이 있습니다:",
+      "workspaceActionsMenuDesc": "작업 공간 레이아웃은 플러스 버튼 우클릭 메뉴에 자동으로 나타납니다. <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> 를 <falseValue>false</falseValue> 로 설정해 하나를 숨기거나, 다른 행동을 <trueValue>true</trueValue> 로 설정해 메뉴에 추가하세요.",
+      "workspaceActionsSaveDesc": "JSON작성 없이 생성할 수도 있습니다: 플러스 버튼을 우클릭하고 '<saveLayout>Save Workspace as Layout</saveLayout>'을 선택하면 현재 작업 공간의 분할, 디렉터리, 실행 중인 에이전트, 브라우저 탭을 <configPath>~/.config/cmux/cmux.json</configPath>에 캡처합니다. 이들은 <actions>actions</actions> 블록의 항목으로 저장됩니다. <customize>Customize Workspace Layouts</customize>는 해당 파일을 편집기에서 엽니다.",
       "wsFieldEnv": "작업 공간 내 모든 셸에서 상속되는 환경 변수",
       "wsFieldSetup": "부트스트랩 명령어가 작업 공간의 첫 번째 터미널로 보내지고, 그 터미널의 자체 명령이 전송되기 전에",
       "workspaceActionsDefaultTitle": "새 작업 공간에 대한 기본 설정",
-      "workspaceActionsDefaultDesc": "새 <defaultMenu>작업 공간 기본값</defaultMenu> 서브메뉴를 사용해 어떤 저장된 작업 공간 레이아웃을 실행할지 선택하거나, 빈 터미널로 돌아가려면 없음을 선택하세요. 저장 대화상자에는 새 <checkbox>작업 공간 기본값으로 사용하기(Use as default for new workspaces)</checkbox> 체크박스도 있습니다. 설정은 <action>ui.newWorkspace.action</action>; 프로젝트 로컬 <localConfig>cmux/cmux.json</localConfig> 값이 <globalConfig>~/.config/cmux/cmux.json</globalConfig>보다 우선합니다."
+      "workspaceActionsDefaultDesc": "새 <defaultMenu>Default for New Workspace</defaultMenu> 서브메뉴를 사용해 어떤 저장된 작업 공간 레이아웃을 실행할지 선택하거나, 빈 터미널로 돌아가려면 없음을 선택하세요. 저장 대화상자에는 새 <checkbox>Use as default for new workspaces</checkbox> 체크박스도 있습니다. 설정은 <action>ui.newWorkspace.action</action>; 프로젝트 로컬 <localConfig>.cmux/cmux.json</localConfig> 값이 <globalConfig>~/.config/cmux/cmux.json</globalConfig>보다 우선합니다."
     },
     "keyboardShortcuts": {
       "title": "키보드 단축키",
@@ -1807,8 +1806,8 @@
       "customizationExamplesCallout": "상세한 스니펫은 <code>skills/cmux-customization/references/examples.md</code>에 존재합니다. 에이전트는 예제-라이브러리 패턴이 필요할 때만 그 파일을 불러옵니다.",
       "customizationExamplePrompts": "예시 프롬프트",
       "customizationPromptWorktree": "$cmux-customization을 사용해 worktree-agents 예제를 설정하세요.",
-      "customizationPromptFullStack": "$cmux-커스터마이징을 사용해 Dock 컨트롤을 포함한 프로젝트-로컬 풀스택-개발 레이아웃을 만드세요.",
-      "customizationPromptAgentButtons": "$cmux-커스터마이징을 사용해 Codex 및 Claude빠른 에이전트 버튼을 추가하세요.",
+      "customizationPromptFullStack": "$cmux-customization 사용해서 Dock 컨트롤을 사용하는 프로젝트-로컬 풀스택-개발 레이아웃을 만드세요.",
+      "customizationPromptAgentButtons": "$cmux-customization 사용해서 Codex와 클로드의 퀵 에이전트 버튼을 추가하세요.",
       "diagnosticsScope": "CLI 도달 가능성, 소켓 접근, cmux 환경, 설정 검증, 훅 설치 마커, 세션 저장소, 자동 재개 설정, 지원 에이전트 바이너리에 대한 읽기 전용 건강 상태 확인.",
       "diagnosticsReferences": "지원 안전한 진단 스크립트, 훅 설정 명령어, 세션 복원 해석, 알림 검사, 민감한 파일 편집 규칙이 번들로 제공됩니다.",
       "browserScope": "cmux 웹뷰 내 브라우저 자동화가 나타나며, 내비게이션, DOM 동작, 대기, 상태 캡처, 스크린샷, 스냅샷 등이 포함됩니다.",
@@ -1860,8 +1859,8 @@
       "base": "기지",
       "ssh": "SSH",
       "remoteTmux": "원격 tmux",
-      "ohMyPi": "오-마이-피",
-      "vault": "도마",
+      "ohMyPi": "oh-my-pi",
+      "vault": "Vault",
       "taskManager": "작업 관리자"
     },
     "dock": {
@@ -1986,7 +1985,7 @@
       "dragDropTitle": "드래그 앤 드롭",
       "dragDropDesc": "이미지나 파일을 원격 터미널로 드래그하면 cmux가 기존 SSH 연결을 통해 scp를 통해 업로드합니다. cmux는 TTY로 포그라운드 SSH 프로세스를 감지하고 ControlMaster 멀티플렉싱을 통해 업로드를 라우팅합니다.",
       "notificationsTitle": "알림",
-      "notificationsDesc": "원격 시스템의 프로세스는 로컬 인스턴스에서 실행되는 cmux 명령을 실행할 수 있습니다. 코딩 에이전트가 원격 상자에서 cmux 알림을 호출하면 알림이 로컬 사이드바에 나타납니다. 작업 공간 탭에 파란색 링이 켜집니다. Cmd+Shift+U를 누르면 해당 위치로 이동합니다. 불안정한 연결로 인한 알림 스팸은 호스트별 쿨다운을 통해 억제됩니다.",
+      "notificationsDesc": "원격 머신의 프로세스는 로컬 인스턴스에서 실행되는 cmux 명령어를 실행할 수 있습니다. 원격 박스에서 코딩 에이전트가 cmux notify를 호출하면 로컬 사이드바에 알림이 나타납니다. 작업 공간 탭에서 파란색 링이 켜집니다. Cmd+Shift+U로 바로 이동합니다. 불안정한 연결에서 발생하는 알림 스팸은 호스트별 쿨다운으로 억제됩니다.",
       "agentsTitle": "SSH를 통한 코딩 에이전트",
       "agentsDesc": "cmux claude-teams 및 cmux omo는 모두 SSH 세션 내에서 작동합니다. 원격 호스트의 Go 릴레이 데몬은 로컬 Swift CLI가 수행하는 것과 동일한 tmux-compat 변환을 처리합니다. Teammate 에이전트는 원격 상자에서 계산이 실행되는 동안 로컬 컴퓨터에서 기본 cmux 분할로 생성됩니다.",
       "reconnectTitle": "다시 연결",
@@ -2038,10 +2037,10 @@
       "firstRunStep1": "~/.cmuxterm/omo-config/에서 oh-my-opencode 플러그인 배열에 등록된 섀도우 설정을 생성합니다",
       "firstRunStep2": "npm 패키지 oh-my-opencode 를 bun이나 npm으로 설치합니다.",
       "firstRunStep3": "원래 ~/.config/opencode/ 디렉터리에서 심node_modules, package.json, 플러그인 설정도 가능합니다",
-      "firstRunStep4": "oh-my-opencode 설정에서 tmux 모드를 활성화합니다 (tmux.enabled는 기본값이 false로 설정되고, omocmux 켜집니다)",
+      "firstRunStep4": "oh-my-opencode 설정에서 tmux 모드를 활성화합니다 (tmux.enabled가 기본값은 false로 설정되어 있고, cmux omo 활성화됩니다)",
       "firstRunSafe": "원래 ~/.config/opencode/ 설정은 절대 변경되지 않습니다. 일반 오픈코드를 실행해도 이전과 동일하게 작동합니다.",
       "howItWorks": "작동 원리",
-      "howItWorksDesc": "클로드 팀과 같은 패턴cmux. tmux 심은 oh-my-openagent의 TmuxSessionManager에서 tmux 명령을 가로채 cmux API 호출로 변환합니다.",
+      "howItWorksDesc": "cmux claude-teams와 같은 패턴입니다. tmux 심은 oh-my-openagent의 TmuxSessionManager에서 tmux 명령을 가로채 cmux API 호출로 변환합니다.",
       "shimStep1": "~/.cmuxterm/omo-bin/tmux에서 tmux 심을 생성하여 cmux __tmux-컴패트로 리디렉션됩니다",
       "shimStep2": "TMUX와 TMUX_PANE를 설정하여 tmux 세션을 시뮬레이션합니다",
       "shimStep3": "oh-my-opencode 설정에서 tmux.enabled를 활성화합니다(시각적 창 생성에 필수)",
@@ -2170,7 +2169,7 @@
       "usage": "사용",
       "usageDesc": "클로드 팀 이후의 모든 인수들은 Claude Code로 전달됩니다. 이 명령어는 팀원 모드를 자동으로 설정하고, Claude 스플릿을 사용하도록 환경을 설정 cmux .",
       "howItWorks": "작동 원리",
-      "howItWorksDesc": "cmux claude 팀은 tmux shim 스크립트를 만들고 환경을 구성하여 Claude Code 가 tmux내부에서 실행되고 있다고 생각하게 만듭니다. Claude 가 팀원 창을 관리하기 위해 tmux 명령을 내릴 때, shim은 이를 cmux 소켓 API 호출로 변환합니다.",
+      "howItWorksDesc": "cmux claude-teams tmux 심 스크립트를 만들고 환경을 설정해 Claude Code 내부에서 실행되고 있다고 생각하게 만듭니다tmux. 클로드가 팀원 창을 관리하기 위해 tmux 명령을 내릴 때, 심은 이를 cmux 소켓 API 호출로 변환합니다.",
       "shimStep1": "~/.cmuxterm/claude-teams-bin/tmux에서 tmux 심을 생성하여 cmux __tmux-컴패트로 리디렉션됩니다",
       "shimStep2": "tmux 세션을 시뮬레이션하기 위해 TMUX TMUX_PANE 환경 변수를 설정합니다",
       "shimStep3": "심 디렉토리를 PATH 앞에 붙여 Claude 실제 tmux 전에 심을 찾게 합니다",
@@ -2198,14 +2197,14 @@
       "mapList": "창 또는 작업 공간 cmux 목록"
     },
     "ohMyCodex": {
-      "title": "오-마이-코덱스",
-      "metaTitle": "오-마이-코덱스 - cmux",
+      "title": "oh-my-codex",
+      "metaTitle": "oh-my-codex - cmux",
       "metaDescription": "Oh My Codex (OMX)를 cmux 안에서 실행하고, 팀 모드와 에이전트 오케스트레이션을 위한 네이티브 분할 창 통합을 지원합니다.",
       "intro": "cmux omx는 cmux인식 환경에서 Oh My Codex (OMX)를 실행합니다. OMX는 30+ 특화된 에이전트 역할, 워크플로우 기술, tmux기반 병렬 팀 실행을 갖춘 OpenAI Codex CLI 다중 에이전트 오케스트레이션 계층입니다. OMX가 팀 창이나 HUD 디스플레이를 생성할 때, 이들은 네이티브 cmux 분할 모드가 됩니다.",
       "usage": "사용",
       "usageDesc": "omx 이후의 모든 논CLI",
       "whatYouGet": "결과는",
-      "whatYouGetDesc": "OMX의 팀 모드와 HUD tmux 창 관리를 사용합니다. OMX cmux 사용하면 해당 창들이 네이티브 cmux 분할이 됩니다:",
+      "whatYouGetDesc": "OMX의 팀 모드와 HUD는 창 관리를 위해 tmux을 사용합니다. cmux omx 사용하면 해당 창들이 네이티브 cmux 분할 화면이 됩니다:",
       "whatYouGet1": "팀 워커 창(Codex/Claude 세션)은 작업 공간 내 cmux 분할로 나타납니다",
       "whatYouGet2": "상태 표시HUD 모델, 분기, 컨텍스트, 토큰 사용량을 분할 창으로 보여줍니다",
       "whatYouGet3": "자동 레이아웃 관리는 에이전트 창을 주-수직 격자로 배열합니다",
@@ -2231,10 +2230,10 @@
       "envSocket": "심을 연결할 cmux 제어 소켓으로 가는 경로"
     },
     "ohMyPi": {
-      "title": "오-마이-피",
-      "metaTitle": "오-마이-피 - cmux",
+      "title": "oh-my-pi",
+      "metaTitle": "oh-my-pi - cmux",
       "metaDescription": "oh-my-pi(omp)를 상태, 알림, 세션 복원, 자동 이름 지정, 작업 관리자 귀속 훅으로 cmux 에 연결하세요.",
-      "intro": "Oh-My-Pi는 Pi의 포크를 코딩 우선 에이전트로 재작성한 것입니다. 이진 함수는 omp이며, omp 훅 확장을 통해 cmux OMP와 통합됩니다.",
+      "intro": "oh-my-pi Pi의 포크를 코딩 우선 에이전트로 재작성한 것입니다. 이진 함수는 omp이며, omp 훅스 확장을 통해 cmux 통합됩니다.",
       "setupUsage": "설치 및 사용",
       "setupUsageDesc": "omp를 설치한 후 cmux 훅스 확장 프로그램을 설치하세요. 확장 프로그램은 ~/.omp/agent/extensions/cmux-omp-session.ts, 에 맞게 작성되며, 번들 버전이 변경될 때 cmux 즉시 업그레이드합니다.",
       "whatYouGet": "결과는",
@@ -2257,8 +2256,8 @@
       "envCmuxBin": "훅 확장이 호출하는 cmux 이진법을 덮어씁니다"
     },
     "ohMyClaudeCode": {
-      "title": "오-마이-클로드코드",
-      "metaTitle": "오, 클로드코드 - cmux",
+      "title": "oh-my-claudecode",
+      "metaTitle": "oh-my-claudecode - cmux",
       "metaDescription": "멀티 에이전트 오케스트레이션을 위한 네이티브 분할 창 통합과 함께 cmux 안에서 Oh My Claude Code (OMC)를 실행하세요.",
       "intro": "cmux omc는 cmux인식 환경에서 Oh My Claude Code (OMC)를 실행합니다. OMC은 19개의 전문 에이전트, 스마트 모델 라우팅, tmux기반 팀 파이프라인을 갖춘 다중 에이전트 Claude Code 오케스트레이션 시스템입니다. OMC 팀 창을 생성할 때, 팀 창은 네이티브 cmux 분할 구간이 됩니다.",
       "usage": "사용",
@@ -2272,7 +2271,7 @@
       "prerequisites": "전제 조건",
       "prerequisitesDesc": "OMC 설치와 인증이 Claude Code CLI 필요합니다.",
       "howItWorks": "작동 원리",
-      "howItWorksDesc": "클로드 팀과 같은 패턴cmux. tmux 심은 OMC의 명령을 가로채tmux cmux API 호출로 변환한다.",
+      "howItWorksDesc": "cmux claude-teams와 같은 패턴입니다. tmux 심은 OMC의 tmux 명령어를 가로채 cmux API 호출로 변환합니다.",
       "shimStep1": "~/.cmuxterm/omc-bin/tmux에서 tmux 심을 생성하여 cmux __tmux-컴패트로 리디렉션됩니다",
       "shimStep2": "TMUX와 TMUX_PANE를 설정하여 tmux 세션을 시뮬레이션합니다",
       "shimStep3": "심 디렉터리 앞에 PATH",
@@ -2291,8 +2290,8 @@
       "envSocket": "심을 연결할 cmux 제어 소켓으로 가는 경로"
     },
     "vault": {
-      "title": "도마",
-      "metaTitle": "도마",
+      "title": "Vault",
+      "metaTitle": "Vault",
       "metaDescription": "cmux Vault에서 오래된 Codex, Claude Code, OpenCode, Pi 세션을 검색한 후, 필요한 작업 공간에서 세션을 다시 열어보세요.",
       "intro": "Vault는 터미널 기록이 아닌 전사본(trotscript) 콘텐츠로 옛 AI 코딩 에이전트 세션을 찾는 오른쪽 사이드바 창입니다.",
       "indexesTitle": "금고가 색인화하는 것들은",
@@ -2315,7 +2314,7 @@
     "taskManager": {
       "title": "작업 관리자",
       "metaTitle": "작업 관리자",
-      "metaDescription": "작업 관리자나 cmux 상단 cmux 코딩 에이전트, 터미널 프로세스, 브라우저 창에서 높은 CPU 및 RAM 사용을 찾아보세요.",
+      "metaDescription": "작업 관리자나 cmux top cmux 코딩 에이전트, 터미널 프로세스, 브라우저 창에서 CPU 및 RAM 사용량이 높은 것을 찾아보세요.",
       "intro": "작업 관리자는 cmux 창, 작업 공간, 창, 터미널 프로세스, 코딩 에이전트, 브라우저 웹뷰의 자원 사용량을 보여줍니다.",
       "openTitle": "오픈 작업 관리자",
       "openDesc": "cmux 터미널에서 CLI 명령을 실행하세요:",
@@ -4411,8 +4410,8 @@
     "metaDescriptionNoVault": "cmux 는 AI 코딩 에이전트를 위한 무료 오픈 소스 macOS 터미널입니다. 클라우드 VM과 모델 게이트웨이를 위한 Pro로 업그레이드하세요. Enterprise는 SSO 및 자체 호스팅을 추가합니다.",
     "metaDescriptionNoVaultShort": "cmux 는 무료이자 오픈소스 macOS 터미널입니다. Pro는 클라우드 VM과 모델 게이트웨이를 추가하고; Enterprise는 SSO 와 자체 호스팅을 추가합니다.",
     "title": "가격",
-    "perMonth": "/month",
-    "perUserMonth": "/user/month",
+    "perMonth": "/월",
+    "perUserMonth": "/사용자/월",
     "currentPlan": "현재 계획",
     "manageBilling": "청구 관리",
     "free": {
@@ -4482,24 +4481,24 @@
       "rows": [
         {
           "label": "네이티브 macOS 터미널, 오픈 소스",
-          "free": "맞아요",
-          "pro": "맞아요",
-          "team": "맞아요",
-          "enterprise": "맞아요"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "지역 CLI 에이전트에게 직접 열쇠를 드립니다",
-          "free": "맞아요",
-          "pro": "맞아요",
-          "team": "맞아요",
-          "enterprise": "맞아요"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "세로 탭, 분할, 알림, 소켓 API",
-          "free": "맞아요",
-          "pro": "맞아요",
-          "team": "맞아요",
-          "enterprise": "맞아요"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "세션 역사",
@@ -4511,18 +4510,18 @@
         },
         {
           "label": "cmux 볼트: 클라우드 세션 백업",
-          "free": "거짓",
-          "pro": "맞아요",
-          "team": "맞아요",
-          "enterprise": "맞아요",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
           "label": "모든 세션을 뒤섞어 검색하세요",
-          "free": "거짓",
-          "pro": "맞아요",
-          "team": "맞아요",
-          "enterprise": "맞아요",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
@@ -4541,17 +4540,17 @@
         },
         {
           "label": "모델 게이트웨이: 라우팅 및 사용 분석",
-          "free": "거짓",
-          "pro": "맞아요",
-          "team": "맞아요",
-          "enterprise": "맞아요"
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "iOS 앱",
-          "free": "거짓",
-          "pro": "맞아요",
-          "team": "맞아요",
-          "enterprise": "맞아요"
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "맥에 도달하는 네트워킹",
@@ -4563,52 +4562,52 @@
         },
         {
           "label": "통합 청구 및 좌석 관리",
-          "free": "거짓",
-          "pro": "거짓",
-          "team": "맞아요",
-          "enterprise": "맞아요"
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "SSO 및 SAML 로그인",
-          "free": "거짓",
-          "pro": "거짓",
-          "team": "거짓",
-          "enterprise": "맞아요"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "자체 호스팅 및 에어갭 실행",
-          "free": "거짓",
-          "pro": "거짓",
-          "team": "거짓",
-          "enterprise": "맞아요"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "중앙 집중식 관리자 및 공유 팀 규칙",
-          "free": "거짓",
-          "pro": "거짓",
-          "team": "맞아요",
-          "enterprise": "맞아요"
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "감사 로그: 세션, 네트워크, 브라우저",
-          "free": "거짓",
-          "pro": "거짓",
-          "team": "거짓",
-          "enterprise": "맞아요"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "약속된 사용량 및 대량 가격",
-          "free": "거짓",
-          "pro": "거짓",
-          "team": "거짓",
-          "enterprise": "맞아요"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "SOC 2 그리고 SLA",
-          "free": "거짓",
-          "pro": "거짓",
-          "team": "거짓",
-          "enterprise": "맞아요"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "지원",

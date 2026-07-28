@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
-import { legalMetadata } from "../legal-metadata";
+import { legalMetadata, rawStringList } from "../legal-metadata";
 
 type PageProps = {
   readonly params: Promise<{ readonly locale: string }>;
@@ -22,9 +22,7 @@ export async function generateMetadata({
 export default async function TermsOfServicePage({ params }: PageProps) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "legal.terms" });
-  const restrictions = t.raw(
-    "sections.license.restrictions",
-  ) as readonly string[];
+  const restrictions = rawStringList(t, "sections.license.restrictions");
   const email = (chunks: React.ReactNode) => (
     <a href="mailto:founders@manaflow.com">{chunks}</a>
   );

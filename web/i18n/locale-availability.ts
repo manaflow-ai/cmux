@@ -92,6 +92,9 @@ export function fallbackContentRequestForPathname(
   locales: readonly Locale[];
 } | null {
   const { locale, path } = unprefixLocale(pathname);
+  if (!Object.hasOwn(authoredContentLocalesByPath, path)) {
+    return null;
+  }
   const availableLocales =
     authoredContentLocalesByPath[path as AuthoredContentPath];
   if (availableLocales) {

@@ -3,8 +3,6 @@ import { comparePages, comparePath } from "./compare-pages";
 import type { ComparePageKey } from "./compare-pages";
 import {
   authoredContentLocalesByPath,
-  englishFallbackContentLocales,
-  fallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
@@ -110,7 +108,11 @@ export const agentReadablePages = [
     title: "cmux iOS",
     locales: authoredContentLocalesByPath["/ios"],
   },
-  { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
+  {
+    path: "/pricing",
+    title: "Pricing",
+    locales: authoredContentLocalesByPath["/pricing"],
+  },
   {
     path: "/enterprise",
     title: "Enterprise",
@@ -120,7 +122,10 @@ export const agentReadablePages = [
   {
     path: "/blog/claude-code-best-worktree-manager",
     title: "Superrepos and Why Claude Code Is the Best Worktree Manager",
-    locales: fallbackContentLocales,
+    locales:
+      authoredContentLocalesByPath[
+        "/blog/claude-code-best-worktree-manager"
+      ],
   },
   { path: "/blog/cmux-fork", title: "Introducing cmux Fork" },
   { path: "/blog/cmux-home", title: "cmux home" },
@@ -135,22 +140,22 @@ export const agentReadablePages = [
   {
     path: "/blog/cmux-ssh",
     title: "cmux SSH",
-    locales: fallbackContentLocales,
+    locales: authoredContentLocalesByPath["/blog/cmux-ssh"],
   },
   {
     path: "/blog/cmux-claude-teams",
     title: "Claude Code teammate agents as native cmux panes",
-    locales: englishFallbackContentLocales,
+    locales: authoredContentLocalesByPath["/blog/cmux-claude-teams"],
   },
   {
     path: "/blog/cmux-omo",
     title: "oh-my-openagent subagents as native cmux panes",
-    locales: englishFallbackContentLocales,
+    locales: authoredContentLocalesByPath["/blog/cmux-omo"],
   },
   {
     path: "/blog/gpl",
     title: "cmux is now GPL",
-    locales: englishFallbackContentLocales,
+    locales: authoredContentLocalesByPath["/blog/gpl"],
   },
   { path: "/blog/cmd-shift-u", title: "Cmd+Shift+U" },
   { path: "/blog/zen-of-cmux", title: "The Zen of cmux" },
@@ -202,7 +207,10 @@ export const agentReadablePages = [
   {
     path: "/docs/agent-integrations/oh-my-pi",
     title: "oh-my-pi",
-    locales: fallbackContentLocales,
+    locales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/oh-my-pi"
+      ],
   },
   {
     path: "/docs/agent-integrations/oh-my-claudecode",

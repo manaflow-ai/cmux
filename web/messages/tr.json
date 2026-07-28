@@ -219,14 +219,14 @@
       },
       "pro": {
         "name": "cmux Pro",
-        "activeBody": "Planın {date}yenileniyor.",
-        "pendingBody": "Planınızın sona ermesi planlanıyor {date}."
+        "activeBody": "Planınız {date} tarihinde yenileniyor.",
+        "pendingBody": "Planınızın {date} tarihinde sona ermesi planlanıyor."
       },
       "team": {
         "name": "cmux Takımı",
         "fallbackName": "Takımın",
-        "activeBody": "{team} {date}yeniliyor.",
-        "pendingBody": "{team} {date}'de sona ermesi planlanıyor.",
+        "activeBody": "{team} {date} tarihinde yenileniyor.",
+        "pendingBody": "{team} için planın {date} tarihinde sona ermesi planlanıyor.",
         "price": "Koltuk/ay için $35"
       },
       "details": {
@@ -240,7 +240,7 @@
       },
       "cancel": {
         "body": "Pro erişiminiz {date}'a kadar aktif kalır. Dönem sonunda iptal onaylamak için kutuyu işaretleyin.",
-        "teamBody": "Takım erişimi {date}yılına kadar aktif kalır. Dönem sonunda iptal onaylamak için kutuyu işaretleyin.",
+        "teamBody": "Takım erişimi {date} yılına kadar aktif kalır. Dönem sonunda iptal onaylamak için kutuyu işaretleyin.",
         "checkbox": "Planımın mevcut dönem sonunda sona ereceğini anlıyorum."
       },
       "actions": {
@@ -324,7 +324,7 @@
   },
   "community": {
     "title": "Topluluk",
-    "description": "Agent hooklarından çoklu ajan orkestrasyonuna ve uzaktan erişime kadar cmux topluluğunun yaptığı projelere göz atın.",
+    "description": "cmux topluluğu tarafından oluşturulan projelere göz atın; ajanların kancalarından çoklu ajan düzenlemeye ve uzaktan erişim araçlarına kadar.",
     "discord": "Discord",
     "discordAction": "Discord'umuza katılın",
     "discordDesc": "Toplulukla sohbet edin, yardım alın ve geri bildirim paylaşın",
@@ -340,7 +340,7 @@
     "linkedinAction": "Bizi takip edin",
     "linkedinDesc": "Şirket haberleri ve mühendislik güncellemeleri",
     "metaTitle": "Topluluk — cmux",
-    "metaDescription": "cmux topluluk sayfasında awesome-cmux içindeki tüm projelere göz atın",
+    "metaDescription": "cmux topluluk sayfasında awesome-cmux projelerine göz atabilirsiniz",
     "sourceAction": "awesome-cmux’i görüntüle",
     "sourceRowsLabel": "seçilmiş indekslenmiş proje",
     "projectsLabel": "proje",
@@ -436,7 +436,7 @@
       "p045": "3 bölmeli düzende yazi, lazygit ve Claude Code'yi açan ve seçilen proje için uygun geliştirme sunucusunu otomatik olarak başlatan etkileşimli bir proje seçici başlatın",
       "p046": "Yukarıdaki cmux çalışma alanı başlatıcısını bir Homebrew formülü olarak dağıtın, yazi, lazygit ve geliştirme aracı bağımlılıklarını çözümleyerek herhangi bir Mac'in tek komutla yükleyebilmesini sağlayın",
       "p047": "Rol istemleri, bölünmüş düzenler ve tekli/ekip/manuel modlarla TOML çalışma alanı ön ayarlarını tanımlayın, ardından geçici kabuk geçmişi yerine etkileşimli bir kontrol kulesinden tekrarlanabilir Claude Code çalışma alanlarını başlatın",
-      "p048": "Bir terminal TUI zamanlayıcısından cmux faz değişikliklerini Pomodoro konusunda bilgilendirin - uyarı mekanizması olarak cmux bildirimlerini kullanan tek bağımsız üretkenlik aracı",
+      "p048": "Pomodoro'daki Fire cmux notify aşamasında terminal TUI zamanlayıcısından değişir - cmux bildirimlerini uyarı mekanizması olarak kullanan tek bağımsız verimlilik aracıdır",
       "p049": "Adlandırılmış cmux çalışma alanlarında Pi'i başlatın ve durum hapları, ilerleme çubukları, günlükler, tarayıcı bölmeleri ve ekran okumaları için eğik çizgi komutlarını ortaya çıkarın, çalışma alanı kurulumunu ve canlı kenar çubuğu raporlamasını küçük bir Pi paketinde birleştirin",
       "p050": "Bir istemi görünür Claude, Codex ve Antigravity bölmelerine havalandırın, belirleyici katılıyorum/katılmıyorum işaretçileri toplayın ve gizli aracı durumu yerine geçici dosyalar tarafından desteklenen ortak çalışma atamalarını destekleyin",
       "p051": "CMUX_SOCKET_PATH veya CMUX_WORKSPACE_ID mevcut olduğunda bilimsel rakamları, tazelik zaman damgaları ve otomatik yenilemeyle birlikte cmux tarayıcı bölmesinde açın",
@@ -449,7 +449,7 @@
       "p058": "Çalışma alanı navigasyonu ve Korece yazılmış tmux-to-cmux geçiş tablosunun yanı sıra 40'tan fazla tarayıcı alt komutunun tümünü eşleyin; mevcut tmux kas hafızasını geçiren geliştiricilere benzersiz bir şekilde hizmet eder",
       "p059": "code-server'yi bir cmux sepet bölmesi olarak açan Claude Code ve Codex bağdaştırıcılarını kurun; böylece aracılara, düzenleyici bağımlılıklarını gruplamadan veya sessizce yüklemeden komşu bir düzenleyici yüzeyi sağlar",
       "p060": "Claude Code becerileri için deneysel tmux-to-cmux komut eşlemesi; upstream README onu kararsız olarak ve güvenilir iş akışları için hazır değil olarak işaretler",
-      "p061": "Bölmelerin ne zaman uyarılacağına veya açılacağına ilişkin Claude Code cmux bölmeleri, tarayıcı başvurularını, CMUX_SOCKET_PATH iş akışlarını ve cmux bildirime dayalı kararları öğretin",
+      "p061": "Claude Code cmux bölünmeleri, tarayıcı referanslarını, CMUX_SOCKET_PATH iş akışlarını ve ne zaman uyarı veya pencere açma konusunda cmux notify tabanlı kararları öğretin",
       "p062": "cmux ağacı, read-screen aracılığıyla tarayıcı otomasyonunu ve bölme kontrolünü etkinleştirin ve tüm belgeleri Korece olarak gönderin; İngilizce dil becerilerinde yer almayan bölme ağacı iç gözlem komutlarını vurgulayarak farklılaştırın",
       "p063": "Sekme yeniden adlandırma ve canlı ilerleme çubuklarının yanı sıra tamamlanma bildirimlerini tetikleyin; üç UX endişesini (bildirim + yeniden adlandırma + ilerleme) yalnızca bildirimler yerine tek bir kabuk eklentisinde benzersiz bir şekilde bir araya getirir",
       "p064": "Bildirime dayalı workflow.yml geçitleri, alt adım takibi ve cmux gönderimi aracılığıyla Otomatik Pilot ile tarayıcı tabanlı bir geliştirme kokpiti sağlayın - otomatik çalıştırmalar sırasında manuel geçersiz kılma için benzersiz bir Ctrl+K komut paleti sunar",
@@ -458,7 +458,7 @@
       "p067": "Çoklu dosya seçimi ve AI-oluşturulan taahhüt mesajı önerileri ile bir tarayıcı bölmesinde Shiki-destekli söz dizimi ile vurgulanan farkları gösterin - fark görüntülemeyi taahhüt yazma ile eşleştirerek azu/cmux-hub'dan farklı",
       "p068": "Claude Code Neovim merkezli düzenleme modellerini öğretin: dosyaları sağ satırda açın, delta farklarını işleyin ve aracı penceresinden ayrılmadan bitişik bölmelerde testler çalıştırın",
       "p069": "İsteğe bağlı kenar çubuğu meta verileri olarak Azure DevOps ve Jira sinyalleriyle OpenCode durumunu, ilerlemesini, günlüklerini, bildirimlerini ve proje yönetimi bağlamını cmux'ye bildirin",
-      "p070": "Bildirimleri, önceden yapılandırılmış, otomatik olarak verilen CLI izinleriyle cmux bildirimi aracılığıyla yönlendirin; Bildirimlerin ilk çalıştırmada sessizce başlatılmasını sağlayan izin istemi sorununu çözerek farkını ortaya koyuyor",
+      "p070": "Bildirimleri otomatik verilen CLI izinleri önceden yapılandırılmış cmux notify üzerinden yönlendirir; izin sorması sorununu çözerek bildirimleri ilk çalıştırmada sessizce başlatır",
       "p071": "Üç beceri sağlayın: 8 durumlu algılamayla uzaktan oturum kontrolü için /cmux-control, bağlam içe aktarma için /cmux-get ve etkileşimli Markdown kontrol listeleri için /cmux-md-preview - özellik başına ayrıntılı beceri ayrımı",
       "p072": "Japonca 4 bölmeli bir düzen oluşturun: yazi + gloss/watchexec Markdown önizleme + lazygit + AI terminali, cmux komut paletine sembolik bağlantılar içerir - Japonca iş akışları için görüş odaklı geliştirme kokpiti",
       "p073": "HTTP/WebSocket/TCP trafiğini, çalışma alanı başına ağ izolasyonu ile başlık tabanlı bir ters proxy üzerinden yönlendirin",
@@ -474,7 +474,7 @@
       "p083": "ramo.json'dan çalışma ağaçları oluşturun, kurulum komutlarını çalıştırın, env dosyalarını kopyalayın ve sonucu cmux çalışma alanlarında ve bölmelerde açın",
       "p084": "Özel bir dizine yazılan yapılandırılmış aktarım notlarını kullanarak cmux kenar çubuğundan çalışan alt aracı ilerlemesini izleyin - dosya tabanlı koordinasyon yaklaşımı, soket veya arka plan programı güdümlü monitörlerle çelişir",
       "p085": "Google Antigravity CLI kancalarını Antigravity'nin hooks.json sözleşmesi aracılığıyla cmux bildirimlerine bağlayın, stdout güvenli JSON kullanımıyla bildirim kancasının aracı çalışma zamanını geçersiz kılmasını önleyin",
-      "p086": "Tarayıcı otomasyonunu, yakalama bölmesi dahili öğelerini ve CMUX_SOCKET_PASSWORD kimlik doğrulamasını benzersiz bir şekilde belgeleyen geniş bir CLI sınıflandırmasının parçası olarak ele alın - öğreticiden çok referans",
+      "p086": "Tarayıcı otomasyonunu geniş bir CLI taksonomisinin parçası olarak ele almak, capture-pane iç bileşenleri ve CMUX_SOCKET_PASSWORD doğrulamayı benzersiz şekilde belgeleyen - eğitimden çok referans",
       "p087": "cmux-aware kancalarını SSH ana bilgisayarlarına, Hermes ve omp/Pi'ye dağıtın, ardından aracı başına elle yazılan komut dosyaları yerine bir stdlib yardımcı aracılığıyla aracı etkinliğini yerel bildirimler ve kenar çubuğu rozetleri olarak geri aktarın",
       "p088": "C-help CLI sağlayın: tüm cmux klavye kısayolları, CLI komutları, kenar çubuğu API'leri, tarayıcı otomasyonu ve İngilizce ve Japonca env değişkenleri için çevrimdışı aranabilir yardımcı sayfalar",
       "p089": "IDE ergonomisi lehine durum haplarını atlar: Vim alt bölmesinde düzenlenen dosyaları otomatik olarak açar ve broot dosya tarayıcı kenar çubuğunu değiştirerek cmux'yi hafif bir düzenleyici ortamına dönüştürür",
@@ -644,7 +644,7 @@
         "faqAgentsTitle": "Kodlama ajanlarını tanımlıyor mu?",
         "faqAgentsBody": "Evet. cmux , bilinen ajan süreçlerini çalışan çalışma alanı ve yüzeyine ataklıyor, böylece kaynak görünümü yan panel düzeninizle eşleşiyor.",
         "faqCliTitle": "Pencereyi açmadan kullanabilir miyim?",
-        "faqCliBody": "Evet. Aynı bilgiyi scriptlerde, SSH oturumlarda veya sade bir shell'de kullanmak istediğinizde terminal anlık görüntüsü için üst cmux çalıştırın.",
+        "faqCliBody": "Evet. Aynı bilgiyi scriptlerde, SSH oturumlarda veya sade bir shell'de kullanmak istediğinizde terminal anlık görüntüsü için cmux top çalıştırın.",
         "docsCta": "<link>Görev Yöneticisi</link> dokümanturalarını komut, pencere giriş noktası ve önerilen sorun giderme akışı için okuyun."
       },
       "sessionRestore": {
@@ -670,7 +670,7 @@
         "limitsP": "tmux, vim, shell’ler ve desteklenmeyen araçlar, güvenli bir native resume komutu kaydeden cmux entegrasyonuna sahip değilse normal terminal olarak yeniden açılır. Bu, geri yüklemeyi öngörülebilir tutar ve eski prompt veya secret tekrarını önler.",
         "docsCta": "setup komutları, desteklenen ajanlar ve sorun giderme için <link>oturum geri yükleme dokümanlarını</link> okuyun.",
         "workflowTitle": "Önerilen kurulum",
-        "workflowInstall": "Kullandığınız CLI ajanı kurun, ardından cmux hooks kurulumunu çalıştırın ki cmux yerel oturum kimliklerini yakalayabilsin.",
+        "workflowInstall": "Kullandığınız ajan CLI'yı kurun, sonra cmux hooks setup çalıştırın ki cmux yerel oturum kimliklerini yakalayabilsin.",
         "workflowWork": "Ajanları normal cmux terminallerinde çalıştırın. Hooklar, iş gerçekleştikçe oturum kimliğini, cwd'sini, çalışma alanını ve yüzeyi kaydeder.",
         "workflowRelaunch": "Yeniden başlatmadan sonra, cmux kaydedilen ajan devam komutlarını başlatmadan önce pencere ve panel ağacını yeniden oluşturur.",
         "workflowVerify": "Restore edilen ajanın aynı yukarı akış oturumunu devam ettirdiğinden emin olun, sonra aynı çalışma alanında çalışmaya devam edin.",
@@ -775,7 +775,7 @@
         "cmuxTitle": "cmux iş akışına bir yüzey kazandırır",
         "cmuxP1": "cmux yerleşik bir evrensel worktree yöneticisine ihtiyaç duymaz. Size <customCommands>özel komutlar</customCommands>, programlanabilir bir <api>CLI ve soket API</api> ve yeniden kullanılabilir <skills>beceriler</skills> verir. Artı düğmesi kendi worktree komutunuzu, çoklu depo kurulumunuzu, no-git korumalı alanınızı veya uzak ortamınızı başlatabilir.",
         "cmuxP2": "Bu nedenle <home>cmux home</home> önemlidir. En iyi worktree yöneticisi, iş akışınız değiştiğinde temsilcilerinizin değiştirebileceği yöneticidir ve bu döngü için en iyi terminal, Cmd+Shift+U ve Cmd+Control+U bildirimlerini yüzeye bağlı olarak tutar.",
-        "agentsExample": "Siz cmux-merkezde çalışıyorsunuz. Görevler şunları içerebilir: \n- manaflow-ai/cmux \n- manaflow-ai/cmux-tarayıcı\n- manaflow-ai/alt yönlendirici\n\nKullanıcı yeni bir görev istediğinde: \n1. Görevin hangi depolara ihtiyacı olduğuna karar verin. \n2. Çalışma ağaçları/[görev]/[repo] içinde eşleşen çalışma ağaçları oluşturun. \n3. Her çalışma ağacının AGENTS.md. \n4. Kurulum betiklerini hemen başlatın, sonra göreve devam edin.",
+        "agentsExample": "cmux-merkezde çalışıyorsunuz. Görevler şunları içerebilir: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nKullanıcı yeni bir görev istediğinde: \n1. Görevin hangi depolara ihtiyacı olduğuna karar verin. \n2. worktrees/[task]/[repo]'de uyumlu çalışma ağaçları oluşturun. \n3. Her çalışma ağacının AGENTS.md okuyun. \n4. Kurulum betiklerini hemen başlatın, sonra göreve devam edin.",
         "launchCommand": "CD ~/fun/cmux-hq \nCodex --yolo \"Alt yönlendirici XYZ sorunlarını düzeltin, cmux ile xyz şekilde ilişkilendirilebilir\""
       },
       "cmuxClaudeTeams": {
@@ -806,12 +806,11 @@
         "summary": "Bir komut size kalıcı uzak oturumlar, uzak portlara ulaşan tarayıcı panelleri ve eve gelen ajan bildirimleri sunar.",
         "date": "30 Mart 2026",
         "p1": "<code>cmux ssh user@remote</code> uzak makine için bir çalışma alanı oluşturuyor. Bir görüntüyü uzak Claude Code oturumuna sürükleyip otomatik olarak yükleniyor. Tarayıcı panelleri uzak ağ üzerinden yönlendiriliyor, yani localhost sadece çalışıyor. Sizin <code>~/.ssh/config</code>kullanıyor, droplarda tekrar bağlanıyor.",
-        "features": "Tarayıcı panelleri trafiği uzak ağ üzerinden yönlendirir, böylece localhost:3000, -L bayrakları olmadan uzak dev sunucusuna ulaşır. Uzak kutudaki kodlama ajanları yerel yan çubuğuna bildirimler gönderir. cmux claude-teams ve cmux OMO SSHüzerinde çalışır, hesaplama uzaktan çalışırken yerel olarak takım arkadaşı panelleri oluşturur. Bir dosyayı uzak terminale sürükleyerek scp üzerinden yükleyin. Yan panelde bağlantı durumu ve algılanan dinleme portları gösterilir.",
         "featureItems": [
           "Tarayıcı panelleri uzak makine üzerinden yönlendirilir, böylece localhost:3000 port yönlendirmesi olmadan uzak dev sunucusuna ulaşır",
           "Bir görüntüyü uzak bir terminale sürükleyerek scp üzerinden yükleyin",
           "Uzak makinedeki kodlama ajanları yerel yan çubuğuna bildirimler gönderiyor",
-          "cmux Claude-teams ve cmux OMO SSHüzerinde çalışır, yerel olarak takım arkadaşı panelleri oluştururken hesaplama uzaktan çalışır",
+          "cmux claude-teams ve cmux omo SSH üzerinde çalışır, yerel olarak takım arkadaşı panelleri oluştururken hesaplama uzaktan çalışır",
           "Yan panel, bağlantı durumunu ve algılanan dinleme portlarını gösterir"
         ],
         "videoTitle": "cmux SSH demosu",
@@ -1011,7 +1010,7 @@
       "rowSession": "Yan panelde özel bir çalışma alanı.",
       "rowWindow": "O çalışma alanında bir sekme.",
       "rowPane": "O sekme içinde yerel bir panelde bir bölme var.",
-      "mappingPanes": "Yeni özellik, sekme içindeki paneller: tek bir terminali tutan cmux sekme, birkaç panelli tmux penceresi ise artık tek bir sekme içinde gerçek cmux bölünmüş düzen olarak render ediliyor — her uzak panel, olağan krom ile yerel cmux terminal panelidir. Köprü iki taraflıdır: o sekmede bir paneli bölmek veya kapatmak tmux bölünmüş pencere ile sekmeleri yeniden sıralamak ve sekmeleri yeniden sıralamak swap-window ile tmux pencereleri yeniden sıralar.",
+      "mappingPanes": "Yeni özellik, sekme içindeki paneller: tek bir terminali tutan cmux sekme, birkaç panelli tmux penceresi artık tek bir sekme içinde gerçek cmux bölünmüş bir düzen olarak render ediliyor — her uzak panel, normal krom ile yerel cmux terminal panelidir. Köprü iki taraflıdır: tmux split-window çalışan sekmede bir paneli bölmek veya kapatmak ve sekmeleri yeniden sıralamak tmux pencereleri swap-window ile yeniden sıralar.",
       "requirementsTitle": "Gereksinimler",
       "requirementsDesc": "Ulaşılabilir bir SSH host (cmux ~/.ssh/configokur) ve tmux 3.2 veya daha yeni sistem yüklü olmalı. Kontrol modu (tmux -CC) standart bir tmux özelliğidir, bu yüzden özel bir derleme gerek yoktur; cmux , bağlamadan önce uzaktan tmux sürümü kontrol eder ve eski sunucularda açıkça başarısız olur. cmux SSH ControlMaster bağlantısı üzerinden bağlanır ve uzak tmux sunucusu ayırdığınızda çalışmaya devam eder.",
       "enableTitle": "Etkinleştirin",
@@ -1019,19 +1018,19 @@
       "attachTitle": "Eklenme",
       "attachIntro": "Bir terminalde cmux ssh-tmux <destination> çalıştırın — bir ~/.ssh/config takma ad veya user@host. cmux , sunucunun tmux oturumlarını mevcut pencerenin yan çubuğuna yansıtır: her oturum bir çalışma alanı, her pencere bir sekme olur ve çok panelli pencereler sekme içi bölünmelere dönüşür.",
       "attachNewWindow": "Aynayı mevcut pencere yerine yeni bir pencerede açmak için --new-window ver.",
-      "attachSockets": "Uzaktan kumanda.tmux.* soket komutları (aşağıda) daha ince kontrol sağlar. uzaktan kumanda.tmux.mirror ayna giriş noktasıdır; pencere/çağıran yönlendirmeyi kabul eder ve isteğe bağlı olarak aynalanan çalışma alanını seçebilir.",
+      "attachSockets": "remote.tmux.* soketi komutları (aşağıda) daha ince kontrol sağlar. remote.tmux.mirror ayna giriş noktasıdır; pencere/çağıran yönlendirmesini kabul eder ve isteğe bağlı olarak aynalanan çalışma alanını seçebilir.",
       "attachCli": "Etkileşimsiz kimlik doğrulama sağlayan ana bilgisayarlar (ssh-agent veya ~/.ssh/configiçindeki anahtar) herhangi bir prompt olmadan bağlanır. Eğer ana bilgisayar etkileşimli kimlik doğrulama (şifre, ana anahtarı onayı veya MFA) gerekiyorsa, cmux terminalinizde ssh inline çalıştırır ki kimlik doğrulama yapabilesiniz, ardından mevcut pencereye yansıtma yapar. --port, --identityve --no-focuskabul eder.",
       "troubleshootTitle": "\"İzin reddedildi\" alırsan.",
       "troubleshootDesc": "Hedef olduğu gibi ssh'ye verilir, yani bir takma ad, giriş için gereken her şeyi ssh taşımalıdır — en yaygın olarak Kullanıcı (ssh olmadan ssh yerel kullanıcı adınızı dener) ve IdentityFile'i taşımalıdır:",
       "troubleshootFallback": "Ya da kullanıcıya açıkça ilet: cmux ssh-tmux dev@my-ssh-alias. Eğer sade ssh <destination> sizi giriş yapmazsa, cmux ssh-tmux <destination> de girmez.",
       "howTitle": "Nasıl çalışır",
-      "howDesc": "cmux ssh ... tmux -CC attach ve kontrol modu akışını ayrıştırır, yerleşik tmux görüntüleyiciye güvenmek yerine, böylece protokol ve %begin/%end komut korelasyonu tamamen cmuxtarafından sağlanır. Her uzak panel, % tmux çıktı ile beslenen özel bir terminal yüzeyine render edilir ve girdiniz — tuş vuruşları ve fare — tmux gönderme tuşlarıyla iletilir. Uzak tmux sunucusu panel boyutlandırması ve yeniden akış sistemine sahiptir; cmux yüzeylerini onunla uyumlu tutar ve asla yerel olarak yeniden akış yapmaz.",
+      "howDesc": "cmux ssh ... tmux -CC kontrol modu akışını ekliyor ve ayrıştırıyor, yerleşik tmux görüntüleyiciye güvenmek yerine, böylece protokol ve %begin/%end komut korelasyonu tamamen cmux'ye aittir. Her uzak panel, tmux %output ile beslenen özel bir terminal yüzeyine render edilir ve girdiniz — tuş vuruşları ve fare — tmux send-keys ile iletilir. Uzak tmux sunucusu panel boyutlandırma ve yeniden akış sağlar; cmux yüzeylerini onunla uyumlu tutar ve yerel olarak yeniden akış yapmaz.",
       "behaviorTitle": "Desteklediği şeyler",
       "behaviorSize": "Boyutlandırma: Uzak istemci render edilmiş ızgaraya (refresh-client -C) boyutlandırılır, böylece TUI'ler tmux'nin varsayılan 80×24'ünde takılı kalmaz.",
-      "behaviorSplit": "Bölünmeler: Aynalı pencerede bir camın bölünmesi veya kapatılması bölünen pencere ile tmux ile iletir, böylece cmux düzeni ile tmux düzeni senkronize kalır. Programatik bölünmeler (cmux yeni bölme veya soket üzerinden surface.split ) yüzey kimliği olmadan kabul edilir — yeni panel, düzen değişikliğini onayladığında tmux asenkron olarak gelir. Yönlendirilen bölünmenin kabul edemediği seçenekleri taşıyan istekler (başlatma komutu, çalışma dizini, bölücü konumu, sol/yukarı yerleştirme) uzaktan oturum mutasyona uğramadan önce hemen reddedilir.",
+      "behaviorSplit": "Bölünmeler: Aynalı bir pencerede bir camın bölünmesi veya kapatılması split-window ile tmux olarak yayılır, böylece cmux düzeni ile tmux düzeni senkronize kalır. Programatik bölünmeler (cmux new-split veya soket üzerinde yüzey.split) yüzey kimliği olmadan kabul edilir — yeni panel, düzen değişikliğini onayladığında tmux eşzamansız olarak gelir. Yönlendirilen bölünmenin onaylayamadığı seçenekleri (başlatma komutu, çalışma dizini, bölücü konumu, sol/yukarı yerleştirme) taşıyan istekler, uzaktan oturum mutasyona uğramadan önce baştan reddedilir.",
       "behaviorReorder": "Yeniden sıralama: Yansıtılan sekmeleri sürükleyip yeniden sıralamak, tmux pencerelerini swap-window ile yeniden sıralıyor.",
       "behaviorCwd": "Çalışma dizini: uzak panelin mevcut klasörü takip edilir ve sekmede gösterilir.",
-      "behaviorPaste": "Yapıştır ve bırak: yapıştırılan metin ve bırakılan görseller/dosyalar yapıştırılmalı tmux tampon -p üzerinden geçer, böylece uzak bir uygulama (örneğin bir kodlama ajanı) gerçek bir parantez yapıştırma alır — bir görüntü yerel yol değil, [Resim #N] olarak gelir.",
+      "behaviorPaste": "Yapıştır ve bırak: yapıştırılan metin ve bırakılan görseller/dosyalar tmux paste-buffer -p üzerinden geçer, bu yüzden uzak bir uygulama (örneğin bir kodlama ajanı) gerçek bir parantez yapıştırma alır — bir görüntü yerel yol değil, [Görsel #N] olarak gelir.",
       "behaviorMouse": "Fare: tıklamalar, kaydırmalar ve sürüklemek, fare modu açık olduğunda uzaktan kumanda uygulamaya ulaşır. Sürüklerken Shift tuşuna basılı tutup doğal bir cmux metin seçimi/kopyalaması için (fare modu uygulaması çalıştıran herhangi bir terminalde olduğu gibi).",
       "behaviorUnicode": "Unicode doğru çıktı: çok baytlı karakterler, güncellemeler arasında bölündüğünde tmux bile korunur, böylece kutu çizimi ve diğer geniş içerikler temiz şekilde sunulur.",
       "socketTitle": "Soket komutları",
@@ -1046,8 +1045,8 @@
       "methodState": "Kontrol istemcisinin gözlem durumunu (tanılama) raporlayın.",
       "socketSafetyDesc": "Bir tire-ön ekli ana bilgisayar veya kimlik dosyası, güven sınırında SSH seçenek enjeksiyonuna karşı bir savunma olarak reddedilir.",
       "limitationsTitle": "Sınırlamalar",
-      "limitReconnect": "Geçici SSH düşmeleri otomatik olarak yeniden bağlanır: oturum ortasında bağlantı blips yaparsa ayna, ayna donar ve cmux sınırlı üstel geri dönüşle tekrar denemeler yapar, devam ettiğinde paneller yeniden tohumlanır. Ayna, uzaktan oturum bittiğinde ya da ayna penceresini kapattığınızda veya cmux kapattığınızda tamamen kapanır — ve yeniden başlatıldığında ( cmux ssh-tmuxile yeniden bağlanın) geri yüklenmez.",
-      "limitPaste": "Sadece tek satırlı yapıştır/bırak (örneğin dosya veya görüntü yolu) yapıştır buffer -p üzerinden gerçek parantez yapıştırma olarak gönderilir; çok satırlı metin ise basit tuş basmaları olarak gönderilir, bu yüzden uzaktan bir uygulama bunu tek yapıştırma olarak kabul etmez.",
+      "limitReconnect": "Geçici SSH kopmaları otomatik olarak yeniden bağlanır: bağlantı oturum sırasında kesilirse yansıtma donar ve cmux sınırlı üstel geri çekilmeyle yeniden dener. Bağlantı kurulduğunda bölmeler yeniden oluşturulur. Yansıtma yalnızca uzak oturum sona erdiğinde, yansıtma penceresini kapattığınızda veya cmux’tan çıktığınızda kalıcı olarak kapanır. Uygulama yeniden başlatıldığında geri yüklenmez (cmux ssh-tmux ile yeniden bağlanın).",
+      "limitPaste": "Yalnızca tek satırlı yapıştır/bırak (örneğin dosya veya resim yolu) gerçek parantez yapıştırma olarak paste-buffer -p üzerinden gönderilir; çok satırlı metin ise sade tuş basmaları olarak gönderilir, bu yüzden uzaktan bir uygulama bunu tek yapıştırma olarak kabul etmez.",
       "limitCwd": "Canlı çalışma dizini güncellemeleri kontrol modu aboneliklerini kullanır, bu yüzden cmux aynayı açmadan önce 3.2 veya daha yenisi tmux gerektirir.",
       "limitReflow": "Birincil ekran kaydırması, yeniden boyutlandırma sırasında yeniden sarılmıyor — cmux yeniden akışı tmuxbırakıyor, böylece eski çizgiler uygulama yeniden boyanana kadar önceki genişlikte kalabilir. Boyut değiştirdiğinde yeniden çizilen tam ekran TUI'ler ise etkilenmiyor."
     },
@@ -1443,13 +1442,13 @@
       "actionTypeWorkspace": "Bir çalışma alanı açık tanımından, isteğe bağlı yeniden başlatma davranışıyla bir çalışma alanı oluşturun. Yeni çalışma alanı plus-button menüsünde otomatik olarak sunuluyor.",
       "actionFieldNewWorkspaceMenu": "Yeni çalışma alanı artı düğmesi menüsünde herhangi bir eylemi sunacak şekilde true, yoksa çalışma alanı eylemini gizlemek için false olarak ayarlayın.",
       "workspaceActions": "İş alanı düzenleri",
-      "workspaceActionsDesc": "Bir çalışma alanı düzeni, tam bir çalışma alanı tanımını doğrudan eyleme gömmesi ve ayrı <commands>komut</commands> girişi gerektirmeden bir <workspace>çalışma alanı</workspace> eylemi olarak saklanır. Aynı çalışma alanı alanlarını ve <setup>kurulumu</setup> destekler; bu komut, terminalin komutundan önce ilk terminale gönderilen bir önyükleme komutudur:",
-      "workspaceActionsMenuDesc": "Çalışma alanı düzenleri otomatik olarak plus-tuşlu sağ tık menüsünde görünür. <newWorkspaceMenu>NewWorkspaceMenu'u</newWorkspaceMenu> <falseValue>false olarak</falseValue> ayarlayarak birini gizleyin, ya da menüye eklemek için başka herhangi bir <trueValue>eylemde true</trueValue> olarak ayarlayın.",
-      "workspaceActionsSaveDesc": "Ayrıca bunları yazmadan da oluşturabilirsiniz JSON: Plus butonuna sağ tıklayın ve mevcut çalışma alanının bölünmelerini, dizinlerini, çalışan ajanları ve tarayıcı sekmelerini <configPath>~/.config/cmux/cmux.json</configPath>içine kaydetmek <saveLayout>için Çalışma Alanı Düzeni Olarak Kaydet'i</saveLayout> seçin. Bunlar <actions>eylemler</actions> bloğunda giriş olarak saklanır. <customize>Çalışma Alanı Düzenleri'ni özelleştirin</customize> bu dosyayı düzenleyicinizde açar.",
+      "workspaceActionsDesc": "Bir çalışma alanı düzeni, tam bir çalışma alanı tanımını doğrudan eyleme gömmesi ve ayrı <commands>commands</commands> girişi gerektirmeden bir <workspace>workspace</workspace> eylemi olarak saklanır. Aynı çalışma alanı alanlarını ve <setup>setup</setup> destekler; bu komut, terminalin komutundan önce ilk terminale gönderilen bir önyükleme komutudur:",
+      "workspaceActionsMenuDesc": "Çalışma alanı düzenleri otomatik olarak plus-tuşlu sağ tık menüsünde görünür. <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> <falseValue>false</falseValue> ayarlayarak birini gizleyin, ya da menüye eklemek için başka herhangi bir <trueValue>true</trueValue> olarak ayarlayın.",
+      "workspaceActionsSaveDesc": "Ayrıca bunları yazmadan da oluşturabilirsiniz JSON: Plus butonuna sağ tıklayın ve mevcut çalışma alanının bölünmelerini, dizinlerini, çalışan ajanları ve tarayıcı sekmelerini <configPath>~/.config/cmux/cmux.json</configPath>içine kaydetmek <saveLayout>Save Workspace as Layout</saveLayout> seçin. Bunlar <actions>actions</actions> bloğunda giriş olarak saklanır. <customize>Customize Workspace Layouts</customize> bu dosyayı düzenleyicinizde açar.",
       "wsFieldEnv": "Çalışma alanındaki her kabuk tarafından miras alınan ortam değişkenleri",
       "wsFieldSetup": "Bootstrap komutu, çalışma alanının ilk terminaline, o terminalin kendi komutundan önce gönderilir",
       "workspaceActionsDefaultTitle": "Yeni çalışma alanları için varsayılan",
-      "workspaceActionsDefaultDesc": "Yeni <defaultMenu>Çalışma Alanı için Varsayılan</defaultMenu> alt menüsünü kullanarak hangi kayıtlı çalışma alanı düzenini seçin ya da boş bir terminale dönmek için Hiç'i seçin. Kaydetme diyalogunda ayrıca <checkbox>yeni çalışma alanları için varsayılan olarak kullan</checkbox> işaret kutusu vardır. Ayar <action>ui.newWorkspace.action</action>; bir <localConfig>proje-yerel .cmux/cmux.json</localConfig> değeri <globalConfig>~/.config/cmux/cmux.json</globalConfig>üzerinde kazanır."
+      "workspaceActionsDefaultDesc": "Yeni <defaultMenu>Default for New Workspace</defaultMenu> alt menüsünü kullanarak hangi kayıtlı çalışma alanı düzenini seçin ya da boş bir terminale dönmek için Hiç'i seçin. Kaydetme diyalogunda ayrıca <checkbox>Use as default for new workspaces</checkbox> işaret kutusu vardır. Ayar <action>ui.newWorkspace.action</action>; bir <localConfig>.cmux/cmux.json</localConfig> değeri <globalConfig>~/.config/cmux/cmux.json</globalConfig>üzerinde kazanır."
     },
     "keyboardShortcuts": {
       "title": "Klavye Kısayolları",
@@ -1806,9 +1805,9 @@
       "exampleAgentButtonsUse": "Tek tıklamayla Codex, Claudeveya özel ajanı başlatıcılar ekleyerek yerleşik sekme düğmelerini görünür tutmak.",
       "customizationExamplesCallout": "Detaylı snippetler <code>skills/cmux-customization/references/examples.md</code>içinde yaşanır. Ajanlar bu dosyayı yalnızca examples-library desenine ihtiyaç duyulduğunda yükler.",
       "customizationExamplePrompts": "Örnek promptlar",
-      "customizationPromptWorktree": "Worktree-agent örneğini oluşturmak için $cmux-özelleştirme kullanın.",
-      "customizationPromptFullStack": "Dock kontrolleriyle proje-yerel tam stack-dev düzeni oluşturmak için $cmux-özelleştirme kullanın.",
-      "customizationPromptAgentButtons": "Codex ve Claudeiçin hızlı ajan-butonları eklemek için $cmuxözelleştirme kullanın.",
+      "customizationPromptWorktree": "Worktree-agent örneğini kurmak için $cmux-customization kullanın.",
+      "customizationPromptFullStack": "Dock kontrolleriyle proje-yerel tam stack-dev düzeni oluşturmak için $cmux-customization kullanın.",
+      "customizationPromptAgentButtons": "Codex ve Claude için hızlı ajan-düğmeleri eklemek için $cmux-customization kullanın.",
       "diagnosticsScope": "Erişilebilir CLI lik, soket erişimi, cmux ortamı, ayarların doğrulaması, kanca kurulum işaretleyicileri, oturum depoları, otomatik devam ayarları ve desteklenen ajan ikili sayfaları için yalnızca okunabilir sağlık kontrolleri.",
       "diagnosticsReferences": "Destek için güvenli tanı betikleri, hook kurulum komutları, oturum geri yükleme yorumlama, bildirim kontrolleri ve hassas dosyaların redaksiyonu için kurallar dahil edilmiştir.",
       "browserScope": "cmux web görünüm yüzeylerinde tarayıcı otomasyonu; navigasyon, DOM eylemleri, beklemeler, durum kaydetme, ekran görüntüleri ve anlık görüntüler dahil.",
@@ -1860,7 +1859,7 @@
       "base": "Taban",
       "ssh": "SSH",
       "remoteTmux": "Uzaktan tmux",
-      "ohMyPi": "Oh-my-pi",
+      "ohMyPi": "oh-my-pi",
       "vault": "Vault",
       "taskManager": "Görev Yöneticisi"
     },
@@ -1988,7 +1987,7 @@
       "notificationsTitle": "Bildirimler",
       "notificationsDesc": "Uzak makinedeki işlemler, yerel örneğinizde yürütülen cmux komutlarını çalıştırabilir. Bir kodlama aracısı uzak kutuda cmux notify'ı çağırdığında, bildirim yerel kenar çubuğunuzda görünür. Çalışma alanı sekmesinde mavi halka yanar. Cmd+Shift+U ona atlar. Kesintili bağlantılardan gelen spam bildirimleri, ana bilgisayar başına bekleme süresiyle bastırılır.",
       "agentsTitle": "SSH üzerinden kodlama aracıları",
-      "agentsDesc": "cmux Claude-teams ve cmux omo'nun her ikisi de SSH oturumlarında çalışır. Uzak ana bilgisayardaki Go geçiş arka plan programı, yerel Swift CLI'nin yaptığı tmux uyumlu çevirinin aynısını işler. Ekip arkadaşı ajanları, hesaplama uzak kutuda çalışırken yerel makinenizde yerel cmux bölünmeleri olarak ortaya çıkar.",
+      "agentsDesc": "cmux claude-teams ve cmux omo ikisi de SSH oturum içinde çalışır. Uzak hosttaki Go röle daemon, yerel Swift CLI'nın yaptığı aynı tmux uyumlu çeviriyi yönetir. Teammate ajanlar, yerel makinenizde yerel cmux split olarak ortaya çıkarken hesaplama uzak kutuda çalışır.",
       "reconnectTitle": "Yeniden bağlan",
       "reconnectDesc": "Bağlantı kesildiğinde cmux üstel geri çekilmeyle yeniden bağlanır (3 sn, 6 sn, 12 sn, 60 sn'ye kadar). Uzak oturum devam eder ve cmux yeniden bağlanıldığında yeniden bağlanır ve en küçük ekran kazanma semantiğiyle yeniden boyutlandırılır. Varsayılan canlı tutma seçenekleri (ServerAliveInterval=20, ServerAliveCountMax=2), yapılandırmanız bunları zaten ayarlamadığı sürece eklenir.",
       "daemonTitle": "Aktarma arka plan programı",
@@ -2020,10 +2019,10 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: cmux içinde OpenCode çoklu ajan",
-      "metaDescription": "cmux omo, OpenCode’u oh-my-openagent ile cmux içinde çalıştırır. Claude, GPT, Gemini ve Grok’u yerel cmux bölmelerinde paralel ajanlar olarak orkestre eder.",
+      "metaDescription": "oh-my-opencode (cmux omo) OpenCode CLI'yı cmux içindeki oh-my-openagent eklentisiyle çalıştırır. Claude, GPT, Gemini ve Grok'u paralel ajanlar olarak orkestrasyon, her biri yerel cmux bölünmüştür.",
       "title": "oh-my-opencode",
       "nightlyWarning": "Sadece <nightly>gecelik sürümlerde</nightly> mevcut.",
-      "intro": "cmux OMO, oh-my-openagent eklentisiyle cmuxfarkında bir ortamda OpenCode başlatır. oh-my-openagent, paralel çalışan uzman ajanlar olarak birden fazla yapay zeka modelini (Claude, GPT, Gemini, Grok) organize eder. Ajan panelleri oluşturduğunda, bunlar doğan cmux bölünmeler olur.",
+      "intro": "cmux omo, cmux farkında bir ortamda oh-my-openagent eklentisiyle OpenCode'u başlatır. oh-my-openagent, paralel çalışan uzman ajanlar olarak birden fazla yapay zeka modelini (Claude, GPT, Gemini, Grok) organize eder. Ajan panelleri oluşturduğunda, bunlar doğan cmux split olur.",
       "usage": "Kullanım",
       "usageDesc": "Omo'dan sonraki tüm argümanlar OpenCode'ye iletilir.",
       "whatYouGet": "Ne elde edersin",
@@ -2034,7 +2033,7 @@
       "whatYouGet4": "Eğer pencere yeni bir ajan paneli için çok küçükse, her 2 saniyede bir kuyruk açıp tekrar deniyor ve alan boşalana kadar tekrar deniyor",
       "whatYouGet5": "Ana oturumunuz ana panelde kalırken, ajanlar yanında çalışır",
       "firstRun": "İlk seri",
-      "firstRunDesc": "İlk denemede cmux otomatik olarak her şeyi ayarlar:",
+      "firstRunDesc": "İlk denemede cmux omo otomatik olarak her şeyi ayarlar:",
       "firstRunStep1": "Eklenti dizisinde kayıtlı oh-my-opencode ~/.cmuxterm/omo-config/'de gölge yapılandırması oluşturur",
       "firstRunStep2": "Eğer zaten mevcut değilse oh-my-opencode npm paketini bun veya npm kullanarak kuruyor",
       "firstRunStep3": "Orijinal ~/.config/opencode/ dizininizden node_modules, package.jsonve eklenti yapılandırmasını simlinkler yapın",
@@ -2054,7 +2053,7 @@
       "dirShadow": "Shadow OpenCode yapılandırma, oh-my-opencode eklentisi kayıtlı ve tmux etkinleştirilmiş (orijinal yapılandırmanıza simlinkler)",
       "dirStore": "tmux-uyumlu tamponlar ve kancalar için kalıcı depolama",
       "shadowConfig": "Gölge yapılandırması",
-      "shadowConfigDesc": "cmux OMO gölge yapılandırma dizini kullanıyor, böylece orijinal OpenCode kurulumunuz etkilenmez:",
+      "shadowConfigDesc": "cmux omo gölge yapılandırma dizini kullanıyor, böylece orijinal OpenCode kurulumunuz etkilenmez:",
       "shadowStep1": "Eklenti dizisine oh-my-opencode eklenerek ~/.config/opencode/opencode.json kopyalıyor",
       "shadowStep2": "Orijinal dizinden node_modules, package.jsonve bun.lock simlinkleri",
       "shadowStep3": "tmux.enabled doğru olarak ayarlandığında oh-my-opencode.json yazar",
@@ -2167,7 +2166,7 @@
       "metaTitle": "Claude Code Takımlar - cmux",
       "metaDescription": "Ajan takımlarıyla Claude Code cmuxçalıştırın. Takım arkadaşı ajanlar tmux paneller yerine yerel cmux split olarak doğur.",
       "nightlyWarning": "Sadece <nightly>gecelik sürümlerde</nightly> mevcut.",
-      "intro": "cmux Claude-Teams, ajan teams etkin iken Claude Code başlatır. Claude takım arkadaşı ajanları doğduğunda, tmux paneller yerine yerel cmux split olarak görünürler, tam yan panel meta verileri ve bildirimlerle birlikte.",
+      "intro": "cmux claude-teams, ajan takımları etkin iken Claude Code başlatır. Claude takım arkadaşı ajanları doğduğunda, tmux paneller yerine yerel cmux bölünmeleri olarak görünür ve tam yan panel meta verileri ve bildirimlerle birlikte bulunurlar.",
       "usage": "Kullanım",
       "usageDesc": "Claude-teams'ten sonraki tüm argümanlar Claude Code'ye iletilir. Komut, takım arkadaşı modunu otomatik olarak ayarlar ve ortamı Claude cmux split kullanacak şekilde ayarlar.",
       "howItWorks": "Nasıl çalışır",
@@ -2199,8 +2198,8 @@
       "mapList": "cmux paneller veya çalışma alanları listeler"
     },
     "ohMyCodex": {
-      "title": "Ah-benim-Codex",
-      "metaTitle": "Ah-benim-kodeksi - cmux",
+      "title": "oh-my-codex",
+      "metaTitle": "oh-my-codex - cmux",
       "metaDescription": "Oh My Codex (OMX) oyununu cmux içinde yerel bölünmüş panel entegrasyonu ile ekip modu ve ajan orkestrasyonu için çalıştırın.",
       "intro": "cmux omx, Oh My Codex (OMX) cmuxfarkında bir ortamda başlatıyor. OMX , OpenAI Codex CLI için 30+ uzmanlaşmış ajan rolü, iş akışı becerileri ve tmuxtabanlı paralel ekip yürütme ile çok ajanlı bir orkestrasyon katmanıdır. OMX takım panelleri veya HUD ekranları oluşturduğunda, bunlar yerel cmux bölünmelere dönüşür.",
       "usage": "Kullanım",
@@ -2232,9 +2231,9 @@
       "envSocket": "Şimin bağlanması için cmux kontrol soketine giden yol"
     },
     "ohMyPi": {
-      "title": "Oh-my-pi",
+      "title": "oh-my-pi",
       "metaTitle": "oh-my-pi - cmux",
-      "metaDescription": "Oh-my-pi (omp) ile cmux 'ye durum, bildirimler, oturum geri yükleme, otomatik adlandırma ve Görev Yöneticisi atıfı için kancalar ile bağlayın.",
+      "metaDescription": "oh-my-pi (omp) cmux'ye durum, bildirimler, oturum geri yükleme, otomatik adlandırma ve Görev Yöneticisi atıflanması için kancalarla bağlanın.",
       "intro": "oh-my-pi, Pi'nin kodlama öncelikli bir ajan olarak yeniden yazılmış bir çatalıdır. İkili sistemi omp'dir ve cmux OMP hooks uzantısı aracılığıyla onunla entegre olur.",
       "setupUsage": "Kurulum ve kullanım",
       "setupUsageDesc": "Omp kur, sonra cmux hooks uzantısını yükleyin. Uzantı ~/.omp/agent/extensions/cmux-omp-session.ts, için yazılır ve paket sürümü değiştiğinde cmux yerinde yükseltir.",
@@ -2258,10 +2257,10 @@
       "envCmuxBin": "Hooks uzantısının çağrıldığı cmux ikili kartı geçersiz kılar"
     },
     "ohMyClaudeCode": {
-      "title": "Aman Claudecode",
-      "metaTitle": "Aman Tanrım-Claudecode - cmux",
+      "title": "oh-my-claudecode",
+      "metaTitle": "oh-my-claudecode - cmux",
       "metaDescription": "Oh My Claude Code (OMC cmux içinde çok ajanlı orkestrasyon için yerel bölünmüş panel entegrasyonu ile çalıştırın.",
-      "intro": "cmux OMC, Oh My Claude Code (OMC) cmuxfarkında bir ortamda başlatıyor. OMC, 19 uzman ajan, akıllı model yönlendirme ve tmuxtabanlı takım boru hatlarıyla Claude Code için çok ajanlı bir düzenleme sistemidir. OMC takım panelleri oluşturduğunda, bunlar doğma cmux bölünmeler haline gelir.",
+      "intro": "cmux omc, Oh My Claude Code (OMC)'yi cmux bilinçli bir ortamda başlatıyor. OMC, 19 uzman ajan, akıllı model yönlendirme ve tmux tabanlı ekip boru hatları ile Claude Code için çok ajanlı bir düzenleme sistemidir. OMC takım panelleri oluşturduğunda, bunlar yerel cmux bölünmelere dönüşür.",
       "usage": "Kullanım",
       "usageDesc": "Omc'den sonraki tüm argümanlar omc CLIiletir.",
       "whatYouGet": "Ne elde edersin",
@@ -2273,7 +2272,7 @@
       "prerequisites": "Ön Koşullar",
       "prerequisitesDesc": "OMC Claude Code CLI kurulmasını ve doğrulanmasını gerektirir.",
       "howItWorks": "Nasıl çalışır",
-      "howItWorksDesc": "Claude takımlarının cmux desen. Bir tmux shim, OMC'dan gelen tmux komutları kesip onları cmux API çağrıya çeviriyor.",
+      "howItWorksDesc": "cmux claude-teams ile aynı desen. Bir tmux shim, OMC'den gelen tmux komutları kesip bunları cmux API çağrılarına çeviriyor.",
       "shimStep1": "~/.cmuxterm/omc-bin/tmux'de cmux __tmux-compat'a yönlendiren bir tmux shim yaratıyor",
       "shimStep2": "tmux oturumunu simüle etmek için TMUX ve TMUX_PANE ayarlar",
       "shimStep3": "Şim dizinini önceden PATH",
@@ -2316,7 +2315,7 @@
     "taskManager": {
       "title": "Görev Yöneticisi",
       "metaTitle": "Görev Yöneticisi",
-      "metaDescription": "Kodlama ajanları, terminal süreçleri ve tarayıcı panellerinden yüksek CPU ve RAM kullanımını bulmak için cmux Görev Yöneticisi veya cmux üst kullanımı kullanın.",
+      "metaDescription": "Kodlama ajanları, terminal süreçleri ve tarayıcı panellerinden yüksek CPU ve RAM kullanımını bulmak için cmux Görev Yöneticisi veya cmux top kullanın.",
       "intro": "Görev Yöneticisi, cmux pencereleri, çalışma alanları, paneller, terminal süreçleri, kodlama ajanları ve tarayıcı web görünümleri için kaynak kullanımını gösterir.",
       "openTitle": "Açık Görev Yöneticisi",
       "openDesc": "CLI komutunu herhangi bir cmux terminalinden çalıştırın:",
@@ -2428,7 +2427,7 @@
           "companyText": "(\"Şirket\", \"Biz\", \"Biz\" veya \"Bizim\" olarak anılır) Manaflowanlamına gelir.",
           "contentTerm": "\"İçerik\"",
           "contentText": "metin, kod, görseller veya Uygulama tarafından oluşturulabilen, işlenebilen veya görüntülenebilen diğer bilgiler gibi içerikleri ifade eder.",
-          "countryTerm": "\"Country\"",
+          "countryTerm": "\"Ülke\"",
           "countryText": "Amerika Birleşik Devletleri'ni ifade eder.",
           "deviceTerm": "\"Cihaz\"",
           "deviceText": "Uygulamayı çalıştırabilen herhangi bir macOS bilgisayar anlamına gelir.",
@@ -3077,11 +3076,11 @@
         },
         "multipleClaudeAgents": {
           "metaTitle": "Birden fazla Claude Code aracısını paralel olarak çalıştırma - cmux",
-          "metaDescription": "Birden fazla Claude Code, Codex, OpenCode ve diğer CLI aracı oturumlarını cmux çalışma alanları, dikey sekmeler, okunmamış gezinme ve kancalar, OSC çıkış dizileri veya cmux bildirimi tarafından yönlendirilen bildirim halkaları ile paralel olarak çalıştırın.",
+          "metaDescription": "Birden fazla Claude Code, Codex, OpenCode ve diğer CLI ajanı oturumlarını paralel olarak cmux çalışma alanları, dikey sekmeler, okunmamış gezinme ve kancalar, OSC kaçış dizileri veya cmux notify tarafından yönlendirilen bildirim halkalarıyla çalıştırın.",
           "title": "Birden fazla Claude Code aracısını paralel olarak çalıştırma",
           "intro": "Paralel Claude Code çalışması izolasyona, görünürlüğe ve girdi gerektiren oturumu bulmanın hızlı bir yoluna ihtiyaç duyar. Aynı durum Codex, OpenCode, Gemini CLI, Aider, Amp, Cursor CLI ve kabukta çalışan herhangi bir aracı için de geçerlidir. cmux her göreve görünür bir çalışma alanı sağlar ve oturumların yan yana çalışırken okunabilir olmasını sağlar.",
           "summaryTitle": "Güvenli paralel aracı iş akışı",
-          "summaryBody": "Görev başına bir dal, çalışma ağacı, ödeme, repo klasörü veya özel çalışma alanı oluşturun, her birini cmux'de açın, aracıyı normal şekilde çalıştırın, ardından size ihtiyaç duyan oturumları gözden geçirmek için okunmamış kısayolları ve kancalardan, OSC veya cmux bildiriminden cmux bildirimlerini kullanın. Claude Code, Codex ve OpenCode aracı olarak kalır; cmux denetim yüzeyini yönetir.",
+          "summaryBody": "Her görev için bir şube, iş ağacı, çıkış, repo klasörü veya özel çalışma alanı oluşturun, her birini cmux'de açın, ajanı normal şekilde çalıştırın, ardından okunmamış kısayollar ve hooks, OSC veya cmux notify bildirimleri cmux ile size ihtiyaç duyan oturumları inceleyin. Claude Code, Codex ve OpenCode ajanlar olarak kalır; cmux denetim yüzeyini yönetir.",
           "table": {
             "headers": [
               "Yaklaşmak",
@@ -3115,7 +3114,7 @@
                 "macOS üzerinde birçok görünür temsilci oturumu"
               ],
               [
-                "cmux Claude takımları",
+                "cmux claude-teams",
                 "Takım arkadaşı oturumları için yerel bölme eşlemesi",
                 "Güçlü",
                 "tmux/iTerm2 bölmeleri yerine yerel cmux bölmelerine sahip Claude Code aracı ekipleri"
@@ -3129,7 +3128,7 @@
             },
             {
               "title": "İnceleme kuyruğu olarak bildirim halkalarını kullanın",
-              "body": "Bir aracı kancalar, OSC 99/777 veya cmux bildirimi aracılığıyla bir cmux bildirimi gönderdiğinde, cmux çalışma alanını okunmamış olarak işaretler ve bölmeyi çalar. Cmd+Shift+U en son okunmamış öğeye atlar. Cmd+Control+U geçerli öğeyi okunmamış en eski öğe olarak işaretler ve bir sonraki en son okunmamış öğeye atlar; bu, birkaç aracının aynı anda bitirdiği durumlarda kullanışlıdır."
+              "body": "Bir ajan, OSC 99/777 veya cmux notify hooks üzerinden cmux bildirimi yaydığında, cmux çalışma alanını okunmamış olarak işaretler ve paneli çalıyor. Cmd+Shift+U en son okunmayan öğeye atlar. Cmd+Control+U, mevcut öğeyi en eski okunmamış öğe olarak işaretler ve bir sonraki en son okunanmaya atlar; bu, birden fazla ajan aynı anda bittiğinde faydalıdır."
             },
             {
               "title": "Her aracıyı değiştirmeden tutun",
@@ -4412,8 +4411,8 @@
     "metaDescriptionNoVault": "cmux , yapay zeka kodlama ajanları için ücretsiz, açık kaynaklı bir macOS terminalidir. Bulut VM'leri ve model geçidi için Pro'ya yükseltin. Kurumsal sistem SSO ve kendi kendine barındırma ekliyor.",
     "metaDescriptionNoVaultShort": "cmux , ücretsiz, açık kaynaklı bir macOS terminalidir. Pro Cloud VM'ler ve model geçidi ekler; Enterprise ise SSO ve kendi kendine barındırma eklenir.",
     "title": "Fiyatlandırma",
-    "perMonth": "/month",
-    "perUserMonth": "/user/month",
+    "perMonth": "/ay",
+    "perUserMonth": "/kullanıcı/ay",
     "currentPlan": "Mevcut plan",
     "manageBilling": "Faturalamayı yönetin",
     "free": {
@@ -4483,24 +4482,24 @@
       "rows": [
         {
           "label": "Yerel macOS terminal, açık kaynak",
-          "free": "doğru",
-          "pro": "doğru",
-          "team": "doğru",
-          "enterprise": "doğru"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Kendi anahtarlarınızla yerel CLI temsilcileri",
-          "free": "doğru",
-          "pro": "doğru",
-          "team": "doğru",
-          "enterprise": "doğru"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Dikey sekmeler, bölmeler, bildirimler, soket API",
-          "free": "doğru",
-          "pro": "doğru",
-          "team": "doğru",
-          "enterprise": "doğru"
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Oturum tarihi",
@@ -4512,18 +4511,18 @@
         },
         {
           "label": "cmux Vault: bulut oturum yedeklemesi",
-          "free": "yanlış",
-          "pro": "doğru",
-          "team": "doğru",
-          "enterprise": "doğru",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
           "label": "Tüm oturumlarınızda arama yapın",
-          "free": "yanlış",
-          "pro": "doğru",
-          "team": "doğru",
-          "enterprise": "doğru",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
           "vault": true
         },
         {
@@ -4542,17 +4541,17 @@
         },
         {
           "label": "Model gateway: yönlendirme ve kullanım analitiği",
-          "free": "yanlış",
-          "pro": "doğru",
-          "team": "doğru",
-          "enterprise": "doğru"
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "iOS uygulaması",
-          "free": "yanlış",
-          "pro": "doğru",
-          "team": "doğru",
-          "enterprise": "doğru"
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Mac'inize ulaşmak için ağ kurma",
@@ -4564,52 +4563,52 @@
         },
         {
           "label": "Birleşik faturalandırma ve koltuk yönetimi",
-          "free": "yanlış",
-          "pro": "yanlış",
-          "team": "doğru",
-          "enterprise": "doğru"
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "SSO ve SAML giriş",
-          "free": "yanlış",
-          "pro": "yanlış",
-          "team": "yanlış",
-          "enterprise": "doğru"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "Kendi sunuculuğu ve hava boşluğu ile yapılan uygulama",
-          "free": "yanlış",
-          "pro": "yanlış",
-          "team": "yanlış",
-          "enterprise": "doğru"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "Merkezi yönetici ve paylaşılan takım kuralları",
-          "free": "yanlış",
-          "pro": "yanlış",
-          "team": "doğru",
-          "enterprise": "doğru"
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "Denetim kayıtları: oturumlar, ağ, tarayıcı",
-          "free": "yanlış",
-          "pro": "yanlış",
-          "team": "yanlış",
-          "enterprise": "doğru"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "Taahhütlü kullanım ve hacim fiyatlandırması",
-          "free": "yanlış",
-          "pro": "yanlış",
-          "team": "yanlış",
-          "enterprise": "doğru"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "SOC 2 ve bir SLA",
-          "free": "yanlış",
-          "pro": "yanlış",
-          "team": "yanlış",
-          "enterprise": "doğru"
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
         },
         {
           "label": "Destek",
@@ -4881,7 +4880,7 @@
       "jobTitle": "İş unvanı",
       "businessEmail": "İş e-posta adresi",
       "phoneNumber": "Telefon numarası",
-      "country": "Country",
+      "country": "Ülke",
       "companySize": "Şirket büyüklüğü",
       "deploymentNeeds": "Konuşlandırma ihtiyaçları",
       "comments": "Yorumlar",

@@ -235,7 +235,7 @@ describe("SEO metadata helpers", () => {
   test("keeps legal descriptions limited to their legal summary", () => {
     const summary = "The terms that govern use of cmux.";
     expect(
-      legalMetadata("/terms-of-service", "Terms", summary).description,
+      legalMetadata("en", "/terms-of-service", "Terms", summary).description,
     ).toBe(summary);
   });
 
