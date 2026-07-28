@@ -104,6 +104,11 @@ public struct TranscriptDemoScreen: View {
             model.seedReplayForAutomation()
         }
 
+        let startDelayMs = env["CMUX_UITEST_TRANSCRIPT_DEMO_START_DELAY_MS"].flatMap(Int.init) ?? 0
+        if startDelayMs > 0 {
+            try? await Task.sleep(for: .milliseconds(max(1, startDelayMs)))
+        }
+
         if env["CMUX_UITEST_TRANSCRIPT_DEMO_AUTOPLAY"] == "1" {
             let delayMs = env["CMUX_UITEST_TRANSCRIPT_DEMO_DELAY_MS"].flatMap(Int.init) ?? 180
             await model.playReplayForAutomation(delayMs: delayMs)

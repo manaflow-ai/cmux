@@ -147,7 +147,9 @@ struct TranscriptDemoComposerView: View {
             return
         }
         didApplyAutomationFocus = true
-        try? await Task.sleep(for: .milliseconds(600))
+        let delayMs = ProcessInfo.processInfo.environment["CMUX_UITEST_TRANSCRIPT_DEMO_KEYBOARD_DELAY_MS"]
+            .flatMap(Int.init) ?? 600
+        try? await Task.sleep(for: .milliseconds(max(1, delayMs)))
         demoFieldFocused = true
     }
 }
