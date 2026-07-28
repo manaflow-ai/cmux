@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 
 /// Selected-workspace values that determine the file explorer's directory.
 struct SelectedWorkspaceDirectorySnapshot: Equatable {

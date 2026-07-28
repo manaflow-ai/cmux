@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 
 /// Owns the AppKit popover lifecycle for one transcript preview host.
