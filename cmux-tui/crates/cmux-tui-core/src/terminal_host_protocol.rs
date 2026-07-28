@@ -440,7 +440,32 @@ pub const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
 /// Payloads without markers are returned borrowed, so the common path does not
 /// allocate.
 pub fn strip_bracketed_paste_markers(payload: &[u8]) -> std::borrow::Cow<'_, [u8]> {
-    std::borrow::Cow::Borrowed(payload)
+    fn marker_len_at(payload: &[u8], i: usize) -> Option<usize> {
+        let rest = &payload[i..];
+        if rest.starts_with(BRACKETED_PASTE_BEGIN) || rest.starts_with(BRACKETED_PASTE_END) {
+            Some(BRACKETED_PASTE_BEGIN.len())
+        } else {
+            None
+        }
+    }
+
+    let Some(first) = (0..payload.len()).find(|&i| marker_len_at(payload, i).is_some()) else {
+        return std::borrow::Cow::Borrowed(payload);
+    };
+
+    let mut out = Vec::with_capacity(payload.len() - BRACKETED_PASTE_BEGIN.len());
+    out.extend_from_slice(&payload[..first]);
+    let mut i = first;
+    while i < payload.len() {
+        match marker_len_at(payload, i) {
+            Some(len) => i += len,
+            None => {
+                out.push(payload[i]);
+                i += 1;
+            }
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 #[cfg(test)]

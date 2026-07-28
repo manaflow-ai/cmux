@@ -654,7 +654,7 @@ CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--c
 
 Writes input to a PTY surface. `text`, when present, is UTF-8 encoded and written as bytes. `bytes`, when present, is standard base64 decoded and written as raw bytes. If both are present, v5 writes `text` first and `bytes` second. If neither is present, v5 returns success and writes nothing.
 
-Protocol v7 adds `paste`. The payload is the concatenation of encoded `text` followed by decoded `bytes`. With `paste:true` and a non-empty payload, the server checks the target terminal's current DEC private mode 2004 while holding the terminal/input lock. If enabled, it writes `ESC [ 200 ~`, the payload, then `ESC [ 201 ~`; if disabled, it writes the payload unchanged. `paste:false` is the exact v5/v6 path. The server does not inspect or remove caller-supplied bracketed-paste markers.
+Protocol v7 adds `paste`. The payload is the concatenation of encoded `text` followed by decoded `bytes`. With `paste:true` and a non-empty payload, the server removes embedded bracketed-paste begin/end markers from the combined payload, then checks the target terminal's current DEC private mode 2004 while holding the terminal/input lock. If enabled, it writes `ESC [ 200 ~`, the sanitized payload, then `ESC [ 201 ~`; if disabled, it writes the sanitized payload unchanged. `paste:false` is the exact v5/v6 path.
 
 Params:
 
@@ -663,7 +663,7 @@ Params:
 | `surface` | `Id` | required | Must identify a live PTY surface |
 | `text` | `string` | default null | Written before `bytes` when both are present |
 | `bytes` | `Base64` | default null | Decoded with standard base64 |
-| `paste` | `boolean` | default false | Protocol 7; conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
+| `paste` | `boolean` | default false | Protocol 7; strips embedded bracketed-paste markers and conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
 
 Result:
 

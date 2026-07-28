@@ -17,6 +17,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_core::terminal_host_protocol::{
+    BRACKETED_PASTE_BEGIN, BRACKETED_PASTE_END, strip_bracketed_paste_markers,
+};
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, LayoutUndoError, LayoutUndoResult,
@@ -11083,17 +11086,19 @@ impl App {
         let Some(bracketed) = surface.with_terminal(|t| t.mode(2004, false)) else {
             return;
         };
+        let text = strip_bracketed_paste_markers(text.as_bytes());
+        let text = text.as_ref();
         if bracketed {
             let mut bytes = Vec::with_capacity(text.len() + 12);
-            bytes.extend_from_slice(b"\x1b[200~");
-            bytes.extend_from_slice(text.as_bytes());
-            bytes.extend_from_slice(b"\x1b[201~");
+            bytes.extend_from_slice(BRACKETED_PASTE_BEGIN);
+            bytes.extend_from_slice(text);
+            bytes.extend_from_slice(BRACKETED_PASTE_END);
             let _ = self.write_pty_bytes(surface_id, surface, bytes.into(), PtyInputKind::Ordered);
         } else {
             let _ = self.write_pty_bytes(
                 surface_id,
                 surface,
-                PtyInputBytes::from_slice(text.as_bytes()),
+                PtyInputBytes::from_slice(text),
                 PtyInputKind::Ordered,
             );
         }
@@ -11105,17 +11110,19 @@ impl App {
         let Some(bracketed) = surface.with_terminal(|t| t.mode(2004, false)) else {
             return;
         };
+        let text = strip_bracketed_paste_markers(text.as_bytes());
+        let text = text.as_ref();
         if bracketed {
             let mut bytes = Vec::with_capacity(text.len() + 12);
-            bytes.extend_from_slice(b"\x1b[200~");
-            bytes.extend_from_slice(text.as_bytes());
-            bytes.extend_from_slice(b"\x1b[201~");
+            bytes.extend_from_slice(BRACKETED_PASTE_BEGIN);
+            bytes.extend_from_slice(text);
+            bytes.extend_from_slice(BRACKETED_PASTE_END);
             let _ = self.write_pty_bytes(surface_id, surface, bytes.into(), PtyInputKind::Ordered);
         } else {
             let _ = self.write_pty_bytes(
                 surface_id,
                 surface,
-                PtyInputBytes::from_slice(text.as_bytes()),
+                PtyInputBytes::from_slice(text),
                 PtyInputKind::Ordered,
             );
         }

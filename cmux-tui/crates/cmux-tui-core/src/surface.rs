@@ -30,6 +30,9 @@ pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
 };
 use crate::browser::{BrowserResizeWaiter, BrowserSurface, PendingBrowserResize};
+use crate::terminal_host_protocol::{
+    BRACKETED_PASTE_BEGIN, BRACKETED_PASTE_END, strip_bracketed_paste_markers,
+};
 #[cfg(unix)]
 use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
 use cmux_tui_cdp::BrowserMode;
@@ -1958,7 +1961,9 @@ impl Surface {
 
     /// Write a protocol input payload, conditionally applying bracketed-paste
     /// markers from a terminal-mode snapshot taken before the PTY write.
-    pub fn write_paste(&self, bytes: &[u8]) -> std::io::Result<()> {
+    pub fn write_paste(&self, raw_bytes: &[u8]) -> std::io::Result<()> {
+        let bytes = strip_bracketed_paste_markers(raw_bytes);
+        let bytes = bytes.as_ref();
         let Some(pty) = self.as_pty() else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -1990,11 +1995,11 @@ impl Surface {
             unreachable!("hosted paste returned above")
         };
         if bracketed {
-            writer.write_all(b"\x1b[200~")?;
+            writer.write_all(BRACKETED_PASTE_BEGIN)?;
         }
         writer.write_all(bytes)?;
         if bracketed {
-            writer.write_all(b"\x1b[201~")?;
+            writer.write_all(BRACKETED_PASTE_END)?;
         }
         writer.flush()
     }
