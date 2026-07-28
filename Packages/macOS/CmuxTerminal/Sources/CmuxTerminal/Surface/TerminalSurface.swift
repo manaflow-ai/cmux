@@ -12,9 +12,7 @@ internal import CMUXDebugLog
 /// reclamation state.
 ///
 /// Lifted verbatim from `Sources/GhosttyTerminalView.swift`; the legacy
-/// reach-ups into `GhosttyApp.shared` / `TerminalController.shared` /
-/// `MobileTerminalByteTee.shared` / `RendererRealizationController.shared` /
-/// `AgentHibernationController.shared` are inverted through the seams in
+/// reach-ups into app-owned singletons are inverted through the seams in
 /// ``TerminalSurfaceRuntimeDependencies``.
 ///
 /// Isolation: the model keeps the legacy main-thread-only contract. Members
@@ -167,6 +165,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The working directory requested at construction, if any.
     public var requestedWorkingDirectory: String? { workingDirectory }
 
+    /// The working directory reported by Ghostty shell integration, or nil after a reset.
+    @Published public internal(set) var reportedWorkingDirectory: String?
     /// Where the surface participates in focus routing. Mutable so a live
     /// surface can move between the workspace area and the right-sidebar dock
     /// without being recreated (preserving its process). Always mutate through
@@ -482,7 +482,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
-        self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.workingDirectory = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
         self.portOrdinal = portOrdinal
         self.initialCommand = initialCommand.flatMap {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
@@ -567,10 +567,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Moves this surface between focus-routing placements (workspace ↔
     /// right-sidebar dock) and keeps the surface registry's record in sync.
     /// Used when a live terminal is dragged across containers so it is not
-    /// recreated. No-op when the placement is unchanged.
+    /// recreated. Clears placement-owned directory state so a prior Dock tenure
+    /// cannot outrank the incoming container's directory. No-op when unchanged.
     @MainActor
     public func setFocusPlacement(_ placement: TerminalSurfaceFocusPlacement) {
         guard focusPlacement != placement else { return }
+        reportedWorkingDirectory = nil
         focusPlacement = placement
         registry.updateFocusPlacement(id: id, placement)
     }

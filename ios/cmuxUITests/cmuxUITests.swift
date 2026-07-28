@@ -136,7 +136,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
         let notificationsBody = app.staticTexts.matching(NSPredicate(
             format: "label == %@",
-            "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
+            "Review every agent alert in one feed."
         )).firstMatch
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
@@ -167,9 +167,11 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(connectScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         XCTAssertTrue(app.staticTexts[
-            "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+            "Use the same cmux account on both devices. Your Mac connects automatically."
         ].exists)
         XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
+        XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
+        XCTAssertFalse(app.buttons["signin.apple"].exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         assertStableChrome(includeFooter: false)
@@ -203,6 +205,42 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
+    }
+
+    @MainActor
+    func testSignedOutOnboardingCompletesBeforeShowingSignIn() throws {
+        let app = launchApp(
+            mockData: false,
+            clearAuth: true,
+            launchArguments: [
+                "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+                "welcome",
+            ]
+        )
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(element("MobileOnboardingAgentsScene").waitForExistence(timeout: 8))
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        primaryButton.tap()
+
+        XCTAssertTrue(element("MobileOnboardingNotificationsScene").waitForExistence(timeout: 4))
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        primaryButton.tap()
+
+        XCTAssertTrue(element("MobileOnboardingConnectScene").waitForExistence(timeout: 4))
+        XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
+        XCTAssertFalse(app.buttons["signin.apple"].exists)
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+
+        primaryButton.tap()
+
+        XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
+        XCTAssertFalse(element("MobileOnboardingConnectScene").exists)
     }
 
     @MainActor
