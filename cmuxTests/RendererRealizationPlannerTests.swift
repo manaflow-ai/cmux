@@ -102,7 +102,7 @@ struct RendererRealizationPlannerTests {
         #expect(selected.contains(ids[4])) // oldest released
     }
 
-    @Test func defaultFiveTabBaselineReclaimsFourHiddenRenderers() {
+    @Test func defaultFiveTabBaselineReclaimsFourHiddenRenderers() throws {
         let suiteName = "RendererRealizationPlannerTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
