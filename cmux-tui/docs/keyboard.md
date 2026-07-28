@@ -18,7 +18,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b t` | New PTY tab in the active pane |
 | `Alt-t` | New PTY tab in the active pane |
 | `Ctrl-b B` | Open the browser-tab URL prompt |
-| `Alt-n` | Create a pane with Zellij's default vertical auto-layout |
+| `Alt-n` | Create a pane with Zellij's default auto-layout in the focused horizontal column |
 | `Ctrl-b Tab` | Next tab in the active pane |
 | `Ctrl-b BackTab` | Previous tab in the active pane |
 | `Ctrl-b 0` through `Ctrl-b 9` | Select visible screen 0 through 9 |
@@ -48,6 +48,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b m` | Toggle the sidebar between compact and full width; shows it when hidden |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
+| `Ctrl-b g` | Append a two-thirds-width terminal to the right |
+| `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
 | `Ctrl-b ?` | Open the keyboard shortcut modal |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
@@ -57,8 +59,8 @@ These defaults come from `Keys::default`.
 | `Alt-k` or `Alt-Up` | Focus up |
 | `Ctrl-b j` or `Ctrl-b Down` | Focus down |
 | `Alt-j` or `Alt-Down` | Focus down |
-| `Alt-=` | Grow the focused split |
-| `Alt--` | Shrink the focused split |
+| `Alt-=` | Grow the focused split, or its horizontal viewport column |
+| `Alt--` | Shrink the focused split, or its horizontal viewport column |
 | `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
@@ -66,6 +68,12 @@ These defaults come from `Keys::default`.
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
+
+When a screen is wider than the viewport, `h`/`l`, Left/Right, and their modeless Alt bindings reveal the focused pane. The viewport movement is animated unless `viewport.animation` is false.
+
+On a screen created with `Ctrl-b g`, `Alt-=` and `Alt--` resize the complete horizontal column containing the focused pane in five-percent steps. On an ordinary screen they retain their existing split-resize behavior.
+
+`Ctrl-b U` undoes the latest pane creation, split resize, column resize, swap, zoom, or automatic-layout change on the focused screen. Repeated resize updates to one divider form one undo entry. An undo that closes a created pane opens a confirmation prompt; type `CONFIRM` to close its PTY and commit the undo. Closing a pane directly clears that screen's undo history because a closed process cannot be restored.
 
 On a primary screen, `Cmd-k` clears retained scrollback and completed visible rows inside the terminal emulator. OSC 133 prompt metadata preserves the complete active prompt. Without metadata, cmux-tui preserves visible rows because it cannot identify the active input boundary. The edit buffer and cursor stay in place, and cmux-tui sends no input to the shell. In alternate-screen applications, `Cmd-k` is forwarded to the application. `Ctrl-l` remains child-owned on every screen, so shells, REPLs, and other terminal applications keep their standard clear/redraw behavior and custom bindings.
 
@@ -87,7 +95,7 @@ When the optional machine rail is visible, `Ctrl-b S` still enters through the w
 
 ## Modeless Alt Layer
 
-Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-{`, `Alt-}`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then one full-height left pane beside a right-side stack with the focused stack pane expanded.
+Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-{`, `Alt-}`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence inside the focused horizontal column: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then one full-height left pane beside a right-side stack with the focused stack pane expanded. A screen without horizontal columns is one implicit column, preserving the previous whole-screen behavior.
 
 Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kill switch only removes defaults; Alt chords explicitly configured in `cmux-tui.json` still work.
 
@@ -183,6 +191,8 @@ toggle-sidebar
 toggle-sidebar-compact
 toggle-sidebar-view
 focus-sidebar
+new-pane-right
+undo-layout
 focus-left
 focus-right
 focus-up

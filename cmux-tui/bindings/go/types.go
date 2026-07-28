@@ -83,6 +83,25 @@ type SurfaceResult struct {
 	Surface uint64 `json:"surface"`
 }
 
+type LayoutUndoResult interface {
+	isLayoutUndoResult()
+}
+
+type LayoutUndoUndone struct {
+	Screen   uint64
+	Revision uint64
+}
+
+func (LayoutUndoUndone) isLayoutUndoResult() {}
+
+type LayoutUndoConfirmationRequired struct {
+	Screen      uint64
+	Revision    uint64
+	ClosesPanes []uint64
+}
+
+func (LayoutUndoConfirmationRequired) isLayoutUndoResult() {}
+
 type ReadScreenResult struct {
 	Text string `json:"text"`
 }
@@ -270,13 +289,20 @@ type Workspace struct {
 	Screens []Screen `json:"screens"`
 }
 
+type ViewportSplit struct {
+	Split uint64  `json:"split"`
+	Width float32 `json:"width"`
+}
+
 type Screen struct {
-	ID         uint64  `json:"id"`
-	Name       *string `json:"name"`
-	Active     bool    `json:"active"`
-	ActivePane uint64  `json:"active_pane"`
-	Layout     any     `json:"layout"`
-	Panes      []Pane  `json:"panes"`
+	ID                uint64          `json:"id"`
+	Name              *string         `json:"name"`
+	Active            bool            `json:"active"`
+	ActivePane        uint64          `json:"active_pane"`
+	Layout            any             `json:"layout"`
+	ViewportBaseWidth *float32        `json:"viewport_base_width,omitempty"`
+	ViewportSplits    []ViewportSplit `json:"viewport_splits,omitempty"`
+	Panes             []Pane          `json:"panes"`
 }
 
 type Pane struct {
@@ -381,6 +407,12 @@ type NewScreenOptions struct {
 type NewPaneOptions struct {
 	Cols *uint16 `json:"cols,omitempty"`
 	Rows *uint16 `json:"rows,omitempty"`
+}
+
+type NewPaneRightOptions struct {
+	Width *float32 `json:"width,omitempty"`
+	Cols  *uint16  `json:"cols,omitempty"`
+	Rows  *uint16  `json:"rows,omitempty"`
 }
 
 type SplitOptions struct {

@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
+use std::sync::Arc;
 use std::time::Duration;
 #[cfg(unix)]
 use std::time::Instant;
 
-use cmux_tui_core::{Rect, SurfaceId};
+use cmux_tui_core::{BrowserFrame, Rect, SurfaceId};
 
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
@@ -14,8 +15,8 @@ const PLACEMENT_ID: u32 = 1;
 pub struct GraphicPlacement {
     pub surface: SurfaceId,
     pub rect: Rect,
-    pub seq: u64,
-    pub data_b64: String,
+    pub source_crop_px: Option<(u32, u32)>,
+    pub frame: Arc<BrowserFrame>,
 }
 
 #[derive(Default)]
@@ -40,13 +41,19 @@ impl GraphicsState {
 
         for placement in visible_placements {
             let mut batch = Vec::new();
-            let already_sent =
-                self.transmitted.get(&placement.surface).is_some_and(|seq| *seq == placement.seq);
+            let already_sent = self
+                .transmitted
+                .get(&placement.surface)
+                .is_some_and(|seq| *seq == placement.frame.seq);
             if !already_sent {
-                batch.extend(transmit_png(placement.surface, &placement.data_b64));
-                self.transmitted.insert(placement.surface, placement.seq);
+                batch.extend(transmit_png(placement.surface, &placement.frame.data_b64));
+                self.transmitted.insert(placement.surface, placement.frame.seq);
             }
-            batch.extend(place_image(placement.surface, placement.rect));
+            batch.extend(place_image_cropped(
+                placement.surface,
+                placement.rect,
+                placement.source_crop_px,
+            ));
             if !batch.is_empty() {
                 out.push(batch);
             }
@@ -79,10 +86,16 @@ pub fn transmit_png(surface: SurfaceId, data_b64: &str) -> Vec<u8> {
     out
 }
 
-pub fn place_image(surface: SurfaceId, rect: Rect) -> Vec<u8> {
+pub fn place_image_cropped(
+    surface: SurfaceId,
+    rect: Rect,
+    source_crop_px: Option<(u32, u32)>,
+) -> Vec<u8> {
     let id = image_id(surface);
+    let crop =
+        source_crop_px.map_or_else(String::new, |(x, width)| format!(",x={x},w={}", width.max(1)));
     format!(
-        "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={id},p={PLACEMENT_ID},c={},r={},q=2;{ESC}\\{ESC}8",
+        "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={id},p={PLACEMENT_ID}{crop},c={},r={},q=2;{ESC}\\{ESC}8",
         rect.y + 1,
         rect.x + 1,
         rect.width.max(1),
@@ -258,8 +271,12 @@ mod tests {
 
     #[test]
     fn places_at_cursor_rect_with_save_restore() {
-        let bytes =
-            String::from_utf8(place_image(2, Rect { x: 4, y: 6, width: 80, height: 24 })).unwrap();
+        let bytes = String::from_utf8(place_image_cropped(
+            2,
+            Rect { x: 4, y: 6, width: 80, height: 24 },
+            None,
+        ))
+        .unwrap();
         assert_eq!(bytes, "\x1b7\x1b[7;5H\x1b_Ga=p,i=3,p=1,c=80,r=24,q=2;\x1b\\\x1b8");
     }
 
@@ -270,12 +287,31 @@ mod tests {
     }
 
     #[test]
+    fn cropped_placement_selects_a_horizontal_source_slice() {
+        let bytes = String::from_utf8(place_image_cropped(
+            2,
+            Rect { x: 4, y: 6, width: 40, height: 24 },
+            Some((80, 320)),
+        ))
+        .unwrap();
+        assert!(bytes.contains(",x=80,w=320,c=40,r=24,"));
+    }
+
+    #[test]
     fn zero_sized_placement_hides_a_previously_visible_image() {
         let visible = GraphicPlacement {
             surface: 7,
             rect: Rect { x: 4, y: 6, width: 80, height: 24 },
-            seq: 1,
-            data_b64: "frame".to_string(),
+            source_crop_px: None,
+            frame: Arc::new(BrowserFrame {
+                session_id: "test".to_string(),
+                data_b64: "frame".to_string(),
+                css_width: 80,
+                css_height: 24,
+                image_width: 80,
+                image_height: 24,
+                seq: 1,
+            }),
         };
         let collapsed =
             GraphicPlacement { rect: Rect { height: 0, ..visible.rect }, ..visible.clone() };
