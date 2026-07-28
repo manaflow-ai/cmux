@@ -100,4 +100,17 @@ struct CmxIrohConnectionCloseAttributionTests {
             )
         )
     }
+
+    @Test
+    func freeFormRemoteAndTimeoutWordsCannotSpoofCloseAttribution() {
+        #expect(
+            CmxIrohConnectionCloseAttribution.classify(
+                "remote peer timed out while opaque adapter closed"
+            ) == CmxIrohConnectionCloseAttribution(
+                initiator: .unknown,
+                applicationErrorCode: nil,
+                failureKind: .unknown
+            )
+        )
+    }
 }

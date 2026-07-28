@@ -620,10 +620,13 @@ test("simulator launch seeds a deterministic durable device id before app launch
   const seed = simulatorBranch.indexOf(
     'cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"',
   );
+  const terminate = simulatorBranch.indexOf('xcrun simctl terminate');
   const launch = simulatorBranch.indexOf('xcrun simctl "${launch_args[@]}"');
 
+  assert.notEqual(terminate, -1, "existing simulator app must terminate before seeding");
   assert.notEqual(seed, -1, "simulator launch must seed the durable identity mirror");
   assert.notEqual(launch, -1, "simulator launch command is missing");
+  assert.ok(terminate < seed, "existing app must terminate before its durable identity is seeded");
   assert.ok(seed < launch, "durable identity must be seeded before the app starts");
 });
 

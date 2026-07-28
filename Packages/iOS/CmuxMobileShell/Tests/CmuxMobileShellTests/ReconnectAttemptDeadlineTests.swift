@@ -39,6 +39,29 @@ extension ReconnectRouteSelectionTests {
         #expect(outcome.abandoned == nil)
     }
 
+    @Test func deadlineRaceDistinguishesCallerCancellationFromTimeout() async {
+        let gate = ReconnectDeadlineTestGate()
+        let raceTask = Task {
+            await MobileShellComposite.raceAgainstDeadline(
+                nanoseconds: 5_000_000_000
+            ) {
+                await gate.wait()
+                return 1
+            }
+        }
+        await Task.yield()
+        raceTask.cancel()
+        let outcome = await raceTask.value
+
+        #expect(outcome.value == nil)
+        #expect(outcome.wasCancelled)
+        #expect(!outcome.didTimeOut)
+        await gate.release()
+        if let abandoned = outcome.abandoned {
+            _ = await abandoned.value
+        }
+    }
+
     @Test func abandonedDialCeilingDoesNotScheduleOneExtraRetry() {
         #expect(MobileShellComposite.shouldRecordReconnectBackoff(
             abandonedDialCount: MobileShellComposite.maximumAbandonedReconnectDials - 1
