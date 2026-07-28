@@ -2265,9 +2265,14 @@ mod tests {
 
     #[tokio::test]
     async fn file_and_callback_sources_refresh_without_caching() {
+        #[cfg(unix)]
+        use std::os::unix::fs::PermissionsExt as _;
+
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("relay-ticket");
         tokio::fs::write(&path, "file-ticket-one\n").await.unwrap();
+        #[cfg(unix)]
+        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await.unwrap();
         let file = RelayCredentialSource::file(&path);
         assert_eq!(file.fetch().await.unwrap().expose(), "file-ticket-one");
         tokio::fs::write(&path, "file-ticket-two\n").await.unwrap();
@@ -2283,6 +2288,36 @@ mod tests {
         });
         assert_eq!(callback.fetch().await.unwrap().expose(), "callback-ticket-1");
         assert_eq!(callback.fetch().await.unwrap().expose(), "callback-ticket-2");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn relay_credential_file_requires_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("relay-ticket");
+        tokio::fs::write(&path, "ticket\n").await.unwrap();
+        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await.unwrap();
+        assert_eq!(RelayCredentialSource::file(&path).fetch().await.unwrap().expose(), "ticket");
+
+        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).await.unwrap();
+        assert!(RelayCredentialSource::file(&path).fetch().await.is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn relay_credential_file_rejects_symlinks() {
+        use std::os::unix::fs::{PermissionsExt as _, symlink};
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let link = directory.path().join("relay-ticket");
+        tokio::fs::write(&target, "ticket\n").await.unwrap();
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).await.unwrap();
+        symlink(&target, &link).unwrap();
+
+        assert!(RelayCredentialSource::file(&link).fetch().await.is_err());
     }
 
     #[cfg(unix)]

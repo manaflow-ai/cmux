@@ -812,6 +812,24 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn terminal_pwd_rejects_unc_verbatim_and_device_paths() {
+        for path in [
+            r"\\server\share\src",
+            r"\\?\UNC\server\share\src",
+            r"\\.\PhysicalDrive0",
+            r"\\?\C:\src",
+            r"\??\C:\src",
+        ] {
+            assert_eq!(terminal_pwd_to_local_path(path), None, "{path}");
+        }
+        assert_eq!(
+            terminal_pwd_to_local_path(r"C:\Users\alice\src"),
+            Some(PathBuf::from(r"C:\Users\alice\src"))
+        );
+    }
+
     #[test]
     fn explicit_ghostty_installation_remains_authoritative() {
         let explicit = PathBuf::from("/custom/pinned/bin/ghostty");

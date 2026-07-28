@@ -1483,6 +1483,8 @@ mod tests {
     use tokio::task::JoinHandle;
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite::Message as ClientMessage;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::http::{HeaderValue, header::ORIGIN};
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
     use super::*;
@@ -2090,6 +2092,30 @@ mod tests {
             tokio_tungstenite::tungstenite::Error::Http(response)
                 if response.status() == StatusCode::SERVICE_UNAVAILABLE
         ));
+    }
+
+    #[tokio::test]
+    async fn browser_origin_is_rejected_before_relay_admission() {
+        let config = RelayConfig { max_connections: 1, ..RelayConfig::default() };
+        let server = TestServer::start(config).await;
+
+        for path in ["/v1/relay", "/ws"] {
+            let mut request =
+                format!("ws://{}{path}", server.address).into_client_request().unwrap();
+            request
+                .headers_mut()
+                .insert(ORIGIN, HeaderValue::from_static("https://attacker.invalid"));
+            let error =
+                connect_async(request).await.expect_err("browser-origin WebSocket was upgraded");
+            assert!(matches!(
+                error,
+                tokio_tungstenite::tungstenite::Error::Http(response)
+                    if response.status() == StatusCode::FORBIDDEN
+            ));
+        }
+
+        let native = server.connect().await;
+        drop(native);
     }
 
     #[tokio::test]

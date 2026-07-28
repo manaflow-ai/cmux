@@ -467,6 +467,18 @@ mod tests {
     }
 
     #[test]
+    fn option_like_destination_is_rejected_by_bootstrap_config() {
+        let Err(error) =
+            SshBootstrapper::new(SshBootstrapConfig::defaults("-Fvalidation@localhost"))
+        else {
+            panic!("option-like SSH bootstrap destination was accepted");
+        };
+        assert!(
+            matches!(error, BootstrapError::Configuration(message) if message.contains("destination"))
+        );
+    }
+
+    #[test]
     fn legacy_probe_falls_back_to_the_binary_version() {
         let mut config = SshBootstrapConfig::defaults("host");
         config.package_version = "0.1.0".into();

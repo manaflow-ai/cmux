@@ -2742,6 +2742,39 @@ mod tests {
     }
 
     #[test]
+    fn connect_rejects_inline_invitation_and_ticket_arguments() {
+        let marker = "inline-secret-marker";
+        for args in [
+            vec!["--invite".to_string(), marker.to_string()],
+            vec!["--relay-ticket".to_string(), marker.to_string()],
+        ] {
+            let Err(error) = parse_connect_flags(&args) else {
+                panic!("inline secret arguments were accepted: {args:?}");
+            };
+            assert!(!error.to_string().contains(marker));
+        }
+    }
+
+    #[test]
+    fn enroll_create_rejects_inline_relay_ticket() {
+        let marker = "inline-enrollment-secret-marker";
+        let args = [
+            "create",
+            "--relay-route",
+            "relay+wss://relay.example",
+            "--relay-slot",
+            "slot",
+            "--relay-ticket",
+            marker,
+        ]
+        .map(str::to_string);
+        let Err(error) = parse_enroll_admin_args(&args) else {
+            panic!("inline enrollment relay ticket was accepted");
+        };
+        assert!(!error.to_string().contains(marker));
+    }
+
+    #[test]
     fn enrollment_positionals_ignore_owner_options() {
         let args = [
             "disconnect",
@@ -2851,9 +2884,12 @@ mod tests {
 
     #[test]
     fn relay_invitation_access_reads_owner_supplied_ticket_file() {
+        use std::os::unix::fs::PermissionsExt as _;
+
         let directory = tempfile::tempdir().unwrap();
         let ticket = directory.path().join("ticket");
         fs::write(&ticket, "short-lived-ticket\n").unwrap();
+        fs::set_permissions(&ticket, fs::Permissions::from_mode(0o600)).unwrap();
         let args = vec![
             "create".into(),
             "--relay-route".into(),
@@ -2867,6 +2903,76 @@ mod tests {
         let access = invitation_relay_access(&parsed).unwrap();
         assert_eq!(access[0].ticket, "short-lived-ticket");
         assert!(!format!("{:?}", access[0]).contains("short-lived-ticket"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invitation_relay_ticket_file_requires_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let ticket = directory.path().join("ticket");
+        fs::write(&ticket, "short-lived-ticket\n").unwrap();
+        fs::set_permissions(&ticket, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(read_invitation_ticket_file(&ticket).unwrap(), "short-lived-ticket");
+
+        fs::set_permissions(&ticket, fs::Permissions::from_mode(0o640)).unwrap();
+        assert!(read_invitation_ticket_file(&ticket).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invitation_relay_ticket_file_rejects_symlinks() {
+        use std::os::unix::fs::{PermissionsExt as _, symlink};
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let link = directory.path().join("ticket");
+        fs::write(&target, "short-lived-ticket\n").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+        symlink(&target, &link).unwrap();
+
+        assert!(read_invitation_ticket_file(&link).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_self_does_not_follow_predictable_staging_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let sentinel = directory.path().join("sentinel");
+        let destination = directory.path().join("cmux-tui");
+        let predictable =
+            directory.path().join(format!(".cmux-tui-install-{}", std::process::id()));
+        fs::write(&sentinel, b"keep").unwrap();
+        symlink(&sentinel, &predictable).unwrap();
+
+        run_install_self(&["--destination".into(), destination.to_string_lossy().into_owned()])
+            .unwrap();
+
+        assert_eq!(fs::read(&sentinel).unwrap(), b"keep");
+        assert!(fs::symlink_metadata(&destination).unwrap().file_type().is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_self_rejects_group_or_world_writable_parent() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join("shared");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o777)).unwrap();
+        let destination = parent.join("cmux-tui");
+
+        assert!(
+            run_install_self(
+                &["--destination".into(), destination.to_string_lossy().into_owned(),]
+            )
+            .is_err()
+        );
+        assert!(!destination.exists());
     }
 
     #[test]

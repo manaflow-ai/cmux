@@ -844,10 +844,13 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn patch_rename_restores_the_source_after_its_removal_was_committed() {
+        use std::os::unix::fs::PermissionsExt as _;
+
         let (_directory, root) = root().await;
         let source = root.canonical_root().join("source.txt");
         let destination = root.canonical_root().join("destination.txt");
         tokio::fs::write(&source, b"contents\n").await.unwrap();
+        tokio::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o600)).await.unwrap();
         let _sync = install_mutation_test_fault(&root, "source.txt", MutationTestFault::CommitSync);
         let patch = concat!(
             "--- a/source.txt\n",
@@ -861,6 +864,38 @@ mod tests {
 
         assert_eq!(error.code, "committed-not-durable");
         assert_eq!(tokio::fs::read(&source).await.unwrap(), b"contents\n");
+        assert_eq!(
+            tokio::fs::metadata(&source).await.unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
         assert!(!destination.exists());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    #[tokio::test]
+    async fn patch_rename_preserves_source_mode() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let (_directory, root) = root().await;
+        let source = root.canonical_root().join("source.txt");
+        let destination = root.canonical_root().join("destination.txt");
+        tokio::fs::write(&source, b"contents\n").await.unwrap();
+        tokio::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o600)).await.unwrap();
+        let patch = concat!(
+            "--- a/source.txt\n",
+            "+++ b/destination.txt\n",
+            "@@ -1 +1 @@\n",
+            "-contents\n",
+            "+contents\n",
+        );
+
+        apply_patch(&root, patch, false, &BTreeMap::new()).await.unwrap();
+
+        assert!(!source.exists());
+        assert_eq!(tokio::fs::read(&destination).await.unwrap(), b"contents\n");
+        assert_eq!(
+            tokio::fs::metadata(&destination).await.unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
     }
 }

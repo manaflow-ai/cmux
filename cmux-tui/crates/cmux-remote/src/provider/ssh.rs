@@ -270,4 +270,13 @@ mod tests {
         assert_eq!(destination, "2001:db8::1");
         assert_eq!(description, "ssh://[2001:db8::1]:2222");
     }
+
+    #[test]
+    fn option_like_destination_is_rejected_before_group_construction() {
+        let endpoint = url::Url::parse("ssh://-Fvalidation@localhost").unwrap();
+        let error = ssh_destination(&endpoint).unwrap_err();
+        assert!(
+            matches!(error, ProviderError::Configuration(message) if message.contains("destination"))
+        );
+    }
 }

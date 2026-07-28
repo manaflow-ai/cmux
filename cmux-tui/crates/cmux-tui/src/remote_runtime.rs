@@ -1538,6 +1538,37 @@ mod tests {
         endpoint
     }
 
+    #[tokio::test]
+    async fn unmatched_relay_route_never_fetches_fallback_credentials() {
+        let fetches = Arc::new(AtomicUsize::new(0));
+        let credentials = RelayCredentialSource::callback({
+            let fetches = Arc::clone(&fetches);
+            move || {
+                fetches.fetch_add(1, Ordering::SeqCst);
+                async { Ok::<_, ()>("ticket".to_string()) }
+            }
+        });
+        let provider = RoutedRelayProvider {
+            fallback: Some(RelayClientOptions { slot: "slot".into(), credentials }),
+            routes: BTreeMap::new(),
+        };
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            provider.connect(ConnectRequest {
+                endpoint: Url::parse("relay+ws://127.0.0.1:9").unwrap(),
+                session: SessionId([88; 16]),
+                lane_policy: LanePolicy::Single,
+                routing: BTreeMap::new(),
+            }),
+        )
+        .await
+        .expect("unmatched relay lookup reached a network timeout");
+
+        assert!(matches!(result, Err(ProviderError::Configuration(_))));
+        assert_eq!(fetches.load(Ordering::SeqCst), 0);
+    }
+
     fn test_providers(ssh: SshProviderConfig) -> Arc<cmux_remote::provider::ProviderRegistry> {
         Arc::new(client_provider_registry(ssh, None, BTreeMap::new(), IrohPathMode::Auto).unwrap())
     }
@@ -2927,6 +2958,12 @@ mod tests {
             ssh_bootstrap_destination(&endpoint).unwrap(),
             ("alice@2001:db8::1".into(), Some(2222))
         );
+    }
+
+    #[test]
+    fn ssh_bootstrap_rejects_option_like_destination() {
+        let endpoint = Url::parse("ssh://-Fvalidation@localhost").unwrap();
+        assert!(ssh_bootstrap_destination(&endpoint).is_err());
     }
 
     #[cfg(unix)]

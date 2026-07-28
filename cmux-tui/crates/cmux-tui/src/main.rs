@@ -1705,6 +1705,25 @@ mod remote_args_tests {
     }
 
     #[test]
+    fn daemon_rejects_inline_relay_ticket() {
+        let marker = "inline-daemon-secret-marker";
+        let error = parse_args_result(
+            [
+                "daemon",
+                "--relay",
+                "relay+wss://relay.example",
+                "--relay-slot",
+                "slot",
+                "--relay-ticket",
+                marker,
+            ]
+            .map(str::to_string),
+        )
+        .expect_err("inline daemon relay ticket was accepted");
+        assert!(!error.contains(marker));
+    }
+
+    #[test]
     fn remote_state_directory_enables_remote_daemon_mode() {
         let args = parse_args(["--remote-state-dir", "/tmp/cmux-remote-state"].map(str::to_string));
 

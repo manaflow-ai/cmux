@@ -677,6 +677,26 @@ mod tests {
         assert!(!diff.files[0].metadata.is_empty());
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn status_disables_repository_fsmonitor() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_directory, root) = git_root().await;
+        let hook = root.canonical_root().join("fsmonitor-hook");
+        let marker = root.canonical_root().join("fsmonitor-hook.invoked");
+        std::fs::write(&hook, "#!/bin/sh\n: > \"$0.invoked\"\nprintf 'cmux-token\\n'\n").unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
+        git(root.canonical_root(), &["config", "core.fsmonitor", hook.to_str().unwrap()]);
+
+        assert!(Command::new(&hook).status().unwrap().success());
+        assert!(marker.exists(), "positive control did not execute fsmonitor hook");
+        std::fs::remove_file(&marker).unwrap();
+
+        status(&root).await.unwrap();
+        assert!(!marker.exists(), "workspace Git status executed repository fsmonitor hook");
+    }
+
     #[tokio::test]
     async fn structured_diff_decodes_modified_git_paths() {
         let (_directory, root) = git_root().await;

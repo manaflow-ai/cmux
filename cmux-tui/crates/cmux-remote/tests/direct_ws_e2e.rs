@@ -10,8 +10,33 @@ use cmux_remote::provider::{ConnectRequest, DirectWebSocketProvider, TransportPr
 use cmux_remote::session::SessionLimits;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
 use tempfile::tempdir;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode, header::ORIGIN};
 use url::Url;
 use zeroize::Zeroizing;
+
+#[tokio::test]
+async fn browser_origin_is_rejected_by_direct_websocket_listener() {
+    let state = tempdir().unwrap();
+    let auth = AuthDatabase::load_or_create(state.path(), "websocket-origin-test", false).unwrap();
+    let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+    let server = serve_direct_websocket(daemon, "127.0.0.1:0".parse().unwrap(), 65_535, false)
+        .await
+        .unwrap();
+    let mut request =
+        format!("ws://{}/v1/link", server.local_addr()).into_client_request().unwrap();
+    request.headers_mut().insert(ORIGIN, HeaderValue::from_static("https://attacker.invalid"));
+
+    let error = connect_async(request).await.expect_err("browser-origin WebSocket was upgraded");
+    assert!(matches!(
+        error,
+        tokio_tungstenite::tungstenite::Error::Http(response)
+            if response.status() == StatusCode::FORBIDDEN
+    ));
+
+    server.shutdown().await.unwrap();
+}
 
 #[tokio::test]
 async fn invitation_enrolls_over_direct_websocket_with_isolated_lanes() {

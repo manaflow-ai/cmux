@@ -4237,6 +4237,24 @@ mod tests {
         assert!(received.iter().any(|event| matches!(event, MuxEvent::Status(_))));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn fabricated_surface_overflow_does_not_allocate_recovery_state() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+
+        session.handle_line(json!({
+            "event": "overflow",
+            "scope": "surface",
+            "surface": 9_999,
+            "error": "fabricated",
+        }));
+
+        assert!(session.surface_overflow_recovery.lock().unwrap().is_empty());
+        assert!(events.try_iter().next().is_none());
+    }
+
     #[test]
     fn ordered_resize_replay_recovers_from_stale_initial_replay() {
         let mut server = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();

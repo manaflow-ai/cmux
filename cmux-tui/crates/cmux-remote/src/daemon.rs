@@ -1527,6 +1527,59 @@ mod tests {
         assert_eq!(reads.load(Ordering::SeqCst), 0);
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_rejects_sticky_world_writable_parent() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let parent = directory.path().join("shared");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o1777)).unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "unsafe-unix-parent", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        match serve_unix(daemon, parent.join("link.sock"), 65_535).await {
+            Err(DaemonError::Protocol(message)) => {
+                assert!(message.contains("socket directory"), "{message}");
+            }
+            Err(error) => panic!("unexpected error: {error}"),
+            Ok(server) => {
+                server.shutdown().await;
+                panic!("sticky world-writable socket parent was accepted");
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_rejects_symlink_parent() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let real_parent = directory.path().join("real-parent");
+        let linked_parent = directory.path().join("linked-parent");
+        std::fs::create_dir(&real_parent).unwrap();
+        symlink(&real_parent, &linked_parent).unwrap();
+        let state = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(state.path(), "symlink-unix-parent", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        match serve_unix(daemon, linked_parent.join("link.sock"), 65_535).await {
+            Err(DaemonError::Protocol(message)) => {
+                assert!(message.contains("socket directory"), "{message}");
+            }
+            Err(error) => panic!("unexpected error: {error}"),
+            Ok(server) => {
+                server.shutdown().await;
+                panic!("symlink socket parent was accepted");
+            }
+        }
+        assert!(!real_parent.join("link.sock").exists());
+    }
+
     #[tokio::test]
     async fn carrier_authorization_requires_verified_ingress_and_policy() {
         let allowed_directory = tempdir().unwrap();

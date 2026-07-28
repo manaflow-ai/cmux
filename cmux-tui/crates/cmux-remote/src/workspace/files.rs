@@ -50,6 +50,7 @@ const GUARDED_CONTENT_MUTATIONS_SUPPORTED: bool = false;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum MutationTestPoint {
     AfterPrecondition,
+    AfterTemporaryCreate,
     BeforeContentHashValidation,
     BeforeContentHashExchange,
     AfterContentHashExchange,
@@ -1125,6 +1126,11 @@ fn commit_unix_write(
     let (temporary_name, mut temporary) = create_temporary(&target, "write")?;
     progress.retain(&target, &temporary_name);
     let temporary_path = temporary_display(&target, &temporary_name);
+    #[cfg(test)]
+    pause_at_mutation_test_barrier_blocking(
+        target.display(),
+        MutationTestPoint::AfterTemporaryCreate,
+    );
     let stage_result = (|| {
         temporary
             .write_all(bytes)
@@ -2818,6 +2824,69 @@ mod tests {
             tokio::fs::metadata(&target).await.unwrap().permissions().mode() & 0o7777,
             0o640
         );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    #[tokio::test]
+    async fn staged_write_is_owner_only_before_content_is_written() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        const CHILD: &str = "CMUX_STAGED_WRITE_MODE_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg(
+                    "workspace::files::tests::staged_write_is_owner_only_before_content_is_written",
+                )
+                .arg("--nocapture")
+                .env(CHILD, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "isolated staging-mode test failed");
+            return;
+        }
+
+        struct UmaskGuard(libc::mode_t);
+        impl Drop for UmaskGuard {
+            fn drop(&mut self) {
+                unsafe {
+                    libc::umask(self.0);
+                }
+            }
+        }
+
+        let _umask = UmaskGuard(unsafe { libc::umask(0o022) });
+        let (_directory, root) = root().await;
+        let target = root.canonical_root().join("value.txt");
+        tokio::fs::write(&target, b"expected").await.unwrap();
+        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).await.unwrap();
+        let after_create = install_mutation_test_barrier(
+            &root,
+            "value.txt",
+            MutationTestPoint::AfterTemporaryCreate,
+        );
+        let writer = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                write_file(
+                    &root,
+                    "value.txt",
+                    &ByteString::from_bytes(b"new-bytes"),
+                    &FilePrecondition::ContentHash(hash_bytes(b"expected")),
+                    false,
+                )
+                .await
+            })
+        };
+
+        after_create.wait_until_reached().await;
+        let staged = recovery_entry(&root, ".cmux-write-");
+        let metadata = tokio::fs::metadata(&staged).await.unwrap();
+        assert_eq!(metadata.len(), 0);
+        assert_eq!(metadata.permissions().mode() & 0o7777, 0o600);
+        after_create.resume();
+
+        writer.await.unwrap().unwrap();
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
