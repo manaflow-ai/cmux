@@ -26,6 +26,7 @@ extension TabManager {
     func addWorkspace(
         fromDetachedSurface detached: Workspace.DetachedSurfaceTransfer,
         title: String? = nil,
+        titleSource: Workspace.CustomTitleSource = .auto,
         select: Bool = true,
         placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil,
@@ -63,9 +64,11 @@ extension TabManager {
             )
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
+            let workingDirectory =
+                normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory
             let newWorkspace = makeWorkspaceForDetachedSurface(
                 title: title ?? detached.title,
-                workingDirectory: normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory,
+                workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
                 detachedSurface: detached
@@ -77,9 +80,12 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
-            }
+            applyWorkspaceDirectoryCustomization(
+                to: newWorkspace,
+                rootDirectory: workingDirectory,
+                explicitTitle: title,
+                explicitTitleSource: titleSource
+            )
             wireClosedBrowserTracking(for: newWorkspace)
 
             var updatedTabs = tabs

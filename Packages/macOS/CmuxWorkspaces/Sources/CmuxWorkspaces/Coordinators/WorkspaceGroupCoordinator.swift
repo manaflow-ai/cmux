@@ -118,7 +118,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// Create a brand-new workspace inheriting the anchor's cwd, attach it
     /// to the group, and position it within the group's tabs[] range per
-    /// `placement`. Returns the new workspace.
+    /// `placement`. The customization flag lets generated-purpose workspaces
+    /// opt out of inheriting project identity. Returns the new workspace.
     @discardableResult
     public func createWorkspaceInGroup(
         groupId: UUID,
@@ -129,12 +130,11 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false
+        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true
     ) -> Tab? {
         guard let host else { return nil }
-        // nil resolves to the stored global default at call time, matching
-        // the legacy default-argument read of the
-        // workspaceGroups.newWorkspacePlacement setting.
+        // nil resolves to the stored global default at call time, matching the
+        // legacy workspaceGroups.newWorkspacePlacement default-argument read.
         let placement = explicitPlacement
             ?? host.defaultNewWorkspacePlacementInGroup
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
@@ -147,7 +147,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: cwd == nil,
-            select: select
+            select: select, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
         )
         model.assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
         placeWithinGroup(

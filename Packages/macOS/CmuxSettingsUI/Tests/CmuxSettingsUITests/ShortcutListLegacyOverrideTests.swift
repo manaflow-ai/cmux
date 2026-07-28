@@ -90,6 +90,26 @@ import Testing
         #expect(model.effective(for: .nextSidebarTab) == legacyShortcut)
     }
 
+    @Test func invalidLegacyShowHideChordDisplaysNoEffectiveHotkey() throws {
+        let invalidChord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "c")
+        )
+        let (defaultsStore, suiteName) = try makeDefaultsStore(
+            legacyBindings: [.showHideAllWindows: invalidChord]
+        )
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let model = ShortcutListModel(
+            jsonStore: makeJSONStore(),
+            userDefaultsStore: defaultsStore,
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog()
+        )
+
+        #expect(model.legacyBindings[ShortcutAction.showHideAllWindows.rawValue] == invalidChord)
+        #expect(model.effective(for: .showHideAllWindows) == nil)
+    }
+
     @Test func jsonOverrideTakesPrecedenceOverLegacyOverride() async throws {
         let action = ShortcutAction.nextSidebarTab
         let legacyShortcut = StoredShortcut(first: ShortcutStroke(key: "]", command: true, shift: true))

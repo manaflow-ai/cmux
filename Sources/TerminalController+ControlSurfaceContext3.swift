@@ -150,7 +150,7 @@ extension TerminalController {
             }
             // `surface.trigger_flash` is not focus intent: flash a visible Dock
             // panel if it is already rendered, but never reveal/raise its window.
-            dock.triggerFocusFlash(panelId: surfaceId)
+            dock.triggerUserInitiatedFocusFlash(panelId: surfaceId)
             return .flashed(
                 windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
@@ -172,9 +172,9 @@ extension TerminalController {
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
         if ws.panels[target.surfaceID] != nil {
-            ws.triggerFocusFlash(panelId: target.surfaceID)
+            ws.triggerUserInitiatedFocusFlash(panelId: target.surfaceID)
         } else {
-            target.panel.triggerFlash(reason: .navigation)
+            target.panel.triggerFlash(reason: .userInitiated)
         }
         return .flashed(
             windowID: v2ResolveWindowId(tabManager: tabManager),
