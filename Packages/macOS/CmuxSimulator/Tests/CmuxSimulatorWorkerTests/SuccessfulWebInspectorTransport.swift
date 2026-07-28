@@ -7,26 +7,34 @@ final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
     weak var service: SimulatorWebInspectorService?
     let respondsToCensus: Bool
     let respondsToListings: Bool
+    let applicationIdentifier: String
+    let pageIdentifier: UInt64
+    private(set) var sentSelectors: [String] = []
 
     init(
         service: SimulatorWebInspectorService,
         respondsToCensus: Bool = true,
-        respondsToListings: Bool = true
+        respondsToListings: Bool = true,
+        applicationIdentifier: String = "APP",
+        pageIdentifier: UInt64 = 7
     ) {
         self.service = service
         self.respondsToCensus = respondsToCensus
         self.respondsToListings = respondsToListings
+        self.applicationIdentifier = applicationIdentifier
+        self.pageIdentifier = pageIdentifier
     }
 
     func send(propertyList: [String: Any]) throws {
         let selector = propertyList["__selector"] as? String
+        if let selector { sentSelectors.append(selector) }
         if selector == "_rpc_getConnectedApplications:" {
             guard respondsToCensus else { return }
             deliver([
                 "__selector": "_rpc_reportConnectedApplicationList:",
                 "__argument": [
                     "WIRApplicationDictionaryKey": [
-                        "APP": [
+                        applicationIdentifier: [
                             "WIRApplicationBundleIdentifierKey": "com.example.app",
                             "WIRApplicationNameKey": "Example",
                         ],
@@ -40,10 +48,10 @@ final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
             deliver([
                 "__selector": "_rpc_applicationSentListing:",
                 "__argument": [
-                    "WIRApplicationIdentifierKey": "APP",
+                    "WIRApplicationIdentifierKey": applicationIdentifier,
                     "WIRListingKey": [
-                        "7": [
-                            "WIRPageIdentifierKey": 7,
+                        "\(pageIdentifier)": [
+                            "WIRPageIdentifierKey": pageIdentifier,
                             "WIRTitleKey": "Fixture",
                             "WIRURLKey": "https://example.test",
                             "WIRTypeKey": "WIRTypeWebPage",
@@ -66,8 +74,8 @@ final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
         deliver([
             "__selector": "_rpc_applicationSentData:",
             "__argument": [
-                "WIRApplicationIdentifierKey": "APP",
-                "WIRPageIdentifierKey": 7,
+                "WIRApplicationIdentifierKey": applicationIdentifier,
+                "WIRPageIdentifierKey": pageIdentifier,
                 "WIRDestinationKey": service.session?.senderIdentifier ?? "",
                 "WIRMessageDataKey": response,
             ],
@@ -89,10 +97,10 @@ final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
         deliver([
             "__selector": "_rpc_applicationSentListing:",
             "__argument": [
-                "WIRApplicationIdentifierKey": "APP",
+                "WIRApplicationIdentifierKey": applicationIdentifier,
                 "WIRListingKey": [
-                    "7": [
-                        "WIRPageIdentifierKey": 7,
+                    "\(pageIdentifier)": [
+                        "WIRPageIdentifierKey": pageIdentifier,
                         "WIRTitleKey": "Fixture",
                         "WIRURLKey": "https://example.test",
                         "WIRTypeKey": "WIRTypeWebPage",

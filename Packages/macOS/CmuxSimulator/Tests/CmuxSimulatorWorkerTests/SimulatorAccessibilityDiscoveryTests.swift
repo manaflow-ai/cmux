@@ -101,4 +101,20 @@ struct SimulatorAccessibilityDiscoveryTests {
             in: NSRect(x: 0, y: 0, width: CGFloat.infinity, height: 10)
         ).isEmpty)
     }
+
+    @Test("Detaching releases the SimDevice accessibility connection")
+    func detachReleasesAccessibilityConnection() {
+        let bridge = SimulatorAccessibilityBridge()
+        let device = SimulatorAccessibilityConnectionDevice()
+        _ = bridge.attach(device: device)
+        device.accessibilityConnection = NSObject()
+
+        bridge.detach()
+
+        #expect(device.accessibilityConnection == nil)
+    }
+}
+
+private final class SimulatorAccessibilityConnectionDevice: NSObject {
+    @objc dynamic var accessibilityConnection: NSObject?
 }

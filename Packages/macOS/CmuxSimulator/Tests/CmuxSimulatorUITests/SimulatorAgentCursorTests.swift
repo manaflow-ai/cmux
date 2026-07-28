@@ -107,6 +107,24 @@ struct SimulatorAgentCursorTests {
         #expect(coordinator.agentCursorPresentation == nil)
     }
 
+    @Test("A live display initializes an always-visible resting cursor")
+    func displayInitializesRestingCursor() {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+
+        coordinator.receive(.message(.display(SimulatorDisplayMetadata(
+            width: 1_200,
+            height: 2_400,
+            orientation: .portrait,
+            scale: 3
+        ))))
+
+        #expect(coordinator.agentCursorPresentation?.origin == SimulatorPoint(x: 0.5, y: 0.5))
+        #expect(coordinator.agentCursorPresentation?.destination == SimulatorPoint(x: 0.5, y: 0.5))
+        #expect(coordinator.agentCursorPresentation != nil)
+    }
+
     @Test("The last agent cursor persists through non-pointer actions")
     func lastCursorPersists() async throws {
         let coordinator = SimulatorPaneCoordinator(
@@ -127,5 +145,53 @@ struct SimulatorAgentCursorTests {
         )))
 
         #expect(coordinator.agentCursorPresentation == cursor)
+    }
+
+    @Test("Consecutive taps travel from the last visible cursor position")
+    func consecutiveTapsUseLastPosition() async throws {
+        let coordinator = SimulatorPaneCoordinator(
+            client: SimulatorPaneClientSpy(devices: [])
+        )
+        let first = SimulatorPoint(x: 0.2, y: 0.3)
+        let second = SimulatorPoint(x: 0.8, y: 0.7)
+
+        _ = try await coordinator.perform(.interactive(.gesture([
+            SimulatorPointerEvent(phase: .began, primary: first),
+            SimulatorPointerEvent(phase: .ended, primary: first),
+        ])))
+        _ = try await coordinator.perform(.interactive(.gesture([
+            SimulatorPointerEvent(phase: .began, primary: second),
+            SimulatorPointerEvent(phase: .ended, primary: second),
+        ])))
+
+        #expect(coordinator.agentCursorPresentation?.origin == first)
+        #expect(coordinator.agentCursorPresentation?.destination == second)
+    }
+
+    @Test("A device reattachment preserves the workspace cursor")
+    func reattachmentPreservesCursor() async throws {
+        let device = SimulatorDevice(
+            id: "phone",
+            name: "Phone",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS",
+            deviceTypeIdentifier: "type",
+            family: .iPhone,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let client = SimulatorPaneClientSpy(devices: [device])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let point = SimulatorPoint(x: 0.4, y: 0.6)
+        _ = try await coordinator.perform(.interactive(.gesture([
+            SimulatorPointerEvent(phase: .began, primary: point),
+            SimulatorPointerEvent(phase: .ended, primary: point),
+        ])))
+
+        coordinator.selectDevice(id: device.id)
+
+        #expect(coordinator.agentCursorPresentation?.destination == point)
     }
 }

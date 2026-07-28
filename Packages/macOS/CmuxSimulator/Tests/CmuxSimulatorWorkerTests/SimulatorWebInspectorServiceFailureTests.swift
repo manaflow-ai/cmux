@@ -198,19 +198,75 @@ struct SimulatorWebInspectorServiceFailureTests {
         #expect(service.session == nil)
     }
 
+    @Test("A Web Inspector socket reports its identifier only once")
+    func reportIdentifierOncePerConnection() async throws {
+        let service = Self.service()
+        let transport = SuccessfulWebInspectorTransport(service: service)
+        service.socket = transport
+        service.currentDeviceIdentifier = "DEVICE"
+
+        _ = try await service.refreshTargets(deviceIdentifier: "DEVICE")
+        _ = try await service.refreshTargets(deviceIdentifier: "DEVICE")
+
+        #expect(transport.sentSelectors.filter {
+            $0 == "_rpc_reportIdentifier:"
+        }.count == 1)
+        service.shutdown()
+    }
+
+    @Test("Attach rematches a page after Web Inspector changes its process identifier")
+    func attachRematchesChangedApplicationIdentifier() async throws {
+        let service = Self.service()
+        let transport = SuccessfulWebInspectorTransport(
+            service: service,
+            applicationIdentifier: "PID:2"
+        )
+        service.socket = transport
+        service.currentDeviceIdentifier = "DEVICE"
+        Self.seedTarget(into: service, applicationIdentifier: "PID:1")
+
+        let status = try await service.attach(targetIdentifier: "PID:1|7")
+
+        guard case let .attached(_, targetID) = status else {
+            Issue.record("Expected the refreshed page to attach")
+            return
+        }
+        #expect(targetID == "PID:2|7")
+        service.shutdown()
+    }
+
+    @Test("A unique page identifier can select a Web Inspector target")
+    func attachByUniquePageIdentifier() async throws {
+        let service = Self.service()
+        let transport = SuccessfulWebInspectorTransport(service: service)
+        service.socket = transport
+        service.currentDeviceIdentifier = "DEVICE"
+        Self.seedTarget(into: service)
+
+        let status = try await service.attach(targetIdentifier: "7")
+
+        guard case let .attached(_, targetID) = status else {
+            Issue.record("Expected the unique page identifier to attach")
+            return
+        }
+        #expect(targetID == "APP|7")
+        service.shutdown()
+    }
+
     private static func service() -> SimulatorWebInspectorService {
         SimulatorWebInspectorService(subprocessRunner: SimulatorSubprocessRunner())
     }
 
     private static func seedTarget(
         into service: SimulatorWebInspectorService,
-        isInUse: Bool = false
+        isInUse: Bool = false,
+        applicationIdentifier: String = "APP"
     ) {
         service.catalog.apply([
             "__selector": "_rpc_reportConnectedApplicationList:",
             "__argument": [
                 "WIRApplicationDictionaryKey": [
-                    "APP": [
+                    applicationIdentifier: [
                         "WIRApplicationBundleIdentifierKey": "com.example.app",
                         "WIRApplicationNameKey": "Example",
                     ],
@@ -220,7 +276,7 @@ struct SimulatorWebInspectorServiceFailureTests {
         service.catalog.apply([
             "__selector": "_rpc_applicationSentListing:",
             "__argument": [
-                "WIRApplicationIdentifierKey": "APP",
+                "WIRApplicationIdentifierKey": applicationIdentifier,
                 "WIRListingKey": [
                     "7": [
                         "WIRPageIdentifierKey": 7,
