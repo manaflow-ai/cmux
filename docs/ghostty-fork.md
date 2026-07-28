@@ -12,10 +12,36 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `0b1734f1e`, the current
-`manaflow-ai/ghostty` `main` merge head. It combines the `os/open` stderr drain
-fix from `8f31fb57c` with the keyboard copy-mode selection, cursor geometry,
-bounded rich clipboard, and plain-text fallback fixes through `4a6c443c3`.
+The submodule pinned by this branch is `2f6ee7b3d`, the current
+`manaflow-ai/ghostty` `main` head. It adds ordered-write backpressure recovery
+on top of the `os/open` stderr drain fix from `8f31fb57c`, the keyboard
+copy-mode selection, cursor geometry, bounded rich clipboard, and plain-text
+fallback fixes through `4a6c443c3`. Advancing from the previous `0b1734f1e`
+pin also includes the deferred-font guard and renderer-reclamation work already
+landed on the fork's `main`.
+
+### Ordered writes survive transient backpressure
+
+- Commits:
+  - `99335171e` (test: retain queued writes through backpressure)
+  - `2f6ee7b3d` (fix: preserve queued writes through backpressure)
+- Files:
+  - `vendor/libxev/src/watcher/stream.zig`
+  - `vendor/libxev/VENDORED.md`
+- Summary:
+  - Keeps the current ordered write request at the queue head when the backend
+    reports transient `error.WouldBlock`, resubmitting the same buffer without
+    notifying the client or advancing later requests.
+  - Preserves the existing partial-write behavior while making libxev's
+    ordered queue the single owner of both partial progress and transient
+    backpressure.
+  - Adds a deterministic fake-backend regression test with two queued writes.
+    It injects `WouldBlock` into the head request and verifies that neither a
+    client completion nor scheduling of the later request can occur.
+  - Conflict note: future ordered-stream changes must retain the head request
+    across both short successful writes and transient `WouldBlock` results.
+    Only a complete write or terminal error may pop it and schedule its
+    successor.
 
 ### `os/open` stderr drain spin and zombie leak
 
@@ -97,7 +123,7 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
+The previous `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
