@@ -191,6 +191,14 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 
 Terminal panes, the workspace sidebar, and the shortcut modal share the same `▕` thumb, which expands to `▐` while hovered or dragged. A scrollbar is drawn only when its content exceeds the visible rows.
 
+## Viewport
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `viewport.animation` | boolean | `true` | Animate horizontal viewport movement |
+
+`Ctrl-b g` inserts a terminal immediately after the focused horizontal column at two-thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. `Alt-n` applies automatic layout inside the focused column. Set `{"viewport":{"animation":false}}` to make viewport moves immediate.
+
 ## Server
 
 | Key | Type | Default | Effect |
@@ -236,6 +244,8 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.toggle-sidebar-compact` | chord string or array or `"none"` | `"m"` | Toggle compact/full sidebar width and show the sidebar |
 | `keys.toggle-sidebar-view` | chord string or array or `"none"` | `"e"` | Toggle the built-in files/workspaces view; a plugin still takes precedence |
 | `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the built-in sidebar or sidebar plugin; a prefixed command returns focus to the pane |
+| `keys.new-pane-right` | chord string or array or `"none"` | `"g"` | Insert a two-thirds-width terminal after the focused horizontal column |
+| `keys.undo-layout` | chord string or array or `"none"` | `"U"` | Undo the latest structural layout action on the focused screen |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
 | `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left |
 | `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right |
@@ -326,6 +336,9 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   },
   "scrollbar": {
     "position": "column"
+  },
+  "viewport": {
+    "animation": true
   },
   "server": {
     "ws": "127.0.0.1:7681",

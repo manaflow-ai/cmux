@@ -1529,8 +1529,13 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             notifications = updated
         }
-        clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if surfaceId == nil {
+            // Whole-tab mark-read dismisses every indicator kind, matching
+            // markRead(forTabId:). A surface-scoped mark-read must not clear the
+            // focused-read indicator: it marks notifications that were already
+            // read while the surface was focused, so it outlives mark-read and
+            // only an explicit clearFocusedReadIndicator dismisses it.
+            clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
             clearWorkspacePanelUnread(forTabId: tabId)
             setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
             setWorkspaceRestoredUnread(false, forTabId: tabId)

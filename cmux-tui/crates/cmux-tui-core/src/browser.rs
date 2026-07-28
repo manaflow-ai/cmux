@@ -35,6 +35,8 @@ pub struct BrowserFrame {
     pub data_b64: String,
     pub css_width: u32,
     pub css_height: u32,
+    pub image_width: u32,
+    pub image_height: u32,
     pub seq: u64,
 }
 
@@ -118,7 +120,7 @@ impl BrowserShutdownOwner {
 }
 
 struct BrowserState {
-    latest_frame: Option<BrowserFrame>,
+    latest_frame: Option<Arc<BrowserFrame>>,
     // Latest-wins attach frame taps. Broadcast overwrites each slot and
     // sends one wakeup; a slow client skips old frames but stays attached.
     taps: Vec<BrowserFrameTap>,
@@ -1013,6 +1015,8 @@ fn start_surface_thread(
                         data_b64: frame.data_b64,
                         css_width: frame.css_width,
                         css_height: frame.css_height,
+                        image_width: frame.image_width,
+                        image_height: frame.image_height,
                         seq: 0,
                     };
                     browser.store_frame(frame);
@@ -1339,13 +1343,18 @@ impl BrowserSurface {
         self.session.lock().unwrap().is_some()
     }
 
-    pub fn latest_frame(&self) -> Option<BrowserFrame> {
+    pub fn latest_frame(&self) -> Option<Arc<BrowserFrame>> {
         let state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Failed(_)) {
             None
         } else {
             state.latest_frame.clone()
         }
+    }
+
+    pub fn has_latest_frame(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        !matches!(state.status, BrowserStatus::Failed(_)) && state.latest_frame.is_some()
     }
 
     pub fn title(&self) -> String {
@@ -1673,9 +1682,10 @@ impl BrowserSurface {
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
         state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
+        let frame = Arc::new(frame);
         state.latest_frame = Some(frame.clone());
         state.taps.retain(|tap| {
-            tap.slot.lock().unwrap().frame = Some(frame.clone());
+            tap.slot.lock().unwrap().frame = Some(frame.as_ref().clone());
             match tap.notify.try_send(()) {
                 Ok(()) | Err(TrySendError::Full(())) => true,
                 Err(TrySendError::Disconnected(())) => false,
@@ -2184,7 +2194,7 @@ fn browser_attach_state_locked(
         cols: state.size.0,
         rows: state.size.1,
         status: state.status.clone(),
-        frame: include_frame.then(|| state.latest_frame.clone()).flatten(),
+        frame: include_frame.then(|| state.latest_frame.as_deref().cloned()).flatten(),
         frames_stalled: frames_stalled_locked(state, now, dead),
     }
 }
@@ -2359,6 +2369,8 @@ mod tests {
             data_b64: "AAAA".to_string(),
             css_width: 80,
             css_height: 48,
+            image_width: 80,
+            image_height: 48,
             seq,
         }
     }
@@ -2473,6 +2485,22 @@ mod tests {
         browser.clear_error();
         assert_eq!(browser.status(), BrowserStatus::Live);
         assert_eq!(browser.latest_frame().map(|frame| frame.seq), Some(2));
+    }
+
+    #[test]
+    fn repeated_latest_frame_reads_share_the_encoded_payload() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+
+        let first = browser.latest_frame().expect("first frame");
+        let second = browser.latest_frame().expect("second frame");
+
+        assert_eq!(
+            first.data_b64.as_ptr(),
+            second.data_b64.as_ptr(),
+            "reading the current frame must not copy its encoded image payload"
+        );
     }
 
     #[test]
@@ -2846,6 +2874,8 @@ mod tests {
                 data_b64: format!("frame-{index}"),
                 css_width: 80,
                 css_height: 24,
+                image_width: 80,
+                image_height: 24,
                 ack_id: index,
             })
         };
@@ -2869,6 +2899,8 @@ mod tests {
             data_b64: "frame-latest".to_string(),
             css_width: 80,
             css_height: 24,
+            image_width: 80,
+            image_height: 24,
             ack_id: 1,
         });
         assert!(!route.deliver(frame));
@@ -2905,6 +2937,8 @@ mod tests {
                 data_b64: "frame-final".to_string(),
                 css_width: 80,
                 css_height: 24,
+                image_width: 80,
+                image_height: 24,
                 ack_id: 1,
             }));
 

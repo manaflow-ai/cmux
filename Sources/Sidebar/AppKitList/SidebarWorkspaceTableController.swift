@@ -944,8 +944,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func middleClick(row: Int) {
-        // Group headers carry their anchor's workspaceId; middle-closing the
-        // anchor from a header press would be destructive and non-parity.
+        // Middle-click-close is a workspace-row gesture. A group header is not a
+        // workspace row (it carries its anchor's workspaceId only for focus), so
+        // it is excluded here just as the SwiftUI sidebar accepts only .workspace
+        // rows. Group lifecycle runs through the header's own menu (Ungroup /
+        // Delete Group), not a middle-click on the header.
         guard rows.indices.contains(row), !rows[row].isGroupHeader else { return }
         actions?.closeWorkspace(rows[row].workspaceId)
     }

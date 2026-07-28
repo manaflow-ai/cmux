@@ -179,6 +179,15 @@ public protocol SettingsHostActions: AnyObject {
     /// Invalidates host-owned shortcut caches after Settings persists a shortcut change.
     func notifyShortcutSettingsDidChange()
 
+    /// Whether the host can register `shortcut` as its system-wide hotkey.
+    ///
+    /// The macOS host applies Carbon conversion and app-reservation checks that
+    /// the settings package cannot perform by itself.
+    ///
+    /// - Parameter shortcut: The complete Show/Hide shortcut proposed by Settings.
+    /// - Returns: `true` when the host's runtime registrar can use the shortcut.
+    func canRegisterSystemWideHotkey(_ shortcut: StoredShortcut) -> Bool
+
     /// Applies the host-side OS `AppleLanguages` override for a changed app
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
@@ -196,6 +205,13 @@ public extension SettingsHostActions {
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}
+
+    /// Default package-only validation for previews and non-macOS hosts.
+    func canRegisterSystemWideHotkey(_ shortcut: StoredShortcut) -> Bool {
+        ShortcutAction.showHideAllWindows.shortcutBindingPolicyResult(
+            for: shortcut
+        ) == .accepted
+    }
 
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
