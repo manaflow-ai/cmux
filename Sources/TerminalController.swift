@@ -13197,7 +13197,7 @@ class TerminalController {
             return "ERROR: No window available"
         }
 
-        let captureWithAppKit = {
+        let captureWithAppKit: () -> Data? = {
             self.v2MainSync {
                 guard let window = NSApp.windows.first(where: {
                     CGWindowID($0.windowNumber) == captureTarget.windowID
