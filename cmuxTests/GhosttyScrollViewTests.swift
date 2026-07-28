@@ -65,6 +65,17 @@ struct GhosttyScrollViewTests {
         #expect(onlyLinkHoverIndicator(in: hostedView) === indicator)
     }
 
+    @Test func emptyLinkHoverURLHidesReusableIndicatorAfterCreation() throws {
+        let hostedView = makeHostedView()
+        hostedView.setLinkHoverURL("https://example.com")
+        let indicator = try #require(onlyLinkHoverIndicator(in: hostedView))
+
+        hostedView.setLinkHoverURL("")
+
+        #expect(indicator.isHidden)
+        #expect(onlyLinkHoverIndicator(in: hostedView) === indicator)
+    }
+
     @Test func releasingHostedViewReleasesLinkHoverIndicator() {
         weak var releasedIndicator: TerminalLinkHoverIndicatorView?
 
