@@ -1521,6 +1521,7 @@ fn read_invitation_uri(path: &Path) -> anyhow::Result<Zeroizing<String>> {
     normalize_invitation_uri(bytes)
 }
 
+#[cfg(test)]
 fn read_invitation_uri_to_end(reader: &mut impl Read) -> anyhow::Result<Zeroizing<String>> {
     let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_INVITATION_URI_BYTES.min(4096)));
     reader
