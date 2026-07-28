@@ -67,28 +67,35 @@ struct HTMLPlainTextParser: Sendable {
         guard html.utf8.count <= Self.maximumInputByteCount else {
             return nil
         }
-        return plainText(
-            fromBoundedData: Data(html.utf8),
-            sourceLength: html.count
-        )
+        return plainText(fromBoundedHTML: html)
     }
 
     func plainText(from data: Data) -> String? {
         guard data.count <= Self.maximumInputByteCount else {
             return nil
         }
-        return plainText(fromBoundedData: data, sourceLength: data.count)
+        guard let html = decodeHTML(from: data),
+              html.utf8.count <= Self.maximumInputByteCount else {
+            return nil
+        }
+        return plainText(fromBoundedHTML: html)
     }
 
-    private func plainText(
-        fromBoundedData data: Data,
-        sourceLength: Int
-    ) -> String? {
+    private func decodeHTML(from data: Data) -> String? {
+        let byteOrderMark = data.prefix(2)
+        if byteOrderMark.elementsEqual([0xFF, 0xFE])
+            || byteOrderMark.elementsEqual([0xFE, 0xFF]) {
+            return String(data: data, encoding: .utf16)
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func plainText(fromBoundedHTML html: String) -> String? {
         let hiddenTemplateAttributeName =
             "data-cmux-hidden-template-\(UUID().uuidString.lowercased())"
         let normalizedData = HTMLFoundationCompatibilityNormalizer(
             hiddenTemplateAttributeName: hiddenTemplateAttributeName
-        ).normalize(data)
+        ).normalize(Data(html.utf8))
         let normalizedHTML = String(decoding: normalizedData, as: UTF8.self)
         guard let document = try? XMLDocument(
             xmlString: normalizedHTML,
@@ -101,7 +108,7 @@ struct HTMLPlainTextParser: Sendable {
         }
         return plainText(
             from: document,
-            sourceLength: sourceLength,
+            sourceLength: html.count,
             hiddenTemplateAttributeName: hiddenTemplateAttributeName
         )
     }
