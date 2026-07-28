@@ -480,159 +480,6 @@ class GhosttyApp {
         return URL(fileURLWithPath: "/tmp/cmux-bg.log")
     }
 
-    fileprivate static func runtimeReadClipboardCallback(
-        _ userdata: UnsafeMutableRawPointer?,
-        _ location: ghostty_clipboard_e,
-        _ state: UnsafeMutableRawPointer?
-    ) -> Bool {
-        guard let callbackContext = Self.callbackContext(from: userdata),
-              let requestSurface = callbackContext.runtimeSurface else { return false }
-        let clipboardRequestID = UInt(bitPattern: state)
-        let requestSurfaceView = callbackContext.surfaceView
-        requestSurfaceView?.reserveClipboardReadAdmission()
-
-        Task { @MainActor [weak requestSurfaceView] in
-            requestSurfaceView?.beginReservedClipboardRead(
-                clipboardRequestID
-            )
-            func completeClipboardRequest(with text: String) {
-                Task { @MainActor in
-                    defer {
-                        requestSurfaceView?.completeClipboardRead(
-                            clipboardRequestID,
-                            confirmed: false
-                        )
-                    }
-                    guard callbackContext.runtimeSurface == requestSurface else { return }
-                    // Remote tmux mirror panes need tmux to bracket the paste
-                    // because the local manual-I/O surface cannot know the
-                    // remote pane's bracketed-paste mode.
-                    let handledByMirror = !text.isEmpty && (
-                        AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
-                            surfaceId: callbackContext.surfaceId,
-                            text: text
-                        ) ?? false
-                    )
-                    let completionText = handledByMirror ? "" : text
-                    completionText.withCString { ptr in
-                        ghostty_surface_complete_clipboard_request(requestSurface, ptr, state, false)
-                    }
-                    callbackContext.terminalSurface?.noteClipboardReadCompleted()
-                }
-            }
-
-            guard let pasteboard = GhosttyApp.terminalPasteboard.pasteboard(for: location) else {
-                completeClipboardRequest(with: "")
-                return
-            }
-            let pasteboardTypeDescription = (pasteboard.types ?? [])
-                .map(\.rawValue)
-                .joined(separator: ",")
-
-            Task { @MainActor in
-                let preparedContent = await TerminalImageTransferPlanner.prepare(
-                    pasteboard: pasteboard,
-                    mode: .paste
-                )
-
-#if DEBUG
-                cmuxDebugLog(
-                    "terminal.clipboard.read surface=\(callbackContext.surfaceId.uuidString.prefix(5)) " +
-                    "types=\(pasteboardTypeDescription) " +
-                    "prepared=\(preparedContent.cmuxDebugDescription)"
-                )
-#endif
-
-                switch preparedContent {
-                case .reject:
-                    completeClipboardRequest(with: "")
-                case .insertText(let text):
-                    completeClipboardRequest(with: text)
-                case .fileURLs(let fileURLs):
-                    let operation = TerminalImageTransferOperation()
-                    callbackContext.terminalSurface?.hostedView.beginImageTransferIndicator(
-                        for: operation,
-                        onCancel: {
-                            completeClipboardRequest(with: "")
-                        }
-                    )
-
-                    let target =
-                        callbackContext.terminalSurface?
-                            .resolvedImageTransferTarget()
-                        ?? .local
-                    let plan = TerminalImageTransferPlanner.plan(
-                        fileURLs: fileURLs,
-                        target: target
-                    )
-
-                    let handledByCustomUpload = Self.handleCustomPasteUploadIfMatched(
-                        plan: plan,
-                        operation: operation,
-                        callbackContext: callbackContext,
-                        completeClipboardRequest: completeClipboardRequest
-                    )
-
-                    if !handledByCustomUpload {
-                        TerminalImageTransferPlanner.execute(
-                            plan: plan,
-                            operation: operation,
-                            uploadWorkspaceRemote: { fileURLs, operation, finish in
-                                guard let workspace = MainActor.assumeIsolated({
-                                    callbackContext.terminalSurface?.owningWorkspace()
-                                }) else {
-                                    finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
-                                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                                    return
-                                }
-                                workspace.uploadDroppedFilesForRemoteTerminal(
-                                    fileURLs,
-                                    operation: operation,
-                                    completion: { result in
-                                        finish(result)
-                                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                                    }
-                                )
-                            },
-                            uploadDetectedSSH: { session, fileURLs, operation, finish in
-                                session.uploadDroppedFiles(
-                                    fileURLs,
-                                    operation: operation,
-                                    completion: { result in
-                                        finish(result)
-                                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                                    }
-                                )
-                            },
-                            insertText: { text in
-                                MainActor.assumeIsolated {
-                                    callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                        for: operation
-                                    )
-                                }
-                                completeClipboardRequest(with: text)
-                            },
-                            onFailure: { _ in
-                                MainActor.assumeIsolated {
-                                    callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                        for: operation
-                                    )
-                                }
-                                NSSound.beep()
-#if DEBUG
-                                cmuxDebugLog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
-#endif
-                                completeClipboardRequest(with: "")
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        return true
-    }
-
     let backgroundLogEnabled = {
         if ProcessInfo.processInfo.environment["CMUX_DEBUG_BG"] == "1" {
             return true
@@ -864,17 +711,20 @@ class GhosttyApp {
         )
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
             guard let content,
-                  let callbackContext = GhosttyApp.callbackContext(from: userdata),
-                  let requestSurface = callbackContext.runtimeSurface,
-                  let surfaceGeneration = callbackContext.terminalSurface?
-                    .runtimeSurfaceGeneration
-            else { return }
-            callbackContext.scheduleClipboardReadConfirmation(
-                String(cString: content),
-                stateAddress: UInt(bitPattern: state),
-                surfaceAddress: UInt(bitPattern: requestSurface),
-                surfaceGeneration: surfaceGeneration
-            )
+                  let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
+            // Libghostty invokes this synchronously from the main-actor
+            // completion above. Stay inline so confirmation is registered
+            // before that completion's defer can release buffered input.
+            MainActor.assumeIsolated {
+                guard let surfaceIdentity = TerminalClipboardRequestSurfaceIdentity(
+                    terminalSurface: callbackContext.terminalSurface
+                ) else { return }
+                callbackContext.confirmClipboardRead(
+                    String(cString: content),
+                    stateAddress: UInt(bitPattern: state),
+                    surfaceIdentity: surfaceIdentity
+                )
+            }
         }
         runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
             guard let content = content, len > 0 else { return }

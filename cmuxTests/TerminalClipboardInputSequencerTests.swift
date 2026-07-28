@@ -148,6 +148,18 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["suffix"])
     }
 
+    @Test("clipboard request identity rejects allocator pointer reuse")
+    func clipboardRequestIdentityRejectsPointerReuse() {
+        let identity = TerminalClipboardRequestSurfaceIdentity(
+            surfaceAddress: 0x7540,
+            generation: 7
+        )
+
+        #expect(identity.matches(surfaceAddress: 0x7540, generation: 7))
+        #expect(!identity.matches(surfaceAddress: 0x7540, generation: 9))
+        #expect(!identity.matches(surfaceAddress: 0x7550, generation: 7))
+    }
+
     @Test("bounded input queue flushes instead of dropping overflow")
     func boundedInputQueueFlushesOverflow() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
