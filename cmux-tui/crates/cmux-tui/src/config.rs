@@ -2134,21 +2134,29 @@ fn parse_color(s: &str) -> Option<Color> {
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> GhosttyApplicationDefaults {
-    let parsed = resolved_ghostty_defaults()
-        .or_else(|| {
-            let text = platform::ghostty_config_paths()
-                .iter()
-                .find_map(|path| std::fs::read_to_string(path).ok())?;
-            Some(GhosttyApplicationDefaults {
-                colors: parse_ghostty_defaults(&text),
-                scrollback_limit_bytes: parse_scrollback_limit_bytes(&text),
-            })
-        })
-        .unwrap_or_default();
+    let parsed = if let Some(mut resolved) = resolved_ghostty_defaults() {
+        if resolved.scrollback_limit_bytes.is_none() {
+            resolved.scrollback_limit_bytes =
+                ghostty_file_defaults().and_then(|defaults| defaults.scrollback_limit_bytes);
+        }
+        resolved
+    } else {
+        ghostty_file_defaults().unwrap_or_default()
+    };
     GhosttyApplicationDefaults {
         colors: resolve_ghostty_application_defaults(parsed.colors),
         ..parsed
     }
+}
+
+fn ghostty_file_defaults() -> Option<GhosttyApplicationDefaults> {
+    let text = platform::ghostty_config_paths()
+        .iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())?;
+    Some(GhosttyApplicationDefaults {
+        colors: parse_ghostty_defaults(&text),
+        scrollback_limit_bytes: parse_scrollback_limit_bytes(&text),
+    })
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
