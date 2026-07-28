@@ -107,14 +107,6 @@ extension RemoteTmuxSessionMirror {
         } else if let remoteActivePaneID = connection.activePaneByWindow[windowID],
                   windowIdByPane[remoteActivePaneID] == windowID {
             tmuxPaneID = remoteActivePaneID
-        } else if let firstMirrorPaneID = windowMirror?.paneIDsInOrder.first(where: {
-            windowIdByPane[$0] == windowID
-        }) {
-            tmuxPaneID = firstMirrorPaneID
-        } else if let firstLivePaneID = connection.windowsByID[windowID]?.paneIDsInOrder.first(where: {
-            windowIdByPane[$0] == windowID
-        }) {
-            tmuxPaneID = firstLivePaneID
         } else {
             return nil
         }

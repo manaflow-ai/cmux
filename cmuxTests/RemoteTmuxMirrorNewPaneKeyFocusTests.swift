@@ -76,6 +76,7 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         defer { harness.tearDown() }
         harness.splitMakingPaneFiveActive()
 
+        #expect(harness.workspace.focusedPanelId == harness.containerPanelId)
         let paneFive = try #require(harness.mirror.panel(forPane: 5))
         let inputTarget = try #require(harness.workspace.focusedTerminalInputTarget())
 
@@ -90,13 +91,34 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         defer { harness.tearDown() }
         harness.splitMakingPaneFiveActive()
 
+        #expect(harness.workspace.focusedPanelId == harness.containerPanelId)
         let paneFour = try #require(harness.mirror.panel(forPane: 4))
         let paneFive = try #require(harness.mirror.panel(forPane: 5))
 
         harness.mirror.noteRemoteActivePane(4)
+        #expect(harness.workspace.focusedPanelId == harness.containerPanelId)
         #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == paneFour.id)
 
         harness.mirror.noteRemoteActivePane(5)
+        #expect(harness.workspace.focusedPanelId == harness.containerPanelId)
         #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == paneFive.id)
+    }
+
+    @Test
+    func unresolvedDirectMirrorActivePaneFailsClosed() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.splitMakingPaneFiveActive()
+
+        let paneFive = try #require(harness.mirror.panel(forPane: 5))
+        harness.mirror.panelsByPaneId[5] = nil
+        defer { harness.mirror.panelsByPaneId[5] = paneFive }
+
+        #expect(
+            harness.workspace.activeRemoteTmuxControlPane(
+                containerPanelID: harness.containerPanelId
+            ) == nil
+        )
+        #expect(harness.workspace.focusedTerminalInputTarget() == nil)
     }
 }

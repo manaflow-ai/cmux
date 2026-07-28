@@ -11032,8 +11032,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         var repairCount = 0
         var repairResponder: NSResponder?
         let previousRepairObserver = appDelegate.debugFocusedTerminalKeyRepairObserverForTesting
-        appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { window, event, responder, panelId in
-            previousRepairObserver?(window, event, responder, panelId)
+        appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { window, event, responder in
+            previousRepairObserver?(window, event, responder)
             guard event.keyCode == 0 else { return }
             repairCount += 1
             repairResponder = responder

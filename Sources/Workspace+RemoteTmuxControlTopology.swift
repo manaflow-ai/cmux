@@ -78,8 +78,7 @@ extension Workspace {
             return sessionMirror.activeControlPaneLocation(containerPanelID: containerPanelID)
         }
         guard let mirror = remoteTmuxWindowMirrors[containerPanelID],
-              let pane = mirror.activeControlPane()
-                ?? mirror.paneIDsInOrder.first.flatMap({ mirror.controlPane(tmuxPaneID: $0) }) else {
+              let pane = mirror.activeControlPane() else {
             return nil
         }
         return RemoteTmuxControlPaneLocation(

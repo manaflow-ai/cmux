@@ -197,6 +197,36 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         #expect(mirror.activePaneId == 4)
     }
 
+    @Test
+    func unresolvedSessionMirrorActivePaneFailsClosed() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] work",
+        ])
+        try harness.drainThroughPaneRects([2: [
+            "%4 0 0 60 40 0 off :0 \"host\"",
+            "%5 61 0 59 40 1 off :1 \"host\"",
+        ]])
+
+        let mirror = try harness.mirror()
+        let sessionMirror = try #require(harness.workspace.remoteTmuxSessionMirror)
+        let containerPanelId = try #require(sessionMirror.panelIdByWindow[2])
+        let previousRemoteActivePane = harness.connection.activePaneByWindow[2]
+        harness.connection.activePaneByWindow[2] = nil
+        let previousOwnerWindow = sessionMirror.windowIdByPane.removeValue(forKey: 5)
+        defer {
+            harness.connection.activePaneByWindow[2] = previousRemoteActivePane
+            sessionMirror.windowIdByPane[5] = previousOwnerWindow
+        }
+
+        #expect(mirror.activePaneId == 5)
+        #expect(
+            sessionMirror.activeControlPaneLocation(containerPanelID: containerPanelId) == nil
+        )
+        #expect(harness.workspace.focusedTerminalInputTarget() == nil)
+    }
+
     /// The reported repro: a window cmux first saw as a single pane, then split.
     /// After the split + the `%window-pane-changed` event tmux emits (the new pane
     /// becomes active), the outer workspace tab must remain a container rather
@@ -272,14 +302,16 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             keyCode: 7
         ))
         let expectedInputPanel = try #require(mirror.panel(forPane: 5))
-        var repairTargetPanelId: UUID?
+        var didRunRepair = false
         let previousRepairObserver = appDelegate.debugFocusedTerminalKeyRepairObserverForTesting
-        appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { observedWindow, event, responder, panelId in
-            previousRepairObserver?(observedWindow, event, responder, panelId)
+        appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { observedWindow, event, responder in
+            previousRepairObserver?(observedWindow, event, responder)
             guard observedWindow === window, event.keyCode == keyDown.keyCode else { return }
-            repairTargetPanelId = panelId
+            didRunRepair = true
         }
         defer { appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = previousRepairObserver }
+
+        #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == expectedInputPanel.id)
 
         appDelegate.repairFocusedTerminalKeyboardRoutingIfNeeded(
             window: window,
@@ -288,9 +320,10 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         )
 
         #expect(
-            repairTargetPanelId == expectedInputPanel.id,
-            "The first key after a 1→2 tmux promotion must repair toward the active inner pane"
+            didRunRepair,
+            "The first key after a 1→2 tmux promotion must run terminal focus repair"
         )
+        #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == expectedInputPanel.id)
 #else
         Issue.record("DEBUG key-repair target instrumentation is required for this regression")
 #endif
