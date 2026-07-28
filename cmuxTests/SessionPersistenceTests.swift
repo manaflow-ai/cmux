@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxCore
+import CmuxSettings
 import CmuxFoundation
 import CmuxWorkspaces
 import Darwin
@@ -5351,9 +5352,9 @@ extension SessionPersistenceTests {
     @MainActor
     private func withTrustedResumeSources<T>(_ sources: [String], _ body: () throws -> T) rethrows -> T {
         let defaults = UserDefaults.standard
-        let key = AgentSessionTrustedSourcesSettings.trustedResumeSourcesKey
+        let key = TerminalCatalogSection().trustedResumeSources.userDefaultsKey
         let previous = defaults.object(forKey: key)
-        AgentSessionTrustedSourcesSettings.setTrustedSources(sources, defaults: defaults)
+        TrustedResumeSourcesStore(defaults: defaults).setTrustedSources(sources)
         defer {
             if let previous {
                 defaults.set(previous, forKey: key)

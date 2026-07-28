@@ -234,7 +234,7 @@ enum TerminalSettingsFileMapping {
     static let stringArraySettings: [SettingsFileStringArrayMapping] = [
         .init(
             jsonKey: "trustedResumeSources",
-            defaultsKey: AgentSessionTrustedSourcesSettings.trustedResumeSourcesKey,
+            defaultsKey: TerminalCatalogSection().trustedResumeSources.userDefaultsKey,
             invalidPath: "terminal.trustedResumeSources"
         ),
     ]

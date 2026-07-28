@@ -1,5 +1,6 @@
 import CoreGraphics
 import CmuxCore
+import CmuxSettings
 import Foundation
 import Bonsplit
 import CmuxWorkspaces
@@ -805,7 +806,7 @@ enum SurfaceResumeApprovalStore {
         }
         // User-configured allowlist (terminal.trustedResumeSources): sources named
         // here are auto-trusted, so never surface the approval prompt for them.
-        guard !AgentSessionTrustedSourcesSettings.isTrusted(source: binding.source, name: binding.name) else {
+        guard !TrustedResumeSourcesStore(defaults: .standard).isTrusted(source: binding.source, name: binding.name) else {
             return false
         }
         guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {

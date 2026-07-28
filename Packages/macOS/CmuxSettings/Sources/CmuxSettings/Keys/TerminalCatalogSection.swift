@@ -49,6 +49,19 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
+    /// Resume-command sources auto-approved without a stored, signed approval
+    /// record and without the "Allow Resume Command?" prompt.
+    ///
+    /// Persisted as a newline-joined string (same encoding as the browser
+    /// allowlists) rather than a native array so it round-trips through the
+    /// managed-`UserDefaults` config bridge. Read it through
+    /// ``TrustedResumeSourcesStore`` rather than parsing the raw value inline.
+    public let trustedResumeSources = DefaultsKey<String>(
+        id: "terminal.trustedResumeSources",
+        defaultValue: "",
+        userDefaultsKey: "terminal.trustedResumeSources"
+    )
+
     public let agentHibernationEnabled = DefaultsKey<Bool>(
         id: "terminal.agentHibernation.enabled",
         defaultValue: false,

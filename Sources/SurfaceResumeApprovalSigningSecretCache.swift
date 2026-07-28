@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Resolves the surface-resume signing secret once without making main-thread
@@ -409,7 +410,7 @@ extension SurfaceResumeApprovalStore {
         // every resume command from a named agent source so new sessions never
         // re-prompt, even though each session's command carries a unique
         // per-session identifier (e.g. `rovo run --restore <session-id>`).
-        if AgentSessionTrustedSourcesSettings.isTrusted(source: binding.source, name: binding.name) {
+        if TrustedResumeSourcesStore(defaults: .standard).isTrusted(source: binding.source, name: binding.name) {
             var trustedBinding = binding
             trustedBinding.autoResume = true
             trustedBinding.approvalPolicy = .auto
