@@ -121,6 +121,11 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             featureEnabled: currentFeatureEnabled,
             showInMenuBar: currentShowInMenuBar
         ) else {
+            #if DEBUG
+            cmuxDebugLog(
+                "computerUse.menuBar.hidden gates featureEnabled=\(currentFeatureEnabled) showInMenuBar=\(currentShowInMenuBar)"
+            )
+            #endif
             hideSnapshot(
                 showInMenuBar: currentShowInMenuBar,
                 featureEnabled: currentFeatureEnabled
@@ -132,6 +137,11 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             liveRowsNeedRebuild = false
         }
         guard !liveRows.isEmpty else {
+            #if DEBUG
+            cmuxDebugLog(
+                "computerUse.menuBar.hidden noLiveAgentRows indexEntries=\(liveAgentIndex.index?.liveEntries().count ?? -1)"
+            )
+            #endif
             hideSnapshot(
                 showInMenuBar: currentShowInMenuBar,
                 featureEnabled: currentFeatureEnabled
@@ -189,9 +199,17 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                         guard let roots = rootsByScopeID[scope.id] else {
                             return false
                         }
-                        return state.belongsToProcessTree(
+                        let belongs = state.belongsToProcessTree(
                             rootProcessIdentities: roots
                         )
+                        #if DEBUG
+                        if !belongs {
+                            cmuxDebugLog(
+                                "computerUse.menuBar.stateRejected writer=\(state.writerPID) session=\(state.session ?? "-") roots=\(roots.map(\.pid))"
+                            )
+                        }
+                        #endif
+                        return belongs
                     }
                     guard !Task.isCancelled else { return nil }
                     let projection = ComputerUseMenuBarScanResult(
@@ -226,6 +244,11 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                     proxySessionID: state.session
                 )
             }
+            #if DEBUG
+            cmuxDebugLog(
+                "computerUse.menuBar.scan liveRows=\(pending.count) recentStateFiles=\(result.hasRecentStateFiles) activeRow=\(result.activeRow != nil) activeState=\(result.activeState != nil) rows=\(rows.count)"
+            )
+            #endif
             self.snapshot = ComputerUseMenuBarSnapshot(
                 rows: rows,
                 hasRecentStateFiles: result.hasRecentStateFiles,

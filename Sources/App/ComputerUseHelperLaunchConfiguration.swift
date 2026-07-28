@@ -31,6 +31,11 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
             // overlay even when a client fails to close its session cleanly.
             "--idle-hide-ms",
             "1200",
+            // Glide-speed multiplier over the driver's stock 900 pts/s peak.
+            // Stock pacing reads as sluggish between agent actions; press and
+            // dwell visuals keep their durations so clicks stay legible.
+            "--cursor-speed",
+            "1.75",
         ])
         self.arguments = arguments
         environment = [
