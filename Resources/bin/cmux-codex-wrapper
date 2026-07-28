@@ -199,28 +199,40 @@ find_real_codex() {
                 -C|--cd)
                     (( index + 1 < ${#args[@]} )) || return 1
                     directory="${args[$(( index + 1 ))]}"
-                    if project_root="$(
+                    project_root="$(
                         cmux_codex_untrusted_project_root "$directory"
-                    )"; then
+                    )"
+                    project_root_status=$?
+                    if (( project_root_status == 0 )); then
                         project_roots+=("$project_root")
+                    elif (( project_root_status != 2 )); then
+                        return 1
                     fi
                     (( index += 2 ))
                     continue
                     ;;
                 -C?*)
                     directory="${argument#-C}"
-                    if project_root="$(
+                    project_root="$(
                         cmux_codex_untrusted_project_root "$directory"
-                    )"; then
+                    )"
+                    project_root_status=$?
+                    if (( project_root_status == 0 )); then
                         project_roots+=("$project_root")
+                    elif (( project_root_status != 2 )); then
+                        return 1
                     fi
                     ;;
                 --cd=*)
                     directory="${argument#--cd=}"
-                    if project_root="$(
+                    project_root="$(
                         cmux_codex_untrusted_project_root "$directory"
-                    )"; then
+                    )"
+                    project_root_status=$?
+                    if (( project_root_status == 0 )); then
                         project_roots+=("$project_root")
+                    elif (( project_root_status != 2 )); then
+                        return 1
                     fi
                     ;;
             esac
@@ -350,31 +362,42 @@ cmux_codex_trusted_cmux_candidate() {
                 break
                 ;;
             -C|--cd)
-                if (( index + 1 < ${#args[@]} )); then
-                    directory="${args[$(( index + 1 ))]}"
-                    if project_root="$(
-                        cmux_codex_untrusted_project_root "$directory"
-                    )"; then
-                        project_roots+=("$project_root")
-                    fi
-                    (( index += 2 ))
-                    continue
+                (( index + 1 < ${#args[@]} )) || return 1
+                directory="${args[$(( index + 1 ))]}"
+                project_root="$(
+                    cmux_codex_untrusted_project_root "$directory"
+                )"
+                project_root_status=$?
+                if (( project_root_status == 0 )); then
+                    project_roots+=("$project_root")
+                elif (( project_root_status != 2 )); then
+                    return 1
                 fi
+                (( index += 2 ))
+                continue
                 ;;
             -C?*)
                 directory="${argument#-C}"
-                if project_root="$(
+                project_root="$(
                     cmux_codex_untrusted_project_root "$directory"
-                )"; then
+                )"
+                project_root_status=$?
+                if (( project_root_status == 0 )); then
                     project_roots+=("$project_root")
+                elif (( project_root_status != 2 )); then
+                    return 1
                 fi
                 ;;
             --cd=*)
                 directory="${argument#--cd=}"
-                if project_root="$(
+                project_root="$(
                     cmux_codex_untrusted_project_root "$directory"
-                )"; then
+                )"
+                project_root_status=$?
+                if (( project_root_status == 0 )); then
                     project_roots+=("$project_root")
+                elif (( project_root_status != 2 )); then
+                    return 1
                 fi
                 ;;
         esac
@@ -620,7 +643,8 @@ cmux_codex_resume_session_id() {
         if [[ "$arg" == "--last" ]]; then
             return 1
         fi
-        if [[ "$arg" == "-i" || "$arg" == "--image" ]]; then
+        if [[ "$arg" == "-i" || "$arg" == "--image"
+              || "$arg" == -i?* || "$arg" == --image=* ]]; then
             return 1
         fi
         if codex_option_consumes_value "$arg"; then
@@ -672,7 +696,7 @@ fi
 # Resolve real codex up front; if it cannot be found we error like a missing
 # binary would (same as the claude wrapper) rather than silently succeeding.
 REAL_CODEX="$(find_real_codex "$@")" || {
-    echo "Error: codex not found in a trusted install location; set CMUX_CUSTOM_CODEX_PATH to its absolute path" >&2
+    echo "Error: codex not found in a trusted install location" >&2
     exit 127
 }
 

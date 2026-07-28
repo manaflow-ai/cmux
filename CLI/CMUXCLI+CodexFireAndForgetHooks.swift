@@ -161,17 +161,24 @@ extension CMUXCLI {
         ),
             executablePath.hasPrefix("/"),
             FileManager.default.isExecutableFile(atPath: executablePath),
-            let request = codexConfigReadRequest(currentDirectory: currentDirectory)
+            let requests = codexConfigReadRequests(
+                currentDirectory: currentDirectory
+            )
         else {
             return nil
         }
 
         let modelCatalogPath = codexModelsCachePath(environment: environment)
+        let configurationPaths = codexConfigurationFilePaths(
+            environment: environment,
+            appServerConfigurationArguments: appServerConfigurationArguments
+        )
         let cacheKeyComponents = codexResumeTrustProbeCacheKeyComponents(
             executablePath: executablePath,
             appServerConfigurationArguments: appServerConfigurationArguments,
             currentDirectory: currentDirectory,
             modelCatalogPath: modelCatalogPath,
+            configurationPaths: configurationPaths,
             environment: environment
         )
 
@@ -181,7 +188,9 @@ extension CMUXCLI {
             let result = await CLIProcessRunner.runJSONLinesProcess(
                 executablePath: executablePath,
                 arguments: configurationArguments + ["app-server", "--stdio"],
-                stdinText: request,
+                stdinText: requests.initialize,
+                followupStdinText: requests.afterInitialize,
+                followupAfterResponseID: 1,
                 responseID: 2,
                 currentDirectoryPath: currentDirectory,
                 timeout: 5
@@ -230,16 +239,20 @@ extension CMUXCLI {
         appServerConfigurationArguments: [String],
         currentDirectory: String,
         modelCatalogPath: String?,
+        configurationPaths: [String],
         environment: [String: String]
     ) -> [String] {
         [
-            "v1",
+            "v2",
             codexResumeTrustProbeFileIdentity(path: executablePath),
             currentDirectory,
             environment["CODEX_HOME"] ?? "",
             environment["HOME"] ?? "",
             appServerConfigurationArguments.joined(separator: "\u{0}"),
             modelCatalogPath.map(codexResumeTrustProbeFileIdentity(path:)) ?? "",
+            configurationPaths
+                .map(codexResumeTrustProbeFileIdentity(path:))
+                .joined(separator: "\u{0}"),
         ]
     }
 
@@ -288,16 +301,8 @@ extension CMUXCLI {
     private func codexModelsCachePath(
         environment: [String: String]
     ) -> String? {
-        let codexHome: URL
-        if let configuredHome = normalizedHookValue(environment["CODEX_HOME"]) {
-            guard configuredHome.hasPrefix("/") else { return nil }
-            codexHome = URL(
-                fileURLWithPath: configuredHome,
-                isDirectory: true
-            )
-        } else {
-            codexHome = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".codex", isDirectory: true)
+        guard let codexHome = codexHomeDirectory(environment: environment) else {
+            return nil
         }
         let path = codexHome
             .appendingPathComponent("models_cache.json", isDirectory: false)
@@ -306,7 +311,66 @@ extension CMUXCLI {
         return FileManager.default.isReadableFile(atPath: path) ? path : nil
     }
 
-    private func codexConfigReadRequest(currentDirectory: String) -> String? {
+    /// Every local file that can change `config/read` for this invocation.
+    /// Project-local files are intentionally excluded because Codex disables
+    /// them until the project itself has already received a trust decision.
+    private func codexConfigurationFilePaths(
+        environment: [String: String],
+        appServerConfigurationArguments: [String]
+    ) -> [String] {
+        var paths = [
+            "/etc/codex/config.toml",
+            "/etc/codex/managed_config.toml",
+            "/etc/codex/requirements.toml",
+        ]
+        guard let codexHome = codexHomeDirectory(environment: environment) else {
+            return paths
+        }
+        paths.append(
+            codexHome.appendingPathComponent("config.toml", isDirectory: false)
+                .standardizedFileURL.path
+        )
+        var selectedProfile: String?
+        var index = 0
+        while index < appServerConfigurationArguments.count {
+            let argument = appServerConfigurationArguments[index]
+            if argument == "--profile",
+               index + 1 < appServerConfigurationArguments.count {
+                selectedProfile = appServerConfigurationArguments[index + 1]
+                index += 2
+            } else if argument == "-c" {
+                index += 2
+            } else {
+                index += 1
+            }
+        }
+        if let profile = selectedProfile {
+            paths.append(
+                codexHome.appendingPathComponent(
+                    "\(profile).config.toml",
+                    isDirectory: false
+                ).standardizedFileURL.path
+            )
+        }
+        return paths
+    }
+
+    private func codexHomeDirectory(
+        environment: [String: String]
+    ) -> URL? {
+        if let configuredHome = normalizedHookValue(environment["CODEX_HOME"]) {
+            guard configuredHome.hasPrefix("/") else { return nil }
+            return URL(fileURLWithPath: configuredHome, isDirectory: true)
+                .standardizedFileURL
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex", isDirectory: true)
+            .standardizedFileURL
+    }
+
+    private func codexConfigReadRequests(
+        currentDirectory: String
+    ) -> (initialize: String, afterInitialize: String)? {
         let messages: [[String: Any]] = [
             [
                 "method": "initialize",
@@ -339,7 +403,11 @@ extension CMUXCLI {
             }
             lines.append(line)
         }
-        return lines.joined(separator: "\n") + "\n"
+        guard let initialize = lines.first else { return nil }
+        return (
+            initialize: initialize + "\n",
+            afterInitialize: lines.dropFirst().joined(separator: "\n") + "\n"
+        )
     }
 
     /// Mirrors Codex's trust lookup for linked worktrees: project decisions may

@@ -489,11 +489,22 @@ enum CLIProcessRunner {
         executablePath: String,
         arguments: [String],
         stdinText: String,
+        followupStdinText: String? = nil,
+        followupAfterResponseID: Int? = nil,
         responseID: Int,
         currentDirectoryPath: String? = nil,
         timeout: TimeInterval,
         maxOutputBytes: Int = 8 * 1024 * 1024
     ) async -> CLIProcessResult {
+        guard (followupStdinText == nil) == (followupAfterResponseID == nil) else {
+            return CLIProcessResult(
+                status: 1,
+                stdout: "",
+                stderr: "staged JSON input requires both a response id and follow-up text",
+                timedOut: false
+            )
+        }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
@@ -587,6 +598,9 @@ enum CLIProcessRunner {
                 await readJSONLinesStandardOutput(
                     stdoutHandle,
                     responseID: responseID,
+                    followupStdinHandle: stdinPipe.fileHandleForWriting,
+                    followupStdinText: followupStdinText,
+                    followupAfterResponseID: followupAfterResponseID,
                     maxOutputBytes: boundedMaxOutputBytes
                 )
             }
@@ -760,10 +774,14 @@ enum CLIProcessRunner {
     private static func readJSONLinesStandardOutput(
         _ handle: FileHandle,
         responseID: Int,
+        followupStdinHandle: FileHandle,
+        followupStdinText: String?,
+        followupAfterResponseID: Int?,
         maxOutputBytes: Int
     ) async -> CLIJSONLinesReadEvent {
         var data = Data()
         var lineStart = data.startIndex
+        var wroteFollowup = false
         do {
             for try await byte in handle.bytes {
                 guard !Task.isCancelled else {
@@ -781,10 +799,30 @@ enum CLIProcessRunner {
                 guard let object = try? JSONSerialization.jsonObject(
                     with: Data(line)
                 ) as? [String: Any],
-                    (object["id"] as? NSNumber)?.intValue == responseID
+                    let emittedResponseID = (object["id"] as? NSNumber)?.intValue
                 else {
                     continue
                 }
+                if !wroteFollowup,
+                   emittedResponseID == followupAfterResponseID,
+                   let followupStdinText {
+                    guard cliWrite(
+                        followupStdinText,
+                        to: followupStdinHandle,
+                        onBrokenPipe: .ignore
+                    ) else {
+                        return (
+                            data,
+                            nil,
+                            false,
+                            false,
+                            "process closed stdin before staged JSON input",
+                            false
+                        )
+                    }
+                    wroteFollowup = true
+                }
+                guard emittedResponseID == responseID else { continue }
                 return (data, nil, true, false, nil, false)
             }
             return (data, nil, false, false, nil, false)

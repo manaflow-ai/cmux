@@ -459,7 +459,7 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
             "-mgpt-5.6",
             "-pdogfood",
             "-sread-only",
-            "-C/private/tmp/project.with.dot",
+            "-C.",
             "-anever",
         ):
             with self.subTest(option=option):
