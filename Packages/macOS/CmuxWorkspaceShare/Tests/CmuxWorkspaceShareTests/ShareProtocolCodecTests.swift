@@ -61,6 +61,33 @@ struct ShareProtocolCodecTests {
     }
 
     @Test
+    func `Pending access updates decode their authoritative bounded set`() throws {
+        let request = Data(
+            #"{"t":"access-request","user":"u2","email":"two@example.com","pending":[{"user":"u1","email":"one@example.com"},{"user":"u2","email":"two@example.com"}]}"#.utf8
+        )
+        let cancellation = Data(
+            #"{"t":"access-request-cancelled","user":"u1","pending":[{"user":"u1","email":"one@example.com"},{"user":"u2","email":"two@example.com"}]}"#.utf8
+        )
+        let expected = [
+            ShareAccessRequest(user: "u1", email: "one@example.com"),
+            ShareAccessRequest(user: "u2", email: "two@example.com"),
+        ]
+
+        #expect(
+            try JSONDecoder().decode(ShareServerMessage.self, from: request)
+                == .accessRequest(
+                    user: "u2",
+                    email: "two@example.com",
+                    pending: expected
+                )
+        )
+        #expect(
+            try JSONDecoder().decode(ShareServerMessage.self, from: cancellation)
+                == .accessRequestCancelled(user: "u1", pending: expected)
+        )
+    }
+
+    @Test
     func `Guest terminal resync decodes and validates its authenticated route`() throws {
         let validator = WorkspaceShareInboundMessageValidator()
         let valid = try JSONDecoder().decode(

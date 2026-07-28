@@ -254,6 +254,59 @@ describe("join and approval flow", () => {
     });
   });
 
+  it("carries the authoritative pending set on every actionable request update", () => {
+    const core = bootedCore();
+
+    const aliceJoined = core.connect("c-alice", ALICE, T0);
+    expect(sends(aliceJoined, "c-host")).toEqual([
+      {
+        t: "access-request",
+        user: ALICE.user,
+        email: ALICE.email,
+        pending: [
+          { user: ALICE.user, email: ALICE.email },
+        ],
+      },
+    ]);
+
+    const bobJoined = core.connect("c-bob", BOB, T0 + 1);
+    expect(sends(bobJoined, "c-host")).toEqual([
+      {
+        t: "access-request",
+        user: BOB.user,
+        email: BOB.email,
+        pending: [
+          { user: ALICE.user, email: ALICE.email },
+          { user: BOB.user, email: BOB.email },
+        ],
+      },
+    ]);
+
+    const aliceLeft = core.disconnect("c-alice", T0 + 2);
+    expect(sends(aliceLeft, "c-host")).toEqual([
+      {
+        t: "access-request-cancelled",
+        user: ALICE.user,
+        pending: [
+          { user: BOB.user, email: BOB.email },
+        ],
+      },
+    ]);
+
+    const aliceRejoined = core.connect("c-alice-2", ALICE, T0 + 3);
+    expect(sends(aliceRejoined, "c-host")).toEqual([
+      {
+        t: "access-request",
+        user: ALICE.user,
+        email: ALICE.email,
+        pending: [
+          { user: BOB.user, email: BOB.email },
+          { user: ALICE.user, email: ALICE.email },
+        ],
+      },
+    ]);
+  });
+
   it("approve activates the pending connection with a snapshot and color", () => {
     const core = bootedCore();
     core.connect("c-alice", ALICE, T0);

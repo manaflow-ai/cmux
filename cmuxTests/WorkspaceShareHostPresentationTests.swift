@@ -227,6 +227,55 @@ struct WorkspaceShareHostPresentationTests {
         await socket.stop()
     }
 
+    @Test("Authoritative pending membership wins over a stale cancellation delta")
+    func authoritativePendingMembershipWinsOverStaleCancellation() async throws {
+        let controller = ShareSessionController { nil }
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/connect"))
+        )
+        await socket.installWebSocketTaskForTesting(task, connection: 1)
+        controller.installActiveSocketForTesting(socket, connection: 1)
+
+        await controller.handleServerTextForTesting(
+            #"{"t":"access-request","user":"guest-2","email":"two@example.com","pending":[{"user":"guest-1","email":"one@example.com"},{"user":"guest-2","email":"two@example.com"}]}"#,
+            connection: 1,
+            sequence: 0
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"ack-request","nonce":"authoritative-request"}"#,
+            connection: 1,
+            sequence: 1
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"access-request-cancelled","user":"guest-1","pending":[{"user":"guest-1","email":"one@example.com"},{"user":"guest-2","email":"two@example.com"}]}"#,
+            connection: 1,
+            sequence: 2
+        )
+
+        let pendingUsers = Set(controller.feed.compactMap { item -> String? in
+            if case .accessRequest(let user, _, .none) = item.kind {
+                return user
+            }
+            return nil
+        })
+        #expect(pendingUsers == ["guest-1", "guest-2"])
+        await socket.stop()
+    }
+
     @Test("Guest bubble renders passively and stale expiry cannot clear its replacement")
     func guestBubbleRendersPassivelyAndExpiresByGeneration() throws {
         _ = NSApplication.shared
