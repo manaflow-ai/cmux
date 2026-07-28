@@ -248,6 +248,23 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        backupTeamID: String?
+    ) async throws {
+        guard isCompatible(instanceTag: instanceTag) else { return }
+        try await inner.removeExactScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            backupTeamID: backupTeamID
+        )
+    }
+
     func removeAll() async throws {
         for mac in try await loadAll(stackUserID: nil, teamID: nil) {
             try await inner.remove(

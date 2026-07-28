@@ -298,6 +298,24 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Preserve both captured scopes. This exact-scope path must not substitute
+    /// either value from the live team selection after an asynchronous revoke.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        backupTeamID: String?
+    ) async throws {
+        try await inner.removeExactScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            backupTeamID: backupTeamID
+        )
+    }
+
     /// Remove all paired Macs.
     public func removeAll() async throws {
         try await inner.removeAll()

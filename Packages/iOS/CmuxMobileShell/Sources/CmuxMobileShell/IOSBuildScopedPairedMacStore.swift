@@ -472,6 +472,27 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// Preserve the independently captured backup team while scoping only the
+    /// local row's team to this iOS build. The backup layer below owns routing
+    /// that tombstone and must see the original display team.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        backupTeamID: String?
+    ) async throws {
+        try await mutationGate.withLock {
+            try await inner.removeExactScope(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(teamID),
+                backupTeamID: backupTeamID
+            )
+        }
+    }
+
     public func removeAll() async throws {
         try await mutationGate.withLock {
             try await removeAllUnlocked()
