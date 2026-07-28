@@ -97,6 +97,8 @@ final class ApplicationCaptureView: NSView {
     private var pendingScrollY = 0.0
     private var pressedModifierKeyCodes: Set<UInt16> = []
     private var currentModifierKeyCodes: Set<UInt16> = []
+    private var lastEnqueuedLeftMousePoint: CGPoint?
+    private var lastEnqueuedRightMousePoint: CGPoint?
     private var mouseTrackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { true }
@@ -347,6 +349,8 @@ final class ApplicationCaptureView: NSView {
         pendingScrollY = 0
         pressedModifierKeyCodes.removeAll()
         currentModifierKeyCodes.removeAll()
+        lastEnqueuedLeftMousePoint = nil
+        lastEnqueuedRightMousePoint = nil
         guard stopTask == nil else { return }
         let session = session
         let lease = lease
@@ -506,7 +510,15 @@ final class ApplicationCaptureView: NSView {
     }
 
     private func enqueueMouse(_ event: NSEvent, kind: ApplicationSurfaceInputEventKind) {
-        guard let point = normalizedPoint(for: event) else { return }
+        let normalizedPoint = normalizedPoint(for: event)
+        guard let point = Self.resolvedMousePoint(
+            kind: kind,
+            normalizedPoint: normalizedPoint,
+            lastLeftPoint: lastEnqueuedLeftMousePoint,
+            lastRightPoint: lastEnqueuedRightMousePoint
+        ) else {
+            return
+        }
         guard inputPump.enqueue(ApplicationSurfaceInputEvent(
             kind: kind,
             x: point.x,
@@ -516,6 +528,18 @@ final class ApplicationCaptureView: NSView {
         )) == .accepted else {
             handleInputQueueFull()
             return
+        }
+        switch kind {
+        case .leftMouseDown, .leftMouseDragged:
+            lastEnqueuedLeftMousePoint = point
+        case .leftMouseUp:
+            lastEnqueuedLeftMousePoint = nil
+        case .rightMouseDown, .rightMouseDragged:
+            lastEnqueuedRightMousePoint = point
+        case .rightMouseUp:
+            lastEnqueuedRightMousePoint = nil
+        default:
+            break
         }
     }
 
@@ -589,6 +613,8 @@ final class ApplicationCaptureView: NSView {
         pendingScrollY = 0
         pressedModifierKeyCodes.removeAll()
         currentModifierKeyCodes.removeAll()
+        lastEnqueuedLeftMousePoint = nil
+        lastEnqueuedRightMousePoint = nil
         if let inputReleaseTask {
             return inputReleaseTask
         }
@@ -793,6 +819,25 @@ final class ApplicationCaptureView: NSView {
                 modifierFlagsRawValue: modifierFlagsRawValue
             ) == true ? UInt16(keyCode) : nil
         })
+    }
+
+    static func resolvedMousePoint(
+        kind: ApplicationSurfaceInputEventKind,
+        normalizedPoint: CGPoint?,
+        lastLeftPoint: CGPoint?,
+        lastRightPoint: CGPoint?
+    ) -> CGPoint? {
+        if let normalizedPoint {
+            return normalizedPoint
+        }
+        switch kind {
+        case .leftMouseUp:
+            return lastLeftPoint
+        case .rightMouseUp:
+            return lastRightPoint
+        default:
+            return nil
+        }
     }
 
     private func synchronizeForwardedModifierKeys() {

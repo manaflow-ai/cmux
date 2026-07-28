@@ -539,7 +539,7 @@ extension ControlCommandCoordinator {
         let applicationProcessID: Int32?
         let applicationFrameRate: Int?
         if isApplication {
-            guard let rawWindowID = int(params, "window_id_native"),
+            guard let rawWindowID = strictInt(params, "window_id_native"),
                   let exactWindowID = UInt32(exactly: rawWindowID),
                   exactWindowID > 0 else {
                 return .err(
@@ -548,7 +548,7 @@ extension ControlCommandCoordinator {
                     data: .object(["field": .string("window_id_native")])
                 )
             }
-            guard let rawProcessID = int(params, "process_id"),
+            guard let rawProcessID = strictInt(params, "process_id"),
                   let exactProcessID = Int32(exactly: rawProcessID),
                   exactProcessID > 0 else {
                 return .err(
@@ -558,7 +558,7 @@ extension ControlCommandCoordinator {
                 )
             }
             if hasNonNull(params, "frame_rate") {
-                guard let rawFrameRate = int(params, "frame_rate"),
+                guard let rawFrameRate = strictInt(params, "frame_rate"),
                       (1...120).contains(rawFrameRate) else {
                     return .err(
                         code: "invalid_params",
