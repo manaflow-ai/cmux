@@ -67,7 +67,7 @@ cmux ios batch '[
 
 Use `touch --ref eN --down` and `touch --ref eN --up` for explicit touch phases. `--delay` is accepted only with both `--down` and `--up`. Named gestures support screen scrolling and swipes from each edge.
 
-Programmatic touch actions render a Sky-kite cursor inside the targeted Simulator surface. The cursor marks held touches, follows timed gestures, pulses when a touch is released, and remains at the last agent touch point between actions. Its state belongs to the pane coordinator and resets when that pane changes devices or closes, so an action in one workspace cannot draw over another workspace or the desktop.
+Each live Simulator surface renders a Sky-kite cursor at screen center before the first programmatic action. The cursor marks held touches, follows timed gestures with distance-based easing, pulses when a touch is released, and remains at the last agent touch point between actions. Its state belongs to the pane coordinator and survives device selection, renderer reattachment, and non-pointer actions until that pane closes, so an action in one workspace cannot draw over another workspace or the desktop.
 
 Run `cmux simulator` for gesture JSON, two-finger input, camera, permission, accessibility, Core Animation, and Web Inspector command syntax.
 
