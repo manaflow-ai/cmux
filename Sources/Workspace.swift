@@ -11176,9 +11176,8 @@ extension Workspace: BonsplitDelegate {
             return
         }
         let effectiveFocusedPanelId = effectiveSelectedPanelId(inPane: focusedPane) ?? selectedPanelId
-        guard let panel = panels[effectiveFocusedPanelId] else {
-            return
-        }
+        guard let panel = panels[effectiveFocusedPanelId],
+              let activationPanel = controlSurfaceProjection(forContainerPanelID: effectiveFocusedPanelId)?.panel else { return }
 
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
@@ -11196,8 +11195,8 @@ extension Workspace: BonsplitDelegate {
         // Selecting a hibernated tab means the user is visiting it again. Resume by
         // default so sidebar/tab selection behaves the same as pressing Resume.
         let shouldResumeHibernatedAgent = resumeHibernatedAgent ?? true
-        let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
-        panel.prepareFocusIntentForActivation(activationIntent)
+        let activationIntent = focusIntent ?? activationPanel.preferredFocusIntentForActivation()
+        activationPanel.prepareFocusIntentForActivation(activationIntent)
         let panelId = effectiveFocusedPanelId
         if let terminalPanel = panel as? TerminalPanel {
             if terminalPanel.isAgentHibernated, shouldResumeHibernatedAgent {
@@ -11217,6 +11216,7 @@ extension Workspace: BonsplitDelegate {
         for (id, p) in panels where id != effectiveFocusedPanelId {
             p.unfocus()
         }
+        if activationPanel.id != panel.id { panel.unfocus() }
 
         // Explicitly hide browser portals for deselected tabs in this pane.
         // Bonsplit's keepAllAlive mode hides non-selected tabs via SwiftUI .opacity(0),
@@ -11226,7 +11226,7 @@ extension Workspace: BonsplitDelegate {
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
 
-        if let focusWindow = activationWindow(for: panel) {
+        if let focusWindow = activationWindow(for: activationPanel) {
             yieldForeignOwnedFocusIfNeeded(
                 in: focusWindow,
                 targetPanelId: panelId,
@@ -11235,14 +11235,14 @@ extension Workspace: BonsplitDelegate {
         }
 
         activatePanel(
-            panel,
+            activationPanel,
             focusIntent: activationIntent,
             reassertAppKitFocus: reassertAppKitFocus
         )
         let focusIntentAllowsBrowserOmnibarAutofocus =
             explicitFocusIntent ||
             TerminalController.socketCommandAllowsInAppFocusMutations()
-        if let browserPanel = panel as? BrowserPanel,
+        if let browserPanel = activationPanel as? BrowserPanel,
            shouldAllowBrowserOmnibarAutofocus(for: activationIntent),
            previousFocusedPanelId != panelId || focusIntentAllowsBrowserOmnibarAutofocus {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: .standard)
@@ -11253,7 +11253,7 @@ extension Workspace: BonsplitDelegate {
 
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
-        if reassertAppKitFocus, let terminalPanel = panel as? TerminalPanel {
+        if reassertAppKitFocus, let terminalPanel = activationPanel as? TerminalPanel {
             if shouldMoveTerminalSurfaceFocus(for: activationIntent) {
                 if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
 #if DEBUG
@@ -11281,7 +11281,7 @@ extension Workspace: BonsplitDelegate {
         }
 
         if shouldRestoreFocusIntentAfterActivation(activationIntent) {
-            _ = panel.restoreFocusIntent(activationIntent)
+            _ = activationPanel.restoreFocusIntent(activationIntent)
         }
 
         surfaceTabBarDirectory = configTrackingDirectory(for: panelId)

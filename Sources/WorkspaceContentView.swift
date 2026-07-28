@@ -273,12 +273,10 @@ struct WorkspaceContentView: View {
                         isOuterFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
-                        onOuterFocus: {
-                            workspace.bonsplitController.focusPane(paneId)
-                        }
+                        onOuterFocus: { workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId) }
                     )
                     .onTapGesture {
-                        workspace.bonsplitController.focusPane(paneId)
+                        workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)
                     }
                 } else {
                     WorkspacePanelContentHostView(

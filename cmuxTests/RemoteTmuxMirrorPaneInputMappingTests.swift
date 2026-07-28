@@ -278,5 +278,10 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             activePanePanel.hostedView.debugPortalActive,
             "Selecting the window container must activate the tmux-active inner pane"
         )
+
+        harness.workspace.focusRemoteTmuxContainerPaneIfNeeded(containerPaneId)
+
+        #expect(!containerPanel.hostedView.debugPortalActive)
+        #expect(activePanePanel.hostedView.debugPortalActive)
     }
 }
