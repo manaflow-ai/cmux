@@ -2,6 +2,9 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
+const GHOSTTY_VT_SOURCE_PATHS: &[&str] =
+    &["VERSION", "build.zig", "build.zig.zon", "include", "pkg", "src"];
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -25,10 +28,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
-    println!("cargo:rerun-if-changed={}", ghostty_dir.join("include").display());
-    println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig").display());
-    println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig.zon").display());
-    println!("cargo:rerun-if-changed={}", ghostty_dir.join("src").display());
+    for path in GHOSTTY_VT_SOURCE_PATHS {
+        println!("cargo:rerun-if-changed={}", ghostty_dir.join(path).display());
+    }
 
     // Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo
     // profile: the VT parser is on the PTY hot path and a debug zig build

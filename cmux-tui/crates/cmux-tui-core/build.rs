@@ -8,8 +8,10 @@ use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
-const CMUX_TUI_SOURCE_PATHS: &[&str] = &["Cargo.toml", "Cargo.lock", "bindings/rust", "crates"];
+const CMUX_TUI_SOURCE_PATHS: &[&str] =
+    &["Cargo.toml", "Cargo.lock", "bindings/rust", "crates", "vendor/crossterm"];
 const GHOSTTY_SOURCE_PATHS: &[&str] = &["build.zig", "build.zig.zon", "include", "pkg", "src"];
+const GHOSTTY_OPTIONAL_SOURCE_PATHS: &[&str] = &["VERSION"];
 
 fn main() {
     for name in [
@@ -34,6 +36,7 @@ fn main() {
 
     track_source_paths(workspace_root, CMUX_TUI_SOURCE_PATHS);
     track_source_paths(&ghostty_root, GHOSTTY_SOURCE_PATHS);
+    track_source_paths(&ghostty_root, GHOSTTY_OPTIONAL_SOURCE_PATHS);
     track_git_identity(repository_root);
     track_git_identity(&ghostty_root);
 
@@ -43,7 +46,17 @@ fn main() {
         println!("cargo:rustc-env=CMUX_TUI_SOURCE_COMMIT={identity}");
     }
     if !nonempty_env("CMUX_TUI_GHOSTTY_COMMIT") {
-        let identity = source_identity(&ghostty_root, &ghostty_root, GHOSTTY_SOURCE_PATHS)
+        let ghostty_identity_paths = GHOSTTY_SOURCE_PATHS
+            .iter()
+            .copied()
+            .chain(
+                GHOSTTY_OPTIONAL_SOURCE_PATHS
+                    .iter()
+                    .copied()
+                    .filter(|path| ghostty_root.join(path).exists()),
+            )
+            .collect::<Vec<_>>();
+        let identity = source_identity(&ghostty_root, &ghostty_root, &ghostty_identity_paths)
             .expect("derive an exact Ghostty source identity");
         println!("cargo:rustc-env=CMUX_TUI_SOURCE_GHOSTTY_COMMIT={identity}");
     }
