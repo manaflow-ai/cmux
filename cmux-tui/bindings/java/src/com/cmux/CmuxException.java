@@ -1,6 +1,8 @@
 package com.cmux;
 
 public class CmuxException extends Exception {
+    private static final long serialVersionUID = 1L;
+
     public CmuxException(String message) {
         super(message);
     }

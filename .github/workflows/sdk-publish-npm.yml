@@ -76,6 +76,7 @@ jobs:
               raise SystemExit(1)
           print(f"All package versions match {expected}")
           PY
+          python3 cmux-tui/bindings/check-versions.py --expected "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-typescript:
@@ -112,11 +113,8 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui
 
-      - name: Python conformance fixtures
-        run: python3 cmux-tui/bindings/conformance/runner.py
-
-      - name: TypeScript binding e2e
-        run: bash cmux-tui/bindings/conformance/e2e.sh --require typescript
+      - name: TypeScript SDK conformance
+        run: python3 cmux-tui/bindings/conformance/runner.py --language typescript --require typescript
 
   publish:
     # The npm package name "cmux" is currently a different live package

@@ -1,6 +1,6 @@
 {
   "name": "cmux",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Typed TypeScript client for cmux-tui frontends",
   "repository": {
     "type": "git",
@@ -40,7 +40,10 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test dist/test/*.test.js",
+    "generate": "python3 ../codegen/generate.py --write --language typescript",
+    "check:generated": "python3 ../codegen/generate.py --check --language typescript",
+    "test": "npm run check:generated && npm run build && node --test dist/test/*.test.js && npm run verify:package",
+    "verify:package": "node scripts/verify-packaged-consumer.mjs",
     "e2e": "npm run build && node dist/e2e/e2e.js"
   },
   "engines": {

@@ -46,6 +46,7 @@ const Constructor = FakeWebSocket as unknown as WebSocketConstructor;
 
 test("WebSocketTransport pairs before flushing queued protocol frames", () => {
   const challenges: string[] = [];
+  const challengeIds: bigint[] = [];
   const credentials: string[] = [];
   const transport = new WebSocketTransport("ws://localhost/cmux", { WebSocket: Constructor, protocols: "cmux" });
   const socket = FakeWebSocket.instances.at(-1)!;
@@ -58,7 +59,10 @@ test("WebSocketTransport pairs before flushing queued protocol frames", () => {
 
   const approved = new WebSocketTransport("ws://localhost/cmux", {
     WebSocket: Constructor,
-    onPairingChallenge: (challenge) => challenges.push(challenge.code),
+    onPairingChallenge: (challenge) => {
+      challengeIds.push(challenge.id);
+      challenges.push(challenge.code);
+    },
     onPairingCredential: (credential) => credentials.push(credential),
   });
   const approvedSocket = FakeWebSocket.instances.at(-1)!;
@@ -66,6 +70,7 @@ test("WebSocketTransport pairs before flushing queued protocol frames", () => {
   approvedSocket.open();
   approvedSocket.message('{"pairing":{"id":7,"code":"123 456","peer":"127.0.0.1","expires_in":60}}');
   assert.deepEqual(challenges, ["123 456"]);
+  assert.deepEqual(challengeIds, [7n]);
   approvedSocket.message('{"paired":{"credential":"issued-secret"}}');
   assert.deepEqual(credentials, ["issued-secret"]);
   assert.deepEqual(approvedSocket.sent, [
@@ -139,4 +144,28 @@ test("WebSocketTransport rejects binary frames", () => {
   socket.message(Uint8Array.from([1, 2, 3]));
   assert.match(errors[0]?.message ?? "", /non-text frame/);
   transport.close();
+});
+
+test("WebSocketTransport bounds queued and inbound messages", () => {
+  const queued = new WebSocketTransport("ws://localhost/cmux", {
+    WebSocket: Constructor,
+    authToken: "test",
+    maxPendingMessages: 1,
+  });
+  queued.send("{}");
+  assert.throws(() => queued.send("{}"), /buffer is full/);
+  queued.close();
+
+  const inbound = new WebSocketTransport("ws://localhost/cmux", {
+    WebSocket: Constructor,
+    authToken: "test",
+    maxInboundMessageBytes: 8,
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const errors: Error[] = [];
+  inbound.onError((error) => errors.push(error));
+  socket.open();
+  socket.message('{"123":9}');
+  assert.match(errors[0]?.message ?? "", /exceeds 8 bytes/);
+  assert.equal(socket.readyState, 3);
 });

@@ -71,6 +71,7 @@ jobs:
               raise SystemExit(1)
           print(f"All package versions match {expected}")
           PY
+          python3 cmux-tui/bindings/check-versions.py --expected "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-java:
@@ -115,11 +116,8 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui
 
-      - name: Python conformance fixtures
-        run: python3 cmux-tui/bindings/conformance/runner.py
-
-      - name: Java binding e2e
-        run: bash cmux-tui/bindings/conformance/e2e.sh --require java
+      - name: Java SDK conformance
+        run: python3 cmux-tui/bindings/conformance/runner.py --language java --require java
 
   maven-central-todo:
     needs: bindings-e2e-java

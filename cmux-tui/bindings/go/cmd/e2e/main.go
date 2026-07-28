@@ -45,12 +45,20 @@ func run() error {
 		return fmt.Errorf("unexpected identify result: %+v", info)
 	}
 	cols, rows := uint16(80), uint16(24)
-	created, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{Name: &marker, Cols: &cols, Rows: &rows})
+	created, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{
+		Name: cmux.Value(marker),
+		Cols: cmux.Value(cols),
+		Rows: cmux.Value(rows),
+	})
 	if err != nil {
 		return err
 	}
 	text := fmt.Sprintf("printf '%s\\n'\r", marker)
-	if err := client.Send(ctx, created.Surface, cmux.SendOptions{Text: &text}); err != nil {
+	if err := client.Send(
+		ctx,
+		created.Surface,
+		cmux.SendOptions{Text: cmux.Value(text)},
+	); err != nil {
 		return err
 	}
 	if err := waitForMarker(ctx, client, created.Surface, marker); err != nil {
@@ -96,7 +104,14 @@ func run() error {
 		return fmt.Errorf("same-size resize emitted event or failed oddly: %v", err)
 	}
 
-	attach, err := client.AttachSurfaceWithOptions(ctx, created.Surface, cmux.AttachSurfaceOptions{Cols: &cols, Rows: &rows})
+	attach, err := client.AttachSurfaceWithOptions(
+		ctx,
+		created.Surface,
+		cmux.AttachSurfaceOptions{
+			Cols: cmux.Value(cols),
+			Rows: cmux.Value(rows),
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -113,31 +128,45 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		if !ok || size.SizeParticipating == nil || !*size.SizeParticipating {
+		if !ok || !size.SizeParticipating {
 			return fmt.Errorf("protocol 10 surface sizing state missing: %+v", size)
 		}
-		if err := client.SetClientSizing(ctx, created.Surface, sizingClient, false); err != nil {
+		if err := client.SetClientSizing(
+			ctx,
+			created.Surface,
+			false,
+			cmux.SetClientSizingOptions{Client: cmux.Value(sizingClient)},
+		); err != nil {
 			return err
 		}
 		_, size, ok, err = findClientSurfaceSize(ctx, client, created.Surface)
 		if err != nil {
 			return err
 		}
-		if !ok || size.SizeParticipating == nil || *size.SizeParticipating {
+		if !ok || size.SizeParticipating {
 			return fmt.Errorf("surface sizing mutation was not reflected: %+v", size)
 		}
-		if err := client.SetClientSizing(ctx, created.Surface, sizingClient, true); err != nil {
+		if err := client.SetClientSizing(
+			ctx,
+			created.Surface,
+			true,
+			cmux.SetClientSizingOptions{Client: cmux.Value(sizingClient)},
+		); err != nil {
 			return err
 		}
 	}
 	outputText := fmt.Sprintf("printf '%s\\n'\r", later)
-	if err := client.Send(ctx, created.Surface, cmux.SendOptions{Text: &outputText}); err != nil {
+	if err := client.Send(
+		ctx,
+		created.Surface,
+		cmux.SendOptions{Text: cmux.Value(outputText)},
+	); err != nil {
 		return err
 	}
 	if err := nextAttachOutput(attach, 3*time.Second); err != nil {
 		return err
 	}
-	if err := client.CloseWorkspace(ctx, workspace); err != nil {
+	if _, err := client.CloseWorkspaceByID(ctx, workspace); err != nil {
 		return err
 	}
 	afterClose, err := client.ListWorkspaces(ctx)
@@ -211,7 +240,11 @@ func findWorkspaceForSurface(tree cmux.Tree, surface uint64) (uint64, bool) {
 	for _, workspace := range tree.Workspaces {
 		for _, screen := range workspace.Screens {
 			for _, pane := range screen.Panes {
-				for _, tab := range pane.Tabs {
+				live, ok := pane.AsLivePane()
+				if !ok {
+					continue
+				}
+				for _, tab := range live.Tabs {
 					if tab.Surface == surface {
 						return workspace.ID, true
 					}

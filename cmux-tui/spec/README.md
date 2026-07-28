@@ -34,7 +34,12 @@ Generated clients must inspect `identify.protocol` before using features newer t
 
 ## Generation Model
 
-The checked-in bindings are currently a mix of hand-written code and prompt-generated drafts. They are not the protocol source of truth. Deterministic generation must consume a reviewed machine-readable schema, write only generator-owned files, validate in a temporary directory, run formatters and conformance tests, and fail when regenerated output differs.
+The checked-in bindings combine generated wire layers with handwritten
+transports and language-specific conveniences. `sdk-schema.json` is the
+reviewed schema-v2 generator input. The local Python generator has no network
+or model dependency, renders each emitter twice, stages every selected language
+before writing, and deletes only files named by the prior ownership manifest.
+CI rejects schema drift and generated output drift.
 
 The acceptance gate is the conformance suite described in `bindings.md`. A binding is conformant only when it can replay the fixture request/response pairs, event transcripts, and end-to-end scenarios against a real headless mux server. Raw request access does not satisfy a typed-method requirement.
 
@@ -46,6 +51,8 @@ The generator must preserve the wire command names, parameter names, result shap
 | --- | --- |
 | `inventory.json` | Checked list of implemented commands/events, native action routes, protocol profiles, domains, and pending heads |
 | `inventory.schema.json` | JSON Schema for the checked inventory |
+| `sdk-schema.json` | Schema-v2 typed SDK IR for all implemented mux commands and events |
+| `sdk-schema.schema.json` | JSON Schema for the SDK IR |
 | `programmability.md` | Ownership model, exhaustive action policy, missing primitive backlog, compatibility profiles, and conformance bar |
 | `commands.md` | Command contract, CLI mapping for each command, examples, and compatibility notes |
 | `events.md` | Subscribe and attach event payloads, ordering guarantees, and proposed filters |
