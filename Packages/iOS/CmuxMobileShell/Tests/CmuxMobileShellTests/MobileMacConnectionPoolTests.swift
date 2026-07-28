@@ -49,6 +49,25 @@ import Testing
         #expect(candidates.map(\.macDeviceID) == ["mac-online"])
     }
 
+    @Test func retryStateCoalescesPoolFailuresAndCapsBackoff() {
+        var state = MobileControlPoolRetryState()
+
+        #expect(state.schedule() == .seconds(2))
+        #expect(state.schedule() == nil)
+        state.fire()
+        #expect(state.schedule() == .seconds(4))
+
+        for _ in 0..<8 {
+            state.fire()
+            _ = state.schedule()
+        }
+        state.fire()
+        #expect(state.schedule() == .seconds(60))
+
+        state.reset()
+        #expect(state.schedule() == .seconds(2))
+    }
+
     private static func pairedMac(
         id: String,
         instanceTag: String
