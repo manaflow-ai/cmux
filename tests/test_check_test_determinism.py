@@ -884,6 +884,28 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "await fixture.Bun.sleep(1)\n"
                     "expect(completed).toBe(true)\n"
                 ),
+                "qualified-global-parameter-shadow.ts": (
+                    "function verify(\n"
+                    "    Bun: FakeRuntime,\n"
+                    "    window: FakeWindow,\n"
+                    "    globalThis: FakeGlobal,\n"
+                    ") {\n"
+                    "    Bun.sleep(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "    window.setTimeout(done, 1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "    globalThis.setTimeout(done, 1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "}\n"
+                ),
+                "qualified-global-local-shadow.ts": (
+                    "const self = fakeWindow\n"
+                    "const global = fakeGlobal\n"
+                    "self.setTimeout(done, 1)\n"
+                    "expect(completed).toBe(true)\n"
+                    "global.setTimeout(done, 1)\n"
+                    "expect(completed).toBe(true)\n"
+                ),
                 "timer-alias-parameter-shadow.ts": (
                     'import { setTimeout as delay } from "timers/promises"\n'
                     "run(async (delay) => {\n"
@@ -1287,6 +1309,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "sleep 1\n"
                     'assert "$actual" "$expected"\n'
                 ),
+                "elif-condition-unsets-fake.sh": (
+                    'sleep() { advance_clock "$@"; }\n'
+                    "if false; then\n"
+                    "    :\n"
+                    "elif unset -f sleep; then\n"
+                    "    :\n"
+                    "fi\n"
+                    "sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
             }
         )
 
@@ -1300,7 +1332,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             for line in positive.stdout.splitlines()
             if "sleep-then-assert:" in line
         ]
-        self.assertEqual(len(findings), 3, positive.stdout)
+        self.assertEqual(len(findings), 4, positive.stdout)
         self.assertIn(
             "fixtures/conditional-shell-function.sh:4: "
             "sleep-then-assert:",
@@ -1313,6 +1345,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         )
         self.assertIn(
             "fixtures/conditional-real-wrapper-after-fake.sh:5: "
+            "sleep-then-assert:",
+            positive.stdout,
+        )
+        self.assertIn(
+            "fixtures/elif-condition-unsets-fake.sh:7: "
             "sleep-then-assert:",
             positive.stdout,
         )
