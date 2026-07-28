@@ -8,7 +8,6 @@ import OSLog
 @Observable
 final class AgentSessionRetryCoordinator {
     typealias RetryState = AgentSessionRetryPanelState
-    private typealias Phase = AgentSessionRetryPanelState.Phase
 
     struct ManagedRunOwnership {
         let binding: SurfaceResumeBindingSnapshot
@@ -62,15 +61,17 @@ final class AgentSessionRetryCoordinator {
             // command-finished candidate.
             bindCurrentManagedRunIfPossible(panelId: panelId)
             recordHookFirstManagedStartIfPossible(panelId: panelId)
-            if case .launching = statesByPanelId[panelId]?.phase {
-                // The resumed agent has published a live hook. Keep the retry
-                // count for a possible later failure, but the pane is no longer
-                // waiting for recovery.
-                workspace?.removeAgentRetryStatusEntry(panelId: panelId)
-            }
+            acknowledgeInjectedRetryFromHooksIfPossible(panelId: panelId)
         case .idle:
             if workspace?.hasActiveAgentLifecycleForRetry(panelId: panelId) != true {
                 pendingManagedStartsByPanelId.removeValue(forKey: panelId)
+            }
+            if case .running = statesByPanelId[panelId]?.phase,
+               managedRunsByPanelId[panelId] == nil,
+               endedSessionCandidatesByPanelId[panelId] == nil,
+               workspace?.panelShellActivityStates[panelId] != .commandRunning {
+                reset(panelId: panelId)
+                return
             }
             attemptReadyRetry(panelId: panelId)
             if statesByPanelId[panelId] == nil,
@@ -100,19 +101,18 @@ final class AgentSessionRetryCoordinator {
         // live-session evidence that makes injection ambiguous. The next real
         // shell command will establish a fresh generation.
         if endedSessionCandidatesByPanelId[panelId] != nil ||
-            statesByPanelId[panelId]?.phase.isWaitingOrExhausted == true {
+            statesByPanelId[panelId]?.phase.isWaitingOrReadyOrExhausted == true {
             clearRecovery(panelId: panelId)
             return
         }
 
         if let state = statesByPanelId[panelId] {
             switch state.phase {
-            case .launching where state.binding.checkpointId == binding.checkpointId &&
-                    state.binding.kind == binding.kind:
+            case .awaitingLaunch, .running where state.binding.isSameManagedSession(as: binding):
                 var updatedState = state
                 updatedState.binding = binding
                 statesByPanelId[panelId] = updatedState
-            case .waiting, .ready, .launching, .exhausted:
+            case .waiting, .ready, .awaitingLaunch, .running, .exhausted:
                 // A different managed session, or a manual resume while waiting
                 // or exhausted, owns the pane now and starts with a fresh budget.
                 clearRecovery(panelId: panelId)
@@ -121,6 +121,10 @@ final class AgentSessionRetryCoordinator {
         }
         bindCurrentManagedRunIfPossible(panelId: panelId)
         recordHookFirstManagedStartIfPossible(panelId: panelId)
+        acknowledgeInjectedRetryFromHooksIfPossible(
+            panelId: panelId,
+            bindingPublicationIsEvidence: true
+        )
     }
 
     func managedResumeBindingDidClear(
@@ -129,7 +133,7 @@ final class AgentSessionRetryCoordinator {
         sessionDidEnd: Bool
     ) {
         if let state = statesByPanelId[panelId],
-           state.phase.isWaitingOrExhausted,
+           state.phase.isWaitingOrReadyOrExhausted,
            state.binding.isSameManagedSession(as: binding),
            state.commandGeneration == commandGenerationsByPanelId[panelId],
            sessionDidEnd {
@@ -174,6 +178,7 @@ final class AgentSessionRetryCoordinator {
     func shellActivityDidChange(panelId: UUID, state: PanelShellActivityState) {
         guard state == .commandRunning else {
             if state == .promptIdle {
+                preserveOwnedRunAtPromptIdle(panelId: panelId)
                 attemptReadyRetry(panelId: panelId)
             }
             return
@@ -181,31 +186,46 @@ final class AgentSessionRetryCoordinator {
         let pendingManagedStart = pendingManagedStartsByPanelId.removeValue(forKey: panelId)
         let nextGeneration = (commandGenerationsByPanelId[panelId] ?? 0) &+ 1
 
-        if var state = statesByPanelId[panelId], case .launching = state.phase {
-            // This is the retry command accepted by sendManagedAgentRetry. Carry
-            // its bounded-attempt state into the new shell generation.
-            state.commandGeneration = nextGeneration
-            statesByPanelId[panelId] = state
-            managedRunsByPanelId.removeValue(forKey: panelId)
-            endedSessionCandidatesByPanelId.removeValue(forKey: panelId)
+        var retainedInjectedRetryBinding: SurfaceResumeBindingSnapshot?
+        if var retryState = statesByPanelId[panelId] {
+            switch retryState.phase {
+            case let .awaitingLaunch(attempt, maximumAttempts),
+                 let .running(attempt, maximumAttempts):
+                retryState.timer?.invalidate()
+                retryState.commandGeneration = nextGeneration
+                retryState.phase = .running(
+                    attempt: attempt,
+                    maximumAttempts: maximumAttempts
+                )
+                retryState.timer = nil
+                statesByPanelId[panelId] = retryState
+                retainedInjectedRetryBinding = retryState.binding
+            case .waiting, .ready, .exhausted:
+                clearRecovery(panelId: panelId)
+            }
         } else {
             // A user-started command supersedes every unconsumed completion and
             // every scheduled/exhausted retry for the prior generation.
             clearRecovery(panelId: panelId)
         }
+        if let retainedInjectedRetryBinding {
+            managedRunsByPanelId.removeValue(forKey: panelId)
+            endedSessionCandidatesByPanelId.removeValue(forKey: panelId)
+            managedRunsByPanelId[panelId] = ManagedRunOwnership(
+                binding: retainedInjectedRetryBinding,
+                commandGeneration: nextGeneration
+            )
+            workspace?.removeAgentRetryStatusEntry(panelId: panelId)
+        }
         commandGenerationsByPanelId[panelId] = nextGeneration
 
-        // Hooks can win the cross-process race with the shell-state report for
-        // a retry cmux launched itself. In that one case, existing live signals
-        // are safe to bind to the generation that just began.
-        if case .launching = statesByPanelId[panelId]?.phase {
-            bindCurrentManagedRunIfPossible(panelId: panelId, shellIsRunning: true)
-        } else if let pendingManagedStart,
-                  let workspace,
-                  workspace.hasActiveAgentLifecycleForRetry(panelId: panelId),
-                  workspace.managedAgentRetryBinding(panelId: panelId)?.isSameManagedSession(
-                      as: pendingManagedStart
-                  ) == true {
+        if retainedInjectedRetryBinding == nil,
+           let pendingManagedStart,
+           let workspace,
+           workspace.hasActiveAgentLifecycleForRetry(panelId: panelId),
+           workspace.managedAgentRetryBinding(panelId: panelId)?.isSameManagedSession(
+               as: pendingManagedStart
+           ) == true {
             managedRunsByPanelId[panelId] = ManagedRunOwnership(
                 binding: pendingManagedStart,
                 commandGeneration: nextGeneration
@@ -215,12 +235,29 @@ final class AgentSessionRetryCoordinator {
 
     func commandFinished(panelId: UUID, exitCode: Int?) {
         guard workspace != nil else { return }
-        if statesByPanelId[panelId]?.phase.isWaitingOrExhausted == true { return }
-        guard let commandGeneration = commandGenerationsByPanelId[panelId],
-              let candidate = commandFinishedCandidate(
-                  panelId: panelId,
-                  commandGeneration: commandGeneration
-              ) else {
+        if statesByPanelId[panelId]?.phase.isWaitingOrReadyOrExhausted == true { return }
+        guard let commandGeneration = commandGenerationsByPanelId[panelId] else {
+            clearRecovery(panelId: panelId)
+            return
+        }
+        let candidate: ManagedRunOwnership
+        if let state = statesByPanelId[panelId],
+           case .awaitingLaunch = state.phase,
+           state.commandGeneration == commandGeneration {
+            // The accepted retry injection is itself authoritative ownership.
+            // Explicit input and the acknowledgement deadline both cancel this
+            // phase, so a command-finished event that wins the start-hook race
+            // belongs to the injected resume attempt.
+            candidate = ManagedRunOwnership(
+                binding: state.binding,
+                commandGeneration: commandGeneration
+            )
+        } else if let ownedCandidate = commandFinishedCandidate(
+            panelId: panelId,
+            commandGeneration: commandGeneration
+        ) {
+            candidate = ownedCandidate
+        } else {
             clearRecovery(panelId: panelId)
             return
         }
@@ -267,7 +304,7 @@ final class AgentSessionRetryCoordinator {
         let hasUnclassifiedRun = managedRunsByPanelId[panelId] != nil ||
             endedSessionCandidatesByPanelId[panelId] != nil ||
             pendingManagedStartsByPanelId[panelId] != nil
-        guard statesByPanelId[panelId]?.phase.isWaitingOrExhausted == true ||
+        guard statesByPanelId[panelId]?.phase.isPendingOrExhausted == true ||
                 (promptIsIdle && hasUnclassifiedRun) else { return }
         reset(panelId: panelId)
     }
@@ -344,6 +381,45 @@ final class AgentSessionRetryCoordinator {
         pendingManagedStartsByPanelId[panelId] = binding
     }
 
+    private func acknowledgeInjectedRetryFromHooksIfPossible(
+        panelId: UUID,
+        bindingPublicationIsEvidence: Bool = false
+    ) {
+        guard let workspace,
+              var state = statesByPanelId[panelId],
+              case let .awaitingLaunch(attempt, maximumAttempts) = state.phase,
+              let binding = workspace.managedAgentRetryBinding(panelId: panelId),
+              state.binding.isSameManagedSession(as: binding),
+              bindingPublicationIsEvidence ||
+                workspace.hasActiveAgentLifecycleForRetry(panelId: panelId) else {
+            return
+        }
+        state.timer?.invalidate()
+        state.binding = binding
+        state.phase = .running(attempt: attempt, maximumAttempts: maximumAttempts)
+        state.timer = nil
+        statesByPanelId[panelId] = state
+        pendingManagedStartsByPanelId[panelId] = binding
+        workspace.removeAgentRetryStatusEntry(panelId: panelId)
+    }
+
+    private func preserveOwnedRunAtPromptIdle(panelId: UUID) {
+        guard endedSessionCandidatesByPanelId[panelId] == nil,
+              let workspace,
+              let commandGeneration = commandGenerationsByPanelId[panelId],
+              let ownedRun = managedRunsByPanelId[panelId],
+              ownedRun.commandGeneration == commandGeneration else {
+            return
+        }
+        if let currentBinding = workspace.managedAgentRetryBinding(panelId: panelId),
+           !ownedRun.binding.isSameManagedSession(as: currentBinding) {
+            clearRecovery(panelId: panelId)
+            return
+        }
+        endedSessionCandidatesByPanelId[panelId] = ownedRun
+        managedRunsByPanelId.removeValue(forKey: panelId)
+    }
+
     private func bindCurrentManagedRunIfPossible(
         panelId: UUID,
         shellIsRunning: Bool? = nil
@@ -385,6 +461,7 @@ final class AgentSessionRetryCoordinator {
         category: "AgentSessionAutoRetry"
     )
     static let readinessTimeoutSeconds: TimeInterval = 30
+    static let launchAcknowledgementTimeoutSeconds: TimeInterval = 30
 }
 
 extension SurfaceResumeBindingSnapshot {

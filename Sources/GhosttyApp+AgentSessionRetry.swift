@@ -10,7 +10,7 @@ extension GhosttyApp {
         let exitCode = message.exit_code >= 0 ? Int(message.exit_code) : nil
         guard let tabId, let surfaceId else { return true }
 
-        performOnMain {
+        Task { @MainActor in
             guard let app = AppDelegate.shared,
                   let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else {
                 return

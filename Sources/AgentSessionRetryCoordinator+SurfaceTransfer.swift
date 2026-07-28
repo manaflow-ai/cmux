@@ -51,7 +51,7 @@ extension AgentSessionRetryCoordinator {
                 completedAttempts: completedAttempts,
                 binding: binding,
                 commandGeneration: commandGeneration,
-                phase: .launching(
+                phase: .running(
                     attempt: completedAttempts,
                     maximumAttempts: policy.maximumAttempts
                 ),

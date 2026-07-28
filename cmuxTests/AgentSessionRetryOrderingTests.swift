@@ -139,7 +139,7 @@ struct AgentSessionRetryOrderingTests {
         )
         #expect(
             fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
-                .launching(attempt: 1, maximumAttempts: 3)
+                .awaitingLaunch(attempt: 1, maximumAttempts: 3)
         )
 
         fixture.workspace.updatePanelShellActivityState(

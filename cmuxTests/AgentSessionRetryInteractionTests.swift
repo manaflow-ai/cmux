@@ -96,10 +96,18 @@ struct AgentSessionRetryInteractionTests {
         fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(
             panelId: fixture.panelId
         )
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .awaitingLaunch(attempt: 1, maximumAttempts: 3)
+        )
 
         fixture.workspace.updatePanelShellActivityState(
             panelId: fixture.panelId,
             state: .commandRunning
+        )
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .running(attempt: 1, maximumAttempts: 3)
         )
         #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
 
@@ -120,6 +128,10 @@ struct AgentSessionRetryInteractionTests {
             Int64(2),
             Int64(3)
         )
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .waiting(attempt: 2, maximumAttempts: 3, exitCode: 1)
+        )
         #expect(fixture.workspace.statusEntries[fixture.statusKey]?.value == expectedStatus)
         fixture.workspace.agentSessionRetryCoordinator.cancelAll()
     }
@@ -134,6 +146,10 @@ struct AgentSessionRetryInteractionTests {
 
         fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(
             panelId: fixture.panelId
+        )
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .awaitingLaunch(attempt: 1, maximumAttempts: 3)
         )
         fixture.workspace.setAgentLifecycle(
             key: "claude_code",
@@ -154,8 +170,47 @@ struct AgentSessionRetryInteractionTests {
             Int64(2),
             Int64(3)
         )
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .waiting(attempt: 2, maximumAttempts: 3, exitCode: 1)
+        )
         #expect(fixture.workspace.statusEntries[fixture.statusKey]?.value == expectedStatus)
         fixture.workspace.agentSessionRetryCoordinator.cancelAll()
+    }
+
+    @MainActor
+    @Test("an unacknowledged retry launch expires and cannot claim a later command")
+    func unacknowledgedLaunchExpires() throws {
+        let fixture = try scheduledRetry(
+            suiteName: "AgentSessionRetryInteractionTests.launchDeadline"
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(
+            panelId: fixture.panelId
+        )
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .awaitingLaunch(attempt: 1, maximumAttempts: 3)
+        )
+
+        fixture.workspace.agentSessionRetryCoordinator.retryLaunchAcknowledgementDeadlineFired(
+            panelId: fixture.panelId
+        )
+        fixture.workspace.updatePanelShellActivityState(
+            panelId: fixture.panelId,
+            state: .commandRunning
+        )
+        fixture.workspace.updatePanelShellActivityState(
+            panelId: fixture.panelId,
+            state: .promptIdle
+        )
+        fixture.workspace.agentSessionRetryCoordinator.commandFinished(
+            panelId: fixture.panelId,
+            exitCode: 1
+        )
+
+        #expect(fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId] == nil)
+        #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
     }
 
     @MainActor
@@ -167,6 +222,10 @@ struct AgentSessionRetryInteractionTests {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let panel = try #require(fixture.workspace.panels[fixture.panelId] as? TerminalPanel)
         fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(panelId: fixture.panelId)
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .awaitingLaunch(attempt: 1, maximumAttempts: 3)
+        )
 
         panel.surface.didReceiveExplicitInput()
 
@@ -185,12 +244,20 @@ struct AgentSessionRetryInteractionTests {
         fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(panelId: fixture.panelId)
 
         #expect(fixture.workspace.setSurfaceResumeBinding(binding, panelId: fixture.panelId))
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .running(attempt: 1, maximumAttempts: 3)
+        )
         fixture.workspace.setAgentLifecycle(
             key: "claude_code",
             panelId: fixture.panelId,
             lifecycle: .unknown
         )
 
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .running(attempt: 1, maximumAttempts: 3)
+        )
         #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
 
         fixture.workspace.updatePanelShellActivityState(

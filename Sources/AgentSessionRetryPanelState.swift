@@ -5,14 +5,24 @@ struct AgentSessionRetryPanelState {
     enum Phase: Equatable {
         case waiting(attempt: Int, maximumAttempts: Int, exitCode: Int)
         case ready(attempt: Int, maximumAttempts: Int)
-        case launching(attempt: Int, maximumAttempts: Int)
+        case awaitingLaunch(attempt: Int, maximumAttempts: Int)
+        case running(attempt: Int, maximumAttempts: Int)
         case exhausted(maximumAttempts: Int)
 
-        var isWaitingOrExhausted: Bool {
+        var isPendingOrExhausted: Bool {
+            switch self {
+            case .waiting, .ready, .awaitingLaunch, .exhausted:
+                true
+            case .running:
+                false
+            }
+        }
+
+        var isWaitingOrReadyOrExhausted: Bool {
             switch self {
             case .waiting, .ready, .exhausted:
                 true
-            case .launching:
+            case .awaitingLaunch, .running:
                 false
             }
         }

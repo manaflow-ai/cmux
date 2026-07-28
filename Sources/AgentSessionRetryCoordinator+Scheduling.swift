@@ -134,15 +134,32 @@ extension AgentSessionRetryCoordinator {
             return
         }
 
+        let launchTimer = Timer(
+            timeInterval: Self.launchAcknowledgementTimeoutSeconds,
+            repeats: false
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.retryLaunchAcknowledgementDeadlineFired(panelId: panelId)
+            }
+        }
         statesByPanelId[panelId] = RetryState(
             completedAttempts: attempt,
             binding: state.binding,
             commandGeneration: state.commandGeneration,
-            phase: .launching(attempt: attempt, maximumAttempts: maximumAttempts),
-            timer: nil
+            phase: .awaitingLaunch(attempt: attempt, maximumAttempts: maximumAttempts),
+            timer: launchTimer
         )
+        RunLoop.main.add(launchTimer, forMode: .common)
         Self.logger.info(
             "Agent retry resume command sent panel=\(panelId, privacy: .public) attempt=\(attempt)/\(maximumAttempts)"
         )
+    }
+
+    func retryLaunchAcknowledgementDeadlineFired(panelId: UUID) {
+        guard case .awaitingLaunch = statesByPanelId[panelId]?.phase else { return }
+        Self.logger.warning(
+            "Agent retry cancelled while waiting for launch acknowledgement panel=\(panelId, privacy: .public)"
+        )
+        reset(panelId: panelId)
     }
 }
