@@ -934,6 +934,39 @@ def _swift_conditional_bindings(
     return bindings, declaration_offsets
 
 
+def _swift_catch_bindings(
+    text: str,
+) -> tuple[dict[int, dict[str, bool]], set[int]]:
+    """Map catch body braces to bindings introduced by catch patterns."""
+    bindings: dict[int, dict[str, bool]] = {}
+    declaration_offsets: set[int] = set()
+    for handler in re.finditer(
+        r"\bcatch\b(?P<header>[^{}]*)(?P<body>\{)",
+        text,
+    ):
+        header = handler.group("header")
+        body_opening = handler.start("body")
+        for event in _SWIFT_CLOCK_EVENT.finditer(header):
+            if (
+                event.group("typed_let") is not None
+                or event.group("inferred_let") is not None
+            ):
+                name = event.group("typed_name") or event.group("inferred_name")
+                bindings.setdefault(body_opening, {})[name] = True
+            elif event.group("simple_binding") is not None:
+                name = event.group("binding_name")
+                bindings.setdefault(body_opening, {})[name] = False
+            else:
+                continue
+            declaration_offsets.add(handler.start("header") + event.start())
+        for offset, (name, is_clock) in _swift_secondary_binding_events(
+            header
+        ).items():
+            bindings.setdefault(body_opening, {})[name] = is_clock
+            declaration_offsets.add(handler.start("header") + offset)
+    return bindings, declaration_offsets
+
+
 def _swift_switch_case_scopes(
     text: str,
 ) -> tuple[set[int], dict[int, dict[str, bool]]]:
@@ -1058,6 +1091,8 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
     conditional_bindings, conditional_declaration_offsets = (
         _swift_conditional_bindings(text)
     )
+    catch_bindings, catch_declaration_offsets = _swift_catch_bindings(text)
+    conditional_declaration_offsets.update(catch_declaration_offsets)
     switch_scopes, switch_case_bindings = _swift_switch_case_scopes(text)
     scopes: list[tuple[str, dict[str, bool]]] = [("file", {})]
     result: set[int] = set()
@@ -1105,6 +1140,7 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
             bindings = type_members.get(event.start(), {}).copy()
             bindings.update(callable_parameters.get(event.start(), {}))
             bindings.update(conditional_bindings.get(event.start(), {}))
+            bindings.update(catch_bindings.get(event.start(), {}))
             bindings.update(
                 _swift_closure_bindings(text, event.start())
             )
@@ -1458,6 +1494,10 @@ def _javascript_for_loop_declarations(
     declaration_pattern = re.compile(
         rf"\b(?:let|const)\s+(?P<declared>{alias_pattern})(?![$\w])"
     )
+    destructuring_pattern = re.compile(
+        r"\b(?:let|const)\s*[\{\[]"
+        r"(?P<binding_pattern>[^\}\]\n;]*)[\}\]]"
+    )
     bindings: dict[int, set[str]] = {}
     declaration_offsets: set[int] = set()
     unbraced_scopes: list[tuple[int, int, set[str]]] = []
@@ -1470,6 +1510,14 @@ def _javascript_for_loop_declarations(
         loop_bindings: set[str] = set()
         for declaration in declaration_pattern.finditer(header):
             loop_bindings.add(declaration.group("declared"))
+            declaration_offsets.add(opening + 1 + declaration.start())
+        for declaration in destructuring_pattern.finditer(header):
+            for alias in aliases:
+                if re.search(
+                    rf"(?<![$\w]){re.escape(alias)}(?![$\w])",
+                    declaration.group("binding_pattern"),
+                ):
+                    loop_bindings.add(alias)
             declaration_offsets.add(opening + 1 + declaration.start())
         if not loop_bindings:
             continue
@@ -1637,7 +1685,10 @@ def _javascript_timer_alias_positions(
                     event.group("declared")
                 )
         elif event.group("destructuring") is not None:
-            if not in_callable_parameters(event.start()):
+            if (
+                event.start() not in for_loop_declaration_offsets
+                and not in_callable_parameters(event.start())
+            ):
                 target_scope = declaration_scope(
                     event.group("destructuring_kind")
                 )
@@ -1699,7 +1750,10 @@ def _javascript_timer_alias_positions(
                 )[event.group("declared")] = False
             continue
         if event.group("destructuring") is not None:
-            if not in_callable_parameters(event.start()):
+            if (
+                event.start() not in for_loop_declaration_offsets
+                and not in_callable_parameters(event.start())
+            ):
                 for alias in destructured_aliases(
                     event.group("binding_pattern")
                 ):
@@ -2185,6 +2239,8 @@ def _python_direct_calls_in_block(
     for statement in body:
         result.extend(_python_direct_calls_in_statement(statement, current))
         current = _python_bindings_after_statement(statement, current)
+        if not _python_statement_may_complete(statement):
+            break
     return result
 
 
@@ -2196,6 +2252,8 @@ def _python_bindings_after_block(
     result = bindings.copy()
     for statement in body:
         result = _python_bindings_after_statement(statement, result)
+        if not _python_statement_may_complete(statement):
+            break
     return result
 
 
@@ -2257,17 +2315,30 @@ def _python_bindings_after_statement(
                 statement.body if literal_condition else statement.orelse,
                 condition_bindings,
             )
-        return _python_merge_binding_variants(
-            [
-                _python_bindings_after_block(
+        variants = [
+            state
+            for block, state in (
+                (
                     statement.body,
-                    condition_bindings,
+                    _python_bindings_after_block(
+                        statement.body,
+                        condition_bindings,
+                    ),
                 ),
-                _python_bindings_after_block(
+                (
                     statement.orelse,
-                    condition_bindings,
+                    _python_bindings_after_block(
+                        statement.orelse,
+                        condition_bindings,
+                    ),
                 ),
-            ]
+            )
+            if _python_block_may_complete(block)
+        ]
+        return (
+            _python_merge_binding_variants(variants)
+            if variants
+            else condition_bindings
         )
 
     if isinstance(statement, (ast.For, ast.AsyncFor)):
@@ -2572,19 +2643,42 @@ def _python_direct_call_bindings(
     return result
 
 
-def _python_block_may_complete(body: list[ast.stmt]) -> bool:
-    """Return whether a loop body has a path reaching its lexical end."""
-    for statement in body:
-        if isinstance(statement, ast.Break):
-            return False
-        if (
-            isinstance(statement, ast.If)
-            and statement.orelse
-            and not _python_block_may_complete(statement.body)
-            and not _python_block_may_complete(statement.orelse)
+def _python_statement_may_complete(statement: ast.stmt) -> bool:
+    """Return whether a statement has a path to its following statement."""
+    if isinstance(statement, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
+        return False
+    if isinstance(statement, ast.If):
+        literal_condition = _python_literal_boolean(statement.test)
+        if literal_condition is not None:
+            return _python_block_may_complete(
+                statement.body if literal_condition else statement.orelse
+            )
+        if not statement.orelse:
+            return True
+        return _python_block_may_complete(
+            statement.body
+        ) or _python_block_may_complete(statement.orelse)
+    if isinstance(statement, (ast.With, ast.AsyncWith)):
+        return _python_block_may_complete(statement.body)
+    if isinstance(statement, (ast.Try, getattr(ast, "TryStar", ast.Try))):
+        if statement.finalbody and not _python_block_may_complete(
+            statement.finalbody
         ):
             return False
+        successful = _python_block_may_complete(
+            statement.body
+        ) and _python_block_may_complete(statement.orelse)
+        handled = any(
+            _python_block_may_complete(handler.body)
+            for handler in statement.handlers
+        )
+        return successful or handled
     return True
+
+
+def _python_block_may_complete(body: list[ast.stmt]) -> bool:
+    """Return whether a block has a path reaching its lexical end."""
+    return all(_python_statement_may_complete(statement) for statement in body)
 
 
 def _python_function_bindings(
@@ -2765,8 +2859,14 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             self._restore_scope_state(base)
             for statement in block:
                 self.visit(statement)
-            states.append(self._scope_state())
-        self._merge_scope_states(states)
+                if not _python_statement_may_complete(statement):
+                    break
+            if _python_block_may_complete(block):
+                states.append(self._scope_state())
+        if states:
+            self._merge_scope_states(states)
+        else:
+            self._restore_scope_state(base)
 
     def _argument_nodes(self, arguments: ast.arguments) -> list[ast.arg]:
         result = list(arguments.posonlyargs) + list(arguments.args)
@@ -3027,6 +3127,8 @@ class _PythonSleepVisitor(ast.NodeVisitor):
                 node.body if literal_condition else node.orelse
             ):
                 self.visit(statement)
+                if not _python_statement_may_complete(statement):
+                    break
             return
         self._visit_branch_blocks([node.body, node.orelse])
 
@@ -3042,7 +3144,10 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self._restore_scope_state(base)
         for statement in orelse:
             self.visit(statement)
-        states.append(self._scope_state())
+            if not _python_statement_may_complete(statement):
+                break
+        if _python_block_may_complete(orelse):
+            states.append(self._scope_state())
 
         self._restore_scope_state(base)
         if target is not None:
@@ -3051,6 +3156,8 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self.loop_break_states.append([])
         for statement in body:
             self.visit(statement)
+            if not _python_statement_may_complete(statement):
+                break
         states.extend(self.loop_break_states.pop())
         if _python_block_may_complete(body):
             for statement in orelse:
