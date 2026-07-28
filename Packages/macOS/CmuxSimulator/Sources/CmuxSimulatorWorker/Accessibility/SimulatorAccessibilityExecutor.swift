@@ -1,25 +1,45 @@
 import CmuxSimulator
 import Foundation
 
+protocol SimulatorAccessibilityBridging: Sendable {
+    func attach(device: NSObject) -> Bool
+    func detach()
+    func resetAccessibilityConnection()
+    func probeAccessibility() throws
+    func foregroundApplication() throws -> SimulatorApplicationInfo?
+    func accessibilitySnapshot(
+        display: SimulatorDisplayMetadata
+    ) throws -> SimulatorAccessibilitySnapshot
+}
+
+extension SimulatorAccessibilityBridge: SimulatorAccessibilityBridging {}
+
 /// Owns every private accessibility translator call on one serial executor.
 /// Blocking delegate callbacks cannot hold the worker's main actor or race a
 /// detach, camera lookup, or accessibility-tree traversal.
 actor SimulatorAccessibilityExecutor: SimulatorAccessibilityExecuting {
-    private let bridge: SimulatorAccessibilityBridge
+    private let bridge: any SimulatorAccessibilityBridging
     private let mutationGate: SimulatorMutationGate
+    private let retrySleep: @Sendable (Duration) async throws -> Void
     private var attachedDeviceIdentifier: String?
     private static let retryDelays: [Duration] = [
         .zero,
         .milliseconds(100),
         .milliseconds(300),
+        .milliseconds(700),
+        .milliseconds(1_500),
     ]
 
     init(
-        bridge: SimulatorAccessibilityBridge = SimulatorAccessibilityBridge(),
-        mutationGate: SimulatorMutationGate = SimulatorMutationGate()
+        bridge: any SimulatorAccessibilityBridging = SimulatorAccessibilityBridge(),
+        mutationGate: SimulatorMutationGate = SimulatorMutationGate(),
+        retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
+        }
     ) {
         self.bridge = bridge
         self.mutationGate = mutationGate
+        self.retrySleep = retrySleep
     }
 
     func attach(
@@ -77,7 +97,7 @@ actor SimulatorAccessibilityExecutor: SimulatorAccessibilityExecuting {
                 try Task.checkCancellation()
                 bridge.resetAccessibilityConnection()
                 if delay != .zero {
-                    try await ContinuousClock().sleep(for: delay)
+                    try await retrySleep(delay)
                 }
                 do {
                     let result = try operation()
