@@ -75,6 +75,12 @@ struct AgentProcessArgumentsParserTests {
                 fromKernProcArgs: unterminatedArgument
             ) == nil
         )
+        #expect(
+            parser.filterMetadata(
+                fromKernProcArgs: unterminatedArgument,
+                normalizedArgumentNeedles: []
+            ) == nil
+        )
 
         var unterminatedEnvironment = kernProcArgs(
             arguments: ["codex"],
@@ -84,6 +90,12 @@ struct AgentProcessArgumentsParserTests {
         #expect(
             parser.argumentsAndEnvironment(
                 fromKernProcArgs: unterminatedEnvironment
+            ) == nil
+        )
+        #expect(
+            parser.filterMetadata(
+                fromKernProcArgs: unterminatedEnvironment,
+                normalizedArgumentNeedles: []
             ) == nil
         )
     }
