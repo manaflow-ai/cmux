@@ -78,10 +78,13 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(immediate.value == nil)
         releases.removeAll()
 
+        let sleeping = schedule(-2, delay: .milliseconds(25))
+        await clock.waitUntilSleeping(for: .milliseconds(25))
         let superseded = (0..<999).map { schedule($0, delay: .seconds(1)) }
         let final = schedule(999, delay: .milliseconds(50), force: true)
         await clock.waitUntilSleeping(for: .milliseconds(50))
         #expect(releases.isEmpty)
+        #expect(sleeping.value == nil)
         #expect(superseded.allSatisfy { $0.value == nil })
         #expect(final.value != nil)
 
