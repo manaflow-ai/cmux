@@ -6,7 +6,7 @@ enum SimulatorWebInspectorRequestIdentifier: Hashable {
 
     var foundationValue: Any {
         switch self {
-        case let .number(value): NSNumber(value: Double(value) ?? 0)
+        case let .number(value): NSNumber(value: Int64(value) ?? 0)
         case let .string(value): value
         }
     }
