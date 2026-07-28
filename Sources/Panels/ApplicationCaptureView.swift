@@ -2,8 +2,40 @@ import AppKit
 import Carbon.HIToolbox
 import CmuxSimulatorUI
 
+enum ApplicationCaptureLivenessFailure: Equatable {
+    case firstFrameTimedOut
+    case frameStalled
+}
+
+struct ApplicationCaptureLivenessState {
+    let startedAt: TimeInterval
+    private(set) var lastFrameAt: TimeInterval?
+
+    mutating func recordFrame(at timestamp: TimeInterval) {
+        lastFrameAt = timestamp
+    }
+
+    func failure(
+        at timestamp: TimeInterval,
+        firstFrameTimeout: TimeInterval,
+        frameStallTimeout: TimeInterval
+    ) -> ApplicationCaptureLivenessFailure? {
+        if let lastFrameAt {
+            return timestamp - lastFrameAt >= frameStallTimeout
+                ? .frameStalled
+                : nil
+        }
+        return timestamp - startedAt >= firstFrameTimeout
+            ? .firstFrameTimedOut
+            : nil
+    }
+}
+
 @MainActor
 final class ApplicationCaptureView: NSView {
+    private static let firstFrameTimeout: TimeInterval = 8
+    private static let frameStallTimeout: TimeInterval = 8
+
     private static let namedKeyCodes: [String: CGKeyCode] = [
         "a": CGKeyCode(kVK_ANSI_A), "b": CGKeyCode(kVK_ANSI_B),
         "c": CGKeyCode(kVK_ANSI_C), "d": CGKeyCode(kVK_ANSI_D),
@@ -81,8 +113,13 @@ final class ApplicationCaptureView: NSView {
     private var session: ApplicationSurfaceSessionDescriptor?
     private var captureTask: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
+    private var inputReleaseTask: Task<Void, Never>?
+    private var livenessTask: Task<Void, Never>?
+    private var livenessState: ApplicationCaptureLivenessState?
     private var captureGeneration = UUID()
+    private var inputReleaseGeneration = UUID()
     private var captureDesired = false
+    private var hostWindowVisible = false
     private var targetUnavailable = false
     private var pendingScrollX = 0.0
     private var pendingScrollY = 0.0
@@ -91,6 +128,7 @@ final class ApplicationCaptureView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
+    var isReleasingForwardedInput: Bool { inputReleaseTask != nil }
 
     init(
         windowID: UInt32,
@@ -113,8 +151,16 @@ final class ApplicationCaptureView: NSView {
         layer?.backgroundColor = NSColor.clear.cgColor
         addSubview(remoteFrameView)
         remoteFrameView.onFirstFrame = { [weak self] in
-            guard let self, self.captureDesired, self.session != nil else { return }
+            guard let self, self.shouldCaptureNow, self.session != nil else { return }
             self.onStateChanged(.streaming)
+        }
+        remoteFrameView.onFramePresented = { [weak self] in
+            self?.recordPresentedFrame()
+        }
+        remoteFrameView.onHostVisibilityChanged = { [weak self] visible in
+            guard let self else { return }
+            self.hostWindowVisible = visible
+            self.reconcileCaptureActivity()
         }
         remoteFrameView.onTransportFailure = { [weak self] error in
             guard let self else { return }
@@ -130,6 +176,27 @@ final class ApplicationCaptureView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if window !== newWindow {
+            if window != nil {
+                releaseForwardedInputs()
+            }
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.didResignKeyNotification,
+                object: window
+            )
+        }
+        super.viewWillMove(toWindow: newWindow)
+        guard let newWindow else { return }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(hostWindowDidResignKey(_:)),
+            name: NSWindow.didResignKeyNotification,
+            object: newWindow
+        )
     }
 
     override func viewDidMoveToWindow() {
@@ -161,20 +228,16 @@ final class ApplicationCaptureView: NSView {
 
     func setCaptureActive(_ active: Bool) {
         captureDesired = active
-        remoteFrameView.setActive(active)
-        if active {
-            startCapture()
-        } else {
-            stopCapture()
-        }
+        reconcileCaptureActivity()
     }
 
     func startCapture() {
         guard
-            captureDesired,
+            shouldCaptureNow,
             !targetUnavailable,
             captureTask == nil,
             stopTask == nil,
+            inputReleaseTask == nil,
             session == nil
         else {
             return
@@ -185,8 +248,9 @@ final class ApplicationCaptureView: NSView {
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
-                if self.captureGeneration == generation {
-                    self.captureTask = nil
+                self.captureTask = nil
+                if self.shouldCaptureNow {
+                    self.startCapture()
                 }
             }
             let lease: ApplicationSurfaceRuntimeLease?
@@ -197,10 +261,15 @@ final class ApplicationCaptureView: NSView {
             }
             guard
                 !Task.isCancelled,
-                self.captureDesired,
-                self.captureGeneration == generation,
-                let lease
+                self.shouldCaptureNow,
+                self.captureGeneration == generation
             else {
+                return
+            }
+            guard let lease else {
+                self.captureDesired = false
+                self.remoteFrameView.setActive(false)
+                self.onStateChanged(.failed)
                 return
             }
             self.lease = lease
@@ -213,7 +282,7 @@ final class ApplicationCaptureView: NSView {
                 )
                 guard
                     !Task.isCancelled,
-                    self.captureDesired,
+                    self.shouldCaptureNow,
                     self.captureGeneration == generation
                 else {
                     await self.runtime.stopApplicationSurface(
@@ -223,14 +292,28 @@ final class ApplicationCaptureView: NSView {
                     return
                 }
                 self.session = session
+                self.beginLivenessWatchdog(generation: generation)
                 self.remoteFrameView.adopt(session.frameTransport)
+                guard
+                    self.shouldCaptureNow,
+                    self.captureGeneration == generation,
+                    self.session?.sessionID == session.sessionID
+                else {
+                    return
+                }
                 self.remoteFrameView.setActive(true)
             } catch ApplicationSurfaceRuntimeError.permissionRequired {
+                self.captureDesired = false
+                self.remoteFrameView.setActive(false)
                 self.onStateChanged(.permissionRequired)
             } catch ApplicationSurfaceRuntimeError.windowUnavailable {
+                self.captureDesired = false
                 self.targetUnavailable = true
+                self.remoteFrameView.setActive(false)
                 self.onStateChanged(.windowUnavailable)
             } catch {
+                self.captureDesired = false
+                self.remoteFrameView.setActive(false)
                 cmuxDebugLog(
                     "applicationSurface.start.failed"
                         + " window=\(self.sourceWindowID)"
@@ -243,9 +326,13 @@ final class ApplicationCaptureView: NSView {
 
     func stopCapture() {
         captureDesired = false
+        suspendCapture()
+    }
+
+    private func suspendCapture() {
         captureGeneration = UUID()
         captureTask?.cancel()
-        captureTask = nil
+        stopLivenessWatchdog()
         remoteFrameView.setActive(false)
         pendingScrollX = 0
         pendingScrollY = 0
@@ -253,19 +340,13 @@ final class ApplicationCaptureView: NSView {
         guard stopTask == nil else { return }
         let session = session
         let lease = lease
+        guard session != nil else { return }
+        let inputReleaseTask = beginInputRelease(session: session, lease: lease)
         self.session = nil
         let runtime = runtime
-        let inputPump = inputPump
         stopTask = Task { @MainActor [weak self] in
-            let releases = await inputPump.discardPendingAndTakeReleaseEvents()
+            await inputReleaseTask.value
             if let session, let lease {
-                for event in releases {
-                    try? await runtime.sendApplicationSurfaceEvent(
-                        lease: lease,
-                        sessionID: session.sessionID,
-                        event: event
-                    )
-                }
                 await runtime.stopApplicationSurface(
                     lease: lease,
                     sessionID: session.sessionID
@@ -273,7 +354,7 @@ final class ApplicationCaptureView: NSView {
             }
             guard let self else { return }
             self.stopTask = nil
-            if self.captureDesired {
+            if self.shouldCaptureNow {
                 self.startCapture()
             }
         }
@@ -281,15 +362,26 @@ final class ApplicationCaptureView: NSView {
 
     func teardown() {
         stopCapture()
+        NotificationCenter.default.removeObserver(self)
         remoteFrameView.teardown()
         lease = nil
+    }
+
+    func releaseForwardedInputs() {
+        _ = beginInputRelease(session: session, lease: lease)
+    }
+
+    func waitUntilForwardedInputReleased() async {
+        while let inputReleaseTask {
+            await inputReleaseTask.value
+        }
     }
 
     func sendNamedKey(
         keyCode: CGKeyCode,
         flags: CGEventFlags
     ) -> ApplicationNamedKeySendResult {
-        guard captureDesired, session != nil, lease != nil else {
+        guard canForwardInput else {
             return .surfaceUnavailable
         }
         let keyDown = ApplicationSurfaceInputEvent(
@@ -404,7 +496,7 @@ final class ApplicationCaptureView: NSView {
     }
 
     private func enqueueKey(_ event: NSEvent, keyDown: Bool) {
-        guard captureDesired, session != nil, lease != nil else { return }
+        guard canForwardInput else { return }
         guard inputPump.enqueue(ApplicationSurfaceInputEvent(
             kind: .key,
             keyCode: event.keyCode,
@@ -417,7 +509,7 @@ final class ApplicationCaptureView: NSView {
     }
 
     private func normalizedPoint(for event: NSEvent) -> CGPoint? {
-        guard captureDesired, session != nil, lease != nil else { return nil }
+        guard canForwardInput else { return nil }
         let point = convert(event.locationInWindow, from: nil)
         let frameSize = remoteFrameView.framePixelSize
         guard
@@ -437,6 +529,129 @@ final class ApplicationCaptureView: NSView {
         )
     }
 
+    private var shouldCaptureNow: Bool {
+        Self.shouldCapture(
+            captureDesired: captureDesired,
+            hostWindowVisible: hostWindowVisible
+        )
+    }
+
+    private var canForwardInput: Bool {
+        shouldCaptureNow
+            && session != nil
+            && lease != nil
+            && inputReleaseTask == nil
+            && stopTask == nil
+    }
+
+    private func reconcileCaptureActivity() {
+        let shouldCaptureNow = shouldCaptureNow
+        remoteFrameView.setActive(shouldCaptureNow && session != nil)
+        if shouldCaptureNow {
+            startCapture()
+        } else {
+            suspendCapture()
+        }
+    }
+
+    @discardableResult
+    private func beginInputRelease(
+        session: ApplicationSurfaceSessionDescriptor?,
+        lease: ApplicationSurfaceRuntimeLease?
+    ) -> Task<Void, Never> {
+        pendingScrollX = 0
+        pendingScrollY = 0
+        pressedModifierKeyCodes.removeAll()
+        if let inputReleaseTask {
+            return inputReleaseTask
+        }
+
+        inputPump.discardPending()
+        let generation = UUID()
+        inputReleaseGeneration = generation
+        let runtime = runtime
+        let inputPump = inputPump
+        let task = Task { @MainActor [weak self] in
+            let releases = await inputPump.takeReleaseEventsAfterDraining()
+            if let session, let lease {
+                for event in releases {
+                    try? await runtime.sendApplicationSurfaceEvent(
+                        lease: lease,
+                        sessionID: session.sessionID,
+                        event: event
+                    )
+                }
+            }
+            guard
+                let self,
+                self.inputReleaseGeneration == generation
+            else {
+                return
+            }
+            self.inputReleaseTask = nil
+            if self.shouldCaptureNow {
+                self.startCapture()
+            }
+        }
+        inputReleaseTask = task
+        return task
+    }
+
+    private func beginLivenessWatchdog(generation: UUID) {
+        stopLivenessWatchdog()
+        livenessState = ApplicationCaptureLivenessState(
+            startedAt: ProcessInfo.processInfo.systemUptime
+        )
+        let clock = ContinuousClock()
+        livenessTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await clock.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+                guard
+                    let self,
+                    self.captureGeneration == generation,
+                    self.shouldCaptureNow,
+                    self.session != nil
+                else {
+                    return
+                }
+                guard let failure = self.livenessState?.failure(
+                    at: ProcessInfo.processInfo.systemUptime,
+                    firstFrameTimeout: Self.firstFrameTimeout,
+                    frameStallTimeout: Self.frameStallTimeout
+                ) else {
+                    continue
+                }
+                cmuxDebugLog(
+                    "applicationSurface.frames.failed"
+                        + " window=\(self.sourceWindowID)"
+                        + " reason=\(String(describing: failure))"
+                )
+                self.handleRuntimeFailure(.failed)
+                return
+            }
+        }
+    }
+
+    private func stopLivenessWatchdog() {
+        livenessTask?.cancel()
+        livenessTask = nil
+        livenessState = nil
+    }
+
+    private func recordPresentedFrame() {
+        guard shouldCaptureNow, session != nil else { return }
+        livenessState?.recordFrame(at: ProcessInfo.processInfo.systemUptime)
+    }
+
+    @objc private func hostWindowDidResignKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        releaseForwardedInputs()
+    }
+
     private func handleRuntimeFailure(_ state: ApplicationPanel.CaptureState) {
         guard captureDesired else { return }
         if state == .windowUnavailable {
@@ -452,6 +667,13 @@ final class ApplicationCaptureView: NSView {
                 + " window=\(sourceWindowID)"
         )
         handleRuntimeFailure(.failed)
+    }
+
+    static func shouldCapture(
+        captureDesired: Bool,
+        hostWindowVisible: Bool
+    ) -> Bool {
+        captureDesired && hostWindowVisible
     }
 
     static func parseNamedKey(_ name: String) -> (keyCode: CGKeyCode, flags: CGEventFlags)? {

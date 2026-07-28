@@ -332,6 +332,7 @@ final class ApplicationPanel: Panel {
 
     func unfocus() {
         pendingFocus = false
+        hostedView?.releaseForwardedInputs()
         guard let hostedView,
               let window = hostedView.window,
               window.firstResponder === hostedView else { return }

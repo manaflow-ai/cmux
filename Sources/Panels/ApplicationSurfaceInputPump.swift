@@ -50,7 +50,15 @@ final class ApplicationSurfaceInputPump {
     }
 
     func discardPendingAndTakeReleaseEvents() async -> [ApplicationSurfaceInputEvent] {
+        discardPending()
+        return await takeReleaseEventsAfterDraining()
+    }
+
+    func discardPending() {
         queue.removeAll(keepingCapacity: true)
+    }
+
+    func takeReleaseEventsAfterDraining() async -> [ApplicationSurfaceInputEvent] {
         await waitUntilIdle()
 
         var releases = possiblyPressedKeyCodes

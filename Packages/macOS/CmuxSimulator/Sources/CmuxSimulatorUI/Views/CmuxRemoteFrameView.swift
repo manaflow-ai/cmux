@@ -10,6 +10,8 @@ import QuartzCore
 @MainActor
 public final class CmuxRemoteFrameView: NSView {
     public var onFirstFrame: (() -> Void)?
+    public var onFramePresented: (() -> Void)?
+    public var onHostVisibilityChanged: ((Bool) -> Void)?
     public var onTransportFailure: ((Error) -> Void)?
 
     public private(set) var framePixelSize = CGSize.zero
@@ -19,6 +21,7 @@ public final class CmuxRemoteFrameView: NSView {
     private var frameTransportDescriptor: SimulatorFrameTransportDescriptor?
     private var presentationTimer: DispatchSourceTimer?
     private var lastFrameSequence: UInt64?
+    private var hostWindowVisible = false
     private var isActive = true
     private var isTornDown = false
 
@@ -91,7 +94,10 @@ public final class CmuxRemoteFrameView: NSView {
         frameTransportDescriptor = nil
         framePixelSize = .zero
         lastFrameSequence = nil
+        publishHostVisibility(false)
         onFirstFrame = nil
+        onFramePresented = nil
+        onHostVisibilityChanged = nil
         onTransportFailure = nil
     }
 
@@ -114,6 +120,7 @@ public final class CmuxRemoteFrameView: NSView {
         if window !== newWindow {
             stopPresentationTimer()
             NotificationCenter.default.removeObserver(self)
+            publishHostVisibility(false)
         }
         super.viewWillMove(toWindow: newWindow)
         guard let newWindow else { return }
@@ -148,6 +155,7 @@ public final class CmuxRemoteFrameView: NSView {
         CATransaction.commit()
         let isFirstFrame = lastFrameSequence == nil
         lastFrameSequence = presentation.sequence
+        onFramePresented?()
         if isFirstFrame {
             onFirstFrame?()
         }
@@ -162,10 +170,12 @@ public final class CmuxRemoteFrameView: NSView {
     }
 
     private func reconcilePresentation() {
+        let hostWindowVisible = window.map(simulatorHostWindowIsVisible) == true
+        publishHostVisibility(hostWindowVisible)
         let shouldPresent = isActive
             && !isTornDown
             && framePipeline != nil
-            && window.map(simulatorHostWindowIsVisible) == true
+            && hostWindowVisible
         if shouldPresent {
             startPresentationTimer()
             renderLatestFrame()
@@ -217,6 +227,17 @@ public final class CmuxRemoteFrameView: NSView {
 
     @objc private func hostWindowVisibilityDidChange(_ notification: Notification) {
         guard notification.object as? NSWindow === window else { return }
+        if notification.name == NSWindow.willCloseNotification {
+            publishHostVisibility(false)
+            stopPresentationTimer()
+            return
+        }
         reconcilePresentation()
+    }
+
+    private func publishHostVisibility(_ visible: Bool) {
+        guard visible != hostWindowVisible else { return }
+        hostWindowVisible = visible
+        onHostVisibilityChanged?(visible)
     }
 }
