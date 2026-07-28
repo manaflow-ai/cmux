@@ -180,7 +180,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
     }
 
-    func testQuickLookSessionCloseDoesNotDeactivateMountedRepresentableView() throws {
+    func testQuickLookSessionCloseDoesNotReadoptDismantledRepresentableView() throws {
         let url = try temporaryBinaryFile()
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -195,8 +195,9 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
-        guard let previewView = view as? QLPreviewView else {
-            return XCTFail("Expected Quick Look to vend a QLPreviewView")
+        guard let container = view as? FilePreviewQuickLookContainerView,
+              let previewView = container.livePreviewView() else {
+            return XCTFail("Expected Quick Look to vend a preview host")
         }
         XCTAssertNotNil(previewView.previewItem)
 
@@ -211,6 +212,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             drawsBackground: true
         )
         XCTAssertNil(previewView.previewItem)
+        XCTAssertNil(container.livePreviewView())
     }
 
     func testQuickLookSessionDismantlingRetiredViewDoesNotResetActivePreviewItem() throws {
@@ -226,8 +228,8 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
-        guard retiredView is QLPreviewView else {
-            return XCTFail("Expected Quick Look to vend a QLPreviewView")
+        guard retiredView is FilePreviewQuickLookContainerView else {
+            return XCTFail("Expected Quick Look to vend a preview host")
         }
 
         panel.nativeViewSessions.quickLook.close()
@@ -239,8 +241,9 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
-        guard let activePreviewView = activeView as? QLPreviewView else {
-            return XCTFail("Expected Quick Look to vend a QLPreviewView")
+        guard let activeContainer = activeView as? FilePreviewQuickLookContainerView,
+              let activePreviewView = activeContainer.livePreviewView() else {
+            return XCTFail("Expected Quick Look to vend a preview host")
         }
         let activeItem = try XCTUnwrap(activePreviewView.previewItem as AnyObject?)
 

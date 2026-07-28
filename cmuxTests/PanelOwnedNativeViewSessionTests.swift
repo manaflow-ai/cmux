@@ -8,23 +8,6 @@ import Testing
 @testable import cmux
 #endif
 
-private extension FilePreviewQuickLookContainerView {
-    /// Reproduces the AppKit state where the stable host stays mounted while
-    /// QuickLook loses its inner preview without recording a window detach.
-    func replaceLivePreviewWithUnattachedPreview() -> QLPreviewView? {
-        let item = previewView?.previewItem
-        previewView?.previewItem = nil
-        previewView?.removeFromSuperview()
-
-        guard let unattached = TrackedQLPreviewView(frame: bounds, style: .normal) else {
-            return nil
-        }
-        unattached.previewItem = item
-        previewView = unattached
-        return unattached
-    }
-}
-
 @MainActor
 @Suite("Panel-owned native view sessions")
 struct PanelOwnedNativeViewSessionTests {
@@ -151,149 +134,14 @@ struct PanelOwnedNativeViewSessionTests {
         }
 
         window.contentView = container
-        let stalePreviewView = try #require(
-            container.livePreviewView() as? TrackedQLPreviewView
-        )
+        let stalePreviewView = try #require(container.livePreviewView())
         #expect(stalePreviewView.previewItem != nil)
-        #expect(!stalePreviewView.didDetachFromWindow)
+        #expect(!stalePreviewView.shouldCloseWithWindow)
 
         window.contentView = nil
         #expect(stalePreviewView.window == nil)
-        #expect(stalePreviewView.didDetachFromWindow)
-
-        session.update(
-            container,
-            panel: secondPanel,
-            revision: secondPanel.previewRevision,
-            isVisibleInUI: true,
-            backgroundColor: .clear,
-            drawsBackground: false
-        )
-
-        let freshPreviewView = try #require(container.livePreviewView())
-        let freshPreviewItem = try #require(freshPreviewView.previewItem)
-        #expect(freshPreviewView !== stalePreviewView)
-        #expect(freshPreviewItem.previewItemURL == secondURL)
-        #expect(stalePreviewView.previewItem == nil)
-    }
-
-    @Test
-    func quickLookUpdateRetiresInnerPreviewMissingFromMountedContainer() throws {
-        let firstURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cmux-7311-quicklook-a-\(UUID().uuidString).txt")
-        let secondURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cmux-7311-quicklook-b-\(UUID().uuidString).txt")
-        defer {
-            try? FileManager.default.removeItem(at: firstURL)
-            try? FileManager.default.removeItem(at: secondURL)
-        }
-        try "first".write(to: firstURL, atomically: true, encoding: .utf8)
-        try "second".write(to: secondURL, atomically: true, encoding: .utf8)
-
-        let firstPanel = FilePreviewPanel(workspaceId: UUID(), filePath: firstURL.path)
-        let secondPanel = FilePreviewPanel(workspaceId: UUID(), filePath: secondURL.path)
-        defer {
-            firstPanel.close()
-            secondPanel.close()
-        }
-        let session = FilePreviewQuickLookSession()
-        let container = try #require(session.view(
-            panel: firstPanel,
-            revision: firstPanel.previewRevision,
-            isVisibleInUI: true,
-            backgroundColor: .clear,
-            drawsBackground: false
-        ) as? FilePreviewQuickLookContainerView)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        defer {
-            session.dismantle(container)
-            window.close()
-        }
-
-        window.contentView = container
-        _ = try #require(container.livePreviewView())
-        let stalePreviewView = try #require(
-            container.replaceLivePreviewWithUnattachedPreview()
-        )
-        #expect(container.window != nil)
-        #expect(stalePreviewView.window == nil)
-        let trackedStalePreviewView = try #require(stalePreviewView as? TrackedQLPreviewView)
-        #expect(!trackedStalePreviewView.didDetachFromWindow)
-        #expect(stalePreviewView.previewItem != nil)
-
-        session.update(
-            container,
-            panel: secondPanel,
-            revision: secondPanel.previewRevision,
-            isVisibleInUI: true,
-            backgroundColor: .clear,
-            drawsBackground: false
-        )
-
-        let freshPreviewView = try #require(container.livePreviewView())
-        let freshPreviewItem = try #require(freshPreviewView.previewItem)
-        #expect(freshPreviewView !== stalePreviewView)
-        #expect(freshPreviewItem.previewItemURL == secondURL)
-        #expect(stalePreviewView.previewItem == nil)
-    }
-
-    @Test
-    func quickLookUpdateRetiresOrphanedPreviewAfterContainerDetaches() throws {
-        let firstURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cmux-7311-off-window-a-\(UUID().uuidString).txt")
-        let secondURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cmux-7311-off-window-b-\(UUID().uuidString).txt")
-        defer {
-            try? FileManager.default.removeItem(at: firstURL)
-            try? FileManager.default.removeItem(at: secondURL)
-        }
-        try "first".write(to: firstURL, atomically: true, encoding: .utf8)
-        try "second".write(to: secondURL, atomically: true, encoding: .utf8)
-
-        let firstPanel = FilePreviewPanel(workspaceId: UUID(), filePath: firstURL.path)
-        let secondPanel = FilePreviewPanel(workspaceId: UUID(), filePath: secondURL.path)
-        defer {
-            firstPanel.close()
-            secondPanel.close()
-        }
-        let session = FilePreviewQuickLookSession()
-        let container = try #require(session.view(
-            panel: firstPanel,
-            revision: firstPanel.previewRevision,
-            isVisibleInUI: true,
-            backgroundColor: .clear,
-            drawsBackground: false
-        ) as? FilePreviewQuickLookContainerView)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        defer {
-            session.dismantle(container)
-            window.close()
-        }
-
-        window.contentView = container
-        _ = try #require(container.livePreviewView())
-        let stalePreviewView = try #require(
-            container.replaceLivePreviewWithUnattachedPreview()
-        )
-        let trackedStalePreviewView = try #require(stalePreviewView as? TrackedQLPreviewView)
         #expect(stalePreviewView.superview == nil)
-        #expect(!trackedStalePreviewView.didDetachFromWindow)
-
-        window.contentView = nil
-        #expect(container.window == nil)
-        #expect(stalePreviewView.window == nil)
+        #expect(stalePreviewView.previewItem == nil)
 
         session.update(
             container,
@@ -307,13 +155,39 @@ struct PanelOwnedNativeViewSessionTests {
         let freshPreviewView = try #require(container.livePreviewView())
         let freshPreviewItem = try #require(freshPreviewView.previewItem)
         #expect(freshPreviewView !== stalePreviewView)
-        #expect(freshPreviewView.superview === container)
         #expect(freshPreviewItem.previewItemURL == secondURL)
         #expect(stalePreviewView.previewItem == nil)
     }
 
     @Test
-    func quickLookUpdateAfterRetainedWindowCloseUsesFreshInnerPreview() throws {
+    func quickLookDismantlePermanentlyRetiresOwnedPreview() throws {
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-7311-dismantle-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "preview".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        let session = FilePreviewQuickLookSession()
+        let container = try #require(session.view(
+            panel: panel,
+            revision: panel.previewRevision,
+            isVisibleInUI: true,
+            backgroundColor: .clear,
+            drawsBackground: false
+        ) as? FilePreviewQuickLookContainerView)
+        let previewView = try #require(container.livePreviewView())
+        #expect(previewView.previewItem != nil)
+
+        session.dismantle(container)
+
+        #expect(previewView.previewItem == nil)
+        #expect(previewView.superview == nil)
+        #expect(container.livePreviewView() == nil)
+    }
+
+    @Test
+    func quickLookUpdateAfterRetainedWindowCloseReusesAppOwnedPreview() throws {
         let firstURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-7311-window-close-a-\(UUID().uuidString).txt")
         let secondURL = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -353,7 +227,7 @@ struct PanelOwnedNativeViewSessionTests {
 
         window.contentView = container
         let closedPreviewView = try #require(container.livePreviewView())
-        #expect(closedPreviewView.shouldCloseWithWindow)
+        #expect(!closedPreviewView.shouldCloseWithWindow)
         #expect(closedPreviewView.previewItem != nil)
 
         window.close()
@@ -369,28 +243,9 @@ struct PanelOwnedNativeViewSessionTests {
             drawsBackground: false
         )
 
-        let freshPreviewView = try #require(container.livePreviewView())
-        let freshPreviewItem = try #require(freshPreviewView.previewItem)
-        #expect(freshPreviewView !== closedPreviewView)
-        #expect(freshPreviewItem.previewItemURL == secondURL)
-    }
-
-    @Test
-    func quickLookReusePolicyRequiresStructuralAndWindowOwnership() {
-        #expect(FilePreviewQuickLookContainerView.shouldRetire(
-            didDetachFromWindow: false,
-            isChildOfContainer: false,
-            sharesContainerWindow: false
-        ))
-        #expect(FilePreviewQuickLookContainerView.shouldRetire(
-            didDetachFromWindow: false,
-            isChildOfContainer: true,
-            sharesContainerWindow: false
-        ))
-        #expect(!FilePreviewQuickLookContainerView.shouldRetire(
-            didDetachFromWindow: false,
-            isChildOfContainer: true,
-            sharesContainerWindow: true
-        ))
+        let reusedPreviewView = try #require(container.livePreviewView())
+        let updatedPreviewItem = try #require(reusedPreviewView.previewItem)
+        #expect(reusedPreviewView === closedPreviewView)
+        #expect(updatedPreviewItem.previewItemURL == secondURL)
     }
 }

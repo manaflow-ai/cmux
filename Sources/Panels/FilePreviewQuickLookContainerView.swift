@@ -1,127 +1,89 @@
 import AppKit
 import Quartz
 
-/// Stable host for a `QLPreviewView`.
+/// Stable host that owns the full lifecycle of one replaceable Quick Look view.
 ///
-/// SwiftUI keeps the `NSView` returned from `makeNSView` mounted across tab
-/// switches, visibility toggles, and panel reuse, and hands that same instance
-/// back to `updateNSView`. A bare `QLPreviewView` cannot survive that lifecycle:
-/// once SwiftUI/AppKit detaches it from a window the view deactivates, and the
-/// next `previewItem` assignment aborts the process (see `TrackedQLPreviewView`).
-///
-/// By vending this container to SwiftUI instead, the fragile `QLPreviewView` can
-/// be swapped for a fresh one whenever the previous instance has been
-/// deactivated, without SwiftUI ever re-mounting the representable.
-final class FilePreviewQuickLookContainerView: QLPreviewView {
-    var previewView: TrackedQLPreviewView?
-
-    /// Classifies whether an existing inner preview is safe to reuse.
-    static func staleReason(
-        didDetachFromWindow: Bool,
-        isChildOfContainer: Bool,
-        sharesContainerWindow: Bool
-    ) -> String? {
-        if didDetachFromWindow {
-            return "detached-from-window"
-        }
-        if !isChildOfContainer {
-            return "missing-from-container"
-        }
-        if !sharesContainerWindow {
-            return "window-mismatch"
-        }
-        return nil
+/// Quick Look closes a preview automatically when its window closes unless the
+/// application opts into explicit ownership. This host disables that implicit
+/// close and retires the preview before a real window detachment or final
+/// representable teardown, so no closed preview is reused.
+final class FilePreviewQuickLookContainerView: NSView {
+    private enum Phase {
+        case idle
+        case live(QLPreviewView)
+        case dismantled
     }
 
-    /// Returns whether the inner preview must be replaced before assignment.
-    static func shouldRetire(
-        didDetachFromWindow: Bool,
-        isChildOfContainer: Bool,
-        sharesContainerWindow: Bool
-    ) -> Bool {
-        staleReason(
-            didDetachFromWindow: didDetachFromWindow,
-            isChildOfContainer: isChildOfContainer,
-            sharesContainerWindow: sharesContainerWindow
-        ) != nil
-    }
-
-    private init?(previewFrame: NSRect) {
-        super.init(frame: previewFrame, style: .normal)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        nil
-    }
+    private var phase: Phase = .idle
 
     /// Creates an empty stable host for a replaceable inner preview.
-    static func make() -> FilePreviewQuickLookContainerView? {
-        FilePreviewQuickLookContainerView(previewFrame: .zero)
+    static func make() -> FilePreviewQuickLookContainerView {
+        FilePreviewQuickLookContainerView(frame: .zero)
     }
 
-    override var previewItem: QLPreviewItem! {
-        get {
-            previewView?.previewItem
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let currentWindow = window, currentWindow !== newWindow {
+            retireLivePreview(reason: "window-transition")
         }
-        set {
-            guard let newValue else {
-                previewView?.previewItem = nil
-                return
-            }
-            setLivePreviewItem(newValue)
-        }
+        super.viewWillMove(toWindow: newWindow)
     }
 
-    /// Assigns an item only after validating or replacing the inner preview.
-    @discardableResult
-    func setLivePreviewItem(_ item: QLPreviewItem) -> QLPreviewView? {
-        guard let previewView = livePreviewView() else { return nil }
-        previewView.previewItem = item
+    /// Returns the preview owned by this mounted host, creating it when needed.
+    /// A dismantled representable cannot create or re-adopt a preview.
+    func livePreviewView() -> QLPreviewView? {
+        switch phase {
+        case .live(let previewView):
+            return previewView
+        case .dismantled:
+            return nil
+        case .idle:
+            break
+        }
+
+        guard let previewView = QLPreviewView(frame: bounds, style: .normal) else {
+            return nil
+        }
+        previewView.autostarts = true
+        previewView.shouldCloseWithWindow = false
+        previewView.autoresizingMask = [.width, .height]
+        addSubview(previewView)
+        phase = .live(previewView)
         return previewView
     }
 
-    /// Returns a preview view that is safe to receive a non-nil preview item,
-    /// recreating it when the previous instance has been deactivated or no
-    /// longer shares its mounted container's window. Returns `nil` only if
-    /// `QLPreviewView` itself fails to initialize.
-    func livePreviewView() -> QLPreviewView? {
-        if let previewView {
-            let staleReason = Self.staleReason(
-                didDetachFromWindow: previewView.didDetachFromWindow,
-                isChildOfContainer: previewView.superview === self,
-                sharesContainerWindow: previewView.window === window
-            )
-            if let staleReason {
-                sentryBreadcrumb(
-                    "quickLook.preview.retire",
-                    category: "filePreview",
-                    data: ["reason": staleReason]
-                )
-                // Assigning nil is always safe because QuickLook permits
-                // clearing an item after deactivation.
-                previewView.previewItem = nil
-                previewView.removeFromSuperview()
-                self.previewView = nil
-            } else {
-                return previewView
-            }
-        }
-
-        guard let fresh = TrackedQLPreviewView(frame: bounds, style: .normal) else {
-            return nil
-        }
-        fresh.autostarts = true
-        fresh.autoresizingMask = [.width, .height]
-        addSubview(fresh)
-        previewView = fresh
-        return fresh
-    }
-
-    /// Clears the active preview item without deactivating the view, mirroring
-    /// the previous `releaseView` behavior.
+    /// Clears the active item while preserving a reusable live preview.
     func clearPreviewItem() {
-        previewItem = nil
+        guard case .live(let previewView) = phase else { return }
+        previewView.previewItem = nil
     }
 
+    /// Permanently tears down this representable's Quick Look ownership.
+    func dismantle() {
+        guard !isDismantled else { return }
+        retireLivePreview(reason: "representable-dismantle")
+        phase = .dismantled
+        removeFromSuperview()
+    }
+
+    private var isDismantled: Bool {
+        if case .dismantled = phase {
+            return true
+        }
+        return false
+    }
+
+    private func retireLivePreview(reason: String) {
+        guard case .live(let previewView) = phase else { return }
+        sentryBreadcrumb(
+            "quickLook.preview.retire",
+            category: "filePreview",
+            data: ["reason": reason]
+        )
+        previewView.previewItem = nil
+        if previewView.window != nil {
+            previewView.close()
+        }
+        previewView.removeFromSuperview()
+        phase = .idle
+    }
 }
