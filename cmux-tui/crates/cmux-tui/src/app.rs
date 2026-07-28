@@ -7803,8 +7803,13 @@ impl App {
                     .collect::<HashMap<_, _>>();
                 placements.extend(snapshot.placements.iter().filter_map(|placement| {
                     let image = images.get(&placement.image_id)?.clone();
-                    let placement =
-                        kitty_graphic_placement(pane, self.cell_pixels, image, placement)?;
+                    let placement = kitty_graphic_placement(
+                        pane,
+                        area.content_source_x(),
+                        self.cell_pixels,
+                        image,
+                        placement,
+                    )?;
                     (!Self::graphic_occluded(placement.rect, occluders)).then_some(placement)
                 }));
             }

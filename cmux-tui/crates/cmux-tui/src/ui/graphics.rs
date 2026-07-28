@@ -209,6 +209,7 @@ pub fn kitty_graphic_image(
 /// in source-pixel space so images never bleed outside their pane.
 pub fn kitty_graphic_placement(
     pane: Rect,
+    viewport_col_offset: u16,
     cell_pixels: (u16, u16),
     image: Arc<GraphicImage>,
     placement: &KittyPlacement,
@@ -230,8 +231,9 @@ pub fn kitty_graphic_placement(
     let cell_height_i64 = i64::from(cell_height);
     let pane_width = i64::from(pane.width) * cell_width_i64;
     let pane_height = i64::from(pane.height) * cell_height_i64;
-    let image_left =
-        i64::from(placement.viewport_col) * cell_width_i64 + i64::from(placement.x_offset);
+    let image_left = (i64::from(placement.viewport_col) - i64::from(viewport_col_offset))
+        * cell_width_i64
+        + i64::from(placement.x_offset);
     let image_top =
         i64::from(placement.viewport_row) * cell_height_i64 + i64::from(placement.y_offset);
     let image_right = image_left.saturating_add(i64::from(placement.pixel_width));
@@ -1418,7 +1420,7 @@ mod tests {
         placement: &KittyPlacement,
         pane: Rect,
     ) -> GraphicPlacement {
-        kitty_graphic_placement(pane, (10, 20), kitty_graphic_image(0, 9, image), placement)
+        kitty_graphic_placement(pane, 0, (10, 20), kitty_graphic_image(0, 9, image), placement)
             .unwrap()
     }
 
@@ -1866,6 +1868,7 @@ mod tests {
         };
         let outer = kitty_graphic_placement(
             Rect { x: 10, y: 5, width: 5, height: 2 },
+            0,
             (10, 20),
             kitty_graphic_image(0, 9, &inner_image),
             &inner,
@@ -1914,6 +1917,7 @@ mod tests {
         let pane = Rect { x: 10, y: 5, width: 5, height: 4 };
         let outer = kitty_graphic_placement(
             pane,
+            0,
             (10, 20),
             kitty_graphic_image(0, 9, &inner_image),
             &inner,
