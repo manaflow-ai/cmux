@@ -12,17 +12,82 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `232b24bf2`, the head of
+The submodule pinned by this branch is `13a8b53d3`, the head of
 https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless hidden-tab
-renderer reclamation on top of the teardown-safe action lease release from
-https://github.com/manaflow-ai/ghostty/pull/152, transactional menu-owned key
-binding consumption and modifier-independent paired-release tracking from
-https://github.com/manaflow-ai/ghostty/pull/151.
+renderer reclamation and forced renderer rebuild transactions on top of the
+current `manaflow-ai/ghostty` `main` merge head, `0b1734f1e`.
 
-The newer `manaflow-ai/ghostty` `main` merge head is `0b1734f1e`. It combines
-the `os/open` stderr drain fix from `8f31fb57c` with the keyboard copy-mode
-selection, cursor geometry, bounded rich clipboard, and plain-text fallback
-fixes through `4a6c443c3`.
+### Hidden macOS renderer reclamation
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/153
+- Commits:
+  - `1de584d1e` (test: require lossless renderer realization requests)
+  - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
+  - `cc4ac8141` (test: require shared standard Metal pipelines)
+  - `921d4efaa` (renderer: share standard Metal pipelines)
+  - `f9d7262e1` (test: prevent concurrent Metal pipeline compilation)
+  - `1e8aecd93` (renderer: serialize standard Metal pipeline creation)
+  - `267541adf` (test: preserve Metal pipelines across renderer handoffs)
+  - `b2c78d61a` (renderer: retain standard Metal pipelines across handoffs)
+  - `e5702c1ab` (test: keep selected key tabs renderer-visible)
+  - `19555c20f` (macos: keep selected key tab renderer visible)
+  - `9ee855755` (test: recycle Metal command queues on renderer release)
+  - `88fe92c27` (renderer: release hidden Metal command queues)
+  - `532bbb0a5` (test: reclaim deselected tab renderers synchronously)
+  - `7d0009af6` (macos: reclaim deselected tab renderers immediately)
+  - `68ffad656` (test: prevent main-queue renderer teardown deadlock)
+  - `7b24d1c5d` (renderer: avoid main-queue teardown deadlock)
+  - `0f2b10bad` (test: require renderer-owned Metal resource lifetimes)
+  - `232b24bf2` (renderer: release duplicate Metal resource retention)
+  - `99439d40e` (test: cover deferred IOSurface clear ordering)
+  - `24cf22453` (renderer: harden hidden-tab recovery)
+  - `5faee251a` (renderer: close recovery lifetime edges)
+  - `941791f5b` (test: cover renderer recovery failure edges)
+  - `2c48281d4` (renderer: close recovery allocation gaps)
+  - `1d7602ab3` (test: cover renderer restore lifecycle gaps)
+  - `978e08759` (renderer: complete restore transaction semantics)
+  - `970dbe093` (test: preserve forced renderer rebuild requests)
+  - `13a8b53d3` (renderer: preserve forced rebuild transactions)
+- Files:
+  - `include/ghostty.h`
+  - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
+  - `macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift`
+  - `macos/Tests/Ghostty/RendererTabSelectionTests.swift`
+  - `src/apprt/embedded.zig`
+  - `src/renderer.zig`
+  - `src/renderer/Metal.zig`
+  - `src/renderer/Thread.zig`
+  - `src/renderer/generic.zig`
+  - `src/renderer/message.zig`
+  - `src/renderer/metal/IOSurfaceLayer.zig`
+  - `src/renderer/metal/Frame.zig`
+  - `src/renderer/metal/Target.zig`
+  - `src/renderer/metal/Texture.zig`
+  - `src/renderer/metal/api.zig`
+  - `src/renderer/metal/buffer.zig`
+  - `src/renderer/metal/shaders.zig`
+- Summary:
+  - Reclaims a deselected native tab's renderer while retaining its PTY,
+    terminal state, scrollback, and surface.
+  - Publishes renderer lifecycle state losslessly outside the bounded mailbox
+    and retries fallible GPU restoration with bounded backoff.
+  - Exposes one forced renderer rebuild transaction so an unrealize/realize
+    transition cannot be coalesced away when a hidden surface becomes ready.
+  - Drains outstanding frame leases and detaches the compositor layer before
+    releasing teardown-only Metal resources.
+  - Shares immutable standard shader pipelines by Metal device and pixel
+    format while preserving renderer-owned resources and transactional cleanup.
+  - Observes native tab selection conservatively and avoids synchronous
+    renderer-to-main waits during teardown.
+  - Conflict note: future renderer lifecycle work must preserve lossless
+    realization publication, forced rebuild transactions, bounded recovery,
+    conservative tab selection, and off-main teardown without synchronous
+    main-queue waits.
+
+The pinned `13a8b53d3` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-13a8b53d3be375f70574f1b841f301ec0e9f922b-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### `os/open` stderr drain spin and zombie leak
 
@@ -104,84 +169,9 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `232b24bf2` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-232b24bf2db2f05538a3e034d88f53a4fc548d56-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
-
-### Hidden macOS renderer reclamation
-
-- Pull request:
-  - https://github.com/manaflow-ai/ghostty/pull/153
-- Commits:
-  - `1de584d1e` (test: require lossless renderer realization requests)
-  - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
-  - `cc4ac8141` (test: require shared standard Metal pipelines)
-  - `921d4efaa` (renderer: share standard Metal pipelines)
-  - `f9d7262e1` (test: prevent concurrent Metal pipeline compilation)
-  - `1e8aecd93` (renderer: serialize standard Metal pipeline creation)
-  - `267541adf` (test: preserve Metal pipelines across renderer handoffs)
-  - `b2c78d61a` (renderer: retain standard Metal pipelines across handoffs)
-  - `e5702c1ab` (test: keep selected key tabs renderer-visible)
-  - `19555c20f` (macos: keep selected key tab renderer visible)
-  - `9ee855755` (test: recycle Metal command queues on renderer release)
-  - `88fe92c27` (renderer: release hidden Metal command queues)
-  - `532bbb0a5` (test: reclaim deselected tab renderers synchronously)
-  - `7d0009af6` (macos: reclaim deselected tab renderers immediately)
-  - `68ffad656` (test: prevent main-queue renderer teardown deadlock)
-  - `7b24d1c5d` (renderer: avoid main-queue teardown deadlock)
-  - `0f2b10bad` (test: require renderer-owned Metal resource lifetimes)
-  - `232b24bf2` (renderer: release duplicate Metal resource retention)
-- Files:
-  - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
-  - `macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift`
-  - `macos/Tests/Ghostty/RendererTabSelectionTests.swift`
-  - `src/apprt/embedded.zig`
-  - `src/renderer.zig`
-  - `src/renderer/Metal.zig`
-  - `src/renderer/Thread.zig`
-  - `src/renderer/generic.zig`
-  - `src/renderer/message.zig`
-  - `src/renderer/metal/IOSurfaceLayer.zig`
-  - `src/renderer/metal/Frame.zig`
-  - `src/renderer/metal/Target.zig`
-  - `src/renderer/metal/Texture.zig`
-  - `src/renderer/metal/api.zig`
-  - `src/renderer/metal/buffer.zig`
-  - `src/renderer/metal/shaders.zig`
-- Summary:
-  - Reclaims a deselected native tab's renderer in the same AppKit visibility
-    pass while retaining its PTY, terminal state, scrollback, and surface.
-  - Publishes renderer realization through an idempotent atomic latest-value
-    slot, preserving the newest request when the renderer mailbox is full.
-  - Drains outstanding frame leases and detaches the compositor layer before
-    releasing teardown-only Metal resources.
-  - Shares immutable standard shader pipelines by Metal device and pixel
-    format, serializes cache misses, and retains the cache through zero-renderer
-    handoffs. Custom shader source remains renderer-owned.
-  - Releases renderer-owned Metal command queues while tabs are hidden and
-    recreates them when their renderers return.
-  - Uses the renderer's exact-slot frame lease instead of Metal's duplicate
-    resource-retention table for ordinary terminal frames. Background images,
-    terminal images, and custom shaders keep Metal retention because their
-    resources can change while an earlier frame remains in flight.
-  - Observes native tab selection directly and treats ambiguous selection as
-    visible, preventing transient AppKit state from reclaiming the active tab.
-  - Clears the compositor asynchronously after frame leases drain when teardown
-    starts off the main thread, avoiding a renderer-to-main synchronous wait
-    while AppKit joins the renderer.
-  - Conflict note: future renderer lifecycle work must preserve lossless
-    realization publication, deselection-before-selection ordering, and
-    conservative tab selection. Do not mark Metal resources purgeable during
-    ordinary resize or replacement, and do not rely only on window occlusion or
-    a bounded mailbox for realization state. Standard pipeline sharing must
-    remain device- and pixel-format-scoped, and off-main teardown must not wait
-    synchronously for the main queue. Unretained command buffers must remain
-    limited to frames whose encoded resources are frame-owned or process-wide.
-
-The newer-main `0b1734f1e` universal ReleaseFast GhosttyKit archive is
-published at
+The base `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1
-and its SHA-256 is recorded in `scripts/ghosttykit-checksums.txt`.
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### PTY reader and child lifecycle teardown
 

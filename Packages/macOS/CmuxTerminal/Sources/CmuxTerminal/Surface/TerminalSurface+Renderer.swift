@@ -110,7 +110,7 @@ extension TerminalSurface {
         // was reclaimed and one that was born hidden and never got a drawable.
         // The AppKit host makes the portal presentable first, then calls here
         // while Ghostty is still occluded; occlusion is lifted only after the
-        // native realization enqueue below.
+        // native rebuild publication below.
         if visible {
             ensureRendererPresented(presentationReady: presentationReady)
         }
@@ -182,7 +182,7 @@ extension TerminalSurface {
     @MainActor
     public func releaseRenderer() -> Bool {
 #if os(macOS)
-        guard !rendererPresentationPhase.isReleased else { return false }
+        guard rendererPresentationPhase != .released else { return false }
         // A visible portal is protected once it is actually attached. Before
         // that point (including the hidden bootstrap window), release is the
         // normalization step that makes first presentation safe and retryable.
@@ -197,9 +197,7 @@ extension TerminalSurface {
         // latest-value request. The pinned core accepts it losslessly; retaining
         // the rejection path keeps compatibility shims retryable.
         if ghostty_surface_set_renderer_realized(surface, false) {
-            rendererPresentationPhase = rendererPresentationPhase == .awaitingFirstPresentation
-                ? .releasedBeforeFirstPresentation
-                : .released
+            rendererPresentationPhase = .released
             surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
             return true
         }
@@ -211,11 +209,10 @@ extension TerminalSurface {
 
     /// Ensures the runtime renderer is ready for presentation in a visible portal.
     ///
-    /// Reclaimed renderers are realized directly. A renderer born hidden first
-    /// transitions through the released state, then uses that same realization
-    /// path; this forces Ghostty to build the drawable it could not create while
-    /// the view had no real presentation window. Native realization state is
-    /// idempotent and applied on the renderer thread.
+    /// Reclaimed renderers and renderers born hidden use one forced rebuild
+    /// transaction. This guarantees Ghostty applies the unrealize transition
+    /// before realizing the renderer, even when presentation becomes ready
+    /// before the renderer thread consumes an earlier release publication.
     @MainActor
     public func ensureRendererPresented() {
         ensureRendererPresented(
@@ -235,31 +232,16 @@ extension TerminalSurface {
         let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
 
         // A detached visibility update may already have lifted occlusion.
-        // Re-occlude synchronously before changing renderer realization, and
-        // lift it only after the realization enqueue succeeds.
+        // Re-occlude synchronously before publishing the renderer rebuild, and
+        // lift it only after the core accepts that transaction.
         setOcclusion(false)
 
-        if rendererPresentationPhase != .released {
-            // Ghostty starts with a live renderer even if its view was born
-            // hidden. An earlier release publication may still be pending when
-            // AppKit makes the surface presentable. Use one native renderer-
-            // thread rebuild transaction so a later realize cannot coalesce
-            // away the required first unrealize transition.
-            callbackContext?.armRendererPresentationRepair()
-            if ghostty_surface_rebuild_renderer(surface) {
-                callbackContext?.cancelRendererPresentationRepair()
-                rendererPresentationPhase = .presented
-                setOcclusion(true)
-            }
-            return
-        }
-
-        // The C API publishes non-blocking latest-value state outside the
-        // renderer mailbox. Advance our mirror only after acceptance, then lift
-        // occlusion. The callback remains armed only for compatibility shims
-        // that can reject publication.
+        // The C API publishes one non-blocking forced unrealize/realize
+        // transaction outside the renderer mailbox. Unlike separate boolean
+        // publications, a later realized state cannot coalesce away the
+        // unrealize step needed to rebuild a missing first drawable.
         callbackContext?.armRendererPresentationRepair()
-        if ghostty_surface_set_renderer_realized(surface, true) {
+        if ghostty_surface_rebuild_renderer(surface) {
             callbackContext?.cancelRendererPresentationRepair()
             rendererPresentationPhase = .presented
             setOcclusion(true)

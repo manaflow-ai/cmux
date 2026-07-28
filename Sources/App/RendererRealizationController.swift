@@ -75,7 +75,7 @@ final class RendererRealizationController {
     /// surface, including the Settings window which writes UserDefaults directly
     /// without posting a change notification, takes effect on the next pass
     /// instead of requiring a relaunch. The disabled pass still repairs any
-    /// visible surface whose compatibility publication was not acknowledged.
+    /// visible surface whose compatibility rebuild was not acknowledged.
     private func ensureTimerRunning() {
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
@@ -91,7 +91,7 @@ final class RendererRealizationController {
     }
 
     /// Repairs only the surface whose renderer reported activity after a
-    /// compatibility publication was not acknowledged.
+    /// compatibility rebuild was not acknowledged.
     func scheduleRendererPresentationRepair(surfaceID: UUID) {
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else { return }
         surface.retryRendererPresentationAfterActivity()
@@ -133,7 +133,7 @@ final class RendererRealizationController {
         // Keep currently-visible surfaces ranked at the top of the warm set, and
         // ensure every visible renderer has completed presentation. This covers
         // both a reclaimed renderer and a hidden-at-birth renderer whose first
-        // release/realize publication was not acknowledged. Presentation repair
+        // rebuild publication was not acknowledged. Presentation repair
         // remains active even when reclamation is disabled because visible
         // rendering must not depend on a memory-saving preference.
         for surface in surfaces where surface.isRendererPortalVisible {

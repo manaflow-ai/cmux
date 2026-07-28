@@ -13,45 +13,20 @@ private func resetRendererRealizedTracking()
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_count")
 private func rendererRealizedCallCount() -> UInt32
 
+@_silgen_name("cmux_test_ghostty_renderer_rebuild_call_count")
+private func rendererRebuildCallCount() -> UInt32
+
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_value")
 private func rendererRealizedCallValue(_ index: UInt32) -> Bool
 
 @_silgen_name("cmux_test_ghostty_renderer_realized_set_result")
 private func setRendererRealizedResult(_ result: Bool)
 
-@_silgen_name("cmux_test_ghostty_renderer_rebuild_call_count")
-private func rendererRebuildCallCount() -> UInt32
-
 @_silgen_name("cmux_test_ghostty_renderer_release_was_occluded")
 private func rendererReleaseWasOccluded() -> Bool
 
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererPresentationTests {
-    @Test func windowlessFirstPresentationUsesAtomicRendererRebuild() {
-        let registry = TerminalSurfaceRegistry()
-        let surface = makeSurface(registry: registry)
-        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
-        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
-        beginRendererRealizedTracking(runtimeSurface)
-        surface.setRendererPortalVisible(true, presentationReady: false)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate(presentationReady: false)
-        defer {
-            surface.releaseSurfaceForTesting()
-            runtimeSurface.deallocate()
-            resetRendererRealizedTracking()
-        }
-
-        #expect(rendererRealizedCalls() == [false])
-        #expect(rendererRebuildCallCount() == 0)
-
-        surface.ensureRendererPresented(presentationReady: true)
-
-        #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false])
-        #expect(rendererRebuildCallCount() == 1)
-    }
-
     @Test func visibleRuntimeWaitsForUsableDrawableGeometry() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
@@ -84,7 +59,6 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(surface.isRendererPortalVisible)
         #expect(!surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
-        #expect(rendererRebuildCallCount() == 0)
 
         surface.paneHost.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         surface.surfaceView.frame = surface.paneHost.bounds
@@ -117,7 +91,6 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(surface.isRendererPortalVisible)
         #expect(!surface.isRendererPresented)
         #expect(rendererRealizedCalls() == [false])
-        #expect(rendererRebuildCallCount() == 0)
 
         surface.ensureRendererPresented(presentationReady: true)
 
@@ -126,7 +99,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(rendererRebuildCallCount() == 1)
     }
 
-    @Test func hiddenRuntimeIsReleasedThenRealizedOnFirstVisibility() {
+    @Test func hiddenRuntimeIsReleasedThenRebuiltOnFirstVisibility() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -195,15 +168,13 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(surface.isRendererRealized)
         #expect(surface.isRendererPresented)
         #expect(rendererRealizedCalls().isEmpty)
-        #expect(rendererRebuildCallCount() == 0)
 
         surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(rendererRealizedCalls().isEmpty)
-        #expect(rendererRebuildCallCount() == 0)
     }
 
-    @Test func reclaimedRuntimeIsRealizedOnceWhenShownAgain() {
+    @Test func reclaimedRuntimeIsRebuiltOnceWhenShownAgain() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -228,8 +199,8 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, true])
-        #expect(rendererRebuildCallCount() == 0)
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
     }
 
     @Test func rejectedFirstPresentationWaitsForRendererActivityBeforeSchedulingRepair() {
@@ -284,7 +255,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(scheduler.scheduledSurfaceIDs == [surface.id])
     }
 
-    @Test func laterRendererActivityRepairsAfterRepeatedPublicationRejections() {
+    @Test func laterRendererActivityRepairsAfterRepeatedRebuildRejections() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)

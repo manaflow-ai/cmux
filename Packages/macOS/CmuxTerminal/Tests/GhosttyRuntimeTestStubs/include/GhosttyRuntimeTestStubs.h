@@ -79,9 +79,9 @@ void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_
 void cmux_test_ghostty_renderer_realized_begin(void *surface);
 void cmux_test_ghostty_renderer_realized_reset(void);
 uint32_t cmux_test_ghostty_renderer_realized_call_count(void);
+uint32_t cmux_test_ghostty_renderer_rebuild_call_count(void);
 bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index);
 void cmux_test_ghostty_renderer_realized_set_result(bool result);
-uint32_t cmux_test_ghostty_renderer_rebuild_call_count(void);
 bool cmux_test_ghostty_renderer_release_was_occluded(void);
 
 #endif

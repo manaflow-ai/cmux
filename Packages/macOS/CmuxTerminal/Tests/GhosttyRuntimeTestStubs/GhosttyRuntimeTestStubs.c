@@ -21,8 +21,8 @@ static const char* cmux_test_tty_name = NULL;
 static void* cmux_test_renderer_realized_target = NULL;
 static bool cmux_test_renderer_realized_calls[16];
 static uint32_t cmux_test_renderer_realized_call_count = 0;
-static bool cmux_test_renderer_realized_result = true;
 static uint32_t cmux_test_renderer_rebuild_call_count = 0;
+static bool cmux_test_renderer_realized_result = true;
 static bool cmux_test_renderer_occlusion_visible = true;
 static bool cmux_test_renderer_release_was_occluded = false;
 
@@ -35,8 +35,8 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
 void cmux_test_ghostty_renderer_realized_begin(void* surface) {
     cmux_test_renderer_realized_target = surface;
     cmux_test_renderer_realized_call_count = 0;
-    cmux_test_renderer_realized_result = true;
     cmux_test_renderer_rebuild_call_count = 0;
+    cmux_test_renderer_realized_result = true;
     cmux_test_renderer_occlusion_visible = true;
     cmux_test_renderer_release_was_occluded = false;
 }
@@ -44,8 +44,8 @@ void cmux_test_ghostty_renderer_realized_begin(void* surface) {
 void cmux_test_ghostty_renderer_realized_reset(void) {
     cmux_test_renderer_realized_target = NULL;
     cmux_test_renderer_realized_call_count = 0;
-    cmux_test_renderer_realized_result = true;
     cmux_test_renderer_rebuild_call_count = 0;
+    cmux_test_renderer_realized_result = true;
     cmux_test_renderer_occlusion_visible = true;
     cmux_test_renderer_release_was_occluded = false;
 }
@@ -60,6 +60,10 @@ uint32_t cmux_test_ghostty_renderer_realized_call_count(void) {
     return cmux_test_renderer_realized_call_count;
 }
 
+uint32_t cmux_test_ghostty_renderer_rebuild_call_count(void) {
+    return cmux_test_renderer_rebuild_call_count;
+}
+
 bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index) {
     if (index >= cmux_test_renderer_realized_call_count) return false;
     return cmux_test_renderer_realized_calls[index];
@@ -67,10 +71,6 @@ bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index) {
 
 void cmux_test_ghostty_renderer_realized_set_result(bool result) {
     cmux_test_renderer_realized_result = result;
-}
-
-uint32_t cmux_test_ghostty_renderer_rebuild_call_count(void) {
-    return cmux_test_renderer_rebuild_call_count;
 }
 
 bool cmux_test_ghostty_renderer_release_was_occluded(void) {

@@ -102,29 +102,27 @@ struct RendererRealizationPlannerTests {
         #expect(selected.contains(ids[4])) // oldest released
     }
 
-    @Test func defaultFiveTabBaselineReclaimsFourHiddenRenderers() {
+    @Test func defaultFiveTabBaselineReclaimsFourHiddenRenderers() throws {
         let suiteName = "RendererRealizationPlannerTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
-        defer {
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-        let resolvedSettings = RendererRealizationSettings.values(defaults: defaults)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let now: TimeInterval = 1000
         let visible = UUID()
         let hidden = (0..<4).map { _ in UUID() }
+        let settings = RendererRealizationSettings.values(defaults: defaults)
         let inputs = [
             input(visible, visible: true, lastVisibleAt: now),
         ] + hidden.map {
             input(
                 $0,
-                lastVisibleAt: now - resolvedSettings.idleSeconds
+                lastVisibleAt: now - settings.idleSeconds
             )
         }
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs,
-            settings: resolvedSettings,
+            settings: settings,
             now: now
         )
 
