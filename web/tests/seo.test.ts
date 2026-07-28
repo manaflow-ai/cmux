@@ -515,6 +515,30 @@ describe("SEO metadata helpers", () => {
           [messages.landing.guides.metaTitle, messages.landing.guides.title],
         ),
       );
+      for (const platform of ["windows", "linux"] as const) {
+        const page = messages.browserDownloads[platform];
+        rows.push(
+          auditedRow(
+            `/${platform}`,
+            landingPageSeoCopy(
+              locale,
+              messageLookup(page),
+              siteMeta,
+              {
+                complete: ["subtitle", "installBody"],
+                context: ["name"],
+              },
+            ),
+            [
+              page.metaDescription,
+              page.subtitle,
+              page.installBody,
+              page.name,
+            ],
+            [page.metaTitle, page.name],
+          ),
+        );
+      }
       if (locale === "en" || locale === "ja") {
         const pricing = messageLookup(messages.pricing);
         rows.push(

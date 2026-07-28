@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { PlatformDownloadPage } from "../platform-download-page";
 import { isPlatformDownloadAvailable } from "@/app/lib/download";
+import { landingPageSeoCopy } from "@/i18n/audited-seo";
 import {
   buildAlternates,
   openGraphDefaults,
@@ -18,9 +19,17 @@ export async function generateMetadata({
 
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "browserDownloads.windows" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const alternates = buildAlternates(locale, "/windows");
-  const title = t("metaTitle");
-  const description = t("metaDescription");
+  const { title, description } = landingPageSeoCopy(
+    locale,
+    t,
+    siteMeta,
+    {
+      complete: ["subtitle", "installBody"],
+      context: ["name"],
+    },
+  );
 
   return {
     title,
