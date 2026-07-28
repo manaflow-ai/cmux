@@ -2969,8 +2969,12 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         }
     }
 
-    private func drainFormerPresentationRetryWindow() {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+    private func drainFormerPresentationRetryWindow() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                continuation.resume()
+            }
+        }
     }
 
     private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
@@ -4078,7 +4082,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "A visibility-only reveal refreshes presentation but must not run the enter/exit-window reattach lifecycle, or every tab switch fires page visibilitychange"
         )
 
-        drainFormerPresentationRetryWindow()
+        await drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(
             webView.enterInWindowCount,
@@ -4139,7 +4143,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "A forced refresh should invoke the WebKit deferred-window selector once in the portal sync"
         )
 
-        drainFormerPresentationRetryWindow()
+        await drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, refreshedEnterInWindowCount)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, refreshedEndDeferringCount)
@@ -4222,7 +4226,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "An explicit refresh must still end deferred WebKit changes after adjusting the inspector divider"
         )
 
-        drainFormerPresentationRetryWindow()
+        await drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, refreshedEnterInWindowCount)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, refreshedEndDeferringCount)
@@ -4277,7 +4281,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Registry bind should own one synchronous deferred-window refresh"
         )
 
-        drainFormerPresentationRetryWindow()
+        await drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, boundEnterInWindowCount)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, boundEndDeferringCount)
@@ -4348,7 +4352,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Same-anchor host replacement should invoke one synchronous deferred-window refresh"
         )
 
-        drainFormerPresentationRetryWindow()
+        await drainFormerPresentationRetryWindow()
         XCTAssertEqual(webView.viewDidUnhideCount, viewDidUnhideCountAfterRebind)
 
         XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
@@ -4439,7 +4443,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Anchor rebind should invoke one synchronous deferred-window refresh"
         )
 
-        drainFormerPresentationRetryWindow()
+        await drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
@@ -4651,7 +4655,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Workspace rebind must not synchronously flush WebKit display"
         )
 
-        drainFormerPresentationRetryWindow()
+        await drainFormerPresentationRetryWindow()
 
         XCTAssertEqual(webView.enterInWindowCount, enterInWindowCountAfterRebind)
         XCTAssertEqual(webView.endDeferringViewInWindowChangesCount, endDeferringCountAfterRebind)
