@@ -2871,6 +2871,8 @@ mod tests {
                 assert_eq!(request["method"], expected);
                 if expected == "Page.createIsolatedWorld" {
                     assert_eq!(request["params"]["frameId"], "main-frame");
+                    assert_eq!(request["params"]["grantUniversalAccess"], false);
+                    assert!(request["params"].get("grantUniveralAccess").is_none());
                 } else if expected == "Runtime.evaluate" {
                     assert_eq!(request["params"]["contextId"], 41);
                     assert_eq!(request["params"]["expression"], "globalThis.Date.now()");
@@ -2956,6 +2958,101 @@ mod tests {
              {first:?}"
         );
         server.join().unwrap();
+    }
+
+    #[test]
+    fn unavailable_screencast_clock_probe_requests_loader_verified_capture() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            ws.get_mut().set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+
+            let request = ws.read().unwrap();
+            let Message::Text(request) = request else { panic!("expected text request") };
+            let request: Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(request["method"], "Page.createIsolatedWorld");
+            ws.send(Message::Text(
+                json!({
+                    "id": request["id"],
+                    "error": {"message": "scripts unavailable"}
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+
+            let request = ws.read().unwrap();
+            let Message::Text(request) = request else { panic!("expected text request") };
+            let request: Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(request["method"], "Page.startScreencast");
+            ws.send(Message::Text(json!({"id": request["id"], "result": {}}).to_string().into()))
+                .unwrap();
+
+            ws.send(Message::Text(
+                json!({
+                    "method": "Page.screencastFrame",
+                    "sessionId": "session-1",
+                    "params": {
+                        "data": "not-base64",
+                        "sessionId": 7,
+                        "metadata": {
+                            "deviceWidth": 80,
+                            "deviceHeight": 24,
+                            "timestamp": 10.0
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            let ack = ws.read().unwrap();
+            let Message::Text(ack) = ack else { panic!("expected text ack") };
+            let ack: Value = serde_json::from_str(&ack).unwrap();
+            assert_eq!(ack["method"], "Page.screencastFrameAck");
+        });
+        let (event_tx, event_rx) = sync_channel(1);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        client.register_frame_epoch("session-1", Arc::new(FrameEpoch::default()));
+        {
+            let mut frame_sessions = client.inner.frame_epochs.lock().unwrap();
+            let frame_session = frame_sessions.get_mut("session-1").unwrap();
+            frame_session.main_frame_id = Some("main-frame".to_string());
+            frame_session.main_loader_id = Some("loader-1".to_string());
+        }
+
+        let result = client.start_screencast_with_frame_barrier("session-1", 80, 24);
+        let event = result
+            .as_ref()
+            .ok()
+            .and_then(|_| event_rx.recv_timeout(Duration::from_millis(200)).ok());
+
+        drop(client);
+        let server_result = server.join();
+        assert!(
+            result.is_ok(),
+            "an unavailable optional clock probe must not prevent screencast restart: {result:?}"
+        );
+        server_result.unwrap();
+        assert!(
+            matches!(
+                event,
+                Some(CdpEvent::ScreencastFrameCaptureRequested {
+                    ref session_id,
+                    ref frame_id,
+                    ref loader_id,
+                    frame_epoch: 1,
+                    navigation_epoch: 0,
+                    ..
+                }) if session_id == "session-1"
+                    && frame_id == "main-frame"
+                    && loader_id == "loader-1"
+            ),
+            "a streamed frame without a trustworthy cutoff bypassed loader verification: {event:?}"
+        );
     }
 
     #[test]

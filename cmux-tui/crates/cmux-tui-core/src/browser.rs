@@ -10034,6 +10034,95 @@ mod tests {
     }
 
     #[test]
+    fn reconfigure_survives_unavailable_screencast_clock_probe() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            ws.get_mut().set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+
+            let frame_tree = read_ws_json(&mut ws);
+            assert_eq!(frame_tree["method"], "Page.getFrameTree");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": frame_tree["id"],
+                    "result": {
+                        "frameTree": {
+                            "frame": {
+                                "id": "main-frame",
+                                "loaderId": "loader-1",
+                                "url": "https://example.test"
+                            }
+                        }
+                    }
+                }),
+            );
+
+            let metrics = read_ws_json(&mut ws);
+            assert_eq!(metrics["method"], "Emulation.setDeviceMetricsOverride");
+            write_ws_json(&mut ws, json!({"id": metrics["id"], "result": {}}));
+
+            let stop = read_ws_json(&mut ws);
+            assert_eq!(stop["method"], "Page.stopScreencast");
+            write_ws_json(&mut ws, json!({"id": stop["id"], "result": {}}));
+
+            let isolated_world = read_ws_json(&mut ws);
+            assert_eq!(isolated_world["method"], "Page.createIsolatedWorld");
+            write_ws_json(
+                &mut ws,
+                json!({
+                    "id": isolated_world["id"],
+                    "error": {"message": "scripts unavailable"}
+                }),
+            );
+
+            let start = read_ws_json(&mut ws);
+            assert_eq!(start["method"], "Page.startScreencast");
+            write_ws_json(&mut ws, json!({"id": start["id"], "result": {}}));
+        });
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        runtime.client.register_frame_epoch("session-1", browser.frame_epoch.clone());
+        runtime.client.seed_main_frame("session-1").unwrap();
+        *browser.session.lock().unwrap() = Some(BrowserSession {
+            runtime: runtime.clone(),
+            target_id: "target-1".to_string(),
+            session_id: "session-1".to_string(),
+        });
+        browser.store_frame(test_frame(1));
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+
+        let result = browser.reconfigure_reserved_blocking(queued);
+
+        runtime.shutdown();
+        let server_result = server.join();
+        assert!(
+            result.is_ok(),
+            "an unavailable optional clock probe must not fail browser resize: {result:?}"
+        );
+        server_result.unwrap();
+        assert_eq!(browser.status(), BrowserStatus::Live);
+        assert_eq!(browser.size(), (11, 5));
+        let state = browser.state.lock().unwrap();
+        assert_eq!(state.pending_frame_epoch, None);
+        assert_eq!(
+            state.pointer_frame_seq, None,
+            "pointer input must wait for a frame verified after the resize"
+        );
+    }
+
+    #[test]
     fn frames_stalled_requires_live_surface_over_threshold() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
