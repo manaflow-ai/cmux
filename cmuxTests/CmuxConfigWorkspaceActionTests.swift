@@ -516,6 +516,40 @@ struct CmuxConfigWorkspaceActionTests {
     }
 
     @MainActor
+    @Test func nonFocusingNewTabCommandPreservesTargetPanelFocus() throws {
+        let manager = TabManager()
+        let targetWorkspace = try #require(manager.selectedWorkspace)
+        let targetPanelID = try #require(targetWorkspace.focusedPanelId)
+        let panelCount = targetWorkspace.panels.count
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "non-focusing-new-tab-command",
+            definition: CmuxConfigActionDefinition(
+                action: .command("printf background"),
+                terminalCommandTarget: .newTabInCurrentPane
+            ),
+            sourcePath: nil
+        ))
+
+        let outcome = CmuxConfigExecutor.executeOutcome(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-global-\(UUID().uuidString).json",
+            modelTarget: CmuxActionModelTarget(
+                workspaceID: targetWorkspace.id,
+                panelID: targetPanelID
+            ),
+            selectWorkspace: false
+        )
+
+        #expect(outcome == .completed)
+        #expect(targetWorkspace.panels.count == panelCount + 1)
+        #expect(targetWorkspace.focusedPanelId == targetPanelID)
+    }
+
+    @MainActor
     @Test func staleExplicitModelTargetFailsClosed() throws {
         let manager = TabManager()
         let action = try #require(CmuxResolvedConfigAction.fromDefinition(
