@@ -125,6 +125,9 @@ extension TextBoxInputTextView {
         }
         guard reservation.usesMarker else {
             pendingPasteReservations[id] = nil
+            if notifyingTextChange {
+                didChangeText()
+            }
             return true
         }
         guard let textStorage else { return false }

@@ -4,6 +4,7 @@ import Foundation
 /// Owns one worker process from launch through reaping and cancellation.
 actor TerminalPastePreparationProcess {
     private let process: Process
+    private let livenessPipe: Pipe
     private var continuation: CheckedContinuation<Int32, Error>?
     private var didStart = false
 
@@ -16,9 +17,12 @@ actor TerminalPastePreparationProcess {
         process.executableURL = executableURL
         process.arguments = arguments
         process.environment = environment
+        let livenessPipe = Pipe()
+        process.standardInput = livenessPipe
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         self.process = process
+        self.livenessPipe = livenessPipe
     }
 
     func run() async throws -> Int32 {
@@ -37,11 +41,13 @@ actor TerminalPastePreparationProcess {
                 }
                 do {
                     try process.run()
+                    try? livenessPipe.fileHandleForReading.close()
                     didStart = true
                     if Task.isCancelled {
                         kill()
                     }
                 } catch {
+                    closeLivenessPipe()
                     self.continuation = nil
                     process.terminationHandler = nil
                     continuation.resume(throwing: error)
@@ -62,7 +68,13 @@ actor TerminalPastePreparationProcess {
     private func processDidTerminate(status: Int32) {
         didStart = false
         process.terminationHandler = nil
+        closeLivenessPipe()
         continuation?.resume(returning: status)
         continuation = nil
+    }
+
+    private func closeLivenessPipe() {
+        try? livenessPipe.fileHandleForReading.close()
+        try? livenessPipe.fileHandleForWriting.close()
     }
 }

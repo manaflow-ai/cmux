@@ -9,6 +9,7 @@ struct TerminalPastePreparationWorkerClient: Sendable {
     static let requestFilename = "request.json"
     static let responseFilename = "response.json"
     static let maximumResponseSize = 12 * 1024 * 1024
+    static let workingDirectoryPrefix = "cmux-paste-preparation-"
 
     private let executableURL: URL
     private let pasteboardService: TerminalPasteboardService
@@ -104,7 +105,7 @@ struct TerminalPastePreparationWorkerClient: Sendable {
     private nonisolated func makeWorkingDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
-                "cmux-paste-preparation-\(UUID().uuidString)",
+                "\(Self.workingDirectoryPrefix)\(UUID().uuidString)",
                 isDirectory: true
             )
         try FileManager.default.createDirectory(

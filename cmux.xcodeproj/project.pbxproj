@@ -2116,6 +2116,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B8835800000000000000000B /* TerminalPastePreparationWorkerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835800000000000000000C /* TerminalPastePreparationWorkerClient.swift */; };
 		B88358000000000000000005 /* TerminalPastePreparationWorkerError.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88358000000000000000006 /* TerminalPastePreparationWorkerError.swift */; };
 		B88358000000000000000003 /* TerminalPastePreparationWorkerResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88358000000000000000004 /* TerminalPastePreparationWorkerResponse.swift */; };
+		B88359000000000000000001 /* TerminalPastePreparationWorkerSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */; };
 		2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */; };
 		C7261F010000000000000001 /* TerminalPointerFocusActivationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */; };
 		C7261F020000000000000001 /* TerminalPointerFocusActivationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */; };
@@ -4496,6 +4497,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B8835800000000000000000C /* TerminalPastePreparationWorkerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerClient.swift; sourceTree = "<group>"; };
 		B88358000000000000000006 /* TerminalPastePreparationWorkerError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerError.swift; sourceTree = "<group>"; };
 		B88358000000000000000004 /* TerminalPastePreparationWorkerResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerResponse.swift; sourceTree = "<group>"; };
+		B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerSupervisor.swift; sourceTree = "<group>"; };
 		B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerTextPayload.swift; sourceTree = "<group>"; };
 		C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerFocusActivationPolicy.swift; sourceTree = "<group>"; };
 		C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerFocusActivationPolicyTests.swift; sourceTree = "<group>"; };
@@ -5881,6 +5883,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8835800000000000000000A /* TerminalPastePreparationProcess.swift */,
 				B8835800000000000000000E /* TerminalPastePreparationWorker.swift */,
 				B8835800000000000000000C /* TerminalPastePreparationWorkerClient.swift */,
+				B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */,
 				B88358000000000000000006 /* TerminalPastePreparationWorkerError.swift */,
 				B88358000000000000000004 /* TerminalPastePreparationWorkerResponse.swift */,
 				B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */,
@@ -9113,6 +9116,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8835800000000000000000B /* TerminalPastePreparationWorkerClient.swift in Sources */,
 				B88358000000000000000005 /* TerminalPastePreparationWorkerError.swift in Sources */,
 				B88358000000000000000003 /* TerminalPastePreparationWorkerResponse.swift in Sources */,
+				B88359000000000000000001 /* TerminalPastePreparationWorkerSupervisor.swift in Sources */,
 				2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */,
 				C7261F010000000000000001 /* TerminalPointerFocusActivationPolicy.swift in Sources */,
 				D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */,

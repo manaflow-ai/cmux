@@ -65,21 +65,29 @@ struct HTMLPlainTextParser: Sendable {
     ]
 
     func plainText(from html: String) -> String? {
+        outcome(from: html).plainText
+    }
+
+    func outcome(from html: String) -> HTMLPlainTextParseOutcome {
         guard html.utf8.count <= Self.maximumInputByteCount else {
-            return nil
+            return .rejected
         }
-        return plainText(fromBoundedHTML: html)
+        return outcome(fromBoundedHTML: html)
     }
 
     func plainText(from data: Data) -> String? {
+        outcome(from: data).plainText
+    }
+
+    func outcome(from data: Data) -> HTMLPlainTextParseOutcome {
         guard data.count <= Self.maximumInputByteCount else {
-            return nil
+            return .rejected
         }
         guard let html = decodeHTML(from: data),
               html.utf8.count <= Self.maximumInputByteCount else {
-            return nil
+            return .rejected
         }
-        return plainText(fromBoundedHTML: html)
+        return outcome(fromBoundedHTML: html)
     }
 
     private func decodeHTML(from data: Data) -> String? {
@@ -91,7 +99,9 @@ struct HTMLPlainTextParser: Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private func plainText(fromBoundedHTML html: String) -> String? {
+    private func outcome(
+        fromBoundedHTML html: String
+    ) -> HTMLPlainTextParseOutcome {
         let hiddenTemplateAttributeName =
             "data-cmux-hidden-template-\(UUID().uuidString.lowercased())"
         let normalizedData = HTMLFoundationCompatibilityNormalizer(
@@ -105,21 +115,21 @@ struct HTMLPlainTextParser: Sendable {
                 .nodeLoadExternalEntitiesNever,
             ]
         ) else {
-            return nil
+            return .rejected
         }
-        return plainText(
+        return outcome(
             from: document,
             sourceLength: html.count,
             hiddenTemplateAttributeName: hiddenTemplateAttributeName
         )
     }
 
-    private func plainText(
+    private func outcome(
         from document: XMLDocument,
         sourceLength: Int,
         hiddenTemplateAttributeName: String
-    ) -> String? {
-        guard let root = document.rootElement() else { return nil }
+    ) -> HTMLPlainTextParseOutcome {
+        guard let root = document.rootElement() else { return .rejected }
         var output = ""
         var outputCharacterCount = 0
         output.reserveCapacity(min(sourceLength, 16_384))
@@ -131,14 +141,14 @@ struct HTMLPlainTextParser: Sendable {
             outputCharacterCount: &outputCharacterCount,
             hiddenTemplateAttributeName: hiddenTemplateAttributeName
         ) else {
-            return nil
+            return .rejected
         }
 
         while output.last == "\n" {
             output.removeLast()
             outputCharacterCount -= 1
         }
-        return output.isEmpty ? nil : output
+        return output.isEmpty ? .noVisibleText : .visibleText(output)
     }
 
     private func appendVisibleText(

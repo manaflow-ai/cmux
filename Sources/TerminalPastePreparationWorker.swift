@@ -8,6 +8,13 @@ struct TerminalPastePreparationWorker {
               isValidWorkingDirectory(workingDirectory) else {
             return 64
         }
+        guard let supervisor = TerminalPastePreparationWorkerSupervisor(
+            workingDirectory: workingDirectory
+        ) else {
+            return 71
+        }
+        supervisor.start()
+        defer { supervisor.cancel() }
 
         let requestURL = workingDirectory.appendingPathComponent(
             TerminalPastePreparationWorkerClient.requestFilename
@@ -129,7 +136,22 @@ struct TerminalPastePreparationWorker {
     }
 
     private func isValidWorkingDirectory(_ directory: URL) -> Bool {
+        let standardizedDirectory = directory.standardizedFileURL
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .standardizedFileURL
+        let identifier = String(
+            standardizedDirectory.lastPathComponent.dropFirst(
+                TerminalPastePreparationWorkerClient
+                    .workingDirectoryPrefix.count
+            )
+        )
         guard directory.isFileURL,
+              standardizedDirectory.deletingLastPathComponent()
+                == temporaryDirectory,
+              standardizedDirectory.lastPathComponent.hasPrefix(
+                TerminalPastePreparationWorkerClient.workingDirectoryPrefix
+              ),
+              UUID(uuidString: identifier) != nil,
               let values = try? directory.resourceValues(
                 forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
               ) else {
