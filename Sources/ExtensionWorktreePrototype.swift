@@ -134,12 +134,7 @@ extension CmuxExtensionWorktreeCreationResult {
                 throw rollbackRefused("Untracked or ignored worktree content changed after creation.")
             }
 
-            let artifactValues = try artifactURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-            guard artifactValues.isRegularFile == true,
-                  artifactValues.isSymbolicLink != true,
-                  try Data(contentsOf: artifactURL) == generatedArtifactContents else {
-                throw rollbackRefused("Generated artifact changed after creation.")
-            }
+            try validateGeneratedArtifact(at: artifactURL)
             let artifactDirectory = artifactURL.deletingLastPathComponent()
             let artifactDirectoryEntries = try FileManager.default.contentsOfDirectory(atPath: artifactDirectory.path)
             guard artifactDirectoryEntries == [artifactURL.lastPathComponent] else {
@@ -167,6 +162,25 @@ extension CmuxExtensionWorktreeCreationResult {
                 .deletingLastPathComponent()
                 .appendingPathComponent(".cmux-rollback-\(UUID().uuidString)", isDirectory: false)
             try FileManager.default.moveItem(at: artifactURL, to: artifactBackupURL)
+            do {
+                // Revalidate the exact object moved out of the worktree before
+                // any await or destructive cleanup. The artifact may have been
+                // replaced while the lock-path subprocess was suspended.
+                try validateGeneratedArtifact(at: artifactBackupURL)
+            } catch {
+                do {
+                    // Preserve the moved contents even when they no longer match
+                    // the generated template: they may be user edits that raced
+                    // with rollback validation.
+                    try restoreMovedGeneratedArtifact(from: artifactBackupURL, to: artifactURL)
+                } catch let restoreError {
+                    throw rollbackRefused(
+                        "Generated artifact changed during rollback and could not be restored; backup retained at "
+                            + artifactBackupURL.path + ". " + restoreError.localizedDescription
+                    )
+                }
+                throw rollbackRefused("Generated artifact changed during rollback; checkout was preserved.")
+            }
 
             do {
                 try await CmuxExtensionWorktreePrototype.run(
@@ -207,14 +221,21 @@ extension CmuxExtensionWorktreeCreationResult {
         }.value
     }
 
-    private func restoreGeneratedArtifact(from backupURL: URL, to artifactURL: URL) throws {
-        let backupValues = try backupURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-        guard backupValues.isRegularFile == true,
-              backupValues.isSymbolicLink != true,
-              try Data(contentsOf: backupURL) == generatedArtifactContents else {
-            throw rollbackRefused("Generated artifact backup changed before it could be restored.")
+    private func validateGeneratedArtifact(at artifactURL: URL) throws {
+        let artifactValues = try artifactURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard artifactValues.isRegularFile == true,
+              artifactValues.isSymbolicLink != true,
+              try Data(contentsOf: artifactURL) == generatedArtifactContents else {
+            throw rollbackRefused("Generated artifact changed after creation.")
         }
+    }
 
+    private func restoreGeneratedArtifact(from backupURL: URL, to artifactURL: URL) throws {
+        try validateGeneratedArtifact(at: backupURL)
+        try restoreMovedGeneratedArtifact(from: backupURL, to: artifactURL)
+    }
+
+    private func restoreMovedGeneratedArtifact(from backupURL: URL, to artifactURL: URL) throws {
         let artifactDirectory = artifactURL.deletingLastPathComponent()
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: artifactDirectory.path, isDirectory: &isDirectory) {
@@ -226,6 +247,9 @@ extension CmuxExtensionWorktreeCreationResult {
                 at: artifactDirectory,
                 withIntermediateDirectories: false
             )
+        }
+        guard !FileManager.default.fileExists(atPath: artifactURL.path) else {
+            throw rollbackRefused("Generated artifact destination changed before it could be restored.")
         }
         try FileManager.default.moveItem(at: backupURL, to: artifactURL)
     }
