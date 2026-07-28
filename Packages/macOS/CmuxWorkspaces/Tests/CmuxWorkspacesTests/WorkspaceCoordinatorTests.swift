@@ -69,7 +69,7 @@ final class StubGroupHost: WorkspaceGroupHosting {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool,
-        shouldApplyWorkspaceDirectoryCustomization: Bool
+        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode
     ) -> CoordinatorStubTab {
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
         model.tabs.append(tab)
