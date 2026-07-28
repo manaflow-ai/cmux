@@ -10,6 +10,50 @@ extension TerminalController {
     nonisolated static var terminalSurfaceUnavailableSocketError: String {
         "ERROR: \(terminalSurfaceUnavailableMessage)"
     }
+
+    /// The single seam every socket/CLI focus request into the main area goes
+    /// through: v2 `surface.focus`, v1 `focus_surface`, v1
+    /// `focus_surface_by_panel`, and the remote-tmux pane focus.
+    ///
+    /// Recording main-panel intent is what makes the focus stick. While the
+    /// right sidebar owns the intent, `allowsTerminalKeyboardFocus` refuses
+    /// every main-area terminal, so `TerminalPanel.focus()` drops the request
+    /// and the command still answers success. A click records the same intent
+    /// via `noteMainPanelKeyboardFocusIntent`; an explicit focus request naming
+    /// a surface is no less deliberate.
+    ///
+    /// Deliberately not folded into `Workspace.focusPanel`: that fires on
+    /// internal and UI-driven focus changes too (split creation, restore,
+    /// detach, drag), where stealing the intent from the sidebar would be wrong.
+    func controlFocusMainAreaPanel(
+        surfaceOrPanelID: UUID,
+        in workspace: Workspace,
+        tabManager: TabManager
+    ) {
+        // Fail closed on an id this workspace does not own. Falling back to the
+        // raw id would take the intent off the sidebar and then no-op in
+        // `focusPanel` — the same silent-success bug this seam exists to remove.
+        guard let panelID = tabManager.panelId(forSurfaceOrPanelId: surfaceOrPanelID, in: workspace) else {
+            return
+        }
+        let window = AppDelegate.shared?.mainWindowContainingWorkspace(workspace.id)
+        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+            workspaceId: workspace.id,
+            panelId: panelID,
+            in: window
+        )
+        // Reopening the intent gate is not enough on its own. `TerminalPanel.focus()`
+        // focuses with `respectForeignFirstResponder: true`, so a sidebar host that
+        // holds first responder keeps the keyboard even once the gate allows the
+        // terminal through. Make it resign, exactly as `right_sidebar hide` does on
+        // its way back to the terminal.
+        if let window,
+           let responder = window.firstResponder,
+           AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true {
+            window.makeFirstResponder(nil)
+        }
+        workspace.focusPanel(panelID)
+    }
 }
 
 /// The surface-domain witnesses are the byte-faithful bodies of the former
@@ -297,7 +341,7 @@ extension TerminalController: ControlSurfaceContext {
             tabManager.selectWorkspace(ws)
         }
         if ws.panels[surfaceID] != nil {
-            ws.focusPanel(surfaceID)
+            controlFocusMainAreaPanel(surfaceOrPanelID: surfaceID, in: ws, tabManager: tabManager)
         } else if ws.containsDockPanel(surfaceID) {
             revealDockForFocus(tabManager: tabManager)
             ws.dockSplit.focusPanel(surfaceID)
