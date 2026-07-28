@@ -724,10 +724,11 @@ const BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX: &str =
 const BROWSER_VERIFICATION_FAILED_SUFFIX: &str = "; reload to retry";
 const AUTHORITY_CAPTURE_ATTEMPTS: usize = 3;
 #[cfg(not(test))]
-const AUTHORITY_CAPTURE_BUDGET: Duration = Duration::from_secs(2);
+const AUTHORITY_CAPTURE_ATTEMPT_BUDGET: Duration = Duration::from_secs(2);
 #[cfg(test)]
-const AUTHORITY_CAPTURE_BUDGET: Duration = Duration::from_millis(150);
+const AUTHORITY_CAPTURE_ATTEMPT_BUDGET: Duration = Duration::from_millis(150);
 const NAVIGATION_AUTHORITY_TIMEOUT: Duration = Duration::from_secs(15);
+const POINTER_RELEASE_RETRY_DELAY: Duration = Duration::from_millis(250);
 const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(500)];
 #[cfg(not(test))]
@@ -1566,17 +1567,17 @@ fn release_abandoned_pointer_presses(
         .active_pointer_presses
         .iter()
         .filter(|(_, press)| {
-            let retry_due = press.release_retry_at.is_some_and(|deadline| deadline <= now);
+            if let Some(retry_at) = press.release_retry_at {
+                return retry_at <= now;
+            }
             let compatibility_lease_expired =
                 press.compatibility_expires_at.is_some_and(|deadline| deadline <= now);
             match press.input_owner {
-                BrowserPointerOwner::Local => retry_due || compatibility_lease_expired,
-                BrowserPointerOwner::Legacy => retry_due || compatibility_lease_expired,
+                BrowserPointerOwner::Local | BrowserPointerOwner::Legacy => {
+                    compatibility_lease_expired
+                }
                 BrowserPointerOwner::Client(client) => {
-                    retry_due
-                        || active_clients
-                            .as_ref()
-                            .is_none_or(|mux| !mux.control_clients.contains(client))
+                    active_clients.as_ref().is_none_or(|mux| !mux.control_clients.contains(client))
                 }
             }
         })
@@ -1595,8 +1596,9 @@ fn release_abandoned_pointer_presses(
         {
             let mut retry = press;
             // Delivery is ambiguous after a CDP timeout. Preserve ownership
-            // for exactly one immediate balancing retry.
-            retry.release_retry_at = Some(now);
+            // for exactly one balancing retry, but yield the worker before a
+            // second potentially long CDP call.
+            retry.release_retry_at = Some(Instant::now() + POINTER_RELEASE_RETRY_DELAY);
             failures.active_pointer_presses.insert(button, retry);
         }
         record_browser_worker_result(surface, mux, id, true, result, failures);
@@ -2538,6 +2540,23 @@ impl BrowserSurface {
         state.stall_nudged = false;
     }
 
+    fn mark_pending_authority_failed_locked(
+        &self,
+        state: &mut BrowserState,
+        kind: BrowserFailureKind,
+        message: &str,
+    ) {
+        state.status = BrowserStatus::Failed(message.to_string());
+        state.failure_kind = Some(kind);
+        // Keep the current navigation generation pending so a late
+        // loader-verified paint can recover it without a manual reload.
+        self.invalidate_pointer_frame_locked(state, false);
+        state.pending_authority_deadline = None;
+        state.pending_failure_recovery = true;
+        state.title = format!("browser failed: {message}");
+        state.stall_nudged = false;
+    }
+
     pub fn mark_failed(&self, message: String) {
         let mut state = self.state.lock().unwrap();
         self.mark_failed_locked(&mut state, BrowserFailureKind::Other, &message);
@@ -3298,7 +3317,7 @@ impl BrowserSurface {
                 ),
             )
         };
-        self.mark_failed_locked(&mut state, kind, &message);
+        self.mark_pending_authority_failed_locked(&mut state, kind, &message);
         self.mark_state_dirty_locked(&mut state);
         self.dirty.store(true, Ordering::Release);
         Some(message)
@@ -4265,7 +4284,7 @@ impl BrowserSurface {
                     // The first call may have reached Chrome. Retain its exact
                     // capture and schedule one balancing retry before any later
                     // pointer command can replace that ownership.
-                    press.release_retry_at = Some(Instant::now());
+                    press.release_retry_at = Some(Instant::now() + POINTER_RELEASE_RETRY_DELAY);
                 }
             } else {
                 match replaced_press {
@@ -4494,7 +4513,6 @@ impl BrowserSurface {
         if session.session_id != session_id {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
-        let deadline = Instant::now() + AUTHORITY_CAPTURE_BUDGET;
         let mut last_error = None;
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
             if !self.needs_document_paint(navigation_epoch)
@@ -4502,6 +4520,7 @@ impl BrowserSurface {
             {
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
+            let deadline = Instant::now() + AUTHORITY_CAPTURE_ATTEMPT_BUDGET;
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id, deadline) {
                 Ok((frame_epoch, captured)) => {
                     let accepted = self.accept_document_paint(
@@ -4544,12 +4563,12 @@ impl BrowserSurface {
         if session.session_id != session_id {
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
-        let deadline = Instant::now() + AUTHORITY_CAPTURE_BUDGET;
         let mut last_error = None;
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
             if !self.needs_same_document_paint() {
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
+            let deadline = Instant::now() + AUTHORITY_CAPTURE_ATTEMPT_BUDGET;
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id, deadline) {
                 Ok((frame_epoch, captured)) => {
                     let accepted = self.accept_same_document_paint(
@@ -4621,7 +4640,6 @@ impl BrowserSurface {
             );
             return Ok(BrowserWorkerSuccess::LocallySettled);
         }
-        let deadline = Instant::now() + AUTHORITY_CAPTURE_BUDGET;
         let mut last_error = None;
         for _ in 0..AUTHORITY_CAPTURE_ATTEMPTS {
             if !self.may_need_screencast_capture(reservation_id, frame_epoch, navigation_epoch) {
@@ -4634,6 +4652,7 @@ impl BrowserSurface {
                 );
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
+            let deadline = Instant::now() + AUTHORITY_CAPTURE_ATTEMPT_BUDGET;
             match session
                 .runtime
                 .client
