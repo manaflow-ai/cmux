@@ -1,0 +1,308 @@
+import CmuxConversationTransfer
+import Foundation
+import SQLite3
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite(.serialized)
+struct AgentConversationCrossHarnessForkTests {
+    @Test
+    func explicitSameHarnessRetainsNativeForkWithoutReadingTranscript() async throws {
+        let snapshot = SessionRestorableAgentSnapshot(kind: .codex, sessionId: "codex-session")
+        let service = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [FailingSourceAdapter()])
+        )
+
+        let override = try await AgentConversationForkRequest(
+            targetHarness: .codex,
+            destination: .right
+        ).startupCommandOverride(sourceSnapshot: snapshot, exportService: service)
+
+        #expect(override == nil)
+        #expect(snapshot.forkStartupInput() != nil)
+    }
+
+    @Test
+    func forkCacheIdentityChangesWhenTranscriptPathChanges() {
+        let first = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session",
+            transcriptPath: "/tmp/first-rollout.jsonl"
+        )
+        let second = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session",
+            transcriptPath: "/tmp/second-rollout.jsonl"
+        )
+
+        #expect(
+            ContentView.commandPaletteForkSnapshotFingerprint(first)
+                != ContentView.commandPaletteForkSnapshotFingerprint(second)
+        )
+    }
+
+    @Test
+    func codexTranscriptSeedsClaudeCode() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("rollout.jsonl")
+        try [
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Find the parser bug"}]}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The parser drops the final field"}]}}"#,
+        ].joined(separator: "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session",
+            transcriptPath: transcript.path
+        )
+
+        let command = try #require(try await AgentConversationForkRequest(
+            targetHarness: .claude,
+            destination: .newTab
+        ).startupCommandOverride(sourceSnapshot: snapshot))
+
+        #expect(command.hasPrefix("claude "))
+        #expect(command.contains("Find the parser bug"))
+        #expect(command.contains("The parser drops the final field"))
+    }
+
+    @Test
+    func claudeTranscriptSeedsCodex() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("claude.jsonl")
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Repair the renderer"}}"#,
+            #"{"type":"assistant","message":{"role":"assistant","content":"The wakeup path is stale"}}"#,
+        ].joined(separator: "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session",
+            transcriptPath: transcript.path
+        )
+
+        let command = try #require(try await AgentConversationForkRequest(
+            targetHarness: .codex,
+            destination: .newWorkspace
+        ).startupCommandOverride(sourceSnapshot: snapshot))
+
+        #expect(command.hasPrefix("codex "))
+        #expect(command.contains("Repair the renderer"))
+        #expect(command.contains("The wakeup path is stale"))
+    }
+
+    @Test
+    func openCodeDatabaseTranscriptSeedsClaudeCode() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let database = fixture.appendingPathComponent("opencode.db")
+        try createOpenCodeDatabase(at: database)
+        let service = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                OpenCodeAgentConversationSourceAdapter(databasePath: database.path),
+            ])
+        )
+
+        let command = try #require(try await AgentConversationForkRequest(
+            targetHarness: .claude,
+            destination: .bottom
+        ).startupCommandOverride(
+            sourceSnapshot: SessionRestorableAgentSnapshot(
+                kind: .opencode,
+                sessionId: "open-session"
+            ),
+            exportService: service
+        ))
+
+        #expect(command.hasPrefix("claude "))
+        #expect(command.contains("Inspect OpenCode storage"))
+        #expect(command.contains("Storage is SQLite-backed"))
+    }
+
+    @Test
+    func openCodeTargetUsesPromptFlag() throws {
+        let command = try #require(
+            AgentConversationForkRequest.TargetHarness.opencode.startupCommand(
+                handoffMessage: "User:\nContinue this work"
+            )
+        )
+
+        #expect(command.hasPrefix("opencode --prompt "))
+        #expect(command.contains("Continue this work"))
+    }
+
+    @Test
+    func crossHarnessForkCreatesSplitWithTransferredPrompt() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = try makeCodexSnapshot(in: fixture)
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        let didFork = await workspace.forkAgentConversation(
+            fromPanelId: sourcePanelId,
+            snapshot: snapshot,
+            request: .init(targetHarness: .claude, destination: .right)
+        )
+
+        #expect(didFork)
+        #expect(workspace.bonsplitController.allPaneIds.count == 2)
+        let forkPanelId = try #require(workspace.focusedPanelId)
+        let forkPanel = try #require(workspace.terminalPanel(for: forkPanelId))
+        #expect(forkPanelId != sourcePanelId)
+        #expect(forkPanel.surface.initialInput?.contains("claude ") == true)
+        #expect(forkPanel.surface.initialInput?.contains("Preserve destination behavior") == true)
+    }
+
+    @Test
+    func crossHarnessForkCreatesSiblingTabWithTransferredPrompt() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = try makeCodexSnapshot(in: fixture)
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let sourcePaneId = try #require(workspace.paneId(forPanelId: sourcePanelId))
+
+        let didFork = await workspace.forkAgentConversation(
+            fromPanelId: sourcePanelId,
+            snapshot: snapshot,
+            request: .init(targetHarness: .claude, destination: .newTab)
+        )
+
+        #expect(didFork)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        #expect(workspace.bonsplitController.tabs(inPane: sourcePaneId).count == 2)
+        let forkPanelId = try #require(workspace.focusedPanelId)
+        let forkPanel = try #require(workspace.terminalPanel(for: forkPanelId))
+        #expect(forkPanelId != sourcePanelId)
+        #expect(forkPanel.surface.initialInput?.contains("Preserve destination behavior") == true)
+    }
+
+    @Test
+    func crossHarnessForkCreatesWorkspaceWithTransferredPrompt() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = try makeCodexSnapshot(in: fixture)
+        let tabManager = TabManager()
+        let sourceWorkspace = try #require(tabManager.tabs.first)
+        let sourcePanelId = try #require(sourceWorkspace.focusedPanelId)
+
+        let didFork = await sourceWorkspace.forkAgentConversation(
+            fromPanelId: sourcePanelId,
+            snapshot: snapshot,
+            request: .init(targetHarness: .claude, destination: .newWorkspace)
+        )
+
+        #expect(didFork)
+        #expect(tabManager.tabs.count == 2)
+        let forkWorkspace = try #require(tabManager.tabs.first { $0.id != sourceWorkspace.id })
+        let forkPanelId = try #require(forkWorkspace.focusedPanelId)
+        let forkPanel = try #require(forkWorkspace.terminalPanel(for: forkPanelId))
+        #expect(forkPanel.surface.initialInput?.contains("Preserve destination behavior") == true)
+    }
+
+    @Test
+    func transferRetentionKeepsOpeningRequestAndLatestTurns() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("claude.jsonl")
+        try (0..<8).map { index in
+            let type = index.isMultiple(of: 2) ? "user" : "assistant"
+            return #"{"type":"\#(type)","message":{"role":"\#(type)","content":"turn-\#(index)"}}"#
+        }.joined(separator: "\n").write(to: transcript, atomically: true, encoding: .utf8)
+
+        let turns = try await SessionTranscriptLoader.load(source: .init(
+            agent: .claude,
+            sessionId: "session",
+            fileURL: transcript,
+            retention: .openingUserAndLatest(3)
+        ))
+
+        #expect(turns.first?.text.contains("turn-0") == true)
+        #expect(turns.last?.text.contains("turn-7") == true)
+        #expect(!turns.contains(where: { $0.text.contains("turn-2") }))
+    }
+
+    @Test
+    func largeCrossHarnessCommandUsesPrivateSelfDeletingLauncher() throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = SessionRestorableAgentSnapshot(kind: .codex, sessionId: "large-session")
+        let command = "claude " + String(repeating: "context ", count: 500)
+
+        let input = try #require(snapshot.customStartupInput(
+            command: command,
+            temporaryDirectory: fixture
+        ))
+        let prefix = "/bin/zsh '"
+        #expect(input.hasPrefix(prefix))
+        let path = String(input.dropFirst(prefix.count).dropLast(2))
+        let contents = try String(contentsOfFile: path, encoding: .utf8)
+        let permissions = try #require(
+            FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
+        ).intValue & 0o777
+
+        #expect(permissions == 0o600)
+        #expect(contents.contains("rm -f -- \"$0\""))
+        #expect(contents.contains(command))
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cross-harness-fork-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func makeCodexSnapshot(in directory: URL) throws -> SessionRestorableAgentSnapshot {
+        let transcript = directory.appendingPathComponent("rollout.jsonl")
+        try [
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Preserve destination behavior"}]}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Use the shared executor"}]}}"#,
+        ].joined(separator: "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        return SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-destination-session",
+            workingDirectory: directory.path,
+            transcriptPath: transcript.path
+        )
+    }
+
+    private func createOpenCodeDatabase(at url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            throw OpenCodeFixtureError.sqlite
+        }
+        defer { sqlite3_close(database) }
+        let sql = #"""
+        CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);
+        CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, time_created INTEGER, data TEXT);
+        INSERT INTO message VALUES ('m1', 'open-session', 1, '{"role":"user"}');
+        INSERT INTO message VALUES ('m2', 'open-session', 2, '{"role":"assistant"}');
+        INSERT INTO part VALUES ('p1', 'm1', 1, '{"type":"text","text":"Inspect OpenCode storage"}');
+        INSERT INTO part VALUES ('p2', 'm2', 2, '{"type":"text","text":"Storage is SQLite-backed"}');
+        """#
+        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+            throw OpenCodeFixtureError.sqlite
+        }
+    }
+}
+
+private struct FailingSourceAdapter: AgentConversationSourceAdapter {
+    func supports(_ source: AgentConversationSource) -> Bool { true }
+
+    func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
+        throw OpenCodeFixtureError.unexpectedRead
+    }
+}
+
+private enum OpenCodeFixtureError: Error {
+    case sqlite
+    case unexpectedRead
+}

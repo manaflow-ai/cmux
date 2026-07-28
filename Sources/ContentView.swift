@@ -32,92 +32,6 @@ var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
 private func sidebarShortTabId(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(5)) } ?? "nil" }
-@MainActor
-private final class CommandPaletteOverlayContainerView: NSView {
-    var capturesMouseEvents = false
-
-    override var isOpaque: Bool { false }
-    override var acceptsFirstResponder: Bool { true }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard capturesMouseEvents else { return nil }
-        return super.hitTest(point)
-    }
-}
-
-#if DEBUG
-private func debugCommandPaletteWindowSummary(_ window: NSWindow?) -> String {
-    guard let window else { return "nil" }
-    let ident = window.identifier?.rawValue ?? "nil"
-    return "num=\(window.windowNumber) ident=\(ident) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
-}
-
-private func debugCommandPaletteNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
-    flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-}
-
-private func debugCommandPaletteModifierFlagsSummary(_ flags: NSEvent.ModifierFlags) -> String {
-    let normalized = debugCommandPaletteNormalizedModifierFlags(flags)
-    var parts: [String] = []
-    if normalized.contains(.command) { parts.append("cmd") }
-    if normalized.contains(.shift) { parts.append("shift") }
-    if normalized.contains(.option) { parts.append("opt") }
-    if normalized.contains(.control) { parts.append("ctrl") }
-    return parts.isEmpty ? "none" : parts.joined(separator: "+")
-}
-
-private func debugCommandPaletteKeyEventSummary(_ event: NSEvent) -> String {
-    let chars = event.characters.map(String.init(reflecting:)) ?? "nil"
-    let charsIgnoring = event.charactersIgnoringModifiers.map(String.init(reflecting:)) ?? "nil"
-    return
-        "type=\(event.type) keyCode=\(event.keyCode) flags=\(debugCommandPaletteModifierFlagsSummary(event.modifierFlags)) " +
-        "chars=\(chars) charsIgnoring=\(charsIgnoring)"
-}
-
-private func debugCommandPaletteTextPreview(_ text: String, limit: Int = 120) -> String {
-    let escaped = text
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\n", with: "\\n")
-        .replacingOccurrences(of: "\r", with: "\\r")
-        .replacingOccurrences(of: "\t", with: "\\t")
-    if escaped.count <= limit {
-        return escaped
-    }
-    let prefix = escaped.prefix(limit)
-    return "\(prefix)..."
-}
-
-private func debugCommandPaletteResponderSummary(_ responder: NSResponder?) -> String {
-    guard let responder else { return "nil" }
-
-    let typeName = String(describing: type(of: responder))
-    if let textView = responder as? NSTextView {
-        let selection = textView.selectedRange()
-        return "\(typeName){fieldEditor=\(textView.isFieldEditor ? 1 : 0) editable=\(textView.isEditable ? 1 : 0) selectable=\(textView.isSelectable ? 1 : 0) hidden=\(textView.isHiddenOrHasHiddenAncestor ? 1 : 0) len=\((textView.string as NSString).length) sel=\(selection.location):\(selection.length)}"
-    }
-
-    if let textField = responder as? NSTextField {
-        return "\(typeName){editable=\(textField.isEditable ? 1 : 0) enabled=\(textField.isEnabled ? 1 : 0) hidden=\(textField.isHiddenOrHasHiddenAncestor ? 1 : 0) len=\((textField.stringValue as NSString).length)}"
-    }
-
-    if let view = responder as? NSView {
-        return "\(typeName){hidden=\(view.isHiddenOrHasHiddenAncestor ? 1 : 0)}"
-    }
-
-    return typeName
-}
-#endif
-
-@MainActor
-final class WeakWindowReference {
-    weak var window: NSWindow?
-
-    init(_ window: NSWindow? = nil) {
-        self.window = window
-    }
-}
 
 @MainActor
 private final class WindowCommandPaletteOverlayController: NSObject {
@@ -717,94 +631,6 @@ private func installFileDropOverlayWhenReady(
     }
 }
 
-@MainActor
-private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
-    private struct Snapshot: Equatable {
-        let workspaceId: UUID?
-        let currentDirectory: String?
-        let remoteConfiguration: WorkspaceRemoteConfiguration?
-        let remoteConnectionState: WorkspaceRemoteConnectionState?
-        let remoteConnectionDetail: String?
-        let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
-        let activeRemoteTerminalSessionCount: Int
-    }
-
-    @Published private(set) var directoryChangeGeneration: UInt64 = 0
-    private weak var tabManager: TabManager?
-    private var cancellable: AnyCancellable?
-
-    func wire(tabManager: TabManager) {
-        guard self.tabManager !== tabManager || cancellable == nil else { return }
-        self.tabManager = tabManager
-        cancellable = tabManager.selectedTabIdPublisher
-            .map { [weak tabManager] tabId -> Workspace? in
-                guard let tabId, let tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.id == tabId })
-            }
-            .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<(Snapshot, UInt64), Never> in
-                guard let workspace else {
-                    return Just(
-                        Snapshot(
-                            workspaceId: nil,
-                            currentDirectory: nil,
-                            remoteConfiguration: nil,
-                            remoteConnectionState: nil,
-                            remoteConnectionDetail: nil,
-                            remoteDaemonStatus: nil,
-                            activeRemoteTerminalSessionCount: 0
-                        )
-                    )
-                    .map { ($0, UInt64(0)) }
-                    .eraseToAnyPublisher()
-                }
-                let directoryChangeRevision = workspace.currentDirectoryChangeRevisionPublisher()
-                return workspace.$currentDirectory
-                    .combineLatest(
-                        workspace.$remoteConfiguration,
-                        workspace.$remoteConnectionState,
-                        workspace.$remoteConnectionDetail
-                    )
-                    .combineLatest(
-                        workspace.$remoteDaemonStatus,
-                        workspace.$activeRemoteTerminalSessionCount
-                    )
-                    .map { values in
-                        let (
-                            previousValues,
-                            remoteDaemonStatus,
-                            activeRemoteTerminalSessionCount
-                        ) = values
-                        let (
-                            currentDirectory,
-                            remoteConfiguration,
-                            remoteConnectionState,
-                            remoteConnectionDetail
-                        ) = previousValues
-                        return Snapshot(
-                            workspaceId: workspace.id,
-                            currentDirectory: workspace.isRemoteWorkspace
-                                ? workspace.presentedCurrentDirectory
-                                : currentDirectory,
-                            remoteConfiguration: remoteConfiguration,
-                            remoteConnectionState: remoteConnectionState,
-                            remoteConnectionDetail: remoteConnectionDetail,
-                            remoteDaemonStatus: remoteDaemonStatus,
-                            activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
-                        )
-                    }
-                    .combineLatest(directoryChangeRevision)
-                    .eraseToAnyPublisher()
-            }
-            .switchToLatest()
-            .removeDuplicates { lhs, rhs in lhs.0 == rhs.0 && lhs.1 == rhs.1 }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.directoryChangeGeneration &+= 1
-            }
-    }
-}
-
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
@@ -903,6 +729,8 @@ struct ContentView: View {
     @State private var isCommandPalettePresented = false
     @State private var commandPaletteQuery: String = ""
     @State private var commandPaletteMode: CommandPaletteMode = .commands
+    @State private var commandPaletteArgumentCommand: CommandPaletteCommand?
+    @State private var commandPaletteArgumentSelectedIndex = 0
     @State private var commandPaletteRenameDraft: String = ""
     @State private var commandPaletteWorkspaceDescriptionDraft: String = ""
     @State private var commandPaletteWorkspaceDescriptionHeight: CGFloat = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
@@ -3091,7 +2919,6 @@ struct ContentView: View {
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteMoveSelection)) { notification in
             guard isCommandPalettePresented else { return }
-            guard case .commands = commandPaletteMode else { return }
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
                 observedWindow: observedWindow,
@@ -3100,7 +2927,14 @@ struct ContentView: View {
                 mainWindow: NSApp.mainWindow
             ) else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
-            moveCommandPaletteSelection(by: delta)
+            switch commandPaletteMode {
+            case .commands:
+                moveCommandPaletteSelection(by: delta)
+            case .choiceArguments:
+                moveCommandPaletteArgumentSelection(by: delta)
+            case .renameInput, .renameConfirm, .workspaceDescriptionInput:
+                break
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameInputInteractionRequested)) { notification in
@@ -3605,6 +3439,15 @@ struct ContentView: View {
                         commandPaletteRenameInputView(target: target)
                     case let .renameConfirm(target, proposedName):
                         commandPaletteRenameConfirmView(target: target, proposedName: proposedName)
+                    case .choiceArguments(let collection):
+                        CommandPaletteArgumentChoiceView(
+                            commandTitle: commandPaletteArgumentCommand?.title ?? "",
+                            instruction: commandPaletteArgumentInstruction(collection),
+                            commandID: collection.commandID,
+                            argument: collection.currentArgument,
+                            selectedIndex: commandPaletteArgumentSelectedIndex,
+                            onSelect: selectCommandPaletteArgumentChoice(value:)
+                        )
                     case .workspaceDescriptionInput(let target):
                         commandPaletteWorkspaceDescriptionInputView(
                             target: target,
@@ -4995,7 +4838,7 @@ struct ContentView: View {
 
     nonisolated static func commandPaletteForkPriorityBoost(commandId: String, query: String) -> Int {
         guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork",
-              commandId == "palette.forkAgentConversationRight" else {
+              commandId == "palette.forkAgentConversation" else {
             return 0
         }
         return 10_000
@@ -5753,6 +5596,7 @@ struct ContentView: View {
             snapshot.kind.rawValue,
             snapshot.sessionId,
             snapshot.workingDirectory ?? "",
+            snapshot.transcriptPath ?? "",
             isRemoteTerminal ? "remote" : "local",
             launchCommand?.launcher ?? "",
             launchCommand?.executablePath ?? "",
@@ -6652,7 +6496,8 @@ struct ContentView: View {
                         ? configuredPaletteAction?.keywords ?? contribution.keywords
                         : contribution.keywords,
                     dismissOnRun: contribution.dismissOnRun,
-                    action: action
+                    choiceArguments: contribution.choiceArguments,
+                    argumentAction: action
                 )
             )
             nextRank += 1
@@ -7896,6 +7741,25 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversation",
+                title: constant(String(
+                    localized: "command.forkAgentConversation.title",
+                    defaultValue: "Fork Conversation…"
+                )),
+                subtitle: terminalPanelSubtitle,
+                keywords: [
+                    "terminal", "agent", "fork", "conversation", "session", "harness",
+                    "claude", "codex", "opencode", "direction", "destination",
+                ],
+                choiceArguments: AgentConversationForkRequest.commandPaletteChoiceArguments,
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.forkAgentConversationRight",
                 title: constant(String(localized: "command.forkAgentConversationRight.title", defaultValue: "Fork Conversation to the Right")),
                 subtitle: terminalPanelSubtitle,
@@ -8681,6 +8545,13 @@ struct ContentView: View {
                 tabManager.createSplit(direction: .right)
             }
         }
+        registry.register(commandId: "palette.forkAgentConversation") { arguments in
+            guard let request = AgentConversationForkRequest(arguments: arguments) else {
+                NSSound.beep()
+                return
+            }
+            forkFocusedAgentConversation(request: request)
+        }
         registry.register(commandId: "palette.forkAgentConversationRight") {
             forkFocusedAgentConversationRight()
         }
@@ -8971,6 +8842,18 @@ struct ContentView: View {
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
+    private func moveCommandPaletteArgumentSelection(by delta: Int) {
+        guard case .choiceArguments(let collection) = commandPaletteMode else { return }
+        let count = collection.currentArgument.choices.count
+        guard count > 0 else {
+            NSSound.beep()
+            return
+        }
+        let current = min(max(commandPaletteArgumentSelectedIndex, 0), count - 1)
+        commandPaletteArgumentSelectedIndex = min(max(current + delta, 0), count - 1)
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
     private func forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal(_ event: NSEvent) -> Bool {
         guard let target = commandPaletteRestoreFocusTarget,
               target.intent == .terminal(.surface),
@@ -9092,6 +8975,14 @@ struct ContentView: View {
         switch commandPaletteMode {
         case .commands:
             runSelectedCommandPaletteResult()
+        case .choiceArguments(let collection):
+            let choices = collection.currentArgument.choices
+            guard !choices.isEmpty else {
+                NSSound.beep()
+                return
+            }
+            let index = min(max(commandPaletteArgumentSelectedIndex, 0), choices.count - 1)
+            selectCommandPaletteArgumentChoice(value: choices[index].value)
         case .renameInput(let target):
             continueRenameFlow(target: target)
         case .renameConfirm(let target, let proposedName):
@@ -9114,10 +9005,22 @@ struct ContentView: View {
         }
     }
 
-    private func runCommandPaletteCommand(_ command: CommandPaletteCommand) {
+    private func runCommandPaletteCommand(
+        _ command: CommandPaletteCommand,
+        arguments: [String: String] = [:]
+    ) {
 #if DEBUG
         cmuxDebugLog("palette.run commandId=\(command.id) dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
 #endif
+        if isCommandPalettePresented,
+           let collection = CommandPaletteArgumentCollection(
+               commandID: command.id,
+               arguments: command.choiceArguments,
+               initialValues: arguments
+           ) {
+            beginCommandPaletteArgumentCollection(command: command, collection: collection)
+            return
+        }
         let postRunFocusTarget = commandPalettePostRunFocusTarget(for: command)
         recordCommandPaletteUsage(command.id)
         if command.dismissOnRun,
@@ -9127,10 +9030,10 @@ struct ContentView: View {
             } else {
                 dismissCommandPalette(restoreFocus: false)
             }
-            command.action()
+            command.run(arguments: arguments)
             return
         }
-        command.action()
+        command.run(arguments: arguments)
         if command.dismissOnRun {
             if let postRunFocusTarget {
                 dismissCommandPalette(restoreFocus: true, preferredFocusTarget: postRunFocusTarget)
@@ -9138,6 +9041,61 @@ struct ContentView: View {
                 dismissCommandPalette(restoreFocus: false)
             }
         }
+    }
+
+    private func beginCommandPaletteArgumentCollection(
+        command: CommandPaletteCommand,
+        collection: CommandPaletteArgumentCollection
+    ) {
+        commandPaletteArgumentCommand = command
+        commandPaletteArgumentSelectedIndex = 0
+        commandPaletteMode = .choiceArguments(collection)
+        isCommandPaletteSearchFocused = false
+        isCommandPaletteRenameFocused = false
+        commandPaletteShouldFocusWorkspaceDescriptionEditor = false
+        commandPalettePendingTextSelectionBehavior = nil
+        if let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow {
+            _ = window.makeFirstResponder(nil)
+        }
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func selectCommandPaletteArgumentChoice(value: String) {
+        guard case .choiceArguments(var collection) = commandPaletteMode,
+              let command = commandPaletteArgumentCommand,
+              command.id == collection.commandID else {
+            NSSound.beep()
+            return
+        }
+
+        switch collection.selectCurrentChoice(value: value) {
+        case .invalid:
+            NSSound.beep()
+        case .advanced:
+            commandPaletteArgumentSelectedIndex = 0
+            commandPaletteMode = .choiceArguments(collection)
+            syncCommandPaletteDebugStateForObservedWindow()
+        case .completed:
+            commandPaletteArgumentCommand = nil
+            commandPaletteArgumentSelectedIndex = 0
+            commandPaletteMode = .commands
+            runCommandPaletteCommand(command, arguments: collection.values)
+        }
+    }
+
+    private func commandPaletteArgumentInstruction(
+        _ collection: CommandPaletteArgumentCollection
+    ) -> String {
+        let format = String(
+            localized: "commandPalette.argument.instruction",
+            defaultValue: "Choose %1$@ (%2$lld of %3$lld)"
+        )
+        return String(
+            format: format,
+            collection.currentArgument.title,
+            Int64(collection.currentStep),
+            Int64(collection.stepCount)
+        )
     }
 
     private func commandPalettePostRunFocusTarget(for command: CommandPaletteCommand) -> CommandPaletteRestoreFocusTarget? {
@@ -9254,7 +9212,8 @@ struct ContentView: View {
 
     static func commandPaletteShouldDismissBeforeRun(forCommandId commandId: String) -> Bool {
         switch commandId {
-        case "palette.forkAgentConversationRight",
+        case "palette.forkAgentConversation",
+             "palette.forkAgentConversationRight",
              "palette.forkAgentConversationLeft",
              "palette.forkAgentConversationTop",
              "palette.forkAgentConversationBottom",
@@ -9284,8 +9243,18 @@ struct ContentView: View {
     private func syncCommandPaletteDebugStateForObservedWindow() {
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
         AppDelegate.shared?.setCommandPaletteVisible(isCommandPalettePresented, for: window)
-        let visibleResultCount = commandPaletteVisibleResults.count
-        let selectedIndex = isCommandPalettePresented ? commandPaletteSelectedIndex(resultCount: visibleResultCount) : 0
+        let selectedIndex: Int
+        if isCommandPalettePresented,
+           case .choiceArguments(let collection) = commandPaletteMode {
+            selectedIndex = min(
+                max(commandPaletteArgumentSelectedIndex, 0),
+                max(collection.currentArgument.choices.count - 1, 0)
+            )
+        } else {
+            selectedIndex = isCommandPalettePresented
+                ? commandPaletteSelectedIndex(resultCount: commandPaletteVisibleResults.count)
+                : 0
+        }
         AppDelegate.shared?.setCommandPaletteSelectionIndex(selectedIndex, for: window)
         AppDelegate.shared?.setCommandPaletteSnapshot(commandPaletteDebugSnapshot(), for: window)
     }
@@ -9301,11 +9270,25 @@ struct ContentView: View {
             mode = "rename_input"
         case .renameConfirm:
             mode = "rename_confirm"
+        case .choiceArguments(let collection):
+            mode = "choice_arguments.\(collection.currentArgument.name)"
         case .workspaceDescriptionInput:
             mode = "workspace_description_input"
         }
 
-        let rows = Array(commandPaletteVisibleResults.prefix(20)).map { result in
+        let rows: [CommandPaletteDebugResultRow]
+        if case .choiceArguments(let collection) = commandPaletteMode {
+            rows = Array(collection.currentArgument.choices.prefix(20)).map { choice in
+                CommandPaletteDebugResultRow(
+                    commandId: choice.value,
+                    title: choice.title,
+                    shortcutHint: nil,
+                    trailingLabel: nil,
+                    score: 0
+                )
+            }
+        } else {
+            rows = Array(commandPaletteVisibleResults.prefix(20)).map { result in
                 CommandPaletteDebugResultRow(
                     commandId: result.command.id,
                     title: result.command.title,
@@ -9313,6 +9296,7 @@ struct ContentView: View {
                     trailingLabel: commandPaletteRenderTrailingLabel(for: result.command)?.text,
                     score: result.score
                 )
+            }
         }
 
         return CommandPaletteDebugSnapshot(
@@ -9344,6 +9328,8 @@ struct ContentView: View {
 
     private func resetCommandPaletteListState(initialQuery: String) {
         commandPaletteMode = .commands
+        commandPaletteArgumentCommand = nil
+        commandPaletteArgumentSelectedIndex = 0
         commandPaletteQuery = initialQuery
         commandPaletteRenameDraft = ""
         commandPaletteWorkspaceDescriptionDraft = ""
@@ -9455,6 +9441,8 @@ struct ContentView: View {
         commandPaletteSearchRequestID &+= 1
         isCommandPalettePresented = false
         commandPaletteMode = .commands
+        commandPaletteArgumentCommand = nil
+        commandPaletteArgumentSelectedIndex = 0
         commandPaletteQuery = ""
         commandPaletteRenameDraft = ""
         commandPaletteWorkspaceDescriptionDraft = ""
@@ -9581,6 +9569,8 @@ struct ContentView: View {
             return "renameInput"
         case .renameConfirm:
             return "renameConfirm"
+        case .choiceArguments(let collection):
+            return "choiceArguments.\(collection.currentArgument.name)"
         case .workspaceDescriptionInput:
             return "workspaceDescriptionInput"
         }
@@ -9678,7 +9668,7 @@ struct ContentView: View {
             switch commandPaletteMode {
             case .commands, .renameInput:
                 break
-            case .renameConfirm:
+            case .renameConfirm, .choiceArguments:
                 return
             case .workspaceDescriptionInput:
                 return

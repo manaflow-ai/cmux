@@ -127,9 +127,20 @@ public enum HermesAgentIndex {
         }
     }
 
+    /// Loads one session transcript in chronological order.
+    /// - Parameters:
+    ///   - sessionId: Native Hermes session identifier.
+    ///   - limit: Maximum number of turns to return.
+    ///   - latest: Whether the limit selects the newest suffix instead of the oldest prefix.
+    ///   - preservingOpeningUser: Whether a latest suffix reserves one slot for the opening user request.
+    ///   - stateDBPath: Hermes state database to snapshot and query.
+    /// - Returns: At most `limit` turns ordered from oldest to newest.
+    /// - Throws: ``HermesAgentIndexError`` when the database cannot be read.
     public static func loadTranscript(
         sessionId: String,
         limit: Int,
+        latest: Bool = false,
+        preservingOpeningUser: Bool = false,
         stateDBPath: String = Self.defaultStateDBPath()
     ) throws -> [HermesAgentTranscriptTurn] {
         guard limit > 0 else { return [] }
@@ -139,7 +150,13 @@ public enum HermesAgentIndex {
         defer { snapshot.remove() }
 
         return try withDatabase(snapshot.databaseURL.path) { db in
-            try loadTranscript(db: db, sessionId: sessionId, limit: limit)
+            let turns = try loadTranscript(db: db, sessionId: sessionId, limit: limit, latest: latest)
+            guard latest, preservingOpeningUser,
+                  let openingUser = try loadOpeningUserTurn(db: db, sessionId: sessionId),
+                  !turns.contains(openingUser) else {
+                return turns
+            }
+            return [openingUser] + turns.suffix(max(0, limit - 1))
         }
     }
 
@@ -247,15 +264,31 @@ public enum HermesAgentIndex {
     private static func loadTranscript(
         db: OpaquePointer,
         sessionId: String,
-        limit: Int
+        limit: Int,
+        latest: Bool
     ) throws -> [HermesAgentTranscriptTurn] {
-        let sql = """
-            SELECT role, content, tool_name, tool_calls
-            FROM messages
-            WHERE session_id = ?
-            ORDER BY timestamp, id
-            LIMIT \(limit)
-            """
+        let sql: String
+        if latest {
+            sql = """
+                SELECT role, content, tool_name, tool_calls
+                FROM (
+                  SELECT role, content, tool_name, tool_calls, timestamp, id
+                  FROM messages
+                  WHERE session_id = ?
+                  ORDER BY timestamp DESC, id DESC
+                  LIMIT \(limit)
+                )
+                ORDER BY timestamp, id
+                """
+        } else {
+            sql = """
+                SELECT role, content, tool_name, tool_calls
+                FROM messages
+                WHERE session_id = ?
+                ORDER BY timestamp, id
+                LIMIT \(limit)
+                """
+        }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
             sqlite3_finalize(stmt)
@@ -288,6 +321,38 @@ public enum HermesAgentIndex {
             throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "step failed")
         }
         return turns
+    }
+
+    private static func loadOpeningUserTurn(
+        db: OpaquePointer,
+        sessionId: String
+    ) throws -> HermesAgentTranscriptTurn? {
+        let sql = """
+            SELECT role, content, tool_name, tool_calls
+            FROM messages
+            WHERE session_id = ? AND role = 'user' AND COALESCE(content, '') <> ''
+            ORDER BY timestamp, id
+            LIMIT 1
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "prepare failed")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        guard sqlite3_bind_text(stmt, 1, sessionId, -1, destructor) == SQLITE_OK else {
+            throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
+        }
+        let stepResult = sqlite3_step(stmt)
+        if stepResult == SQLITE_DONE { return nil }
+        guard stepResult == SQLITE_ROW else {
+            throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "step failed")
+        }
+        let content = decodedContentText(sqliteText(stmt, 1))
+        guard let text = normalized(content) else { return nil }
+        return HermesAgentTranscriptTurn(role: sqliteText(stmt, 0) ?? "user", content: text, toolName: nil)
     }
 
     private static func makeSnapshot(stateDBPath: String, prefix: String) throws -> HermesAgentDatabaseSnapshot? {

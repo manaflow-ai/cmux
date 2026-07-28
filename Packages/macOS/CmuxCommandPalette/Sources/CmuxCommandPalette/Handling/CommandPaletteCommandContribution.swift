@@ -16,12 +16,24 @@ public struct CommandPaletteCommandContribution {
     public let keywords: [String]
     /// Whether activating the command dismisses the palette.
     public let dismissOnRun: Bool
+    /// Finite-choice values collected interactively before the command runs.
+    public let choiceArguments: [CommandPaletteChoiceArgument]
     /// Whether the command appears at all in this context.
     public let when: (CommandPaletteContextSnapshot) -> Bool
     /// Whether the command is enabled in this context.
     public let enablement: (CommandPaletteContextSnapshot) -> Bool
 
     /// Creates a contribution; `when` and `enablement` default to always-true.
+    /// - Parameters:
+    ///   - commandId: Stable command identifier.
+    ///   - title: Display title derived from the current context.
+    ///   - subtitle: Display subtitle derived from the current context.
+    ///   - shortcutHint: Optional keyboard-shortcut hint.
+    ///   - keywords: Additional search keywords.
+    ///   - dismissOnRun: Whether activation dismisses the palette.
+    ///   - choiceArguments: Ordered finite choices collected before execution.
+    ///   - when: Visibility predicate evaluated against the current context.
+    ///   - enablement: Enablement predicate evaluated against the current context.
     public init(
         commandId: String,
         title: @escaping (CommandPaletteContextSnapshot) -> String,
@@ -29,6 +41,7 @@ public struct CommandPaletteCommandContribution {
         shortcutHint: String? = nil,
         keywords: [String] = [],
         dismissOnRun: Bool = true,
+        choiceArguments: [CommandPaletteChoiceArgument] = [],
         when: @escaping (CommandPaletteContextSnapshot) -> Bool = { _ in true },
         enablement: @escaping (CommandPaletteContextSnapshot) -> Bool = { _ in true }
     ) {
@@ -38,6 +51,7 @@ public struct CommandPaletteCommandContribution {
         self.shortcutHint = shortcutHint
         self.keywords = keywords
         self.dismissOnRun = dismissOnRun
+        self.choiceArguments = choiceArguments
         self.when = when
         self.enablement = enablement
     }

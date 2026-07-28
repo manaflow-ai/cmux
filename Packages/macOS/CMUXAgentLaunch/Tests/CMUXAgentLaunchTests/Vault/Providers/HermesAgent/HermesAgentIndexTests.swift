@@ -102,6 +102,61 @@ struct HermesAgentIndexTests {
         #expect(turns[1].content.contains("pwd"))
     }
 
+    @Test("Loads the latest transcript suffix in chronological order")
+    func loadsLatestTranscriptSuffixInChronologicalOrder() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title)
+        VALUES ('session-a', 'cli', 'model-a', 10, 'General');
+        INSERT INTO messages (session_id, role, content, timestamp)
+        VALUES
+          ('session-a', 'user', 'turn one', 11),
+          ('session-a', 'assistant', 'turn two', 12),
+          ('session-a', 'user', 'turn three', 13),
+          ('session-a', 'assistant', 'turn four', 14);
+        """)
+
+        let turns = try HermesAgentIndex.loadTranscript(
+            sessionId: "session-a",
+            limit: 2,
+            latest: true,
+            stateDBPath: dbURL.path
+        )
+
+        #expect(turns.map(\.content) == ["turn three", "turn four"])
+    }
+
+    @Test("Preserves the opening user request before the latest suffix")
+    func preservesOpeningUserBeforeLatestSuffix() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title)
+        VALUES ('session-a', 'cli', 'model-a', 10, 'General');
+        INSERT INTO messages (session_id, role, content, timestamp)
+        VALUES
+          ('session-a', 'user', 'opening request', 11),
+          ('session-a', 'assistant', 'old answer', 12),
+          ('session-a', 'user', 'latest follow-up', 13),
+          ('session-a', 'assistant', 'latest answer', 14);
+        """)
+
+        let turns = try HermesAgentIndex.loadTranscript(
+            sessionId: "session-a",
+            limit: 3,
+            latest: true,
+            preservingOpeningUser: true,
+            stateDBPath: dbURL.path
+        )
+
+        #expect(turns.map(\.content) == ["opening request", "latest follow-up", "latest answer"])
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-index-\(UUID().uuidString)", isDirectory: true)

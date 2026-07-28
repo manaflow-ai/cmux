@@ -714,7 +714,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
 
 // MARK: - Session transcript preview
 
-private struct SessionTranscriptPreviewView: View {
+struct SessionTranscriptPreviewView: View {
     let entry: SessionEntry
     @ObservedObject var sizeModel: SessionTranscriptPopoverSizeModel
     let onResize: (CGSize) -> Void
@@ -855,7 +855,7 @@ private struct SessionTranscriptPreviewView: View {
     }
 }
 
-private enum SessionTranscriptPreviewLayout {
+enum SessionTranscriptPreviewLayout {
     static let defaultSize = CGSize(width: 520, height: 500)
     static let minSize = CGSize(width: 420, height: 320)
     static let maxSize = CGSize(width: 920, height: 820)
@@ -868,7 +868,7 @@ private enum SessionTranscriptPreviewLayout {
     }
 }
 
-private final class SessionTranscriptPopoverSizeModel: ObservableObject {
+final class SessionTranscriptPopoverSizeModel: ObservableObject {
     @Published var size: CGSize
 
     init(size: CGSize = SessionTranscriptPreviewLayout.defaultSize) {
@@ -1144,37 +1144,88 @@ enum SessionTranscriptLoader {
         + grokSystemRoleNeedles
         + grokToolRoleNeedles
 
-    static func load(entry: SessionEntry) async throws -> [SessionTranscriptTurn] {
-        if entry.agent == .opencode {
-            let sessionId = entry.sessionId
+    struct Source: Sendable {
+        let agent: SessionAgent
+        let sessionId: String
+        let fileURL: URL?
+        let usesGrokTranscriptLayout: Bool
+        let openCodeDatabasePath: String?
+        let retention: SessionTranscriptRetention
+
+        init(
+            agent: SessionAgent,
+            sessionId: String,
+            fileURL: URL?,
+            usesGrokTranscriptLayout: Bool = false,
+            openCodeDatabasePath: String? = nil,
+            retention: SessionTranscriptRetention = .prefix(500)
+        ) {
+            self.agent = agent
+            self.sessionId = sessionId
+            self.fileURL = fileURL
+            self.usesGrokTranscriptLayout = usesGrokTranscriptLayout
+            self.openCodeDatabasePath = openCodeDatabasePath
+            self.retention = retention
+        }
+    }
+
+    static func load(
+        entry: SessionEntry,
+        retention: SessionTranscriptRetention = .prefix(maxPreviewTurns)
+    ) async throws -> [SessionTranscriptTurn] {
+        try await load(source: Source(
+            agent: entry.agent,
+            sessionId: entry.sessionId,
+            fileURL: entry.fileURL,
+            usesGrokTranscriptLayout: entry.usesGrokTranscriptLayout,
+            retention: retention
+        ))
+    }
+
+    static func load(source: Source) async throws -> [SessionTranscriptTurn] {
+        if source.agent == .opencode {
+            let sessionId = source.sessionId
+            let databasePath = source.openCodeDatabasePath
             // OpenCode is SQLite-backed. Keep its synchronous query work off
             // the main actor so presenting the popover only flips UI state.
             return try await Task.detached(priority: .userInitiated) {
-                try loadOpenCodeSynchronously(sessionId: sessionId)
+                try loadOpenCodeSynchronously(
+                    sessionId: sessionId,
+                    databasePath: databasePath,
+                    retention: source.retention
+                )
             }.value
         }
-        if entry.agent == .hermesAgent {
-            let sessionId = entry.sessionId
+        if source.agent == .hermesAgent {
+            let sessionId = source.sessionId
             return try await Task.detached(priority: .userInitiated) {
-                try loadHermesAgentSynchronously(sessionId: sessionId)
+                try loadHermesAgentSynchronously(
+                    sessionId: sessionId,
+                    retention: source.retention
+                )
             }.value
         }
-        guard let url = entry.fileURL else {
+        guard let url = source.fileURL else {
             throw SessionTranscriptLoadError.missingFile
         }
-        let agent = entry.agent
-        let sessionId = entry.sessionId
+        let agent = source.agent
+        let sessionId = source.sessionId
         if agent.id == "antigravity" {
             return try await Task.detached(priority: .userInitiated) {
-                try loadAntigravityHistorySynchronously(from: url, sessionId: sessionId)
+                try loadAntigravityHistorySynchronously(
+                    from: url,
+                    sessionId: sessionId,
+                    retention: source.retention
+                )
             }.value
         }
-        let usesGrokTranscriptLayout = entry.usesGrokTranscriptLayout
+        let usesGrokTranscriptLayout = source.usesGrokTranscriptLayout
         return try await Task.detached(priority: .userInitiated) {
             try loadSynchronously(
                 from: url,
                 agent: agent,
-                usesGrokTranscriptLayout: usesGrokTranscriptLayout
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                retention: source.retention
             )
         }.value
     }
@@ -1182,23 +1233,32 @@ enum SessionTranscriptLoader {
     private static func loadSynchronously(
         from url: URL,
         agent: SessionAgent,
-        usesGrokTranscriptLayout: Bool
+        usesGrokTranscriptLayout: Bool,
+        retention: SessionTranscriptRetention
     ) throws -> [SessionTranscriptTurn] {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw SessionTranscriptLoadError.missingFile
         }
         if agent == .rovodev {
-            guard let preview = try RovoDevTranscriptPreview.load(from: url, limit: maxPreviewTurns) else { throw SessionTranscriptLoadError.missingFile }
-            return coalesce(preview.enumerated().map { index, turn in
+            let loadLimit = retention.keepsLatestTurns ? Int.max : retention.limit
+            guard let preview = try RovoDevTranscriptPreview.load(from: url, limit: loadLimit) else { throw SessionTranscriptLoadError.missingFile }
+            let mapped = preview.enumerated().map { index, turn in
                 let role = transcriptRole(from: turn.role) ?? .event
                 return SessionTranscriptTurn(id: index, role: role, text: truncatedText(turn.text, role: role))
-            })
+            }
+            if retention.keepsLatestTurns {
+                var collector = SessionTranscriptLatestCollector(capacity: retention.limit)
+                mapped.forEach { collector.append($0) }
+                return coalesce(collector.turns)
+            }
+            return coalesce(mapped)
         }
 
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
         var turns: [SessionTranscriptTurn] = []
+        var latestTurns = SessionTranscriptLatestCollector(capacity: retention.limit)
         var lineData = Data()
         lineData.reserveCapacity(64 * 1024)
         var lineIndex = 0
@@ -1213,15 +1273,20 @@ enum SessionTranscriptLoader {
                 isSkippingOversizedLine = false
                 oversizedPreviewRole = nil
             }
-            guard turns.count < maxPreviewTurns else {
+            guard retention.keepsLatestTurns || turns.count < retention.limit else {
                 didHitTurnLimit = true
                 return
             }
             guard !isSkippingOversizedLine else {
                 if let oversizedPreviewRole {
-                    turns.append(largeRecordTurn(id: lineIndex, role: oversizedPreviewRole))
+                    let turn = largeRecordTurn(id: lineIndex, role: oversizedPreviewRole)
+                    if retention.keepsLatestTurns {
+                        latestTurns.append(turn)
+                    } else {
+                        turns.append(turn)
+                    }
                 }
-                didHitTurnLimit = turns.count >= maxPreviewTurns
+                didHitTurnLimit = !retention.keepsLatestTurns && turns.count >= retention.limit
                 return
             }
             guard let parsed = parseLineData(
@@ -1232,8 +1297,12 @@ enum SessionTranscriptLoader {
             ) else {
                 return
             }
-            turns.append(parsed)
-            didHitTurnLimit = turns.count >= maxPreviewTurns
+            if retention.keepsLatestTurns {
+                latestTurns.append(parsed)
+            } else {
+                turns.append(parsed)
+            }
+            didHitTurnLimit = !retention.keepsLatestTurns && turns.count >= retention.limit
         }
 
         func appendSegment(_ segment: Data.SubSequence) {
@@ -1286,6 +1355,9 @@ enum SessionTranscriptLoader {
         if !didHitTurnLimit, !lineData.isEmpty || isSkippingOversizedLine {
             finishLine()
         }
+        if retention.keepsLatestTurns {
+            return coalesce(latestTurns.turns)
+        }
         if didHitTurnLimit {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
@@ -1295,7 +1367,8 @@ enum SessionTranscriptLoader {
 
     private static func loadAntigravityHistorySynchronously(
         from url: URL,
-        sessionId: String
+        sessionId: String,
+        retention: SessionTranscriptRetention
     ) throws -> [SessionTranscriptTurn] {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw SessionTranscriptLoadError.missingFile
@@ -1312,7 +1385,7 @@ enum SessionTranscriptLoader {
         ) { object in
             defer { lineIndex += 1 }
             if Task.isCancelled { return true }
-            guard turns.count < maxPreviewTurns else {
+            guard turns.count < retention.limit else {
                 didHitTurnLimit = true
                 return true
             }
@@ -1342,10 +1415,17 @@ enum SessionTranscriptLoader {
         return nil
     }
 
-    private static func loadOpenCodeSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
+    private static func loadOpenCodeSynchronously(
+        sessionId: String,
+        databasePath: String? = nil,
+        retention: SessionTranscriptRetention = .prefix(maxPreviewTurns)
+    ) throws -> [SessionTranscriptTurn] {
         let snapshot: OpenCodeDatabaseSnapshot.Snapshot
         do {
-            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-preview") else {
+            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(
+                prefix: "cmux-opencode-preview",
+                sourcePath: databasePath
+            ) else {
                 throw SessionTranscriptLoadError.missingFile
             }
             snapshot = madeSnapshot
@@ -1390,6 +1470,7 @@ enum SessionTranscriptLoader {
         }
 
         var turns: [SessionTranscriptTurn] = []
+        var latestTurns = SessionTranscriptLatestCollector(capacity: retention.limit)
         var turnId = 0
         var currentMessageId: String?
         var currentMessageRole: SessionTranscriptRole = .event
@@ -1405,9 +1486,13 @@ enum SessionTranscriptLoader {
             }
             if let partJSON = sqliteText(stmt, 2),
                let turn = parseOpenCodePart(partJSON, messageRole: currentMessageRole, id: turnId) {
-                turns.append(turn)
+                if retention.keepsLatestTurns {
+                    latestTurns.append(turn)
+                } else {
+                    turns.append(turn)
+                }
                 turnId += 1
-                if turns.count >= maxPreviewTurns {
+                if !retention.keepsLatestTurns, turns.count >= retention.limit {
                     didHitTurnLimit = true
                     break
                 }
@@ -1420,6 +1505,9 @@ enum SessionTranscriptLoader {
             throw SessionTranscriptLoadError.databaseError(message)
         }
 
+        if retention.keepsLatestTurns {
+            return coalesce(latestTurns.turns)
+        }
         if didHitTurnLimit {
             appendTurnLimitMarker(to: &turns, id: turnId)
         }
@@ -1427,11 +1515,20 @@ enum SessionTranscriptLoader {
         return coalesce(turns)
     }
 
-    private static func loadHermesAgentSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
+    private static func loadHermesAgentSynchronously(
+        sessionId: String,
+        retention: SessionTranscriptRetention = .prefix(maxPreviewTurns)
+    ) throws -> [SessionTranscriptTurn] {
         do {
-            let turns = try HermesAgentIndex.loadTranscript(sessionId: sessionId, limit: maxPreviewTurns + 1)
-            let didHitTurnLimit = turns.count > maxPreviewTurns
-            var previewTurns: [SessionTranscriptTurn] = turns.prefix(maxPreviewTurns).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
+            let queryLimit = retention.keepsLatestTurns ? retention.limit : retention.limit + 1
+            let turns = try HermesAgentIndex.loadTranscript(
+                sessionId: sessionId,
+                limit: queryLimit,
+                latest: retention.keepsLatestTurns,
+                preservingOpeningUser: retention.keepsLatestTurns
+            )
+            let didHitTurnLimit = !retention.keepsLatestTurns && turns.count > retention.limit
+            var previewTurns: [SessionTranscriptTurn] = turns.prefix(retention.limit).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
                 let role: SessionTranscriptRole = (turn.toolName?.isEmpty == false) ? .tool : (transcriptRole(from: turn.role) ?? .event)
                 let text: String
                 if role == .tool, let toolName = turn.toolName, !toolName.isEmpty {
@@ -1915,173 +2012,6 @@ enum SessionTranscriptLoader {
                 text: String(localized: "sessionIndex.preview.truncated", defaultValue: "Preview truncated")
             )
         )
-    }
-}
-
-private struct SessionTranscriptPopoverHost: NSViewRepresentable {
-    @Binding var isPresented: Bool
-    let entry: SessionEntry
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(isPresented: $isPresented)
-    }
-
-    func makeNSView(context: Context) -> PopoverAnchorView {
-        let view = PopoverAnchorView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        context.coordinator.anchorView = view
-        view.onDidMoveToWindow = { [weak coordinator = context.coordinator] in
-            coordinator?.anchorDidMoveToWindow()
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: PopoverAnchorView, context: Context) {
-        let coordinator = context.coordinator
-        coordinator.anchorView = nsView
-        coordinator.update(entry: entry)
-        if isPresented {
-            coordinator.present()
-        } else {
-            coordinator.dismiss()
-        }
-    }
-
-    static func dismantleNSView(_ nsView: PopoverAnchorView, coordinator: Coordinator) {
-        nsView.onDidMoveToWindow = nil
-        coordinator.dismiss()
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, NSPopoverDelegate {
-        @Binding var isPresented: Bool
-        weak var anchorView: NSView?
-
-        private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
-        private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
-        private var popover: NSPopover?
-        private var currentEntry: SessionEntry?
-        private let sizeModel = SessionTranscriptPopoverSizeModel()
-        private var wantsPresentation = false
-
-        init(isPresented: Binding<Bool>) {
-            _isPresented = isPresented
-        }
-
-        func update(entry: SessionEntry) {
-            let shouldRefresh = currentEntry?.id != entry.id
-            currentEntry = entry
-            if shouldRefresh {
-                if popover?.isShown == true {
-                    scheduleVisibleRefresh()
-                } else {
-                    refreshContent()
-                }
-            }
-        }
-
-        private func scheduleVisibleRefresh() {
-            visibleUpdateScheduler.schedule { [weak self] in
-                guard let self, self.popover?.isShown == true else { return }
-                self.refreshContent()
-            }
-        }
-
-        func anchorDidMoveToWindow() {
-            guard anchorView?.window != nil else {
-                popover?.performClose(nil)
-                return
-            }
-            if wantsPresentation {
-                present()
-            }
-        }
-
-        func present() {
-            wantsPresentation = true
-            guard let anchorView, anchorView.window != nil else {
-                return
-            }
-            anchorView.superview?.layoutSubtreeIfNeeded()
-            let popover = popover ?? makePopover()
-            if !popover.isShown {
-                visibleUpdateScheduler.cancel()
-                refreshContent()
-                popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxX)
-            }
-        }
-
-        func dismiss() {
-            wantsPresentation = false
-            visibleUpdateScheduler.cancel()
-            popover?.performClose(nil)
-        }
-
-        func popoverDidClose(_ notification: Notification) {
-            visibleUpdateScheduler.cancel()
-            wantsPresentation = false
-            popover = nil
-            if isPresented {
-                isPresented = false
-            }
-        }
-
-        private func refreshContent() {
-            guard let entry = currentEntry else { return }
-            hostingController.rootView = AnyView(
-                SessionTranscriptPreviewView(
-                    entry: entry,
-                    sizeModel: sizeModel,
-                    onResize: { [weak self] proposedSize in
-                        self?.resize(to: proposedSize)
-                    }
-                ) { [weak self] in
-                    self?.closeFromContent()
-                }
-                .id(entry.id)
-            )
-            hostingController.view.invalidateIntrinsicContentSize()
-            hostingController.view.layoutSubtreeIfNeeded()
-            updatePopoverSize()
-        }
-
-        private func closeFromContent() {
-            isPresented = false
-            dismiss()
-        }
-
-        private func resize(to proposedSize: CGSize) {
-            sizeModel.size = SessionTranscriptPreviewLayout.clamped(proposedSize)
-            updatePopoverSize()
-        }
-
-        private func makePopover() -> NSPopover {
-            let popover = NSPopover()
-            popover.behavior = .transient
-            popover.animates = true
-            popover.contentViewController = hostingController
-            popover.contentSize = NSSize(width: sizeModel.size.width, height: sizeModel.size.height)
-            popover.delegate = self
-            self.popover = popover
-            return popover
-        }
-
-        private func updatePopoverSize() {
-            guard let popover else { return }
-            CmuxPopoverMutation.setContentSize(
-                NSSize(width: sizeModel.size.width, height: sizeModel.size.height),
-                on: popover
-            )
-        }
-    }
-}
-
-private final class PopoverAnchorView: NSView {
-    var onDidMoveToWindow: (() -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        onDidMoveToWindow?()
     }
 }
 
