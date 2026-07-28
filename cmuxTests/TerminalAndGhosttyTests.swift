@@ -1433,6 +1433,58 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertGreaterThan(pending.bytes, before.bytes)
     }
 
+    func testMobileVoiceInputTargetsExplicitBackgroundWorkspace() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let selectedTerminal = try XCTUnwrap(selectedWorkspace.focusedTerminalPanel)
+        let backgroundWorkspace = manager.addWorkspace(
+            title: "Voice Background",
+            select: false,
+            eagerLoadTerminal: false
+        )
+        let backgroundTerminal = try XCTUnwrap(backgroundWorkspace.focusedTerminalPanel)
+        backgroundTerminal.surface.releaseSurfaceForTesting()
+        let selectedBefore = selectedTerminal.surface.debugPendingSocketInputForTesting()
+        let backgroundBefore = backgroundTerminal.surface.debugPendingSocketInputForTesting()
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "voice-input-explicit-background",
+                method: "mobile.voice.input",
+                params: [
+                    "text": "pwd",
+                    "submit": true,
+                    "workspace_id": backgroundWorkspace.id.uuidString,
+                    "surface_id": backgroundTerminal.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any] else {
+            XCTFail("Expected explicit background Voice Mode target to succeed")
+            return
+        }
+        XCTAssertEqual(payload["workspace_id"] as? String, backgroundWorkspace.id.uuidString)
+        XCTAssertEqual(payload["surface_id"] as? String, backgroundTerminal.id.uuidString)
+        XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
+        XCTAssertEqual(
+            selectedTerminal.surface.debugPendingSocketInputForTesting().bytes,
+            selectedBefore.bytes
+        )
+        XCTAssertGreaterThan(
+            backgroundTerminal.surface.debugPendingSocketInputForTesting().bytes,
+            backgroundBefore.bytes
+        )
+    }
+
     func testMobileVoiceInputRejectsChangedExpectedTarget() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()

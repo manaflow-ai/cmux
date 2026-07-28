@@ -18673,6 +18673,42 @@
       }
     }
 ,
+    "mobile.settings.voice.gptVoice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT Voice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT音声"
+          }
+        }
+      }
+    }
+,
+    "mobile.settings.voice.gptVoiceFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, OpenAI processes microphone audio, transcripts, and the names and current directories of terminals on connected computers. GPT can choose a terminal, but cmux sends only your exact latest transcript. Auto-submit controls Return."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、接続中のコンピュータにあるターミナルの名前と現在のディレクトリ、マイク音声、文字起こしがOpenAIで処理されます。GPTは送信先を選べますが、cmuxが送るのは最新の文字起こしそのものだけです。Returnの入力は「自動送信」で制御します。"
+          }
+        }
+      }
+    }
+,
     "mobile.settings.voice.appleSection": {
       "extractionState": "manual",
       "localizations": {
@@ -19406,6 +19442,312 @@
           "stringUnit": {
             "state": "translated",
             "value": "自動送信"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.invalidTranscript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That transcript cannot be sent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その文字起こしは送信できません。"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.targetUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That terminal is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのターミナルは利用できなくなりました。"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT Voice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT音声"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready across your computers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ全体で準備完了"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.noTargets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No compatible terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応ターミナルがありません"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.targetCountFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld terminals on %lld computers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld台のコンピュータに%1$lld個のターミナル"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask GPT to choose a terminal, then speak the exact text to send."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPTにターミナルを選ばせてから、送信する文をそのまま話してください。"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting securely…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全に接続中…"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.listening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聞き取り中"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.speaking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT is speaking"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPTが話しています"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.routing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Routing to terminals…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルへ送信中…"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.notAuthenticated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in again to use GPT Voice."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT音声を使うには、もう一度サインインしてください。"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.rateLimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice session limit reached. Try again shortly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声セッションの上限に達しました。しばらくしてからもう一度お試しください。"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.serviceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT Voice is unavailable right now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在GPT音声を利用できません。"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.connectionLost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The voice connection ended. Tap the microphone to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声接続が終了しました。マイクをタップして再接続してください。"
+          }
+        }
+      }
+    }
+,
+    "mobile.voiceMode.gpt.permissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone permission is required for GPT Voice."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT音声にはマイクの許可が必要です。"
           }
         }
       }

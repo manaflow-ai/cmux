@@ -147,6 +147,7 @@ struct cmuxApp: App {
             displaySettings: Self.root.displaySettings,
             browserSettings: Self.root.browserSettings,
             voiceSettings: Self.root.voiceSettings,
+            realtimeVoiceRuntime: Self.root.realtimeVoiceRuntime,
             voiceVocabularyStore: Self.root.voiceVocabularyStore,
             parakeetModelCatalogStore: Self.root.parakeetModelCatalogStore,
             parakeetVocabularyBoostStore: Self.root.parakeetVocabularyBoostStore,

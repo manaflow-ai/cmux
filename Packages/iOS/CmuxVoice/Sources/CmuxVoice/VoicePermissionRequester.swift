@@ -12,10 +12,15 @@ public struct VoicePermissionRequester {
     /// - Parameter engine: The engine that will run.
     /// - Returns: `true` when the required permissions were granted.
     public func requestPermissions(for engine: VoiceEngineID) async -> Bool {
-        let micGranted = await Self.requestMicrophonePermission()
+        let micGranted = await requestMicrophonePermission()
         guard micGranted else { return false }
         guard engine == .apple else { return true }
         return await Self.requestSpeechPermission()
+    }
+
+    /// Requests only microphone permission for speech-to-speech Voice Mode.
+    public func requestMicrophonePermission() async -> Bool {
+        await Self.requestRecordPermission()
     }
 
     private nonisolated static func requestSpeechPermission() async -> Bool {
@@ -26,7 +31,7 @@ public struct VoicePermissionRequester {
         }
     }
 
-    private nonisolated static func requestMicrophonePermission() async -> Bool {
+    private nonisolated static func requestRecordPermission() async -> Bool {
         await withCheckedContinuation { continuation in
             if #available(iOS 17.0, *) {
                 AVAudioApplication.requestRecordPermission { granted in

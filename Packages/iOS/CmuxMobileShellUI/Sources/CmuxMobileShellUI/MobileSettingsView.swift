@@ -177,7 +177,10 @@ struct MobileSettingsView: View {
                 Section(L10n.string("mobile.settings.voice", defaultValue: "Voice")) {
                     NavigationLink {
                         MobileVoiceSettingsPage(
-                            canOpenVoiceMode: store?.supportsVoiceMode == true && !connectedHostName.isEmpty,
+                            canOpenVoiceMode: (
+                                store?.supportsVoiceMode == true
+                                    || store?.supportsGPTVoiceMode == true
+                            ) && !connectedHostName.isEmpty,
                             openVoiceMode: { showingVoiceMode = true }
                         )
                     } label: {

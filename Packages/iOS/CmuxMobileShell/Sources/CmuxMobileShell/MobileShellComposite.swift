@@ -104,6 +104,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceGroupsCapability = "workspace.groups.v1"
     static let notificationFeedCapability = "notification.feed.v1"
     private static let voiceInputCapability = "voice.input.v1"
+    static let targetedVoiceInputCapability = "voice.targets.v1"
     private static let focusEventsCapability = "focus.events.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
     /// How long the render-grid stream may stay silent (no event of any topic)

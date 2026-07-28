@@ -28,6 +28,21 @@ struct MobileVoiceSettingsPage: View {
 
         Form {
             Section {
+                Toggle(isOn: $voiceSettings.gptVoiceEnabled) {
+                    Text(L10n.string(
+                        "mobile.settings.voice.gptVoice",
+                        defaultValue: "GPT Voice"
+                    ))
+                }
+                .accessibilityIdentifier("MobileSettingsGPTVoiceToggle")
+            } footer: {
+                Text(L10n.string(
+                    "mobile.settings.voice.gptVoiceFooter",
+                    defaultValue: "When enabled, OpenAI processes microphone audio, transcripts, and the names and current directories of terminals on connected computers. GPT can choose a terminal, but cmux sends only your exact latest transcript. Auto-submit controls Return."
+                ))
+            }
+
+            Section {
                 VoiceEngineSettingsRow(row: appleRow, actions: actions)
             } header: {
                 Text(L10n.string("mobile.settings.voice.appleSection", defaultValue: "Apple"))

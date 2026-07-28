@@ -29,6 +29,7 @@ final class AppCompositionRoot {
     let displaySettings: MobileDisplaySettings
     let browserSettings: MobileBrowserSettings
     let voiceSettings: VoiceSettingsStore
+    let realtimeVoiceRuntime: RealtimeVoiceRuntime
     let voiceVocabularyStore: VoiceVocabularyStore
     let parakeetModelCatalogStore: ParakeetModelCatalogStore
     let parakeetVocabularyBoostStore: ParakeetVocabularyBoostStore
@@ -111,6 +112,20 @@ final class AppCompositionRoot {
         self.displaySettings = MobileDisplaySettings()
         self.browserSettings = MobileBrowserSettings()
         self.voiceSettings = VoiceSettingsStore()
+        let realtimeClientSecretProvider = HTTPRealtimeVoiceClientSecretProvider(
+            apiBaseURL: auth.config.apiBaseURL,
+            tokenSource: RealtimeVoiceTokenSource(
+                accessToken: { try? await auth.coordinator.accessToken() },
+                refreshToken: { await auth.coordinator.refreshToken() }
+            )
+        )
+        self.realtimeVoiceRuntime = RealtimeVoiceRuntime { toolExecutor in
+            RealtimeVoiceSession(
+                clientSecretProvider: realtimeClientSecretProvider,
+                toolExecutor: toolExecutor,
+                audioIO: RealtimeVoiceAudioEngine()
+            )
+        }
         self.voiceVocabularyStore = VoiceVocabularyStore()
         self.parakeetModelCatalogStore = ParakeetModelCatalogStore()
         self.parakeetVocabularyBoostStore = ParakeetVocabularyBoostStore()

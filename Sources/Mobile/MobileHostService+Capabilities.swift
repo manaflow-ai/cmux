@@ -58,6 +58,7 @@ extension MobileHostService {
             "workspace.close.v1",
             "focus.events.v1",
             "voice.input.v1",
+            "voice.targets.v1",
             "workspace.move.v1",
             "workspace.group_actions.v1",
             "workspace.group_create.v1",

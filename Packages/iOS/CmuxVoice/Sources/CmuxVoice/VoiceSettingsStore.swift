@@ -9,6 +9,7 @@ public final class VoiceSettingsStore {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let selectedEngineKey = "cmux.mobile.voice.selectedEngine"
     private static let voiceModeAutoSubmitKey = "cmux.mobile.voice.mode.autoSubmit"
+    private static let gptVoiceEnabledKey = "cmux.mobile.voice.gpt.enabled"
 
     /// The engine the user selected in Settings. It may not be usable if its model was deleted.
     public var selectedEngine: VoiceEngineID {
@@ -20,6 +21,14 @@ public final class VoiceSettingsStore {
         didSet { defaults.set(voiceModeAutoSubmit, forKey: Self.voiceModeAutoSubmitKey) }
     }
 
+    /// Whether Voice Mode uses OpenAI Realtime instead of local one-way dictation.
+    ///
+    /// This is deliberately opt-in because GPT Voice sends microphone audio,
+    /// transcripts, and terminal inventory metadata to OpenAI.
+    public var gptVoiceEnabled: Bool {
+        didSet { defaults.set(gptVoiceEnabled, forKey: Self.gptVoiceEnabledKey) }
+    }
+
     /// Creates a voice settings store backed by injected defaults.
     /// - Parameter defaults: The store used for persistence. Tests pass a scoped suite.
     public init(defaults: UserDefaults = .standard) {
@@ -27,6 +36,7 @@ public final class VoiceSettingsStore {
         let rawEngine = defaults.string(forKey: Self.selectedEngineKey)
         self.selectedEngine = rawEngine.flatMap(VoiceEngineID.init(rawValue:)) ?? .apple
         self.voiceModeAutoSubmit = defaults.bool(forKey: Self.voiceModeAutoSubmitKey)
+        self.gptVoiceEnabled = defaults.bool(forKey: Self.gptVoiceEnabledKey)
     }
 
     /// Returns the engine that should actually run for the current install state.

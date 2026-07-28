@@ -117,9 +117,6 @@ struct WorkspaceListView: View {
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingDeviceTree = false
     @State private var showingVoiceMode = false
-    /// The active row filter (All / Unread), shared-model state behind the
-    /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
-    @State var filter: MobileWorkspaceListFilter = .all
     @State private var changesSheetTarget: WorkspaceChangesSheetTarget? = nil
     @State private var macTitlePickerSwitchTask: Task<Void, Never>?
     @State private var macTitlePickerSwitchIsCancellation = false
@@ -155,6 +152,8 @@ struct WorkspaceListView: View {
     /// queued moves computed against overruled predictions abort unsent.
     @State var workspaceMoveEpoch: UInt64 = 0
 
+    /// The active row filter (All / Unread), shared-model state behind the
+    /// toolbar ``WorkspaceListFilterMenu``.
     var filter: MobileWorkspaceListFilter {
         get { filterState.filter }
         nonmutating set { filterState.filter = newValue }
@@ -634,7 +633,7 @@ struct WorkspaceListView: View {
     }
 
     var showsVoiceModeButton: Bool {
-        store?.supportsVoiceMode == true
+        store?.supportsVoiceMode == true || store?.supportsGPTVoiceMode == true
     }
     #endif
 

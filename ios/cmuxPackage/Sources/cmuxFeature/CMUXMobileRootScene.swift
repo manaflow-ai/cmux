@@ -45,6 +45,7 @@ public struct CMUXMobileRootScene: View {
     private let displaySettings: MobileDisplaySettings
     private let browserSettings: MobileBrowserSettings
     private let voiceSettings: VoiceSettingsStore
+    private let realtimeVoiceRuntime: RealtimeVoiceRuntime
     private let voiceVocabularyStore: VoiceVocabularyStore
     private let parakeetModelCatalogStore: ParakeetModelCatalogStore
     private let parakeetVocabularyBoostStore: ParakeetVocabularyBoostStore
@@ -91,6 +92,7 @@ public struct CMUXMobileRootScene: View {
     ///     the environment (drives workspace-title wrapping).
     ///   - browserSettings: The app-root browser settings.
     ///   - voiceSettings: The app-root voice settings.
+    ///   - realtimeVoiceRuntime: The app-root GPT Realtime session coordinator.
     ///   - voiceVocabularyStore: The app-root voice vocabulary store.
     ///   - parakeetModelCatalogStore: The app-root Parakeet model catalog.
     ///   - parakeetVocabularyBoostStore: The app-root Parakeet vocabulary boost store.
@@ -113,6 +115,7 @@ public struct CMUXMobileRootScene: View {
         displaySettings: MobileDisplaySettings,
         browserSettings: MobileBrowserSettings,
         voiceSettings: VoiceSettingsStore,
+        realtimeVoiceRuntime: RealtimeVoiceRuntime,
         voiceVocabularyStore: VoiceVocabularyStore,
         parakeetModelCatalogStore: ParakeetModelCatalogStore,
         parakeetVocabularyBoostStore: ParakeetVocabularyBoostStore,
@@ -131,6 +134,7 @@ public struct CMUXMobileRootScene: View {
         self.displaySettings = displaySettings
         self.browserSettings = browserSettings
         self.voiceSettings = voiceSettings
+        self.realtimeVoiceRuntime = realtimeVoiceRuntime
         self.voiceVocabularyStore = voiceVocabularyStore
         self.parakeetModelCatalogStore = parakeetModelCatalogStore
         self.parakeetVocabularyBoostStore = parakeetVocabularyBoostStore
@@ -319,6 +323,7 @@ public struct CMUXMobileRootScene: View {
             .environment(displaySettings)
             .environment(browserSettings)
             .environment(voiceSettings)
+            .environment(realtimeVoiceRuntime)
             .environment(voiceVocabularyStore)
             .environment(parakeetModelCatalogStore)
             .environment(parakeetVocabularyBoostStore)

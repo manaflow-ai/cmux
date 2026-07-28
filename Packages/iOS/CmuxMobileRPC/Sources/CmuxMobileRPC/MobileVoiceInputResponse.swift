@@ -1,6 +1,6 @@
 public import Foundation
 
-/// Response returned after Voice Mode inserts text into the focused Mac terminal.
+/// Response returned after Voice Mode inserts text into a Mac terminal.
 public struct MobileVoiceInputResponse: Codable, Equatable, Sendable {
     /// Workspace that received the text.
     public let workspaceID: String
