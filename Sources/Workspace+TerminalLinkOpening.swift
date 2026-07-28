@@ -50,7 +50,7 @@ extension Workspace: TerminalLinkOpenContainer {
             $0.localFileReadAccessPolicy == .fileOnly
                 && $0.effectiveURLForTerminalFileReuse?
                     .standardizedFileURL.resolvingSymlinksInPath() == canonicalURL
-        }) {
+        }), existing.reloadTerminalFileForReuse(canonicalURL) {
             focusPanel(existing.id)
             return true
         }

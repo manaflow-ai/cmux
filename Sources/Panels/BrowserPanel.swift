@@ -965,6 +965,7 @@ func browserReadAccessURL(
     let path = fileURL.path
     var isDirectory: ObjCBool = false
     if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+        guard policy != .fileOnly else { return nil }
         return fileURL
     }
     if policy == .fileOnly {
@@ -5894,6 +5895,16 @@ final class BrowserPanel: Panel, ObservableObject {
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
             onNavigationStarted: onNavigationStarted
         )
+    }
+
+    @discardableResult
+    func reloadTerminalFileForReuse(_ fileURL: URL) -> Bool {
+        guard localFileReadAccessPolicy == .fileOnly else { return false }
+        return navigateWithoutInsecureHTTPPrompt(
+            to: fileURL,
+            recordTypedNavigation: false,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        ) != nil
     }
 
     @discardableResult
