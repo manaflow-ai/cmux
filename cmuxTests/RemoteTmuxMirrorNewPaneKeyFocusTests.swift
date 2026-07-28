@@ -66,7 +66,7 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
 
         func tearDown() {
             workspace.setRemoteTmuxWindowMirror(nil, forPanelId: containerPanelId)
-            mirror.tearDown()
+            mirror.teardown()
         }
     }
 
