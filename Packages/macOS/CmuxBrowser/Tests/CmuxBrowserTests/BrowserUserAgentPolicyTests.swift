@@ -4,7 +4,7 @@ import Testing
 
 @Suite
 struct BrowserUserAgentPolicyTests {
-    private let policy = BrowserUserAgentPolicy(safariVersion: "26.4")
+    private let policy = BrowserUserAgentPolicy(safariVersion: "26.6")
 
     @Test func remoteSitesReceiveCurrentSafariCompatibleIdentity() {
         let workspaceURL = URL(string: "https://workspace.google.com/")!
@@ -12,7 +12,19 @@ struct BrowserUserAgentPolicyTests {
 
         #expect(policy.customUserAgent(for: workspaceURL) == policy.safariCompatibleUserAgent)
         #expect(policy.customUserAgent(for: enterpriseSSOURL) == policy.safariCompatibleUserAgent)
-        #expect(policy.safariCompatibleUserAgent.contains("Version/26.4 Safari/605.1.15"))
+        #expect(policy.safariCompatibleUserAgent.contains("Version/26.6 Safari/605.1.15"))
+    }
+
+    @Test func staleInstalledSafariIsRaisedToCurrentCompatibilityFloor() {
+        let stalePolicy = BrowserUserAgentPolicy(safariVersion: "26.4")
+
+        #expect(stalePolicy.safariCompatibleUserAgent.contains("Version/26.6 Safari/605.1.15"))
+    }
+
+    @Test func newerInstalledSafariIsNotDowngradedToCompatibilityFloor() {
+        let newerPolicy = BrowserUserAgentPolicy(safariVersion: "27.0")
+
+        #expect(newerPolicy.safariCompatibleUserAgent.contains("Version/27.0 Safari/605.1.15"))
     }
 
     @Test func googleSheetsKeepsEmbeddedWebKitIdentity() {
