@@ -2462,10 +2462,11 @@ mod tests {
         ));
         assert!(!remote_help_requested(&["--invite-file".into(), "-h".into()]));
 
-        for args in [vec!["--invite-file", "first", "--invite-file", "second"]] {
-            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
-            assert!(parse_connect_flags(&args).is_err(), "unexpectedly accepted {args:?}");
-        }
+        let args = ["--invite-file", "first", "--invite-file", "second"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(parse_connect_flags(&args).is_err(), "unexpectedly accepted {args:?}");
     }
 
     #[test]
