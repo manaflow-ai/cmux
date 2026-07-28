@@ -65,7 +65,9 @@ final class AgentSessionRetryCoordinator {
                 retryCandidatesByPanelId[panelId] = binding
             }
         case .idle:
-            reset(panelId: panelId)
+            if !awaitingCommandCompletionPanelIds.contains(panelId) {
+                reset(panelId: panelId)
+            }
         case .unknown:
             break
         }

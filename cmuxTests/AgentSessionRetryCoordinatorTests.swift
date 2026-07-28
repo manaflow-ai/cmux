@@ -10,7 +10,7 @@ import Testing
 @Suite("Agent session retry coordinator", .serialized)
 struct AgentSessionRetryCoordinatorTests {
     @MainActor
-    @Test("managed session teardown retains the retry candidate until exit classification")
+    @Test("managed session teardown and idle retain the retry candidate until exit classification")
     func managedSessionTeardownRetainsCandidate() throws {
         let defaults = try #require(UserDefaults(suiteName: "AgentSessionRetryCoordinatorTests.retained"))
         defer { defaults.removePersistentDomain(forName: "AgentSessionRetryCoordinatorTests.retained") }
@@ -24,6 +24,7 @@ struct AgentSessionRetryCoordinatorTests {
 
         #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
         #expect(workspace.surfaceResumeBinding(panelId: panelId) == nil)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
         #expect(workspace.clearAgentLifecycle(key: "claude_code", panelId: panelId))
         #expect(!workspace.hasActiveAgentLifecycleForRetry(panelId: panelId))
         workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
