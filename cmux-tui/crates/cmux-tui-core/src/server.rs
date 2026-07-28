@@ -4500,6 +4500,7 @@ struct RenderClientState {
     graphics_image_revision: u64,
     graphics_placement_revision: u64,
     graphics_image_generations: Arc<[(u32, u64)]>,
+    graphics_image_generations_match_snapshot: bool,
 }
 
 #[cfg(test)]
@@ -4548,6 +4549,17 @@ fn render_client_image_delta(
 impl RenderClientState {
     fn new(render_service: Arc<RenderService>, frame: &SurfaceRenderFrame) -> Self {
         let graphics_delta = &frame.frame.kitty_graphics_delta;
+        let mut graphics_image_generations = frame
+            .frame
+            .kitty_graphics
+            .images
+            .iter()
+            .map(|image| (image.id, image.generation))
+            .collect::<Vec<_>>();
+        graphics_image_generations.sort_unstable_by_key(|(id, _)| *id);
+        let graphics_image_generations: Arc<[(u32, u64)]> = graphics_image_generations.into();
+        let graphics_image_generations_match_snapshot =
+            graphics_image_generations.as_ref() == graphics_delta.image_generations.as_ref();
         Self {
             render_service,
             size: frame.frame.size,
@@ -4556,7 +4568,8 @@ impl RenderClientState {
             graphics_snapshot_id: graphics_delta.snapshot_id,
             graphics_image_revision: graphics_delta.image_revision,
             graphics_placement_revision: graphics_delta.placement_revision,
-            graphics_image_generations: graphics_delta.image_generations.clone(),
+            graphics_image_generations,
+            graphics_image_generations_match_snapshot,
         }
     }
 
@@ -4598,20 +4611,23 @@ impl RenderClientState {
             let graphics = &frame.frame.kitty_graphics;
             let image_revision_changed =
                 self.graphics_image_revision != graphics_delta.image_revision;
-            let (upsert_image_ids, removed_image_ids) = if image_revision_changed
+            let (upsert_image_ids, removed_image_ids) = if self
+                .graphics_image_generations_match_snapshot
                 && graphics_delta.previous_snapshot_id == Some(self.graphics_snapshot_id)
             {
-                (
-                    graphics_delta.changed_image_ids.iter().copied().collect::<HashSet<_>>(),
-                    graphics_delta.removed_image_ids.to_vec(),
-                )
-            } else if image_revision_changed {
+                if image_revision_changed {
+                    (
+                        graphics_delta.changed_image_ids.iter().copied().collect::<HashSet<_>>(),
+                        graphics_delta.removed_image_ids.to_vec(),
+                    )
+                } else {
+                    (HashSet::new(), Vec::new())
+                }
+            } else {
                 render_client_image_delta(
                     &self.graphics_image_generations,
                     &graphics_delta.image_generations,
                 )
-            } else {
-                (HashSet::new(), Vec::new())
             };
             let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
             let placements_changed =
@@ -4629,6 +4645,7 @@ impl RenderClientState {
             self.graphics_image_revision = graphics_delta.image_revision;
             self.graphics_placement_revision = graphics_delta.placement_revision;
             self.graphics_image_generations = graphics_delta.image_generations.clone();
+            self.graphics_image_generations_match_snapshot = true;
         }
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;

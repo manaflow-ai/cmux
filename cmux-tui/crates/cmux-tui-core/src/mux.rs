@@ -59,6 +59,11 @@ const KITTY_BYTE_OWNERS_PER_SURFACE: u64 =
 const KITTY_OBJECT_OWNERS_PER_SURFACE: u64 = 2;
 const KITTY_IMAGE_PROCESS_BUDGET_COUNT: u64 = ghostty_vt::MAX_KITTY_IMAGES;
 const KITTY_PLACEMENT_PROCESS_BUDGET_COUNT: u64 = ghostty_vt::MAX_KITTY_PLACEMENTS;
+const KITTY_IMAGE_BUDGET_OWNER_LIMIT: usize = {
+    let image_limit = KITTY_IMAGE_PROCESS_BUDGET_COUNT / KITTY_OBJECT_OWNERS_PER_SURFACE;
+    let placement_limit = KITTY_PLACEMENT_PROCESS_BUDGET_COUNT / KITTY_OBJECT_OWNERS_PER_SURFACE;
+    if image_limit < placement_limit { image_limit as usize } else { placement_limit as usize }
+};
 
 fn kitty_image_budget_capacity(surface_count: usize, current: usize) -> usize {
     if surface_count == 0 {
@@ -121,6 +126,7 @@ fn kitty_image_limits_enabled(limits: KittyGraphicsLimits) -> bool {
 struct KittyImageBudgetEntry {
     surface: Option<Weak<Surface>>,
     applied: KittyGraphicsLimits,
+    owns_quota: bool,
     removing: bool,
 }
 
@@ -4359,13 +4365,17 @@ impl Mux {
                 !budget.entries.contains_key(&surface),
                 "Kitty image budget already reserved for surface {surface}"
             );
-            let capacity = kitty_image_budget_capacity(budget.entries.len() + 1, budget.capacity);
-            budget.capacity = capacity;
+            let owner_count = Self::kitty_image_budget_owner_count(&budget);
+            let owns_quota = owner_count < KITTY_IMAGE_BUDGET_OWNER_LIMIT;
+            if owns_quota {
+                budget.capacity = kitty_image_budget_capacity(owner_count + 1, budget.capacity);
+            }
             budget.entries.insert(
                 surface,
                 KittyImageBudgetEntry {
                     surface: None,
                     applied: KittyGraphicsLimits::disabled(),
+                    owns_quota,
                     removing: false,
                 },
             );
@@ -4374,6 +4384,14 @@ impl Mux {
         let deadline = Instant::now() + crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
         let initial_limits = loop {
             let mut budget = self.kitty_image_budget.lock().unwrap();
+            let owns_quota = budget
+                .entries
+                .get(&surface)
+                .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?
+                .owns_quota;
+            if !owns_quota {
+                break KittyGraphicsLimits::disabled();
+            }
             let target = kitty_image_limits_for_capacity(budget.capacity);
             if !budget.expansion_in_flight
                 && kitty_image_limits_enabled(target)
@@ -4431,6 +4449,7 @@ impl Mux {
             );
             entry.surface = Some(Arc::downgrade(surface));
             entry.applied = applied;
+            Self::rebalance_kitty_image_budget_owners(&mut budget);
         }
         self.start_kitty_image_budget_worker();
         Ok(())
@@ -4441,8 +4460,7 @@ impl Mux {
             let mut budget = self.kitty_image_budget.lock().unwrap();
             if budget.entries.get(&id).is_some_and(|entry| entry.surface.is_none()) {
                 budget.entries.remove(&id);
-                budget.capacity =
-                    kitty_image_budget_capacity(budget.entries.len(), budget.capacity);
+                Self::rebalance_kitty_image_budget_owners(&mut budget);
             }
         }
         self.kitty_image_budget_changed.notify_all();
@@ -4464,13 +4482,42 @@ impl Mux {
     }
 
     fn prune_dead_kitty_image_surfaces(budget: &mut KittyImageBudgetState) {
-        let before = budget.entries.len();
         budget.entries.retain(|_, entry| {
             entry.surface.as_ref().is_none_or(|surface| surface.strong_count() > 0)
         });
-        if budget.entries.len() != before {
-            budget.capacity = kitty_image_budget_capacity(budget.entries.len(), budget.capacity);
+        Self::rebalance_kitty_image_budget_owners(budget);
+    }
+
+    fn kitty_image_budget_owner_count(budget: &KittyImageBudgetState) -> usize {
+        budget.entries.values().filter(|entry| entry.owns_quota).count()
+    }
+
+    fn rebalance_kitty_image_budget_owners(budget: &mut KittyImageBudgetState) {
+        let owner_count = Self::kitty_image_budget_owner_count(budget);
+        debug_assert!(owner_count <= KITTY_IMAGE_BUDGET_OWNER_LIMIT);
+        let available = KITTY_IMAGE_BUDGET_OWNER_LIMIT.saturating_sub(owner_count);
+        if available > 0 && owner_count < budget.entries.len() {
+            let mut candidates = budget
+                .entries
+                .iter()
+                .filter_map(|(&id, entry)| {
+                    (!entry.owns_quota
+                        && !entry.removing
+                        && entry.surface.as_ref().is_some_and(|surface| surface.strong_count() > 0))
+                    .then_some(id)
+                })
+                .collect::<Vec<_>>();
+            candidates.sort_unstable();
+            for id in candidates.into_iter().take(available) {
+                if let Some(entry) = budget.entries.get_mut(&id) {
+                    entry.owns_quota = true;
+                }
+            }
         }
+        budget.capacity = kitty_image_budget_capacity(
+            Self::kitty_image_budget_owner_count(budget),
+            budget.capacity,
+        );
     }
 
     fn start_kitty_image_budget_worker(self: &Arc<Self>) {
@@ -4480,7 +4527,12 @@ impl Mux {
             let target = kitty_image_limits_for_capacity(budget.capacity);
             let has_work = budget.entries.values().any(|entry| {
                 entry.surface.as_ref().is_some_and(|surface| surface.strong_count() > 0)
-                    && (entry.removing || entry.applied != target)
+                    && entry.applied
+                        != if entry.removing || !entry.owns_quota {
+                            KittyGraphicsLimits::disabled()
+                        } else {
+                            target
+                        }
             });
             if budget.worker_running || !has_work {
                 false
@@ -4571,10 +4623,15 @@ impl Mux {
                     let Some(surface) = entry.surface.as_ref().and_then(Weak::upgrade) else {
                         continue;
                     };
-                    let desired =
-                        if entry.removing { KittyGraphicsLimits::disabled() } else { target };
+                    let desired = if entry.removing || !entry.owns_quota {
+                        KittyGraphicsLimits::disabled()
+                    } else {
+                        target
+                    };
                     if entry.applied != desired
-                        && (entry.removing || kitty_image_limits_exceed(entry.applied, desired))
+                        && (entry.removing
+                            || !entry.owns_quota
+                            || kitty_image_limits_exceed(entry.applied, desired))
                     {
                         tasks.push((id, surface, desired, false));
                     }
@@ -4586,10 +4643,9 @@ impl Mux {
                                 && (entry.surface.is_none()
                                     || entry.applied == KittyGraphicsLimits::disabled()))
                     });
-                    let next_capacity =
-                        kitty_image_budget_capacity(budget.entries.len(), budget.capacity);
-                    if next_capacity != budget.capacity {
-                        budget.capacity = next_capacity;
+                    let previous_capacity = budget.capacity;
+                    Self::rebalance_kitty_image_budget_owners(&mut budget);
+                    if budget.capacity != previous_capacity {
                         continue;
                     }
                     let target = kitty_image_limits_for_capacity(budget.capacity);
@@ -4600,7 +4656,7 @@ impl Mux {
                         let Some(surface) = entry.surface.as_ref().and_then(Weak::upgrade) else {
                             continue;
                         };
-                        if !entry.removing && entry.applied != target {
+                        if entry.owns_quota && !entry.removing && entry.applied != target {
                             tasks.push((
                                 id,
                                 surface,
@@ -4719,10 +4775,12 @@ impl Mux {
         let budget = self.kitty_image_budget.lock().unwrap();
         let target = kitty_image_limits_for_capacity(budget.capacity);
         !budget.worker_running
-            && budget
-                .entries
-                .values()
-                .all(|entry| entry.surface.is_some() && !entry.removing && entry.applied == target)
+            && budget.entries.values().all(|entry| {
+                entry.surface.is_some()
+                    && !entry.removing
+                    && entry.applied
+                        == if entry.owns_quota { target } else { KittyGraphicsLimits::disabled() }
+            })
     }
 
     pub(crate) fn cell_pixel_creation_size(&self) -> (u16, u16) {
