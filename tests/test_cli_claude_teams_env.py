@@ -176,17 +176,17 @@ fs.writeFileSync(
         env["NODE_OPTIONS"] = node_options
         expect_managed_tmux_shim = True
         env["TMPDIR"] = str(tmp) if tmpdir is None else tmpdir
-        explicit_socket_path = str(tmp / "explicit-cmux.sock")
+        explicit_socket_path_hint = tmp / "explicit-cmux.sock"
         explicit_socket_password = "topsecret"
 
         with focused_cmux_server(
-            Path(explicit_socket_path),
+            explicit_socket_path_hint,
             surface_id=surface_id,
             identified_workspace_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
             identified_window_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
             identified_pane_id="cccccccc-cccc-4ccc-8ccc-cccccccccccc",
             identified_surface_id="dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-        ) as (_, socket_requests):
+        ) as (explicit_socket_path, socket_requests):
             proc = subprocess.run(
                 [
                     cli_path,

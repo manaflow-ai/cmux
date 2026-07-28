@@ -86,9 +86,12 @@ printf 'shim=%s\\n' "$(command -v tmux)"
         env["CMUX_WORKSPACE_ID"] = FOCUSED_WORKSPACE_ID
         env["CMUX_SURFACE_ID"] = surface_id
         socket_path = tmp / "cmux.sock"
-        env["CMUX_SOCKET_PATH"] = str(socket_path)
 
-        with focused_cmux_server(socket_path, surface_id=surface_id):
+        with focused_cmux_server(socket_path, surface_id=surface_id) as (
+            live_socket_path,
+            _,
+        ):
+            env["CMUX_SOCKET_PATH"] = live_socket_path
             proc = subprocess.run(
                 [cli_path, "claude-teams", "--version"],
                 capture_output=True,

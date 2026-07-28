@@ -114,7 +114,7 @@ class _FocusedCmuxServer(socketserver.ThreadingUnixStreamServer):
 
 @contextmanager
 def focused_cmux_server(
-    socket_path: Path,
+    socket_path_hint: Path,
     *,
     workspace_id: str = FOCUSED_WORKSPACE_ID,
     window_id: str = FOCUSED_WINDOW_ID,
@@ -126,27 +126,38 @@ def focused_cmux_server(
     identified_surface_id: str | None = None,
     stale_workspace_id: str | None = None,
 ) -> Iterator[tuple[str, list[str]]]:
-    """Serve a live focused surface to prove contextless launchers do not borrow it."""
-    server = _FocusedCmuxServer(
-        str(socket_path),
-        workspace_id,
-        window_id,
-        pane_id,
-        surface_id,
-        identified_workspace_id or workspace_id,
-        identified_window_id or window_id,
-        identified_pane_id or pane_id,
-        identified_surface_id or surface_id,
-        stale_workspace_id,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield str(socket_path), server.requests
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
+    """Serve a focused surface from a short helper-owned AF_UNIX endpoint.
+
+    Callers may supply paths beneath arbitrarily deep test roots as a naming
+    hint, but must use the live path yielded here. Darwin limits AF_UNIX paths
+    to roughly one hundred bytes, so the shared server boundary owns a short
+    endpoint instead of making every caller reason about that platform limit.
+    """
+    del socket_path_hint
+    with tempfile.TemporaryDirectory(
+        prefix="cmux-focused-socket-", dir="/tmp"
+    ) as socket_dir:
+        socket_path = Path(socket_dir) / "cmux.sock"
+        server = _FocusedCmuxServer(
+            str(socket_path),
+            workspace_id,
+            window_id,
+            pane_id,
+            surface_id,
+            identified_workspace_id or workspace_id,
+            identified_window_id or window_id,
+            identified_pane_id or pane_id,
+            identified_surface_id or surface_id,
+            stale_workspace_id,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield str(socket_path), server.requests
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
 
 @contextmanager
