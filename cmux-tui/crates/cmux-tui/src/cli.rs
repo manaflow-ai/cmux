@@ -2331,7 +2331,7 @@ mod tests {
     }
 
     #[test]
-    fn report_agent_builder_accepts_protocol_11_telemetry_and_error() {
+    fn report_agent_builder_accepts_protocol_12_telemetry_and_error() {
         let flags = FlagMap {
             values: BTreeMap::from([
                 ("surface".to_string(), "9".to_string()),

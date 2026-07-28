@@ -1,6 +1,6 @@
 # Build a cmux-tui Frontend
 
-This is the canonical integration path for an external cmux-tui frontend. This document narrates the complete protocol-v11 flow. Rich frontends should consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.
+This is the canonical integration path for an external cmux-tui frontend. This document narrates the complete protocol-v12 flow. Rich frontends should consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.
 
 The complete command schemas are in [`commands.md`](commands.md), event schemas and scoping are in [`events.md`](events.md), and styled-cell details are in [`render.md`](render.md).
 
@@ -20,14 +20,14 @@ Only then send protocol requests. See [`transports.md`](transports.md#authentica
 
 ## 2. Identify And Select Capabilities
 
-Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 11` before enabling the complete flow. Preserve request `id` values and route every non-event response back to the pending request with that id.
+Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 12` before enabling the complete flow. Preserve request `id` values and route every non-event response back to the pending request with that id.
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":11,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":12,"session":"main","pid":12345}}
 ```
 
-Require protocol 11 for lifecycle telemetry and notification subtitles. Per-surface client sizing remains protocol 10, stack layouts protocol 9, stable split ids protocol 8, and render mode protocol 7.
+Require protocol 12 for lifecycle telemetry and notification subtitles. Upstream viewport/layout/clear-history behavior remains protocol 11, per-surface client sizing protocol 10, stack layouts protocol 9, stable split ids protocol 8, and render mode protocol 7.
 
 ## 3. Load And Track The Workspace Tree
 
@@ -84,7 +84,7 @@ render-state -> (render-delta | scroll-changed)* -> detached
 
 The initial snapshot and render tap are registered under one lock, so there is no missing or duplicated frame between them. Attach events may arrive before the attach command response.
 
-Call [`list-agents`](commands.md#list-agents) to seed current agent records, optionally filtered by surface or state, then update the cache from protocol-v11 `agent-state-changed` events. Agent producers report through [`report-agent`](commands.md#report-agent). Optional fields may be absent from older producers and must decode as null; frontends should preserve state-specific severity and display `detail` as the current tool, todo phase/item, or subagent activity.
+Call [`list-agents`](commands.md#list-agents) to seed current agent records, optionally filtered by surface or state, then update the cache from protocol-v12 `agent-state-changed` events. Agent producers report through [`report-agent`](commands.md#report-agent). Optional fields may be absent from older producers and must decode as null; frontends should preserve state-specific severity and display `detail` as the current tool, todo phase/item, or subagent activity.
 
 `render-state.scrollback_rows` and later count changes tell the frontend whether history exists. Fetch visible history in bounded pages with [`read-scrollback`](commands.md#read-scrollback); do not assume indexes remain stable across eviction or resize reflow.
 
@@ -119,7 +119,7 @@ Each line is one WebSocket text frame. `C>` is client-to-server and `S>` is serv
 ```text
 C> {"auth":{"token":"secret"}}
 C> {"id":1,"cmd":"identify"}
-S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":11,"session":"main","pid":12345}}
+S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":12,"session":"main","pid":12345}}
 C> {"id":2,"cmd":"subscribe","tree_events":"deltas"}
 S> {"id":2,"ok":true,"data":{}}
 C> {"id":3,"cmd":"list-workspaces"}

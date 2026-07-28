@@ -825,17 +825,20 @@ export class CmuxClient {
   sendKey(surface: IdRef, keys: string[]): Promise<EmptyResult> { return this.request("send-key", { surface, keys }); }
   copy(surface: IdRef, mode: CopyMode): Promise<CopyResult> { return this.request("copy", { surface, mode }); }
   ids(kind?: IdKind | null): Promise<IdsResult> { return this.request("ids", { kind }); }
-  notify(
+  async notify(
     title: string,
     body: string,
     options: { subtitle?: string | null; level?: NotificationLevel | null; surface?: IdRef | null } = {},
   ): Promise<NotifyResult> {
+    if (options.subtitle !== undefined && options.subtitle !== null) {
+      await this.requireProtocol(12, "notification subtitles");
+    }
     return this.request("notify", { title, body, ...options });
   }
   listAgents(options: CmuxRequestParams<"list-agents"> = {}): Promise<ListAgentsResult> {
     return this.request("list-agents", options);
   }
-  reportAgent(
+  async reportAgent(
     surface: IdRef,
     state: AgentState,
     source: AgentReportSource,
@@ -850,6 +853,9 @@ export class CmuxClient {
       agents_active?: number | null;
     } = {},
   ): Promise<ReportAgentResult> {
+    if (Object.values(options).some((value) => value !== undefined && value !== null)) {
+      await this.requireProtocol(12, "agent telemetry");
+    }
     return this.request("report-agent", { surface, state, source, ...options });
   }
 

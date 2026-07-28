@@ -7312,8 +7312,9 @@ mod tests {
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
-        assert_eq!(AGENT_TELEMETRY_PROTOCOL_VERSION, 11);
-        assert_eq!(PROTOCOL_VERSION, 11);
+        assert_eq!(UPSTREAM_VIEWPORT_LAYOUT_PROTOCOL_VERSION, 11);
+        assert_eq!(AGENT_TELEMETRY_PROTOCOL_VERSION, 12);
+        assert_eq!(PROTOCOL_VERSION, 12);
         assert!(
             identity["capabilities"].as_array().is_some_and(|capabilities| capabilities
                 .iter()
@@ -9715,7 +9716,7 @@ mod tests {
     }
 
     #[test]
-    fn report_agent_round_trips_protocol_11_fields_and_serializes_event() {
+    fn report_agent_round_trips_protocol_12_fields_and_serializes_event() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
         let events = mux.subscribe();

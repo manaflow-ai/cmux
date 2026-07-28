@@ -146,9 +146,9 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `send-key` | implemented | `--surface <id> <key>...` | none | none |
 | `copy` | implemented | `--surface <id> --mode screen\|selection\|scrollback` | none | text |
 | `ids` | implemented | none | `--kind workspace\|screen\|pane\|surface` | id lines |
-| `notify` | implemented; subtitle protocol 11 | `--title <title> --body <body>` | `--subtitle <subtitle>`, `--level info\|warning\|error`, `--surface <id>` | notification id |
-| `list-agents` | implemented; telemetry protocol 11 | none | `--surface <id>`, `--state working\|blocked\|idle\|done\|error\|unknown` | agent lines |
-| `report-agent` | implemented; telemetry protocol 11 | `--surface <id> --state <state> --source socket\|hook` | `--session`, `--label`, `--detail`, `--started-at-ms`, `--tasks-completed`, `--tasks-total`, `--jobs-running`, `--agents-active` | none |
+| `notify` | implemented; subtitle protocol 12 | `--title <title> --body <body>` | `--subtitle <subtitle>`, `--level info\|warning\|error`, `--surface <id>` | notification id |
+| `list-agents` | implemented; telemetry protocol 12 | none | `--surface <id>`, `--state working\|blocked\|idle\|done\|error\|unknown` | agent lines |
+| `report-agent` | implemented; telemetry protocol 12 | `--surface <id> --state <state> --source socket\|hook` | `--session`, `--label`, `--detail`, `--started-at-ms`, `--tasks-completed`, `--tasks-total`, `--jobs-running`, `--agents-active` | none |
 | `plugin install` | implemented, CLI-only | `<git-url>` | `--name <name>`, `--force` | install summary and next step |
 | `plugin list` | implemented, CLI-only | none | `--json` | installed plugin lines |
 | `plugin use` | implemented, CLI-only | `<name>` or `--builtin` | global socket flags for best-effort reload | config write and reload status |

@@ -1546,11 +1546,19 @@ test("send serializes base64 input and the protocol v7 paste flag", async () => 
   await client.close();
 });
 
-test("protocol 11 helpers serialize notification subtitles and agent telemetry", async () => {
+test("protocol 12 helpers serialize notification subtitles and agent telemetry", async () => {
   const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 12, session: "main", pid: 1 },
+      });
+      return;
+    }
     if (request.cmd === "notify") {
       assert.deepEqual(request, {
-        id: 1,
+        id: 2,
         cmd: "notify",
         title: "Agent",
         body: "ready",
@@ -1562,7 +1570,7 @@ test("protocol 11 helpers serialize notification subtitles and agent telemetry",
       return;
     }
     assert.deepEqual(request, {
-      id: 2,
+      id: 3,
       cmd: "report-agent",
       surface: 41,
       state: "error",

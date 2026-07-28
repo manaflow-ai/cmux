@@ -276,7 +276,7 @@ export interface BrowserFrameEvent extends BrowserFrame {
   surface: Id;
 }
 
-/** Agent lifecycle telemetry added in protocol 11. */
+/** Agent lifecycle telemetry added in protocol 12. */
 export interface AgentStateChangedEvent {
   event: "agent-state-changed";
   surface: Id;

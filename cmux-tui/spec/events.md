@@ -1,6 +1,6 @@
 # Event Contract
 
-This file specifies event lines emitted by protocol v11, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
+This file specifies event lines emitted by protocol v12, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
 
 The schema notation and `Id`, `Workspace`, `Screen`, `Pane`, and `Tab` types come from [`commands.md`](commands.md#notation). `Cursor`, `Row`, and `Run` come from [`render.md`](render.md#shared-render-types).
 
@@ -855,7 +855,7 @@ Example:
 {"event":"detached","surface":1}
 ```
 
-## Protocol 11 Telemetry Events
+## Protocol 12 Telemetry Events
 
 ### agent-state-changed
 
@@ -863,7 +863,7 @@ Example:
 | --- | --- |
 | event | `agent-state-changed` |
 | status | implemented |
-| since | protocol 11 |
+| since | protocol 12 |
 
 Payload:
 
@@ -900,7 +900,7 @@ Example:
 | --- | --- |
 | event | `notification` |
 | status | implemented |
-| since | protocol 6; optional `subtitle` protocol 11 |
+| since | protocol 6; optional `subtitle` protocol 12 |
 
 Payload:
 

@@ -10,5 +10,5 @@
 - [Mouse](mouse.md): clickable UI, drag reorder, resize, scrollbars, menus, selection, pointer shape, and dialogs.
 - [Configuration](configuration.md): full `cmux-tui.json` reference with defaults and a worked example.
 - [Machines](machines.md): optional dual rails, static Unix/SSH targets, relay, `npx cmux` remote setup, and outbound `npx cmux machine-agent` registration.
-- [Control socket protocol](protocol.md): JSON-lines framing, protocol v11 layouts, telemetry, notifications, events, attach streams, and compatibility rules.
+- [Control socket protocol](protocol.md): JSON-lines framing, protocol v12 layouts, telemetry, notifications, events, attach streams, and compatibility rules.
 - [Browser panes](browser-panes.md): CDP-backed browser tabs, rendering, input, profiles, and current limitations.

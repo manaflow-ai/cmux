@@ -76,8 +76,8 @@ class AgentParitySmoke(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
-    def test_protocol_11_agent_round_trip_event_ids_and_notification_unread(self):
-        self.assertEqual(self.rpc({"id": 1, "cmd": "identify"})["protocol"], 11)
+    def test_protocol_12_agent_round_trip_event_ids_and_notification_unread(self):
+        self.assertEqual(self.rpc({"id": 1, "cmd": "identify"})["protocol"], 12)
         tree = self.rpc({"id": 2, "cmd": "list-workspaces"})
         if not tree["workspaces"]:
             self.rpc({"id": 3, "cmd": "new-workspace"})
