@@ -4631,6 +4631,64 @@ mod unix {
         }
 
         #[test]
+        fn hosted_session_kill_observes_the_waitable_leader_under_its_owner_lock() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            let root = std::env::temp_dir()
+                .join(format!("cmux-host-owner-{}", crate::workspace_registry::new_uuid_v4()));
+            fs::create_dir_all(&root).unwrap();
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "trap '' HUP TERM; while :; do sleep 60; done".into(),
+                ],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+            };
+            let host = spawn_host_runtime(&launch, &bootstrapped).unwrap();
+            host.termination_started.store(true, Ordering::Release);
+
+            let started = Instant::now();
+            let killed = host
+                .kill_terminal_process_session_until(Instant::now() + Duration::from_secs(1))
+                .unwrap();
+            let elapsed = started.elapsed();
+
+            host.group_escalation_complete.store(true, Ordering::Release);
+            host.child_exit.1.notify_all();
+            crate::process_session::wake_child_reaper();
+            let _ = host.wait_for_child_exit(Duration::from_secs(2));
+            let _ = fs::remove_dir_all(root);
+
+            assert!(killed, "host cleanup could not observe its SIGKILLed leader");
+            assert!(
+                elapsed < Duration::from_millis(500),
+                "host cleanup waited on the reaper while retaining its owner lock: {elapsed:?}"
+            );
+            assert!(host.child_reaped.load(Ordering::Acquire));
+        }
+
+        #[test]
         fn hosted_child_observation_uses_the_reserved_shared_reaper() {
             const CHILDREN: usize = 4;
 

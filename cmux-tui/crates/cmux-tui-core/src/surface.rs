@@ -4149,6 +4149,47 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn local_session_kill_observes_the_waitable_leader_under_its_owner_lock() {
+        let mux = Mux::new_for_test("local-owner-observation", SurfaceOptions::default());
+        let options = SurfaceOptions {
+            command: Some(vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "trap '' HUP TERM; while :; do sleep 60; done".into(),
+            ]),
+            ..SurfaceOptions::default()
+        };
+        let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
+        let process = match surface.as_pty().unwrap().local_process.as_deref().unwrap() {
+            LocalProcess::Owned(process) => process.clone(),
+            LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
+        };
+        process.termination_started.store(true, Ordering::Release);
+
+        let started = Instant::now();
+        let killed = process
+            .kill_terminal_process_session_until(Instant::now() + Duration::from_secs(1), None)
+            .unwrap();
+        let elapsed = started.elapsed();
+
+        process.group_escalation_complete.store(true, Ordering::Release);
+        process.exited.1.notify_all();
+        crate::process_session::wake_child_reaper();
+        let reap_deadline = Instant::now() + Duration::from_secs(2);
+        while !process.child_reaped.load(Ordering::Acquire) && Instant::now() < reap_deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(killed, "session cleanup could not observe its SIGKILLed leader");
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "session cleanup waited on the reaper while retaining its owner lock: {elapsed:?}"
+        );
+        assert!(process.child_reaped.load(Ordering::Acquire));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn completed_natural_cleanup_does_not_revalidate_reusable_session_id() {
         // A completed child may have its numeric session ID reassigned. Use
         // this test process's live session as a deterministic reused value.
