@@ -268,7 +268,18 @@ struct WorkspaceRecoveryTests {
         var snapshot = try #require(sourceManager.selectedWorkspace).sessionSnapshot(includeScrollback: false)
         snapshot.customTitle = "Failed Restore Label"
         snapshot.customTitleSource = .user
-        snapshot.panels = []
+        var panelSnapshot = try #require(snapshot.panels.first)
+        panelSnapshot.type = .markdown
+        panelSnapshot.terminal = nil
+        panelSnapshot.browser = nil
+        panelSnapshot.markdown = nil
+        panelSnapshot.filePreview = nil
+        panelSnapshot.rightSidebarTool = nil
+        snapshot.panels = [panelSnapshot]
+        snapshot.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: [panelSnapshot.id],
+            selectedPanelId: panelSnapshot.id
+        ))
         let entry = ClosedWorkspaceHistoryEntry(
             workspaceId: UUID(),
             windowId: nil,
