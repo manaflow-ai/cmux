@@ -241,6 +241,109 @@ struct CodexResumeTrustTests {
   }
 
   @Test
+  func testCodexResumeTrustWaitsForInitializeResponse() throws {
+    let cliPath = try H.bundledCLIPath()
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent(
+        "cmux-codex-staged-config-\(UUID().uuidString)",
+        isDirectory: true
+      )
+    let codexHome = root.appendingPathComponent(
+      "codex-home",
+      isDirectory: true
+    )
+    let stateDirectory = root.appendingPathComponent(
+      "state",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: codexHome,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: root) }
+    try Data("{}".utf8).write(
+      to: codexHome.appendingPathComponent(
+        "models_cache.json",
+        isDirectory: false
+      )
+    )
+
+    let fakeCodex = root.appendingPathComponent(
+      "codex",
+      isDirectory: false
+    )
+    try """
+    #!/bin/bash
+    IFS= read -r initialize || exit 20
+    case "$initialize" in
+      *'"method":"initialize"'*) ;;
+      *) exit 21 ;;
+    esac
+    if IFS= read -r -t 0.05 premature; then
+      exit 22
+    fi
+    printf '%s\n' '{"id":1,"result":{"userAgent":"test","codexHome":"\(codexHome.path)","platformFamily":"unix","platformOs":"macos"}}'
+    IFS= read -r initialized || exit 23
+    case "$initialized" in
+      *'"method":"initialized"'*) ;;
+      *) exit 24 ;;
+    esac
+    IFS= read -r config_read || exit 25
+    case "$config_read" in
+      *'"method":"config'*'read"'*)
+        printf '%s\n' '{"id":2,"result":{"config":{"projects":{}},"origins":{},"layers":null}}'
+        ;;
+      *) exit 26 ;;
+    esac
+    """.write(to: fakeCodex, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755],
+      ofItemAtPath: fakeCodex.path
+    )
+
+    var gitEnvironment = ProcessInfo.processInfo.environment
+    gitEnvironment.removeValue(forKey: "GIT_DIR")
+    gitEnvironment.removeValue(forKey: "GIT_WORK_TREE")
+    let gitInit = H.runProcess(
+      executablePath: "/usr/bin/git",
+      arguments: ["init", root.path],
+      environment: gitEnvironment,
+      timeout: 2
+    )
+    codexExpectFalse(gitInit.timedOut, gitInit.stderr)
+    codexExpectEqual(gitInit.status, 0, gitInit.stderr)
+
+    var environment = ProcessInfo.processInfo.environment
+    environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+    environment["CMUX_AGENT_LAUNCH_ARGV_B64"] =
+      H.base64NULSeparated([
+        fakeCodex.path,
+        "resume",
+        "session-name",
+      ])
+    environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = fakeCodex.path
+    environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDirectory.path
+    environment["CODEX_HOME"] = codexHome.path
+
+    let result = H.runProcess(
+      executablePath: cliPath,
+      arguments: ["hooks", "codex", "inject-resume-args"],
+      environment: environment,
+      timeout: 2
+    )
+
+    codexExpectFalse(result.timedOut, result.stderr)
+    codexExpectEqual(result.status, 0, result.stderr)
+    codexExpectTrue(
+      result.stdout.contains(
+        #"projects={"\#(root.resolvingSymlinksInPath().path)"={trust_level="untrusted"}}"#
+      ),
+      "Codex config/read must wait for initialize to finish: \(result.stdout)"
+    )
+  }
+
+  @Test
   func testCodexResumeTrustCoalescesOnlyConcurrentEffectiveConfigProbes() throws {
     let cliPath = try H.bundledCLIPath()
     let root = FileManager.default.temporaryDirectory
