@@ -38,18 +38,18 @@ struct GhosttyScrollViewTests {
 
         hostedView.setLinkHoverURL("https://example.com/first")
 
-        let indicator = try #require(linkHoverIndicators(in: hostedView).only)
+        let indicator = try #require(onlyLinkHoverIndicator(in: hostedView))
         #expect(!indicator.isHidden)
     }
 
     @Test func subsequentLinkHoverURLsReuseIndicator() throws {
         let hostedView = makeHostedView()
         hostedView.setLinkHoverURL("https://example.com/first")
-        let firstIndicator = try #require(linkHoverIndicators(in: hostedView).only)
+        let firstIndicator = try #require(onlyLinkHoverIndicator(in: hostedView))
 
         hostedView.setLinkHoverURL("https://example.com/second")
 
-        let secondIndicator = try #require(linkHoverIndicators(in: hostedView).only)
+        let secondIndicator = try #require(onlyLinkHoverIndicator(in: hostedView))
         #expect(secondIndicator === firstIndicator)
         #expect(!secondIndicator.isHidden)
     }
@@ -57,12 +57,12 @@ struct GhosttyScrollViewTests {
     @Test func clearingLinkHoverURLHidesReusableIndicator() throws {
         let hostedView = makeHostedView()
         hostedView.setLinkHoverURL("https://example.com")
-        let indicator = try #require(linkHoverIndicators(in: hostedView).only)
+        let indicator = try #require(onlyLinkHoverIndicator(in: hostedView))
 
         hostedView.setLinkHoverURL(nil)
 
         #expect(indicator.isHidden)
-        #expect(linkHoverIndicators(in: hostedView).only === indicator)
+        #expect(onlyLinkHoverIndicator(in: hostedView) === indicator)
     }
 
     @Test func releasingHostedViewReleasesLinkHoverIndicator() {
@@ -71,7 +71,7 @@ struct GhosttyScrollViewTests {
         autoreleasepool {
             let hostedView = makeHostedView()
             hostedView.setLinkHoverURL("https://example.com")
-            releasedIndicator = linkHoverIndicators(in: hostedView).only
+            releasedIndicator = onlyLinkHoverIndicator(in: hostedView)
             #expect(releasedIndicator != nil)
         }
 
@@ -88,5 +88,10 @@ struct GhosttyScrollViewTests {
 
     private func linkHoverIndicators(in hostedView: GhosttySurfaceScrollView) -> [TerminalLinkHoverIndicatorView] {
         hostedView.subviews.compactMap { $0 as? TerminalLinkHoverIndicatorView }
+    }
+
+    private func onlyLinkHoverIndicator(in hostedView: GhosttySurfaceScrollView) -> TerminalLinkHoverIndicatorView? {
+        let indicators = linkHoverIndicators(in: hostedView)
+        return indicators.count == 1 ? indicators[0] : nil
     }
 }
