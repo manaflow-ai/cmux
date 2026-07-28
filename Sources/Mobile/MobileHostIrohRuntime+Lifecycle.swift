@@ -263,8 +263,17 @@ extension MobileHostIrohRuntime {
             return
         }
         let revision = lifecycleRevision
-        Task { @MainActor [weak self] in
+        cancelRetryInspection()
+        retryInspectionRevision &+= 1
+        let inspectionRevision = retryInspectionRevision
+        retryInspectionTask = Task { @MainActor [weak self] in
+            defer {
+                guard let self,
+                      self.retryInspectionRevision == inspectionRevision else { return }
+                self.retryInspectionTask = nil
+            }
             guard let self,
+                  self.retryInspectionRevision == inspectionRevision,
                   self.desiredActive,
                   self.runtime === activeRuntime,
                   revision == self.lifecycleRevision else { return }
@@ -272,9 +281,11 @@ extension MobileHostIrohRuntime {
                 guard self.desiredActive,
                       !self.signOutIntentActive,
                       self.runtime === activeRuntime,
+                      self.retryInspectionRevision == inspectionRevision,
                       revision == self.lifecycleRevision else { return }
                 // A fresh external signal resets the backoff ladder, then uses
                 // the single guarded recovery entrypoint.
+                self.retryInspectionTask = nil
                 self.cancelFailureRecovery(resetBackoff: true)
                 await self.recoverFailedRuntimeIfNeeded()
                 return
@@ -388,11 +399,18 @@ extension MobileHostIrohRuntime {
     }
 
     func cancelFailureRecovery(resetBackoff: Bool) {
+        cancelRetryInspection()
         failureRecoveryTask?.cancel()
         failureRecoveryTask = nil
         if resetBackoff {
             failureRecoveryFailureCount = 0
         }
+    }
+
+    func cancelRetryInspection() {
+        retryInspectionRevision &+= 1
+        retryInspectionTask?.cancel()
+        retryInspectionTask = nil
     }
 
     /// Applies the legacy-listener setting only to account-private Bonjour

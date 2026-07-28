@@ -648,7 +648,7 @@ describe("Iroh trust broker database behavior", () => {
       from iroh_endpoint_bindings
       where id = ${first.binding.id}
     `;
-    expect(previous.revokedAt).not.toBeNull();
+    expect(previous?.revokedAt).not.toBeNull();
     const [state] = await requiredSql()<Array<{
       platform: string;
       pairingEnabled: boolean;
@@ -1231,10 +1231,10 @@ describe("Iroh trust broker database behavior", () => {
     // the previously-live grant is now revoked. Re-keying forces a re-pair because
     // the held token names the dead endpoint, so no grant can carry authorization
     // onto the new id.
-    expect(grants.liveInitiator).toBe(initiator.binding.id);
-    expect(grants.liveRevoked).toBe(true);
-    expect(grants.staleInitiator).toBe(initiator.binding.id);
-    expect(grants.staleRevoked).toBe(true);
+    expect(grants?.liveInitiator).toBe(initiator.binding.id);
+    expect(grants?.liveRevoked).toBe(true);
+    expect(grants?.staleInitiator).toBe(initiator.binding.id);
+    expect(grants?.staleRevoked).toBe(true);
   });
 
   dbTest("rejects a genuinely-new slot once the account is at the active-binding sanity cap", async () => {

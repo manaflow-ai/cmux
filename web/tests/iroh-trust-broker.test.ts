@@ -24,10 +24,11 @@ import {
   sha256,
   type IrohRegistrationPayload,
 } from "../services/iroh/model";
-import type {
-  IrohBindingRecord,
-  IrohChallengeRecord,
-  IrohRepositoryShape,
+import {
+  IROH_ACTIVE_BINDING_SANITY_CAP,
+  type IrohBindingRecord,
+  type IrohChallengeRecord,
+  type IrohRepositoryShape,
 } from "../services/iroh/repository";
 import type { IrohRelayMinterShape } from "../services/iroh/relayMinter";
 import { makeIrohTrustBroker } from "../services/iroh/trustBroker";
@@ -670,9 +671,10 @@ describe("developer binding override", () => {
     expect(developmentBindingQuotaAllowed(base, USER_B)).toBe(false);
     expect(developmentBindingQuotaAllowed({ ...base, deploymentEnvironment: "production" }, USER_A)).toBe(false);
     expect(developmentBindingQuotaAllowed({ ...base, deviceLimitOverrideEnabled: false }, USER_A)).toBe(false);
-    // The override now only widens the challenge-issuance quota. Binding counts
-    // are no longer capped: the slot is keyed on (user, device, tag) and the
-    // newest authenticated registration overwrites it in place.
+    // The override widens challenge issuance and configured account/device
+    // quotas. Authenticated re-registration overwrites an existing
+    // (user, device, tag) slot, while genuinely new slots remain bounded by
+    // IROH_ACTIVE_BINDING_SANITY_CAP.
     expect(challengeQuotaForUser(base, USER_A)).toEqual({
       account: 2_048,
       deviceInstance: 128,
@@ -742,12 +744,23 @@ class MemoryRepository implements IrohRepositoryShape {
       directPorts?: TestDirectPorts;
     }).directPorts;
     // The slot is keyed on (user, device, tag). A reinstall, sign-out/in, or key
-    // rotation reuses that slot. There is no generation gate and no cap.
+    // rotation reuses that slot.
     const existing = this.bindings.find((row) =>
       row.userId === input.userId &&
       row.deviceUuid === input.payload.deviceId &&
       row.tag === input.payload.tag &&
       !row.revokedAt);
+    if (existing && challenge.createdAt < existing.registeredAt) {
+      return Effect.fail(new IrohConflictError({ code: "challenge_superseded" }));
+    }
+    if (
+      !existing
+      && this.bindings.filter((row) =>
+        row.userId === input.userId && !row.revokedAt).length
+        >= IROH_ACTIVE_BINDING_SANITY_CAP
+    ) {
+      return Effect.fail(new IrohConflictError({ code: "active_binding_limit" }));
+    }
     // The endpoint id is a global identity: no OTHER live binding may claim it.
     // Self is excluded so a slot can rotate its own key.
     if (this.bindings.some((row) =>
@@ -776,6 +789,7 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.directPortV6 = directPorts?.ipv6 ?? null;
       existing.pathHints = [...input.payload.pathHints];
       existing.lastSeenAt = input.now;
+      existing.registeredAt = challenge.createdAt;
       existing.updatedAt = input.now;
       return Effect.succeed({ binding: existing, created: false });
     }
@@ -783,8 +797,8 @@ class MemoryRepository implements IrohRepositoryShape {
     // retire the old row (soft-revoke, never delete) and mint a fresh binding id so
     // a peer host that denied the old id can't strand the resurrected slot. In the
     // real repository the retired row's live pair grants are revoked and the LAN
-    // discovery generation rotates; the route-layer tests here don't model the
-    // grant table but do mirror the generation bump.
+    // discovery generation rotates; this fake does not model the grant table,
+    // but does mirror the generation bump, staleness gate, and active-slot cap.
     if (existing) {
       existing.revokedAt = input.now;
       existing.revokedReason = "slot_reincarnated";
@@ -811,7 +825,7 @@ class MemoryRepository implements IrohRepositoryShape {
       directPortV4: directPorts?.ipv4 ?? null,
       directPortV6: directPorts?.ipv6 ?? null,
       pathHints: [...input.payload.pathHints],
-      registeredAt: input.now,
+      registeredAt: challenge.createdAt,
       updatedAt: input.now,
       lastSeenAt: input.now,
     });

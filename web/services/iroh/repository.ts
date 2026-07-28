@@ -41,7 +41,7 @@ export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
 // handful of bindings and a heavy multi-tag developer at most low hundreds, so
 // this only trips on a stuck registration loop or abuse. When a genuinely new
 // slot would push the count over the cap, that registration is REJECTED
-// (`enforceActiveBindingSanityCap` throws IrohQuotaExceededError); the row set is
+// (`enforceActiveBindingSanityCap` throws IrohConflictError); the row set is
 // never evicted, so a churning client can never shed the account's real hosts.
 //
 // The cap is pinned to the client's discovery-snapshot wire limit: the iOS
@@ -940,7 +940,6 @@ async function revokeActiveBindings(
     readonly reason:
       | "user_requested"
       | "stale_development_binding"
-      | "active_binding_cap_evicted"
       | "slot_reincarnated";
   },
 ): Promise<readonly string[]> {
@@ -1013,10 +1012,7 @@ async function enforceActiveBindingSanityCap(
     ));
   const active = row?.total ?? 0;
   if (active < IROH_ACTIVE_BINDING_SANITY_CAP) return;
-  throw new IrohQuotaExceededError({
-    code: "active_binding_limit",
-    retryAfterSeconds: 3600,
-  });
+  throw new IrohConflictError({ code: "active_binding_limit" });
 }
 
 type RetentionBatchOperation = {

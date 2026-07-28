@@ -24,6 +24,10 @@ import Testing
             if await log.processedCount() >= expected { return }
             await Task.yield()
         }
+        #expect(
+            await log.processedCount() >= expected,
+            "diagnostic drain did not reach the required barrier"
+        )
     }
 
     /// Record one event and await it draining into the ring, so the next record

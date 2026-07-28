@@ -105,10 +105,7 @@ struct CmxIrohConnectionDiagnosticRecorderTests {
             failureKind: .connectionClosed
         ))
 
-        for _ in 0 ..< 1_000 {
-            if await log.processedCount() >= 5 { break }
-            await Task.yield()
-        }
+        #expect(await waitForDiagnosticProcessedCount(log, atLeast: 5))
         let events = await log.snapshot().events
         #expect(events.map(\.code) == [
             .transportPathEvent,

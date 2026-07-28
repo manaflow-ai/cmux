@@ -229,7 +229,12 @@ extension AuthCoordinator {
 /// The generation lets a long operation (revoking bindings, say) detect that the
 /// session was replaced after the snapshot, so it aborts before acting with one
 /// account's identity and another's credentials.
-public struct AuthenticatedSessionSnapshot: Sendable, Equatable {
+public struct AuthenticatedSessionSnapshot:
+    Sendable,
+    Equatable,
+    CustomStringConvertible,
+    CustomDebugStringConvertible
+{
     /// The session generation the account id and tokens were captured under.
     public let generation: UInt64
     /// The signed-in account id (`currentUser.id`) at capture.
@@ -250,4 +255,14 @@ public struct AuthenticatedSessionSnapshot: Sendable, Equatable {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
     }
+
+    public var description: String {
+        "AuthenticatedSessionSnapshot("
+            + "generation: \(generation), "
+            + "accountID: <redacted>, "
+            + "accessToken: <redacted>, "
+            + "refreshToken: <redacted>)"
+    }
+
+    public var debugDescription: String { description }
 }

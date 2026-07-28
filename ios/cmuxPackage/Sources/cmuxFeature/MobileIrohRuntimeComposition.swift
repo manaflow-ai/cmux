@@ -13,6 +13,20 @@ nonisolated private let mobileIrohLog = Logger(
     category: "iroh-runtime"
 )
 
+/// Keeps synchronous Keychain and defaults work off the UI actor while
+/// serializing concurrent activation reads through one identity owner.
+private actor MobileIrohDurableDeviceIDResolver {
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+    }
+
+    func resolve() -> String? {
+        DeviceRegistryService.durableDeviceID(defaults: defaults)
+    }
+}
+
 /// Resolves connection waiters only when the latest lifecycle revision settles.
 @MainActor
 final class MobileIrohConnectionReadinessSignal {
@@ -133,7 +147,7 @@ public final class MobileIrohRuntimeComposition:
     /// unavailable would be an ephemeral throwaway id, and registering a binding
     /// under it would orphan the retained `(user, device, tag)` binding. When
     /// this returns `nil`, activation defers and retries on the next reconcile.
-    private let deviceID: @MainActor () -> String?
+    private let deviceID: @MainActor @Sendable () async -> String?
     private let tag: String
     private let discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     private let now: @Sendable () -> Date
@@ -219,6 +233,9 @@ public final class MobileIrohRuntimeComposition:
             allowsLoopback: allowsLoopbackBrokerOrigin
         )
         let networkPathState = MobileIrohNetworkPathState()
+        let durableDeviceIDResolver = MobileIrohDurableDeviceIDResolver(
+            defaults: defaults
+        )
         let lanPeerDiscovery = CmxIrohLANPeerDiscovery(
             networkPath: { await networkPathState.snapshot() },
             authorizeProfile: { profile, generation, interfaceIndex in
@@ -312,7 +329,7 @@ public final class MobileIrohRuntimeComposition:
             brokerBackpressureGate: CmxIrohBrokerBackpressureGate(
                 store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
             ),
-            deviceID: { DeviceRegistryService.durableDeviceID(defaults: defaults) },
+            deviceID: { await durableDeviceIDResolver.resolve() },
             tag: Self.currentTag(
                 infoDictionary: infoDictionary,
                 bundleIdentifier: bundleIdentifier
@@ -356,7 +373,7 @@ public final class MobileIrohRuntimeComposition:
         automaticRelayCredentialRefreshEnabled: Bool = true,
         brokerFactory: @escaping BrokerFactory,
         brokerBackpressureGate: CmxIrohBrokerBackpressureGate = CmxIrohBrokerBackpressureGate(),
-        deviceID: @escaping @MainActor () -> String?,
+        deviceID: @escaping @MainActor @Sendable () async -> String?,
         tag: String,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         now: @escaping @Sendable () -> Date,
@@ -1308,7 +1325,7 @@ public final class MobileIrohRuntimeComposition:
             appInstanceID: appInstanceID
         )
         let endpointID = try Self.peerIdentity(for: identity)
-        guard let durableDeviceID = deviceID() else {
+        guard let durableDeviceID = await deviceID() else {
             // The durable identity store is unavailable (Keychain locked before
             // first unlock, or a persistent write failure). Registering a
             // binding under an ephemeral throwaway id would orphan the retained

@@ -16,20 +16,24 @@ struct CmxIrohLibConnection:
         peerIdentity = try CmxIrohLibIdentity.peerIdentity(driver.remoteId())
     }
 
+    @concurrent
     func remoteIdentity() async -> CmxIrohPeerIdentity {
         peerIdentity
     }
 
+    @concurrent
     func connectionContinuityID() async -> UInt64 {
         driver.stableId()
     }
 
+    @concurrent
     func observedSelectedPath() async -> CmxIrohObservedConnectionPath {
         CmxIrohObservedConnectionPath(
             snapshots: driver.paths().map(CmxIrohConnectionPathSnapshot.init)
         )
     }
 
+    @concurrent
     func observedSelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let callback = CmxIrohLibPathChangeCallback(continuation: continuation)
@@ -45,6 +49,7 @@ struct CmxIrohLibConnection:
         }
     }
 
+    @concurrent
     func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent> {
         AsyncStream(bufferingPolicy: .bufferingNewest(64)) { continuation in
             let callback = CmxIrohLibPathEventCallback(continuation: continuation)
@@ -61,6 +66,7 @@ struct CmxIrohLibConnection:
         }
     }
 
+    @concurrent
     func setIncomingStreamLimits(
         maximumBidirectionalStreamCount: UInt64,
         maximumUnidirectionalStreamCount: UInt64
@@ -73,31 +79,38 @@ struct CmxIrohLibConnection:
         )
     }
 
+    @concurrent
     func authorizeNatTraversal() async throws {
         try await driver.authorizeNatTraversal()
     }
 
+    @concurrent
     func openBidirectionalStream() async throws -> CmxIrohBidirectionalStream {
         Self.stream(try await driver.openBi())
     }
 
+    @concurrent
     func acceptBidirectionalStream() async throws -> CmxIrohBidirectionalStream {
         Self.stream(try await driver.acceptBi())
     }
 
+    @concurrent
     func openSendStream() async throws -> any CmxIrohSendStream {
         CmxIrohLibSendStream(driver: try await driver.openUni())
     }
 
+    @concurrent
     func acceptReceiveStream() async throws -> any CmxIrohReceiveStream {
         CmxIrohLibReceiveStream(driver: try await driver.acceptUni())
     }
 
+    @concurrent
     func waitUntilClosed() async {
         let cause = await driver.closed()
         _ = await closeAttributionStore.recordAuthoritative(cause: cause)
     }
 
+    @concurrent
     func closeAttribution() async -> CmxIrohConnectionCloseAttribution {
         if let cause = driver.closeReason() {
             return await closeAttributionStore.recordAuthoritative(cause: cause)
@@ -112,12 +125,14 @@ struct CmxIrohLibConnection:
         )
     }
 
+    @concurrent
     func isClosed() async -> Bool {
         guard let cause = driver.closeReason() else { return false }
         _ = await closeAttributionStore.recordAuthoritative(cause: cause)
         return true
     }
 
+    @concurrent
     func close(errorCode: UInt64, reason: String) async {
         let code = Int64(exactly: errorCode) ?? Int64.max
         await closeAttributionStore.recordTentative(CmxIrohConnectionCloseAttribution(

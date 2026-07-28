@@ -6,7 +6,11 @@ public import Foundation
 /// Assembling a request from one snapshot prevents pairing a stale access token
 /// with a freshly-rotated refresh token (or vice versa) when a force refresh
 /// lands between two independent token reads.
-public struct CmxIrohBrokerCredentials: Sendable {
+public struct CmxIrohBrokerCredentials:
+    Sendable,
+    CustomStringConvertible,
+    CustomDebugStringConvertible
+{
     public let accessToken: String
     public let refreshToken: String
 
@@ -14,6 +18,14 @@ public struct CmxIrohBrokerCredentials: Sendable {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
     }
+
+    public var description: String {
+        "CmxIrohBrokerCredentials("
+            + "accessToken: <redacted>, "
+            + "refreshToken: <redacted>)"
+    }
+
+    public var debugDescription: String { description }
 }
 
 /// Supplies the short-lived Stack credentials required by native API calls.

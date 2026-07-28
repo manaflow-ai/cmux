@@ -88,8 +88,6 @@ struct HiddenComputerRow: View {
         .onDisappear {
             actionTask?.cancel()
             actionTask = nil
-            forgetTask?.cancel()
-            forgetTask = nil
         }
     }
 

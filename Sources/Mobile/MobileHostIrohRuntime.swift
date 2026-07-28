@@ -118,6 +118,8 @@ final class MobileHostIrohRuntime {
     var lifecycleRevision: UInt64 = 0
     var nextDiagnosticSessionID = 0
     var failureRecoveryTask: Task<Void, Never>?
+    var retryInspectionTask: Task<Void, Never>?
+    var retryInspectionRevision: UInt64 = 0
     var failureRecoveryFailureCount = 0
     var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     var failureRecoverySchedule = CmxIrohRetrySchedule()
@@ -219,6 +221,7 @@ final class MobileHostIrohRuntime {
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
         lifecycleRevision &+= 1
+        cancelRetryInspection()
         bindingPersistenceQueue.cancel()
         let revision = lifecycleRevision
         let previous = transitionTask

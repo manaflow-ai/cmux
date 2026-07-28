@@ -919,20 +919,6 @@ private func waitForSelectedPathChangeCount(
     return false
 }
 
-private func waitForDiagnosticProcessedCount(
-    _ log: DiagnosticLog,
-    atLeast expectedCount: Int,
-    timeout: Duration = .seconds(2)
-) async -> Bool {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: timeout)
-    while clock.now < deadline {
-        if await log.processedCount() >= expectedCount { return true }
-        try? await clock.sleep(for: .milliseconds(1))
-    }
-    return await log.processedCount() >= expectedCount
-}
-
 private struct PoolFixture {
     let localIdentity: CmxIrohPeerIdentity
     let remoteIdentity: CmxIrohPeerIdentity

@@ -560,7 +560,7 @@ extension MobileShellComposite {
             group.addTask {
                 for await event in eventStream {
                     try Task.checkCancellation()
-                    if MobileIrohReleaseGateResponseValidator.freshWorkspaceEvent(event) {
+                    if Self.isFreshWorkspaceEvent(event) {
                         return true
                     }
                 }
@@ -582,6 +582,16 @@ extension MobileShellComposite {
                 throw MobileIrohReleaseGateProbeFailure.independentEventsContinuityFailed
             }
         }
+    }
+
+    nonisolated private static func isFreshWorkspaceEvent(
+        _ event: MobileEventEnvelope
+    ) -> Bool {
+        // Host events are encoded once per connection and intentionally omit a
+        // subscription stream ID. The exact server registration is verified by
+        // the idempotent subscribe acknowledgement immediately before the
+        // controlled workspace mutation.
+        event.topic == "workspace.updated"
     }
 
     private func transportDidClose(

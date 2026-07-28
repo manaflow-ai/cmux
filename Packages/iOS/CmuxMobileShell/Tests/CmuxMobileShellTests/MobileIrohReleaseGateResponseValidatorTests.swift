@@ -49,20 +49,6 @@ struct MobileIrohReleaseGateResponseValidatorTests {
     }
 
     @Test
-    func freshWorkspaceEventDoesNotRequireAStreamIdentifier() {
-        let event = MobileEventEnvelope(
-            topic: "workspace.updated",
-            payloadJSON: nil,
-            streamID: nil
-        )
-
-        #expect(MobileIrohReleaseGateResponseValidator.freshWorkspaceEvent(event))
-        #expect(!MobileIrohReleaseGateResponseValidator.freshWorkspaceEvent(
-            MobileEventEnvelope(topic: "terminal.render_grid", payloadJSON: nil, streamID: nil)
-        ))
-    }
-
-    @Test
     func artifactContinuityRequiresTheExactAuthorizedPathAndLaneDescriptor() throws {
         let path = "/tmp/cmux-iroh-gate.txt"
         let scan = try ChatWireCoding().encode(TerminalArtifactScanResponse(artifacts: [
