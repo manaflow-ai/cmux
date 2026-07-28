@@ -864,11 +864,16 @@ class GhosttyApp {
         )
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
             guard let content,
-                  let callbackContext = GhosttyApp.callbackContext(from: userdata)
+                  let callbackContext = GhosttyApp.callbackContext(from: userdata),
+                  let requestSurface = callbackContext.runtimeSurface,
+                  let surfaceGeneration = callbackContext.terminalSurface?
+                    .runtimeSurfaceGeneration
             else { return }
             callbackContext.scheduleClipboardReadConfirmation(
                 String(cString: content),
-                stateAddress: UInt(bitPattern: state)
+                stateAddress: UInt(bitPattern: state),
+                surfaceAddress: UInt(bitPattern: requestSurface),
+                surfaceGeneration: surfaceGeneration
             )
         }
         runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in

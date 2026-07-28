@@ -5,12 +5,16 @@ extension GhosttySurfaceCallbackContext {
     /// Copies callback-scoped values before handing confirmation to the UI actor.
     func scheduleClipboardReadConfirmation(
         _ text: String,
-        stateAddress: UInt
+        stateAddress: UInt,
+        surfaceAddress: UInt,
+        surfaceGeneration: UInt64
     ) {
         Task { @MainActor in
             confirmClipboardRead(
                 text,
-                stateAddress: stateAddress
+                stateAddress: stateAddress,
+                surfaceAddress: surfaceAddress,
+                surfaceGeneration: surfaceGeneration
             )
         }
     }
@@ -18,11 +22,16 @@ extension GhosttySurfaceCallbackContext {
     @MainActor
     func confirmClipboardRead(
         _ text: String,
-        stateAddress: UInt
+        stateAddress: UInt,
+        surfaceAddress: UInt,
+        surfaceGeneration: UInt64
     ) {
         surfaceView?.clipboardReadRequiresConfirmation(stateAddress)
         guard let state = UnsafeMutableRawPointer(bitPattern: stateAddress),
-              let surface = runtimeSurface else {
+              let terminalSurface,
+              terminalSurface.runtimeSurfaceGeneration == surfaceGeneration,
+              let surface = terminalSurface.surface,
+              UInt(bitPattern: surface) == surfaceAddress else {
             surfaceView?.completeClipboardRead(
                 stateAddress,
                 confirmed: true
@@ -37,7 +46,7 @@ extension GhosttySurfaceCallbackContext {
                 true
             )
         }
-        terminalSurface?.noteClipboardReadCompleted()
+        terminalSurface.noteClipboardReadCompleted()
         surfaceView?.completeClipboardRead(stateAddress, confirmed: true)
     }
 }
