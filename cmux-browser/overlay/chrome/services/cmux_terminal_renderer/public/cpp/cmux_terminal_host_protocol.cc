@@ -15,7 +15,7 @@ namespace {
 constexpr size_t kClientHelloLength = 60;
 constexpr size_t kHostHelloLength = 40;
 constexpr uint64_t kMaxKittyImageBytes = 10'000'000;
-constexpr uint64_t kMaxKittyInflightBytes = 13'595'478;
+constexpr uint64_t kMaxKittyInflightBytes = 13'595'480;
 constexpr uint64_t kMaxKittyImages = 4'096;
 constexpr uint64_t kMaxKittyPlacements = 16'384;
 
