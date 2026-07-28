@@ -119,8 +119,12 @@ public struct TaskComposerAccessibilityPreviewView: View {
                 } else {
                     TaskComposerSheet(
                         store: store,
-                        availableMachines: [Self.previewMac, Self.backupPreviewMac],
-                        submitTaskComposer: { macDeviceID, spec, willStartCreate in
+                        availableMachines: [
+                            Self.previewMac,
+                            Self.stablePreviewMac,
+                            Self.backupPreviewMac,
+                        ],
+                        submitTaskComposer: { macDeviceID, _, spec, willStartCreate in
                             let attemptNumber = submissionAttempts.count + 1
                             submittedMacDeviceID = macDeviceID
                             submittedSpec = spec
@@ -153,10 +157,10 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             }
                             return .success(())
                         },
-                        searchTaskDirectories: { _, query in
+                        searchTaskDirectories: { _, _, query in
                             await Self.searchPreviewDirectories(query)
                         },
-                        listTaskDirectories: { _, path, offset in
+                        listTaskDirectories: { _, _, path, offset in
                             await listDirectoriesForPreview(path, offset)
                         }
                     )
@@ -190,7 +194,19 @@ public struct TaskComposerAccessibilityPreviewView: View {
         createdAt: Date(timeIntervalSince1970: 0),
         lastSeenAt: Date(timeIntervalSince1970: 0),
         isActive: true,
-        stackUserID: nil
+        stackUserID: nil,
+        instanceTag: "nightly"
+    )
+
+    private static let stablePreviewMac = MobilePairedMac(
+        macDeviceID: "task-composer-preview-mac",
+        displayName: "Preview Mac",
+        routes: [],
+        createdAt: Date(timeIntervalSince1970: 0),
+        lastSeenAt: Date(timeIntervalSince1970: 0),
+        isActive: false,
+        stackUserID: nil,
+        instanceTag: "stable"
     )
 
     private static let backupPreviewMac = MobilePairedMac(
@@ -200,7 +216,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
         createdAt: Date(timeIntervalSince1970: 1),
         lastSeenAt: Date(timeIntervalSince1970: 1),
         isActive: true,
-        stackUserID: nil
+        stackUserID: nil,
+        instanceTag: "stable"
     )
 
     private static let openDirectoryWorkspace = MobileWorkspacePreview(

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -7,16 +8,29 @@ import SwiftUI
 enum WorkspaceMacSelection: Hashable {
     case automatic
     case all
+    /// A pairing id for saved app instances, or a bare device id for an
+    /// unpaired workspace-only computer.
     case machine(String)
 }
 
 extension WorkspaceListView {
+    var displayPairedMacsForPicker: [MobilePairedMac] {
+        if let store {
+            return store.displayPairedMacs
+        }
+        #if canImport(UIKit) && DEBUG
+        if UITestConfig.workspaceListLayoutPreviewEnabled {
+            return WorkspaceListLayoutPreviewFixture.displayPairedMacs
+        }
+        #endif
+        return []
+    }
+
     var macSelectionScope: WorkspaceMacSelectionScope {
-        let displayPairedMacs = store?.displayPairedMacs ?? []
         return WorkspaceMacSelectionScope(
             selection: macSelection,
             workspaces: workspaces,
-            displayPairedMacs: displayPairedMacs,
+            displayPairedMacs: displayPairedMacsForPicker,
             foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
             aliasesFor: { store?.pairedMacAliasIDs(for: $0) ?? [] }
         )
@@ -34,9 +48,10 @@ extension WorkspaceListView {
         let scope = macSelectionScope
         return WorkspaceMachineSnapshots(
             workspaces: workspaces,
-            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
+            filterMachineIDFor: { scope.aliasIndex.deviceRepresentativeID(for: $0) },
             macPickerMachineIDs: scope.machineIDs,
             namesByID: macDisplayNamesByID(),
+            buildLabelsByID: macBuildLabelsByID(),
             fallbackName: fallbackMacPickerName
         )
     }
@@ -62,12 +77,23 @@ extension WorkspaceListView {
         }
         for mac in store?.pairedMacs ?? [] {
             names[mac.macDeviceID] = mac.resolvedName
+            names[mac.id] = mac.resolvedName
         }
-        for mac in store?.displayPairedMacs ?? [] {
+        for mac in displayPairedMacsForPicker {
             names[mac.macDeviceID] = mac.resolvedName
+            names[mac.id] = mac.resolvedName
         }
         guard let buildScope = MobileIOSBuildScope.current() else { return names }
         return names.mapValues(buildScope.computerDisplayName)
+    }
+
+    func macBuildLabelsByID() -> [String: String] {
+        if let store {
+            return store.pairedMacBuildLabelsByEntryID()
+        }
+        return MobileShellComposite.buildLabelsByEntryID(
+            for: displayPairedMacsForPicker
+        ) { _, _ in nil }
     }
 
     var filterMenuPresentMachineIDs: [String] {
@@ -75,7 +101,7 @@ extension WorkspaceListView {
         var seen = Set<String>()
         var present: [String] = []
         for id in MobileWorkspaceListFilter.machineIDs(in: workspaces) {
-            let representativeID = aliasIndex.representativeID(for: id)
+            let representativeID = aliasIndex.deviceRepresentativeID(for: id)
             if seen.insert(representativeID).inserted {
                 present.append(representativeID)
             }
@@ -117,7 +143,7 @@ extension WorkspaceListView {
         case .all, .automatic:
             L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
         case .machine(let id):
-            machineSnapshots.macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
+            machineSnapshots.macPickerTitle(for: id, fallback: fallbackMacPickerName)
         }
     }
 
@@ -167,18 +193,32 @@ struct WorkspaceMacTitlePicker: View, Equatable {
 
     var body: some View {
         Menu {
-            Picker(
-                L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Computer"),
-                selection: Binding(get: { value.selection }, set: { actions.select($0) })
-            ) {
-                Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers"))
-                    .tag(WorkspaceMacSelection.all)
-                ForEach(value.machines) { machine in
-                    Text(machine.name)
-                        .tag(WorkspaceMacSelection.machine(machine.id))
-                }
+            Button {
+                actions.select(.all)
+            } label: {
+                menuRow(
+                    title: L10n.string(
+                        "mobile.workspaces.macPicker.allMacs",
+                        defaultValue: "All Computers"
+                    ),
+                    subtitle: nil,
+                    isSelected: value.selection == .all
+                )
             }
-            .labelsVisibility(.visible)
+            .accessibilityAddTraits(value.selection == .all ? .isSelected : [])
+            ForEach(value.machines) { machine in
+                let selection = WorkspaceMacSelection.machine(machine.id)
+                Button {
+                    actions.select(selection)
+                } label: {
+                    menuRow(
+                        title: machine.name,
+                        subtitle: machine.buildLabel,
+                        isSelected: value.selection == selection
+                    )
+                }
+                .accessibilityAddTraits(value.selection == selection ? .isSelected : [])
+            }
             if value.canAddDevice {
                 Divider()
                 Button(action: { actions.addDevice?() }) {
@@ -199,6 +239,20 @@ struct WorkspaceMacTitlePicker: View, Equatable {
         .buttonStyle(.plain)
         .tint(.primary)
         .accessibilityIdentifier("MobileWorkspaceMacPicker")
+    }
+
+    /// Menu rows must stay a bare Text/Text/Image tuple: UIMenu bridging reads
+    /// the first Text as the title, the second as the subtitle, and the Image
+    /// as the item icon. Wrapping them in a stack drops the subtitle entirely.
+    @ViewBuilder
+    private func menuRow(title: String, subtitle: String?, isSelected: Bool) -> some View {
+        Text(title)
+        if let subtitle {
+            Text(subtitle)
+        }
+        if isSelected {
+            Image(systemName: "checkmark")
+        }
     }
 }
 
