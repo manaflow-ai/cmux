@@ -103,6 +103,14 @@ struct RendererRealizationPlannerTests {
     }
 
     @Test func defaultFiveTabBaselineReclaimsFourHiddenRenderers() {
+        let suiteName = "RendererRealizationPlannerTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let resolvedSettings = RendererRealizationSettings.values(defaults: defaults)
+
         let now: TimeInterval = 1000
         let visible = UUID()
         let hidden = (0..<4).map { _ in UUID() }
@@ -111,16 +119,12 @@ struct RendererRealizationPlannerTests {
         ] + hidden.map {
             input(
                 $0,
-                lastVisibleAt: now - RendererRealizationSettings.defaultIdleSeconds
+                lastVisibleAt: now - resolvedSettings.idleSeconds
             )
         }
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs,
-            settings: .init(
-                enabled: RendererRealizationSettings.defaultEnabled,
-                idleSeconds: RendererRealizationSettings.defaultIdleSeconds,
-                maxWarmRenderers: RendererRealizationSettings.defaultMaxWarmRenderers
-            ),
+            settings: resolvedSettings,
             now: now
         )
 
