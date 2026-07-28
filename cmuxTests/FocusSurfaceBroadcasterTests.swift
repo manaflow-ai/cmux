@@ -184,4 +184,56 @@ struct FocusSurfaceBroadcasterTests {
         #expect(delivered.last == finalTarget)
         #expect(scheduler.count == 0)
     }
+
+    @Test("a non-converging re-entrant cycle trips instead of rescheduling forever")
+    func nonConvergingReentrantCycleTripsCircuitBreaker() {
+        let scheduler = ManualScheduler()
+        var delivered: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
+        var boundExceeded: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
+        var broadcaster: FocusSurfaceBroadcaster!
+        let reentryTarget = Self.payload(8843)
+        var reentryBudget = 1_000
+
+        broadcaster = FocusSurfaceBroadcaster(
+            maxCoalescedDeliveries: 2,
+            schedule: { scheduler.append($0) },
+            onDrainBoundExceeded: { boundExceeded.append($0) },
+            deliver: { payload in
+                delivered.append(payload)
+                if reentryBudget > 0 {
+                    reentryBudget -= 1
+                    broadcaster.emit(reentryTarget)
+                }
+            }
+        )
+
+        broadcaster.emit(Self.payload(0))
+
+        var turns = 0
+        while scheduler.count > 0 && turns < 12 {
+            turns += 1
+            scheduler.runAll()
+        }
+
+        #expect(
+            scheduler.count == 0,
+            "A self-sustaining focus cycle must not be able to enqueue another flush forever."
+        )
+        #expect(
+            turns <= 4,
+            "The circuit breaker should trip after a small number of consecutive bounded turns, got \(turns)."
+        )
+        #expect(
+            delivered.count <= 8,
+            "The cycle delivered \(delivered.count) focus broadcasts before tripping."
+        )
+        #expect(
+            boundExceeded.count <= 4,
+            "The cycle exceeded the per-turn bound \(boundExceeded.count) times before tripping."
+        )
+        #expect(
+            reentryBudget > 0,
+            "The test must stop because the circuit breaker tripped, not because the synthetic re-entry budget ran dry."
+        )
+    }
 }
