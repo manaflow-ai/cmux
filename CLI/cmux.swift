@@ -3424,7 +3424,15 @@ struct CMUXCLI {
         }
 
         let command = args[index]
-        let presentationOptions = try parsePresentationOptions(Array(args[(index + 1)...]))
+        let rawCommandArgs = Array(args[(index + 1)...])
+        let presentationOptions: (jsonOutput: Bool, idFormat: String?, remaining: [String])
+        if command == "claude-teams" {
+            // This is a provider passthrough: every token after the command
+            // belongs to Claude, including flags such as `agents --json`.
+            presentationOptions = (false, nil, rawCommandArgs)
+        } else {
+            presentationOptions = try parsePresentationOptions(rawCommandArgs)
+        }
         if presentationOptions.jsonOutput {
             jsonOutput = true
         }
