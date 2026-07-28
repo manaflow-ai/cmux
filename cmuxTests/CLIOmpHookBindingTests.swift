@@ -56,7 +56,7 @@ struct CLIOmpHookBindingTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
 
-        let requests = context.state.snapshot().compactMap(Harness.jsonObject)
+        let requests = context.state.snapshot().compactMap(Self.jsonObject)
         let pidProbe = try #require(requests.first {
             $0["method"] as? String == "agent.resolve_delivery_target"
                 && ($0["params"] as? [String: Any])?["pid"] as? Int == Self.ompPID
@@ -121,5 +121,9 @@ struct CLIOmpHookBindingTests {
             data.append(0)
         }
         return data.base64EncodedString()
+    }
+
+    private static func jsonObject(_ line: String) -> [String: Any]? {
+        try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
     }
 }
