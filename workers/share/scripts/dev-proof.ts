@@ -326,13 +326,13 @@ if (hibernationProof) {
   console.log(`… idling ${hibernationIdleSeconds}s for Durable Object eviction`);
   await new Promise((resolve) => setTimeout(resolve, hibernationIdleSeconds * 1_000));
   guest.sendAck(wakingNonce);
+  guest.sendAck(remainingNonce);
 
   await Promise.all([
     guest.next((m) => m.t === "resync", "guest post-wake resync"),
     host.next((m) => m.t === "resync", "host post-wake resync"),
   ]);
-  step("withheld ACK woke the object and both sockets received resync");
-  guest.sendAck(remainingNonce);
+  step("all withheld ACKs released pre-wake credit before both sockets resynced");
 
   host.ws.send(
     JSON.stringify({
