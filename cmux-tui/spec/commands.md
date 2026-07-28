@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v9 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v10 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -132,11 +132,35 @@ Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `
 
 `resize-surface` requires both fields and clamps each to `1..10000`, matching tmux's window bounds. Every live control connection enters the same shared reducer. Attached clients retain the report until release; an unattached one-shot report is removed when its connection closes. A disconnected client id is rejected.
 
-`set-client-sizing` controls tmux-style `ignore-size` participation. A normal request supplies `client` and `enabled`. Supplying `exclusive:true` with an enabled client atomically includes only that client. Omitting `client` with `enabled:true` atomically includes all clients. Ignored clients keep reporting; if every attached client is ignored, all ignored reports participate as tmux's global fallback.
+`set-client-sizing` controls tmux-style `ignore-size` participation independently for each terminal surface. Every request supplies `surface`. A normal request also supplies `client` and `enabled`. Supplying `exclusive:true` with an enabled client atomically includes only that client on the requested surface. Omitting `client` with `enabled:true` atomically includes all clients on that surface. Ignored clients keep reporting; if every attached client on one surface is ignored, that surface alone falls back to all of its ignored reports.
 
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
 ## Implemented Commands
+
+### Durable workspace mutation envelope
+
+`create-workspace`, `rename-workspace`, `move-workspace`, and
+`close-workspace` accept the following additive fields:
+
+| Name | JSON type | Required/default | Meaning |
+| --- | --- | --- | --- |
+| `origin` | `string` | paired with `mutation_id` | Stable frontend/profile identity |
+| `mutation_id` | `string` | paired with `origin` | Stable UUID/id reused for every retry of one logical mutation |
+| `expected_generation` | `string` | optional | Compare-and-swap guard for the daemon boot UUID |
+| `expected_revision` | `uint64` | optional | Compare-and-swap guard for the ordered workspace registry |
+
+The server durably records `(origin, mutation_id)`, the logical request
+fingerprint, original result, and committed revision. Duplicate lookup occurs
+before generation/revision guards and before resolving a live workspace. A
+lost-response retry therefore returns the original result with
+`replayed:true`, including after a successful close has tombstoned the key or
+after the daemon has restarted. Reusing the same mutation identity for a
+different logical payload is an error. Guards are not part of the fingerprint.
+
+Workspace mutation results add `registry_id`, `generation`,
+`workspace_revision`, `replayed`, stable `key`, and the compatibility numeric
+`workspace` id. Canonical frontend state must use `key`, not the numeric id.
 
 ### identify
 
@@ -153,7 +177,7 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32}
+object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,registry_id:string,generation:string,workspace_revision:uint64}
 ```
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
@@ -180,10 +204,10 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
-The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
+The current server reports protocol `10` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, and protocol 10 before using per-surface client sizing.
 
 ### ping
 
@@ -213,7 +237,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10}}
 ```
 
 ### set-client-info
@@ -262,7 +286,7 @@ Example:
 | status | implemented |
 | since | protocol 6 additive extension |
 
-Returns all current Unix and WebSocket control connections in ascending client-id order. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface.
+Returns all current Unix and WebSocket control connections in ascending client-id order. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface. Protocol v10 reports `size_participating` on each size entry because one client may participate on one terminal and be excluded on another.
 
 Params: none.
 
@@ -271,12 +295,17 @@ Result:
 ```text
 array<object{
   client:uint64,
-  transport:"unix"|"ws",
+  transport:"local"|"unix"|"ws",
   name:string|null,
   kind:string|null,
   connected_seconds:uint64,
   attached:array<Id>,
-  sizes:array<object{surface:Id,cols:uint16|null,rows:uint16|null}>,
+  sizes:array<object{
+    surface:Id,
+    cols:uint16|null,
+    rows:uint16|null,
+    size_participating:boolean
+  }>,
   self:boolean
 }>
 ```
@@ -289,7 +318,7 @@ CLI mapping:
 | --- | --- |
 | Verb | `list-clients` |
 | Flags | none |
-| Plain stdout | one line per client: `<client> <transport> <name-or-> <kind-or-> connected=<n>s attached=<ids-or-> sizes=<sizes-or-> self=<bool>` |
+| Plain stdout | one line per client: `<client> <transport> <name-or-> <kind-or-> connected=<n>s attached=<ids-or-> sizes=<surface>:<cols>x<rows>:sizing=<bool> self=<bool>` |
 | JSON stdout | exact result array |
 | Exit codes | common |
 
@@ -297,7 +326,47 @@ Example:
 
 ```json
 {"id":4,"cmd":"list-clients"}
-{"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36}],"self":true}]}
+{"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36,"size_participating":true}],"self":true}]}
+```
+
+### set-client-sizing
+
+| Field | Value |
+| --- | --- |
+| name | `set-client-sizing` |
+| status | implemented |
+| since | protocol 9; per-surface request shape protocol 10 |
+
+Changes one client's size participation on one terminal surface. The `surface` field is always required. `exclusive:true` requires `enabled:true` and a client with a reported size on that surface. Omitting `client` with `enabled:true` restores all clients on that surface.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Existing terminal surface |
+| `client` | `uint64` | optional only when restoring all | Attached or reporting client for this surface |
+| `enabled` | `boolean` | required | Include or exclude the client |
+| `exclusive` | `boolean` | default `false` | Valid only with `client` and `enabled:true` |
+
+Result: `object{}`.
+
+Errors include `unknown surface <id>`, `client <id> is not attached to surface <id>`, `client <id> has no reported size for surface <id>`, and invalid exclusive or disabled-all combinations.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `set-client-sizing` |
+| Flags | `--surface <id> --enabled <true-or-false> [--client <id>]` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":5,"cmd":"set-client-sizing","surface":7,"client":1,"enabled":true,"exclusive":true}
+{"id":5,"ok":true,"data":{}}
 ```
 
 ### detach-client
@@ -443,7 +512,11 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes the ordered workspace registry revision, each workspace's stable key, active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags.
+Returns the full workspace, screen, pane, tab, and split-tree snapshot. The
+snapshot includes `registry_id`, the current boot `generation`, the durable
+`workspace_revision`, and every empty canonical workspace. It also includes
+active flags, active pane ids, active tab indexes, tab titles, tab names,
+surface kinds, browser source, size, and dead flags.
 
 Params: none.
 
@@ -475,6 +548,36 @@ Example:
 {"id":2,"cmd":"list-workspaces"}
 {"id":2,"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"focused_at":1,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
+
+### get-frontend-projection / put-frontend-projection
+
+| Field | Value |
+| --- | --- |
+| names | `get-frontend-projection`, `put-frontend-projection` |
+| status | implemented |
+| since | protocol 7 |
+
+Stores one opaque, schema-versioned frontend layout document per
+`(frontend, scope, subject_key)`. The browser convention is
+`frontend:"cmux-browser"`, `scope:"window-group"`, with a stable
+profile/window-group identity in `subject_key`.
+
+`put-frontend-projection` additionally requires `schema_version`, a JSON
+`projection`, optional `expected_projection_revision`, and `origin` plus
+`mutation_id`. It uses its own exactly-once ledger and projection CAS; it does
+not advance `workspace_revision`. A projection may contain browser columns,
+splits, web tabs, focus, and terminal placement keyed by canonical workspace
+UUID. It must not duplicate workspace existence, name, order, or group
+membership.
+
+Result:
+
+```text
+object{frontend:string,scope:string,subject_key:string,schema_version:uint32,projection_revision:uint64,projection:any,replayed?:bool}
+```
+
+Missing projections return revision/schema `0` and `projection:null`.
+Documents larger than 1 MiB are rejected.
 
 ### export-layout
 
@@ -635,6 +738,103 @@ Example:
 ```json
 {"id":4,"cmd":"read-screen","surface":1}
 {"id":4,"ok":true,"data":{"text":"$ ls\nREADME.md\n"}}
+```
+
+### clear-history
+
+| Field | Value |
+| --- | --- |
+| name | `clear-history` |
+| status | implemented |
+| since | protocol 9 with `clear-history-v1` |
+
+On a primary screen with OSC 133 prompt metadata, clears retained scrollback and complete visible rows before the active prompt inside the terminal emulator. The prompt, edit buffer, and cursor remain in place, and no bytes are written to the child process. Without prompt metadata, only retained scrollback is cleared, preserving the visible grid and cursor. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
+
+The command fails without changing history, the visible grid, or the cursor when active input extends into retained history or exact preservation cannot be proven. If the terminal stream ends inside an incomplete VT sequence, the server waits for a bounded interval and then fails without mutation unless the sequence completes. Repeated requests against the same unchanged stream share that interval. After it expires, only new PTY output permits a fresh interval.
+
+Clients must require `identify.capabilities` to contain `clear-history-v1` before sending this command.
+
+When the alternate screen is active, the command leaves both screens untouched. If `fallback_key` is present, the server encodes that structured key from its authoritative terminal keyboard modes and writes the encoded bytes to the PTY. If the active keyboard mode cannot represent the key, the command fails without writing bytes. If `fallback_key` is absent, the alternate-screen request succeeds as a no-op. Clients must require both `clear-history-v1` and `clear-history-key-v1` before sending `fallback_key`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Must identify a live PTY surface |
+| `fallback_key` | `TerminalKeyInput \| null` | default null | Requires `clear-history-key-v1`; ignored on the primary screen |
+
+`TerminalKeyInput` preserves the frontend key event so the server can apply its current Kitty keyboard and terminal mode state:
+
+| Field | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `key` | `TerminalKey` | required | One of the symbolic values below |
+| `mods` | `TerminalModifiers` | required | Exact active modifier state |
+| `consumed_mods` | `TerminalModifiers` | required | Must be a subset of `mods` |
+| `composing` | `boolean` | default false | Whether the key belongs to an uncommitted composition sequence |
+| `utf8` | `string` | required | At most 4 KiB of UTF-8 and contains no control characters |
+| `unshifted_codepoint` | `string \| null` | default null | Exactly one Unicode scalar when present |
+| `shifted_codepoint` | `string \| null` | default null | Shifted logical identity; exactly one Unicode scalar when present |
+| `base_layout_codepoint` | `string \| null` | default null | Explicit PC-101 base-layout identity; exactly one Unicode scalar when present |
+| `action` | `"press" \| "release" \| "repeat" \| null` | default null | Key action when known |
+| `macos_option_as_alt` | `boolean` | required | `false` is valid only when Alt is active and consumed |
+
+`TerminalModifiers` contains six required booleans: `shift`, `control`, `alt`, `super`, `caps_lock`, and `num_lock`. Unknown fields are rejected.
+
+`TerminalKey` accepts these exact kebab-case values:
+
+```text
+unidentified backquote backslash bracket-left bracket-right comma
+digit0 digit1 digit2 digit3 digit4 digit5 digit6 digit7 digit8 digit9 equal
+a b c d e f g h i j k l m n o p q r s t u v w x y z
+minus period quote semicolon slash backspace enter space tab delete end home insert
+page-down page-up arrow-down arrow-left arrow-right arrow-up
+numpad0 numpad1 numpad2 numpad3 numpad4 numpad5 numpad6 numpad7 numpad8 numpad9
+numpad-add numpad-backspace numpad-comma numpad-decimal numpad-divide numpad-enter
+numpad-equal numpad-multiply numpad-subtract numpad-up numpad-down numpad-right
+numpad-left numpad-begin numpad-home numpad-end numpad-insert numpad-delete
+numpad-page-up numpad-page-down escape
+f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18 f19 f20
+```
+
+Result: empty object.
+
+Failed `clear-history` responses include the response-envelope `error_delivery` field. Clients may
+retry or preserve the input lane after `"known-not-delivered"`. They must quarantine the affected
+input lane after `"ambiguous"` because fallback input may have reached the PTY.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface <id>` | Surface id does not exist |
+| `browser surface does not support PTY/VT socket commands` | Surface is a browser |
+| `active terminal input extends into retained history` | The prompt or active input cannot be preserved exactly |
+| `terminal output did not reach a safe clear-history boundary` | An incomplete VT sequence did not finish before the bounded wait expired |
+| `terminal keyboard mode cannot encode clear-history fallback key` | The alternate-screen fallback key is not representable in the active keyboard mode |
+| `bad request: ...` | Missing `surface` or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `clear-history` |
+| Flags | `--surface <id>` |
+| Plain stdout | none |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":5,"cmd":"clear-history","surface":1}
+{"id":5,"ok":true,"data":{}}
+```
+
+Alternate-screen key fallback:
+
+```json
+{"id":6,"cmd":"clear-history","surface":1,"fallback_key":{"key":"k","mods":{"shift":false,"control":false,"alt":false,"super":true,"caps_lock":false,"num_lock":false},"consumed_mods":{"shift":false,"control":false,"alt":false,"super":false,"caps_lock":false,"num_lock":false},"composing":false,"utf8":"","unshifted_codepoint":"k","shifted_codepoint":null,"base_layout_codepoint":"k","action":"press","macos_option_as_alt":true}}
+{"id":6,"ok":true,"data":{}}
 ```
 
 ### sidebar-plugin
@@ -883,30 +1083,37 @@ Requires the `workspace-registry-v1` capability. Clients must not send this comm
 | status | implemented |
 | since | protocol 7 |
 
-Adds an empty workspace to the ordered registry and makes it active. The caller may provide a stable key or let the mux generate one. `expected_revision` provides compare-and-swap protection against concurrent registry mutations.
+Creates a canonical ordered workspace without implicitly spawning a terminal,
+pane, or screen. This is the preferred GUI workflow: commit the shared
+workspace first, then create browser-only layout or a terminal inside its
+stable `key`.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `name` | `string` | default null | Defaults to the zero-based workspace count at creation time |
-| `key` | `string` | default generated UUID | Must be non-empty and unique |
-| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
+| `key` | `string` | default generated UUID | Must be a lowercase canonical UUID and never previously used |
+| mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,index:uint64,workspace_revision:uint64}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,replayed:bool,registry_id:string,generation:string}
 ```
 
-Errors include `workspace key cannot be empty`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
+Errors include `workspace key must be a lowercase UUID`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
 
 Example:
 
 ```json
-{"id":9,"cmd":"create-workspace","name":"ops","key":"ops-stable","expected_revision":1}
-{"id":9,"ok":true,"data":{"workspace":12,"key":"ops-stable","index":1,"workspace_revision":2}}
+{"id":9,"cmd":"create-workspace","name":"ops","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","expected_revision":1}
+{"id":9,"ok":true,"data":{"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","index":1,"workspace_revision":2}}
 ```
+
+The server retains tombstones indefinitely; a closed `key` cannot be reused.
+The last terminal exiting never closes this workspace. Only
+`close-workspace` removes it from the live registry.
 
 ### create-terminal
 
@@ -918,14 +1125,17 @@ Requires the `workspace-registry-v1` capability. Clients must not send this comm
 | status | implemented |
 | since | protocol 7 |
 
-Creates a PTY terminal in an existing workspace selected by stable `key` or numeric `workspace` id. An empty workspace receives its first screen and pane; a populated workspace receives a new active tab in its active pane. `argv` executes directly, while `command` executes through the default shell.
+Creates a PTY tab in the workspace selected by stable `key` or compatibility
+numeric `workspace`. An empty workspace is materialized in place with its
+first screen and pane; no workspace revision is advanced. `argv` executes
+directly, while `command` executes through the default shell.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `workspace` | `Id` | required unless `key` is supplied | Mutually identifies the target with `key` |
-| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
+| `key` | `string` | required unless `workspace` is supplied | Lowercase canonical workspace UUID; must match `workspace` when both are supplied |
 | `argv` | `string[]` | default shell | Mutually exclusive with `command`; must be non-empty when supplied |
 | `command` | `string` | default null | Mutually exclusive with `argv`; must be non-empty when supplied |
 | `cwd` | `string` | default inherited | PTY child working directory |
@@ -944,8 +1154,8 @@ Errors include missing, unknown, or mismatched workspace selectors; mutually exc
 Example:
 
 ```json
-{"id":10,"cmd":"create-terminal","key":"ops-stable","command":"htop","cwd":"/tmp"}
-{"id":10,"ok":true,"data":{"surface":15,"pane":14,"screen":13,"workspace":12,"key":"ops-stable"}}
+{"id":10,"cmd":"create-terminal","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","command":"htop","cwd":"/tmp"}
+{"id":10,"ok":true,"data":{"surface":15,"pane":14,"screen":13,"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f"}}
 ```
 
 ### new-screen
@@ -1491,20 +1701,28 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a workspace and every screen, pane, and tab in it. The workspace may be selected by stable key or numeric id. The active workspace selection is adjusted to keep a remaining workspace active when possible. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it. After provider ownership is enabled, this ordinary command fails without changing workspace state.
+Explicitly tombstones a workspace and closes every screen, pane, and tab in
+it. Terminal/pane exit alone never invokes this operation. The active
+workspace selection is adjusted to keep a remaining workspace active when
+possible. The workspace may be selected by stable key or numeric id, and the
+common mutation envelope provides revision CAS and exactly-once retries.
+Stable-key selection, revision CAS, and the mutation result require
+`workspace-registry-v1`; the legacy numeric-id form remains available without
+it. After provider ownership is enabled, this ordinary command fails without
+changing workspace state.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required unless `key` is supplied | Must identify a live workspace |
-| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
-| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
+| `workspace` | `Id` | one of id/key | Must identify a live workspace |
+| `key` | `string` | one of id/key | Lowercase canonical workspace UUID |
+| mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,workspace_revision:uint64}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
 ```
 
 Errors:
@@ -1532,7 +1750,7 @@ Example:
 
 ```json
 {"id":16,"cmd":"close-workspace","workspace":4}
-{"id":16,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
+{"id":16,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":3}}
 ```
 
 ### mark-workspaces-provider-managed
@@ -1761,15 +1979,15 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required unless `key` is supplied | Must identify a live workspace |
-| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
+| `workspace` | `Id` | one of id/key | Must identify a live workspace |
+| `key` | `string` | one of id/key | Lowercase canonical workspace UUID |
 | `name` | `string` | required | Empty string is stored |
-| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
+| mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,workspace_revision:uint64}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
 ```
 
 Errors:
@@ -1797,7 +2015,7 @@ Example:
 
 ```json
 {"id":20,"cmd":"rename-workspace","workspace":4,"name":"prod"}
-{"id":20,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
+{"id":20,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":2}}
 ```
 
 ### rename-provider-managed-workspace
@@ -2165,21 +2383,26 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing workspace to zero-based insertion `index`. The workspace may be selected by stable key or numeric id. The destination is clamped to the last workspace after removing the source, so moving right produces a final index one less than the requested insertion index. Moving a workspace to its current position is an `ok:true` no-op that preserves the current revision. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
+Moves an existing workspace to zero-based insertion `index`. The destination
+is clamped to the last workspace after removing the source, so moving right
+produces a final index one less than the requested insertion index. A
+same-position request is
+serialized as a valid mutation with `changed:false`, giving retries one stable
+result and revision.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required unless `key` is supplied | Workspace to move |
-| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
-| `index` | `usize` | required | Zero-based insertion index |
-| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
+| `workspace` | `Id` | one of id/key | Workspace to move |
+| `key` | `string` | one of id/key | Lowercase canonical workspace UUID |
+| `index` | `usize` | required | Zero-based destination index |
+| mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,workspace_revision:uint64}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
 ```
 
 Errors:
@@ -2206,7 +2429,7 @@ Example:
 
 ```json
 {"id":27,"cmd":"move-workspace","workspace":4,"index":0}
-{"id":27,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":4}}
+{"id":27,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":4}}
 ```
 
 ### scroll-surface
@@ -2265,16 +2488,22 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 | `tree_events` field | protocol 7 additive extension |
+| `surface` field | protocol 9 additive extension |
 
 Subscribes the connection to mux events. After this command, response lines and event lines may be interleaved on the same connection. `subscribe` does not send an initial tree snapshot; clients should call `list-workspaces` when they need state.
 
 Protocol v7 adds opt-in tree deltas. `tree_events:"coarse"`, including the default when the field is absent, preserves the exact protocol-v6 tree behavior: tree mutations emit `tree-changed` where v6 emits it, and the subscription never receives `workspace-*`, `screen-*`, `pane-*`, or `tab-*` lifecycle deltas. `tree_events:"deltas"` selects those lifecycle deltas. A delta subscriber must handle `tree-changed` as the documented resync fallback, but must not rely on receiving it for ordinary delta-representable mutations. The selection affects only tree events; every other subscribe event is unchanged.
+
+Protocol v9 adds `surface` for a single-terminal frontend. The server filters unrelated surface output, titles, notifications, and layouts before the bounded subscriber mailbox. It retains events for the target surface, its current workspace/screen/pane path, coarse tree resyncs, and session lifecycle. Omitting `surface` preserves the unfiltered stream.
+
+Clients must require the `surface-subscribe-filter` capability before sending `surface`. A client connected to an older protocol-v9 build must ask the user to restart or upgrade the session instead of silently falling back to an unfiltered stream.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `tree_events` | `string` | default `"coarse"` | Protocol 7: `"coarse"` or `"deltas"` |
+| `surface` | `Id` | optional | Protocol 9: existing surface to scope at the event source |
 
 Result:
 

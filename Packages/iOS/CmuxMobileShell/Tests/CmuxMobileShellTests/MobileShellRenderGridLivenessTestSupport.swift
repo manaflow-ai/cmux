@@ -42,6 +42,8 @@ actor LivenessHostRouter {
     private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
     private var heldReplayResponsesRemaining = 0
+    private var syncFetchRequestCount = 0
+    private var heldSyncFetchRequestNumbers: Set<Int> = []
     private var viewportRequestCount = 0
     private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
@@ -76,6 +78,12 @@ actor LivenessHostRouter {
     /// method_not_found) error, modeling a timeout/decoding failure mid-repair.
     func scriptSyncFetchTransientError() {
         syncFetchResults.append(["__transient_error__": true])
+    }
+
+    /// Hold the Nth `mobile.sync.fetch` response (1-based), allowing tests to
+    /// issue another refresh request while a cursor fetch is still in flight.
+    func holdSyncFetchRequest(number: Int) {
+        heldSyncFetchRequestNumbers.insert(number)
     }
 
     func record(method: String?, topics: [String]?, workspaceID: String? = nil) {
@@ -237,6 +245,14 @@ actor LivenessHostRouter {
         heldWorkspaceListRequestNumbers.insert(number)
     }
 
+    /// Hold the next workspace-list responses relative to requests already seen.
+    func holdNextWorkspaceListRequests(count: Int = 1) {
+        guard count > 0 else { return }
+        for offset in 1 ... count {
+            heldWorkspaceListRequestNumbers.insert(workspaceListRequestCount + offset)
+        }
+    }
+
     /// Hold the Nth `mobile.events.subscribe` request (1-based) forever,
     /// modeling a dead push path whose probe never completes.
     func holdSubscribeRequest(number: Int) {
@@ -279,6 +295,7 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
+        heldSyncFetchRequestNumbers = []
         heldViewportRequestNumbers = []
         let continuations = heldContinuations
         heldContinuations = []
@@ -390,6 +407,10 @@ actor LivenessHostRouter {
         case "mobile.events.unsubscribe":
             return try? Self.resultFrame(id: id, result: [:])
         case "mobile.sync.fetch":
+            syncFetchRequestCount += 1
+            if heldSyncFetchRequestNumbers.contains(syncFetchRequestCount) {
+                await park()
+            }
             // Unscripted routers model a legacy Mac: the real host answers an
             // unknown method with `method_not_found`, which the shell treats
             // as "stay on the workspace.updated refetch loop".

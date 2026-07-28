@@ -6,6 +6,7 @@ import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 import { Tweet } from "react-tweet";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
 import starHistory from "./star-history.png";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -47,7 +48,7 @@ export default function ShowHNLaunchPage() {
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-02-21" className="text-sm text-muted">{t("date")}</time>
+      <BlogPostMeta date={t("date")} dateTime="2026-02-21" />
 
       <p className="mt-6">
         {t.rich("intro", {

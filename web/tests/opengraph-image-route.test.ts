@@ -179,8 +179,18 @@ describe("Open Graph image discovery", () => {
       headline: "Introducing cmux Fork",
       description: "Fork an agent conversation.",
       datePublished: "2026-07-14T00:00:00Z",
+      authorType: "Person",
+      authorName: "Lawrence Chen",
+      authorUrl: "https://x.com/lawrencecchen",
+      authorImage: "/avatars/lawrencecchen.jpg",
     });
 
     expect(article.image).toBe("https://cmux.com/ja/opengraph-image");
+    expect(article.author).toEqual({
+      "@type": "Person",
+      name: "Lawrence Chen",
+      url: "https://x.com/lawrencecchen",
+      image: "https://cmux.com/avatars/lawrencecchen.jpg",
+    });
   });
 });

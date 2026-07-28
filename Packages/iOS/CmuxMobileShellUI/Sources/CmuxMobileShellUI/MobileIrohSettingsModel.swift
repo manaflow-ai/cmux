@@ -70,6 +70,10 @@ final class MobileIrohSettingsModel {
         mutate { try await self.controller.setIrohRelayPreference(try preference.validated()) }
     }
 
+    func setPathPreference(_ preference: CmxIrohPathPreference) {
+        mutate { try await self.controller.setIrohPathPreference(preference) }
+    }
+
     #if DEBUG
     func setDebugTransportVerificationMode(
         _ mode: CmxIrohTransportVerificationMode

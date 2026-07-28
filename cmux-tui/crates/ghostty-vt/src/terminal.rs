@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -9,6 +10,7 @@ use crate::{Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
+const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 
 /// RGB color triple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -21,6 +23,34 @@ pub struct Rgb {
 impl From<sys::GhosttyColorRgb> for Rgb {
     fn from(c: sys::GhosttyColorRgb) -> Self {
         Rgb { r: c.r, g: c.g, b: c.b }
+    }
+}
+
+/// Process-host render metadata. Color and palette entries are sparse
+/// application-authored overrides, while version 2 cursor metadata is the
+/// host-resolved visual pair.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalColorOverrides {
+    pub foreground: Option<Rgb>,
+    pub background: Option<Rgb>,
+    pub cursor: Option<Rgb>,
+    /// Host-resolved cursor shape/blink for the active screen. Version 2
+    /// process-host snapshots always populate this; `None` represents a
+    /// decoded legacy version 1 frame whose raw VT cursor state must be
+    /// preserved (the value is unknown, not a reset request).
+    pub cursor_visual: Option<(CursorShape, bool)>,
+    pub palette: [Option<Rgb>; 256],
+}
+
+impl Default for TerminalColorOverrides {
+    fn default() -> Self {
+        Self {
+            foreground: None,
+            background: None,
+            cursor: None,
+            cursor_visual: None,
+            palette: [None; 256],
+        }
     }
 }
 
@@ -55,6 +85,14 @@ pub fn parse_palette_entry(value: &str) -> Option<(u8, Rgb)> {
 pub enum Screen {
     Primary,
     Alternate,
+}
+
+/// Result of a prompt-preserving scrollback clear.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClearHistoryOutcome {
+    Cleared(Vec<u8>),
+    Blocked,
+    Unchanged,
 }
 
 /// Scrollbar geometry for the viewport, in rows.
@@ -225,17 +263,788 @@ impl MouseModeScan {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum PromptSemantic {
+    #[default]
+    Unknown,
+    Prompt,
+    Input,
+    InputUntilEndOfLine,
+    Output,
+}
+
+#[derive(Default)]
+struct PromptSemanticTracker {
+    state: PromptTrackState,
+    primary: PromptSemantic,
+    alternate: PromptSemantic,
+    alternate_active: bool,
+    screen_modes: [bool; 3],
+    saved_screen_modes: [bool; 3],
+    revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ScreenModeSelection {
+    indices: [u8; 3],
+    len: u8,
+}
+
+impl ScreenModeSelection {
+    fn push(&mut self, mode: u16) {
+        let Some(index) = PromptSemanticTracker::screen_mode_index(mode) else {
+            return;
+        };
+        let index = index as u8;
+        let len = usize::from(self.len);
+        if let Some(position) = self.indices[..len].iter().position(|candidate| *candidate == index)
+        {
+            self.indices.copy_within(position + 1..len, position);
+            self.len -= 1;
+        }
+        self.indices[usize::from(self.len)] = index;
+        self.len += 1;
+    }
+
+    fn indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.indices[..usize::from(self.len)].iter().map(|index| usize::from(*index))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+#[derive(Default)]
+enum PromptTrackState {
+    #[default]
+    Ground,
+    Escape,
+    Osc(PromptOsc),
+    OscEscape(PromptOsc),
+    String,
+    Csi {
+        private: bool,
+        at_start: bool,
+        parameter: u16,
+        has_parameter: bool,
+        screen_modes: ScreenModeSelection,
+    },
+}
+
+#[derive(Default)]
+struct PromptOsc {
+    prefix_len: u8,
+    action: Option<u8>,
+    options_started: bool,
+    invalid: bool,
+}
+
+impl PromptOsc {
+    fn feed(&mut self, byte: u8) {
+        const PREFIX: &[u8] = b"133;";
+        if self.invalid {
+            return;
+        }
+        if usize::from(self.prefix_len) < PREFIX.len() {
+            if byte == PREFIX[usize::from(self.prefix_len)] {
+                self.prefix_len += 1;
+            } else {
+                self.invalid = true;
+            }
+            return;
+        }
+        if self.action.is_none() {
+            self.action = Some(byte);
+        } else if !self.options_started {
+            if byte == b';' {
+                self.options_started = true;
+            } else {
+                self.invalid = true;
+            }
+        }
+    }
+
+    fn valid_action(&self) -> Option<u8> {
+        if self.invalid { None } else { self.action }
+    }
+}
+
+impl PromptSemanticTracker {
+    fn feed(&mut self, data: &[u8]) {
+        for &byte in data {
+            let state = std::mem::take(&mut self.state);
+            self.state = match state {
+                // The PTY stream is UTF-8. Accept only 7-bit ESC forms so
+                // continuation bytes cannot masquerade as 8-bit C1 controls.
+                PromptTrackState::Ground => match byte {
+                    0x1b => PromptTrackState::Escape,
+                    b'\n' | 0x0b | 0x0c => {
+                        self.end_line();
+                        PromptTrackState::Ground
+                    }
+                    _ => PromptTrackState::Ground,
+                },
+                PromptTrackState::Escape => match byte {
+                    b']' => PromptTrackState::Osc(PromptOsc::default()),
+                    b'[' => Self::csi(),
+                    b'P' | b'X' | b'^' | b'_' => PromptTrackState::String,
+                    b'D' | b'E' => {
+                        self.end_line();
+                        PromptTrackState::Ground
+                    }
+                    b'c' => {
+                        self.primary = PromptSemantic::Unknown;
+                        self.alternate = PromptSemantic::Unknown;
+                        self.alternate_active = false;
+                        self.screen_modes = [false; 3];
+                        self.saved_screen_modes = [false; 3];
+                        PromptTrackState::Ground
+                    }
+                    0x1b => PromptTrackState::Escape,
+                    _ => PromptTrackState::Ground,
+                },
+                PromptTrackState::Osc(mut osc) => match byte {
+                    0x07 => {
+                        self.finish_osc(osc.valid_action());
+                        PromptTrackState::Ground
+                    }
+                    0x18 | 0x1a => PromptTrackState::Ground,
+                    0x1b => PromptTrackState::OscEscape(osc),
+                    _ => {
+                        osc.feed(byte);
+                        PromptTrackState::Osc(osc)
+                    }
+                },
+                PromptTrackState::OscEscape(osc) => {
+                    if byte == b'\\' {
+                        self.finish_osc(osc.valid_action());
+                        PromptTrackState::Ground
+                    } else if byte == 0x1b {
+                        PromptTrackState::OscEscape(osc)
+                    } else {
+                        PromptTrackState::Ground
+                    }
+                }
+                PromptTrackState::String => match byte {
+                    0x18 | 0x1a => PromptTrackState::Ground,
+                    0x1b => PromptTrackState::Escape,
+                    _ => PromptTrackState::String,
+                },
+                PromptTrackState::Csi {
+                    mut private,
+                    mut at_start,
+                    mut parameter,
+                    mut has_parameter,
+                    mut screen_modes,
+                } => match byte {
+                    b'?' if at_start => {
+                        private = true;
+                        at_start = false;
+                        PromptTrackState::Csi {
+                            private,
+                            at_start,
+                            parameter,
+                            has_parameter,
+                            screen_modes,
+                        }
+                    }
+                    b'0'..=b'9' => {
+                        at_start = false;
+                        has_parameter = true;
+                        parameter =
+                            parameter.saturating_mul(10).saturating_add(u16::from(byte - b'0'));
+                        PromptTrackState::Csi {
+                            private,
+                            at_start,
+                            parameter,
+                            has_parameter,
+                            screen_modes,
+                        }
+                    }
+                    b';' => {
+                        if private && has_parameter {
+                            screen_modes.push(parameter);
+                        }
+                        at_start = false;
+                        parameter = 0;
+                        has_parameter = false;
+                        PromptTrackState::Csi {
+                            private,
+                            at_start,
+                            parameter,
+                            has_parameter,
+                            screen_modes,
+                        }
+                    }
+                    0x40..=0x7e => {
+                        if private && has_parameter {
+                            screen_modes.push(parameter);
+                        }
+                        self.apply_screen_modes(byte, screen_modes);
+                        PromptTrackState::Ground
+                    }
+                    0x1b => PromptTrackState::Escape,
+                    _ => PromptTrackState::Ground,
+                },
+            };
+        }
+    }
+
+    fn csi() -> PromptTrackState {
+        PromptTrackState::Csi {
+            private: false,
+            at_start: true,
+            parameter: 0,
+            has_parameter: false,
+            screen_modes: ScreenModeSelection::default(),
+        }
+    }
+
+    fn screen_mode_index(mode: u16) -> Option<usize> {
+        match mode {
+            47 => Some(0),
+            1047 => Some(1),
+            1049 => Some(2),
+            _ => None,
+        }
+    }
+
+    fn apply_screen_modes(&mut self, action: u8, screen_modes: ScreenModeSelection) {
+        match action {
+            b'h' | b'l' if !screen_modes.is_empty() => {
+                let enabled = action == b'h';
+                for index in screen_modes.indices() {
+                    self.screen_modes[index] = enabled;
+                    self.alternate_active = enabled;
+                }
+            }
+            b's' => {
+                for index in screen_modes.indices() {
+                    self.saved_screen_modes[index] = self.screen_modes[index];
+                }
+            }
+            b'r' => {
+                for index in screen_modes.indices() {
+                    let enabled = self.saved_screen_modes[index];
+                    self.screen_modes[index] = enabled;
+                    self.alternate_active = enabled;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn semantic(&self, screen: Screen) -> PromptSemantic {
+        match screen {
+            Screen::Primary => self.primary,
+            Screen::Alternate => self.alternate,
+        }
+    }
+
+    fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    fn current_mut(&mut self) -> &mut PromptSemantic {
+        if self.alternate_active { &mut self.alternate } else { &mut self.primary }
+    }
+
+    fn end_line(&mut self) {
+        if *self.current_mut() == PromptSemantic::InputUntilEndOfLine {
+            *self.current_mut() = PromptSemantic::Output;
+        }
+    }
+
+    fn finish_osc(&mut self, action: Option<u8>) {
+        let Some(action) = action else { return };
+        let semantic = match action {
+            b'A' | b'N' | b'P' => PromptSemantic::Prompt,
+            b'B' => PromptSemantic::Input,
+            b'I' => PromptSemantic::InputUntilEndOfLine,
+            b'C' | b'D' => PromptSemantic::Output,
+            _ => return,
+        };
+        *self.current_mut() = semantic;
+        self.revision = self.revision.wrapping_add(1);
+    }
+}
+
 /// A terminal instance: VT parser plus full screen/scrollback state.
 pub struct Terminal {
     raw: sys::GhosttyTerminal,
     instance_id: u64,
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
+    vt_boundary: VtBoundaryTracker,
+    prompt_semantic: PromptSemanticTracker,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
     cursor_override: CursorOverrideTracker,
     palette_override: Box<PaletteOverrideTracker>,
+    color_overrides: ColorOverrideTracker,
+    c1_normalizer: C1Normalizer,
+}
+
+/// Tracks whether Ghostty's persistent VT stream is between complete
+/// sequences and UTF-8 code points.
+///
+/// Emulator-owned VT bytes may only be inserted at that boundary. The state
+/// transitions mirror Ghostty's DEC ANSI parser, while ground-state bytes use
+/// its UTF-8 stream behavior. Invalid UTF-8 may keep this tracker unsafe
+/// slightly longer than Ghostty, but can never make an incomplete stream look
+/// safe.
+#[derive(Default)]
+struct VtBoundaryTracker {
+    state: VtBoundaryState,
+    utf8_remaining: u8,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum VtBoundaryState {
+    #[default]
+    Ground,
+    Escape,
+    EscapeIntermediate,
+    CsiEntry,
+    CsiIntermediate,
+    CsiParam,
+    CsiIgnore,
+    DcsEntry,
+    DcsParam,
+    DcsIntermediate,
+    DcsPassthrough,
+    DcsIgnore,
+    OscString,
+    SosPmApcString,
+}
+
+impl VtBoundaryTracker {
+    fn feed(&mut self, data: &[u8]) {
+        for &byte in data {
+            self.feed_byte(byte);
+        }
+    }
+
+    fn is_safe(&self) -> bool {
+        self.state == VtBoundaryState::Ground && self.utf8_remaining == 0
+    }
+
+    fn feed_byte(&mut self, byte: u8) {
+        if self.consume_utf8_byte(byte) {
+            return;
+        }
+
+        if self.state == VtBoundaryState::Ground {
+            if byte == 0x1b {
+                self.state = VtBoundaryState::Escape;
+            }
+            return;
+        }
+
+        self.state = match byte {
+            0x18 | 0x1a | 0x80..=0x8f | 0x91..=0x97 | 0x99 | 0x9a | 0x9c => VtBoundaryState::Ground,
+            0x1b => VtBoundaryState::Escape,
+            0x98 | 0x9e | 0x9f => VtBoundaryState::SosPmApcString,
+            0x9b => VtBoundaryState::CsiEntry,
+            0x90 => VtBoundaryState::DcsEntry,
+            0x9d => VtBoundaryState::OscString,
+            _ => self.state.transition(byte),
+        };
+    }
+
+    fn consume_utf8_byte(&mut self, byte: u8) -> bool {
+        if self.utf8_remaining != 0 {
+            if matches!(byte, 0x80..=0xbf) {
+                self.utf8_remaining -= 1;
+                return true;
+            }
+            // Ghostty replaces the incomplete code point and retries this byte
+            // from the UTF-8 accept state.
+            self.utf8_remaining = 0;
+        }
+
+        self.utf8_remaining = match byte {
+            0xc2..=0xdf => 1,
+            0xe0..=0xef => 2,
+            0xf0..=0xf4 => 3,
+            _ => 0,
+        };
+        self.utf8_remaining != 0
+    }
+}
+
+impl VtBoundaryState {
+    fn transition(self, byte: u8) -> Self {
+        match self {
+            Self::Ground => Self::Ground,
+            Self::Escape => match byte {
+                0x20..=0x2f => Self::EscapeIntermediate,
+                0x30..=0x4f | 0x51..=0x57 | 0x59..=0x5a | 0x5c | 0x60..=0x7e => Self::Ground,
+                0x50 => Self::DcsEntry,
+                0x58 | 0x5e | 0x5f => Self::SosPmApcString,
+                0x5b => Self::CsiEntry,
+                0x5d => Self::OscString,
+                _ => Self::Escape,
+            },
+            Self::EscapeIntermediate => {
+                if matches!(byte, 0x30..=0x7e) {
+                    Self::Ground
+                } else {
+                    self
+                }
+            }
+            Self::CsiEntry => match byte {
+                0x40..=0x7e => Self::Ground,
+                0x3a => Self::CsiIgnore,
+                0x20..=0x2f => Self::CsiIntermediate,
+                0x30..=0x39 | 0x3b..=0x3f => Self::CsiParam,
+                _ => self,
+            },
+            Self::CsiParam => match byte {
+                0x40..=0x7e => Self::Ground,
+                0x3c..=0x3f => Self::CsiIgnore,
+                0x20..=0x2f => Self::CsiIntermediate,
+                _ => self,
+            },
+            Self::CsiIntermediate => match byte {
+                0x40..=0x7e => Self::Ground,
+                0x30..=0x3f => Self::CsiIgnore,
+                _ => self,
+            },
+            Self::CsiIgnore => {
+                if matches!(byte, 0x40..=0x7e) {
+                    Self::Ground
+                } else {
+                    self
+                }
+            }
+            Self::DcsEntry => match byte {
+                0x20..=0x2f => Self::DcsIntermediate,
+                0x3a => Self::DcsIgnore,
+                0x30..=0x39 | 0x3b..=0x3f => Self::DcsParam,
+                0x40..=0x7e => Self::DcsPassthrough,
+                _ => self,
+            },
+            Self::DcsParam => match byte {
+                0x3a | 0x3c..=0x3f => Self::DcsIgnore,
+                0x20..=0x2f => Self::DcsIntermediate,
+                0x40..=0x7e => Self::DcsPassthrough,
+                _ => self,
+            },
+            Self::DcsIntermediate => match byte {
+                0x30..=0x3f => Self::DcsIgnore,
+                0x40..=0x7e => Self::DcsPassthrough,
+                _ => self,
+            },
+            Self::DcsPassthrough | Self::DcsIgnore | Self::SosPmApcString | Self::OscString => {
+                if self == Self::OscString && byte == 0x07 {
+                    Self::Ground
+                } else {
+                    self
+                }
+            }
+        }
+    }
+}
+
+/// Ghostty's parser intentionally treats bytes >= 0x80 as UTF-8 in ground
+/// state, while PTYs can still emit the 8-bit OSC/ST forms. Normalize only
+/// standalone C1 OSC/ST bytes; continuation bytes inside UTF-8 text remain
+/// byte-for-byte unchanged.
+#[derive(Default)]
+struct C1Normalizer {
+    utf8_remaining: u8,
+}
+
+impl C1Normalizer {
+    fn normalize<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+        let mut output: Option<Vec<u8>> = None;
+        for (index, &byte) in data.iter().enumerate() {
+            let continuation = if self.utf8_remaining != 0 && matches!(byte, 0x80..=0xbf) {
+                self.utf8_remaining -= 1;
+                true
+            } else {
+                self.utf8_remaining = 0;
+                false
+            };
+            let replacement = (!continuation).then_some(byte).and_then(|byte| match byte {
+                0x9d => Some(b']'),
+                0x9c => Some(b'\\'),
+                _ => None,
+            });
+            if let Some(replacement) = replacement {
+                let output = output.get_or_insert_with(|| {
+                    let mut output = Vec::with_capacity(data.len() + 1);
+                    output.extend_from_slice(&data[..index]);
+                    output
+                });
+                output.extend_from_slice(&[0x1b, replacement]);
+            } else if let Some(output) = output.as_mut() {
+                output.push(byte);
+            }
+            if !continuation {
+                self.utf8_remaining = match byte {
+                    0xc2..=0xdf => 1,
+                    0xe0..=0xef => 2,
+                    0xf0..=0xf4 => 3,
+                    _ => 0,
+                };
+            }
+        }
+        output.map(Cow::Owned).unwrap_or(Cow::Borrowed(data))
+    }
+}
+
+#[derive(Default)]
+struct ColorOverrideTracker {
+    state: ColorTrackState,
+    utf8_remaining: u8,
+    foreground: bool,
+    background: bool,
+    cursor: bool,
+    palette: [u64; 4],
+}
+
+#[derive(Default)]
+enum ColorTrackState {
+    #[default]
+    Ground,
+    Escape,
+    EscapeIntermediate,
+    Osc {
+        payload: Vec<u8>,
+        overflowed: bool,
+    },
+    OscEscape {
+        payload: Vec<u8>,
+        overflowed: bool,
+    },
+    String,
+    StringEscape,
+}
+
+impl ColorOverrideTracker {
+    fn write(&mut self, data: &[u8]) {
+        for &byte in data {
+            let state = std::mem::take(&mut self.state);
+            self.state = match state {
+                ColorTrackState::Ground => self.ground(byte),
+                ColorTrackState::Escape => self.escape(byte),
+                ColorTrackState::EscapeIntermediate => match byte {
+                    0x1b => ColorTrackState::Escape,
+                    0x20..=0x2f => ColorTrackState::EscapeIntermediate,
+                    _ => ColorTrackState::Ground,
+                },
+                ColorTrackState::Osc { mut payload, mut overflowed } => {
+                    if self.consume_utf8_continuation(byte) {
+                        Self::push_osc_byte(&mut payload, &mut overflowed, byte);
+                        ColorTrackState::Osc { payload, overflowed }
+                    } else {
+                        match byte {
+                            0x07 | 0x9c => {
+                                self.finish_osc(&payload, overflowed);
+                                ColorTrackState::Ground
+                            }
+                            0x1b => ColorTrackState::OscEscape { payload, overflowed },
+                            _ => {
+                                self.note_utf8_lead(byte);
+                                Self::push_osc_byte(&mut payload, &mut overflowed, byte);
+                                ColorTrackState::Osc { payload, overflowed }
+                            }
+                        }
+                    }
+                }
+                ColorTrackState::OscEscape { mut payload, mut overflowed } => match byte {
+                    b'\\' | 0x9c => {
+                        self.utf8_remaining = 0;
+                        self.finish_osc(&payload, overflowed);
+                        ColorTrackState::Ground
+                    }
+                    0x1b => ColorTrackState::OscEscape { payload, overflowed },
+                    _ => {
+                        self.utf8_remaining = 0;
+                        Self::push_osc_byte(&mut payload, &mut overflowed, 0x1b);
+                        Self::push_osc_byte(&mut payload, &mut overflowed, byte);
+                        self.note_utf8_lead(byte);
+                        ColorTrackState::Osc { payload, overflowed }
+                    }
+                },
+                ColorTrackState::String => {
+                    if self.consume_utf8_continuation(byte) {
+                        ColorTrackState::String
+                    } else {
+                        match byte {
+                            0x9c => ColorTrackState::Ground,
+                            0x1b => ColorTrackState::StringEscape,
+                            _ => {
+                                self.note_utf8_lead(byte);
+                                ColorTrackState::String
+                            }
+                        }
+                    }
+                }
+                ColorTrackState::StringEscape => match byte {
+                    b'\\' | 0x9c => {
+                        self.utf8_remaining = 0;
+                        ColorTrackState::Ground
+                    }
+                    0x1b => ColorTrackState::StringEscape,
+                    _ => {
+                        self.note_utf8_lead(byte);
+                        ColorTrackState::String
+                    }
+                },
+            };
+        }
+    }
+
+    fn ground(&mut self, byte: u8) -> ColorTrackState {
+        if self.consume_utf8_continuation(byte) {
+            return ColorTrackState::Ground;
+        }
+        match byte {
+            0x1b => ColorTrackState::Escape,
+            // A standalone 8-bit OSC is a control. A 0x9d occurring inside
+            // UTF-8 text was consumed above and cannot open an OSC.
+            0x9d => self.osc(),
+            _ => {
+                self.note_utf8_lead(byte);
+                ColorTrackState::Ground
+            }
+        }
+    }
+
+    fn escape(&mut self, byte: u8) -> ColorTrackState {
+        self.utf8_remaining = 0;
+        match byte {
+            b']' | 0x9d => self.osc(),
+            b'P' | b'X' | b'^' | b'_' => ColorTrackState::String,
+            b'c' => {
+                self.reset_all();
+                ColorTrackState::Ground
+            }
+            0x1b => ColorTrackState::Escape,
+            0x20..=0x2f => ColorTrackState::EscapeIntermediate,
+            _ => ColorTrackState::Ground,
+        }
+    }
+
+    fn osc(&mut self) -> ColorTrackState {
+        self.utf8_remaining = 0;
+        ColorTrackState::Osc { payload: Vec::new(), overflowed: false }
+    }
+
+    fn push_osc_byte(payload: &mut Vec<u8>, overflowed: &mut bool, byte: u8) {
+        if *overflowed {
+            return;
+        }
+        if payload.len() == MAX_COLOR_OSC_BYTES {
+            payload.clear();
+            *overflowed = true;
+        } else {
+            payload.push(byte);
+        }
+    }
+
+    fn consume_utf8_continuation(&mut self, byte: u8) -> bool {
+        if self.utf8_remaining == 0 {
+            return false;
+        }
+        if matches!(byte, 0x80..=0xbf) {
+            self.utf8_remaining -= 1;
+            true
+        } else {
+            self.utf8_remaining = 0;
+            false
+        }
+    }
+
+    fn note_utf8_lead(&mut self, byte: u8) {
+        self.utf8_remaining = match byte {
+            0xc2..=0xdf => 1,
+            0xe0..=0xef => 2,
+            0xf0..=0xf4 => 3,
+            _ => 0,
+        };
+    }
+
+    fn finish_osc(&mut self, payload: &[u8], overflowed: bool) {
+        self.utf8_remaining = 0;
+        if overflowed {
+            return;
+        }
+        let Ok(payload) = std::str::from_utf8(payload) else { return };
+        let mut parts = payload.split(';');
+        let Some(command) = parts.next().and_then(|value| value.parse::<u16>().ok()) else {
+            return;
+        };
+        match command {
+            4 => {
+                while let (Some(index), Some(value)) = (parts.next(), parts.next()) {
+                    let Some(index) = index.parse::<u8>().ok() else { continue };
+                    if value != "?" && parse_color(value).is_some() {
+                        self.set_palette_authored(index as usize, true);
+                    }
+                }
+            }
+            104 => {
+                let mut had_parameter = false;
+                for value in parts {
+                    had_parameter = true;
+                    let Some(index) = value.parse::<u8>().ok() else {
+                        continue;
+                    };
+                    self.set_palette_authored(index as usize, false);
+                }
+                if !had_parameter {
+                    self.palette.fill(0);
+                }
+            }
+            10..=12 => {
+                for (offset, value) in parts.enumerate() {
+                    let code = command.saturating_add(offset as u16);
+                    if code > 12 {
+                        break;
+                    }
+                    if value == "?" || parse_color(value).is_none() {
+                        continue;
+                    }
+                    match code {
+                        10 => self.foreground = true,
+                        11 => self.background = true,
+                        12 => self.cursor = true,
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            110 => self.foreground = false,
+            111 => self.background = false,
+            112 => self.cursor = false,
+            _ => {}
+        }
+    }
+
+    fn reset_all(&mut self) {
+        self.foreground = false;
+        self.background = false;
+        self.cursor = false;
+        self.palette.fill(0);
+    }
+
+    fn set_palette_authored(&mut self, index: usize, authored: bool) {
+        let (word, bit) = (index / 64, index % 64);
+        if authored {
+            self.palette[word] |= 1u64 << bit;
+        } else {
+            self.palette[word] &= !(1u64 << bit);
+        }
+    }
+
+    fn palette_authored(&self, index: usize) -> bool {
+        self.palette[index / 64] & (1u64 << (index % 64)) != 0
+    }
 }
 
 #[derive(Default)]
@@ -843,9 +1652,13 @@ impl Terminal {
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
+            vt_boundary: VtBoundaryTracker::default(),
+            prompt_semantic: PromptSemanticTracker::default(),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
+            color_overrides: ColorOverrideTracker::default(),
+            c1_normalizer: C1Normalizer::default(),
         };
         let userdata = &mut *term.callbacks as *mut Callbacks as *mut c_void;
         unsafe {
@@ -883,15 +1696,30 @@ impl Terminal {
 
     /// Feed VT-encoded bytes (pty output) into the terminal.
     pub fn vt_write(&mut self, data: &[u8]) {
+        let _ = self.vt_write_with_normalized(data);
+    }
+
+    /// Feed VT-encoded bytes and return the exact byte stream accepted by
+    /// Ghostty. Standalone 8-bit OSC/ST controls are returned in their 7-bit
+    /// forms, while UTF-8 continuation bytes remain unchanged across calls.
+    ///
+    /// Process hosts should publish this returned stream so every frontend
+    /// parses the same bytes as the authoritative terminal.
+    pub fn vt_write_with_normalized<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         if data.is_empty() {
-            return;
+            return Cow::Borrowed(data);
         }
         if self.mouse_mode_scan.feed(data) {
             self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
         }
-        self.cursor_override.write(data);
-        self.palette_override.write(data);
-        unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
+        let normalized = self.c1_normalizer.normalize(data);
+        self.vt_boundary.feed(&normalized);
+        self.prompt_semantic.feed(&normalized);
+        self.cursor_override.write(&normalized);
+        self.palette_override.write(&normalized);
+        self.color_overrides.write(&normalized);
+        unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
+        normalized
     }
 
     /// Whether the current cursor style/blink came from an active DECSCUSR
@@ -953,6 +1781,32 @@ impl Terminal {
         }
     }
 
+    /// Replace all host-provided default color channels. Unlike
+    /// [`Self::set_default_colors`], `None` clears an earlier embedder value.
+    pub fn replace_default_colors(
+        &mut self,
+        fg: Option<Rgb>,
+        bg: Option<Rgb>,
+        cursor: Option<Rgb>,
+    ) {
+        let fg = fg.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
+        let bg = bg.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
+        let cursor =
+            cursor.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
+        unsafe {
+            for (option, color) in [
+                (sys::GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, fg.as_ref()),
+                (sys::GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, bg.as_ref()),
+                (sys::GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, cursor.as_ref()),
+            ] {
+                let pointer = color
+                    .map(|color| color as *const sys::GhosttyColorRgb as *const c_void)
+                    .unwrap_or(ptr::null());
+                sys::ghostty_terminal_set(self.raw, option, pointer);
+            }
+        }
+    }
+
     /// Set selected entries in the host-provided default palette.
     ///
     /// Unspecified entries use Ghostty's built-in palette. Active OSC 4
@@ -1002,6 +1856,36 @@ impl Terminal {
         }
     }
 
+    /// Replace both embedder cursor defaults. `None` clears an earlier value
+    /// and restores Ghostty's built-in default for that channel.
+    pub fn replace_default_cursor(&mut self, style: Option<CursorShape>, blink: Option<bool>) {
+        let style = style.map(|style| match style {
+            CursorShape::Bar => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR,
+            CursorShape::Underline => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE,
+            CursorShape::Block | CursorShape::BlockHollow => {
+                sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK
+            }
+        });
+        unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE,
+                style
+                    .as_ref()
+                    .map(|style| style as *const sys::GhosttyTerminalCursorStyle as *const c_void)
+                    .unwrap_or(ptr::null()),
+            );
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK,
+                blink
+                    .as_ref()
+                    .map(|blink| blink as *const bool as *const c_void)
+                    .unwrap_or(ptr::null()),
+            );
+        }
+    }
+
     /// Effective foreground, background, and cursor colors.
     ///
     /// Each value includes any active OSC 10/11/12 override and is `None`
@@ -1015,11 +1899,223 @@ impl Terminal {
         )
     }
 
+    /// Effective cursor visual for the active screen, including DECSCUSR,
+    /// alternate-screen state, DEC mode 12, and embedder defaults.
+    pub fn effective_cursor_visual(&self) -> Result<(CursorShape, bool)> {
+        let shape = match self.get::<sys::GhosttyTerminalCursorStyle>(
+            sys::GHOSTTY_TERMINAL_DATA_CURSOR_VISUAL_STYLE,
+        )? {
+            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR => CursorShape::Bar,
+            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE => CursorShape::Underline,
+            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
+            _ => CursorShape::Block,
+        };
+        let blinking: bool = self.get(sys::GHOSTTY_TERMINAL_DATA_CURSOR_BLINKING)?;
+        Ok((shape, blinking))
+    }
+
+    /// Opaque semantic cursor activity token. Compare only for inequality;
+    /// it advances for DECSCUSR, mode 12, active-screen changes, RIS, and
+    /// embedder cursor-default setters even when the resolved pair is equal.
+    pub fn cursor_activity(&self) -> Result<u64> {
+        self.get(sys::GHOSTTY_TERMINAL_DATA_CURSOR_ACTIVITY)
+    }
+
+    /// Dynamic state for process-separated renderers. Application-authored
+    /// OSC 4/10/11/12 state remains sparse so the receiving renderer keeps its
+    /// own theme. Cursor visual is host-resolved because shape is per-screen,
+    /// blink is terminal-global, and DECSCUSR and DEC mode 12 interact.
+    pub fn color_overrides(&self) -> TerminalColorOverrides {
+        let effective_color = |active: bool, data| {
+            active.then(|| self.get::<sys::GhosttyColorRgb>(data).ok().map(Rgb::from)).flatten()
+        };
+        let palette = self
+            .get_palette(sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)
+            .map(|effective| {
+                std::array::from_fn(|index| {
+                    self.color_overrides.palette_authored(index).then(|| effective[index].into())
+                })
+            })
+            .unwrap_or([None; 256]);
+        TerminalColorOverrides {
+            foreground: effective_color(
+                self.color_overrides.foreground,
+                sys::GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND,
+            ),
+            background: effective_color(
+                self.color_overrides.background,
+                sys::GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND,
+            ),
+            cursor: effective_color(
+                self.color_overrides.cursor,
+                sys::GHOSTTY_TERMINAL_DATA_COLOR_CURSOR,
+            ),
+            cursor_visual: Some(
+                self.effective_cursor_visual()
+                    .expect("valid terminals expose an effective cursor visual"),
+            ),
+            palette,
+        }
+    }
+
+    fn get_palette(&self, data: sys::GhosttyTerminalData) -> Result<[sys::GhosttyColorRgb; 256]> {
+        let mut output = [sys::GhosttyColorRgb::default(); 256];
+        check(unsafe { sys::ghostty_terminal_get(self.raw, data, output.as_mut_ptr().cast()) })?;
+        Ok(output)
+    }
+
     /// Cursor position (column, row), zero-indexed within the active area.
     pub fn cursor_position(&self) -> Option<(u16, u16)> {
         let x = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_X).ok()?;
         let y = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_Y).ok()?;
         Some((x, y))
+    }
+
+    /// Clear retained history and complete rows before the active prompt
+    /// without writing bytes to the child process.
+    ///
+    /// OSC 133 identifies the full prompt when available. Without shell
+    /// metadata, only scrollback is cleared because visible rows may contain
+    /// hard-newline input whose boundary cannot be inferred. Cursor movement
+    /// is skipped when pending-wrap or origin-mode state cannot be restored
+    /// exactly. If preserved content begins in scrollback, or the persistent
+    /// VT parser is inside a partial sequence or UTF-8 code point, no mutation
+    /// is applied.
+    pub fn clear_history_preserving_prompt(&mut self) -> ClearHistoryOutcome {
+        const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
+
+        if self.active_screen() == Screen::Alternate {
+            return ClearHistoryOutcome::Unchanged;
+        }
+        if !self.vt_boundary.is_safe() {
+            return ClearHistoryOutcome::Blocked;
+        }
+
+        let mut clear = CLEAR_SCROLLBACK.to_vec();
+        let Some((cursor_x, cursor_y)) = self.cursor_position() else {
+            return ClearHistoryOutcome::Unchanged;
+        };
+        let prompt_semantic = self.prompt_semantic.semantic(Screen::Primary);
+        let cursor_is_at_prompt = self.cursor_is_at_prompt();
+        let prompt_start_y =
+            cursor_is_at_prompt.then(|| self.active_prompt_start_row(cursor_y)).flatten();
+        let preserve_from_y = if cursor_is_at_prompt {
+            prompt_start_y.or_else(|| self.active_logical_line_start_row(cursor_y))
+        } else if prompt_semantic == PromptSemantic::Unknown {
+            Some(0)
+        } else {
+            self.active_logical_line_start_row(cursor_y)
+        };
+        let Some(preserve_from_y) = preserve_from_y else {
+            return ClearHistoryOutcome::Unchanged;
+        };
+        let history_rows = self.history_rows();
+        let prompt_may_begin_in_history = cursor_is_at_prompt
+            && match prompt_start_y {
+                None => true,
+                // Some shells mark every hard-newline prompt row. Row zero is
+                // only a true boundary when the adjacent history row is not
+                // another prompt row.
+                Some(0) if history_rows > 0 => self
+                    .history_row_prompt_semantic(history_rows - 1)
+                    .map(|semantic| semantic != sys::GHOSTTY_ROW_SEMANTIC_NONE)
+                    .unwrap_or(true),
+                Some(0) => false,
+                Some(_) => false,
+            };
+        if history_rows > 0
+            && (prompt_may_begin_in_history
+                || (preserve_from_y == 0
+                    && !cursor_is_at_prompt
+                    && self.active_row_wrap_continuation(0).unwrap_or(true)))
+        {
+            return ClearHistoryOutcome::Unchanged;
+        }
+        if self.cursor_pending_wrap() || self.mode(6, false) {
+            self.vt_write(&clear);
+            return ClearHistoryOutcome::Cleared(clear);
+        }
+        if preserve_from_y == 0 {
+            self.vt_write(&clear);
+            return ClearHistoryOutcome::Cleared(clear);
+        }
+
+        for row in 0..preserve_from_y {
+            clear.extend_from_slice(format!("\x1b[{};1H\x1b[2K", u32::from(row) + 1).as_bytes());
+        }
+        clear.extend_from_slice(
+            format!("\x1b[{};{}H", u32::from(cursor_y) + 1, u32::from(cursor_x) + 1).as_bytes(),
+        );
+        self.vt_write(&clear);
+        ClearHistoryOutcome::Cleared(clear)
+    }
+
+    fn cursor_pending_wrap(&self) -> bool {
+        self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(true)
+    }
+
+    fn active_prompt_start_row(&self, cursor_y: u16) -> Option<u16> {
+        let mut prompt_y = (0..=cursor_y).rev().find(|&y| {
+            self.active_row_prompt_semantic(y) == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
+        })?;
+        while prompt_y > 0
+            && self.active_row_prompt_semantic(prompt_y - 1)
+                == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
+        {
+            prompt_y -= 1;
+        }
+        Some(prompt_y)
+    }
+
+    fn active_logical_line_start_row(&self, mut y: u16) -> Option<u16> {
+        while y > 0 && self.active_row_wrap_continuation(y)? {
+            y -= 1;
+        }
+        Some(y)
+    }
+
+    fn active_row_wrap_continuation(&self, y: u16) -> Option<bool> {
+        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, 0, u64::from(y))?;
+        let mut row = sys::GhosttyRow::default();
+        check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
+        let mut continuation = false;
+        check(unsafe {
+            sys::ghostty_row_get(
+                row,
+                sys::GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
+                (&mut continuation as *mut bool).cast(),
+            )
+        })
+        .ok()?;
+        Some(continuation)
+    }
+
+    fn active_row_prompt_semantic(&self, y: u16) -> Option<sys::GhosttyRowSemanticPrompt> {
+        self.row_prompt_semantic(sys::GHOSTTY_POINT_TAG_ACTIVE, u64::from(y))
+    }
+
+    fn history_row_prompt_semantic(&self, y: u32) -> Option<sys::GhosttyRowSemanticPrompt> {
+        self.row_prompt_semantic(sys::GHOSTTY_POINT_TAG_HISTORY, u64::from(y))
+    }
+
+    fn row_prompt_semantic(
+        &self,
+        tag: sys::GhosttyPointTag,
+        y: u64,
+    ) -> Option<sys::GhosttyRowSemanticPrompt> {
+        let grid_ref = self.grid_ref(tag, 0, y)?;
+        let mut row = sys::GhosttyRow::default();
+        check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
+        let mut semantic = sys::GHOSTTY_ROW_SEMANTIC_NONE;
+        check(unsafe {
+            sys::ghostty_row_get(
+                row,
+                sys::GHOSTTY_ROW_DATA_SEMANTIC_PROMPT,
+                (&mut semantic as *mut sys::GhosttyRowSemanticPrompt).cast(),
+            )
+        })
+        .ok()?;
+        Some(semantic)
     }
 
     pub fn resize(
@@ -1061,6 +2157,71 @@ impl Terminal {
             Ok(sys::GHOSTTY_TERMINAL_SCREEN_ALTERNATE) => Screen::Alternate,
             _ => Screen::Primary,
         }
+    }
+
+    /// Whether OSC 133 metadata identifies the cursor as an active shell
+    /// prompt. libghostty-vt exposes persisted row/cell semantics but not the
+    /// live cursor semantic, so the wrapper also retains OSC 133's current
+    /// prompt phase across cursor movement and soft wrapping. Terminals without
+    /// shell integration conservatively return false.
+    pub fn cursor_is_at_prompt(&self) -> bool {
+        if self.active_screen() == Screen::Alternate {
+            return false;
+        }
+        match self.prompt_semantic.semantic(Screen::Primary) {
+            PromptSemantic::Prompt
+            | PromptSemantic::Input
+            | PromptSemantic::InputUntilEndOfLine => return true,
+            PromptSemantic::Output => return false,
+            PromptSemantic::Unknown => {}
+        }
+        let Some((x, y)) = self.cursor_position() else {
+            return false;
+        };
+        let Some(grid_ref) = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, x, u64::from(y)) else {
+            return false;
+        };
+
+        let mut row = sys::GhosttyRow::default();
+        if check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).is_err() {
+            return false;
+        }
+        let mut row_semantic = sys::GHOSTTY_ROW_SEMANTIC_NONE;
+        if check(unsafe {
+            sys::ghostty_row_get(
+                row,
+                sys::GHOSTTY_ROW_DATA_SEMANTIC_PROMPT,
+                (&mut row_semantic as *mut sys::GhosttyRowSemanticPrompt).cast(),
+            )
+        })
+        .is_ok()
+            && row_semantic != sys::GHOSTTY_ROW_SEMANTIC_NONE
+        {
+            return true;
+        }
+
+        let mut cell = sys::GhosttyCell::default();
+        if check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut cell) }).is_err() {
+            return false;
+        }
+        let mut cell_semantic = sys::GHOSTTY_CELL_SEMANTIC_OUTPUT;
+        check(unsafe {
+            sys::ghostty_cell_get(
+                cell,
+                sys::GHOSTTY_CELL_DATA_SEMANTIC_CONTENT,
+                (&mut cell_semantic as *mut sys::GhosttyCellSemanticContent).cast(),
+            )
+        })
+        .is_ok()
+            && matches!(
+                cell_semantic,
+                sys::GHOSTTY_CELL_SEMANTIC_INPUT | sys::GHOSTTY_CELL_SEMANTIC_PROMPT
+            )
+    }
+
+    /// Monotonic revision of recognized OSC 133 prompt-phase markers.
+    pub fn prompt_semantic_revision(&self) -> u64 {
+        self.prompt_semantic.revision()
     }
 
     /// Whether any mouse tracking mode is enabled by the application.
@@ -1288,7 +2449,7 @@ impl Terminal {
     /// state, charsets, and tabstops. This is the attach primitive: a new
     /// frontend replays this, then follows the live pty stream.
     pub fn vt_replay(&mut self) -> Result<Vec<u8>> {
-        self.vt_replay_with_selection(None)
+        self.vt_replay_with_selection(None, true)
     }
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
@@ -1301,6 +2462,24 @@ impl Terminal {
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
     pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+        self.vt_replay_bounded_with_palette(max_bytes, true)
+    }
+
+    /// Theme-portable replay for process-separated renderers.
+    ///
+    /// This reproduces cells, styles, modes, cursor, and history but omits
+    /// terminal palette/default-color OSC state. Pair it with a sparse
+    /// [`TerminalColorOverrides`] snapshot so the receiving renderer keeps
+    /// its own Ghostty theme for every color the application did not set.
+    pub fn vt_replay_bounded_theme_portable(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+        self.vt_replay_bounded_with_palette(max_bytes, false)
+    }
+
+    fn vt_replay_bounded_with_palette(
+        &mut self,
+        max_bytes: usize,
+        include_palette: bool,
+    ) -> Result<Vec<u8>> {
         let Some(scrollbar) = self.scrollbar() else {
             return Ok(minimal_vt_replay(max_bytes));
         };
@@ -1315,7 +2494,9 @@ impl Terminal {
         let mut upper_failed = false;
 
         loop {
-            if let Some(replay) = self.vt_replay_screen_tail_bounded(tail_rows, max_bytes)? {
+            if let Some(replay) =
+                self.vt_replay_screen_tail_bounded(tail_rows, max_bytes, include_palette)?
+            {
                 if upper_failed || tail_rows == scrollbar.total {
                     return Ok(replay);
                 }
@@ -1348,6 +2529,7 @@ impl Terminal {
         &mut self,
         rows: u64,
         max_bytes: usize,
+        include_palette: bool,
     ) -> Result<Option<Vec<u8>>> {
         let scrollbar = self.scrollbar().ok_or(crate::Error::InvalidValue)?;
         let cols = self.cols();
@@ -1368,15 +2550,16 @@ impl Terminal {
                 .ok_or(crate::Error::InvalidValue)?,
             rectangle: false,
         };
-        self.vt_replay_with_selection_bounded(Some(&selection), max_bytes)
+        self.vt_replay_with_selection_bounded(Some(&selection), max_bytes, include_palette)
     }
 
     fn vt_replay_with_selection(
         &mut self,
         selection: Option<&sys::GhosttySelection>,
+        include_palette: bool,
     ) -> Result<Vec<u8>> {
         let suffix = self.cursor_position_escape();
-        let mut replay = self.format(Self::vt_replay_options(selection))?;
+        let mut replay = self.format(Self::vt_replay_options(selection, include_palette))?;
         if let Some(suffix) = suffix {
             replay.extend_from_slice(&suffix);
         }
@@ -1387,13 +2570,16 @@ impl Terminal {
         &mut self,
         selection: Option<&sys::GhosttySelection>,
         max_bytes: usize,
+        include_palette: bool,
     ) -> Result<Option<Vec<u8>>> {
         let suffix = self.cursor_position_escape().unwrap_or_default();
         let Some(format_max_bytes) = max_bytes.checked_sub(suffix.len()) else {
             return Ok(None);
         };
-        let Some(mut replay) =
-            self.format_bounded(Self::vt_replay_options(selection), format_max_bytes)?
+        let Some(mut replay) = self.format_bounded(
+            Self::vt_replay_options(selection, include_palette),
+            format_max_bytes,
+        )?
         else {
             return Ok(None);
         };
@@ -1408,6 +2594,7 @@ impl Terminal {
 
     fn vt_replay_options(
         selection: Option<&sys::GhosttySelection>,
+        include_palette: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
         sys::GhosttyFormatterTerminalOptions {
             size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
@@ -1416,7 +2603,7 @@ impl Terminal {
             trim: false,
             extra: sys::GhosttyFormatterTerminalExtra {
                 size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
-                palette: true,
+                palette: include_palette,
                 modes: true,
                 scrolling_region: true,
                 tabstops: true,
@@ -1546,11 +2733,25 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, MouseModeScan, PaletteOsc, Terminal, vt_replay_row_window};
+    use super::{
+        Callbacks, ClearHistoryOutcome, MouseModeScan, PaletteOsc, PromptSemantic,
+        PromptSemanticTracker, PromptTrackState, Screen, Terminal, vt_replay_row_window,
+    };
 
     #[test]
     fn unrelated_osc_tracking_keeps_palette_state_out_of_line() {
         assert!(size_of::<PaletteOsc>() <= 16);
+    }
+
+    #[test]
+    fn prompt_semantic_tracking_does_not_buffer_unrelated_osc_payloads() {
+        let mut tracker = PromptSemanticTracker::default();
+
+        tracker.feed(b"\x1b]0;");
+        tracker.feed(&vec![b'x'; 4 * 1024]);
+
+        assert!(size_of::<PromptTrackState>() <= 16);
+        assert!(matches!(tracker.state, PromptTrackState::Osc(_)));
     }
 
     #[test]
@@ -1572,6 +2773,378 @@ mod tests {
         let second = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
 
         assert_ne!(first.instance_id(), second.instance_id());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_requires_primary_screen_semantic_metadata() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"ordinary output");
+        assert!(!terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\r\n\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049h");
+        assert_eq!(terminal.active_screen(), Screen::Alternate);
+        assert!(!terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_follows_live_semantics_after_input_wraps() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07123456789\x1b[B");
+
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b]133;C\x07\x1b[B");
+        assert!(!terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_keeps_primary_semantics_out_of_alternate_screen() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07pending");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049h\x1b]133;C\x07");
+        assert!(!terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049l");
+        assert!(terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_follows_saved_private_screen_mode() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07pending");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049s\x1b[?1049h\x1b]133;C\x07\x1b[?1049r");
+
+        assert_eq!(terminal.active_screen(), Screen::Primary);
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b]133;C\x07");
+        assert!(!terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_saves_private_screen_modes_independently() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07pending");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?47h\x1b[?1049s\x1b[?1049r");
+
+        assert_eq!(terminal.active_screen(), Screen::Primary);
+        assert!(terminal.cursor_is_at_prompt());
+        terminal.vt_write(b"\x1b]133;C\x07");
+        assert!(!terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_restores_private_screen_modes_in_wire_order() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07pending");
+        terminal.vt_write(b"\x1b[?47h\x1b]133;C\x07\x1b[?47s\x1b[?47l\x1b[?1049s");
+
+        terminal.vt_write(b"\x1b[?47;1049r");
+        assert_eq!(terminal.active_screen(), Screen::Primary);
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049;47r");
+        assert_eq!(terminal.active_screen(), Screen::Alternate);
+        terminal.vt_write(b"\x1b]133;C\x07\x1b[?47l");
+        assert_eq!(terminal.active_screen(), Screen::Primary);
+        assert!(terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn clear_history_preserves_the_active_prompt_and_cursor() {
+        let mut terminal = Terminal::new(20, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..10 {
+            terminal.vt_write(format!("history-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
+        let cursor_before = terminal.cursor_position();
+
+        let ClearHistoryOutcome::Cleared(clear) = terminal.clear_history_preserving_prompt() else {
+            panic!("active prompt was wholly inside the viewport");
+        };
+
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.cursor_position(), cursor_before);
+        let viewport = terminal.viewport_text().unwrap();
+        assert!(viewport.contains("prompt> pending"));
+        assert!(!viewport.contains("history-"));
+        assert!(!clear.contains(&b'\x0c'));
+    }
+
+    #[test]
+    fn clear_history_fails_closed_when_pending_wrap_cannot_be_restored() {
+        let mut terminal = Terminal::new(10, 3, 1_000, Callbacks::default()).unwrap();
+        for line in 0..5 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x0712345678");
+        assert!(terminal.cursor_pending_wrap());
+        let viewport_before = terminal.viewport_text().unwrap();
+
+        let ClearHistoryOutcome::Cleared(clear) = terminal.clear_history_preserving_prompt() else {
+            panic!("pending-wrap prompt was wholly inside the viewport");
+        };
+
+        assert_eq!(clear, b"\x1b[3J");
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.viewport_text().unwrap(), viewport_before);
+        assert!(terminal.cursor_pending_wrap());
+    }
+
+    #[test]
+    fn clear_history_leaves_viewport_spanning_active_input_intact() {
+        let mut terminal = Terminal::new(8, 3, 1_000, Callbacks::default()).unwrap();
+        for line in 0..5 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07123456789012345678901234567");
+        let history_before = terminal.history_rows();
+        let contents_before = terminal.plain_text().unwrap();
+
+        let outcome = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(outcome, ClearHistoryOutcome::Unchanged);
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), history_before);
+        assert_eq!(terminal.plain_text().unwrap(), contents_before);
+    }
+
+    #[test]
+    fn clear_history_rejects_prompt_continuations_whose_prompt_row_is_in_history() {
+        let mut terminal = Terminal::new(16, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..6 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(
+            b"\x1b]133;A\x07$ \x1b]133;B\x07active-one\r\nactive-two\r\nactive-three\r\nactive-four\r\nactive-five",
+        );
+        let history_before = terminal.history_rows();
+        let contents_before = terminal.plain_text().unwrap();
+        let cursor_y = terminal.cursor_position().unwrap().1;
+        assert!(terminal.cursor_is_at_prompt());
+        assert_eq!(terminal.active_prompt_start_row(cursor_y), None);
+
+        let outcome = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(outcome, ClearHistoryOutcome::Unchanged);
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), history_before);
+        assert_eq!(terminal.plain_text().unwrap(), contents_before);
+    }
+
+    #[test]
+    fn clear_history_rejects_repeated_prompt_markers_that_begin_in_history() {
+        let mut terminal = Terminal::new(16, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..6 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(
+            b"\x1b]133;A\x07prompt-one\r\n\
+              \x1b]133;A\x07prompt-two\r\n\
+              \x1b]133;A\x07prompt-three\r\n\
+              \x1b]133;A\x07prompt-four\r\n\
+              \x1b]133;A\x07prompt-five\x1b]133;B\x07pending",
+        );
+        let history_before = terminal.history_rows();
+        let contents_before = terminal.plain_text().unwrap();
+        let cursor_y = terminal.cursor_position().unwrap().1;
+        assert!(terminal.cursor_is_at_prompt());
+        assert_eq!(terminal.active_prompt_start_row(cursor_y), Some(0));
+
+        let outcome = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(outcome, ClearHistoryOutcome::Unchanged);
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), history_before);
+        assert_eq!(terminal.plain_text().unwrap(), contents_before);
+    }
+
+    #[test]
+    fn clear_history_accepts_row_zero_prompt_after_output_history() {
+        let mut terminal = Terminal::new(32, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..6 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(
+            b"\x1b]133;A\x07prompt-one\r\n\
+              \x1b]133;A\x07prompt-two\r\n\
+              \x1b]133;A\x07prompt-three\r\n\
+              \x1b]133;A\x07prompt-four\x1b]133;B\x07pending",
+        );
+        let history_before = terminal.history_rows();
+        let viewport_before = terminal.viewport_text().unwrap();
+        let cursor_before = terminal.cursor_position();
+        let cursor_y = cursor_before.unwrap().1;
+        assert!(terminal.cursor_is_at_prompt());
+        assert_eq!(terminal.active_prompt_start_row(cursor_y), Some(0));
+
+        let outcome = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(outcome, ClearHistoryOutcome::Cleared(b"\x1b[3J".to_vec()));
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.viewport_text().unwrap(), viewport_before);
+        assert_eq!(terminal.cursor_position(), cursor_before);
+    }
+
+    #[test]
+    fn clear_history_without_prompt_metadata_clears_scrollback_only() {
+        let mut terminal = Terminal::new(16, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..6 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"first-active\r\nsecond-active");
+        let history_before = terminal.history_rows();
+        let viewport_before = terminal.viewport_text().unwrap();
+        let cursor_before = terminal.cursor_position();
+
+        let outcome = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(outcome, ClearHistoryOutcome::Cleared(b"\x1b[3J".to_vec()));
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.viewport_text().unwrap(), viewport_before);
+        assert_eq!(terminal.cursor_position(), cursor_before);
+    }
+
+    #[test]
+    fn clear_history_without_prompt_metadata_preserves_visible_hard_newline_rows() {
+        let mut terminal = Terminal::new(16, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..6 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"active-one\r\nactive-two\r\nactive-three\r\nactive-four");
+        let history_before = terminal.history_rows();
+        let viewport_before = terminal.viewport_text().unwrap();
+
+        let outcome = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(outcome, ClearHistoryOutcome::Cleared(b"\x1b[3J".to_vec()));
+        assert!(history_before > 0);
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.viewport_text().unwrap(), viewport_before);
+    }
+
+    #[test]
+    fn clear_history_fails_closed_at_every_partial_vt_boundary() {
+        let sequences: &[(&str, &[u8])] = &[
+            ("escape-intermediate", b"\x1b(B"),
+            ("csi", b"\x1b[31m"),
+            ("osc-bel", b"\x1b]2;title\x07"),
+            ("osc-st", b"\x1b]2;title\x1b\\"),
+            ("osc-utf8-st-byte", "\x1b]2;Ütitle\x07".as_bytes()),
+            ("c1-osc", b"\x9d2;title\x9c"),
+            ("dcs", b"\x1bP1;2qpayload\x1b\\"),
+            ("apc", b"\x1b_payload\x1b\\"),
+            ("utf8", "🙂".as_bytes()),
+        ];
+
+        for &(name, sequence) in sequences {
+            for split in 1..sequence.len() {
+                let mut terminal = Terminal::new(20, 4, 1_000, Callbacks::default()).unwrap();
+                for line in 0..10 {
+                    terminal.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                terminal.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
+                terminal.vt_write(&sequence[..split]);
+                let history_before = terminal.history_rows();
+                let contents_before = terminal.plain_text().unwrap();
+
+                assert_eq!(
+                    terminal.clear_history_preserving_prompt(),
+                    ClearHistoryOutcome::Blocked,
+                    "{name} split at byte {split}"
+                );
+                assert_eq!(terminal.history_rows(), history_before, "{name} split at byte {split}");
+                assert_eq!(
+                    terminal.plain_text().unwrap(),
+                    contents_before,
+                    "{name} split at byte {split}"
+                );
+
+                terminal.vt_write(&sequence[split..]);
+                terminal.vt_write(b"Z");
+                assert!(
+                    terminal.viewport_text().unwrap().contains('Z'),
+                    "{name} split at byte {split}"
+                );
+                assert!(
+                    matches!(
+                        terminal.clear_history_preserving_prompt(),
+                        ClearHistoryOutcome::Cleared(_)
+                    ),
+                    "{name} remained unsafe after completing split at byte {split}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn prompt_semantic_tracking_ignores_utf8_continuation_bytes_that_resemble_c1() {
+        let mut tracker = PromptSemanticTracker::default();
+        tracker.feed(b"\x1b]133;A\x07\x1b]133;B\x07");
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Input);
+
+        tracker.feed("\u{45d}".as_bytes());
+        tracker.feed(b"\x1b]133;C\x07");
+
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+    }
+
+    #[test]
+    fn prompt_semantic_tracking_ignores_control_string_payload_newlines() {
+        for introducer in *b"PX^_" {
+            let mut tracker = PromptSemanticTracker::default();
+            tracker.feed(b"\x1b]133;I\x07");
+            assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::InputUntilEndOfLine);
+
+            tracker.feed(&[0x1b, introducer, b'q', b'\n', 0x1b, b'\\']);
+            assert_eq!(
+                tracker.semantic(Screen::Primary),
+                PromptSemantic::InputUntilEndOfLine,
+                "control-string introducer {introducer:#x} leaked its payload"
+            );
+
+            tracker.feed(b"\n");
+            assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+        }
+    }
+
+    #[test]
+    fn prompt_semantic_tracking_rejects_suffixes_without_an_option_separator() {
+        let mut tracker = PromptSemanticTracker::default();
+        tracker.feed(b"\x1b]133;C\x07");
+        let revision = tracker.revision();
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+
+        tracker.feed(b"\x1b]133;Agarbage\x1b\\");
+
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+        assert_eq!(tracker.revision(), revision);
+
+        tracker.feed(b"\x1b]133;A;redraw=1\x1b\\");
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Prompt);
+        assert_eq!(tracker.revision(), revision.wrapping_add(1));
+    }
+
+    #[test]
+    fn live_output_phase_overrides_persisted_prompt_rows() {
+        let mut terminal = Terminal::new(20, 4, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07command");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\r\n\x1b]133;C\x07output\x1b[A\r");
+
+        assert!(!terminal.cursor_is_at_prompt());
     }
 
     #[test]
