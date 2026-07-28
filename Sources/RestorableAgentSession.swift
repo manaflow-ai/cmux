@@ -777,8 +777,12 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         allowOversizedInlineInput: Bool = false,
         requireLauncherScript: Bool = false
     ) -> String? {
-        startupInput(
-            command: resumeCommand,
+        let restoreCommand = resumeCommand.map { command in
+            AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
+                .applying(toStoredCommand: command) ?? command
+        }
+        return startupInput(
+            command: restoreCommand,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript,
