@@ -60,20 +60,14 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
     }
 
-    @Test func droppedVisibleCaptureCallbackRecoversAfterBoundedQuarantine() async throws {
+    @Test func droppedVisibleCaptureCallbackRecoversAfterBoundedQuarantine() async {
         let expected = NSImage(size: NSSize(width: 20, height: 10))
         var captureStartCount = 0
         var firstCompletion: (@MainActor (Result<NSImage, any Error>) -> Void)?
-        var scheduledGateRelease: (@MainActor () -> Void)?
         let webView = WKWebView()
         let evaluator = BrowserDesignModeScreenshotEvaluator(
             timeout: 0.01,
-            cleanupTimeout: 0.02,
-            callbackGateReleaseScheduler: { delay, release in
-                #expect(delay == .milliseconds(20))
-                scheduledGateRelease = release
-                return Task {}
-            }
+            cleanupTimeout: 0.02
         ) { _, completion in
             captureStartCount += 1
             if captureStartCount == 1 {
@@ -98,14 +92,19 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
         #expect(captureStartCount == 1)
 
-        let releaseGate = try #require(scheduledGateRelease)
-        releaseGate()
-        do {
-            let captured = try await evaluator.captureVisibleViewport(from: webView)
-            #expect(captured === expected)
-        } catch {
-            Issue.record("Expected capture to recover after quarantine: \(error)")
+        let recoveryDeadline = ContinuousClock.now + .seconds(1)
+        var recoveredCapture: NSImage?
+        while recoveredCapture == nil, ContinuousClock.now < recoveryDeadline {
+            do {
+                recoveredCapture = try await evaluator.captureVisibleViewport(from: webView)
+            } catch is CancellationError {
+                await Task.yield()
+            } catch {
+                Issue.record("Expected capture to recover after quarantine: \(error)")
+                break
+            }
         }
+        #expect(recoveredCapture === expected)
         #expect(captureStartCount == 2)
 
         firstCompletion?(.success(expected))

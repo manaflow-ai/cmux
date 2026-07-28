@@ -6,7 +6,7 @@ extension TabManager {
         panelId: UUID,
         exitCode: Int?
     ) {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }),
+        guard let workspace = workspacesById[workspaceId],
               workspace.panels[panelId] is TerminalPanel else {
             return
         }
