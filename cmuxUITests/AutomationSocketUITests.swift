@@ -1,5 +1,7 @@
 import XCTest
 import Foundation
+import CoreGraphics
+import ImageIO
 import Darwin
 
 final class AutomationSocketUITests: XCTestCase {
@@ -223,6 +225,179 @@ final class AutomationSocketUITests: XCTestCase {
 
         let typedTitles = typedState["mention_titles"] as? [String] ?? []
         XCTAssertEqual(typedTitles.first, "$iterate-pr")
+    }
+
+    func testWindowScreenshotCommandWritesNonBlankPNGWithTerminalContent() throws {
+        let app = configuredApp(mode: "allowAll")
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-NSAppSleepDisabled", "YES",
+        ]
+        defer { app.terminate() }
+
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for the window screenshot test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
+        )
+
+        let marker = "CMUX_SCREENSHOT_MARKER_9065"
+        let markerCommand = """
+        i=0; while [ $i -lt 8 ]; do printf '\\033[48;2;245;40;210m%-80s\\033[0m\\n' '\(marker)'; i=$((i+1)); done; sleep 60
+        """
+        let workspace = try XCTUnwrap(
+            socketResult(
+                method: "workspace.create",
+                params: [
+                    "title": "Window screenshot regression",
+                    "initial_command": markerCommand,
+                    "focus": true,
+                ]
+            ),
+            "Expected workspace.create to return the marker terminal"
+        )
+        let surfaceID = try XCTUnwrap(
+            workspace["surface_id"] as? String,
+            "Expected workspace.create to return a surface id"
+        )
+        XCTAssertTrue(
+            waitForTerminalText(marker, surfaceID: surfaceID, timeout: 12.0),
+            "Expected marker text to render before taking the screenshot"
+        )
+
+        app.activate()
+        XCTAssertTrue(
+            app.windows.firstMatch.waitForExistence(timeout: 5.0),
+            "Expected the main window to exist before taking the screenshot"
+        )
+
+        let screenshot = try XCTUnwrap(
+            socketResult(
+                method: "debug.window.screenshot",
+                params: ["label": "issue-9065-window"]
+            ),
+            "Expected debug.window.screenshot to succeed"
+        )
+        let path = try XCTUnwrap(screenshot["path"] as? String)
+        let screenshotURL = URL(fileURLWithPath: path)
+        defer { try? FileManager.default.removeItem(at: screenshotURL) }
+
+        let pngData = try Data(contentsOf: screenshotURL)
+        XCTAssertGreaterThan(pngData.count, 1_024, "Expected a non-empty PNG file")
+        XCTAssertTrue(
+            pngData.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+            "Expected the screenshot command to write PNG data"
+        )
+
+        let stats = try XCTUnwrap(windowScreenshotPixelStats(pngData))
+        XCTAssertGreaterThan(stats.width, 500, "Expected a main-window-sized screenshot")
+        XCTAssertGreaterThan(stats.height, 300, "Expected a main-window-sized screenshot")
+        XCTAssertGreaterThan(
+            stats.uniqueQuantizedColors,
+            8,
+            "Expected a non-blank, non-solid main window screenshot"
+        )
+        XCTAssertGreaterThan(
+            stats.markerPixels,
+            100,
+            "Expected the screenshot to include the terminal's magenta marker content"
+        )
+    }
+
+    private struct WindowScreenshotPixelStats {
+        let width: Int
+        let height: Int
+        let uniqueQuantizedColors: Int
+        let markerPixels: Int
+    }
+
+    private func waitForTerminalText(
+        _ expectedText: String,
+        surfaceID: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let result = socketResult(
+                method: "surface.read_text",
+                params: ["surface_id": surfaceID]
+            ),
+               let text = result["text"] as? String,
+               text.contains(expectedText) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return false
+    }
+
+    private func windowScreenshotPixelStats(_ pngData: Data) -> WindowScreenshotPixelStats? {
+        guard let source = CGImageSourceCreateWithData(pngData as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
+        }
+
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else { return nil }
+
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        let decoded = pixels.withUnsafeMutableBytes { rawBuffer -> Bool in
+            guard let baseAddress = rawBuffer.baseAddress,
+                  let context = CGContext(
+                      data: baseAddress,
+                      width: width,
+                      height: height,
+                      bitsPerComponent: 8,
+                      bytesPerRow: bytesPerRow,
+                      space: CGColorSpaceCreateDeviceRGB(),
+                      bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue
+                          | CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else {
+                return false
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard decoded else { return nil }
+
+        var uniqueQuantizedColors = Set<UInt16>()
+        var markerPixels = 0
+        let sampleStep = 2
+        for y in stride(from: 0, to: height, by: sampleStep) {
+            let row = y * bytesPerRow
+            for x in stride(from: 0, to: width, by: sampleStep) {
+                let index = row + x * bytesPerPixel
+                let red = pixels[index]
+                let green = pixels[index + 1]
+                let blue = pixels[index + 2]
+                let alpha = pixels[index + 3]
+
+                if alpha > 16 {
+                    let key = (UInt16(red >> 4) << 8)
+                        | (UInt16(green >> 4) << 4)
+                        | UInt16(blue >> 4)
+                    uniqueQuantizedColors.insert(key)
+                }
+                if red > 200, green < 110, blue > 150, alpha > 200 {
+                    markerPixels += 1
+                }
+            }
+        }
+
+        return WindowScreenshotPixelStats(
+            width: width,
+            height: height,
+            uniqueQuantizedColors: uniqueQuantizedColors.count,
+            markerPixels: markerPixels
+        )
     }
 
     private func configuredApp(mode: String) -> XCUIApplication {
