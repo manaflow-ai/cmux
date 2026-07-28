@@ -1,6 +1,30 @@
+import Bonsplit
 import Foundation
 
 extension Workspace {
+    func configureForkAgentConversationContextMenuAvailability() {
+        bonsplitController.tabContextForkConversationAvailabilityProvider = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return .hidden }
+            switch self.forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId) {
+            case .available:
+                return .available
+            case .agentIndexRefreshing:
+                return .refreshing
+            case .notTerminalPanel,
+                 .noAgentSnapshot,
+                 .unsupported,
+                 .requiresProbe:
+                return .hidden
+            }
+        }
+        bonsplitController.tabContextForkConversationAvailabilityRefreshHandler = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return }
+            await self.resolveForkAgentConversationContextMenuAvailability(forPanelId: panelId)
+        }
+    }
+
     func forkAgentConversationContextMenuAvailability(
         forPanelId panelId: UUID
     ) -> WorkspaceForkAgentConversationAvailability {
@@ -62,6 +86,24 @@ extension Workspace {
         return forkAgentConversationContextMenuOpenAvailability(
             forPanelId: panelId,
             liveAgentIndex: liveAgentIndex
+        )
+    }
+
+    func resolveForkAgentConversationContextMenuAvailability(
+        forPanelId panelId: UUID,
+        liveAgentIndex: SharedLiveAgentIndex = .shared
+    ) async {
+        let selection = forkAgentConversationContextMenuOpenSelection(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
+        )
+        guard selection.availability == .agentIndexRefreshing else { return }
+
+        await liveAgentIndex.refreshForkAvailabilityNow(
+            workspaceId: id,
+            panelId: panelId,
+            isRemoteContext: isRemoteTerminalSurface(panelId),
+            fallbackSnapshot: selection.validationFallbackSnapshot
         )
     }
 
