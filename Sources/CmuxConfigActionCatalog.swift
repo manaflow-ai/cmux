@@ -4,6 +4,9 @@
 /// window/workspace/panel target. Resolving a background workspace therefore
 /// never changes the selected workspace or the store's published live config.
 struct CmuxConfigActionCatalog: Sendable {
+    /// Normalized directory used to resolve this immutable catalog. Configured
+    /// actions keep this list-time base instead of consulting later focus state.
+    let executionBaseDirectory: String?
     let loadedCommands: [CmuxCommandDefinition]
     let loadedActions: [CmuxResolvedConfigAction]
     let commandSourcePaths: [String: String]
@@ -28,8 +31,10 @@ struct CmuxConfigActionCatalog: Sendable {
         configuredNewWorkspaceActionID: String?,
         configuredNewWorkspaceActionSourcePath: String?,
         configuredNewWorkspaceCommandName: String?,
-        configuredNewWorkspaceCommandSourcePath: String?
+        configuredNewWorkspaceCommandSourcePath: String?,
+        executionBaseDirectory: String? = nil
     ) {
+        self.executionBaseDirectory = executionBaseDirectory
         self.loadedCommands = loadedCommands
         self.loadedActions = loadedActions
         self.commandSourcePaths = commandSourcePaths

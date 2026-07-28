@@ -2096,7 +2096,10 @@ final class CmuxConfigStore: ObservableObject {
         case .unreadable:
             return .init(
                 config: nil,
-                issue: backgroundSchemaIssue(path: path, message: "cmux.json is empty"),
+                issue: backgroundSchemaIssue(
+                    path: path,
+                    message: actionCatalogUnreadableMessage()
+                ),
                 contentDigest: "<unreadable>"
             )
         case .tooLarge:
@@ -2118,7 +2121,10 @@ final class CmuxConfigStore: ObservableObject {
         guard !data.isEmpty else {
             return .init(
                 config: nil,
-                issue: backgroundSchemaIssue(path: path, message: "cmux.json is empty"),
+                issue: backgroundSchemaIssue(
+                    path: path,
+                    message: actionCatalogEmptyMessage()
+                ),
                 contentDigest: contentDigest
             )
         }
@@ -2130,7 +2136,9 @@ final class CmuxConfigStore: ObservableObject {
                 config: nil,
                 issue: backgroundSchemaIssue(
                     path: path,
-                    message: "JSONC preprocessing failed: \(backgroundSchemaErrorMessage(error))"
+                    message: actionCatalogJSONCPreprocessingMessage(
+                        detail: backgroundSchemaErrorMessage(error)
+                    )
                 ),
                 contentDigest: contentDigest
             )
@@ -2170,6 +2178,39 @@ final class CmuxConfigStore: ObservableObject {
             comment: "Config error when cmux.json exceeds the action catalog byte limit"
         )
         return String(format: format, Int64(maximumBytes))
+    }
+
+    nonisolated static func actionCatalogUnreadableMessage() -> String {
+        String(
+            localized: "config.actionCatalog.error.unreadable",
+            defaultValue: "cmux.json could not be read",
+            table: nil,
+            bundle: .main,
+            comment: "Config error when cmux.json exists but cannot be read"
+        )
+    }
+
+    nonisolated static func actionCatalogEmptyMessage() -> String {
+        String(
+            localized: "config.actionCatalog.error.empty",
+            defaultValue: "cmux.json is empty",
+            table: nil,
+            bundle: .main,
+            comment: "Config error when cmux.json contains no bytes"
+        )
+    }
+
+    nonisolated static func actionCatalogJSONCPreprocessingMessage(
+        detail: String
+    ) -> String {
+        let format = String(
+            localized: "config.actionCatalog.error.jsoncPreprocessing",
+            defaultValue: "JSONC preprocessing failed: %@",
+            table: nil,
+            bundle: .main,
+            comment: "Config error when JSON-with-comments preprocessing fails"
+        )
+        return String(format: format, detail)
     }
 
     private nonisolated static func actionCatalogSourceFingerprint(
@@ -2234,13 +2275,19 @@ final class CmuxConfigStore: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    func actionCatalog(from source: CmuxConfigActionCatalogSource) -> CmuxConfigActionCatalog {
+    func actionCatalog(
+        from source: CmuxConfigActionCatalogSource,
+        startingFrom directory: String?
+    ) -> CmuxConfigActionCatalog {
         return resolveActionCatalog(
             localConfig: source.local?.config,
             localIssue: source.local?.issue,
             localPath: source.localPath,
             globalConfig: source.global.config,
-            globalIssue: source.global.issue
+            globalIssue: source.global.issue,
+            executionBaseDirectory: Self.normalizedActionCatalogDirectory(
+                startingFrom: directory
+            )
         )
     }
 
@@ -2670,7 +2717,7 @@ final class CmuxConfigStore: ObservableObject {
             self.actionCatalogRefreshTokens.removeValue(forKey: key)
             guard !Task.isCancelled else { return nil }
             let snapshot = self.storeActionCatalogSnapshot(
-                self.actionCatalog(from: source),
+                self.actionCatalog(from: source, startingFrom: directory),
                 forKey: key,
                 sourceFingerprint: source.fingerprint
             )
@@ -2716,7 +2763,8 @@ final class CmuxConfigStore: ObservableObject {
         localIssue: CmuxConfigIssue?,
         localPath: String?,
         globalConfig: CmuxConfigFile?,
-        globalIssue: CmuxConfigIssue?
+        globalIssue: CmuxConfigIssue?,
+        executionBaseDirectory: String? = nil
     ) -> CmuxConfigActionCatalog {
         var commands: [CmuxCommandDefinition] = []
         var seenNames = Set<String>()
@@ -2798,7 +2846,8 @@ final class CmuxConfigStore: ObservableObject {
             configuredNewWorkspaceActionID: configuredNewWorkspaceActionID,
             configuredNewWorkspaceActionSourcePath: configuredNewWorkspaceActionSourcePath,
             configuredNewWorkspaceCommandName: configuredNewWorkspaceCommandName,
-            configuredNewWorkspaceCommandSourcePath: configuredNewWorkspaceCommandSourcePath
+            configuredNewWorkspaceCommandSourcePath: configuredNewWorkspaceCommandSourcePath,
+            executionBaseDirectory: executionBaseDirectory
         )
     }
 
@@ -2822,7 +2871,10 @@ final class CmuxConfigStore: ObservableObject {
             localIssue: localParseResult?.issue,
             localPath: localPath,
             globalConfig: globalConfig,
-            globalIssue: globalParseResult.issue
+            globalIssue: globalParseResult.issue,
+            executionBaseDirectory: Self.normalizedActionCatalogDirectory(
+                startingFrom: localConfigSearchDirectory
+            )
         )
         let activeCatalogDirectory = localConfigSearchDirectory
         let activeCatalogKey = Self.actionCatalogCacheKey(
@@ -3859,9 +3911,30 @@ final class CmuxConfigStore: ObservableObject {
 
         let rawData = fileManager.contents(atPath: path)
         let contentDigest = rawData.map(Self.actionCatalogContentDigest) ?? "<unreadable>"
-        guard let data = rawData,
-              !data.isEmpty else {
-            let issue = schemaIssue(path: path, message: "cmux.json is empty")
+        guard let data = rawData else {
+            let issue = schemaIssue(
+                path: path,
+                message: Self.actionCatalogUnreadableMessage()
+            )
+            parsedConfigCache[path] = ParsedConfigCacheEntry(
+                fileSize: fileSize,
+                modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
+                contentDigest: contentDigest,
+                config: nil,
+                issue: issue
+            )
+            return ParsedConfigResult(
+                config: nil,
+                issue: issue,
+                contentDigest: contentDigest
+            )
+        }
+        guard !data.isEmpty else {
+            let issue = schemaIssue(
+                path: path,
+                message: Self.actionCatalogEmptyMessage()
+            )
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
@@ -3880,7 +3953,12 @@ final class CmuxConfigStore: ObservableObject {
         do {
             sanitized = try JSONCParser.preprocess(data: data)
         } catch {
-            let issue = schemaIssue(path: path, message: "JSONC preprocessing failed: \(schemaErrorMessage(error))")
+            let issue = schemaIssue(
+                path: path,
+                message: Self.actionCatalogJSONCPreprocessingMessage(
+                    detail: schemaErrorMessage(error)
+                )
+            )
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,

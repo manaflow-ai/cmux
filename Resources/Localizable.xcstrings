@@ -83711,6 +83711,40 @@
         }
       }
     },
+    "config.actionCatalog.error.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json is empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json は空です"
+          }
+        }
+      }
+    },
+    "config.actionCatalog.error.jsoncPreprocessing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSONC preprocessing failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSONC の前処理に失敗しました: %@"
+          }
+        }
+      }
+    },
     "config.actionCatalog.error.tooLarge": {
       "extractionState": "manual",
       "localizations": {
@@ -83724,6 +83758,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux.json はアクションカタログの上限（%lld バイト）を超えています"
+          }
+        }
+      }
+    },
+    "config.actionCatalog.error.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json could not be read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json を読み込めませんでした"
           }
         }
       }

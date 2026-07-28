@@ -623,7 +623,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
         guard let resolvedTarget else {
             drainPreparedTextBoxAttachmentRequests()
-            return .queued
+            return .insertionFailed
         }
 
         let preparationTask = Task { [weak self] in

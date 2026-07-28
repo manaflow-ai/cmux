@@ -16450,10 +16450,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return .failed
             }
-            let rawCwd = if let panelID = target?.panelID {
-                targetWorkspace?.resolvedWorkingDirectory(panelID: panelID)
+            let rawCwd: String?
+            if let catalogDirectory = configCatalog?.executionBaseDirectory {
+                rawCwd = catalogDirectory
+            } else if let panelID = target?.panelID {
+                rawCwd = targetWorkspace?.resolvedWorkingDirectory(panelID: panelID)
             } else {
-                targetWorkspace?.resolvedWorkingDirectory()
+                rawCwd = targetWorkspace?.resolvedWorkingDirectory()
             }
             let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
                 : FileManager.default.homeDirectoryForCurrentUser.path
