@@ -91,7 +91,7 @@ actor SimulatorAccessibilityExecutor: SimulatorAccessibilityExecuting {
         }
         return try await mutationGate.withLocks([
             .accessibility(deviceIdentifier: attachedDeviceIdentifier),
-        ]) {
+        ], isolation: self) {
             var lastFailure: SimulatorWorkerFailure?
             for delay in Self.retryDelays {
                 try Task.checkCancellation()
