@@ -27,9 +27,9 @@ Navigation swipes, scrolling, editable focus, popups, and ordinary browser point
 
 ## TDD coverage
 
-The tests were committed before the implementation and cover:
+The zoom-behavior tests were committed failing before the implementation. After implementation, a responder-boundary regression was added to exercise `CmuxWebView.magnify(with:)` directly with a controlled synthetic `NSEvent`. The final focused suite covers:
 
-1. Direct invocation of `CmuxWebView.magnify(with:)` using a controlled synthetic `NSEvent`, including routing only when a handler is installed.
+1. Event-delta routing only when a browser handler is installed.
 2. Positive and negative deltas applied to the current zoom.
 3. Rejection of `NaN` and infinity plus reuse of existing bounds.
 4. Preservation of the 4096 × 4096 automation viewport render limit.
@@ -37,21 +37,21 @@ The tests were committed before the implementation and cover:
 
 ## CI evidence
 
-The focused `BrowserPanelTrackpadMagnificationTests` suite passed all five cases on macOS 15 in [compatibility run 30202672962](https://github.com/usr-bin-roygbiv/cmux/actions/runs/30202672962). The full run was not green: other suites later reported failures, and the macOS 15 job was cancelled at its 60-minute limit while `GlobalSearchShortcutSettingsTests` was running. The macOS 14 matrix job reported failure without recording any steps or logs.
+At exact head `dcf0d6bf18`, the focused `BrowserPanelTrackpadMagnificationTests` suite passed all cases on GitHub-hosted macOS 15 in run `30228023992`. The selected-test step was green. The workflow's overall conclusion was failure only because the subsequent result-publishing step could not create its external record from a fork context.
 
-The repository's standard [CI run 30202484638](https://github.com/usr-bin-roygbiv/cmux/actions/runs/30202484638) stopped in its workflow guard before macOS tests because the compared upstream history changed iOS SwiftPM dependencies without matching `Package.resolved` changes. That pre-existing policy failure is outside this browser-only diff.
+This was a focused contract run, not a claim that the repository-wide suite passed.
 
 ## Tagged application smoke
 
-A tagged macOS application was built from implementation commit `b32f332070` by [workflow run 30202484640](https://github.com/usr-bin-roygbiv/cmux/actions/runs/30202484640).
+Run `30228024007` built exact head `dcf0d6bf18` as the tagged macOS application `cmux DEV pinch-zoom-final-dcf0d6b`.
 
-The application was launched on an Apple Silicon laptop running macOS 15.7.5 against a deterministic local HTML fixture. The smoke used the same `WKWebView.pageZoom` mutation pipeline exposed to the gesture bridge:
+The exact artifact was launched on an Apple Silicon laptop running macOS 15.7.5 against a deterministic local HTML fixture. The smoke used the same `WKWebView.pageZoom` mutation pipeline exposed to the gesture bridge:
 
 | Observation | Reset | Three zoom-in steps | Reset after zoom |
 |---|---:|---:|---:|
 | CSS viewport width | 760 px | 584 px | 760 px |
 | CSS viewport height | 610 px | 469 px | 610 px |
-| Browser-owned PNG size | 17,688 bytes | 19,367 bytes | — |
+| Browser-owned PNG size | 50,781 bytes | 53,987 bytes | — |
 
 All smoke assertions passed:
 
