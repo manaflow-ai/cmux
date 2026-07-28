@@ -489,12 +489,19 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     func setActivePane(_ paneId: Int, fromTmux: Bool) {
         guard layout.paneIDsInOrder.contains(paneId) else { return }
         if !fromTmux {
+            if pendingControlPaneFocusRequest?.paneID == paneId {
+                projectActivePane(paneId)
+                return
+            }
+            cancelPendingControlPaneFocus(competingPaneID: paneId)
             cancelPendingCreatedPaneFocus(competingPaneID: paneId)
-            _ = controlFocus(pane: paneId)
-            return
         }
         projectActivePane(paneId)
-        resolvePendingControlPaneFocus(authoritativePaneID: paneId)
+        if fromTmux {
+            resolvePendingControlPaneFocus(authoritativePaneID: paneId)
+        } else {
+            connection?.send("select-pane -t @\(windowId).%\(paneId)")
+        }
     }
 
     /// Records the user-focused pane and asks tmux to make it active.

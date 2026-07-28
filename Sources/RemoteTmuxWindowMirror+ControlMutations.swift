@@ -59,6 +59,11 @@ extension RemoteTmuxWindowMirror {
         request.completions.forEach { $0(true) }
     }
 
+    func cancelPendingControlPaneFocus(competingPaneID: Int) {
+        guard pendingControlPaneFocusRequest?.paneID != competingPaneID else { return }
+        cancelPendingControlPaneFocus()
+    }
+
     func cancelPendingControlPaneFocus() {
         guard let request = pendingControlPaneFocusRequest else { return }
         pendingControlPaneFocusRequest = nil

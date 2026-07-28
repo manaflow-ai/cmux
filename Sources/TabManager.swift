@@ -291,6 +291,7 @@ class TabManager: ObservableObject {
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
+            pendingProjectedNotificationFocusRequestID = nil
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()
             }
@@ -385,6 +386,7 @@ class TabManager: ObservableObject {
     // their seams, and forwards its legacy entry points.
     /// Per-panel notification-dismissal flow (CmuxNotifications).
     let notificationDismissal: any NotificationDismissing = NotificationDismissalModel()
+    private var pendingProjectedNotificationFocusRequestID: UUID?
     /// Recently-closed browser panel history (CmuxBrowser).
     let browserModel = BrowserModel<ClosedBrowserPanelRestoreSnapshot>()
     /// Sidebar multi-selection state + sync events (CmuxSidebar).
@@ -3443,45 +3445,36 @@ class TabManager: ObservableObject {
         if let surfaceId,
            let location = tab.remoteTmuxControlPane(surfaceID: surfaceId),
            location.containerPanelID != surfaceId {
-            var didPresentOptimisticFocus = false
-            var synchronousConfirmation: Bool?
+            let requestID = UUID()
+            pendingProjectedNotificationFocusRequestID = requestID
             let accepted = location.controlFocus { [weak self] confirmed in
                 guard let self else { return }
-                guard didPresentOptimisticFocus else {
-                    synchronousConfirmation = confirmed
-                    return
-                }
+                guard self.pendingProjectedNotificationFocusRequestID == requestID else { return }
+                self.pendingProjectedNotificationFocusRequestID = nil
                 guard confirmed else { return }
+
+                // Present and dismiss only after tmux publishes the requested
+                // pane as authoritative. Until then, the mirror's optimistic
+                // projection routes input without focusing a stale pane.
+                tab.clearSplitZoom()
+                self.notificationDismissal.setSuppressesFocusFlash(true)
+                self.focusTab(
+                    tabId,
+                    surfaceId: surfaceId,
+                    suppressFlash: true,
+                    focusPanelIdOverride: location.containerPanelID
+                )
+                self.notificationDismissal.setSuppressesFocusFlash(false)
                 _ = self.dismissNotificationOnDirectInteraction(
                     tabId: tabId,
                     surfaceId: surfaceId
                 )
             }
-            guard accepted else { return false }
-
-            // The mirror has already projected the requested pane
-            // optimistically. Focus the stable outer container without
-            // issuing a second select-pane, and keep automatic visibility
-            // dismissal suppressed until the selection side effect consumes
-            // the latch.
-            let wasAlreadySelected = selectedTabId == tabId
-            tab.clearSplitZoom()
-            notificationDismissal.setSuppressesFocusFlash(true)
-            focusTab(
-                tabId,
-                surfaceId: surfaceId,
-                suppressFlash: true,
-                focusPanelIdOverride: location.containerPanelID
-            )
-            if wasAlreadySelected {
-                notificationDismissal.setSuppressesFocusFlash(false)
-            }
-            didPresentOptimisticFocus = true
-            if synchronousConfirmation == true {
-                _ = dismissNotificationOnDirectInteraction(
-                    tabId: tabId,
-                    surfaceId: surfaceId
-                )
+            if !accepted {
+                if pendingProjectedNotificationFocusRequestID == requestID {
+                    pendingProjectedNotificationFocusRequestID = nil
+                }
+                return false
             }
             return true
         }
