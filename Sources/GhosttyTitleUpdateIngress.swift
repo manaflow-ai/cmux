@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxTerminalCore
 import Foundation
 
 /// Synchronous callback ingress: duplicate titles are rejected before an
@@ -58,13 +59,19 @@ final class GhosttyTitleUpdateIngress {
     }
 
     /// Returns false only when the update duplicates the callback-local
-    /// snapshot or the ingress has already terminated.
+    /// snapshot, is a label-less spinner frame, or the ingress has already
+    /// terminated.
     @discardableResult
     func submit(tabId: UUID, surfaceId: UUID, sourceSurface: AnyObject, title: String) -> Bool {
+        // Collapse spinner-frame churn before dedup: animated frames like
+        // "⠋ Working…" / "⠙ Working…" differ every frame, so without the
+        // collapse the duplicate guard below never fires and each frame pays
+        // a yield + global-executor enqueue on the main thread.
+        guard let stableTitle = TerminalTitleChurnFilter.stableTitle(for: title) else { return false }
         let update = GhosttyTitleUpdate(
             tabId: tabId,
             surfaceId: surfaceId,
-            title: title,
+            title: stableTitle,
             sourceSurfaceIdentifier: ObjectIdentifier(sourceSurface),
             attachmentGeneration: attachmentGeneration.loadRelaxed()
         )
