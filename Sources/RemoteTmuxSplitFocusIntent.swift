@@ -8,7 +8,9 @@ enum RemoteTmuxSplitFocusIntent: Sendable, Equatable {
     case focusCreatedPane
 
     func command(vertical: Bool, windowID: Int, paneID: Int) -> String {
-        let detached = self == .preserveActivePane ? " -d" : ""
-        return "split-window\(detached) \(vertical ? "-v" : "-h") -t @\(windowID).%\(paneID)"
+        let focusContract = self == .preserveActivePane
+            ? "-d"
+            : "-P -F '#{pane_id}'"
+        return "split-window \(focusContract) \(vertical ? "-v" : "-h") -t @\(windowID).%\(paneID)"
     }
 }

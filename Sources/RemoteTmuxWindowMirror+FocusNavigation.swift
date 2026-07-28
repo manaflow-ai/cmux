@@ -98,20 +98,23 @@ extension RemoteTmuxWindowMirror {
         }
     }
 
-    func noteAuthoritativeCreatedPaneCandidate(paneID: Int) {
-        guard !pendingCreatedPaneFocusRequests.contains(where: {
-            $0.candidatePaneID == paneID
-        }) else {
-            completePendingCreatedPaneFocusIfMounted()
-            return
-        }
+    /// Binds a pending handoff to the stable pane id printed by that request's
+    /// own `split-window` result block. A nil/malformed/error result cancels the
+    /// request; topology publications are never used to guess ownership.
+    func resolvePendingCreatedPaneFocus(requestID: UUID, createdPaneID: Int?) {
         guard let index = pendingCreatedPaneFocusRequests.firstIndex(where: {
-            $0.candidatePaneID == nil && !$0.preexistingPaneIDs.contains(paneID)
-        }) else {
+            $0.requestID == requestID
+        }) else { return }
+        guard let createdPaneID,
+              !pendingCreatedPaneFocusRequests[index].preexistingPaneIDs.contains(createdPaneID),
+              !pendingCreatedPaneFocusRequests.contains(where: {
+                  $0.requestID != requestID && $0.candidatePaneID == createdPaneID
+              }) else {
+            pendingCreatedPaneFocusRequests.remove(at: index)
             completePendingCreatedPaneFocusIfMounted()
             return
         }
-        pendingCreatedPaneFocusRequests[index].candidatePaneID = paneID
+        pendingCreatedPaneFocusRequests[index].candidatePaneID = createdPaneID
         completePendingCreatedPaneFocusIfMounted()
     }
 
@@ -120,10 +123,8 @@ extension RemoteTmuxWindowMirror {
             pendingCreatedPaneFocusRequests.removeAll {
                 $0.candidatePaneID.map { $0 != authoritativePaneID } ?? false
             }
-            noteAuthoritativeCreatedPaneCandidate(paneID: authoritativePaneID)
-        } else {
-            completePendingCreatedPaneFocusIfMounted()
         }
+        completePendingCreatedPaneFocusIfMounted()
     }
 
     func handlePaneSurfaceProgress() {
@@ -142,8 +143,7 @@ extension RemoteTmuxWindowMirror {
             }
             guard activePaneId == paneID,
                   window.isKeyWindow else {
-                pendingCreatedPaneFocusRequests.removeFirst()
-                continue
+                return
             }
             focusBonsplitPane(forTmuxPane: paneID)
             guard bonsplitController.focusedPaneId.flatMap({ paneIdByBonsplitPane[$0] }) == paneID else {

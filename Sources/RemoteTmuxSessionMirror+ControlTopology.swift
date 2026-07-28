@@ -223,9 +223,11 @@ extension RemoteTmuxSessionMirror {
             return connection.send(command)
         }
         let requestID = UUID()
-        let accepted = connection.sendTracked(command) { [weak windowMirror] succeeded in
-            guard !succeeded else { return }
-            windowMirror?.cancelPendingCreatedPaneFocus(requestID: requestID)
+        let accepted = connection.sendNewPane(command) { [weak windowMirror] paneID in
+            windowMirror?.resolvePendingCreatedPaneFocus(
+                requestID: requestID,
+                createdPaneID: paneID
+            )
         }
         if accepted {
             windowMirror.noteCreatedPaneFocusRequestAccepted(requestID: requestID)

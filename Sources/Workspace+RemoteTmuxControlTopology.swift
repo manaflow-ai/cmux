@@ -168,7 +168,11 @@ extension Workspace {
         if remoteTmuxMirrorMutations.suppressesFocusActivation { return true }
         guard let location = remoteTmuxControlPane(surfaceID: panelId),
               location.containerPanelID != panelId else { return false }
-        _ = location.controlFocus()
+        // The projected pane does not participate in the workspace's Bonsplit
+        // tree. If tmux cannot accept select-pane, consume the request without
+        // activating the container: doing so would visibly focus whichever
+        // different pane was last active in that window.
+        guard location.controlFocus() else { return true }
         focusPanel(
             location.containerPanelID,
             previousHostedView: previousHostedView,
