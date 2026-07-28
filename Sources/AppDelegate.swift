@@ -17256,6 +17256,12 @@ private extension NSWindow {
             return false
         }
         if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
+        if let firstResponderApplicationCaptureView,
+           shouldRouteApplicationCommandEquivalentThroughContentFirst(event) {
+            return firstResponderApplicationCaptureView.performKeyEquivalent(
+                with: event
+            )
+        }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -17264,12 +17270,6 @@ private extension NSWindow {
                 preferredWindow: self
             )
             return true
-        }
-        if let firstResponderApplicationCaptureView,
-           shouldRouteApplicationCommandEquivalentThroughContentFirst(event) {
-            return firstResponderApplicationCaptureView.performKeyEquivalent(
-                with: event
-            )
         }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
             if AppDelegate.shared?.handleFocusedFileExplorerOpenSelectionShortcut(event, preferredWindow: self) == true {
