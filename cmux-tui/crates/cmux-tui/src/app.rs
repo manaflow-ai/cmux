@@ -1049,6 +1049,10 @@ impl OrderedSession {
         self.inner.tree()
     }
 
+    fn refresh_tree(&self) -> anyhow::Result<TreeView> {
+        self.inner.refresh_tree()
+    }
+
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
         self.inner.respond_pairing(request, approve)
     }
@@ -5988,23 +5992,30 @@ impl App {
         self.rebuild_tab_locations();
     }
     fn close_established_exited_surface(&self, surface: SurfaceId) {
-        let workspace = self
-            .tab_locations
-            .get(&surface)
-            .and_then(|[workspace, ..]| self.tree.workspaces.get(*workspace))
-            .map(|workspace| {
+        let workspace = self.session.refresh_tree().ok().and_then(|tree| {
+            tree.workspaces.into_iter().find_map(|workspace| {
+                let contains_surface = workspace
+                    .screens
+                    .iter()
+                    .flat_map(|screen| &screen.panes)
+                    .flat_map(|pane| &pane.tabs)
+                    .any(|tab| tab.surface == surface);
+                if !contains_surface {
+                    return None;
+                }
                 let surface_count = workspace
                     .screens
                     .iter()
                     .flat_map(|screen| &screen.panes)
                     .map(|pane| pane.tabs.len())
                     .sum::<usize>();
-                (workspace.id, surface_count)
-            });
+                Some((workspace.id, surface_count))
+            })
+        });
         match workspace {
             Some((workspace, 1)) => self.session.close_workspace(workspace),
             _ => self.session.close_surface(surface),
-        }
+        };
     }
 
     fn apply_session_completions_through(&mut self, authoritative_generation: u64) {
@@ -17777,6 +17788,42 @@ mod tests {
             state.workspaces.iter().all(|candidate| candidate.id != workspace)
         }));
     }
+
+    #[test]
+    fn established_child_exit_preserves_concurrently_added_tab() {
+        let mux = Mux::new(
+            "established-child-exit-multi-tab-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let exited = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let pane = mux.with_state(|state| state.pane_of(exited.id).unwrap());
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let surviving = mux.new_tab(Some(pane), None, Some((20, 8))).unwrap();
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: exited.id,
+                runtime_ms: Some(251),
+            }))
+            .unwrap(),
+            RenderAction::Draw
+        );
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+
+        assert!(mux.surface(exited.id).is_none());
+        assert!(mux.surface(surviving.id).is_some());
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().any(|candidate| candidate.id == workspace)
+        }));
+        mux.close_surface(surviving.id).unwrap();
+    }
     #[test]
     fn surface_only_attach_tombstones_an_established_exited_shell() {
         let mux = Mux::new(
@@ -17808,6 +17855,38 @@ mod tests {
         assert!(mux.with_state(|state| {
             state.workspaces.iter().all(|candidate| candidate.id != workspace)
         }));
+    }
+
+    #[test]
+    fn surface_only_startup_failure_quits_without_tombstoning_surface() {
+        let mux = Mux::new(
+            "surface-only-startup-failure-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.surface_only = Some(surface.id);
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: surface.id,
+                runtime_ms: Some(250),
+            }))
+            .unwrap(),
+            RenderAction::None
+        );
+
+        assert!(app.quit);
+        assert!(mux.surface(surface.id).is_some());
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().any(|candidate| candidate.id == workspace)
+        }));
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
