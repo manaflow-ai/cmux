@@ -99,6 +99,100 @@ struct ApplicationSurfaceTests {
         #expect(pressed.isEmpty)
     }
 
+    @Test func inputPumpRejectsNonMotionEventsBeyondItsBound() async {
+        var delivered: [ApplicationSurfaceInputEvent] = []
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { event in
+            delivered.append(event)
+            return true
+        }
+        let first = ApplicationSurfaceInputEvent(kind: .key, keyCode: 1, keyDown: true)
+        let second = ApplicationSurfaceInputEvent(kind: .scroll, deltaY: 1)
+        let rejected = ApplicationSurfaceInputEvent(kind: .key, keyCode: 2, keyDown: true)
+
+        #expect(pump.enqueue(first) == .accepted)
+        #expect(pump.enqueue(second) == .accepted)
+        #expect(pump.enqueue(rejected) == .full)
+        await pump.waitUntilIdle()
+
+        #expect(delivered == [first, second])
+    }
+
+    @Test func inputPumpQueuesNamedKeyPairAtomically() async {
+        var delivered: [ApplicationSurfaceInputEvent] = []
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 1) { event in
+            delivered.append(event)
+            return true
+        }
+        let keyDown = ApplicationSurfaceInputEvent(kind: .key, keyCode: 12, keyDown: true)
+        let keyUp = ApplicationSurfaceInputEvent(kind: .key, keyCode: 12, keyDown: false)
+
+        #expect(pump.enqueue([keyDown, keyUp]) == .full)
+        await pump.waitUntilIdle()
+
+        #expect(delivered.isEmpty)
+    }
+
+    @Test func inputPumpCoalescesMotionBeforeApplyingBackpressure() async {
+        var delivered: [ApplicationSurfaceInputEvent] = []
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { event in
+            delivered.append(event)
+            return true
+        }
+        for coordinate in 0..<100 {
+            #expect(pump.enqueue(ApplicationSurfaceInputEvent(
+                kind: .mouseMoved,
+                x: Double(coordinate),
+                y: Double(coordinate)
+            )) == .accepted)
+        }
+        let key = ApplicationSurfaceInputEvent(kind: .key, keyCode: 1, keyDown: true)
+        #expect(pump.enqueue(key) == .accepted)
+
+        await pump.waitUntilIdle()
+
+        #expect(delivered.count == 2)
+        #expect(delivered.first?.kind == .mouseMoved)
+        #expect(delivered.first?.x == 99)
+        #expect(delivered.last == key)
+    }
+
+    @Test func inputPumpSynthesizesReleasesForDeliveredPresses() async {
+        var delivered: [ApplicationSurfaceInputEvent] = []
+        let pump = ApplicationSurfaceInputPump { event in
+            delivered.append(event)
+            return true
+        }
+        let keyDown = ApplicationSurfaceInputEvent(kind: .key, keyCode: 56, keyDown: true)
+        let mouseDown = ApplicationSurfaceInputEvent(
+            kind: .leftMouseDown,
+            x: 0.25,
+            y: 0.5
+        )
+        let mouseDrag = ApplicationSurfaceInputEvent(
+            kind: .leftMouseDragged,
+            x: 0.75,
+            y: 0.8
+        )
+
+        #expect(pump.enqueue(keyDown) == .accepted)
+        #expect(pump.enqueue(mouseDown) == .accepted)
+        #expect(pump.enqueue(mouseDrag) == .accepted)
+        await pump.waitUntilIdle()
+
+        let releases = await pump.discardPendingAndTakeReleaseEvents()
+
+        #expect(releases.contains(ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: 56,
+            keyDown: false
+        )))
+        #expect(releases.contains(ApplicationSurfaceInputEvent(
+            kind: .leftMouseUp,
+            x: 0.75,
+            y: 0.8
+        )))
+    }
+
     @Test func pickerSearchMatchesOwnerAndWindowTitle() {
         let model = ApplicationSurfacePickerModel()
         model.replaceWindows([
@@ -164,6 +258,36 @@ struct ApplicationSurfaceTests {
         #expect(panel.captureTarget == nil)
         #expect(panel.displayTitle == "Application")
         #expect(titleChanges == ["Calculator", "Application"])
+    }
+
+    @Test func applicationPanelRetainsCaptureViewUntilPanelClose() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let token = panel.beginCaptureSession()
+        var view: ApplicationCaptureView? = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { nil },
+            onStateChanged: { _ in },
+            onMovedToWindow: { _ in }
+        )
+        weak var retainedView = view
+
+        panel.attach(view!, token: token)
+        view = nil
+
+        #expect(retainedView != nil)
+        panel.close()
+        #expect(retainedView == nil)
     }
 }
 
