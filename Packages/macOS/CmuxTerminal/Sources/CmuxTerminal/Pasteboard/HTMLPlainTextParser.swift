@@ -9,6 +9,7 @@ struct HTMLPlainTextParser: Sendable {
     /// Keeps synchronous drop inspection bounded before Foundation builds a DOM.
     static let maximumInputByteCount = 4 * 1024 * 1024
     private static let maximumOutputCharacterCount = 4 * 1024 * 1024
+    private static let maximumNestingDepth = 256
 
     private static let hiddenBlockTags: Set<String> = [
         "head",
@@ -124,6 +125,7 @@ struct HTMLPlainTextParser: Sendable {
         output.reserveCapacity(min(sourceLength, 16_384))
         guard appendVisibleText(
             from: root,
+            depth: 0,
             preservingWhitespace: false,
             to: &output,
             outputCharacterCount: &outputCharacterCount,
@@ -141,11 +143,13 @@ struct HTMLPlainTextParser: Sendable {
 
     private func appendVisibleText(
         from node: XMLNode,
+        depth: Int,
         preservingWhitespace: Bool,
         to output: inout String,
         outputCharacterCount: inout Int,
         hiddenTemplateAttributeName: String
     ) -> Bool {
+        guard depth <= Self.maximumNestingDepth else { return false }
         switch node.kind {
         case .text:
             guard let text = node.stringValue else { return true }
@@ -187,6 +191,7 @@ struct HTMLPlainTextParser: Sendable {
             for child in node.children ?? [] {
                 guard appendVisibleText(
                     from: child,
+                    depth: depth + 1,
                     preservingWhitespace: childPreservesWhitespace,
                     to: &output,
                     outputCharacterCount: &outputCharacterCount,
