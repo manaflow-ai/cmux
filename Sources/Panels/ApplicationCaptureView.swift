@@ -52,6 +52,7 @@ final class ApplicationCaptureView: NSView {
     private let leaseProvider: @MainActor () async -> ApplicationSurfaceRuntimeLease?
     private let onStateChanged: (ApplicationCaptureState) -> Void
     private let onMovedToWindow: (ApplicationCaptureView) -> Void
+    private let onPointerDown: () -> Void
     private let remoteFrameView = CmuxRemoteFrameView(frame: .zero)
     private lazy var inputPump = ApplicationSurfaceInputPump { [weak self] event in
         guard
@@ -108,7 +109,8 @@ final class ApplicationCaptureView: NSView {
         runtime: any ApplicationSurfaceRuntime,
         leaseProvider: @escaping @MainActor () async -> ApplicationSurfaceRuntimeLease?,
         onStateChanged: @escaping (ApplicationCaptureState) -> Void,
-        onMovedToWindow: @escaping (ApplicationCaptureView) -> Void
+        onMovedToWindow: @escaping (ApplicationCaptureView) -> Void,
+        onPointerDown: @escaping () -> Void = {}
     ) {
         sourceWindowID = windowID
         self.processID = processID
@@ -117,6 +119,7 @@ final class ApplicationCaptureView: NSView {
         self.leaseProvider = leaseProvider
         self.onStateChanged = onStateChanged
         self.onMovedToWindow = onMovedToWindow
+        self.onPointerDown = onPointerDown
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
@@ -380,6 +383,7 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        onPointerDown()
         window?.makeFirstResponder(self)
         enqueueMouse(event, kind: .leftMouseDown)
     }
@@ -389,6 +393,8 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        onPointerDown()
+        window?.makeFirstResponder(self)
         enqueueMouse(event, kind: .rightMouseDown)
     }
 

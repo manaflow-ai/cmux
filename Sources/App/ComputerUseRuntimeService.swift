@@ -36,7 +36,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     private var computerUseEnabled = false
     private var applicationSurfaceLeaseIdentifiers: Set<UUID> = []
     private var applicationSurfaceSessionIDsByLease: [UUID: Set<String>] = [:]
-    private var applicationSurfacePendingStopSessionIDs: Set<String> = []
+    private var applicationSurfacePendingStops:
+        [String: ApplicationSurfacePendingStop] = [:]
     private var runningHelperProcesses:
         [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
     private var missedHelperHealthChecks = 0
@@ -310,18 +311,19 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         if let identity = processIdentity(for: .native),
            AgentPIDProcessIdentity(pid: identity.pid) == identity {
             for sessionID in sessionIDs {
-                let acknowledged = await requestApplicationSurfaceStop(
+                let response = await requestApplicationSurfaceStop(
                     sessionID: sessionID,
                     expectedPeerIdentity: identity
                 )
-                if acknowledged {
-                    applicationSurfacePendingStopSessionIDs.remove(sessionID)
+                if Self.applicationSurfaceStopWasAcknowledged(response) {
+                    applicationSurfacePendingStops.removeValue(forKey: sessionID)
                 } else {
-                    applicationSurfacePendingStopSessionIDs.insert(sessionID)
+                    recordPendingApplicationSurfaceStop(
+                        sessionID: sessionID,
+                        helperIdentity: identity
+                    )
                 }
             }
-        } else {
-            applicationSurfacePendingStopSessionIDs.formUnion(sessionIDs)
         }
         applicationSurfaceSessionIDsByLease.removeValue(forKey: identifier)
         applicationSurfaceLeaseIdentifiers.remove(identifier)
@@ -381,38 +383,36 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
         try Self.throwApplicationSurfaceResponseError(response)
-        guard
-            let result = response["result"] as? [String: Any],
-            let sessionID = result["sessionId"] as? String,
-            !sessionID.isEmpty,
-            let frame = result["frameTransport"] as? [String: Any],
-            let sharedMemoryName = frame["sharedMemoryName"] as? String,
-            let width = frame["width"] as? Int,
-            let height = frame["height"] as? Int,
-            let bytesPerRow = frame["bytesPerRow"] as? Int,
-            let slotCount = frame["slotCount"] as? Int,
-            let sharedMemoryByteCount = frame["sharedMemoryByteCount"] as? Int
-        else {
+        guard let result = response["result"] as? [String: Any] else {
             throw ApplicationSurfaceRuntimeError.invalidResponse
         }
-        let descriptor = ApplicationSurfaceSessionDescriptor(
-            sessionID: sessionID,
-            frameTransport: SimulatorFrameTransportDescriptor(
-                sharedMemoryName: sharedMemoryName,
-                width: width,
-                height: height,
-                bytesPerRow: bytesPerRow,
-                slotCount: slotCount,
-                sharedMemoryByteCount: sharedMemoryByteCount
-            )
-        )
-        guard applicationSurfaceLeaseIdentifiers.contains(lease.identifier) else {
-            let acknowledged = await requestApplicationSurfaceStop(
+        let parsed = Self.parseApplicationSurfaceStartResult(result)
+        guard let sessionID = parsed.sessionID else {
+            throw ApplicationSurfaceRuntimeError.invalidResponse
+        }
+        guard let descriptor = parsed.descriptor else {
+            let stopResponse = await requestApplicationSurfaceStop(
                 sessionID: sessionID,
                 expectedPeerIdentity: identity
             )
-            if !acknowledged {
-                applicationSurfacePendingStopSessionIDs.insert(sessionID)
+            if !Self.applicationSurfaceStopWasAcknowledged(stopResponse) {
+                recordPendingApplicationSurfaceStop(
+                    sessionID: sessionID,
+                    helperIdentity: identity
+                )
+            }
+            throw ApplicationSurfaceRuntimeError.invalidResponse
+        }
+        guard applicationSurfaceLeaseIdentifiers.contains(lease.identifier) else {
+            let stopResponse = await requestApplicationSurfaceStop(
+                sessionID: sessionID,
+                expectedPeerIdentity: identity
+            )
+            if !Self.applicationSurfaceStopWasAcknowledged(stopResponse) {
+                recordPendingApplicationSurfaceStop(
+                    sessionID: sessionID,
+                    helperIdentity: identity
+                )
                 await stopHelperAfterLastDemand()
             }
             throw ApplicationSurfaceRuntimeError.helperUnavailable
@@ -434,18 +434,21 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             return
         }
         guard let identity = try? validatedApplicationSurfaceIdentity(lease: lease) else {
-            applicationSurfacePendingStopSessionIDs.insert(sessionID)
+            applicationSurfaceSessionIDsByLease[lease.identifier]?.remove(sessionID)
             return
         }
-        let acknowledged = await requestApplicationSurfaceStop(
+        let response = await requestApplicationSurfaceStop(
             sessionID: sessionID,
             expectedPeerIdentity: identity
         )
-        if acknowledged {
-            applicationSurfacePendingStopSessionIDs.remove(sessionID)
+        if Self.applicationSurfaceStopWasAcknowledged(response) {
+            applicationSurfacePendingStops.removeValue(forKey: sessionID)
             applicationSurfaceSessionIDsByLease[lease.identifier]?.remove(sessionID)
         } else {
-            applicationSurfacePendingStopSessionIDs.insert(sessionID)
+            recordPendingApplicationSurfaceStop(
+                sessionID: sessionID,
+                helperIdentity: identity
+            )
         }
     }
 
@@ -505,8 +508,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     private func requestApplicationSurfaceStop(
         sessionID: String,
         expectedPeerIdentity: AgentPIDProcessIdentity
-    ) async -> Bool {
-        let response = await Self.sendDaemonRequest(
+    ) async -> [String: Any]? {
+        await Self.sendDaemonRequest(
             [
                 "method": "application_surface_stop",
                 "args": ["session": sessionID],
@@ -517,7 +520,6 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             expectedPeerIdentity: expectedPeerIdentity,
             socketURL: paths.daemonSocketURL
         )
-        return Self.applicationSurfaceStopWasAcknowledged(response)
     }
 
     nonisolated static func applicationSurfaceStopWasAcknowledged(
@@ -526,29 +528,135 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard
             response?["ok"] as? Bool == true,
             let result = response?["result"] as? [String: Any],
-            result["stopped"] as? Bool == true
+            result["stopped"] is Bool
         else {
             return false
         }
         return true
     }
 
+    nonisolated static func applicationSurfaceStopShouldRetry(
+        _ response: [String: Any]?,
+        failedAttemptCount: Int
+    ) -> Bool {
+        !applicationSurfaceStopWasAcknowledged(response)
+            && failedAttemptCount < ApplicationSurfacePendingStop.maximumFailedAttemptCount
+    }
+
+    nonisolated static func parseApplicationSurfaceStartResult(
+        _ result: [String: Any]
+    ) -> (
+        sessionID: String?,
+        descriptor: ApplicationSurfaceSessionDescriptor?
+    ) {
+        let sessionID = (result["sessionId"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            let sessionID,
+            !sessionID.isEmpty,
+            sessionID.count <= 128
+        else {
+            return (nil, nil)
+        }
+        guard
+            let frame = result["frameTransport"] as? [String: Any],
+            let sharedMemoryName = frame["sharedMemoryName"] as? String,
+            !sharedMemoryName.isEmpty,
+            let width = frame["width"] as? Int,
+            width > 0,
+            let height = frame["height"] as? Int,
+            height > 0,
+            let bytesPerRow = frame["bytesPerRow"] as? Int,
+            bytesPerRow > 0,
+            let slotCount = frame["slotCount"] as? Int,
+            slotCount > 0,
+            let sharedMemoryByteCount = frame["sharedMemoryByteCount"] as? Int,
+            sharedMemoryByteCount > 0
+        else {
+            return (sessionID, nil)
+        }
+        return (
+            sessionID,
+            ApplicationSurfaceSessionDescriptor(
+                sessionID: sessionID,
+                frameTransport: SimulatorFrameTransportDescriptor(
+                    sharedMemoryName: sharedMemoryName,
+                    width: width,
+                    height: height,
+                    bytesPerRow: bytesPerRow,
+                    slotCount: slotCount,
+                    sharedMemoryByteCount: sharedMemoryByteCount
+                )
+            )
+        )
+    }
+
+    private func recordPendingApplicationSurfaceStop(
+        sessionID: String,
+        helperIdentity: AgentPIDProcessIdentity
+    ) {
+        let failedAttemptCount: Int
+        if let pending = applicationSurfacePendingStops[sessionID],
+           pending.helperIdentity == helperIdentity {
+            failedAttemptCount = pending.failedAttemptCount + 1
+        } else {
+            failedAttemptCount = 1
+        }
+        guard Self.applicationSurfaceStopShouldRetry(
+            nil,
+            failedAttemptCount: failedAttemptCount
+        ) else {
+            applicationSurfacePendingStops.removeValue(forKey: sessionID)
+            removeTrackedApplicationSurfaceSession(sessionID)
+            cmuxDebugLog(
+                "applicationSurface.stop.abandoned"
+                    + " session=\(sessionID)"
+                    + " attempts=\(failedAttemptCount)"
+            )
+            return
+        }
+        applicationSurfacePendingStops[sessionID] = ApplicationSurfacePendingStop(
+            sessionID: sessionID,
+            helperIdentity: helperIdentity,
+            failedAttemptCount: failedAttemptCount
+        )
+    }
+
     private func retryPendingApplicationSurfaceStops(
         expectedPeerIdentity: AgentPIDProcessIdentity
     ) async {
-        let pendingSessionIDs = applicationSurfacePendingStopSessionIDs
-        guard !pendingSessionIDs.isEmpty else { return }
-        for sessionID in pendingSessionIDs {
+        let pendingStops = Array(applicationSurfacePendingStops.values)
+        guard !pendingStops.isEmpty else { return }
+        for pending in pendingStops {
             guard !Task.isCancelled else { return }
-            let acknowledged = await requestApplicationSurfaceStop(
-                sessionID: sessionID,
+            guard pending.helperIdentity == expectedPeerIdentity else {
+                applicationSurfacePendingStops.removeValue(
+                    forKey: pending.sessionID
+                )
+                removeTrackedApplicationSurfaceSession(pending.sessionID)
+                continue
+            }
+            let response = await requestApplicationSurfaceStop(
+                sessionID: pending.sessionID,
                 expectedPeerIdentity: expectedPeerIdentity
             )
-            guard acknowledged else { continue }
-            applicationSurfacePendingStopSessionIDs.remove(sessionID)
-            for leaseIdentifier in Array(applicationSurfaceSessionIDsByLease.keys) {
-                applicationSurfaceSessionIDsByLease[leaseIdentifier]?.remove(sessionID)
+            if Self.applicationSurfaceStopWasAcknowledged(response) {
+                applicationSurfacePendingStops.removeValue(
+                    forKey: pending.sessionID
+                )
+                removeTrackedApplicationSurfaceSession(pending.sessionID)
+            } else {
+                recordPendingApplicationSurfaceStop(
+                    sessionID: pending.sessionID,
+                    helperIdentity: expectedPeerIdentity
+                )
             }
+        }
+    }
+
+    private func removeTrackedApplicationSurfaceSession(_ sessionID: String) {
+        for leaseIdentifier in Array(applicationSurfaceSessionIDsByLease.keys) {
+            applicationSurfaceSessionIDsByLease[leaseIdentifier]?.remove(sessionID)
         }
     }
 
@@ -822,7 +930,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             return await self.stopDaemon()
         }
         if helperStopped {
-            applicationSurfacePendingStopSessionIDs.removeAll()
+            applicationSurfacePendingStops.removeAll()
         }
         guard !desiredEnabled else { return }
         try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
@@ -1195,7 +1303,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         computerUseEnabled = false
         applicationSurfaceLeaseIdentifiers.removeAll()
         applicationSurfaceSessionIDsByLease.removeAll()
-        applicationSurfacePendingStopSessionIDs.removeAll()
+        applicationSurfacePendingStops.removeAll()
         acceptsNewLaunches = false
         permissionRefreshGeneration &+= 1
         for cancel in helperLifecycleCancellationActions.values {

@@ -9201,6 +9201,11 @@ final class Workspace: Identifiable, ObservableObject {
                 title: title
             )
         }
+        applicationPanel.setHostFocusRequestHandler {
+            [weak self, weak applicationPanel] in
+            guard let self, let applicationPanel else { return }
+            self.focusPanel(applicationPanel.id)
+        }
     }
 
     private func shouldAdoptDetachedWorkspaceRemoteTracking(_ detached: DetachedSurfaceTransfer) -> Bool {

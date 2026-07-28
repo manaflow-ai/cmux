@@ -41,6 +41,8 @@ final class ApplicationPanel: Panel {
     private var isClosed = false
     @ObservationIgnored
     private var displayTitleDidChange: ((String) -> Void)?
+    @ObservationIgnored
+    private var hostFocusRequestHandler: (() -> Void)?
 
     var captureTarget: ApplicationCaptureTarget? {
         guard let windowID, let processID else { return nil }
@@ -246,6 +248,9 @@ final class ApplicationPanel: Panel {
             },
             onMovedToWindow: { [weak self] view in
                 self?.captureViewDidMoveToWindow(view, token: captureToken)
+            },
+            onPointerDown: { [weak self] in
+                self?.hostFocusRequestHandler?()
             }
         )
         attach(view, token: captureToken)
@@ -254,6 +259,10 @@ final class ApplicationPanel: Panel {
 
     func setDisplayTitleChangeHandler(_ handler: ((String) -> Void)?) {
         displayTitleDidChange = handler
+    }
+
+    func setHostFocusRequestHandler(_ handler: (() -> Void)?) {
+        hostFocusRequestHandler = handler
     }
 
     func reattach(toWorkspace workspaceId: UUID) {
@@ -315,6 +324,7 @@ final class ApplicationPanel: Panel {
         stopHostedCapture()
         runtimeLease = nil
         displayTitleDidChange = nil
+        hostFocusRequestHandler = nil
     }
 
     func focus() {
