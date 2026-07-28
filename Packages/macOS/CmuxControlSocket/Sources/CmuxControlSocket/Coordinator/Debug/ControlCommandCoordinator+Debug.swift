@@ -48,6 +48,10 @@ extension ControlCommandCoordinator {
             return debugShareStop()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
+        case "debug.command_palette.submit":
+            return debugCommandPaletteEvent(.submit, request.params)
+        case "debug.command_palette.move":
+            return debugCommandPaletteMove(request.params)
         case "debug.command_palette.rename_tab.open":
             return debugCommandPaletteEvent(.renameTabOpen, request.params)
         case "debug.command_palette.visible":
@@ -385,6 +389,19 @@ extension ControlCommandCoordinator {
             ]))
         }
         return .ok(.object([:]))
+    }
+
+    /// `debug.command_palette.move` posts the same selection notification as
+    /// an Up/Down key event, without depending on an AppKit field editor.
+    func debugCommandPaletteMove(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let delta = int(params, "delta"), delta != 0 else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid non-zero delta",
+                data: nil
+            )
+        }
+        return debugCommandPaletteEvent(.moveSelection(delta: delta), params)
     }
 
     // MARK: - debug.command_palette.* (reads)

@@ -338,17 +338,32 @@ extension TerminalController: ControlDebugContext {
             targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
         }
         let name: Notification.Name
+        let userInfo: [AnyHashable: Any]?
         switch event {
         case .toggle:
             name = .commandPaletteToggleRequested
+            userInfo = nil
         case .renameTabOpen:
             name = .commandPaletteRenameTabRequested
+            userInfo = nil
         case .renameInputInteraction:
             name = .commandPaletteRenameInputInteractionRequested
+            userInfo = nil
         case .renameInputDeleteBackward:
             name = .commandPaletteRenameInputDeleteBackwardRequested
+            userInfo = nil
+        case .submit:
+            name = .commandPaletteSubmitRequested
+            userInfo = nil
+        case .moveSelection(let delta):
+            name = .commandPaletteMoveSelection
+            userInfo = ["delta": delta]
         }
-        NotificationCenter.default.post(name: name, object: targetWindow)
+        NotificationCenter.default.post(
+            name: name,
+            object: targetWindow,
+            userInfo: userInfo
+        )
         return true
     }
 

@@ -9317,7 +9317,9 @@ struct ContentView: View {
             mode = "workspace_description_input"
         }
 
-        let rows = Array(commandPaletteVisibleResults.prefix(20)).map { result in
+        // The control-socket API accepts `limit` up to 100. Keep enough rows
+        // in the app-side snapshot for that public Debug contract to work.
+        let rows = Array(commandPaletteVisibleResults.prefix(100)).map { result in
                 CommandPaletteDebugResultRow(
                     commandId: result.command.id,
                     title: result.command.title,

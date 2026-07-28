@@ -13,5 +13,9 @@ public enum ControlDebugCommandPaletteEvent: Sendable, Equatable {
     /// `debug.command_palette.rename_input.delete_backward`
     /// (`commandPaletteRenameInputDeleteBackwardRequested`).
     case renameInputDeleteBackward
+    /// `debug.command_palette.submit` (`commandPaletteSubmitRequested`).
+    case submit
+    /// `debug.command_palette.move` (`commandPaletteMoveSelection`).
+    case moveSelection(delta: Int)
 }
 #endif

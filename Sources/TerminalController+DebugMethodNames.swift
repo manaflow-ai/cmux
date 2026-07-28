@@ -18,6 +18,8 @@ extension TerminalController {
         "debug.share.set_role",
         "debug.share.stop",
         "debug.command_palette.toggle",
+        "debug.command_palette.submit",
+        "debug.command_palette.move",
         "debug.command_palette.rename_tab.open",
         "debug.command_palette.visible",
         "debug.command_palette.selection",
