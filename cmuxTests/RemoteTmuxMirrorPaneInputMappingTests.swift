@@ -288,15 +288,16 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         // stale nested identity must fail closed instead of looking like that
         // edge. Otherwise a transient pane-map mismatch can move focus into an
         // unrelated outer split.
-        let outerNeighbor = try #require(
-            harness.workspace.splitPaneWithNewTerminal(
-                targetPane: containerPaneId,
-                orientation: .horizontal,
-                insertFirst: false,
-                workingDirectory: nil,
-                initialInput: nil
-            )
+        harness.workspace.isRemoteTmuxMirror = false
+        let outerNeighborCandidate = harness.workspace.splitPaneWithNewTerminal(
+            targetPane: containerPaneId,
+            orientation: .horizontal,
+            insertFirst: false,
+            workingDirectory: nil,
+            initialInput: nil
         )
+        harness.workspace.isRemoteTmuxMirror = true
+        let outerNeighbor = try #require(outerNeighborCandidate)
         let outerNeighborPaneId = try #require(
             harness.workspace.paneId(forPanelId: outerNeighbor.id)
         )
