@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import struct CmuxSettings.AppCatalogSection
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -101,6 +102,72 @@ struct TerminalLinkOpenCoordinatorTests {
             firstURL.absoluteString,
             secondURL.absoluteString,
         ])
+        #expect(externallyOpened.isEmpty)
+    }
+
+    @Test("Dock terminal HTML links open in the cmux Browser")
+    @MainActor
+    func dockHTMLLinkOpensInBrowser() throws {
+        let defaults = makeDefaults()
+        let standardDefaults = UserDefaults.standard
+        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        let previousSupportedFiles = standardDefaults.object(forKey: supportedFilesKey)
+        defer {
+            if let previousSupportedFiles {
+                standardDefaults.set(previousSupportedFiles, forKey: supportedFilesKey)
+            } else {
+                standardDefaults.removeObject(forKey: supportedFilesKey)
+            }
+        }
+        standardDefaults.set(true, forKey: supportedFilesKey)
+
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>dock HTML</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == terminalPanelId ? store : nil
+            },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: htmlURL.path,
+            sourceWorkspaceId: nil,
+            sourcePanelId: terminalPanelId,
+            workingDirectory: nil
+        )))
+
+        let browserPanels = store.bonsplitController.allTabIds.compactMap {
+            store.panel(for: $0) as? BrowserPanel
+        }
+        #expect(browserPanels.count == 1)
+        #expect(browserPanels.first?.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
         #expect(externallyOpened.isEmpty)
     }
 }
