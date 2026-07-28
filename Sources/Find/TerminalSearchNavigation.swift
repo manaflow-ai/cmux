@@ -4,6 +4,6 @@ enum TerminalSearchNavigation: String, CaseIterable, Sendable {
 
     @discardableResult
     func perform(_ performBindingAction: (String) -> Bool) -> Bool {
-        performBindingAction("search:\(rawValue)")
+        performBindingAction("navigate_search:\(rawValue)")
     }
 }

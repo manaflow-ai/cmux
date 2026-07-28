@@ -4615,9 +4615,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
-            _ = performBindingAction("navigate_search:next", repeatCount: count)
+            _ = TerminalSearchNavigation.next.perform { performBindingAction($0, repeatCount: count) }
         case .searchPrevious:
-            _ = performBindingAction("navigate_search:previous", repeatCount: count)
+            _ = TerminalSearchNavigation.previous.perform { performBindingAction($0, repeatCount: count) }
         case let .adjustSelection(direction):
             if keyboardCopyModeVisualLineActive {
                 adjustKeyboardCopyModeVisualLineSelection(direction, count: count, surface: surface)
@@ -8972,8 +8972,8 @@ final class GhosttySurfaceScrollView: NSView {
             canApplyFocusRequest: { [weak self] in
                 self?.canApplyMountedSearchFieldFocusRequest() ?? false
             },
-            onNavigateSearch: { [weak terminalSurface] action in
-                _ = terminalSurface?.performExplicitInputBindingAction(action)
+            onNavigateSearch: { [weak terminalSurface] direction in
+                _ = direction.perform { terminalSurface?.performExplicitInputBindingAction($0) ?? false }
             },
             onSearchTextChanged: { [weak terminalSurface] in terminalSurface?.didReceiveExplicitInput() },
             onFieldDidFocus: { [weak self, weak terminalSurface] in
