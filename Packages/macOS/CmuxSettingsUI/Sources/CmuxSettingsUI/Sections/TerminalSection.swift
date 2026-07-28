@@ -367,7 +367,11 @@ public struct TerminalSection: View {
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
             }
             SettingsCardDivider()
-            AgentRecoverySettingsRows(defaultsStore: defaultsStore, catalog: catalog)
+            AgentRecoverySettingsRows(
+                defaultsStore: defaultsStore,
+                catalog: catalog,
+                hostActions: hostActions
+            )
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),

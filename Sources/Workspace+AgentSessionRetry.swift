@@ -34,7 +34,9 @@ extension Workspace {
 
     func sendManagedAgentRetry(
         binding: SurfaceResumeBindingSnapshot,
-        panelId: UUID
+        panelId: UUID,
+        beforeSending: () -> Void = {},
+        afterSending: () -> Void = {}
     ) -> Bool {
         let currentBinding = surfaceResumeBindingsByPanelId[panelId]
         guard currentBinding == nil || currentBinding == binding,
@@ -51,6 +53,8 @@ extension Workspace {
             binding.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
         }
         guard let input else { return false }
+        beforeSending()
+        defer { afterSending() }
         return panel.sendInputResult(input).accepted
     }
 

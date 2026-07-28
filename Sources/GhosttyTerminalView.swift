@@ -5513,6 +5513,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = appDelegate.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
             return
         }
+        terminalSurface?.didReceiveExplicitInput()
         if let terminalSurface {
 #if DEBUG
             let dismissNotificationStart = ProcessInfo.processInfo.systemUptime
@@ -7966,6 +7967,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
     private var hasVisibilityRevealRefreshScheduled = false
+    var onExplicitTerminalInput: (() -> Void)?
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }

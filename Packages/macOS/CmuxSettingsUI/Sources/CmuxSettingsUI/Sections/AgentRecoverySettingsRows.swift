@@ -3,17 +3,17 @@ import SwiftUI
 
 @MainActor
 struct AgentRecoverySettingsRows: View {
-    @State private var autoResume: DefaultsValueModel<Bool>
-    @State private var autoRetry: DefaultsValueModel<Bool>
+    @State private var model: AgentRecoverySettingsModel
 
-    init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
-        _autoResume = State(initialValue: DefaultsValueModel(
-            store: defaultsStore,
-            key: catalog.terminal.autoResumeAgentSessions
-        ))
-        _autoRetry = State(initialValue: DefaultsValueModel(
-            store: defaultsStore,
-            key: catalog.terminal.autoRetryAgentSessions
+    init(
+        defaultsStore: UserDefaultsSettingsStore,
+        catalog: SettingCatalog,
+        hostActions: any SettingsHostActions
+    ) {
+        _model = State(initialValue: AgentRecoverySettingsModel(
+            defaultsStore: defaultsStore,
+            catalog: catalog,
+            hostActions: hostActions
         ))
     }
 
@@ -24,7 +24,7 @@ struct AgentRecoverySettingsRows: View {
                 localized: "settings.terminal.agentAutoResume",
                 defaultValue: "Resume Agent Sessions on Reopen"
             ),
-            subtitle: autoResume.current
+            subtitle: model.autoResume.current
                 ? String(
                     localized: "settings.terminal.agentAutoResume.subtitleOn",
                     defaultValue: "When cmux reopens after quit, restored agent terminals automatically run their resume command."
@@ -35,8 +35,8 @@ struct AgentRecoverySettingsRows: View {
                 )
         ) {
             Toggle("", isOn: Binding(
-                get: { autoResume.current },
-                set: { autoResume.set($0) }
+                get: { model.autoResume.current },
+                set: { model.setAutoResume($0) }
             ))
             .labelsHidden()
             .controlSize(.small)
@@ -49,7 +49,7 @@ struct AgentRecoverySettingsRows: View {
                 localized: "settings.terminal.agentAutoRetry",
                 defaultValue: "Retry Failed Agent Sessions"
             ),
-            subtitle: autoRetry.current
+            subtitle: model.autoRetry.current
                 ? String(
                     localized: "settings.terminal.agentAutoRetry.subtitleOn",
                     defaultValue: "Agent sessions that exit with an error resume automatically with bounded backoff."
@@ -60,16 +60,15 @@ struct AgentRecoverySettingsRows: View {
                 )
         ) {
             Toggle("", isOn: Binding(
-                get: { autoRetry.current },
-                set: { autoRetry.set($0) }
+                get: { model.autoRetry.current },
+                set: { model.setAutoRetry($0) }
             ))
             .labelsHidden()
             .controlSize(.small)
             .accessibilityIdentifier("SettingsTerminalAgentAutoRetryToggle")
         }
         .task {
-            autoResume.startObserving()
-            autoRetry.startObserving()
+            model.startObserving()
         }
     }
 }
