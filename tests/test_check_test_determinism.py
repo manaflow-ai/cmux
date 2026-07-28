@@ -1124,6 +1124,65 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("test-determinism: 0 active finding(s)", result.stdout)
 
+    def test_javascript_catch_bindings_shadow_only_bound_names(self) -> None:
+        positive = self.run_checker(
+            {
+                "timer-alias-renamed-catch-property.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "try { work() } catch ({ delay: caughtDelay }) {\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "}\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            positive.returncode,
+            1,
+            positive.stdout + positive.stderr,
+        )
+        findings = [
+            line
+            for line in positive.stdout.splitlines()
+            if "sleep-then-assert:" in line
+        ]
+        self.assertEqual(len(findings), 1, positive.stdout)
+        self.assertIn(
+            "fixtures/timer-alias-renamed-catch-property.ts:3: "
+            "sleep-then-assert:",
+            findings[0],
+        )
+
+        negative = self.run_checker(
+            {
+                "timer-alias-direct-catch-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "try { work() } catch (delay) {\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "}\n"
+                ),
+                "timer-alias-destructured-catch-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "try { work() } catch ({ delay }) {\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "}\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            negative.returncode,
+            0,
+            negative.stdout + negative.stderr,
+        )
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            negative.stdout,
+        )
+
     def test_python_import_aliases_are_tracked_until_shadowed(self) -> None:
         positive = self.run_checker(
             {
@@ -1637,6 +1696,98 @@ class DeterminismCheckerCLITests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("Traceback", result.stderr)
+
+    def test_python_literal_while_reachability_controls_bindings(self) -> None:
+        positive = self.run_checker(
+            {
+                "while-false-shadow.py": (
+                    "import time\n"
+                    "while False:\n"
+                    "    time = fake_clock\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "while-false-else-trusted.py": (
+                    "import fake_clock as time\n"
+                    "while False:\n"
+                    "    time = fake_clock\n"
+                    "else:\n"
+                    "    import time\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "while-true-trusted-break.py": (
+                    "import fake_clock as time\n"
+                    "while True:\n"
+                    "    import time\n"
+                    "    break\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "while-true-break-skips-else.py": (
+                    "import time\n"
+                    "while True:\n"
+                    "    break\n"
+                    "else:\n"
+                    "    time = fake_clock\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "while-true-direct-call.py": (
+                    "import fake_clock as time\n"
+                    "def check():\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "while True:\n"
+                    "    import time\n"
+                    "    break\n"
+                    "check()\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            positive.returncode,
+            1,
+            positive.stdout + positive.stderr,
+        )
+        expected_lines = {
+            "while-false-shadow.py": 4,
+            "while-false-else-trusted.py": 6,
+            "while-true-trusted-break.py": 5,
+            "while-true-break-skips-else.py": 6,
+            "while-true-direct-call.py": 3,
+        }
+        findings = [
+            line
+            for line in positive.stdout.splitlines()
+            if "sleep-then-assert:" in line
+        ]
+        self.assertEqual(len(findings), len(expected_lines), positive.stdout)
+        for relative_path, line in expected_lines.items():
+            self.assertIn(
+                f"fixtures/{relative_path}:{line}: sleep-then-assert:",
+                positive.stdout,
+            )
+
+        negative = self.run_checker(
+            {
+                "while-true-shadow-break.py": (
+                    "import time\n"
+                    "while True:\n"
+                    "    time = fake_clock\n"
+                    "    break\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            negative.returncode,
+            0,
+            negative.stdout + negative.stderr,
+        )
 
     def test_python_exhaustive_match_omits_impossible_fallthrough(self) -> None:
         positive = self.run_checker(
