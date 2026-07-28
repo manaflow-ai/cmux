@@ -652,6 +652,54 @@ enum SurfaceResumeCommandCanonicalizer {
         return tokens.isEmpty ? nil : tokens
     }
 
+    static func generalizedApprovalPrefix(forCommand command: String) -> [String]? {
+        guard let tokens = tokens(from: command) else {
+            return nil
+        }
+
+        var prefix: [String] = []
+        var index = tokens.startIndex
+
+        if tokens[index] == "{" || tokens[index] == "cd" {
+            guard let guardEndIndex = tokens[index...].firstIndex(of: "&&") else {
+                return nil
+            }
+            prefix.append(contentsOf: tokens[index...guardEndIndex])
+            index = tokens.index(after: guardEndIndex)
+        }
+
+        while index < tokens.endIndex, isEnvironmentAssignment(tokens[index]) {
+            prefix.append(tokens[index])
+            index = tokens.index(after: index)
+        }
+
+        if index < tokens.endIndex, tokens[index] == "env" || tokens[index] == "/usr/bin/env" {
+            prefix.append(tokens[index])
+            index = tokens.index(after: index)
+            while index < tokens.endIndex, isEnvironmentAssignment(tokens[index]) {
+                prefix.append(tokens[index])
+                index = tokens.index(after: index)
+            }
+        }
+
+        guard index < tokens.endIndex else {
+            return nil
+        }
+        prefix.append(tokens[index])
+        index = tokens.index(after: index)
+
+        while index < tokens.endIndex {
+            let token = tokens[index]
+            guard token.hasPrefix("-") || token == "resume" else {
+                break
+            }
+            prefix.append(token)
+            index = tokens.index(after: index)
+        }
+
+        return prefix.count == tokens.count ? nil : prefix
+    }
+
     static func normalizedCWD(_ rawValue: String?) -> String? {
         guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
@@ -669,6 +717,28 @@ enum SurfaceResumeCommandCanonicalizer {
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    private static func isEnvironmentAssignment(_ token: String) -> Bool {
+        guard let equalsIndex = token.firstIndex(of: "=") else {
+            return false
+        }
+        let nameScalars = token[..<equalsIndex].unicodeScalars
+        guard let firstScalar = nameScalars.first,
+              isEnvironmentNameStart(firstScalar) else {
+            return false
+        }
+        return nameScalars.dropFirst().allSatisfy(isEnvironmentNameContinuation)
+    }
+
+    private static func isEnvironmentNameStart(_ scalar: UnicodeScalar) -> Bool {
+        scalar == "_" ||
+            (scalar.value >= 65 && scalar.value <= 90) ||
+            (scalar.value >= 97 && scalar.value <= 122)
+    }
+
+    private static func isEnvironmentNameContinuation(_ scalar: UnicodeScalar) -> Bool {
+        isEnvironmentNameStart(scalar) ||
+            (scalar.value >= 48 && scalar.value <= 57)
+    }
 }
 
 enum SurfaceResumeApprovalSignature {
