@@ -4842,11 +4842,11 @@ struct ContentView: View {
         }
         switch commandId {
         case "palette.forkAgentConversation":
-            10_001
+            return 10_001
         case "palette.forkAgentConversationRight":
-            10_000
+            return 10_000
         default:
-            0
+            return 0
         }
     }
 
