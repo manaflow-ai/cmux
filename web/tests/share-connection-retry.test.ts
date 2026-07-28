@@ -1358,6 +1358,108 @@ describe("ShareClient delivery credit acknowledgements", () => {
     });
   });
 
+  test("shares one bounded send budget across successive ACK barriers", async () => {
+    let now = 50_000;
+    Date.now = () => now;
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "snapshot" });
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    now += 1_000;
+    const sentBefore = socket.sent.length;
+
+    socket.receiveBinary(
+      terminalFrame({
+        payload: new TextEncoder().encode("baseline"),
+        sequenceStart: 0,
+        sequenceEnd: 0,
+      }),
+    );
+    socket.receive({ t: "ack-request", nonce: "first-terminal" });
+    await settle();
+    for (let index = 0; index < 60; index += 1) {
+      expect(client.sendChat(`first-${index}`)).toBe(true);
+    }
+    terminal.completions[0]?.();
+    await settle();
+
+    socket.receiveBinary(
+      terminalFrame({
+        kind: TERMINAL_KIND_OUTPUT,
+        payload: new Uint8Array([0x78]),
+        sequenceStart: 0,
+        sequenceEnd: 1,
+      }),
+    );
+    socket.receive({ t: "ack-request", nonce: "second-terminal" });
+    await settle();
+    let acceptedSecond = 0;
+    while (
+      acceptedSecond < 40 &&
+      client.sendChat(`second-${acceptedSecond}`)
+    ) {
+      acceptedSecond += 1;
+    }
+    expect(acceptedSecond).toBe(40);
+    expect(
+      client.sendTerminalData(
+        "workspace:1",
+        "surface:terminal",
+        "x".repeat(24 * MAX_TERMINAL_INPUT_BYTES),
+      ),
+    ).toBe(true);
+    terminal.completions[1]?.();
+    await settle();
+
+    const applicationMessages = (
+      messages: Array<string | ArrayBuffer>,
+    ): Array<string | ArrayBuffer> =>
+      messages.filter((message) => {
+        if (message instanceof ArrayBuffer) return true;
+        return (JSON.parse(message) as { t?: unknown }).t !== "ack";
+      });
+    const applicationBytes = (
+      messages: Array<string | ArrayBuffer>,
+    ): number =>
+      messages.reduce(
+        (total, message) =>
+          total +
+          (message instanceof ArrayBuffer
+            ? message.byteLength
+            : utf8ByteLength(message)),
+        0,
+      );
+    let window = applicationMessages(socket.sent.slice(sentBefore));
+    expect(window).toHaveLength(60);
+    expect(applicationBytes(window)).toBeLessThanOrEqual(256 * 1024);
+    expect(scheduledTimers.size).toBe(1);
+
+    now += 1_000;
+    const sentAfterFirstWindow = socket.sent.length;
+    await runOnlyTimer();
+    window = applicationMessages(socket.sent.slice(sentAfterFirstWindow));
+    expect(window.length).toBeLessThanOrEqual(60);
+    expect(applicationBytes(window)).toBeLessThanOrEqual(256 * 1024);
+    expect(scheduledTimers.size).toBe(1);
+
+    now += 1_000;
+    const sentAfterSecondWindow = socket.sent.length;
+    await runOnlyTimer();
+    window = applicationMessages(socket.sent.slice(sentAfterSecondWindow));
+    expect(window.length).toBeLessThanOrEqual(60);
+    expect(applicationBytes(window)).toBeLessThanOrEqual(256 * 1024);
+    expect(scheduledTimers.size).toBe(0);
+
+    expect(
+      applicationMessages(socket.sent.slice(sentBefore)),
+    ).toHaveLength(124);
+  });
+
   test("retains all 128 delivery credits while xterm serially consumes frames", async () => {
     const { client, socket } = await connectedClient();
     socket.receive(snapshot());

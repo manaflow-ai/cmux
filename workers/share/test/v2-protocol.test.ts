@@ -6,7 +6,9 @@ import { validateBinaryIngress } from "../src/ingress";
 import {
   createSocketAttachment,
   dispatchEffects,
+  hasPersistedSocketSubscription,
   parseSocketAttachment,
+  persistSocketSubscription,
   releaseDeliveryCredit,
   type OutboundEffectRuntime,
   type OutboundSocket,
@@ -539,6 +541,48 @@ describe("terminal binary authorization and routing", () => {
     expect(decodeTerminalFrame(forwarded[0]?.data ?? new Uint8Array())?.payload).toEqual(
       encoder.encode("first-after-wake"),
     );
+  });
+
+  it("restores only an exact persisted subscription before wake-triggering input", async () => {
+    let core = bootedCore();
+    approveGuest(core, "c-alice", ALICE, "editor");
+    core.handleGuest("c-alice", { t: "sub", ws: WS, pane: PANE }, T0);
+    const attachment = createSocketAttachment({
+      connId: "c-alice",
+      user: ALICE.user,
+      email: ALICE.email,
+      host: false,
+    });
+    const socket = new AckSocket();
+    expect(
+      await persistSocketSubscription(socket, attachment, WS, PANE, true),
+    ).toBe("updated");
+
+    core = new ShareSessionCore(structuredClone(core.persisted));
+    core.restore(
+      [
+        { id: "c-host", ...HOST },
+        { id: "c-alice", ...ALICE },
+      ],
+      T0 + 1,
+    );
+    expect(await hasPersistedSocketSubscription(attachment, WS, PANE)).toBe(
+      true,
+    );
+    expect(
+      await hasPersistedSocketSubscription(attachment, WS, "surface:other"),
+    ).toBe(false);
+
+    core.restoreSubscription("c-alice", WS, PANE, T0 + 2);
+    const input = inputFrame(encoder.encode("first-after-wake"));
+    const forwarded = binarySends(
+      routeFrame(core, "c-alice", input, T0 + 3),
+    );
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]?.to).toBe("c-host");
+    expect(
+      decodeTerminalFrame(forwarded[0]?.data ?? new Uint8Array())?.payload,
+    ).toEqual(encoder.encode("first-after-wake"));
   });
 
   it("shares the 60/socket/s terminal-input budget with JSON input", () => {

@@ -9,11 +9,14 @@ import {
   DELIVERY_FAILURE_CLOSE_REASON,
   deliveryCreditBytes,
   dispatchEffects,
+  hasPersistedSocketSubscription,
+  MAX_PERSISTED_SOCKET_SUBSCRIPTIONS,
   MAX_SOCKET_OUTSTANDING_BYTES,
   MAX_SOCKET_OUTSTANDING_ENTRIES,
   MAX_NONCE_GENERATION_ATTEMPTS,
   outstandingDeliveryBytes,
   parseSocketAttachment,
+  persistSocketSubscription,
   releaseDeliveryCredit,
   serializeSocketAttachment,
   SERVER_MESSAGE_TOO_LARGE_CLOSE_CODE,
@@ -169,7 +172,7 @@ function ackNonceFrom(socket: FakeSocket, from = 0): string {
 }
 
 describe("serialized delivery credit", () => {
-  it("round-trips a compact worst-case 128-entry attachment below 16 KiB", () => {
+  it("round-trips delivery credit plus 64 subscription fingerprints below 16 KiB", async () => {
     const source = createSocketAttachment({
       connId: "c".repeat(256),
       user: "u".repeat(256),
@@ -180,15 +183,70 @@ describe("serialized delivery credit", () => {
       nonce: uuid(index),
       bytes: 1,
     }));
+    const socket = new FakeSocket();
+    for (let index = 0; index < MAX_PERSISTED_SOCKET_SUBSCRIPTIONS; index += 1) {
+      expect(
+        await persistSocketSubscription(
+          socket,
+          source,
+          `workspace:${index}`,
+          `surface:${index}`,
+          true,
+        ),
+      ).toBe("updated");
+    }
     const serialized = serializeSocketAttachment(source);
     expect(utf8ByteLength(JSON.stringify(serialized))).toBeLessThan(16_384);
     expect(parseSocketAttachment(structuredClone(serialized))).toEqual(source);
+    expect(
+      await hasPersistedSocketSubscription(
+        source,
+        "workspace:63",
+        "surface:63",
+      ),
+    ).toBe(true);
+    expect(
+      await hasPersistedSocketSubscription(
+        source,
+        "workspace:63",
+        "surface:other",
+      ),
+    ).toBe(false);
+    expect(
+      await persistSocketSubscription(
+        socket,
+        source,
+        "workspace:overflow",
+        "surface:overflow",
+        true,
+      ),
+    ).toBe("limit");
 
     const overEntries = {
       ...serialized,
       w: [...serialized.w, [uuid(129), 1] as [string, number]],
     };
     expect(parseSocketAttachment(overEntries)).toBeNull();
+  });
+
+  it("upgrades a v1 attachment with no trusted wake subscriptions", () => {
+    const legacy = {
+      v: 1,
+      i: "socket",
+      u: "user",
+      e: "user@example.com",
+      h: false,
+      w: [[uuid(1), 1]],
+    };
+
+    expect(parseSocketAttachment(legacy)).toEqual({
+      connId: "socket",
+      user: "user",
+      email: "user@example.com",
+      host: false,
+      outstanding: [{ nonce: uuid(1), bytes: 1 }],
+      subscriptions: [],
+    });
   });
 
   it("accepts prospective bytes at 2 MiB - 1 and rejects exactly 2 MiB", () => {
