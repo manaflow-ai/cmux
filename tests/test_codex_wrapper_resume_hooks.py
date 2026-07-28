@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression checks for reliable Codex hook injection during cmux resume."""
+"""Regression checks for reliable Codex session-entrypoint hook injection."""
 
 from __future__ import annotations
 
@@ -80,7 +80,8 @@ if [[ "${1:-}" == "--socket" ]]; then
   shift 2
 fi
 if [[ "${1:-}" == "ping" ]]; then
-  exit 1
+  [[ "${FAKE_SOCKET_STATE:-missing}" == "live" ]]
+  exit
 fi
 if [[ "${1:-}" == "hooks" && "${2:-}" == "codex" && "${3:-}" == "inject-args" ]]; then
   printf '%s\\0' \
@@ -102,7 +103,7 @@ exit 1
         )
 
         test_socket: socket.socket | None = None
-        if socket_state == "stale":
+        if socket_state in {"live", "stale"}:
             test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             test_socket.bind(str(socket_path))
 
@@ -116,6 +117,7 @@ exit 1
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
         env["FAKE_REAL_ENV_LOG"] = str(real_env_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
+        env["FAKE_SOCKET_STATE"] = socket_state
         if hooks_disabled:
             env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
         else:
@@ -183,6 +185,34 @@ def test_resume_hook_injection_survives_transient_startup_outages(failures: list
     for _ in range(12):
         assert_resume_is_instrumented("missing", failures)
         assert_resume_is_instrumented("stale", failures)
+
+
+def test_direct_fork_is_instrumented(failures: list[str]) -> None:
+    code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
+        socket_state="live",
+        argv=["fork", SESSION_ID],
+    )
+    expect(code == 0, f"fork/live: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv[:3] == ["--enable", "hooks", "--dangerously-bypass-hook-trust"],
+           f"fork/live: missing injected hook prefix: {real_argv}", failures)
+    expect(any(arg.startswith("hooks.SessionStart=") for arg in real_argv),
+           f"fork/live: missing SessionStart hook: {real_argv}", failures)
+    expect(any(arg.startswith("hooks.Stop=") for arg in real_argv),
+           f"fork/live: missing Stop hook: {real_argv}", failures)
+    expect(real_argv[-2:] == ["fork", SESSION_ID],
+           f"fork/live: fork argv was not preserved: {real_argv}", failures)
+    expect(any("ping" in line for line in cmux_log),
+           f"fork/live: wrapper never verified cmux ownership: {cmux_log}", failures)
+    expect(any("hooks codex inject-args" in line for line in cmux_log),
+           f"fork/live: wrapper never requested local hook args: {cmux_log}", failures)
+    expect(observed_env.get("CMUX_CODEX_PID") not in {None, "", "__UNSET__"},
+           f"fork/live: missing Codex process identity: {observed_env}", failures)
+    expect(observed_env.get("CMUX_AGENT_LAUNCH_KIND") == "codex",
+           f"fork/live: missing launch kind: {observed_env}", failures)
+    expect(observed_env.get("CMUX_AGENT_RESUME_LAUNCH") == "__UNSET__",
+           f"fork/live: fork was mislabeled as a resume: {observed_env}", failures)
+    expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
+           f"fork/live: app restore marker leaked to Codex: {observed_env}", failures)
 
 
 def test_explicit_disable_still_bypasses_hooks(failures: list[str]) -> None:
@@ -273,6 +303,7 @@ def test_non_session_command_still_bypasses_hooks(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_resume_hook_injection_survives_transient_startup_outages(failures)
+    test_direct_fork_is_instrumented(failures)
     test_explicit_disable_still_bypasses_hooks(failures)
     test_stale_socket_fresh_launch_preserves_native_behavior(failures)
     test_unmarked_stale_socket_resume_preserves_native_behavior(failures)
@@ -280,11 +311,11 @@ def main() -> int:
     test_mismatched_restore_tokens_still_require_live_socket(failures)
     test_non_session_command_still_bypasses_hooks(failures)
     if failures:
-        print("FAIL: Codex resume wrapper reliability checks failed")
+        print("FAIL: Codex session-entrypoint wrapper reliability checks failed")
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print("PASS: every cmux-owned Codex resume launch retains SessionStart and Stop hooks")
+    print("PASS: every cmux-owned Codex session entrypoint retains SessionStart and Stop hooks")
     return 0
 
 
