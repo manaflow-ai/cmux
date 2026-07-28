@@ -173,6 +173,8 @@ struct DockWorkingDirectoryInheritanceTests {
             sourcePanel.surface.recordReportedWorkingDirectory(reportedDirectory.path)
 
             #expect(sourcePanel.surface.reportedWorkingDirectory == reportedDirectory.path)
+            let newPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+            #expect(try terminalPanel(in: store, panelId: newPanelId).requestedWorkingDirectory == reportedDirectory.path)
         }
     }
 

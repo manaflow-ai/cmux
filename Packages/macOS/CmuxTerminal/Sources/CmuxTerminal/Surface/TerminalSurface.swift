@@ -476,7 +476,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
-        self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.workingDirectory = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
         self.portOrdinal = portOrdinal
         self.initialCommand = initialCommand.flatMap {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0

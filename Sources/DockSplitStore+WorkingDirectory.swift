@@ -33,8 +33,10 @@ extension DockSplitStore {
         ]
         let reportedDirectory = terminal.surface.reportedWorkingDirectory
         if restoredAgentLifecycle.resumeStatesByPanelId[sourcePanelId] == .autoResumeCommandRunning {
-            return TerminalWorkingDirectoryResolver.firstAvailable(existingCandidates + [reportedDirectory])
+            return TerminalWorkingDirectoryResolver.firstAvailable(existingCandidates)
+                ?? reportedDirectory.flatMap { $0.isEmpty ? nil : $0 }
         }
-        return TerminalWorkingDirectoryResolver.firstAvailable([reportedDirectory] + existingCandidates)
+        return reportedDirectory.flatMap { $0.isEmpty ? nil : $0 }
+            ?? TerminalWorkingDirectoryResolver.firstAvailable(existingCandidates)
     }
 }
