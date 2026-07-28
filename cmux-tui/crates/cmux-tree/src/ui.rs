@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use cmux_tui_scrollbar::{ScrollbarState, ScrollbarStyle, viewport_thumb_geometry};
 use ratatui::Frame;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -23,6 +24,8 @@ const SUCCESS_FG: Color = Color::Indexed(114);
 const STATUS_BG: Color = Color::Indexed(236);
 const STATUS_FG: Color = Color::Indexed(250);
 const INPUT_BG: Color = Color::Indexed(233);
+const SCROLLBAR_THUMB_FG: Color = Color::Indexed(246);
+const SCROLLBAR_THUMB_ACTIVE_FG: Color = Color::Indexed(252);
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
@@ -133,7 +136,7 @@ fn draw_machines(app: &mut App, frame: &mut Frame, area: Rect) {
         Rect { x: area.x, y: area.y + area.height.saturating_sub(1), width: area.width, height: 1 };
     app.machine_viewport_height = body.height as usize;
     app.clamp_scrolls();
-    if app.focus == Focus::Machines {
+    if app.focus == Focus::Machines && app.machine_follow_selection {
         app.reveal_machine_selection();
     }
 
@@ -172,13 +175,7 @@ fn draw_machines(app: &mut App, frame: &mut Frame, area: Rect) {
             });
         }
     }
-    draw_scrollbar(
-        frame,
-        body,
-        app.machines.len() * 3,
-        app.machine_scroll,
-        app.focus == Focus::Machines,
-    );
+    draw_scrollbar(app, frame, body, app.machines.len() * 3, app.machine_scroll, Focus::Machines);
 
     let highlighted = app.focus == Focus::Machines && app.machines.is_empty();
     fill_row(
@@ -292,7 +289,7 @@ fn draw_conversations(app: &mut App, frame: &mut Frame, area: Rect) {
         Rect { x: area.x, y: area.y + 2, width: area.width, height: area.height.saturating_sub(2) };
     app.conversation_viewport_height = body.height as usize;
     app.clamp_scrolls();
-    if app.focus == Focus::Conversations {
+    if app.focus == Focus::Conversations && app.conversation_follow_selection {
         app.reveal_conversation_selection();
     }
     if rows.is_empty() {
@@ -341,13 +338,7 @@ fn draw_conversations(app: &mut App, frame: &mut Frame, area: Rect) {
             });
         }
     }
-    draw_scrollbar(
-        frame,
-        body,
-        rows.len() * 3,
-        app.conversation_scroll,
-        app.focus == Focus::Conversations,
-    );
+    draw_scrollbar(app, frame, body, rows.len() * 3, app.conversation_scroll, Focus::Conversations);
 }
 
 struct ConversationRow<'a> {
@@ -502,34 +493,46 @@ fn draw_trajectory(app: &mut App, frame: &mut Frame, area: Rect) {
         }
     }
     draw_scrollbar(
+        app,
         frame,
         body,
         app.trajectory_view.lines.len(),
         app.trajectory_scroll,
-        app.focus == Focus::Trajectory,
+        Focus::Trajectory,
     );
 }
 
-fn draw_scrollbar(frame: &mut Frame, area: Rect, total: usize, offset: usize, focused: bool) {
-    if area.width == 0 || area.height == 0 || total <= area.height as usize {
+fn draw_scrollbar(
+    app: &mut App,
+    frame: &mut Frame,
+    area: Rect,
+    total_rows: usize,
+    offset: usize,
+    focus: Focus,
+) {
+    let visible_rows = area.height as usize;
+    if area.width == 0 || area.height == 0 || total_rows <= visible_rows {
         return;
     }
-    let track_height = area.height as usize;
-    let thumb_height = ((track_height * track_height).div_ceil(total)).clamp(1, track_height);
-    let scrollable = total.saturating_sub(track_height).max(1);
-    let thumb_y =
-        (offset.min(scrollable) * (track_height - thumb_height) + scrollable / 2) / scrollable;
-    let x = area.x + area.width - 1;
-    for line in 0..track_height {
-        let in_thumb = line >= thumb_y && line < thumb_y + thumb_height;
-        frame.buffer_mut()[(x, area.y + line as u16)]
-            .set_symbol(if in_thumb { "┃" } else { "│" })
-            .set_style(Style::default().fg(if in_thumb {
-                if focused { SELECTED_FG } else { Color::Indexed(246) }
-            } else {
-                BORDER_FG
-            }));
-    }
+    let track = Rect { x: area.x + area.width - 1, y: area.y, width: 1, height: area.height };
+    let state = if app.scrollbar_dragging(focus) || app.scrollbar_hovered(track) {
+        ScrollbarState::Expanded
+    } else if app.focus == focus {
+        ScrollbarState::Highlighted
+    } else {
+        ScrollbarState::Idle
+    };
+    ScrollbarStyle::new(SCROLLBAR_THUMB_FG, SCROLLBAR_THUMB_ACTIVE_FG).draw_thumb(
+        frame.buffer_mut(),
+        track,
+        viewport_thumb_geometry(total_rows, visible_rows, offset, track.height),
+        Style::default(),
+        state,
+    );
+    app.hits.push(Hit {
+        area: track,
+        kind: HitKind::Scrollbar { focus, track, total_rows, visible_rows },
+    });
 }
 
 fn draw_status(app: &App, frame: &mut Frame, area: Rect) {
@@ -876,7 +879,7 @@ mod tests {
             .map(|y| terminal.backend().buffer()[(x, y)].symbol())
             .collect::<Vec<_>>();
         assert!(track.contains(&"▕"));
-        assert!(track.iter().all(|symbol| matches!(*symbol, "▕" | " ")));
+        assert!(!track.contains(&"┃"));
     }
 
     #[test]

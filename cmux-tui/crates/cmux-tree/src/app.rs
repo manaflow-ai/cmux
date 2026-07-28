@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use cmux_tui_scrollbar::{viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry};
 use crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -88,6 +89,7 @@ pub enum HitKind {
     Machine(usize),
     Conversation(usize),
     Accordion(usize),
+    Scrollbar { focus: Focus, track: Rect, total_rows: usize, visible_rows: usize },
     AddMachine,
     DialogField(usize),
     DialogSave,
@@ -105,6 +107,16 @@ pub struct ColumnAreas {
     pub machines: Rect,
     pub conversations: Rect,
     pub trajectory: Rect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScrollbarDrag {
+    focus: Focus,
+    track: Rect,
+    total_rows: usize,
+    visible_rows: usize,
+    anchor_y: u16,
+    anchor_offset: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +152,9 @@ pub struct App {
     pub trajectory_view: TrajectoryView,
     pub hits: Vec<Hit>,
     pub columns: ColumnAreas,
+    pub hover: Option<(u16, u16)>,
+    pub machine_follow_selection: bool,
+    pub conversation_follow_selection: bool,
     pub machine_viewport_height: usize,
     pub conversation_viewport_height: usize,
     pub trajectory_viewport_height: usize,
@@ -149,6 +164,7 @@ pub struct App {
     pub config: Config,
     network: NetworkHub,
     discovery: LocalDiscovery,
+    scrollbar_drag: Option<ScrollbarDrag>,
 }
 
 impl App {
@@ -179,6 +195,9 @@ impl App {
             trajectory_view: TrajectoryView::default(),
             hits: Vec::new(),
             columns: ColumnAreas::default(),
+            hover: None,
+            machine_follow_selection: true,
+            conversation_follow_selection: true,
             machine_viewport_height: 0,
             conversation_viewport_height: 0,
             trajectory_viewport_height: 0,
@@ -188,6 +207,7 @@ impl App {
             config,
             network,
             discovery: LocalDiscovery::new(connect),
+            scrollbar_drag: None,
         }
     }
 
@@ -258,6 +278,7 @@ impl App {
                     }
                 }
                 if is_selected_machine && let Some(thread_id) = changed_selection {
+                    self.conversation_follow_selection = true;
                     self.network.select_thread(&machine_id, thread_id);
                     self.reset_trajectory_navigation();
                 }
@@ -419,6 +440,7 @@ impl App {
     }
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent) {
+        self.hover = Some((mouse.column, mouse.row));
         if self.draft.is_some() {
             if mouse.kind == MouseEventKind::Down(MouseButton::Left)
                 && let Some(hit) = self.hit_at(mouse.column, mouse.row).cloned()
@@ -437,18 +459,21 @@ impl App {
             return;
         }
         match mouse.kind {
-            MouseEventKind::ScrollUp => self.mouse_scroll(mouse.column, -3),
-            MouseEventKind::ScrollDown => self.mouse_scroll(mouse.column, 3),
+            MouseEventKind::ScrollUp => self.mouse_scroll(mouse.column, mouse.row, -3),
+            MouseEventKind::ScrollDown => self.mouse_scroll(mouse.column, mouse.row, 3),
             MouseEventKind::Down(MouseButton::Left) => {
+                self.scrollbar_drag = None;
                 if let Some(hit) = self.hit_at(mouse.column, mouse.row).cloned() {
                     match hit.kind {
                         HitKind::Column(focus) => self.focus = focus,
                         HitKind::Machine(index) => {
                             self.focus = Focus::Machines;
+                            self.machine_follow_selection = true;
                             self.select_machine(index);
                         }
                         HitKind::Conversation(index) => {
                             self.focus = Focus::Conversations;
+                            self.conversation_follow_selection = true;
                             self.select_conversation(index);
                         }
                         HitKind::Accordion(index) => {
@@ -456,11 +481,21 @@ impl App {
                             self.trajectory_cursor = index;
                             self.toggle_selected_accordion();
                         }
+                        HitKind::Scrollbar { focus, track, total_rows, visible_rows } => self
+                            .start_scrollbar_drag(
+                                focus,
+                                track,
+                                total_rows,
+                                visible_rows,
+                                mouse.row,
+                            ),
                         HitKind::AddMachine => self.draft = Some(MachineDraft::new()),
                         _ => {}
                     }
                 }
             }
+            MouseEventKind::Drag(MouseButton::Left) => self.drag_scrollbar(mouse.row),
+            MouseEventKind::Up(MouseButton::Left) => self.scrollbar_drag = None,
             _ => {}
         }
     }
@@ -587,16 +622,20 @@ impl App {
                 if self.machines.is_empty() {
                     return;
                 }
+                self.machine_follow_selection = true;
                 let next = shifted_index(self.selected_machine, self.machines.len(), delta);
                 self.select_machine(next);
             }
             Focus::Conversations => {
-                let Some(machine) = self.selected_machine() else { return };
-                if machine.rows.is_empty() {
-                    return;
-                }
-                let current = machine.selected_row().unwrap_or(0);
-                let next = shifted_index(current, machine.rows.len(), delta);
+                let next = {
+                    let Some(machine) = self.selected_machine() else { return };
+                    if machine.rows.is_empty() {
+                        return;
+                    }
+                    let current = machine.selected_row().unwrap_or(0);
+                    shifted_index(current, machine.rows.len(), delta)
+                };
+                self.conversation_follow_selection = true;
                 self.select_conversation(next);
             }
             Focus::Trajectory => {
@@ -618,6 +657,8 @@ impl App {
         if index >= self.machines.len() || index == self.selected_machine {
             return;
         }
+        self.machine_follow_selection = true;
+        self.conversation_follow_selection = true;
         if let Some(previous) = self.selected_machine() {
             self.network.select_thread(&previous.config.id, None);
         }
@@ -631,11 +672,15 @@ impl App {
     }
 
     fn select_conversation(&mut self, index: usize) {
-        let Some(machine) = self.selected_machine() else { return };
-        let Some(row) = machine.rows.get(index) else { return };
-        let thread_id = row.thread.id.clone();
-        let machine_id = machine.config.id.clone();
-        if machine.selected_thread_id.as_deref() == Some(&thread_id) {
+        let Some((thread_id, machine_id)) = self.selected_machine().and_then(|machine| {
+            machine.rows.get(index).map(|row| (row.thread.id.clone(), machine.config.id.clone()))
+        }) else {
+            return;
+        };
+        self.conversation_follow_selection = true;
+        if self.selected_machine().and_then(|machine| machine.selected_thread_id.as_deref())
+            == Some(&thread_id)
+        {
             return;
         }
         if let Some(machine) = self.selected_machine_mut() {
@@ -680,6 +725,7 @@ impl App {
     }
 
     fn page_scroll(&mut self, direction: isize) {
+        self.stop_following_selection(self.focus);
         match self.focus {
             Focus::Machines => {
                 let amount = self.machine_viewport_height.saturating_sub(1).max(1);
@@ -701,6 +747,7 @@ impl App {
     }
 
     fn scroll_to_edge(&mut self, end: bool) {
+        self.stop_following_selection(self.focus);
         match self.focus {
             Focus::Machines => {
                 self.machine_scroll = if end { usize::MAX } else { 0 };
@@ -719,29 +766,102 @@ impl App {
         self.clamp_scrolls();
     }
 
-    fn mouse_scroll(&mut self, column: u16, delta: isize) {
-        if self.columns.machines.x <= column
-            && column < self.columns.machines.x + self.columns.machines.width
-        {
-            self.focus = Focus::Machines;
-            self.machine_scroll = shifted_offset(self.machine_scroll, delta);
-        } else if self.columns.conversations.x <= column
-            && column < self.columns.conversations.x + self.columns.conversations.width
-        {
-            self.focus = Focus::Conversations;
-            self.conversation_scroll = shifted_offset(self.conversation_scroll, delta);
-        } else if self.columns.trajectory.x <= column
-            && column < self.columns.trajectory.x + self.columns.trajectory.width
-        {
-            self.focus = Focus::Trajectory;
-            self.trajectory_scroll = shifted_offset(self.trajectory_scroll, delta);
-        }
+    fn mouse_scroll(&mut self, column: u16, row: u16, delta: isize) {
+        let Some(focus) = self.column_at(column, row) else { return };
+        self.stop_following_selection(focus);
+        let offset = self.scroll_offset_mut(focus);
+        *offset = shifted_offset(*offset, delta);
         self.clamp_scrolls();
     }
 
     fn scroll_trajectory(&mut self, delta: isize) {
         self.trajectory_scroll = shifted_offset(self.trajectory_scroll, delta);
         self.clamp_scrolls();
+    }
+
+    fn start_scrollbar_drag(
+        &mut self,
+        focus: Focus,
+        track: Rect,
+        total_rows: usize,
+        visible_rows: usize,
+        y: u16,
+    ) {
+        if track.height == 0 {
+            return;
+        }
+        self.stop_following_selection(focus);
+        let current_offset = self.scroll_offset(focus);
+        let relative = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+        let (thumb_y, thumb_height) =
+            viewport_thumb_geometry(total_rows, visible_rows, current_offset, track.height);
+        if relative < thumb_y || relative >= thumb_y.saturating_add(thumb_height) {
+            *self.scroll_offset_mut(focus) =
+                viewport_jump_offset(total_rows, visible_rows, track.height, relative);
+        }
+        self.clamp_scrolls();
+        self.scrollbar_drag = Some(ScrollbarDrag {
+            focus,
+            track,
+            total_rows,
+            visible_rows,
+            anchor_y: y,
+            anchor_offset: self.scroll_offset(focus),
+        });
+    }
+
+    fn drag_scrollbar(&mut self, y: u16) {
+        let Some(drag) = self.scrollbar_drag else { return };
+        *self.scroll_offset_mut(drag.focus) = viewport_drag_offset(
+            drag.total_rows,
+            drag.visible_rows,
+            drag.track.height,
+            drag.anchor_offset,
+            y as i128 - drag.anchor_y as i128,
+        );
+        self.clamp_scrolls();
+    }
+
+    fn column_at(&self, x: u16, y: u16) -> Option<Focus> {
+        [
+            (Focus::Machines, self.columns.machines),
+            (Focus::Conversations, self.columns.conversations),
+            (Focus::Trajectory, self.columns.trajectory),
+        ]
+        .into_iter()
+        .find_map(|(focus, area)| rect_contains(area, x, y).then_some(focus))
+    }
+
+    fn scroll_offset(&self, focus: Focus) -> usize {
+        match focus {
+            Focus::Machines => self.machine_scroll,
+            Focus::Conversations => self.conversation_scroll,
+            Focus::Trajectory => self.trajectory_scroll,
+        }
+    }
+
+    fn scroll_offset_mut(&mut self, focus: Focus) -> &mut usize {
+        match focus {
+            Focus::Machines => &mut self.machine_scroll,
+            Focus::Conversations => &mut self.conversation_scroll,
+            Focus::Trajectory => &mut self.trajectory_scroll,
+        }
+    }
+
+    fn stop_following_selection(&mut self, focus: Focus) {
+        match focus {
+            Focus::Machines => self.machine_follow_selection = false,
+            Focus::Conversations => self.conversation_follow_selection = false,
+            Focus::Trajectory => {}
+        }
+    }
+
+    pub fn scrollbar_hovered(&self, track: Rect) -> bool {
+        self.hover.is_some_and(|(x, y)| rect_contains(track, x, y))
+    }
+
+    pub fn scrollbar_dragging(&self, focus: Focus) -> bool {
+        self.scrollbar_drag.is_some_and(|drag| drag.focus == focus)
     }
 
     pub fn clamp_scrolls(&mut self) {
@@ -833,12 +953,7 @@ impl App {
     }
 
     fn hit_at(&self, x: u16, y: u16) -> Option<&Hit> {
-        self.hits.iter().rev().find(|hit| {
-            x >= hit.area.x
-                && x < hit.area.x.saturating_add(hit.area.width)
-                && y >= hit.area.y
-                && y < hit.area.y.saturating_add(hit.area.height)
-        })
+        self.hits.iter().rev().find(|hit| rect_contains(hit.area, x, y))
     }
 
     fn machine_by_id(&self, id: &str) -> Option<&MachineView> {
@@ -1192,6 +1307,13 @@ fn shifted_index(current: usize, length: usize, delta: isize) -> usize {
 
 fn shifted_offset(current: usize, delta: isize) -> usize {
     current.saturating_add_signed(delta)
+}
+
+fn rect_contains(rect: Rect, x: u16, y: u16) -> bool {
+    x >= rect.x
+        && x < rect.x.saturating_add(rect.width)
+        && y >= rect.y
+        && y < rect.y.saturating_add(rect.height)
 }
 
 fn insert_at_cursor(value: &mut String, cursor: &mut usize, character: char) {
