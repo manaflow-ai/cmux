@@ -72,6 +72,61 @@ import Testing
         #expect(teams[deleteIndex] == "team-shown")
     }
 
+    @Test func exactScopeBackupTeamSurvivesEveryProductionDecorator() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let backup = FakeBackup()
+        let backed = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { "team-live" }
+        )
+        let scope = try #require(MobileIOSBuildScope("feature"))
+        let buildScoped = IOSBuildScopedPairedMacStore(inner: backed, scope: scope)
+        let compatible = MobileMacBuildCompatibilityPolicy
+            .development(expectedInstanceTag: "feature")
+            .scoping(buildScoped)
+        let store = TeamScopedPairedMacStore(
+            inner: compatible,
+            teamIDProvider: { "team-live" }
+        )
+
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: "feature",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await store.removeExactScope(
+            macDeviceID: "mac-a",
+            instanceTag: "feature",
+            stackUserID: "user-1",
+            teamID: nil,
+            backupTeamID: "team-shown"
+        )
+
+        let ops = await backup.uploadedOps()
+        let teams = await backup.uploadTeams()
+        let deleteIndex = try #require(ops.lastIndex {
+            switch $0 {
+            case .delete(let macDeviceID): return macDeviceID == "mac-a"
+            case .deleteInstance(let macDeviceID, _): return macDeviceID == "mac-a"
+            default: return false
+            }
+        })
+        #expect(teams.indices.contains(deleteIndex))
+        #expect(teams[deleteIndex] == "team-shown")
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }

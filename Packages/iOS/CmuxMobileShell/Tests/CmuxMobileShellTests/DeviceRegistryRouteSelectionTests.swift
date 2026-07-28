@@ -288,7 +288,7 @@ import Testing
         #expect(store.read() == .found(first))
     }
 
-    @Test func deviceIdentityMigratesLegacyUserDefaultsValue() {
+    @Test func deviceIdentityDoesNotAdoptRestoredLegacyUserDefaultsValue() {
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -297,10 +297,14 @@ import Testing
         let store = InMemoryDeviceIdentityStore()
 
         let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
-        // The pre-Keychain id is preserved, not replaced, so the binding slot survives.
-        #expect(resolved == legacy)
-        // And it is promoted into the authoritative store for future reads.
-        #expect(store.read() == .found(legacy))
+        // UserDefaults can cross hardware in a restored backup, while the
+        // ThisDeviceOnly Keychain item cannot. An empty authoritative store must
+        // therefore mint for this physical phone instead of cloning the old
+        // phone's `(user, device, tag)` identity.
+        #expect(resolved != legacy)
+        #expect(UUID(uuidString: resolved) != nil)
+        #expect(store.read() == .found(resolved))
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == resolved)
     }
 
     @Test func deviceIdentitySurvivesUserDefaultsWipe() {
@@ -426,9 +430,11 @@ import Testing
         #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
     }
 
-    @Test func durableDeviceIDAdoptsLegacyEvenWhenPersistFails() {
-        // An adopted pre-Keychain id is already the id the existing binding uses,
-        // so it is durable regardless of whether the upgrade-persist succeeds.
+    @Test func durableDeviceIDRejectsRestoredLegacyWhenFreshMintCannotPersist() {
+        // A UserDefaults-only id is not durable evidence for this physical
+        // device because it may have arrived in a restored backup. If the empty
+        // authoritative store cannot persist a fresh id, defer registration and
+        // remove the unsafe mirror instead of cloning another phone's identity.
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -437,7 +443,8 @@ import Testing
         let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
 
         let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
-        #expect(resolved == legacy)
+        #expect(resolved == nil)
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
     }
 
     @Test func durableDeviceIDAdoptsConcurrentWinnerInsteadOfMintingSecondID() {
