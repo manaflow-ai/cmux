@@ -43,6 +43,15 @@ struct HTMLPlainTextParserTests {
         #expect(parser.plainText(from: html) == "Visible")
     }
 
+    @Test("preserves text after a self-closing template")
+    func preservesTextAfterSelfClosingTemplate() {
+        let parser = HTMLPlainTextParser()
+
+        #expect(
+            parser.plainText(from: "<template/>Visible") == "Visible"
+        )
+    }
+
     @Test("does not mistake an attribute URL slash for a self-closing script")
     func omitsScriptWithTrailingSlashInUnquotedAttribute() {
         let parser = HTMLPlainTextParser()
