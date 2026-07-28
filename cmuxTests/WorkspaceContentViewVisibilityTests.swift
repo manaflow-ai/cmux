@@ -25,19 +25,6 @@ final class WorkspaceContentViewVisibilityTests {
         }
     }
 
-    private static var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-    }
-
-    private static func sourceText(_ relativePath: String) throws -> String {
-        try String(
-            contentsOf: repoRoot.appendingPathComponent(relativePath),
-            encoding: .utf8
-        )
-    }
-
     private static func restoreFocusTarget(
         workspaceId: UUID = UUID(),
         panelId: UUID = UUID(),
@@ -51,28 +38,33 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
-    func contentViewDoesNotKeepLegacyWorkItemStateForCoalescedReleases() throws {
-        let source = try Self.sourceText("Sources/ContentView.swift")
-        let legacyState = [
-            "sidebarResizerCursorReleaseWorkItem",
-            "commandPaletteRestoreTimeoutWorkItem",
-        ].filter(source.contains)
-        #expect(
-            legacyState.isEmpty,
-            """
-            ContentView must not keep the legacy DispatchWorkItem state properties that \
-            previously let queued closures retain prior work-item state:
-            \(legacyState.joined(separator: "\n"))
-            """
-        )
-        #expect(
-            source.contains("scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))"),
-            """
-            Sidebar resizer hover exit must keep a short deferred cursor-release window so \
-            mouse-down and drag-start callbacks can establish resize state before the cursor \
-            can be reset.
-            """
-        )
+    @MainActor
+    func sidebarResizerCursorReleaseSchedulerBoundsDeepReplacementBursts() async {
+        let clock = SidebarTestManualClock()
+        let scheduler = SidebarResizerCursorReleaseScheduler(clock: clock)
+        let releaseEvents = AsyncStream<Int>.makeStream()
+        defer { releaseEvents.continuation.finish() }
+        var releaseIterator = releaseEvents.stream.makeAsyncIterator()
+        var releases: [Int] = []
+
+        for index in 0..<1_000 {
+            let delay: Duration = index == 999 ? .seconds(2) : .seconds(1)
+            scheduler.schedule(force: false, delay: delay) { _ in
+                releases.append(index)
+                releaseEvents.continuation.yield(index)
+            }
+        }
+
+        await clock.waitUntilSleeping(for: .seconds(2))
+        #expect(releases.isEmpty)
+
+        clock.advance(by: .seconds(2))
+        let release = await releaseIterator.next()
+        #expect(release == 999)
+        #expect(releases == [999])
+
+        await clock.waitUntilIdle()
+        #expect(clock.retainedCancellationMarkerCount == 0)
     }
 
     @Test
