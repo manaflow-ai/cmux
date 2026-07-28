@@ -5770,15 +5770,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func focusFromPointerDown() {
         terminalSurface?.didReceiveExplicitInput()
         if let terminalSurface {
-            if terminalSurface.focusPlacement == .rightSidebarDock {
-                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
-            } else {
-                AppDelegate.shared?.noteTerminalKeyboardFocusIntent(
-                    workspaceId: terminalSurface.tabId,
-                    panelId: terminalSurface.id,
-                    in: window
-                )
-            }
+            activateContainerFocusFromPointerDown()
             terminalSurface.hostedView.clearReparentFocusSuppressionForPointerFocus()
         }
         requestPointerFocusRecovery()
