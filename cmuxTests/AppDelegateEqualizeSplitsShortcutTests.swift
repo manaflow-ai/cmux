@@ -1931,6 +1931,13 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 arbiter.extendCurrentFontSizeWorkIdleBarrier()
         }
         defer { finishConfigurationBarrier?() }
+        arbiter
+            .setCurrentFontSizeWorkIdleBarrierProjectionConfiguration(
+                WorkspaceTerminalFontConfigurationSnapshot(
+                    configuredRuntimePoints: 12,
+                    magnificationPercent: 100
+                )
+            )
 
         XCTAssertTrue(
             coordinator.enqueue(
@@ -1975,6 +1982,11 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
 
         let arbiter = WorkspaceTerminalFontSizeArbiter()
+        var executionConfiguration =
+            WorkspaceTerminalFontConfigurationSnapshot(
+                configuredRuntimePoints: 15,
+                magnificationPercent: 100
+            )
         let coordinator =
             WorkspaceTerminalFontSizeCoordinator(
                 tabManager: manager,
@@ -1983,10 +1995,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                     ManualWorkspaceFontSizeDrainScheduler()
                         .schedule(delay:action:),
                 configurationSnapshot: {
-                    WorkspaceTerminalFontConfigurationSnapshot(
-                        configuredRuntimePoints: 15,
-                        magnificationPercent: 100
-                    )
+                    executionConfiguration
                 }
             )
         defer { coordinator.cancelAll() }
@@ -2014,6 +2023,42 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 $0.fontSize == 15
             },
             "Projection must wait rather than guess with the pre-reload configuration"
+        )
+
+        let targetConfiguration =
+            WorkspaceTerminalFontConfigurationSnapshot(
+                configuredRuntimePoints: 30,
+                magnificationPercent: 200
+            )
+        arbiter
+            .setCurrentFontSizeWorkIdleBarrierProjectionConfiguration(
+                targetConfiguration
+            )
+        let targetSnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty
+        )
+        XCTAssertTrue(
+            targetSnapshot.panels.compactMap(\.terminal).allSatisfy {
+                $0.fontSize == 15.5
+            },
+            "Projection must use the parsed configuration that will execute the request"
+        )
+
+        executionConfiguration = targetConfiguration
+        finishConfigurationBarrier?()
+        finishConfigurationBarrier = nil
+#if DEBUG
+        coordinator.debugDrainAll()
+#else
+        XCTFail("Workspace font-size coalescer hooks require DEBUG")
+        return
+#endif
+        XCTAssertTrue(
+            terminalPanels.allSatisfy {
+                $0.surface.fontSizeLineageSnapshot()?
+                    .basePoints == 15.5
+            }
         )
     }
 

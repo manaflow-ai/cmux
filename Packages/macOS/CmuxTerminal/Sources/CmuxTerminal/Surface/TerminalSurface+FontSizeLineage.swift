@@ -207,7 +207,27 @@ extension TerminalSurface {
         )
         let netRuntimePointDelta = adjustedRuntimePoints - boundedCurrentRuntimePoints
         guard netRuntimePointDelta != 0 else {
-            return .alreadySatisfied
+            guard !baseline.lineage.isExplicitOverride else {
+                return .alreadySatisfied
+            }
+            if runtimeSurface != nil {
+                guard performExplicitInputBindingAction(
+                    "set_font_size:\(adjustedRuntimePoints)"
+                ) else {
+                    return .failed
+                }
+                followsConfiguredFontSize = false
+                _ = fontSizeLineageSnapshot(
+                    magnificationPercent: percent
+                )
+                return .applied
+            }
+            claimExplicitFontSizeOwnership(
+                atRuntimePoints: adjustedRuntimePoints,
+                previousLineage: baseline.lineage,
+                magnificationPercent: percent
+            )
+            return .applied
         }
 
         if runtimeSurface != nil {
@@ -236,6 +256,34 @@ extension TerminalSurface {
             )
         )
         return .applied
+    }
+
+    @MainActor
+    private func claimExplicitFontSizeOwnership(
+        atRuntimePoints runtimePoints: Float32,
+        previousLineage: TerminalFontSizeLineage,
+        magnificationPercent: Int
+    ) {
+        if var reloadState = pendingFontSizeConfigurationReloadState {
+            reloadState.recordLocalFontInput(
+                runtimePointDelta: 0,
+                usesConfiguredBase:
+                    !previousLineage.isExplicitOverride,
+                isExplicitOverride: true
+            )
+            pendingFontSizeConfigurationReloadState =
+                reloadState
+        }
+        followsConfiguredFontSize = false
+        recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
+                    fromRuntimePoints: runtimePoints,
+                    percent: magnificationPercent
+                ),
+                isExplicitOverride: true
+            )
+        )
     }
 
     /// Returns the same starting lineage used by a relative font mutation.
@@ -434,7 +482,28 @@ extension TerminalSurface {
             to: currentRuntimePoints
         )
         guard targetRuntimePoints != currentRuntimePoints else {
-            return .alreadySatisfied
+            let previousLineage =
+                lastKnownFontSizeLineage
+                ?? TerminalFontSizeLineage(
+                    basePoints:
+                        CmuxSurfaceConfigTemplate.baseFontSize(
+                            fromRuntimePoints:
+                                currentRuntimePoints,
+                            percent:
+                                magnificationPercent
+                        ),
+                    isExplicitOverride: false
+                )
+            guard !previousLineage.isExplicitOverride else {
+                return .alreadySatisfied
+            }
+            didReceiveExplicitInput()
+            claimExplicitFontSizeOwnership(
+                atRuntimePoints: targetRuntimePoints,
+                previousLineage: previousLineage,
+                magnificationPercent: magnificationPercent
+            )
+            return .applied
         }
 
         let previousFittedRuntimePoints =

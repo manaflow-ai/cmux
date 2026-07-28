@@ -74,13 +74,6 @@ enum WorkspaceTerminalFontSizeChange: Equatable {
         let configuredRuntimePoints = policy.clampedRuntimePoints(
             configuredRuntimePoints
         )
-        let configuredLineage = TerminalFontSizeLineage(
-            basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
-                fromRuntimePoints: configuredRuntimePoints,
-                percent: magnificationPercent
-            ),
-            isExplicitOverride: false
-        )
 
         let startingRuntimePoints: Float32
         let transform: TerminalFontSizeDeltaTransform
@@ -104,10 +97,6 @@ enum WorkspaceTerminalFontSizeChange: Equatable {
         let finalRuntimePoints = transform.applying(
             to: boundedStartingRuntimePoints
         )
-        if case .relative = self,
-           finalRuntimePoints == boundedStartingRuntimePoints {
-            return sourceLineage ?? configuredLineage
-        }
         let isExplicitOverride: Bool
         switch self {
         case .relative:

@@ -1795,6 +1795,42 @@ final class WorkspaceTerminalFontSizeCoordinator {
         return true
     }
 
+    func appendWorkspaceOnlyEvent(
+        _ change: WorkspaceTerminalFontSizeChange,
+        workspaceId: UUID,
+        workspaceReference: WeakWorkspaceReference,
+        acceptedOrder: UInt64
+    ) -> Bool {
+        guard outstandingRequestCount + 1
+                <= maximumOutstandingRequestCount else {
+            return false
+        }
+
+        retainWhileOutstanding()
+        sealPendingEventBatch()
+        let lineage = EventBatchLineage(
+            configuration: configurationSnapshot()
+        )
+        nextRequestSequence += 1
+        let request = PendingRequest(
+            token: UUID(),
+            sequence: nextRequestSequence,
+            acceptedOrder: acceptedOrder,
+            resourceKey: .workspace(workspaceId),
+            target: .workspace(
+                id: workspaceId,
+                reference: workspaceReference
+            ),
+            batchLineage: lineage,
+            windowDockPrefixChange: nil,
+            change: change
+        )
+        registerOutstanding(request)
+        lineage.remainingRequestTokens.insert(request.token)
+        sealedRequests.append(request)
+        return true
+    }
+
     private func append(
         _ change: WorkspaceTerminalFontSizeChange,
         to request: inout PendingRequest

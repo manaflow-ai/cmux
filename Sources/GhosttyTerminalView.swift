@@ -2013,6 +2013,11 @@ class GhosttyApp {
                 magnificationPercent:
                     reloadMagnificationPercent
             )
+        AppDelegate.shared?
+            .workspaceTerminalFontSizeArbiter
+            .setCurrentFontSizeWorkIdleBarrierProjectionConfiguration(
+                terminalFontConfiguration
+            )
         let registryTraversal =
             Self.terminalSurfaceRegistry
                 .makeIncrementalTraversal()

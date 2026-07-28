@@ -101,6 +101,8 @@ final class WorkspaceTerminalFontSizeArbiter {
     private var isPerformingFontSizeWorkIdleActions = false
     private var extendedFontSizeWorkIdleBarrierTokens:
         Set<UUID> = []
+    private var fontSizeWorkIdleBarrierProjectionConfiguration:
+        WorkspaceTerminalFontConfigurationSnapshot?
     private var nextAcceptedRequestOrderValue: UInt64 = 0
 
     nonisolated init(
@@ -268,14 +270,20 @@ final class WorkspaceTerminalFontSizeArbiter {
         or windowDockSlot:
             WorkspaceTerminalFontSizeCoordinator.WindowDockSlot
     ) -> Bool {
-        panelTransferDestinationCounts[
-            .workspace(ObjectIdentifier(workspace))
-        ] != nil
+        hasPanelTransfer(targeting: workspace)
             || windowDockSlot.value.map {
                 panelTransferDestinationCounts[
                     .windowDock(ObjectIdentifier($0))
                 ] != nil
             } == true
+    }
+
+    private func hasPanelTransfer(
+        targeting workspace: Workspace
+    ) -> Bool {
+        panelTransferDestinationCounts[
+            .workspace(ObjectIdentifier(workspace))
+        ] != nil
     }
 
     func signalPanelTransferProgress() {
@@ -361,8 +369,27 @@ final class WorkspaceTerminalFontSizeArbiter {
                     .remove(token) != nil else {
                 return
             }
+            if self.extendedFontSizeWorkIdleBarrierTokens
+                    .isEmpty {
+                self.fontSizeWorkIdleBarrierProjectionConfiguration =
+                    nil
+            }
             self.performFontSizeWorkIdleActionsIfPossible()
         }
+    }
+
+    /// Publishes the configuration that queued post-barrier requests will use.
+    /// Until a full reload has parsed that target, snapshotting withholds those
+    /// requests instead of projecting them with the configuration being replaced.
+    func setCurrentFontSizeWorkIdleBarrierProjectionConfiguration(
+        _ configuration:
+            WorkspaceTerminalFontConfigurationSnapshot
+    ) {
+        guard !extendedFontSizeWorkIdleBarrierTokens.isEmpty else {
+            return
+        }
+        fontSizeWorkIdleBarrierProjectionConfiguration =
+            configuration
     }
 
     @discardableResult
@@ -384,6 +411,7 @@ final class WorkspaceTerminalFontSizeArbiter {
                 preferredCoordinator: preferredCoordinator,
                 acceptedOrder: acceptedOrder,
                 projectionToken: UUID(),
+                includesWindowDock: true,
                 change: change,
                 deferFlush: deferFlush
             ),
@@ -413,6 +441,7 @@ final class WorkspaceTerminalFontSizeArbiter {
                 preferredCoordinator: preferredCoordinator,
                 acceptedOrder: acceptedOrder,
                 projectionToken: UUID(),
+                includesWindowDock: true,
                 change: change,
                 deferFlush: deferFlush
             ),
@@ -453,18 +482,22 @@ final class WorkspaceTerminalFontSizeArbiter {
                 preferred.releaseRetentionIfIdle()
                 continue
             }
-            if hasPanelTransfer(
-                targeting: workspace,
-                or: join.windowDockSlot
-            ) {
+            if join.includesWindowDock
+                ? hasPanelTransfer(
+                    targeting: workspace,
+                    or: join.windowDockSlot
+                )
+                : hasPanelTransfer(targeting: workspace) {
                 return
             }
             let workspaceCoordinator =
                 preferred.coordinatorOwningWork(for: workspace)
             let windowDockCoordinator =
-                preferred.coordinatorOwningWork(
+                join.includesWindowDock
+                ? preferred.coordinatorOwningWork(
                     for: join.windowDockSlot
                 )
+                : nil
             if let workspaceCoordinator,
                let windowDockCoordinator,
                workspaceCoordinator !== windowDockCoordinator {
@@ -478,21 +511,33 @@ final class WorkspaceTerminalFontSizeArbiter {
             eventCoordinator.signalMutationRetry(
                 scheduleIfOutstanding: false
             )
-            guard eventCoordinator.appendEvent(
-                join.change,
-                workspaceId: join.workspaceId,
-                workspaceReference: join.workspaceReference,
-                windowDockSlot: join.windowDockSlot,
-                acceptedOrder: join.acceptedOrder
-            ) else {
+            let didAppend = join.includesWindowDock
+                ? eventCoordinator.appendEvent(
+                    join.change,
+                    workspaceId: join.workspaceId,
+                    workspaceReference:
+                        join.workspaceReference,
+                    windowDockSlot: join.windowDockSlot,
+                    acceptedOrder: join.acceptedOrder
+                )
+                : eventCoordinator.appendWorkspaceOnlyEvent(
+                    join.change,
+                    workspaceId: join.workspaceId,
+                    workspaceReference:
+                        join.workspaceReference,
+                    acceptedOrder: join.acceptedOrder
+                )
+            guard didAppend else {
                 eventCoordinator.scheduleOutstandingContinuation()
                 return
             }
             popDeferredCoordinatorJoin()
             eventCoordinator.claimWorkspace(workspace)
-            eventCoordinator.claimWindowDockSlot(
-                join.windowDockSlot
-            )
+            if join.includesWindowDock {
+                eventCoordinator.claimWindowDockSlot(
+                    join.windowDockSlot
+                )
+            }
             eventCoordinator.flushOrSchedule(
                 deferFlush: join.deferFlush
             )
@@ -518,14 +563,10 @@ final class WorkspaceTerminalFontSizeArbiter {
             promoteDeferredCoordinatorJoins()
         }
 
-        removeDeferredCoordinatorJoins { join in
-            let workspaceIsClosing =
-                closingManager != nil
-                && join.workspaceReference.value?
-                    .owningTabManager === closingManager
-            return workspaceIsClosing
-                || join.windowDockSlot === closingWindowDockSlot
-        }
+        preserveSurvivingWorkspaceDeferredCoordinatorJoins(
+            closingManager: closingManager,
+            closingWindowDockSlot: closingWindowDockSlot
+        )
 
         var coordinators = retainedCoordinators
         coordinators[ObjectIdentifier(requester)] = requester
@@ -535,6 +576,49 @@ final class WorkspaceTerminalFontSizeArbiter {
                 windowDockSlot: closingWindowDockSlot
             )
         }
+    }
+
+    private func preserveSurvivingWorkspaceDeferredCoordinatorJoins(
+        closingManager: TabManager?,
+        closingWindowDockSlot:
+            WorkspaceTerminalFontSizeCoordinator.WindowDockSlot
+    ) {
+        func preservingSurvivingWorkspace(
+            _ joins:
+                ArraySlice<
+                    DeferredWorkspaceTerminalFontSizeCoordinatorJoin
+                >
+        ) -> [
+            DeferredWorkspaceTerminalFontSizeCoordinatorJoin
+        ] {
+            joins.compactMap { original in
+                let workspaceIsClosing =
+                    closingManager != nil
+                    && original.workspaceReference.value?
+                        .owningTabManager === closingManager
+                guard !workspaceIsClosing else { return nil }
+                var join = original
+                if join.includesWindowDock,
+                   join.windowDockSlot ===
+                    closingWindowDockSlot {
+                    join.includesWindowDock = false
+                }
+                return join
+            }
+        }
+
+        deferredCoordinatorJoins =
+            preservingSurvivingWorkspace(
+                deferredCoordinatorJoins[
+                    deferredCoordinatorJoinHead...
+                ]
+            )
+        deferredCoordinatorJoinHead = 0
+        deferredCoordinatorJoinsAfterFontSizeWorkIdle =
+            preservingSurvivingWorkspace(
+                deferredCoordinatorJoinsAfterFontSizeWorkIdle[...]
+            )
+        performFontSizeWorkIdleActionsIfPossible()
     }
 
     func snapshotProjection(
@@ -600,7 +684,8 @@ final class WorkspaceTerminalFontSizeArbiter {
         }
         appendDeferredSnapshotProjectionIntents(
             matching: {
-                $0.windowDockSlot.value === dock
+                $0.includesWindowDock
+                    && $0.windowDockSlot.value === dock
             },
             to: &commonIntents
         )
@@ -652,24 +737,36 @@ final class WorkspaceTerminalFontSizeArbiter {
         for join in deferredCoordinatorJoins[
             deferredCoordinatorJoinHead...
         ] where predicate(join) {
+            let configuration =
+                join.preferredCoordinator
+                    .snapshotProjectionConfiguration()
             intents.append(
-                deferredSnapshotProjectionIntent(for: join)
+                deferredSnapshotProjectionIntent(
+                    for: join,
+                    configuration: configuration
+                )
             )
+        }
+        guard let configuration =
+                fontSizeWorkIdleBarrierProjectionConfiguration else {
+            return
         }
         for join in deferredCoordinatorJoinsAfterFontSizeWorkIdle
         where predicate(join) {
             intents.append(
-                deferredSnapshotProjectionIntent(for: join)
+                deferredSnapshotProjectionIntent(
+                    for: join,
+                    configuration: configuration
+                )
             )
         }
     }
 
     private func deferredSnapshotProjectionIntent(
-        for join: DeferredWorkspaceTerminalFontSizeCoordinatorJoin
+        for join: DeferredWorkspaceTerminalFontSizeCoordinatorJoin,
+        configuration:
+            WorkspaceTerminalFontConfigurationSnapshot
     ) -> WorkspaceTerminalFontSizeSnapshotProjection.Intent {
-        let configuration =
-            join.preferredCoordinator
-                .snapshotProjectionConfiguration()
         return WorkspaceTerminalFontSizeSnapshotProjection.Intent(
             acceptedOrder: join.acceptedOrder,
             requestSequence: 0,
@@ -727,7 +824,10 @@ final class WorkspaceTerminalFontSizeArbiter {
             deferredCoordinatorJoinHead...
         ].contains {
             $0.workspaceReference.value === workspace
-                || $0.windowDockSlot === windowDockSlot
+                || (
+                    $0.includesWindowDock
+                    && $0.windowDockSlot === windowDockSlot
+                )
         }
     }
 
@@ -787,7 +887,9 @@ final class WorkspaceTerminalFontSizeArbiter {
                     lastIndex
                ].matches(
                     workspace: workspace,
-                    windowDockSlot: join.windowDockSlot
+                    windowDockSlot: join.windowDockSlot,
+                    includesWindowDock:
+                        join.includesWindowDock
                ) {
                 var existing =
                     deferredCoordinatorJoinsAfterFontSizeWorkIdle[
@@ -807,7 +909,9 @@ final class WorkspaceTerminalFontSizeArbiter {
                   let workspace = join.workspaceReference.value,
                   deferredCoordinatorJoins[lastIndex].matches(
                     workspace: workspace,
-                    windowDockSlot: join.windowDockSlot
+                    windowDockSlot: join.windowDockSlot,
+                    includesWindowDock:
+                        join.includesWindowDock
                   ) {
             var existing = deferredCoordinatorJoins[lastIndex]
             append(join.change, to: &existing.change)
