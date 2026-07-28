@@ -32,7 +32,7 @@ def run_wrapper(
     socket_state: str,
     argv: list[str],
     hooks_disabled: bool = False,
-    restore_launch: bool = False,
+    restore_token: str | None = None,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -120,8 +120,8 @@ exit 1
             env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
         else:
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
-        if restore_launch:
-            env["CMUX_AGENT_RESTORE_LAUNCH"] = "1"
+        if restore_token is not None:
+            env["CMUX_AGENT_RESTORE_LAUNCH"] = restore_token
         else:
             env.pop("CMUX_AGENT_RESTORE_LAUNCH", None)
 
@@ -151,7 +151,7 @@ def assert_resume_is_instrumented(socket_state: str, failures: list[str]) -> Non
     code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
         socket_state=socket_state,
         argv=["resume", SESSION_ID],
-        restore_launch=True,
+        restore_token=f"codex:{SESSION_ID}",
     )
     label = f"resume/{socket_state}"
     expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
@@ -229,7 +229,7 @@ def test_restore_marker_without_explicit_id_still_requires_live_socket(failures:
     code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
         socket_state="stale",
         argv=["resume", "--last"],
-        restore_launch=True,
+        restore_token=f"codex:{SESSION_ID}",
     )
     expect(code == 0, f"marker without id: wrapper exited {code}: {stderr}", failures)
     expect(real_argv == ["resume", "--last"],
@@ -238,6 +238,26 @@ def test_restore_marker_without_explicit_id_still_requires_live_socket(failures:
            f"marker without id: expected bounded ownership probe, got {cmux_log}", failures)
     expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
            f"marker without id: app restore marker leaked to Codex: {observed_env}", failures)
+
+
+def test_mismatched_restore_tokens_still_require_live_socket(failures: list[str]) -> None:
+    for token in (
+        f"claude:{SESSION_ID}",
+        "codex:aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+        "1",
+    ):
+        code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
+            socket_state="stale",
+            argv=["resume", SESSION_ID],
+            restore_token=token,
+        )
+        expect(code == 0, f"mismatched marker {token}: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == ["resume", SESSION_ID],
+               f"mismatched marker {token}: expected passthrough, got {real_argv}", failures)
+        expect(any("ping" in line for line in cmux_log),
+               f"mismatched marker {token}: expected ownership probe, got {cmux_log}", failures)
+        expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
+               f"mismatched marker {token}: marker leaked to Codex: {observed_env}", failures)
 
 
 def test_non_session_command_still_bypasses_hooks(failures: list[str]) -> None:
@@ -257,6 +277,7 @@ def main() -> int:
     test_stale_socket_fresh_launch_preserves_native_behavior(failures)
     test_unmarked_stale_socket_resume_preserves_native_behavior(failures)
     test_restore_marker_without_explicit_id_still_requires_live_socket(failures)
+    test_mismatched_restore_tokens_still_require_live_socket(failures)
     test_non_session_command_still_bypasses_hooks(failures)
     if failures:
         print("FAIL: Codex resume wrapper reliability checks failed")

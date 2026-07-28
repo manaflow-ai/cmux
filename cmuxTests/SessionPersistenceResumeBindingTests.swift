@@ -9,6 +9,54 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
+    @Test(arguments: ["codex", "claude"])
+    func agentHookRestoreBindingCarriesProviderAndSessionBoundAuthorization(kind: String) throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let resumeArgument = kind == "codex" ? "resume" : "--resume"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: kind,
+            command: "'/opt/company/bin/\(kind)' '\(resumeArgument)' '\(sessionId)'",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.inlineStartupInput)
+        #expect(
+            startupInput.contains("CMUX_AGENT_RESTORE_LAUNCH='\(kind):\(sessionId)'"),
+            "\(startupInput)"
+        )
+    }
+
+    @Test func restoreBindingAuthorizationRejectsUnownedOrUnboundCommands() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let nonHook = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume '\(sessionId)'",
+            checkpointId: sessionId,
+            source: "cli",
+            autoResume: true
+        )
+        let unsupported = SurfaceResumeBindingSnapshot(
+            kind: "gemini",
+            command: "gemini --resume '\(sessionId)'",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+        let invalidSession = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume not-a-session-id",
+            checkpointId: "not-a-session-id",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        #expect(try #require(nonHook.inlineStartupInput).contains("CMUX_AGENT_RESTORE_LAUNCH") == false)
+        #expect(try #require(unsupported.inlineStartupInput).contains("CMUX_AGENT_RESTORE_LAUNCH") == false)
+        #expect(try #require(invalidSession.inlineStartupInput).contains("CMUX_AGENT_RESTORE_LAUNCH") == false)
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",

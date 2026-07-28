@@ -236,7 +236,7 @@ def run_wrapper_terminal_env_probe(
     *,
     hooks_disabled: bool = False,
     socket_state: str = "live",
-    restore_launch: bool = False,
+    restore_token: str | None = None,
 ) -> tuple[int, dict[str, str], list[str], str, set[str]]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-env-probe-") as td:
         tmp = Path(td)
@@ -270,8 +270,8 @@ def run_wrapper_terminal_env_probe(
         }
         if hooks_disabled:
             fingerprint_env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
-        if restore_launch:
-            fingerprint_env["CMUX_AGENT_RESTORE_LAUNCH"] = "1"
+        if restore_token is not None:
+            fingerprint_env["CMUX_AGENT_RESTORE_LAUNCH"] = restore_token
         probe_key_lines = "\n".join(f"  {key}" for key in fingerprint_env)
 
         make_executable(
@@ -1890,7 +1890,7 @@ def test_app_owned_stale_socket_resume_injects_hooks_and_consumes_marker(failure
     code, observed_env, real_argv, stderr, _ = run_wrapper_terminal_env_probe(
         ["--resume", session_id],
         socket_state="stale",
-        restore_launch=True,
+        restore_token=f"claude:{session_id}",
     )
     expect(code == 0, f"app restore/stale: wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1909,13 +1909,32 @@ def test_restore_marker_without_valid_resume_id_still_requires_live_socket(failu
     code, observed_env, real_argv, stderr, _ = run_wrapper_terminal_env_probe(
         ["--resume", "not-a-session-id"],
         socket_state="stale",
-        restore_launch=True,
+        restore_token="claude:not-a-session-id",
     )
     expect(code == 0, f"invalid app restore/stale: wrapper exited {code}: {stderr}", failures)
     expect(real_argv == ["--resume", "not-a-session-id"],
            f"invalid app restore/stale: expected passthrough, got {real_argv}", failures)
     expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
            f"invalid app restore/stale: marker leaked to Claude: {observed_env}", failures)
+
+
+def test_mismatched_restore_tokens_still_require_live_socket(failures: list[str]) -> None:
+    session_id = "5b5d0816-ef91-4a8d-8933-68a114787c40"
+    for token in (
+        f"codex:{session_id}",
+        "claude:aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+        "1",
+    ):
+        code, observed_env, real_argv, stderr, _ = run_wrapper_terminal_env_probe(
+            ["--resume", session_id],
+            socket_state="stale",
+            restore_token=token,
+        )
+        expect(code == 0, f"mismatched marker {token}: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == ["--resume", session_id],
+               f"mismatched marker {token}: expected passthrough, got {real_argv}", failures)
+        expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
+               f"mismatched marker {token}: marker leaked to Claude: {observed_env}", failures)
 
 
 def main() -> int:
@@ -1967,6 +1986,7 @@ def main() -> int:
     test_stale_socket_skips_hook_injection(failures)
     test_app_owned_stale_socket_resume_injects_hooks_and_consumes_marker(failures)
     test_restore_marker_without_valid_resume_id_still_requires_live_socket(failures)
+    test_mismatched_restore_tokens_still_require_live_socket(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")
