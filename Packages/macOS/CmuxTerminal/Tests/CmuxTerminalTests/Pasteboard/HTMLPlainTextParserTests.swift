@@ -162,6 +162,17 @@ struct HTMLPlainTextParserTests {
         #expect(parser.plainText(from: Data(oversizedHTML.utf8)) == nil)
     }
 
+    @Test("rejects excessively nested HTML")
+    func rejectsExcessivelyNestedHTML() {
+        let parser = HTMLPlainTextParser()
+        let depth = 1_024
+        let html = String(repeating: "<div>", count: depth)
+            + "Visible"
+            + String(repeating: "</div>", count: depth)
+
+        #expect(parser.plainText(from: html) == nil)
+    }
+
     @Test("parses from a background task")
     func parsesFromBackgroundTask() async {
         let parsed = await Task.detached {
