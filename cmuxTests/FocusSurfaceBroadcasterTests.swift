@@ -13,26 +13,30 @@ import Testing
 /// `.ghosttyDidFocusSurface` *synchronously* while `@Published` selection state was
 /// mid-mutation. The Combine `.onReceive` subscriber in `ContentView` received it on
 /// the posting thread and synchronously re-entered the focus path
-/// (`attemptCommandPaletteFocusRestoreIfNeeded` → `TabManager.focusTab` →
-/// `Workspace.focusPanel` → `applyTabSelectionNow` → post again). The only guard
+/// (`attemptCommandPaletteFocusRestoreIfNeeded` -> `TabManager.focusTab` ->
+/// `Workspace.focusPanel` -> `applyTabSelectionNow` -> post again). The only guard
 /// (`Workspace.isApplyingTabSelection`) is per-instance, so a cycle that bounced
 /// through SwiftUI body re-evaluation and across workspace instances was unbounded,
 /// matching the hours-long SwiftUI/AppKit layout loop in issue #8843.
 ///
 /// ``FocusSurfaceBroadcaster`` is the fix seam: emitting a focus broadcast is now
-/// deferred + coalesced and a re-entrant emit during delivery is drained in a bounded
-/// loop instead of recursing. These tests exercise that contract directly, without
-/// AppKit, by injecting a manual scheduler and capturing deliveries.
+/// deferred + coalesced, same-transaction feedback is bounded across scheduler turns,
+/// and a re-entrant emit during delivery is drained in a bounded loop instead of
+/// recursing. These tests exercise that contract directly, without AppKit, by
+/// injecting a manual scheduler and capturing deliveries.
 @MainActor
 @Suite("Focus surface broadcaster re-entrancy")
 struct FocusSurfaceBroadcasterTests {
 
-    /// Distinct payloads; the `explicitFocusIntent` flag just varies for identity.
-    private static func payload(_ seed: Int) -> FocusSurfaceBroadcaster.FocusSurfacePayload {
+    private static func payload(
+        _ seed: Int,
+        transactionId: UUID = UUID()
+    ) -> FocusSurfaceBroadcaster.FocusSurfacePayload {
         FocusSurfaceBroadcaster.FocusSurfacePayload(
             workspaceId: UUID(),
             panelId: UUID(),
-            explicitFocusIntent: seed.isMultiple(of: 2)
+            explicitFocusIntent: seed.isMultiple(of: 2),
+            transactionId: transactionId
         )
     }
 
@@ -41,30 +45,18 @@ struct FocusSurfaceBroadcasterTests {
     @MainActor
     private final class ManualScheduler {
         private(set) var pending: [@MainActor @Sendable () -> Void] = []
-        private(set) var circuitBreakerPending: [@MainActor @Sendable () -> Void] = []
 
         func append(_ work: @escaping @MainActor @Sendable () -> Void) {
             pending.append(work)
         }
 
-        func appendCircuitBreaker(_ work: @escaping @MainActor @Sendable () -> Void) {
-            circuitBreakerPending.append(work)
-        }
-
         var count: Int { pending.count }
-        var circuitBreakerCount: Int { circuitBreakerPending.count }
 
         /// Runs every currently-queued flush. Clears the queue first so re-entrant
         /// scheduling during a run is observable via ``count``.
         func runAll() {
             let work = pending
             pending.removeAll()
-            for unit in work { unit() }
-        }
-
-        func runAllCircuitBreaker() {
-            let work = circuitBreakerPending
-            circuitBreakerPending.removeAll()
             for unit in work { unit() }
         }
     }
@@ -125,14 +117,43 @@ struct FocusSurfaceBroadcasterTests {
         #expect(delivered == [third])
     }
 
+    @Test("default delivery posts the focus transaction id")
+    func defaultDeliveryPostsFocusTransactionId() {
+        let scheduler = ManualScheduler()
+        let transactionId = UUID()
+        let payload = Self.payload(1, transactionId: transactionId)
+        var postedUserInfo: [AnyHashable: Any]?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidFocusSurface,
+            object: nil,
+            queue: nil
+        ) { notification in
+            postedUserInfo = notification.userInfo
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let broadcaster = FocusSurfaceBroadcaster(
+            schedule: { scheduler.append($0) }
+        )
+
+        broadcaster.emit(payload)
+        scheduler.runAll()
+
+        #expect(postedUserInfo?[GhosttyNotificationKey.tabId] as? UUID == payload.workspaceId)
+        #expect(postedUserInfo?[GhosttyNotificationKey.surfaceId] as? UUID == payload.panelId)
+        #expect(postedUserInfo?[GhosttyNotificationKey.explicitFocusIntent] as? Bool == payload.explicitFocusIntent)
+        #expect(postedUserInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID == transactionId)
+    }
+
     @Test("a re-entrant emit is bounded per turn, never recurses, and never hangs")
     func reentrantEmitIsBoundedPerTurn() {
         let scheduler = ManualScheduler()
         var delivered: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         var boundExceeded: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         let relay = BroadcasterRelay()
-        let reentryTarget = Self.payload(99)
-        // Simulates the .onReceive → focusTab → applyTabSelectionNow → emit cycle:
+        let transactionId = UUID()
+        let reentryTarget = Self.payload(99, transactionId: transactionId)
+        // Simulates the .onReceive -> focusTab -> applyTabSelectionNow -> emit cycle:
         // every delivery re-focuses, far more often than the per-turn bound allows.
         var reentryBudget = 100
 
@@ -151,7 +172,7 @@ struct FocusSurfaceBroadcasterTests {
         )
         relay.broadcaster = broadcaster
 
-        broadcaster.emit(Self.payload(0))
+        broadcaster.emit(Self.payload(0, transactionId: transactionId))
 
         // The first flush delivers at most the bound, then defers the rest instead
         // of recursing `reentryBudget` deep (the un-fixed behavior delivers 101 in a
@@ -165,7 +186,7 @@ struct FocusSurfaceBroadcasterTests {
         var turns = 1
         while scheduler.count > 0 {
             turns += 1
-            #expect(turns < 1000)       // converges — not an infinite cross-turn loop
+            #expect(turns < 1000)       // converges, not an infinite cross-turn loop
             if turns >= 1000 { break }
             let before = delivered.count
             scheduler.runAll()
@@ -184,8 +205,9 @@ struct FocusSurfaceBroadcasterTests {
         let scheduler = ManualScheduler()
         var delivered: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         let relay = BroadcasterRelay()
-        let finalTarget = Self.payload(7)
-        // The observer re-focuses the same target a couple of times, then stops —
+        let transactionId = UUID()
+        let finalTarget = Self.payload(7, transactionId: transactionId)
+        // The observer re-focuses the same target a couple of times, then stops -
         // the realistic case where focus restore eventually converges.
         var reEmitsRemaining = 2
 
@@ -202,7 +224,7 @@ struct FocusSurfaceBroadcasterTests {
         )
         relay.broadcaster = broadcaster
 
-        broadcaster.emit(Self.payload(0))
+        broadcaster.emit(Self.payload(0, transactionId: transactionId))
         scheduler.runAll()
 
         // Initial delivery + two convergent re-emits, then quiescent.
@@ -218,13 +240,14 @@ struct FocusSurfaceBroadcasterTests {
         var boundExceeded: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         var tripped: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         let relay = BroadcasterRelay()
-        let reentryTarget = Self.payload(8843)
+        let transactionId = UUID()
+        let reentryTarget = Self.payload(8843, transactionId: transactionId)
         var reentryBudget = 1_000
 
         let broadcaster = FocusSurfaceBroadcaster(
             maxCoalescedDeliveries: 2,
+            maxCircuitBreakerRecoveryDeliveries: 2,
             schedule: { scheduler.append($0) },
-            scheduleAfterCircuitBreaker: { scheduler.appendCircuitBreaker($0) },
             onDrainBoundExceeded: { boundExceeded.append($0) },
             onCircuitBreakerTripped: { tripped.append($0) },
             deliver: { payload in
@@ -237,7 +260,7 @@ struct FocusSurfaceBroadcasterTests {
         )
         relay.broadcaster = broadcaster
 
-        broadcaster.emit(Self.payload(0))
+        broadcaster.emit(Self.payload(0, transactionId: transactionId))
 
         var turns = 0
         while scheduler.count > 0 && turns < 12 {
@@ -250,20 +273,16 @@ struct FocusSurfaceBroadcasterTests {
             "A self-sustaining focus cycle must not be able to enqueue immediate flushes forever."
         )
         #expect(
-            scheduler.circuitBreakerCount == 1,
-            "The still-pending focus payload should be retained on the circuit-breaker scheduler."
+            turns == 6,
+            "The circuit breaker plus recovery should stop after six turns, got \(turns)."
         )
         #expect(
-            turns == 4,
-            "The circuit breaker should trip after four consecutive bounded turns, got \(turns)."
-        )
-        #expect(
-            delivered.count == 8,
-            "The cycle delivered \(delivered.count) immediate focus broadcasts before tripping."
+            delivered.count == 10,
+            "The cycle delivered \(delivered.count) focus broadcasts before stopping."
         )
         #expect(
             delivered.last == reentryTarget,
-            "The immediate drain should still settle on the latest requested focus payload."
+            "The drain should still settle on the latest requested focus payload."
         )
         #expect(
             boundExceeded.count == 4,
@@ -275,23 +294,50 @@ struct FocusSurfaceBroadcasterTests {
         )
         #expect(
             reentryBudget > 0,
-            "The test must stop because the circuit breaker tripped, not because the synthetic re-entry budget ran dry."
+            "The test must stop because the circuit breaker tripped, not because the synthetic budget ran dry."
         )
+    }
 
-        scheduler.runAllCircuitBreaker()
+    @Test("same-transaction deferred feedback is bounded across scheduler turns")
+    func sameTransactionDeferredFeedbackTripsAcrossTurns() {
+        let scheduler = ManualScheduler()
+        var delivered: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
+        var tripped: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
+        let relay = BroadcasterRelay()
+        let transactionId = UUID()
+        let initial = Self.payload(0, transactionId: transactionId)
+        let feedback = Self.payload(7, transactionId: transactionId)
+        var deferredFeedbackBudget = 1_000
 
-        #expect(
-            scheduler.count == 0,
-            "The delayed recovery must not restart an immediate self-sustaining focus cycle."
+        let broadcaster = FocusSurfaceBroadcaster(
+            maxCoalescedDeliveries: 8,
+            maxConsecutiveCircuitDeliveries: 3,
+            maxCircuitBreakerRecoveryDeliveries: 2,
+            schedule: { scheduler.append($0) },
+            onCircuitBreakerTripped: { tripped.append($0) },
+            deliver: { payload in
+                delivered.append(payload)
+                guard deferredFeedbackBudget > 0 else { return }
+                deferredFeedbackBudget -= 1
+                scheduler.append {
+                    relay.emit(feedback)
+                }
+            }
         )
-        #expect(
-            scheduler.circuitBreakerCount == 0,
-            "The circuit breaker should remain open after a re-entrant recovery emit until an external focus event arrives."
-        )
-        #expect(
-            delivered.count == 9,
-            "The delayed recovery should deliver the retained focus payload exactly once."
-        )
-        #expect(delivered.last == reentryTarget)
+        relay.broadcaster = broadcaster
+
+        broadcaster.emit(initial)
+
+        var turns = 0
+        while scheduler.count > 0 && turns < 20 {
+            turns += 1
+            scheduler.runAll()
+        }
+
+        #expect(scheduler.count == 0)
+        #expect(turns == 11)
+        #expect(delivered == [initial, feedback, feedback, feedback, feedback])
+        #expect(tripped == [feedback])
+        #expect(deferredFeedbackBudget > 0)
     }
 }

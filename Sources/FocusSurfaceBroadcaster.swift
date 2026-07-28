@@ -52,12 +52,20 @@ final class FocusSurfaceBroadcaster {
         let panelId: UUID
         /// Whether the focus change reflects explicit user intent.
         let explicitFocusIntent: Bool
+        /// Stable identity for one logical focus transaction and its feedback.
+        let transactionId: UUID
 
         /// Creates a payload describing a focused surface.
-        init(workspaceId: UUID, panelId: UUID, explicitFocusIntent: Bool) {
+        init(
+            workspaceId: UUID,
+            panelId: UUID,
+            explicitFocusIntent: Bool,
+            transactionId: UUID = UUID()
+        ) {
             self.workspaceId = workspaceId
             self.panelId = panelId
             self.explicitFocusIntent = explicitFocusIntent
+            self.transactionId = transactionId
         }
     }
 
@@ -65,26 +73,23 @@ final class FocusSurfaceBroadcaster {
     ///
     /// Posts the real `.ghosttyDidFocusSurface` notification and logs (DEBUG builds)
     /// whenever the bounded drain trips, and logs when the cross-turn circuit
-    /// breaker trips and moves the pending payload onto a delayed recovery, so a
+    /// breaker trips and moves the pending payload onto bounded recovery, so a
     /// future re-entrancy regression is observable instead of a silent hours-long
     /// hang.
     static let shared = FocusSurfaceBroadcaster(
-        scheduleAfterCircuitBreaker: { work in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                MainActor.assumeIsolated { work() }
-            }
-        },
         onDrainBoundExceeded: { payload in
 #if DEBUG
             cmuxDebugLog(
                 "focus.broadcast.drain.exceeded workspace=\(payload.workspaceId.uuidString.prefix(5)) " +
-                "panel=\(payload.panelId.uuidString.prefix(5)) explicit=\(payload.explicitFocusIntent ? 1 : 0)"
+                "panel=\(payload.panelId.uuidString.prefix(5)) tx=\(payload.transactionId.uuidString.prefix(5)) " +
+                "explicit=\(payload.explicitFocusIntent ? 1 : 0)"
             )
 #endif
         },
         onCircuitBreakerTripped: { payload in
             let message = "focus.broadcast.circuitBreaker.tripped workspace=\(payload.workspaceId.uuidString.prefix(5)) " +
-                "panel=\(payload.panelId.uuidString.prefix(5)) explicit=\(payload.explicitFocusIntent ? 1 : 0)"
+                "panel=\(payload.panelId.uuidString.prefix(5)) tx=\(payload.transactionId.uuidString.prefix(5)) " +
+                "explicit=\(payload.explicitFocusIntent ? 1 : 0)"
 #if DEBUG
             cmuxDebugLog(message)
 #endif
@@ -103,11 +108,12 @@ final class FocusSurfaceBroadcaster {
     ///   - maxConsecutiveBoundedFlushes: Upper bound on consecutive scheduled flushes
     ///     that are allowed to hit ``maxCoalescedDeliveries``. This is the runtime
     ///     circuit breaker for a non-converging focus observer loop.
+    ///   - maxConsecutiveCircuitDeliveries: Upper bound on deliveries for the same
+    ///     focus transaction, including feedback deferred to later main-queue turns.
+    ///   - maxCircuitBreakerRecoveryDeliveries: Upper bound on retained same-transaction
+    ///     payloads delivered after the breaker trips.
     ///   - schedule: Schedules deferred flush work on the main queue. Defaults to
     ///     `DispatchQueue.main.async`. Injected by tests to flush deterministically.
-    ///   - scheduleAfterCircuitBreaker: Schedules continuation work after the
-    ///     cross-turn circuit breaker trips. The shared runtime broadcaster uses a
-    ///     delayed recovery to stop tight loops from monopolizing the main actor.
     ///   - onDrainBoundExceeded: Invoked with the still-pending payload when a flush
     ///     hits ``maxCoalescedDeliveries`` and defers the remainder to a follow-up
     ///     flush. Used for structured logging of a non-converging focus cycle.
@@ -118,12 +124,13 @@ final class FocusSurfaceBroadcaster {
     init(
         maxCoalescedDeliveries: Int = 8,
         maxConsecutiveBoundedFlushes: Int = 4,
+        maxConsecutiveCircuitDeliveries: Int? = nil,
+        maxCircuitBreakerRecoveryDeliveries: Int? = nil,
         schedule: @escaping @MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { work() }
             }
         },
-        scheduleAfterCircuitBreaker: (@MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void)? = nil,
         onDrainBoundExceeded: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { _ in },
         onCircuitBreakerTripped: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { _ in },
         deliver: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { payload in
@@ -134,6 +141,7 @@ final class FocusSurfaceBroadcaster {
                     GhosttyNotificationKey.tabId: payload.workspaceId,
                     GhosttyNotificationKey.surfaceId: payload.panelId,
                     GhosttyNotificationKey.explicitFocusIntent: payload.explicitFocusIntent,
+                    GhosttyNotificationKey.focusTransactionId: payload.transactionId,
                 ]
             )
         }
@@ -141,8 +149,10 @@ final class FocusSurfaceBroadcaster {
         self.coalescer = FocusSurfaceBroadcastCoalescer(
             maxCoalescedDeliveries: maxCoalescedDeliveries,
             maxConsecutiveBoundedFlushes: maxConsecutiveBoundedFlushes,
+            maxConsecutiveCircuitDeliveries: maxConsecutiveCircuitDeliveries,
+            maxCircuitBreakerRecoveryDeliveries: maxCircuitBreakerRecoveryDeliveries,
+            belongsToSameCircuit: { $0.transactionId == $1.transactionId },
             schedule: schedule,
-            scheduleAfterCircuitBreaker: scheduleAfterCircuitBreaker,
             onDrainBoundExceeded: onDrainBoundExceeded,
             onCircuitBreakerTripped: onCircuitBreakerTripped,
             deliver: deliver
