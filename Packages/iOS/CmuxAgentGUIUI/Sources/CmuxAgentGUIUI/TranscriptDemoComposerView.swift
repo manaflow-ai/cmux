@@ -29,6 +29,10 @@ struct TranscriptDemoComposerView: View {
         min(max(scaledPickerWidth, 180), 260)
     }
 
+    private var shouldWrapControls: Bool {
+        controlSize > 50 || pickerWidth > 220
+    }
+
     var body: some View {
         composerSurface
             .task {
@@ -72,86 +76,140 @@ struct TranscriptDemoComposerView: View {
     }
 
     private var controls: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                Picker(AgentGUIL10n.string("agent.demo.speed", defaultValue: "Speed"), selection: $model.speed) {
-                    Text(AgentGUIL10n.rowsPerSecond(2)).tag(2)
-                    Text(AgentGUIL10n.rowsPerSecond(10)).tag(10)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: pickerWidth)
-
-                Button {
-                    model.togglePlayback()
-                } label: {
-                    controlIcon(model.isPlaying ? "pause.fill" : "play.fill")
-                }
-                .buttonStyle(.plain)
-                .disabled(!model.isPlaybackAvailable)
-                .accessibilityLabel(model.isPlaying
-                    ? AgentGUIL10n.string("agent.demo.pause", defaultValue: "Pause replay")
-                    : AgentGUIL10n.string("agent.demo.play", defaultValue: "Play replay"))
-
-                Button {
-                    model.injectStreamingTick()
-                } label: {
-                    controlIcon("dot.radiowaves.left.and.right")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(AgentGUIL10n.string("agent.demo.streaming", defaultValue: "Inject streaming tick"))
-
-                Button {
-                    model.appendBurstRows()
-                } label: {
-                    controlIcon("plus.message")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(AgentGUIL10n.string("agent.demo.burstAppend", defaultValue: "Burst append five rows"))
-
-                Toggle(isOn: Binding(
-                    get: { model.tallFixtureEnabled },
-                    set: { model.setTallFixtureEnabled($0) }
-                )) {
-                    controlIcon("text.append")
-                }
-                .toggleStyle(.button)
-                .accessibilityLabel(AgentGUIL10n.string("agent.demo.tallFixture", defaultValue: "Tall fixture"))
-
-                Button {
-                    demoFieldFocused.toggle()
-                } label: {
-                    controlIcon("keyboard")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(AgentGUIL10n.string("agent.demo.keyboard", defaultValue: "Toggle keyboard"))
-
-                Button(action: jumpToBottom) {
-                    controlIcon("arrow.down.to.line")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(AgentGUIL10n.string("agent.demo.jump", defaultValue: "Jump to bottom"))
-
-                Button {
-                    density = density == .comfortable ? .compact : .comfortable
-                } label: {
-                    controlIcon(density == .comfortable
-                        ? "rectangle.compress.vertical"
-                        : "rectangle.expand.vertical")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(AgentGUIL10n.string(
-                    "agent.demo.densityToggle",
-                    defaultValue: "Toggle transcript density"
-                ))
-                .accessibilityValue(density == .comfortable
-                    ? AgentGUIL10n.string("agent.demo.density.comfortable", defaultValue: "Comfortable")
-                    : AgentGUIL10n.string("agent.demo.density.compact", defaultValue: "Compact"))
-                .accessibilityIdentifier("TranscriptDemoDensityToggle")
+        Group {
+            if shouldWrapControls {
+                wrappedControls
+            } else {
+                scrollingControls
             }
-            .padding(6)
         }
+        .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .mobileGlassField(cornerRadius: 24)
+    }
+
+    private var scrollingControls: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                speedPicker
+                playbackButton
+                streamingButton
+                burstButton
+                tallToggle
+                keyboardButton
+                jumpButton
+                densityButton
+            }
+        }
+    }
+
+    private var wrappedControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            speedPicker
+
+            HStack(spacing: 8) {
+                playbackButton
+                streamingButton
+                burstButton
+                tallToggle
+            }
+
+            HStack(spacing: 8) {
+                keyboardButton
+                jumpButton
+                densityButton
+            }
+        }
+    }
+
+    private var speedPicker: some View {
+        Picker(AgentGUIL10n.string("agent.demo.speed", defaultValue: "Speed"), selection: $model.speed) {
+            Text(AgentGUIL10n.rowsPerSecond(2)).tag(2)
+            Text(AgentGUIL10n.rowsPerSecond(10)).tag(10)
+        }
+        .pickerStyle(.segmented)
+        .frame(width: pickerWidth)
+    }
+
+    private var playbackButton: some View {
+        Button {
+            model.togglePlayback()
+        } label: {
+            controlIcon(model.isPlaying ? "pause.fill" : "play.fill")
+        }
+        .buttonStyle(.plain)
+        .disabled(!model.isPlaybackAvailable)
+        .accessibilityLabel(model.isPlaying
+            ? AgentGUIL10n.string("agent.demo.pause", defaultValue: "Pause replay")
+            : AgentGUIL10n.string("agent.demo.play", defaultValue: "Play replay"))
+    }
+
+    private var streamingButton: some View {
+        Button {
+            model.injectStreamingTick()
+        } label: {
+            controlIcon("dot.radiowaves.left.and.right")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(AgentGUIL10n.string("agent.demo.streaming", defaultValue: "Inject streaming tick"))
+    }
+
+    private var burstButton: some View {
+        Button {
+            model.appendBurstRows()
+        } label: {
+            controlIcon("plus.message")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(AgentGUIL10n.string("agent.demo.burstAppend", defaultValue: "Burst append five rows"))
+    }
+
+    private var tallToggle: some View {
+        Toggle(isOn: Binding(
+            get: { model.tallFixtureEnabled },
+            set: { model.setTallFixtureEnabled($0) }
+        )) {
+            controlIcon("text.append")
+        }
+        .toggleStyle(.button)
+        .accessibilityLabel(AgentGUIL10n.string("agent.demo.tallFixture", defaultValue: "Tall fixture"))
+    }
+
+    private var keyboardButton: some View {
+        Button {
+            demoFieldFocused.toggle()
+        } label: {
+            controlIcon("keyboard")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(AgentGUIL10n.string("agent.demo.keyboard", defaultValue: "Toggle keyboard"))
+    }
+
+    private var jumpButton: some View {
+        Button(action: jumpToBottom) {
+            controlIcon("arrow.down.to.line")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(AgentGUIL10n.string("agent.demo.jump", defaultValue: "Jump to bottom"))
+    }
+
+    private var densityButton: some View {
+        Button {
+            density = density == .comfortable ? .compact : .comfortable
+        } label: {
+            controlIcon(density == .comfortable
+                ? "rectangle.compress.vertical"
+                : "rectangle.expand.vertical")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(AgentGUIL10n.string(
+            "agent.demo.densityToggle",
+            defaultValue: "Toggle transcript density"
+        ))
+        .accessibilityValue(density == .comfortable
+            ? AgentGUIL10n.string("agent.demo.density.comfortable", defaultValue: "Comfortable")
+            : AgentGUIL10n.string("agent.demo.density.compact", defaultValue: "Compact"))
+        .accessibilityIdentifier("TranscriptDemoDensityToggle")
     }
 
     private func controlIcon(_ systemName: String) -> some View {
