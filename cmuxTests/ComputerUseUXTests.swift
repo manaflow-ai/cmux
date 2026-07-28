@@ -510,6 +510,59 @@ struct ComputerUseUXTests {
         ) == nil)
     }
 
+    /// The live v19 repro kept the Codex process and authenticated driver state
+    /// alive while one SharedLiveAgentIndex refresh briefly omitted its row.
+    /// Both the menu and target watcher must consume the same retained projection
+    /// so that bookkeeping gap cannot look like a Computer Use disconnect.
+    @Test @MainActor
+    func sharedLiveSessionProjectionSurvivesTransientIndexGapUntilRootExits() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let processID = ProcessInfo.processInfo.processIdentifier
+        let currentIdentity = try #require(AgentPIDProcessIdentity(pid: processID))
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "still-running-session"
+            ),
+            lifecycle: .running,
+            updatedAt: Date().timeIntervalSince1970,
+            processLiveness: .running,
+            processIDs: [Int(processID)],
+            agentProcessIDs: [Int(processID)],
+            agentProcessIdentities: [Int(processID): currentIdentity]
+        )
+        var liveEntries = [(
+            panelKey: RestorableAgentSessionIndex.PanelKey(
+                workspaceId: workspaceID,
+                panelId: surfaceID
+            ),
+            entry: entry
+        )]
+        var rootProcessIsAlive = true
+        let projection = ComputerUseLiveSessionProjection(
+            liveEntries: { liveEntries },
+            scheduleRefreshIfStale: {},
+            processIdentityIsAlive: { identity in
+                rootProcessIsAlive && identity == currentIdentity
+            }
+        )
+
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+        #expect(projection.sessionsByDriverSessionID()[driverSessionID] != nil)
+
+        liveEntries = []
+        #expect(
+            projection.sessionsByDriverSessionID()[driverSessionID] != nil,
+            "A transient live-index omission must not disconnect an active proxy"
+        )
+
+        rootProcessIsAlive = false
+        #expect(projection.sessionsByDriverSessionID()[driverSessionID] == nil)
+    }
+
     @Test func computerUseSettingsNavigationRawValuesStayInSync() {
         #expect(SettingsSectionID.computerUse.rawValue == SettingsNavigationTarget.computerUse.rawValue)
     }
