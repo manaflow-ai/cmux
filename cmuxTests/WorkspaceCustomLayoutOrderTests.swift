@@ -29,15 +29,15 @@ import Testing
 
     @Test(arguments: [0, 1, 2])
     func mixedTerminalAndBrowserSurfacesPreserveDeclaredOrder(focusedIndex: Int) throws {
-        let names = ["Shell", "Docs", "Logs"]
+        let names = ["Docs", "Shell", "Logs"]
         let surfaces = [
-            CmuxSurfaceDefinition(type: .terminal, name: names[0], focus: focusedIndex == 0),
             CmuxSurfaceDefinition(
                 type: .browser,
-                name: names[1],
+                name: names[0],
                 url: "https://example.com",
-                focus: focusedIndex == 1
+                focus: focusedIndex == 0
             ),
+            CmuxSurfaceDefinition(type: .terminal, name: names[1], focus: focusedIndex == 1),
             CmuxSurfaceDefinition(type: .terminal, name: names[2], focus: focusedIndex == 2),
         ]
 
@@ -66,7 +66,7 @@ import Testing
 
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
         let layoutTabIds = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
-        #expect(layoutTabIds.count == 3)
+        try #require(layoutTabIds.count == 3)
 
         let newPanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
         let newTabId = try #require(workspace.surfaceIdFromPanelId(newPanel.id))

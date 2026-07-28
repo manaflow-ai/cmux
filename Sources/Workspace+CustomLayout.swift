@@ -110,13 +110,6 @@ extension Workspace {
 
         guard !surfaces.isEmpty else { return }
 
-        // Layouts are declarative, so materialize their surfaces by appending in
-        // config order. Restore the interactive "next to current" policy as soon
-        // as this pane is populated.
-        let interactiveNewTabPosition = bonsplitController.configuration.newTabPosition
-        bonsplitController.configuration.newTabPosition = .end
-        defer { bonsplitController.configuration.newTabPosition = interactiveNewTabPosition }
-
         let firstSurface = surfaces[0]
         if let placeholderPanelId = existingPanelIds.first {
             configureExistingSurface(
@@ -128,6 +121,13 @@ extension Workspace {
                 pendingSetup: &pendingSetup
             )
         }
+
+        // The first surface either reuses or replaces the pane's placeholder.
+        // Append only the remaining declarative surfaces in config order, then
+        // restore the interactive "next to current" policy immediately.
+        let interactiveNewTabPosition = bonsplitController.configuration.newTabPosition
+        bonsplitController.configuration.newTabPosition = .end
+        defer { bonsplitController.configuration.newTabPosition = interactiveNewTabPosition }
 
         for surfaceIndex in 1..<surfaces.count {
             createNewSurface(
