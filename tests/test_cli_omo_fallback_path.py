@@ -98,6 +98,7 @@ exec opencode-node-helper "$@"
             ("mcp",),
             ("models",),
             ("plugin",),
+            ("plug", "opencode-sample-plugin"),
             ("providers",),
             ("session", "delete", "session-id"),
             ("session", "list"),

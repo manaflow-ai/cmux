@@ -87,10 +87,13 @@ omx-node-helper "$@"
             "agents",
             "agents-init",
             "auth",
+            "cancel",
+            "capabilities",
             "deepinit",
             "doctor",
             "help",
             "list",
+            "session",
             "setup",
             "status",
             "uninstall",
@@ -111,7 +114,6 @@ omx-node-helper "$@"
                 return 1
 
         blocked_invocations = (
-            ["session"],
             ["resume"],
             ["team", "status", "demo"],
             ["unknown-command"],

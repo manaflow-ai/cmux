@@ -7,7 +7,7 @@ struct ManagedLauncherNonLaunchTests {
     func omoManagementCommands() {
         for command in [
             "agent", "auth", "completion", "db", "debug", "mcp", "models",
-            "export", "import", "plugin", "providers", "stats", "uninstall", "upgrade",
+            "export", "import", "plugin", "plug", "providers", "stats", "uninstall", "upgrade",
         ] {
             #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: [command]))
         }
@@ -68,8 +68,9 @@ struct ManagedLauncherNonLaunchTests {
     @Test("OMX preserves documented management commands")
     func omxManagementCommands() {
         for command in [
-            "agents", "agents-init", "auth", "deepinit", "doctor", "help",
-            "list", "setup", "status", "uninstall", "update", "version",
+            "agents", "agents-init", "auth", "cancel", "capabilities", "deepinit",
+            "doctor", "help", "list", "session", "setup", "status", "uninstall",
+            "update", "version",
         ] {
             #expect(AgentLaunchSanitizer.omxLaunchIsNonLaunch(args: [command]))
         }
@@ -81,7 +82,6 @@ struct ManagedLauncherNonLaunchTests {
     @Test("OMX rejects sessions, unknown commands, and command-shaped values")
     func omxLaunches() {
         for args in [
-            ["session"],
             ["resume"],
             ["team", "status", "demo"],
             ["unknown-command"],
