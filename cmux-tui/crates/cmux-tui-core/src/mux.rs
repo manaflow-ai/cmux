@@ -10796,6 +10796,39 @@ mod tests {
     }
 
     #[test]
+    fn kitty_mux_quota_replays_a_maximum_size_inflight_upload() {
+        use base64::Engine as _;
+
+        const IMAGE_WIDTH: usize = 2_500;
+        const IMAGE_HEIGHT: usize = 1_000;
+        const IMAGE_ID: u32 = 992;
+
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let pixels = vec![0xff; IMAGE_WIDTH * IMAGE_HEIGHT * 4];
+        assert_eq!(pixels.len(), ghostty_vt::MAX_KITTY_IMAGE_BYTES);
+        let payload = base64::engine::general_purpose::STANDARD.encode(&pixels);
+        let first_payload = &payload[..payload.len() - 4];
+        let first_chunk = format!(
+            "\x1b_Ga=t,t=d,f=32,i={IMAGE_ID},s={IMAGE_WIDTH},v={IMAGE_HEIGHT},m=1,q=2;{first_payload}\x1b\\"
+        );
+        assert!(first_chunk.len() <= ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES);
+
+        surface
+            .with_terminal(|terminal| {
+                let limits = terminal.kitty_graphics_limits().unwrap();
+                assert_eq!(limits.image_bytes, ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
+                terminal.vt_write(first_chunk.as_bytes());
+                terminal
+                    .preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
+                    .expect("Mux quota rejected replay for a permitted maximum-size Kitty image");
+            })
+            .unwrap();
+    }
+
+    #[test]
     fn closing_kitty_surfaces_rebalances_the_survivors_process_share() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
