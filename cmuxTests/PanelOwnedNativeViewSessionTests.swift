@@ -1,5 +1,5 @@
 import AppKit
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,13 +8,15 @@ import XCTest
 #endif
 
 @MainActor
-final class PanelOwnedNativeViewSessionTests: XCTestCase {
+@Suite("Panel-owned native view sessions")
+struct PanelOwnedNativeViewSessionTests {
     private final class ProbeView: NSView {
         var isClosed = false
         var configureCount = 0
     }
 
-    func testUpdateAfterCloseDoesNotReAdoptClosedNativeView() {
+    @Test
+    func updateAfterCloseDoesNotReAdoptClosedNativeView() {
         var makeCount = 0
         let session = PanelOwnedNativeViewSession<ProbeView>(
             makeView: {
@@ -28,35 +30,36 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
         )
 
         let initialView = session.view { view in
-            XCTAssertFalse(view.isClosed)
+            #expect(!view.isClosed)
             view.configureCount += 1
         }
 
-        XCTAssertEqual(makeCount, 1)
-        XCTAssertEqual(initialView.configureCount, 1)
+        #expect(makeCount == 1)
+        #expect(initialView.configureCount == 1)
 
         session.close()
 
-        XCTAssertTrue(initialView.isClosed)
+        #expect(initialView.isClosed)
 
         session.update(initialView) { view in
-            XCTFail("Closed native views must not be re-adopted or configured after the panel session closes")
+            Issue.record("Closed native views must not be re-adopted or configured after the panel session closes")
             view.configureCount += 1
         }
 
-        XCTAssertEqual(initialView.configureCount, 1)
+        #expect(initialView.configureCount == 1)
 
         let replacementView = session.view { view in
-            XCTAssertFalse(view.isClosed)
+            #expect(!view.isClosed)
             view.configureCount += 1
         }
 
-        XCTAssertFalse(replacementView === initialView)
-        XCTAssertEqual(replacementView.configureCount, 1)
-        XCTAssertEqual(makeCount, 2)
+        #expect(replacementView !== initialView)
+        #expect(replacementView.configureCount == 1)
+        #expect(makeCount == 2)
     }
 
-    func testQuickLookSessionCreatesFreshViewForEachRepresentableMount() throws {
+    @Test
+    func quickLookSessionCreatesFreshViewForEachRepresentableMount() throws {
         let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-4455-quicklook-\(UUID().uuidString).bin")
         try Data([0, 1, 2, 3]).write(to: fileURL)
@@ -80,8 +83,8 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
             drawsBackground: false
         )
 
-        XCTAssertFalse(
-            firstView === remountedView,
+        #expect(
+            firstView !== remountedView,
             "QuickLook views must be owned by the SwiftUI representable mount, because AppKit can deactivate a QLPreviewView when that mount is removed"
         )
 
@@ -90,7 +93,8 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
         panel.close()
     }
 
-    func testQuickLookUpdateRetiresInnerPreviewAfterContainerLeavesWindow() throws {
+    @Test
+    func quickLookUpdateRetiresInnerPreviewMissingFromMountedContainer() throws {
         let firstURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-7311-quicklook-a-\(UUID().uuidString).txt")
         let secondURL = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -109,7 +113,7 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
             secondPanel.close()
         }
         let session = FilePreviewQuickLookSession()
-        let container = try XCTUnwrap(session.view(
+        let container = try #require(session.view(
             panel: firstPanel,
             revision: firstPanel.previewRevision,
             isVisibleInUI: true,
@@ -129,10 +133,16 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
         }
 
         window.contentView = container
-        let stalePreviewView = try XCTUnwrap(container.livePreviewView())
-        XCTAssertNotNil(stalePreviewView.previewItem)
+        _ = try #require(container.livePreviewView())
+        let stalePreviewView = try #require(
+            container.replaceLivePreviewWithUnattachedPreviewForTesting()
+        )
+        #expect(container.window != nil)
+        #expect(stalePreviewView.window == nil)
+        let trackedStalePreviewView = try #require(stalePreviewView as? TrackedQLPreviewView)
+        #expect(!trackedStalePreviewView.didDetachFromWindow)
+        #expect(stalePreviewView.previewItem != nil)
 
-        window.contentView = nil
         session.update(
             container,
             panel: secondPanel,
@@ -142,25 +152,26 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
             drawsBackground: false
         )
 
-        let freshPreviewView = try XCTUnwrap(container.livePreviewView())
-        let freshPreviewItem = try XCTUnwrap(freshPreviewView.previewItem)
-        XCTAssertFalse(freshPreviewView === stalePreviewView)
-        XCTAssertEqual(freshPreviewItem.previewItemURL, secondURL)
-        XCTAssertNil(stalePreviewView.previewItem)
+        let freshPreviewView = try #require(container.livePreviewView())
+        let freshPreviewItem = try #require(freshPreviewView.previewItem)
+        #expect(freshPreviewView !== stalePreviewView)
+        #expect(freshPreviewItem.previewItemURL == secondURL)
+        #expect(stalePreviewView.previewItem == nil)
     }
 
-    func testQuickLookReusePolicyRetiresInnerPreviewMissingFromMountedContainer() {
-        XCTAssertTrue(FilePreviewQuickLookContainerView.shouldRetire(
+    @Test
+    func quickLookReusePolicyRetiresInnerPreviewMissingFromMountedContainer() {
+        #expect(FilePreviewQuickLookContainerView.shouldRetire(
             didDetachFromWindow: false,
             containerHasWindow: true,
             previewHasWindow: false
         ))
-        XCTAssertFalse(FilePreviewQuickLookContainerView.shouldRetire(
+        #expect(!FilePreviewQuickLookContainerView.shouldRetire(
             didDetachFromWindow: false,
             containerHasWindow: false,
             previewHasWindow: false
         ))
-        XCTAssertFalse(FilePreviewQuickLookContainerView.shouldRetire(
+        #expect(!FilePreviewQuickLookContainerView.shouldRetire(
             didDetachFromWindow: false,
             containerHasWindow: true,
             previewHasWindow: true

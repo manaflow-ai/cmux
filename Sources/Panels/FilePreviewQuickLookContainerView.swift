@@ -1,11 +1,6 @@
 import AppKit
 import Quartz
 
-enum FilePreviewQuickLookStaleReason: String {
-    case detachedFromWindow = "detached-from-window"
-    case missingFromMountedContainer = "missing-from-mounted-container"
-}
-
 /// Stable host for a `QLPreviewView`.
 ///
 /// SwiftUI keeps the `NSView` returned from `makeNSView` mounted across tab
@@ -25,12 +20,12 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
         didDetachFromWindow: Bool,
         containerHasWindow: Bool,
         previewHasWindow: Bool
-    ) -> FilePreviewQuickLookStaleReason? {
+    ) -> String? {
         if didDetachFromWindow {
-            return .detachedFromWindow
+            return "detached-from-window"
         }
         if containerHasWindow, !previewHasWindow {
-            return .missingFromMountedContainer
+            return "missing-from-mounted-container"
         }
         return nil
     }
@@ -98,7 +93,7 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
                 sentryBreadcrumb(
                     "quickLook.preview.retire",
                     category: "filePreview",
-                    data: ["reason": staleReason.rawValue]
+                    data: ["reason": staleReason]
                 )
                 // Assigning nil is always safe because QuickLook permits
                 // clearing an item after deactivation.
@@ -125,4 +120,21 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
     func clearPreviewItem() {
         previewItem = nil
     }
+
+    #if DEBUG
+    /// Reproduces the AppKit state where the stable host stays mounted while
+    /// QuickLook loses its inner preview without recording a window detach.
+    func replaceLivePreviewWithUnattachedPreviewForTesting() -> QLPreviewView? {
+        let item = previewView?.previewItem
+        previewView?.previewItem = nil
+        previewView?.removeFromSuperview()
+
+        guard let unattached = TrackedQLPreviewView(frame: bounds, style: .normal) else {
+            return nil
+        }
+        unattached.previewItem = item
+        previewView = unattached
+        return unattached
+    }
+    #endif
 }
