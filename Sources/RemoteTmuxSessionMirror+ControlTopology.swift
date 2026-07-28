@@ -133,8 +133,23 @@ extension RemoteTmuxSessionMirror {
         controlPaneLocations().first(where: { $0.pane.paneID.id == paneID })
     }
 
+    /// Resolves a projected pane surface through the session-owned reverse index.
     func controlPaneLocation(surfaceID: UUID) -> RemoteTmuxControlPaneLocation? {
-        controlPaneLocations().first(where: { $0.pane.panel.id == surfaceID })
+        guard let tmuxPaneID = tmuxPaneIdByControlSurface[surfaceID],
+              controlSurfaceIdByPane[tmuxPaneID] == surfaceID,
+              let windowID = windowIdByPane[tmuxPaneID],
+              let containerPanelID = panelIdByWindow[windowID],
+              let windowMirror = windowMirrorByWindowId[windowID],
+              let pane = windowMirror.controlPane(tmuxPaneID: tmuxPaneID),
+              pane.panel.id == surfaceID else {
+            return nil
+        }
+        return RemoteTmuxControlPaneLocation(
+            containerPanelID: containerPanelID,
+            owner: self,
+            windowMirror: windowMirror,
+            pane: pane
+        )
     }
 
     func controlFocus(pane tmuxPaneID: Int) -> Bool {
