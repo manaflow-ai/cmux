@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
-    DEFAULT_VIEWPORT_PANE_WIDTH, Direction, LayoutUndoError, LayoutUndoResult,
+    DEFAULT_VIEWPORT_PANE_WIDTH, Direction, GraphicsStatus, LayoutUndoError, LayoutUndoResult,
     MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node, PairingChallenge, PaneId,
     Rect, ScreenId, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, ViewportColumn,
     ViewportLayoutResult, VirtualRect, WorkspaceId, ZoomMode, exact_split_for_pane_edge,
@@ -8522,9 +8522,11 @@ impl App {
                     retry_after_ms,
                     reservation_id,
                 ) {
-                    self.status_message = Some(format!(
-                        "browser surface {surface} resize to {cols}x{rows} failed: {error}"
-                    ));
+                    self.status_message = Some(
+                        localization::catalog()
+                            .graphics
+                            .browser_surface_resize_failed(surface, cols, rows, &error),
+                    );
                     Ok(RenderAction::Draw)
                 } else {
                     Ok(RenderAction::None)
@@ -8532,6 +8534,27 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::Status(message)) => {
                 self.status_message = Some(message);
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::GraphicsStatus(status)) => {
+                let messages = &localization::catalog().graphics;
+                self.status_message = Some(match status {
+                    GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => {
+                        messages.kitty_image_budget_worker_start_failed(&error)
+                    }
+                    GraphicsStatus::KittyImageBudgetUpdateFailed { retry_exhausted, summary } => {
+                        messages.kitty_image_budget_update_failed(retry_exhausted, &summary)
+                    }
+                    GraphicsStatus::CellPixelUpdateRetriesExhausted {
+                        attempts,
+                        remaining,
+                        cell_pixels,
+                    } => messages.cell_pixel_update_retries_exhausted(
+                        attempts,
+                        remaining,
+                        cell_pixels,
+                    ),
+                });
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::ConfigReloadRequested) => {
@@ -8587,10 +8610,13 @@ impl App {
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => {
-                self.status_message = Some(format!(
-                    "browser surface {} resize to {}x{} failed: {}",
-                    failure.surface_id, failure.cols, failure.rows, failure.error
-                ));
+                self.status_message =
+                    Some(localization::catalog().graphics.browser_surface_resize_failed(
+                        failure.surface_id,
+                        failure.cols,
+                        failure.rows,
+                        &failure.error,
+                    ));
                 Ok(RenderAction::Draw)
             }
             AppEvent::PtyFailuresReady => Ok(self.apply_pty_failures()),
@@ -14631,11 +14657,11 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
-        ForwardMuxOutcome, GraphicSourceRect, GraphicsSceneCache, MachineActionWorker,
-        MachineConnectRoute, MenuAction, MenuItem, MuxTitleIngress, OmnibarHit, OmnibarState,
-        OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection, PaneEdge, PaneFocusHistory,
-        PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
+        App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
+        DeferredInput, Drag, FocusTarget, ForwardMuxOutcome, GraphicSourceRect, GraphicsSceneCache,
+        MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem, MuxTitleIngress,
+        OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection,
+        PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
         RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SessionEventSender, ShortcutHelp, SidebarLayout, SidebarPluginSyncClaim,
@@ -21172,6 +21198,11 @@ mod tests {
 
         let mux = Mux::new("graphics-status-locale-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
+        app.session
+            .surface_resize_ownership
+            .lock()
+            .unwrap()
+            .insert(7, SurfaceResizeOwnership { desired: (90, 31), reservation_id: None });
         let cases = [
             (
                 MuxEvent::GraphicsStatus(
@@ -21225,6 +21256,17 @@ mod tests {
             app.handle(AppEvent::Mux(event)).unwrap();
             assert_eq!(app.status_message.as_deref(), Some(expected));
         }
+        app.handle(AppEvent::BrowserResizeFailed(BrowserResizeFailure {
+            surface_id: 8,
+            cols: 100,
+            rows: 40,
+            error: "viewport rejected".to_string(),
+        }))
+        .unwrap();
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("ブラウザサーフェス 8 の 100x40 へのサイズ変更に失敗しました: viewport rejected")
+        );
     }
 
     #[test]

@@ -3553,6 +3553,19 @@ impl<'a> KittyReplayCatalog<'a> {
             }
         }
 
+        let mut numbered_history_counts = HashMap::<u32, (usize, usize)>::new();
+        for image in &self.images {
+            if image.image.number != 0 {
+                numbered_history_counts.entry(image.image.number).or_default().0 += 1;
+            }
+        }
+        for (candidate, is_admitted) in candidates.iter().zip(&admitted) {
+            let image = &self.images[candidate.image_index];
+            if *is_admitted && image.image.number != 0 {
+                numbered_history_counts.entry(image.image.number).or_default().1 += 1;
+            }
+        }
+
         let mut image_bytes = Vec::new();
         let mut placements = BTreeMap::<u64, Vec<Vec<u8>>>::new();
         let mut aliases = Vec::new();
@@ -3567,7 +3580,11 @@ impl<'a> KittyReplayCatalog<'a> {
             for (row, command) in candidate.placements {
                 placements.entry(row).or_default().push(command);
             }
-            if image.image.number != 0 {
+            if image.image.number != 0
+                && numbered_history_counts
+                    .get(&image.image.number)
+                    .is_some_and(|(total, admitted)| total == admitted)
+            {
                 aliases.push(KittyImageAlias {
                     image_id: image.image.id,
                     image_number: image.image.number,

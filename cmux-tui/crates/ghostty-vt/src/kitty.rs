@@ -197,13 +197,17 @@ impl KittyInFlightTracker {
     }
 
     fn finish_command(&mut self, command: KittyCommand) {
-        let Some(more) = kitty_transmission_more(&command.bytes) else {
-            if command.overflowed {
-                self.prefix = Vec::new();
-                self.loading = true;
-                self.overflowed = true;
+        let more = match kitty_transmission_state(&command.bytes) {
+            KittyTransmissionState::More(more) => more,
+            KittyTransmissionState::NonTransmission => return,
+            KittyTransmissionState::Unknown => {
+                if command.overflowed {
+                    self.prefix = Vec::new();
+                    self.loading = true;
+                    self.overflowed = true;
+                }
+                return;
             }
-            return;
         };
         if more {
             if !self.loading {
@@ -350,15 +354,25 @@ impl KittyCommand {
     }
 }
 
-fn kitty_transmission_more(command: &[u8]) -> Option<bool> {
+enum KittyTransmissionState {
+    More(bool),
+    NonTransmission,
+    Unknown,
+}
+
+fn kitty_transmission_state(command: &[u8]) -> KittyTransmissionState {
     let header_start = if command.starts_with(b"\x1b_G") {
         3
     } else if command.starts_with(b"\x9fG") {
         2
     } else {
-        return None;
+        return KittyTransmissionState::Unknown;
     };
-    let header_end = command[header_start..].iter().position(|byte| *byte == b';')? + header_start;
+    let Some(header_end) =
+        command[header_start..].iter().position(|byte| *byte == b';').map(|end| end + header_start)
+    else {
+        return KittyTransmissionState::Unknown;
+    };
     let mut action = b't';
     let mut direct = true;
     let mut more = false;
@@ -369,13 +383,22 @@ fn kitty_transmission_more(command: &[u8]) -> Option<bool> {
         let key = &parameter[..separator];
         let value = &parameter[separator + 1..];
         match key {
-            b"a" => action = *value.first()?,
+            b"a" => {
+                let Some(value) = value.first() else {
+                    return KittyTransmissionState::Unknown;
+                };
+                action = *value;
+            }
             b"t" => direct = value == b"d",
             b"m" => more = value != b"0",
             _ => {}
         }
     }
-    matches!(action, b't' | b'T').then_some(more && direct)
+    if matches!(action, b't' | b'T') {
+        KittyTransmissionState::More(more && direct)
+    } else {
+        KittyTransmissionState::NonTransmission
+    }
 }
 
 /// Pixel format stored in an owned Kitty graphics snapshot.

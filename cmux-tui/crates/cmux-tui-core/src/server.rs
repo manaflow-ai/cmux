@@ -51,12 +51,12 @@ use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
 };
 use crate::{
-    AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel,
-    PairingDecision, PaneId, RenderAttachFrame, Rgb, ScreenId, SidebarPluginStatus, SplitDir,
-    SplitId, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors,
-    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
-    assign_short_ids,
+    AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, GraphicsStatus,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node,
+    NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, Rgb, ScreenId,
+    SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
+    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
+    WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -6754,6 +6754,31 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "level": notification.level.as_str(),
             "surface": notification.surface,
         }),
+        MuxEvent::GraphicsStatus(status) => match status {
+            GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => json!({
+                "event": "graphics-status",
+                "kind": "kitty-image-budget-worker-start-failed",
+                "error": error.as_ref(),
+            }),
+            GraphicsStatus::KittyImageBudgetUpdateFailed { retry_exhausted, summary } => json!({
+                "event": "graphics-status",
+                "kind": "kitty-image-budget-update-failed",
+                "retry_exhausted": retry_exhausted,
+                "summary": summary.as_ref(),
+            }),
+            GraphicsStatus::CellPixelUpdateRetriesExhausted {
+                attempts,
+                remaining,
+                cell_pixels,
+            } => json!({
+                "event": "graphics-status",
+                "kind": "cell-pixel-update-retries-exhausted",
+                "attempts": attempts,
+                "remaining": remaining,
+                "cell_width": cell_pixels.0,
+                "cell_height": cell_pixels.1,
+            }),
+        },
         MuxEvent::Status(message) => json!({"event": "status", "message": message}),
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
         MuxEvent::WindowTitleRequested(title) => {
@@ -10622,7 +10647,7 @@ mod tests {
     fn graphics_status_events_preserve_structured_localization_data() {
         assert_eq!(
             subscribed_event_json(&MuxEvent::GraphicsStatus(
-                crate::GraphicsStatus::KittyImageBudgetUpdateFailed {
+                GraphicsStatus::KittyImageBudgetUpdateFailed {
                     retry_exhausted: true,
                     summary: Arc::<str>::from("surface 7: offline"),
                 },
@@ -10636,7 +10661,7 @@ mod tests {
         );
         assert_eq!(
             subscribed_event_json(&MuxEvent::GraphicsStatus(
-                crate::GraphicsStatus::CellPixelUpdateRetriesExhausted {
+                GraphicsStatus::CellPixelUpdateRetriesExhausted {
                     attempts: 5,
                     remaining: 2,
                     cell_pixels: (8, 16),

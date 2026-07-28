@@ -538,6 +538,14 @@ struct CellPixelCompletionTracker {
     completed: Mutex<HashSet<SurfaceId>>,
 }
 
+/// Structured graphics failures localized by the presentation frontend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GraphicsStatus {
+    KittyImageBudgetWorkerStartFailed { error: Arc<str> },
+    KittyImageBudgetUpdateFailed { retry_exhausted: bool, summary: Arc<str> },
+    CellPixelUpdateRetriesExhausted { attempts: u8, remaining: usize, cell_pixels: (u16, u16) },
+}
+
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
 pub enum MuxEvent {
@@ -569,6 +577,7 @@ pub enum MuxEvent {
     },
     Bell(SurfaceId),
     Notification(NotificationEvent),
+    GraphicsStatus(GraphicsStatus),
     Status(String),
     /// A frontend should reload its local mux configuration and redraw.
     ConfigReloadRequested,
@@ -4748,9 +4757,11 @@ impl Mux {
             .spawn(move || Self::run_kitty_image_budget_worker(mux))
         {
             self.kitty_image_budget.lock().unwrap().worker_running = false;
-            self.emit(MuxEvent::Status(format!(
-                "failed to start Kitty image budget worker: {error}"
-            )));
+            self.emit(MuxEvent::GraphicsStatus(
+                GraphicsStatus::KittyImageBudgetWorkerStartFailed {
+                    error: Arc::<str>::from(error.to_string()),
+                },
+            ));
         }
     }
 
@@ -4954,11 +4965,10 @@ impl Mux {
                 if omitted > 0 {
                     summary.push_str(&format!("; {omitted} more"));
                 }
-                let action =
-                    if retry_exhausted { "stopped after exhausting retries" } else { "retrying" };
-                mux.emit(MuxEvent::Status(format!(
-                    "Kitty image budget update failed, {action}: {summary}"
-                )));
+                mux.emit(MuxEvent::GraphicsStatus(GraphicsStatus::KittyImageBudgetUpdateFailed {
+                    retry_exhausted,
+                    summary: Arc::<str>::from(summary),
+                }));
             }
             if retry_exhausted {
                 let mut budget = mux.kitty_image_budget.lock().unwrap();
@@ -5180,11 +5190,11 @@ impl Mux {
             pending.use_for_creation = false;
             pending.failures.len()
         };
-        self.emit(MuxEvent::Status(format!(
-            "cell pixel update stopped after {} retry attempts with {remaining} unconverged \
-             surface(s) at {}x{}; a later host acknowledgement can still recover",
-            task.attempts, task.target.0, task.target.1
-        )));
+        self.emit(MuxEvent::GraphicsStatus(GraphicsStatus::CellPixelUpdateRetriesExhausted {
+            attempts: task.attempts,
+            remaining,
+            cell_pixels: task.target,
+        }));
     }
 
     fn run_cell_pixel_retry_task(
@@ -11489,10 +11499,14 @@ mod tests {
             usize::from(CELL_PIXEL_RETRY_MAX_ATTEMPTS) + 1
         );
         assert_eq!(mux.cell_pixel_creation_size(), (8, 16));
-        assert!(events.try_iter().any(|event| {
-            matches!(event, MuxEvent::Status(message)
-                if message.contains("cell pixel update stopped after"))
-        }));
+        assert!(events.try_iter().any(|event| matches!(
+            event,
+            MuxEvent::GraphicsStatus(GraphicsStatus::CellPixelUpdateRetriesExhausted {
+                attempts: CELL_PIXEL_RETRY_MAX_ATTEMPTS,
+                remaining: 1,
+                cell_pixels: (9, 18),
+            })
+        )));
 
         assert!(surface.set_cell_pixel_size(9, 18).unwrap());
         mux.reconcile_deferred_cell_pixel_ack(surface.id, (9, 18));

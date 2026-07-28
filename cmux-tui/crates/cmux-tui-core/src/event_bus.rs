@@ -159,7 +159,8 @@ impl SurfaceSessionScope {
             | MuxEvent::ClientListInvalidated
             | MuxEvent::TreeChanged
             | MuxEvent::TreeSelectionChanged => false,
-            MuxEvent::Status(_)
+            MuxEvent::GraphicsStatus(_)
+            | MuxEvent::Status(_)
             | MuxEvent::ConfigReloadRequested
             | MuxEvent::WindowTitleRequested(_)
             | MuxEvent::FrontendProjectionChanged { .. }

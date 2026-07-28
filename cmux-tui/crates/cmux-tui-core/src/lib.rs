@@ -37,9 +37,9 @@ pub use layout::{
 pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent, NotificationLevel,
-    ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
+    CellPixelUpdateFailure, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError,
+    LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent,
+    NotificationLevel, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
     ProviderWorkspaceAuthorityUpdateError, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
     SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError,
     WorkspaceMutationResult, WorkspacePlacement, ZoomMode, ZoomState,

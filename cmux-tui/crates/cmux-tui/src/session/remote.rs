@@ -15,9 +15,9 @@ use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
-    DefaultColors, MuxEvent, MuxEventBroadcaster, MuxEventReceiver, NotificationEvent,
-    NotificationLevel, PairingChallenge, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId,
-    SurfaceKind,
+    DefaultColors, GraphicsStatus, MuxEvent, MuxEventBroadcaster, MuxEventReceiver,
+    NotificationEvent, NotificationLevel, PairingChallenge, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb,
+    SurfaceId, SurfaceKind,
     platform::transport,
     server::{CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, ProtocolKeyInput},
 };
@@ -59,6 +59,31 @@ fn zeroize_string(value: &mut str) {
     // NUL is valid UTF-8, so the serialized request can be cleared in place
     // immediately after the synchronous transport write finishes.
     value.zeroize();
+}
+
+fn parse_graphics_status(value: &Value) -> Option<GraphicsStatus> {
+    match value.get("kind").and_then(Value::as_str)? {
+        "kitty-image-budget-worker-start-failed" => {
+            Some(GraphicsStatus::KittyImageBudgetWorkerStartFailed {
+                error: Arc::<str>::from(value.get("error")?.as_str()?),
+            })
+        }
+        "kitty-image-budget-update-failed" => Some(GraphicsStatus::KittyImageBudgetUpdateFailed {
+            retry_exhausted: value.get("retry_exhausted")?.as_bool()?,
+            summary: Arc::<str>::from(value.get("summary")?.as_str()?),
+        }),
+        "cell-pixel-update-retries-exhausted" => {
+            Some(GraphicsStatus::CellPixelUpdateRetriesExhausted {
+                attempts: u8::try_from(value.get("attempts")?.as_u64()?).ok()?,
+                remaining: usize::try_from(value.get("remaining")?.as_u64()?).ok()?,
+                cell_pixels: (
+                    u16::try_from(value.get("cell_width")?.as_u64()?).ok()?,
+                    u16::try_from(value.get("cell_height")?.as_u64()?).ok()?,
+                ),
+            })
+        }
+        _ => None,
+    }
 }
 
 fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
@@ -1347,6 +1372,11 @@ impl RemoteSession {
             Some("status") => {
                 if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
                     self.emit(MuxEvent::Status(message.to_string()));
+                }
+            }
+            Some("graphics-status") => {
+                if let Some(status) = parse_graphics_status(&value) {
+                    self.emit(MuxEvent::GraphicsStatus(status));
                 }
             }
             Some("config-reload-requested") => self.emit(MuxEvent::ConfigReloadRequested),
@@ -5014,7 +5044,7 @@ mod tests {
         assert!(events.try_iter().any(|event| matches!(
             event,
             MuxEvent::GraphicsStatus(
-                cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
+                GraphicsStatus::KittyImageBudgetUpdateFailed {
                     retry_exhausted: true,
                     summary,
                 }
