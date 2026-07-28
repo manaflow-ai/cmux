@@ -3,6 +3,11 @@ import AppKit
 import CmuxTestSupport
 import Foundation
 
+/// Debug-only app-host bridge for the cross-process goto-split UI tests.
+///
+/// XCUITest cannot construct or inspect the app's in-process pane model, so this
+/// support stays isolated under `Sources/Debug/UITests` and is excluded from
+/// non-Debug builds.
 @MainActor
 struct GotoSplitCycleUITestSupport {
     private let sink: UITestCaptureSink
