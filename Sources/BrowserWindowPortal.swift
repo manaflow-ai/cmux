@@ -2404,7 +2404,8 @@ final class WindowBrowserPortal: NSObject {
         in containerView: WindowBrowserSlotView,
         reason: String,
         phase: String,
-        reattachRenderingState: Bool
+        reattachRenderingState: Bool,
+        forceRenderingStateRefresh: Bool
     ) {
         guard !containerView.isHidden else { return }
         guard !containerView.isHostedInspectorDividerDragActive else {
@@ -2448,7 +2449,11 @@ final class WindowBrowserPortal: NSObject {
 
         for webKitSubview in hostedWebKitSubviews {
             if reattachRenderingState {
-                webKitSubview.browserPortalForceRenderingStateRefresh(reason: "\(reason):\(phase)")
+                if forceRenderingStateRefresh {
+                    webKitSubview.browserPortalForceRenderingStateRefresh(reason: "\(reason):\(phase)")
+                } else {
+                    webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
+                }
             }
             if webKitSubview === webView {
                 webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
@@ -2479,14 +2484,16 @@ final class WindowBrowserPortal: NSObject {
             in: containerView,
             reason: reason,
             phase: "geometry",
-            reattachRenderingState: false
+            reattachRenderingState: false,
+            forceRenderingStateRefresh: false
         )
     }
 
     private func refreshHostedWebViewPresentation(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
-        reason: String
+        reason: String,
+        forceRenderingStateRefresh: Bool
     ) {
         guard !containerView.isHidden else { return }
         runHostedWebViewRefreshPass(
@@ -2494,7 +2501,8 @@ final class WindowBrowserPortal: NSObject {
             in: containerView,
             reason: reason,
             phase: "presentation",
-            reattachRenderingState: true
+            reattachRenderingState: true,
+            forceRenderingStateRefresh: forceRenderingStateRefresh
         )
     }
 
@@ -3582,7 +3590,8 @@ final class WindowBrowserPortal: NSObject {
                     refreshHostedWebViewPresentation(
                         webView,
                         in: containerView,
-                        reason: refreshReason
+                        reason: refreshReason,
+                        forceRenderingStateRefresh: forcePresentationRefresh
                     )
                 }
             }
