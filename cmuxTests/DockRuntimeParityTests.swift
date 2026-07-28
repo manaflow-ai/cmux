@@ -406,15 +406,9 @@ struct DockNotificationAttentionTests {
 
     @Test("A single-pane Dock renders its unread notification ring")
     func singlePaneDockRendersUnreadNotificationRing() async throws {
-        let defaults = UserDefaults.standard
-        let previousRingSetting = defaults.object(forKey: NotificationPaneRingSettings.enabledKey)
-        defer {
-            if let previousRingSetting {
-                defaults.set(previousRingSetting, forKey: NotificationPaneRingSettings.enabledKey)
-            } else {
-                defaults.removeObject(forKey: NotificationPaneRingSettings.enabledKey)
-            }
-        }
+        let defaultsSuite = "DockNotificationAttentionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
         defaults.set(true, forKey: NotificationPaneRingSettings.enabledKey)
 
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
@@ -446,6 +440,7 @@ struct DockNotificationAttentionTests {
                 windowAppearance: .rightSidebarPanelViewTestDefault
             )
             .environmentObject(unread)
+            .defaultAppStorage(defaults)
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
