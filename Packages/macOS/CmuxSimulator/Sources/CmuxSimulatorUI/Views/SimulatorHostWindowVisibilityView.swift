@@ -71,5 +71,5 @@ final class SimulatorHostWindowVisibilityView: NSView {
 func simulatorHostWindowIsVisible(_ window: NSWindow) -> Bool {
     window.isVisible
         && !window.isMiniaturized
-        && window.occlusionState.contains(.visible)
+        && (window.isKeyWindow || window.occlusionState.contains(.visible))
 }
