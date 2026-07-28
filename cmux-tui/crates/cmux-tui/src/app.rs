@@ -5676,7 +5676,7 @@ fn run_with_machine_updates_inner(
     let panic_graphics_shutdown = graphics_shutdown;
     std::panic::set_hook(Box::new(move |info| {
         if let Some(graphics_shutdown) = &panic_graphics_shutdown {
-            graphics_shutdown.cancel_and_wait();
+            graphics_shutdown.cancel_for_panic_hook();
         }
         with_panic_stdout_lock(&restore_lock, || {
             let _ = restore_terminal_unlocked(&panic_keyboard_protocol);

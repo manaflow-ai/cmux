@@ -1,12 +1,12 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -52,7 +52,7 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
-const DEADLINE_FANOUT_QUEUE_CAPACITY: usize = CELL_PIXEL_FANOUT_MAX_WORKERS * 8;
+const DEADLINE_FANOUT_IDLE_TIMEOUT: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const CELL_PIXEL_RETRY_MAX: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
@@ -329,81 +329,106 @@ pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
 
 type DeadlineFanoutJob = Box<dyn FnOnce() + Send + 'static>;
 
-struct DeadlineFanoutPool {
-    sender: SyncSender<DeadlineFanoutJob>,
-    permits: Arc<AtomicUsize>,
+#[derive(Default)]
+struct DeadlineFanoutState {
+    jobs: VecDeque<DeadlineFanoutJob>,
+    worker_count: usize,
+    admitted_jobs: usize,
+    next_worker: u64,
+    shutdown: bool,
 }
 
-struct DeadlineFanoutPermit(Arc<AtomicUsize>);
+#[derive(Default)]
+struct DeadlineFanoutInner {
+    state: Mutex<DeadlineFanoutState>,
+    changed: std::sync::Condvar,
+}
 
-impl Drop for DeadlineFanoutPermit {
-    fn drop(&mut self) {
-        self.0.fetch_add(1, Ordering::Release);
-    }
+struct DeadlineFanoutPool {
+    inner: Arc<DeadlineFanoutInner>,
 }
 
 impl DeadlineFanoutPool {
-    fn new() -> Option<Self> {
-        let (sender, receiver) =
-            std::sync::mpsc::sync_channel::<DeadlineFanoutJob>(DEADLINE_FANOUT_QUEUE_CAPACITY);
-        let receiver = Arc::new(Mutex::new(receiver));
-        let mut worker_count = 0;
-        for index in 0..CELL_PIXEL_FANOUT_MAX_WORKERS {
-            let receiver = receiver.clone();
-            let spawned = std::thread::Builder::new().name(format!("mux-deadline-{index}")).spawn(
-                move || {
-                    loop {
-                        let job = {
-                            let Ok(receiver) = receiver.lock() else { return };
-                            receiver.recv()
-                        };
-                        let Ok(job) = job else { return };
-                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
-                    }
-                },
-            );
-            match spawned {
-                Ok(_) => worker_count += 1,
-                Err(_) => break,
-            }
-        }
-        (worker_count > 0)
-            .then(|| Self { sender, permits: Arc::new(AtomicUsize::new(worker_count)) })
+    fn new() -> Self {
+        Self { inner: Arc::new(DeadlineFanoutInner::default()) }
     }
 
     fn submit(&self, job: DeadlineFanoutJob) -> bool {
-        if self
-            .permits
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |available| available.checked_sub(1))
-            .is_err()
-        {
+        let mut state = self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.shutdown || state.admitted_jobs >= CELL_PIXEL_FANOUT_MAX_WORKERS {
             return false;
         }
-        let permits = self.permits.clone();
-        if self
-            .sender
-            .try_send(Box::new(move || {
-                let _permit = DeadlineFanoutPermit(permits);
-                job();
-            }))
-            .is_ok()
+
+        let active_jobs = state.admitted_jobs.saturating_sub(state.jobs.len());
+        let available_workers = state.worker_count.saturating_sub(active_jobs);
+        if state.jobs.len() + 1 > available_workers
+            && state.worker_count < CELL_PIXEL_FANOUT_MAX_WORKERS
         {
-            true
-        } else {
-            self.permits.fetch_add(1, Ordering::Release);
-            false
+            let worker_index = state.next_worker;
+            state.next_worker = state.next_worker.wrapping_add(1);
+            state.worker_count += 1;
+            let inner = self.inner.clone();
+            if std::thread::Builder::new()
+                .name(format!("mux-deadline-{worker_index}"))
+                .spawn(move || deadline_fanout_worker(inner))
+                .is_err()
+            {
+                state.worker_count -= 1;
+                if state.worker_count == 0 {
+                    return false;
+                }
+            }
         }
+
+        state.jobs.push_back(job);
+        state.admitted_jobs += 1;
+        self.inner.changed.notify_one();
+        true
     }
 
     #[cfg(test)]
     fn worker_count(&self) -> usize {
-        self.permits.load(Ordering::Acquire)
+        self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).worker_count
     }
 }
 
-fn deadline_fanout_pool() -> Option<&'static DeadlineFanoutPool> {
-    static POOL: OnceLock<Option<DeadlineFanoutPool>> = OnceLock::new();
-    POOL.get_or_init(DeadlineFanoutPool::new).as_ref()
+impl Drop for DeadlineFanoutPool {
+    fn drop(&mut self) {
+        let mut state = self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.shutdown = true;
+        state.admitted_jobs = state.admitted_jobs.saturating_sub(state.jobs.len());
+        state.jobs.clear();
+        self.inner.changed.notify_all();
+    }
+}
+
+fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
+    loop {
+        let job = {
+            let mut state = inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if state.shutdown {
+                state.worker_count = state.worker_count.saturating_sub(1);
+                inner.changed.notify_all();
+                return;
+            }
+            let (mut state, _) = inner
+                .changed
+                .wait_timeout_while(state, DEADLINE_FANOUT_IDLE_TIMEOUT, |state| {
+                    !state.shutdown && state.jobs.is_empty()
+                })
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if state.shutdown || state.jobs.is_empty() {
+                state.worker_count = state.worker_count.saturating_sub(1);
+                inner.changed.notify_all();
+                return;
+            }
+            state.jobs.pop_front().expect("deadline fanout queue was checked as non-empty")
+        };
+
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+        let mut state = inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.admitted_jobs = state.admitted_jobs.saturating_sub(1);
+    }
 }
 
 struct DeadlinePending<R> {
@@ -423,6 +448,7 @@ enum DeadlineMapResult<R> {
 }
 
 fn bounded_deadline_map<T, R, F>(
+    pool: &DeadlineFanoutPool,
     items: &[T],
     deadline: Instant,
     operation: F,
@@ -439,7 +465,6 @@ where
     let mut ordered = std::iter::repeat_with(|| DeadlineMapResult::Unscheduled)
         .take(items.len())
         .collect::<Vec<_>>();
-    let Some(pool) = deadline_fanout_pool() else { return ordered };
     let operation = Arc::new(operation);
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut submitted = 0;
@@ -1340,6 +1365,7 @@ pub struct Mux {
     viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
+    deadline_fanout_pool: DeadlineFanoutPool,
     kitty_image_budget: Mutex<KittyImageBudgetState>,
     kitty_image_budget_changed: std::sync::Condvar,
     #[cfg(test)]
@@ -1585,6 +1611,7 @@ impl Mux {
             viewport_split_after_spawn: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
+            deadline_fanout_pool: DeadlineFanoutPool::new(),
             kitty_image_budget: Mutex::new(KittyImageBudgetState::default()),
             kitty_image_budget_changed: std::sync::Condvar::new(),
             #[cfg(test)]
@@ -4857,6 +4884,7 @@ impl Mux {
                     Instant::now() + crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
                 let operation_mux = Arc::downgrade(&mux);
                 let results = bounded_deadline_map(
+                    &mux.deadline_fanout_pool,
                     &tasks,
                     deadline,
                     move |(_, surface, limits, _), deadline| {
@@ -5215,22 +5243,27 @@ impl Mux {
             let target = task.target;
             let completion = task.completion.clone();
             let completion_mux = Arc::downgrade(&mux);
-            let results = bounded_deadline_map(&active, deadline, move |surface, deadline| {
-                let result = apply_cell_pixel_size_until(
-                    surface,
-                    target,
-                    deadline,
-                    &report,
-                    #[cfg(test)]
-                    operation_hook.as_ref(),
-                );
-                if result.2.is_ok()
-                    && let Some(mux) = completion_mux.upgrade()
-                {
-                    mux.record_cell_pixel_completion(&completion, surface.id);
-                }
-                result
-            });
+            let results = bounded_deadline_map(
+                &mux.deadline_fanout_pool,
+                &active,
+                deadline,
+                move |surface, deadline| {
+                    let result = apply_cell_pixel_size_until(
+                        surface,
+                        target,
+                        deadline,
+                        &report,
+                        #[cfg(test)]
+                        operation_hook.as_ref(),
+                    );
+                    if result.2.is_ok()
+                        && let Some(mux) = completion_mux.upgrade()
+                    {
+                        mux.record_cell_pixel_completion(&completion, surface.id);
+                    }
+                    result
+                },
+            );
             let _cell_pixel_lifecycle = mux.cell_pixel_lifecycle.lock().unwrap();
             if !mux.pending_cell_pixels.lock().unwrap().as_ref().is_some_and(|pending| {
                 pending.generation == task.generation && pending.target == task.target
@@ -5346,22 +5379,27 @@ impl Mux {
         let operation_report = report.clone();
         let operation_completion = completion.clone();
         let operation_mux = Arc::downgrade(self);
-        let results = bounded_deadline_map(&surfaces, deadline, move |surface, deadline| {
-            let result = apply_cell_pixel_size_until(
-                surface,
-                next,
-                deadline,
-                &operation_report,
-                #[cfg(test)]
-                fanout_operation_hook.as_ref(),
-            );
-            if result.2.is_ok()
-                && let Some(mux) = operation_mux.upgrade()
-            {
-                mux.record_cell_pixel_completion(&operation_completion, surface.id);
-            }
-            result
-        });
+        let results = bounded_deadline_map(
+            &self.deadline_fanout_pool,
+            &surfaces,
+            deadline,
+            move |surface, deadline| {
+                let result = apply_cell_pixel_size_until(
+                    surface,
+                    next,
+                    deadline,
+                    &operation_report,
+                    #[cfg(test)]
+                    fanout_operation_hook.as_ref(),
+                );
+                if result.2.is_ok()
+                    && let Some(mux) = operation_mux.upgrade()
+                {
+                    mux.record_cell_pixel_completion(&operation_completion, surface.id);
+                }
+                result
+            },
+        );
         let mut update = CellPixelUpdate::default();
         let mut retry_surfaces = Vec::new();
         let mut pending_operations = Vec::new();
@@ -11198,6 +11236,10 @@ mod tests {
 
     #[test]
     fn cell_pixel_fanout_runs_concurrently_with_one_shared_deadline() {
+        let pool = DeadlineFanoutPool::new();
+        let (warm_tx, warm_rx) = std::sync::mpsc::sync_channel(1);
+        assert!(pool.submit(Box::new(move || warm_tx.send(()).unwrap())));
+        warm_rx.recv_timeout(Duration::from_secs(1)).expect("warmup fanout job did not run");
         let items = (0..8).collect::<Vec<_>>();
         let active = Arc::new(AtomicUsize::new(0));
         let max_active = Arc::new(AtomicUsize::new(0));
@@ -11205,14 +11247,15 @@ mod tests {
         let operation_active = active;
         let operation_max_active = max_active.clone();
 
-        let results = bounded_deadline_map(&items, deadline, move |item, observed_deadline| {
-            assert_eq!(observed_deadline, deadline);
-            let concurrent = operation_active.fetch_add(1, Ordering::AcqRel) + 1;
-            operation_max_active.fetch_max(concurrent, Ordering::AcqRel);
-            std::thread::sleep(Duration::from_millis(10));
-            operation_active.fetch_sub(1, Ordering::AcqRel);
-            item * 2
-        });
+        let results =
+            bounded_deadline_map(&pool, &items, deadline, move |item, observed_deadline| {
+                assert_eq!(observed_deadline, deadline);
+                let concurrent = operation_active.fetch_add(1, Ordering::AcqRel) + 1;
+                operation_max_active.fetch_max(concurrent, Ordering::AcqRel);
+                std::thread::sleep(Duration::from_millis(10));
+                operation_active.fetch_sub(1, Ordering::AcqRel);
+                item * 2
+            });
 
         assert_eq!(
             results
@@ -11230,7 +11273,7 @@ mod tests {
 
     #[test]
     fn deadline_fanout_workers_are_lazy_and_reclaim_idle_threads() {
-        let pool = DeadlineFanoutPool::new().expect("spawn deadline fanout pool");
+        let pool = DeadlineFanoutPool::new();
         assert_eq!(pool.worker_count(), 0, "fanout construction eagerly retained workers");
 
         let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
@@ -11244,6 +11287,17 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(pool.worker_count(), 0, "idle fanout worker was retained");
+
+        let (teardown_tx, teardown_rx) = std::sync::mpsc::sync_channel(1);
+        assert!(pool.submit(Box::new(move || teardown_tx.send(()).unwrap())));
+        teardown_rx.recv_timeout(Duration::from_secs(1)).expect("teardown fanout job did not run");
+        let inner = Arc::downgrade(&pool.inner);
+        drop(pool);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while inner.upgrade().is_some() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(inner.upgrade().is_none(), "dropped fanout pool retained its executor state");
     }
 
     #[test]
@@ -11252,9 +11306,10 @@ mod tests {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let caller_gate = gate.clone();
         let caller = std::thread::spawn(move || {
+            let pool = DeadlineFanoutPool::new();
             let items = vec![1_u8];
             let deadline = Instant::now() + Duration::from_millis(30);
-            let results = bounded_deadline_map(&items, deadline, move |item, _| {
+            let results = bounded_deadline_map(&pool, &items, deadline, move |item, _| {
                 let (released, changed) = &*caller_gate;
                 let mut released = released.lock().unwrap();
                 while !*released {

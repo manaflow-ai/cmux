@@ -414,8 +414,7 @@ pub(crate) struct GraphicsWriterShutdown {
 
 impl GraphicsWriterShutdown {
     /// Stop the writer and wait until no future host-terminal writes are
-    /// possible. This is safe to call from the process panic hook because the
-    /// production writer uses a nonblocking descriptor and bounded poll loop.
+    /// possible. Callers must not own the stdout lock while waiting.
     pub(crate) fn cancel_and_wait(&self) {
         self.control.request_cancel(&self.notify);
         if self
@@ -428,9 +427,11 @@ impl GraphicsWriterShutdown {
         }
     }
 
-    #[cfg(test)]
-    fn cancel_for_panic_hook(&self) {
-        self.cancel_and_wait();
+    pub(crate) fn cancel_for_panic_hook(&self) {
+        // A renderer panic can still own the reentrant stdout lock. Only
+        // signal here; the writer observes cancellation before writing after
+        // that lock is released, and normal unwind cleanup performs the join.
+        self.control.request_cancel(&self.notify);
     }
 
     #[cfg(test)]
