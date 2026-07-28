@@ -778,7 +778,13 @@ def _swift_closure_bindings(text: str, opening: int) -> dict[str, bool]:
                 None,
             )
             if local_name is not None and "=" in capture:
-                result[local_name] = False
+                initializer = capture.split("=", 1)[1]
+                result[local_name] = bool(
+                    re.fullmatch(
+                        rf"\s*{_SWIFT_CLOCK_TYPE_PATTERN}\s*\(\s*\)\s*",
+                        initializer,
+                    )
+                )
 
     typed_parameters = candidate.group("typed_parameters")
     if typed_parameters is not None:
@@ -1236,6 +1242,22 @@ def _javascript_for_loop_declarations(
     return bindings, declaration_offsets
 
 
+def _javascript_class_body_scopes(text: str) -> set[int]:
+    """Return opening braces that directly introduce JavaScript classes."""
+    result: set[int] = set()
+    class_signature = re.compile(
+        rf"\bclass(?:\s+{_JAVASCRIPT_IDENTIFIER_PATTERN})?"
+        r"(?:\s*<[^{};]*>)?"
+        r"(?:\s+extends\s+[^{};]+)?\s*$"
+    )
+    for opening in re.finditer(r"\{", text):
+        prefix_start = max(0, opening.start() - 4096)
+        prefix = text[prefix_start : opening.start()]
+        if class_signature.search(prefix) is not None:
+            result.add(opening.start())
+    return result
+
+
 def _javascript_timer_alias_positions(
     text: str,
     aliases: set[str],
@@ -1305,6 +1327,7 @@ def _javascript_timer_alias_positions(
     for_loop_declarations, for_loop_declaration_offsets = (
         _javascript_for_loop_declarations(text, aliases)
     )
+    class_body_scopes = _javascript_class_body_scopes(text)
     declarations: dict[Optional[int], set[str]] = {
         None: set(),
         **for_loop_declarations,
@@ -1413,7 +1436,10 @@ def _javascript_timer_alias_positions(
                     )[alias] = False
             continue
         if event.group("assignment") is not None:
-            if not in_callable_parameters(event.start()):
+            if (
+                not in_callable_parameters(event.start())
+                and scopes[-1][0] not in class_body_scopes
+            ):
                 scopes[-1][1][event.group("assigned")] = False
             continue
         if event.group("call") is None:
@@ -3743,19 +3769,102 @@ def _shell_sleep_binding_event(
     return None
 
 
+def _shell_subshell_scope_events(
+    masked_line: str,
+    initial_case_state: tuple[int, ...],
+    frames: list[str],
+    arithmetic_depth: int,
+) -> tuple[list[tuple[int, bool]], int]:
+    """Return ordered enter/leave events for shell subshell namespaces."""
+    function_parentheses: set[int] = set()
+    for declaration in re.finditer(
+        r"(?:\bfunction\s+)?\b[A-Za-z_][A-Za-z0-9_]*\s*"
+        r"(?P<open>\()\s*(?P<close>\))(?=\s*(?:\{|$))",
+        masked_line,
+    ):
+        function_parentheses.update(
+            (declaration.start("open"), declaration.start("close"))
+        )
+
+    arithmetic_ranges, arithmetic_depth = _shell_arithmetic_ranges(
+        masked_line,
+        arithmetic_depth,
+    )
+
+    def in_arithmetic(index: int) -> bool:
+        return any(start <= index < end for start, end in arithmetic_ranges)
+
+    events: list[tuple[int, bool]] = []
+    index = 0
+    while index < len(masked_line):
+        if in_arithmetic(index) or index in function_parentheses:
+            index += 1
+            continue
+        if masked_line.startswith("$(", index):
+            frames.append("paren")
+            events.append((index, True))
+            index += 2
+            continue
+
+        character = masked_line[index]
+        if character == "`":
+            if frames and frames[-1] == "backtick":
+                frames.pop()
+                events.append((index, False))
+            else:
+                frames.append("backtick")
+                events.append((index, True))
+            index += 1
+            continue
+        if character == "(":
+            case_state = _shell_case_state_after_prefix(
+                masked_line,
+                index,
+                initial_case_state,
+            )
+            if not case_state or case_state[-1] == _SHELL_CASE_BODY:
+                frames.append("paren")
+                events.append((index, True))
+        elif (
+            character == ")"
+            and frames
+            and frames[-1] == "paren"
+            and not _shell_parenthesis_is_case_arm_boundary(
+                masked_line,
+                index,
+                initial_case_state,
+            )
+        ):
+            frames.pop()
+            events.append((index, False))
+        index += 1
+    return events, arithmetic_depth
+
+
 def _shell_real_sleep_positions(
     raw_lines: list[str],
     masked_lines: list[str],
 ) -> dict[int, set[int]]:
     positions: dict[int, set[int]] = {}
     case_state: tuple[int, ...] = ()
-    sleep_is_function = False
+    sleep_function_scopes = [False]
+    subshell_frames: list[str] = []
+    arithmetic_depth = 0
     for line_index, (raw_line, masked_line) in enumerate(
         zip(raw_lines, masked_lines)
     ):
         candidates: set[int] = set()
         explicit_external: set[int] = set()
         binding_events: dict[int, bool] = {}
+        scope_events, arithmetic_depth = _shell_subshell_scope_events(
+            masked_line,
+            case_state,
+            subshell_frames,
+            arithmetic_depth,
+        )
+        scope_events_by_offset: dict[int, list[bool]] = {}
+        for offset, entering in scope_events:
+            scope_events_by_offset.setdefault(offset, []).append(entering)
         for match in _SHELL_BARE_SLEEP.finditer(masked_line):
             sleep_position = match.start() + match.group().rfind("sleep")
             if _shell_function_declaration_at(
@@ -3801,12 +3910,22 @@ def _shell_real_sleep_positions(
                 candidates.add(sleep_position)
 
         for offset in sorted(
-            candidates | explicit_external | binding_events.keys()
+            candidates
+            | explicit_external
+            | binding_events.keys()
+            | scope_events_by_offset.keys()
         ):
+            for entering in scope_events_by_offset.get(offset, []):
+                if entering:
+                    sleep_function_scopes.append(
+                        sleep_function_scopes[-1]
+                    )
+                elif len(sleep_function_scopes) > 1:
+                    sleep_function_scopes.pop()
             if offset in binding_events:
-                sleep_is_function = binding_events[offset]
+                sleep_function_scopes[-1] = binding_events[offset]
             if offset in explicit_external or (
-                offset in candidates and not sleep_is_function
+                offset in candidates and not sleep_function_scopes[-1]
             ):
                 positions.setdefault(line_index, set()).add(offset)
         case_state = _shell_case_state_after_prefix(
