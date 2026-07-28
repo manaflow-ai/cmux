@@ -13,6 +13,9 @@ private func resetRendererRealizedTracking()
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_count")
 private func rendererRealizedCallCount() -> UInt32
 
+@_silgen_name("cmux_test_ghostty_renderer_rebuild_call_count")
+private func rendererRebuildCallCount() -> UInt32
+
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_value")
 private func rendererRealizedCallValue(_ index: UInt32) -> Bool
 
@@ -94,7 +97,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(rendererRealizedCalls() == [false, true])
     }
 
-    @Test func hiddenRuntimeIsReleasedThenRealizedOnFirstVisibility() {
+    @Test func hiddenRuntimeUsesAtomicRebuildOnFirstVisibility() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -116,11 +119,13 @@ private func rendererReleaseWasOccluded() -> Bool
 
         #expect(surface.isRendererPortalVisible)
         #expect(surface.isRendererRealized)
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
 
         surface.setRendererPortalVisible(true, presentationReady: true)
 
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
     }
 
     @Test func hiddenRuntimeIsOccludedBeforeRendererRelease() {
