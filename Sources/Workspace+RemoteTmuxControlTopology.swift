@@ -136,6 +136,20 @@ extension Workspace {
         return .unresolvedMirror
     }
 
+    /// Local word-path fallback must never interpret a remote transcript
+    /// against this Mac's filesystem. Projected tmux panes are remote even
+    /// though their mirror-owned surface IDs are not stored in the ordinary
+    /// remote-terminal set.
+    func canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: UUID) -> Bool {
+        guard !isRemoteTerminalSurface(surfaceID) else { return false }
+        switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+        case .notRemote:
+            return true
+        case .unresolvedMirror, .pane:
+            return false
+        }
+    }
+
     /// Maps a control-plane surface identity to the workspace-owned tab that
     /// participates in reorder. Projected tmux pane surfaces reorder their
     /// window container; hidden mirror wrappers remain unresolved.

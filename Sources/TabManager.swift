@@ -3372,7 +3372,8 @@ class TabManager: ObservableObject {
         suppressFlash: Bool = false,
         focusIntent: PanelFocusIntent? = nil,
         dismissRestoredUnreadOnResume: Bool? = nil,
-        focusTransactionId: UUID? = nil
+        focusTransactionId: UUID? = nil,
+        focusPanelIdOverride: UUID? = nil
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let targetPanelId = surfaceId.flatMap { panelId(forSurfaceOrPanelId: $0, in: tab) }
@@ -3399,7 +3400,8 @@ class TabManager: ObservableObject {
         )
 
         if let surfaceId {
-            let focusPanelId = tab.surfaceOwnershipTarget(for: surfaceId)?.surfaceID
+            let focusPanelId = focusPanelIdOverride
+                ?? tab.surfaceOwnershipTarget(for: surfaceId)?.surfaceID
                 ?? targetPanelId
                 ?? surfaceId
             if !suppressFlash {
@@ -3438,6 +3440,51 @@ class TabManager: ObservableObject {
             AppDelegate.shared?.armJumpUnreadFocusRecord(tabId: tabId, surfaceId: desiredPanelId)
         }
 #endif
+        if let surfaceId,
+           let location = tab.remoteTmuxControlPane(surfaceID: surfaceId),
+           location.containerPanelID != surfaceId {
+            var didPresentOptimisticFocus = false
+            var synchronousConfirmation: Bool?
+            let accepted = location.controlFocus { [weak self] confirmed in
+                guard let self else { return }
+                guard didPresentOptimisticFocus else {
+                    synchronousConfirmation = confirmed
+                    return
+                }
+                guard confirmed else { return }
+                _ = self.dismissNotificationOnDirectInteraction(
+                    tabId: tabId,
+                    surfaceId: surfaceId
+                )
+            }
+            guard accepted else { return false }
+
+            // The mirror has already projected the requested pane
+            // optimistically. Focus the stable outer container without
+            // issuing a second select-pane, and keep automatic visibility
+            // dismissal suppressed until the selection side effect consumes
+            // the latch.
+            let wasAlreadySelected = selectedTabId == tabId
+            tab.clearSplitZoom()
+            notificationDismissal.setSuppressesFocusFlash(true)
+            focusTab(
+                tabId,
+                surfaceId: surfaceId,
+                suppressFlash: true,
+                focusPanelIdOverride: location.containerPanelID
+            )
+            if wasAlreadySelected {
+                notificationDismissal.setSuppressesFocusFlash(false)
+            }
+            didPresentOptimisticFocus = true
+            if synchronousConfirmation == true {
+                _ = dismissNotificationOnDirectInteraction(
+                    tabId: tabId,
+                    surfaceId: surfaceId
+                )
+            }
+            return true
+        }
         // Jump-to-unread should reveal the destination pane instead of keeping an old split-zoom
         // state active around it.
         tab.clearSplitZoom()

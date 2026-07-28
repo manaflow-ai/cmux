@@ -10,8 +10,8 @@ struct RemoteTmuxControlPaneLocation {
     let windowMirror: RemoteTmuxWindowMirror?
     let pane: RemoteTmuxControlPane
 
-    func controlFocus() -> Bool {
-        owner.controlFocus(pane: pane.tmuxPaneID)
+    func controlFocus(completion: @escaping (Bool) -> Void = { _ in }) -> Bool {
+        owner.controlFocus(pane: pane.tmuxPaneID, completion: completion)
     }
 
     func sendInput(_ text: String) -> Bool {

@@ -152,9 +152,21 @@ extension RemoteTmuxSessionMirror {
         )
     }
 
-    func controlFocus(pane tmuxPaneID: Int) -> Bool {
-        guard let windowID = windowIdByPane[tmuxPaneID] else { return false }
-        return connection.send("select-pane -t @\(windowID).%\(tmuxPaneID)")
+    func controlFocus(
+        pane tmuxPaneID: Int,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
+        guard let windowID = windowIdByPane[tmuxPaneID],
+              let windowMirror = windowMirrorByWindowId[windowID] else {
+            return false
+        }
+        return windowMirror.requestControlFocus(
+            pane: tmuxPaneID,
+            sendTracked: { [connection] command, trackedCompletion in
+                connection.sendTracked(command, completion: trackedCompletion)
+            },
+            completion: completion
+        )
     }
 
     func sendInput(toPane tmuxPaneID: Int, text: String) -> Bool {

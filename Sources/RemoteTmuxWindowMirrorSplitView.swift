@@ -42,6 +42,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
             .onAppear {
                 mirror.isVisibleForSizing = isVisibleInUI
                 if !isVisibleInUI {
+                    mirror.cancelPendingControlPaneFocus()
                     mirror.cancelPendingCreatedPaneFocus()
                 }
                 // The workspace keeps every tab's content alive and hides
@@ -58,6 +59,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
             .onChange(of: isVisibleInUI) { _, visible in
                 mirror.isVisibleForSizing = visible
                 if !visible {
+                    mirror.cancelPendingControlPaneFocus()
                     mirror.cancelPendingCreatedPaneFocus()
                 }
                 mirror.bonsplitController.isInteractive = visible

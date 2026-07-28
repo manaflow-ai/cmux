@@ -67,6 +67,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     private(set) var layoutStructureVersion = 0
     /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
+    @ObservationIgnored var pendingControlPaneFocusRequest: PendingControlPaneFocusRequest?
     @ObservationIgnored var pendingCreatedPaneFocusRequests: [PendingCreatedPaneFocusRequest] = []
     /// Display title for this mirrored tmux window; every inner surface/tab title
     /// derives from this tmux window name, never from pane-border labels.
@@ -378,6 +379,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             panelsByPaneId[paneId] = nil
             cwdByPaneId[paneId] = nil
             cancelPendingCreatedPaneFocus(candidatePaneID: paneId)
+            if pendingControlPaneFocusRequest?.paneID == paneId {
+                cancelPendingControlPaneFocus()
+            }
             if activePaneId == paneId { activePaneId = nil }
         }
         lastRenderedGrids = lastRenderedGrids.filter { livePaneIds.contains($0.key) }
@@ -472,21 +476,25 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// tmux truth, not local focus alone. Tolerates unknown panes: the
     /// matching layout may still be pending its rects publication.
     func noteRemoteActivePane(_ paneId: Int) {
+        projectActivePane(paneId)
+        resolvePendingControlPaneFocus(authoritativePaneID: paneId)
+        reconcilePendingCreatedPaneFocus(authoritativePaneID: paneId)
+    }
+
+    func projectActivePane(_ paneId: Int) {
         if activePaneId != paneId { activePaneId = paneId }
         focusBonsplitPane(forTmuxPane: paneId)
-        reconcilePendingCreatedPaneFocus(authoritativePaneID: paneId)
     }
 
     func setActivePane(_ paneId: Int, fromTmux: Bool) {
         guard layout.paneIDsInOrder.contains(paneId) else { return }
         if !fromTmux {
             cancelPendingCreatedPaneFocus(competingPaneID: paneId)
+            _ = controlFocus(pane: paneId)
+            return
         }
-        if activePaneId != paneId { activePaneId = paneId }
-        focusBonsplitPane(forTmuxPane: paneId)
-        if !fromTmux {
-            connection?.send("select-pane -t @\(windowId).%\(paneId)")
-        }
+        projectActivePane(paneId)
+        resolvePendingControlPaneFocus(authoritativePaneID: paneId)
     }
 
     /// Records the user-focused pane and asks tmux to make it active.
@@ -537,6 +545,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         pendingContainerScale = nil
         pendingOversizedReading = nil
         dividerResizeInFlight = nil
+        cancelPendingControlPaneFocus()
         pendingCreatedPaneFocusRequests.removeAll()
         let activeConnection = connection
         activeConnection?.removeWindowSizeClaim(windowId: windowId)

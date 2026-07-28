@@ -2,6 +2,92 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxWindowMirror {
+    struct PendingControlPaneFocusRequest {
+        let requestID: UUID
+        let paneID: Int
+        let previousPaneID: Int?
+        var completions: [(Bool) -> Void]
+    }
+
+    /// Applies one pane-selection mutation optimistically so keyboard routing
+    /// follows the requested projected pane immediately. The request remains
+    /// pending until tmux publishes that pane as authoritative; a rejected
+    /// command rolls the mirror back to its previous live pane.
+    func requestControlFocus(
+        pane tmuxPaneID: Int,
+        sendTracked: (
+            _ command: String,
+            _ completion: @escaping (Bool) -> Void
+        ) -> Bool,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
+        guard !isTornDown, panelsByPaneId[tmuxPaneID] != nil else { return false }
+        if pendingControlPaneFocusRequest?.paneID == tmuxPaneID {
+            pendingControlPaneFocusRequest?.completions.append(completion)
+            return true
+        }
+        cancelPendingControlPaneFocus()
+        if activePaneId == tmuxPaneID {
+            completion(true)
+            return true
+        }
+
+        let requestID = UUID()
+        pendingControlPaneFocusRequest = PendingControlPaneFocusRequest(
+            requestID: requestID,
+            paneID: tmuxPaneID,
+            previousPaneID: activePaneId,
+            completions: [completion]
+        )
+        projectActivePane(tmuxPaneID)
+
+        let command = "select-pane -t @\(windowId).%\(tmuxPaneID)"
+        let accepted = sendTracked(command) { [weak self] succeeded in
+            guard !succeeded else { return }
+            self?.rejectPendingControlPaneFocus(requestID: requestID)
+        }
+        if !accepted {
+            rejectPendingControlPaneFocus(requestID: requestID)
+        }
+        return accepted
+    }
+
+    func resolvePendingControlPaneFocus(authoritativePaneID: Int) {
+        guard let request = pendingControlPaneFocusRequest,
+              request.paneID == authoritativePaneID else { return }
+        pendingControlPaneFocusRequest = nil
+        request.completions.forEach { $0(true) }
+    }
+
+    func cancelPendingControlPaneFocus() {
+        guard let request = pendingControlPaneFocusRequest else { return }
+        pendingControlPaneFocusRequest = nil
+        rollbackPendingControlPaneFocus(request)
+        request.completions.forEach { $0(false) }
+    }
+
+    private func rejectPendingControlPaneFocus(requestID: UUID) {
+        guard let request = pendingControlPaneFocusRequest,
+              request.requestID == requestID else { return }
+        pendingControlPaneFocusRequest = nil
+        rollbackPendingControlPaneFocus(request)
+        request.completions.forEach { $0(false) }
+    }
+
+    private func rollbackPendingControlPaneFocus(
+        _ request: PendingControlPaneFocusRequest
+    ) {
+        let shouldRestoreFirstResponder =
+            panelsByPaneId[request.paneID]?.hostedView.isSurfaceViewFirstResponder() == true
+        guard activePaneId == request.paneID,
+              let previousPaneID = request.previousPaneID,
+              let previousPanel = panelsByPaneId[previousPaneID] else { return }
+        projectActivePane(previousPaneID)
+        if shouldRestoreFirstResponder {
+            previousPanel.hostedView.moveFocus()
+        }
+    }
+
     func sendInput(toPane tmuxPaneID: Int, text: String) -> Bool {
         guard let data = text.data(using: .utf8) else { return false }
         return connectionSendKeys(paneID: tmuxPaneID, data: data)
@@ -50,8 +136,18 @@ extension RemoteTmuxWindowMirror {
     /// even after the writer accepts this command. Distinct from the UI's
     /// fire-and-forget `focus(pane:)`.
     @discardableResult
-    func controlFocus(pane tmuxPaneID: Int) -> Bool {
-        sendControlCommand("select-pane -t @\(windowId).%\(tmuxPaneID)")
+    func controlFocus(
+        pane tmuxPaneID: Int,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
+        guard let connection else { return false }
+        return requestControlFocus(
+            pane: tmuxPaneID,
+            sendTracked: { command, trackedCompletion in
+                connection.sendTracked(command, completion: trackedCompletion)
+            },
+            completion: completion
+        )
     }
 
     /// Splits the addressed tmux pane. The new pane arrives through the next

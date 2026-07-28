@@ -6032,7 +6032,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         guard let termSurface = terminalSurface,
               let workspace = termSurface.owningWorkspace(),
-              !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
+              workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+                  surfaceID: termSurface.id
+              ) else { return nil }
 
         guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface) else {
             return nil
@@ -6238,7 +6240,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> TerminalPanel? {
-        workspace.controlTerminalPanel(for: terminalSurface.id)
+        guard workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+            surfaceID: terminalSurface.id
+        ) else { return nil }
+        return workspace.controlTerminalPanel(for: terminalSurface.id)
     }
 
 #if DEBUG
@@ -6467,7 +6472,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // editor so the click never silently no-ops.
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
-           !workspace.isRemoteTerminalSurface(termSurface.id),
+           workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+               surfaceID: termSurface.id
+           ),
            CommandClickFileOpenRouter.openInCmux(
                workspace: workspace,
                sourcePanelId: termSurface.id,

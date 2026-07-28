@@ -4,7 +4,10 @@ import Foundation
 /// standalone window-mirror fixtures.
 @MainActor
 protocol RemoteTmuxControlPaneMutationOwner: AnyObject {
-    func controlFocus(pane tmuxPaneID: Int) -> Bool
+    func controlFocus(
+        pane tmuxPaneID: Int,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool
     func sendInput(toPane tmuxPaneID: Int, text: String) -> Bool
     func sendKey(
         toPane tmuxPaneID: Int,
@@ -28,4 +31,11 @@ protocol RemoteTmuxControlPaneMutationOwner: AnyObject {
         workingDirectory: String?
     ) -> Bool
     func requestKillPane(_ tmuxPaneID: Int) -> Bool
+}
+
+@MainActor
+extension RemoteTmuxControlPaneMutationOwner {
+    func controlFocus(pane tmuxPaneID: Int) -> Bool {
+        controlFocus(pane: tmuxPaneID, completion: { _ in })
+    }
 }
