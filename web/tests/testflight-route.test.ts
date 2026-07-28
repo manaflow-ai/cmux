@@ -141,10 +141,11 @@ describe("TestFlight route", () => {
       firstName: "Pro",
       lastName: "User",
     });
-    expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaTesterInvitations",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(
+      (ascFetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+        ([path]) => path === "/v1/betaTesterInvitations",
+      ),
+    ).toBe(false);
   });
 
   test("does not enroll ineligible users", async () => {

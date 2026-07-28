@@ -54,6 +54,7 @@ struct BrowserAppSessionHandoffTests {
 
         #expect(request.url?.absoluteString == "https://cmux.test/handler/app-session-handoff")
         #expect(request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "X-Cmux-App-Session-Handoff") == "1")
         #expect(body.contains("access_token=native%2Baccess"))
         #expect(body.contains("refresh_token=native%26refresh"))
         #expect(body.contains("after=%2Fdashboard%2Ftestflight%3Fplan%3Dpro%23join"))

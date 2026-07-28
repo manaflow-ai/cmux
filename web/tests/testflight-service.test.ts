@@ -45,10 +45,10 @@ describe("TestFlight ASC service", () => {
     });
   });
 
-  test("enrolls a new email in the Pro group and asks Apple to send the invitation", async () => {
+  test("enrolls a new email in the Pro group without resending the automatic invitation", async () => {
     await enrollTester("New@Example.com", "New", "Tester");
 
-    expect(ascFetch).toHaveBeenCalledTimes(2);
+    expect(ascFetch).toHaveBeenCalledTimes(1);
     expect(ascFetch).toHaveBeenCalledWith(
       "/v1/betaTesters",
       expect.objectContaining({ method: "POST" }),
@@ -75,21 +75,11 @@ describe("TestFlight ASC service", () => {
       },
     });
 
-    expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaTesterInvitations",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(JSON.parse(String(callInit(1).body))).toEqual({
-      data: {
-        type: "betaTesterInvitations",
-        relationships: {
-          app: { data: { type: "apps", id: "6757092429" } },
-          betaTester: {
-            data: { type: "betaTesters", id: "tester_new" },
-          },
-        },
-      },
-    });
+    expect(
+      (ascFetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+        ([path]) => path === "/v1/betaTesterInvitations",
+      ),
+    ).toBe(false);
   });
 
   test("falls back to adding an existing tester to the group", async () => {
@@ -116,13 +106,14 @@ describe("TestFlight ASC service", () => {
     expect(body).toEqual({
       data: [{ type: "betaTesters", id: "tester_123" }],
     });
-    expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaTesterInvitations",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(
+      (ascFetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+        ([path]) => path === "/v1/betaTesterInvitations",
+      ),
+    ).toBe(false);
   });
 
-  test("retries the invitation when the group relationship already exists", async () => {
+  test("does not resend an invitation when group membership already exists", async () => {
     mockImplementation(ascFetch, async (path: unknown, init?: unknown) => {
       if (path === "/v1/betaTesters" && (init as { method?: string })?.method === "POST") {
         throw new MockAscApiError("exists", 409);
@@ -144,10 +135,11 @@ describe("TestFlight ASC service", () => {
     });
 
     await expect(enrollTester("exists@example.com")).resolves.toBeUndefined();
-    expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaTesterInvitations",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(
+      (ascFetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+        ([path]) => path === "/v1/betaTesterInvitations",
+      ),
+    ).toBe(false);
     expect(
       (ascFetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
         ([path]) => String(path).includes("/relationships/betaTesters"),
