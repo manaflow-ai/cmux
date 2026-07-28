@@ -211,9 +211,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             defaultValue: "New workspace in group"
         ))
 
-        backgroundView.layer?.backgroundColor = model.isAnchorActive
-            ? NSColor.labelColor.withAlphaComponent(0.08).cgColor
-            : NSColor.clear.cgColor
+        backgroundView.layer?.cornerRadius = model.isMultiSelected && !model.isAnchorActive
+            ? 6
+            : 4
+        backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
         bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
@@ -269,9 +270,33 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         guard let model, !model.isAnchorActive else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
         CATransaction.commit()
         nameField.textColor = .labelColor
+    }
+
+    /// Modifier-click preview: paints the same dim membership tint as an
+    /// unfocused multi-selected workspace row.
+    func showOptimisticMultiSelection() {
+        guard let model, !model.isAnchorActive, !model.isMultiSelected else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.cornerRadius = 6
+        backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
+        CATransaction.commit()
+    }
+
+    /// Plain-click counterpart: clears active and multi-selected header paint
+    /// while the authoritative single selection is applied.
+    func showOptimisticDeselection() {
+        guard let model, model.isAnchorActive || model.isMultiSelected else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+        CATransaction.commit()
+        nameField.textColor = NSColor.labelColor.withAlphaComponent(0.9)
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
@@ -282,6 +307,26 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func clearOptimisticAnchorActive() {
         guard let model, !model.isAnchorActive else { return }
         applyModel(model)
+    }
+
+    private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
+        if model.isAnchorActive {
+            return NSColor.labelColor.withAlphaComponent(0.08)
+        }
+        if model.isMultiSelected {
+            return headerMultiSelectionBackgroundColor(for: model)
+        }
+        return .clear
+    }
+
+    private func headerMultiSelectionBackgroundColor(
+        for model: SidebarGroupHeaderRowModel
+    ) -> NSColor {
+        let style = model.multiSelectionBackgroundStyle
+        guard let color = style.color else { return .clear }
+        return color.withAlphaComponent(
+            color.alphaComponent * style.opacity
+        )
     }
 
     /// True when a press at this view should not repaint selection (chevron
@@ -414,7 +459,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             height: bounds.height
         )
         if innerRect.contains(point) {
-            actions?.onFocusAnchor()
+            actions?.onFocusAnchor(NSApp.currentEvent?.modifierFlags ?? [])
         }
     }
 

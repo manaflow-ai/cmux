@@ -13,12 +13,22 @@ extension VerticalTabsSidebar {
     ) -> SidebarWorkspaceTableRowConfiguration {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
+        let isMultiSelected = selectedTabIds.contains(group.anchorWorkspaceId)
+            && selectedTabIds.count > 1
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
             explicit: group.iconSymbol,
             configured: resolvedConfig?.iconSymbol
+        )
+        let multiSelectionBackgroundStyle = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            isActive: false,
+            isMultiSelected: true,
+            customColorHex: effectiveColor,
+            colorScheme: renderContext.environment.colorScheme,
+            sidebarSelectionColorHex: settings.selectionColorHex
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -73,6 +83,8 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
+            isMultiSelected: isMultiSelected,
+            multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
@@ -96,12 +108,25 @@ extension VerticalTabsSidebar {
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] in
+            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
                 guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
-                tabManager.selectWorkspace(anchorTab)
-                if selectedTabIds.wrappedValue != [anchorId] {
-                    selectedTabIds.wrappedValue = [anchorId]
+                if modifiers.contains(.command) || modifiers.contains(.shift) {
+                    let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                    let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
+                        current: selectedTabIds.wrappedValue,
+                        clickedAnchorId: anchorId,
+                        anchorIds: anchorIds
+                    )
+                    selectedTabIds.wrappedValue = toggledSelection.isEmpty
+                        ? [anchorId]
+                        : toggledSelection
+                    tabManager.selectWorkspace(anchorTab)
+                } else {
+                    tabManager.selectWorkspace(anchorTab)
+                    if selectedTabIds.wrappedValue != [anchorId] {
+                        selectedTabIds.wrappedValue = [anchorId]
+                    }
                 }
                 if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
                     lastSidebarSelectionIndex.wrappedValue = anchorIndex
@@ -207,12 +232,22 @@ extension VerticalTabsSidebar {
     ) -> SidebarWorkspaceGroupRowSnapshot {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
+        let isMultiSelected = selectedTabIds.contains(group.anchorWorkspaceId)
+            && selectedTabIds.count > 1
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
             explicit: group.iconSymbol,
             configured: resolvedConfig?.iconSymbol
+        )
+        let multiSelectionBackgroundStyle = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            isActive: false,
+            isMultiSelected: true,
+            customColorHex: effectiveColor,
+            colorScheme: renderContext.environment.colorScheme,
+            sidebarSelectionColorHex: settings.selectionColorHex
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -275,6 +310,8 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
+            isMultiSelected: isMultiSelected,
+            multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
@@ -323,6 +360,8 @@ extension VerticalTabsSidebar {
             isCollapsed: snapshot.isCollapsed,
             isPinned: snapshot.isPinned,
             isAnchorActive: snapshot.isAnchorActive,
+            isMultiSelected: snapshot.isMultiSelected,
+            multiSelectionBackgroundStyle: snapshot.multiSelectionBackgroundStyle,
             memberCount: snapshot.memberCount,
             anchorUnreadCount: snapshot.anchorUnreadCount,
             canMarkRead: snapshot.canMarkRead,
@@ -348,12 +387,25 @@ extension VerticalTabsSidebar {
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onFocusAnchor: { [weak tabManager, anchorId = snapshot.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] in
+            onFocusAnchor: { [weak tabManager, anchorId = snapshot.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
                 guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
-                tabManager.selectWorkspace(anchorTab)
-                if selectedTabIds.wrappedValue != [anchorId] {
-                    selectedTabIds.wrappedValue = [anchorId]
+                if modifiers.contains(.command) || modifiers.contains(.shift) {
+                    let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                    let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
+                        current: selectedTabIds.wrappedValue,
+                        clickedAnchorId: anchorId,
+                        anchorIds: anchorIds
+                    )
+                    selectedTabIds.wrappedValue = toggledSelection.isEmpty
+                        ? [anchorId]
+                        : toggledSelection
+                    tabManager.selectWorkspace(anchorTab)
+                } else {
+                    tabManager.selectWorkspace(anchorTab)
+                    if selectedTabIds.wrappedValue != [anchorId] {
+                        selectedTabIds.wrappedValue = [anchorId]
+                    }
                 }
                 if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
                     lastSidebarSelectionIndex.wrappedValue = anchorIndex

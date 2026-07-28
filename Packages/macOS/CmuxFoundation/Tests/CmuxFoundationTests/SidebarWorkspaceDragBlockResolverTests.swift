@@ -45,17 +45,43 @@ import Testing
         #expect(movingIds == [ids[0], ids[2], ids[3]])
     }
 
-    @Test func draggedAnchorNeverExpands() {
+    @Test func selectedAnchorExpandsToSelectedAnchorsInSidebarOrder() {
+        let ids = (0..<4).map { _ in UUID() }
+
+        let movingIds = resolver.movingWorkspaceIds(
+            orderedWorkspaceIds: ids,
+            selectedIds: [ids[1], ids[3]],
+            draggedId: ids[1],
+            anchorIds: [ids[1], ids[3]]
+        )
+
+        #expect(movingIds == [ids[1], ids[3]])
+    }
+
+    @Test func nonSelectedAnchorMovesAlone() {
         let ids = (0..<3).map { _ in UUID() }
 
         let movingIds = resolver.movingWorkspaceIds(
             orderedWorkspaceIds: ids,
-            selectedIds: Set(ids),
+            selectedIds: [ids[0], ids[2]],
             draggedId: ids[1],
-            anchorIds: [ids[1]]
+            anchorIds: [ids[1], ids[2]]
         )
 
         #expect(movingIds == [ids[1]])
+    }
+
+    @Test func anchorExpansionDropsStraySelectedWorkspaces() {
+        let ids = (0..<5).map { _ in UUID() }
+
+        let movingIds = resolver.movingWorkspaceIds(
+            orderedWorkspaceIds: ids,
+            selectedIds: [ids[0], ids[1], ids[2], ids[4]],
+            draggedId: ids[2],
+            anchorIds: [ids[0], ids[2], ids[4]]
+        )
+
+        #expect(movingIds == [ids[0], ids[2], ids[4]])
     }
 
     @Test func expandedSelectionUsesSidebarOrderInsteadOfSelectionOrder() {

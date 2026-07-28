@@ -477,10 +477,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             previewSelection(row: row, modifiers: modifiers, hitView: nil)
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 selectionCoalescer.flushNow()
-                headerActions.onFocusAnchor()
+                headerActions.onFocusAnchor(modifiers)
             } else {
                 selectionCoalescer.request {
-                    headerActions.onFocusAnchor()
+                    headerActions.onFocusAnchor(modifiers)
                 }
             }
         }
@@ -571,10 +571,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        // Group headers carry their anchor's workspaceId; a header drag would
-        // masquerade as dragging the anchor workspace and tear it out of the
-        // group. Headers are not row-draggable in the SwiftUI sidebar either.
-        guard rows.indices.contains(row), !rows[row].isGroupHeader, let actions else { return nil }
+        // Group headers intentionally mint their anchor payload: anchor drags
+        // route to top-level whole-group plans and are rejected cross-window.
+        guard rows.indices.contains(row), let actions else { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()
@@ -945,9 +944,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             where visibleRow != row {
                 let cellView = table.view(atColumn: 0, row: visibleRow, makeIfNecessary: false)
                 (cellView as? SidebarWorkspaceRowTableCellView)?.showOptimisticDeselection()
-                // Headers preview anchor-active the same way workspace rows
-                // preview selection; a replaced header preview must peel too.
-                (cellView as? SidebarGroupHeaderTableCellView)?.clearOptimisticAnchorActive()
+                (cellView as? SidebarGroupHeaderTableCellView)?.showOptimisticDeselection()
                 if rows.indices.contains(visibleRow) {
                     optimisticallyPaintedRowIds.insert(rows[visibleRow].id)
                 }
@@ -959,7 +956,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // every cmd-click flash bright and settle dim).
             workspaceCell?.showOptimisticMultiSelection()
         }
-        headerCell?.showOptimisticAnchorActive()
+        if extendsSelection {
+            headerCell?.showOptimisticMultiSelection()
+        } else {
+            headerCell?.showOptimisticAnchorActive()
+        }
         optimisticallyPaintedRowIds.insert(rows[row].id)
         // Optimistic paint is only reconciled by an authoritative apply, and
         // some presses never produce one (drag that lands where it started,

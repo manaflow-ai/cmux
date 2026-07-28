@@ -8,8 +8,9 @@ public struct SidebarWorkspaceDragBlockResolver: Sendable {
     /// Returns the workspaces that move with the dragged row, in sidebar order.
     ///
     /// A multi-selection expands only when it contains the dragged workspace.
-    /// Group anchors are excluded from expanded selections, while dragging an
-    /// anchor itself preserves the existing single-anchor behavior.
+    /// Workspace drags exclude group anchors. A selected anchor expands to the
+    /// other selected anchors when at least two anchors are selected, while an
+    /// unselected or singly selected anchor moves alone.
     ///
     /// - Parameters:
     ///   - orderedWorkspaceIds: Live workspace ids in sidebar order.
@@ -23,8 +24,17 @@ public struct SidebarWorkspaceDragBlockResolver: Sendable {
         draggedId: UUID,
         anchorIds: Set<UUID>
     ) -> [UUID] {
-        guard !anchorIds.contains(draggedId),
-              selectedIds.count > 1,
+        if anchorIds.contains(draggedId) {
+            let selectedAnchorIds = selectedIds.intersection(anchorIds)
+            guard selectedIds.contains(draggedId),
+                  selectedAnchorIds.count > 1 else {
+                return [draggedId]
+            }
+            return orderedWorkspaceIds.filter {
+                selectedIds.contains($0) && anchorIds.contains($0)
+            }
+        }
+        guard selectedIds.count > 1,
               selectedIds.contains(draggedId) else {
             return [draggedId]
         }
