@@ -215,7 +215,9 @@ pub mod unix {
 pub mod tcp {
     use std::io;
     use std::net::{SocketAddr, TcpListener, TcpStream};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
+    #[cfg(target_os = "macos")]
+    use std::time::Instant;
 
     use super::ProcessCreationGuard;
 
