@@ -1,26 +1,7 @@
 import Foundation
 
-@MainActor
-protocol AppMemoryMonitoringServices: AnyObject {
-    func startEventDrivenMemoryPressureMonitoring()
-}
-
-/// App startup starts the event-driven memory-pressure response path.
-@MainActor
-struct AppMemoryMonitoringStartup {
-    let services: any AppMemoryMonitoringServices
-
-    func start() {
-        services.startEventDrivenMemoryPressureMonitoring()
-    }
-}
-
-extension AppDelegate: AppMemoryMonitoringServices {
+extension AppDelegate {
     func startMemoryMonitoringIfNeeded() {
-        AppMemoryMonitoringStartup(services: self).start()
-    }
-
-    func startEventDrivenMemoryPressureMonitoring() {
         let monitor = MemoryPressureMonitor.shared
         monitor.registry.register(
             RendererRealizationMemoryPressureResponder(
