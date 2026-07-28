@@ -167,7 +167,10 @@ func omoLaunchIsNonLaunch(args []string) bool {
 	return conservativeAgentNonLaunchInvocation(
 		args,
 		omoManagementCommands,
-		map[string]map[string]bool{"session": {"delete": true, "list": true}},
+		map[string]map[string]bool{
+			"github":  {"install": true},
+			"session": {"delete": true, "list": true},
+		},
 		map[string]bool{"session": true},
 		map[string]bool{"--mdns": true, "--print-logs": true, "--pure": true},
 		map[string]bool{
@@ -181,7 +184,9 @@ func omcLaunchIsNonLaunch(args []string) bool {
 	return conservativeAgentNonLaunchInvocation(
 		args,
 		omcManagementCommands,
-		map[string]map[string]bool{"team": {"api": true, "shutdown": true, "status": true}},
+		map[string]map[string]bool{
+			"team": {"--help": true, "-h": true, "api": true, "shutdown": true, "status": true},
+		},
 		nil,
 		nil,
 		nil,
@@ -191,6 +196,17 @@ func omcLaunchIsNonLaunch(args []string) bool {
 func omxLaunchIsNonLaunch(args []string) bool {
 	if len(args) == 0 {
 		return false
+	}
+	if args[0] == "team" {
+		if len(args) < 2 {
+			return false
+		}
+		switch args[1] {
+		case "--help", "-h", "api", "shutdown", "status":
+			return true
+		default:
+			return false
+		}
 	}
 	return agentInformationalOptions[args[0]] || omxManagementCommands[args[0]]
 }

@@ -196,6 +196,7 @@ public struct AgentLaunchInvocationClassifier {
                 "upgrade",
             ],
             managementSubcommands: [
+                "github": ["install"],
                 "session": ["delete", "list"],
             ],
             informationalSubcommands: ["session"],
@@ -229,7 +230,7 @@ public struct AgentLaunchInvocationClassifier {
                 "version",
             ],
             managementSubcommands: [
-                "team": ["api", "shutdown", "status"],
+                "team": ["--help", "-h", "api", "shutdown", "status"],
             ],
             booleanOptions: [],
             valueOptions: []
@@ -240,6 +241,15 @@ public struct AgentLaunchInvocationClassifier {
     public func omxLaunchIsNonLaunch(args: [String]) -> Bool {
         guard let first = args.first else { return false }
         if informationalOptions.contains(first) { return true }
+        if first == "team" {
+            guard args.count > 1 else { return false }
+            switch args[1] {
+            case "--help", "-h", "api", "shutdown", "status":
+                return true
+            default:
+                return false
+            }
+        }
         return omxManagementCommands.contains(first)
     }
 
