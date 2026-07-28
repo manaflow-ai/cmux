@@ -11,6 +11,10 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 	}{
 		{"claude management", claudeTeamsLaunchIsNonLaunch, []string{"--verbose", "auth"}, true},
 		{"claude background management", claudeTeamsLaunchIsNonLaunch, []string{"logs", "session-id"}, true},
+		{"claude daemon status", claudeTeamsLaunchIsNonLaunch, []string{"daemon", "status"}, true},
+		{"claude daemon stop with config", claudeTeamsLaunchIsNonLaunch, []string{"daemon", "--json-path", "/tmp/daemon.json", "stop", "--any"}, true},
+		{"claude daemon host", claudeTeamsLaunchIsNonLaunch, []string{"daemon", "run"}, false},
+		{"claude bare daemon", claudeTeamsLaunchIsNonLaunch, []string{"daemon"}, false},
 		{"claude Agent View", claudeTeamsLaunchIsNonLaunch, []string{"agents"}, false},
 		{"claude tmux management", claudeTeamsLaunchIsNonLaunch, []string{"--tmux", "classic", "doctor"}, true},
 		{"claude informational after prompt", claudeTeamsLaunchIsNonLaunch, []string{"prompt", "--version"}, true},

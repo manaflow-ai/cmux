@@ -179,8 +179,30 @@ exit 86
                 return 1
             claude_log.unlink()
 
+        for daemon_args in (
+            ("daemon", "logs"),
+            ("daemon", "status"),
+            ("daemon", "stop"),
+            ("daemon", "uninstall"),
+            ("daemon", "--json-path", "/tmp/cmux-daemon.json", "status"),
+        ):
+            management = subprocess.run(
+                [cli_path, "claude-teams", *daemon_args],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=unmanaged_env,
+                timeout=30,
+            )
+            if management.returncode != 0 or not claude_log.exists():
+                print(f"FAIL: Claude management invocation {daemon_args!r} required a live surface")
+                return 1
+            claude_log.unlink()
+
         for real_args in (
             ["agents"],
+            ["daemon"],
+            ["daemon", "run"],
             ["start a team"],
             ["--tmux", "explain --version"],
             ["--model", "config"],

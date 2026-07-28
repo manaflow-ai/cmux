@@ -32,7 +32,7 @@ func TestClaudeTeamsShellSnapshotKeepsManagedTmuxAheadOfRebuiltPath(t *testing.T
 	snapshotPathLog := filepath.Join(root, "snapshot-path.log")
 	resolvedTmuxLog := filepath.Join(root, "resolved-tmux.log")
 	originalShell := filepath.Join(root, "zsh")
-writeAgentLaunchTestExecutable(t, originalShell, `#!/bin/sh
+	writeAgentLaunchTestExecutable(t, originalShell, `#!/bin/sh
 set -eu
 if [ "${1:-}" != "-lc" ]; then
   echo "unexpected shell argv: $*" >&2
@@ -46,9 +46,9 @@ exec /bin/sh -c "$1"
 	writeAgentLaunchTestExecutable(t, filepath.Join(profileBin, "tmux"), `#!/bin/sh
 exit 0
 `)
-writeAgentLaunchTestExecutable(t, filepath.Join(agentBin, "claude"), `#!/bin/sh
+	writeAgentLaunchTestExecutable(t, filepath.Join(agentBin, "claude"), `#!/bin/sh
 set -eu
-"$SHELL" -c -l 'printf "%s\n" "$PATH" > "$CMUX_TEST_SNAPSHOT_PATH_LOG"'
+"${CLAUDE_CODE_SHELL:-$SHELL}" -c -l 'printf "%s\n" "$PATH" > "$CMUX_TEST_SNAPSHOT_PATH_LOG"'
 PATH="$(cat "$CMUX_TEST_SNAPSHOT_PATH_LOG")"
 export PATH
 command -v tmux > "$CMUX_TEST_RESOLVED_TMUX_LOG"
@@ -65,7 +65,8 @@ command -v tmux > "$CMUX_TEST_RESOLVED_TMUX_LOG"
 		"CMUX_SURFACE_ID="+agentLaunchTestSurfaceId,
 		"HOME="+home,
 		"PATH="+agentBin+":"+profileBin+":/usr/bin:/bin",
-		"SHELL="+originalShell,
+		"SHELL=/bin/sh",
+		"CLAUDE_CODE_SHELL="+originalShell,
 	)
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -109,6 +110,7 @@ func TestClaudeTeamsShellWrapperKeepsFishIdentity(t *testing.T) {
 	}
 
 	t.Setenv("SHELL", fishPath)
+	t.Setenv("CLAUDE_CODE_SHELL", "")
 	t.Setenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL", "")
 	t.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", "")
 	t.Setenv("CMUX_TEST_PROFILE_BIN", profileBin)
@@ -117,8 +119,11 @@ func TestClaudeTeamsShellWrapperKeepsFishIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	wrapperPath := os.Getenv("SHELL")
-	if filepath.Base(wrapperPath) != filepath.Base(fishPath) {
-		t.Fatalf("wrapper shell name = %q, want %q", filepath.Base(wrapperPath), filepath.Base(fishPath))
+	if filepath.Base(wrapperPath) != "bash" {
+		t.Fatalf("wrapper shell name = %q, want bash", filepath.Base(wrapperPath))
+	}
+	if claudeShell := os.Getenv("CLAUDE_CODE_SHELL"); claudeShell != wrapperPath {
+		t.Fatalf("CLAUDE_CODE_SHELL = %q, want wrapper %q", claudeShell, wrapperPath)
 	}
 
 	command := exec.Command(wrapperPath, "-lc", "command -v tmux")
@@ -156,6 +161,7 @@ func TestClaudeTeamsShellWrapperSupportsNonPOSIXLoginShell(t *testing.T) {
 
 	t.Setenv("HOME", root)
 	t.Setenv("SHELL", tcshPath)
+	t.Setenv("CLAUDE_CODE_SHELL", "")
 	t.Setenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL", "")
 	t.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", "")
 	t.Setenv("CMUX_TEST_PROFILE_BIN", profileBin)
@@ -163,8 +169,8 @@ func TestClaudeTeamsShellWrapperSupportsNonPOSIXLoginShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	wrapperPath := os.Getenv("SHELL")
-	if filepath.Base(wrapperPath) != filepath.Base(tcshPath) {
-		t.Fatalf("wrapper shell name = %q, want %q", filepath.Base(wrapperPath), filepath.Base(tcshPath))
+	if filepath.Base(wrapperPath) != "bash" {
+		t.Fatalf("wrapper shell name = %q, want bash", filepath.Base(wrapperPath))
 	}
 
 	command := exec.Command(wrapperPath, "-lic", "/usr/bin/which tmux")
@@ -182,6 +188,7 @@ func TestClaudeTeamsShellWrapperRejectsUnknownDialectBeforeReplacingShell(t *tes
 	unknownShell := filepath.Join(root, "unknown-shell")
 	writeAgentLaunchTestExecutable(t, unknownShell, "#!/bin/sh\nexit 0\n")
 	t.Setenv("SHELL", unknownShell)
+	t.Setenv("CLAUDE_CODE_SHELL", "")
 	t.Setenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL", "")
 	t.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", "")
 

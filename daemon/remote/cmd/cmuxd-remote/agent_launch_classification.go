@@ -48,6 +48,9 @@ func claudeTeamsManagementInvocation(args []string) bool {
 			return false
 		}
 		if !strings.HasPrefix(argument, "-") || argument == "-" {
+			if allowedSubcommands := claudeTeamsManagementSubcommands[argument]; allowedSubcommands != nil {
+				return claudeTeamsManagementSubcommand(args, index+1, allowedSubcommands)
+			}
 			return claudeTeamsManagementCommands[argument]
 		}
 		name := agentOptionName(argument)
@@ -64,6 +67,31 @@ func claudeTeamsManagementInvocation(args []string) bool {
 			return false
 		}
 		index += width
+	}
+	return false
+}
+
+func claudeTeamsManagementSubcommand(args []string, index int, allowedSubcommands map[string]bool) bool {
+	for index < len(args) {
+		argument := args[index]
+		if argument == "--" {
+			return false
+		}
+		if !strings.HasPrefix(argument, "-") || argument == "-" {
+			return allowedSubcommands[argument]
+		}
+		name := agentOptionName(argument)
+		if name != "--json-path" && name != "--log-file" {
+			return false
+		}
+		if strings.Contains(argument, "=") {
+			index++
+			continue
+		}
+		if index+1 >= len(args) {
+			return false
+		}
+		index += 2
 	}
 	return false
 }
@@ -199,6 +227,10 @@ var claudeTeamsManagementCommands = map[string]bool{
 	"mcp": true, "plugin": true, "plugins": true, "project": true,
 	"rm": true, "setup-token": true, "stop": true, "ultrareview": true,
 	"update": true, "upgrade": true,
+}
+
+var claudeTeamsManagementSubcommands = map[string]map[string]bool{
+	"daemon": {"logs": true, "status": true, "stop": true, "uninstall": true},
 }
 
 var claudeTeamsManagementDisqualifyingOptions = map[string]bool{

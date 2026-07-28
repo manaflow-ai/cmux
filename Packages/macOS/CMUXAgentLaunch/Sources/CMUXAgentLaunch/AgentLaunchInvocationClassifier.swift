@@ -5,6 +5,7 @@
 /// ``AgentLaunchSanitizer``.
 public struct AgentLaunchInvocationClassifier {
     private let claudeTeamsManagementCommands: Set<String>
+    private let claudeTeamsManagementSubcommands: [String: Set<String>]
     private let informationalOptions: Set<String>
     private let omxManagementCommands: Set<String>
     private let claudeTeamsManagementDisqualifyingOptions: Set<String>
@@ -29,6 +30,9 @@ public struct AgentLaunchInvocationClassifier {
             "ultrareview",
             "update",
             "upgrade",
+        ]
+        claudeTeamsManagementSubcommands = [
+            "daemon": ["logs", "status", "stop", "uninstall"],
         ]
         informationalOptions = ["--help", "-h", "--version", "-v", "-V"]
         omxManagementCommands = [
@@ -89,6 +93,13 @@ public struct AgentLaunchInvocationClassifier {
             let argument = args[index]
             if argument == "--" { return false }
             if !argument.hasPrefix("-") || argument == "-" {
+                if let allowedSubcommands = claudeTeamsManagementSubcommands[argument] {
+                    return claudeTeamsManagementSubcommand(
+                        args: args,
+                        startIndex: index + 1,
+                        allowedSubcommands: allowedSubcommands
+                    )
+                }
                 return claudeTeamsManagementCommands.contains(argument)
             }
             let name = optionName(argument)
@@ -114,6 +125,30 @@ public struct AgentLaunchInvocationClassifier {
             }
             if consumedBoundary { continue }
             index += max(width, 1)
+        }
+        return false
+    }
+
+    private func claudeTeamsManagementSubcommand(
+        args: [String],
+        startIndex: Int,
+        allowedSubcommands: Set<String>
+    ) -> Bool {
+        var index = startIndex
+        while index < args.count {
+            let argument = args[index]
+            if argument == "--" { return false }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return allowedSubcommands.contains(argument)
+            }
+            let name = optionName(argument)
+            guard name == "--json-path" || name == "--log-file" else { return false }
+            if argument.contains("=") {
+                index += 1
+            } else {
+                guard index + 1 < args.count else { return false }
+                index += 2
+            }
         }
         return false
     }

@@ -71,6 +71,12 @@ struct ClaudeTeamsLaunchOptionTests {
             args: ["--tmux", "classic", "auth"]
         ))
         #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["logs", "session-id"]))
+        for subcommand in ["logs", "status", "stop", "uninstall"] {
+            #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["daemon", subcommand]))
+        }
+        #expect(classifier.claudeTeamsLaunchIsManagementCommand(
+            args: ["daemon", "--json-path", "/tmp/daemon.json", "status"]
+        ))
     }
 
     @Test("Does not promote command-shaped values or prompt payloads")
@@ -79,6 +85,9 @@ struct ClaudeTeamsLaunchOptionTests {
         let launches = [
             ["agents"],
             ["--verbose", "agents"],
+            ["daemon"],
+            ["daemon", "run"],
+            ["daemon", "--json-path", "run"],
             ["--model", "config"],
             ["--model", "logs"],
             ["--append-system-prompt", "doctor"],

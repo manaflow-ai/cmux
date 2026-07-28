@@ -60,11 +60,15 @@ esac
 `
 
 // configureClaudeTeamsShellWrapper makes the managed tmux directory part of
-// Claude's shell contract. Claude invokes $SHELL to create a snapshot after
-// login profiles have run; the wrapper prepends the shim inside that command,
-// so a profile that rebuilds PATH cannot evict it from the captured snapshot.
+// Claude's shell contract. Claude invokes CLAUDE_CODE_SHELL (falling back to
+// SHELL) to create a snapshot after login profiles have run; the wrapper
+// prepends the shim inside that command, so a profile that rebuilds PATH cannot
+// evict it from the captured snapshot.
 func configureClaudeTeamsShellWrapper(shimDir string) error {
-	currentShell := strings.TrimSpace(os.Getenv("SHELL"))
+	currentShell := strings.TrimSpace(os.Getenv("CLAUDE_CODE_SHELL"))
+	if currentShell == "" {
+		currentShell = strings.TrimSpace(os.Getenv("SHELL"))
+	}
 	wrapperDir := filepath.Join(shimDir, "shell")
 	originalShell := currentShell
 	if filepath.Clean(filepath.Dir(currentShell)) == filepath.Clean(wrapperDir) {
@@ -90,10 +94,11 @@ func configureClaudeTeamsShellWrapper(shimDir string) error {
 	if err := os.MkdirAll(wrapperDir, 0755); err != nil {
 		return err
 	}
-	wrapperName := filepath.Base(originalShell)
-	if wrapperName == "." || wrapperName == string(filepath.Separator) || wrapperName == "" {
-		wrapperName = "sh"
-	}
+	// Claude's shell discovery accepts bash/zsh paths and gives
+	// CLAUDE_CODE_SHELL priority over SHELL. Give the wrapper an accepted name
+	// regardless of the user's real shell; the script still translates and
+	// delegates each command to originalShell below.
+	wrapperName := "bash"
 	wrapperPath := filepath.Join(wrapperDir, wrapperName)
 	if err := writeShimIfChanged(wrapperPath, claudeTeamsShellWrapperScript); err != nil {
 		return err
@@ -102,6 +107,7 @@ func configureClaudeTeamsShellWrapper(shimDir string) error {
 	os.Setenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL", originalShell)
 	os.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", shimDir)
 	os.Setenv("SHELL", wrapperPath)
+	os.Setenv("CLAUDE_CODE_SHELL", wrapperPath)
 	return nil
 }
 

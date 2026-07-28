@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -290,18 +291,23 @@ extension CMUXCLI {
 
         let managedRoot = URL(fileURLWithPath: rawRoot, isDirectory: true).standardizedFileURL
         let claudeShim = URL(fileURLWithPath: rawClaudeShim, isDirectory: false).standardizedFileURL
-        let trustedParent = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-cli-shims", isDirectory: true)
-            .standardizedFileURL
+        // The app installs this per-surface root before shell startup. Shell profiles
+        // are allowed to change TMPDIR, so re-deriving the root here would reject the
+        // app-installed directory even though its socket-validated surface identity is
+        // still current. Treat that injected root as canonical, then validate its full
+        // shape, ownership, permissions, and file relationships before writing to it.
+        let trustedParent = managedRoot.deletingLastPathComponent().standardizedFileURL
         let expectedRoot = trustedParent
             .appendingPathComponent(surfaceId, isDirectory: true)
             .standardizedFileURL
 
-        guard managedRoot.resolvingSymlinksInPath() == expectedRoot.resolvingSymlinksInPath(),
+        guard trustedParent.lastPathComponent == "cmux-cli-shims",
+              managedRoot.lastPathComponent == surfaceId,
+              managedRoot.resolvingSymlinksInPath() == expectedRoot.resolvingSymlinksInPath(),
               managedRoot.deletingLastPathComponent().resolvingSymlinksInPath()
                 == trustedParent.resolvingSymlinksInPath(),
-              isNonSymlinkDirectory(trustedParent),
-              isNonSymlinkDirectory(managedRoot),
+              isOwnedNonSymlinkDirectory(trustedParent, fileManager: fileManager),
+              isOwnedNonSymlinkDirectory(managedRoot, fileManager: fileManager),
               claudeShim == managedRoot.appendingPathComponent("claude", isDirectory: false),
               isNonSymlinkExecutableFile(claudeShim, fileManager: fileManager) else {
             return nil
@@ -317,11 +323,18 @@ extension CMUXCLI {
         return managedRoot
     }
 
-    private func isNonSymlinkDirectory(_ url: URL) -> Bool {
+    private func isOwnedNonSymlinkDirectory(_ url: URL, fileManager: FileManager) -> Bool {
         guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else {
             return false
         }
-        return values.isDirectory == true && values.isSymbolicLink != true
+        guard values.isDirectory == true,
+              values.isSymbolicLink != true,
+              let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+              (attributes[.ownerAccountID] as? NSNumber)?.uint32Value == geteuid() else {
+            return false
+        }
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.uint16Value ?? 0o777
+        return permissions & 0o022 == 0
     }
 
     private func isNonSymlinkExecutableFile(_ url: URL, fileManager: FileManager) -> Bool {
