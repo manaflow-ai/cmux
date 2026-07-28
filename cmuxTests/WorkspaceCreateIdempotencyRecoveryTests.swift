@@ -58,6 +58,36 @@ import Testing
         #expect(cache.containsCompletedOperation(acceptedOperationID))
         #expect(cache.workspaceID(for: restoredOperationID) == workspaceID)
     }
+
+    @Test func releasedAcceptanceAtCapacityRestoresEvictedTombstone() async throws {
+        let firstCompletedOperationID = UUID()
+        let secondCompletedOperationID = UUID()
+        let releasedOperationID = UUID()
+        let persistence = TransientLoadFailurePersistence(failFirstLoad: false)
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 2,
+            persistence: persistence
+        )
+
+        try cache.accept(operationID: firstCompletedOperationID)
+        try cache.accept(operationID: secondCompletedOperationID)
+        #expect(try await cache.acceptAsynchronously(operationID: releasedOperationID))
+        #expect(cache.containsCompletedOperation(firstCompletedOperationID) == false)
+
+        #expect(
+            try await cache.releaseUnassociatedAcceptanceAsynchronously(
+                operationID: releasedOperationID
+            )
+        )
+
+        #expect(cache.containsCompletedOperation(firstCompletedOperationID))
+        #expect(cache.containsCompletedOperation(secondCompletedOperationID))
+        #expect(cache.containsCompletedOperation(releasedOperationID) == false)
+        #expect(persistence.savedOperationIDs == [
+            firstCompletedOperationID,
+            secondCompletedOperationID,
+        ])
+    }
 }
 
 private final class TransientLoadFailurePersistence:
