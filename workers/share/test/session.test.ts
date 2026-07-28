@@ -440,6 +440,37 @@ describe("join and approval flow", () => {
     });
   });
 
+  it("host reconnect receives the complete aggregate terminal subscription state", () => {
+    const core = bootedCore();
+    approveGuest(core, "c-alice", ALICE);
+    core.handleGuest("c-alice", {
+      t: "sub",
+      ws: "workspace:1",
+      pane: "surface:1",
+    });
+
+    core.disconnect("c-host", T0 + 1_000);
+    const subscribedReconnect = core.connect(
+      "c-host2",
+      HOST,
+      T0 + 2_000,
+    );
+    expect(sends(subscribedReconnect, "c-host2")).toContainEqual({
+      t: "guest-subs",
+      subscriptions: [
+        { ws: "workspace:1", pane: "surface:1", count: 1 },
+      ],
+    });
+
+    core.disconnect("c-host2", T0 + 3_000);
+    core.disconnect("c-alice", T0 + 3_001);
+    const emptyReconnect = core.connect("c-host3", HOST, T0 + 4_000);
+    expect(sends(emptyReconnect, "c-host3")).toContainEqual({
+      t: "guest-subs",
+      subscriptions: [],
+    });
+  });
+
   it("caps total connections at N and does not retain the N+1 socket", () => {
     const core = bootedCore();
     approveGuest(core, "c-alice-0", ALICE);
@@ -1154,6 +1185,23 @@ describe("session lifecycle", () => {
     const staleCursorAlarm = core.alarm(T0 + CURSOR_RATE_WINDOW_MS);
     expect(staleCursorAlarm).toEqual([{ kind: "setAlarm", at: cleanupAt }]);
     expect(sends(staleCursorAlarm).some((message) => message.t === "cursor")).toBe(false);
+  });
+
+  it("authenticated owner revocation ends a session without a live host socket", () => {
+    const core = bootedCore();
+    approveGuest(core, "c-alice", ALICE);
+    core.disconnect("c-host", T0 + 50);
+
+    expect(core.endByHost("different-user", T0 + 100)).toEqual([]);
+    expect(core.ended).toBe(false);
+
+    const effects = core.endByHost(HOST.user, T0 + 100);
+    expect(core.ended).toBe(true);
+    expect(effects).toContainEqual({ kind: "persist" });
+    expect(sends(effects, "c-alice")).toContainEqual({
+      t: "session-ended",
+      reason: "host-stopped",
+    });
   });
 
   it("restore re-registers survivors, host first, and asks for resync", () => {

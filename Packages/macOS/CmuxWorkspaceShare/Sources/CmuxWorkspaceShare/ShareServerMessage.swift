@@ -9,6 +9,19 @@ public struct ShareAccessRequest: Codable, Equatable, Sendable {
     }
 }
 
+/// One authoritative aggregate terminal subscription count from the relay.
+public struct ShareGuestSubscription: Codable, Equatable, Sendable {
+    public let ws: String
+    public let pane: String
+    public let count: Int
+
+    public init(ws: String, pane: String, count: Int) {
+        self.ws = ws
+        self.pane = pane
+        self.count = count
+    }
+}
+
 /// A JSON message consumed by the macOS host from the relay.
 public enum ShareServerMessage: Equatable, Sendable {
     /// Authoritative state after connection or resynchronization.
@@ -42,6 +55,9 @@ public enum ShareServerMessage: Equatable, Sendable {
     /// Subscriber-count update for a terminal pane.
     case guestSub(ws: String, pane: String, count: Int)
 
+    /// Complete aggregate subscription state after a host connection.
+    case guestSubscriptions([ShareGuestSubscription])
+
     /// An authenticated guest requests a fresh baseline for one terminal pane.
     case guestResync(user: String, ws: String, pane: String)
 
@@ -74,6 +90,7 @@ extension ShareServerMessage: Decodable {
         case pane
         case data
         case count
+        case subscriptions
         case reason
         case code
         case message
@@ -127,6 +144,13 @@ extension ShareServerMessage: Decodable {
                 ws: try container.decode(String.self, forKey: .ws),
                 pane: try container.decode(String.self, forKey: .pane),
                 count: try container.decode(Int.self, forKey: .count)
+            )
+        case "guest-subs":
+            self = .guestSubscriptions(
+                try container.decode(
+                    [ShareGuestSubscription].self,
+                    forKey: .subscriptions
+                )
             )
         case "guest-resync":
             self = .guestResync(

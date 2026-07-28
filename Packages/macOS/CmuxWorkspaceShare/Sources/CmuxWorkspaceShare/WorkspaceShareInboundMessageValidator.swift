@@ -43,6 +43,24 @@ public struct WorkspaceShareInboundMessageValidator: Sendable {
             return isID(ws)
                 && isID(pane)
                 && (0...ShareProtocolConstants.maximumConnections).contains(count)
+        case .guestSubscriptions(let subscriptions):
+            guard subscriptions.count <= ShareProtocolConstants.maximumLayoutPanes
+            else {
+                return false
+            }
+            var routes = Set<String>()
+            for subscription in subscriptions {
+                guard isID(subscription.ws),
+                      isID(subscription.pane),
+                      (1..<ShareProtocolConstants.maximumConnections)
+                        .contains(subscription.count),
+                      routes.insert(
+                          subscription.ws + "\u{0000}" + subscription.pane
+                      ).inserted else {
+                    return false
+                }
+            }
+            return true
         case .guestResync(let user, let ws, let pane):
             return isID(user) && isID(ws) && isID(pane)
         case .resync:

@@ -17,9 +17,12 @@ exchange messages in session chat. Approved guests can also create
 cursor-anchored chat bubbles from the web viewer; the host sees them at their
 terminal anchors.
 
-Stopping sharing invalidates the link. A host disconnect starts a two-minute
-grace period for reconnection; the session ends if the host does not return.
-Session codes are not reusable.
+Stopping sharing invalidates the link. The Mac sends both the WebSocket end
+message and a bounded authenticated HTTP revocation, so stopping still reaches
+the Durable Object while the socket is reconnecting. App termination waits for
+that bounded revocation. A host disconnect starts a two-minute grace period for
+reconnection; the session ends if the host does not return. Session codes are
+not reusable.
 
 ## Layout
 

@@ -669,6 +669,191 @@ struct WorkspaceShareHostPresentationTests {
         #expect(controller.hasSocketEventTaskForTesting)
         controller.stopSharing()
     }
+
+    @Test("Stopping between WebSocket connections awaits Durable Object revocation")
+    func reconnectingStopAwaitsRelayRevocation() async {
+        let api = RecordingShareSessionAPI()
+        let controller = ShareSessionController(testingAPI: api)
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        controller.installActiveSocketForTesting(
+            socket,
+            connection: 1,
+            code: "code12345678"
+        )
+
+        await controller.stopSharingAndWait()
+
+        #expect(await api.endedCodes == ["code12345678"])
+        #expect(!controller.hasPendingStop)
+    }
+
+    @Test("Stop remains pending until Durable Object revocation completes")
+    func stopAwaitsRelayRevocationCompletion() async throws {
+        let api = DelayedEndShareSessionAPI()
+        let controller = ShareSessionController(testingAPI: api)
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        controller.installActiveSocketForTesting(
+            socket,
+            connection: 1,
+            code: "code12345678"
+        )
+
+        let stopTask = Task { @MainActor in
+            await controller.stopSharingAndWait()
+        }
+        try await api.waitForEndCount(1)
+
+        #expect(controller.hasPendingStop)
+        await api.completeEnd()
+        await stopTask.value
+        #expect(!controller.hasPendingStop)
+    }
+
+    @Test("A missing shared workspace revokes the relay session")
+    func missingSharedWorkspaceRevokesRelaySession() async {
+        let api = RecordingShareSessionAPI()
+        let controller = ShareSessionController(testingAPI: api)
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        controller.installActiveSocketForTesting(
+            socket,
+            connection: 1,
+            code: "code12345678",
+            owner: TabManager(),
+            sharedWorkspaceIDs: [UUID()]
+        )
+
+        controller.synchronizeSharedLayoutForTesting()
+        await controller.stopSharingAndWait()
+
+        #expect(await api.endedCodes == ["code12345678"])
+        #expect(controller.status == .idle)
+    }
+
+    @Test("Every accepted host reconnect requests replacement terminal baselines")
+    func reconnectRequestsReplacementTerminalBaselines() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        let controller = ShareSessionController { nil }
+        controller.installActiveSocketForTesting(
+            socket,
+            connection: 1,
+            owner: manager,
+            sharedWorkspaceIDs: [workspace.id]
+        )
+        #expect(socket.enqueueEventForTesting(
+            .connectionStateChanged(true)
+        ))
+
+        controller.handleSocketOpenedForTesting(connection: 2)
+
+        #expect(controller.fullFrameResendCountForTesting == 1)
+        controller.stopSharing()
+    }
+
+    @Test("Host subscription snapshot removes counts stale across reconnect")
+    func authoritativeSubscriptionSnapshotRemovesStaleCounts() async throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.focusedTerminalPanel)
+        let controller = ShareSessionController { nil }
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/connect"))
+        )
+        await socket.installWebSocketTaskForTesting(task, connection: 1)
+        controller.installActiveSocketForTesting(
+            socket,
+            connection: 1,
+            owner: manager,
+            sharedWorkspaceIDs: [workspace.id]
+        )
+
+        await controller.handleServerTextForTesting(
+            #"{"t":"guest-sub","ws":"\#(workspace.id.uuidString)","pane":"\#(pane.surface.id.uuidString)","count":1}"#,
+            connection: 1,
+            sequence: 0
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"ack-request","nonce":"increment"}"#,
+            connection: 1,
+            sequence: 1
+        )
+        #expect(
+            controller.subscriberCountsForTesting[pane.surface.id] == 1
+        )
+
+        await controller.handleServerTextForTesting(
+            #"{"t":"guest-subs","subscriptions":[]}"#,
+            connection: 1,
+            sequence: 2
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"ack-request","nonce":"snapshot"}"#,
+            connection: 1,
+            sequence: 3
+        )
+
+        #expect(controller.subscriberCountsForTesting.isEmpty)
+        controller.stopSharing()
+    }
 }
 
 @Suite("Workspace share socket request")
@@ -1130,6 +1315,8 @@ private actor DelayedShareSessionAPI: ShareSessionAPIProviding {
         )
     }
 
+    func endSession(code: String) async throws {}
+
     func waitForCreateCount(_ expected: Int) async throws {
         for _ in 0..<200 {
             if createContinuations.count >= expected {
@@ -1143,6 +1330,68 @@ private actor DelayedShareSessionAPI: ShareSessionAPIProviding {
     func failCreate(at index: Int, error: any Error) {
         guard createContinuations.indices.contains(index) else { return }
         createContinuations[index].resume(throwing: error)
+    }
+}
+
+private actor RecordingShareSessionAPI: ShareSessionAPIProviding {
+    private(set) var endedCodes: [String] = []
+
+    func createSession() async throws -> ShareSessionCreateResult {
+        throw ShareSessionAPIError.malformedResponse(
+            "createSession is not expected in this test"
+        )
+    }
+
+    func hostToken(code: String) async throws -> ShareTokenResult {
+        throw ShareSessionAPIError.malformedResponse(
+            "hostToken is not expected in this test"
+        )
+    }
+
+    func endSession(code: String) async {
+        endedCodes.append(code)
+    }
+}
+
+private actor DelayedEndShareSessionAPI: ShareSessionAPIProviding {
+    private var endedCodes: [String] = []
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+
+    func createSession() async throws -> ShareSessionCreateResult {
+        throw ShareSessionAPIError.malformedResponse(
+            "createSession is not expected in this test"
+        )
+    }
+
+    func hostToken(code: String) async throws -> ShareTokenResult {
+        throw ShareSessionAPIError.malformedResponse(
+            "hostToken is not expected in this test"
+        )
+    }
+
+    func endSession(code: String) async {
+        endedCodes.append(code)
+        await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func waitForEndCount(_ expected: Int) async throws {
+        for _ in 0..<200 {
+            if endedCodes.count >= expected {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        throw DelayedShareSessionAPITestError.timedOut
+    }
+
+    func completeEnd() {
+        let pending = continuations
+        continuations.removeAll()
+        for continuation in pending {
+            continuation.resume()
+        }
     }
 }
 

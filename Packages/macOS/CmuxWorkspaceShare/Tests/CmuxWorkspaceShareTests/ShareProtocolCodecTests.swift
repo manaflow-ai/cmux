@@ -44,6 +44,33 @@ struct ShareProtocolCodecTests {
     }
 
     @Test
+    func `Authoritative guest subscriptions are unique and bounded`() throws {
+        let message = Data(
+            #"{"t":"guest-subs","subscriptions":[{"ws":"w1","pane":"p1","count":2}]}"#.utf8
+        )
+        let decoded = try JSONDecoder().decode(
+            ShareServerMessage.self,
+            from: message
+        )
+        #expect(
+            decoded == .guestSubscriptions([
+                ShareGuestSubscription(ws: "w1", pane: "p1", count: 2),
+            ])
+        )
+
+        let validator = WorkspaceShareInboundMessageValidator()
+        #expect(validator.acceptsPayload(decoded))
+        #expect(validator.acceptsPayload(.guestSubscriptions([])))
+        #expect(!validator.acceptsPayload(.guestSubscriptions([
+            ShareGuestSubscription(ws: "w1", pane: "p1", count: 1),
+            ShareGuestSubscription(ws: "w1", pane: "p1", count: 2),
+        ])))
+        #expect(!validator.acceptsPayload(.guestSubscriptions([
+            ShareGuestSubscription(ws: "w1", pane: "p1", count: 0),
+        ])))
+    }
+
+    @Test
     func `Pending access cancellation decodes with its authenticated user`() throws {
         let message = Data(
             #"{"t":"access-request-cancelled","user":"u1"}"#.utf8

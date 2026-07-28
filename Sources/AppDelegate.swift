@@ -1860,7 +1860,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func deferTerminateForOwnedCleanup(reason: String) -> Bool {
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
-        guard !markedForKill.isEmpty || !simulatorCleanupTasks.isEmpty else { return false }
+        let hasActiveShare = shareSessionController.isSharing
+        let hasPendingShareStop = shareSessionController.hasPendingStop
+        guard !markedForKill.isEmpty ||
+                !simulatorCleanupTasks.isEmpty ||
+                hasActiveShare ||
+                hasPendingShareStop else {
+            return false
+        }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             StartupBreadcrumbLog.append(
@@ -1868,11 +1875,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fields: [
                     "windows": String(markedForKill.count),
                     "simulatorPanels": String(simulatorCleanupTasks.count),
+                    "activeShare": hasActiveShare ? "1" : "0",
+                    "pendingShareStop": hasPendingShareStop ? "1" : "0",
                     "reason": reason,
                 ]
             )
             let cleanupTask = Task { @MainActor [weak self] in
                 guard let self else { return }
+                if hasActiveShare || hasPendingShareStop {
+                    await self.shareSessionController.stopSharingAndWait()
+                }
+                guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
                 }

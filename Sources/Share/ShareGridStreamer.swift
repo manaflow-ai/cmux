@@ -57,6 +57,13 @@ final class ShareGridStreamer {
     private var hasPendingGlobalUpdate = false
     private var isFlushScheduled = false
     private var flushTask: Task<Void, Never>?
+#if DEBUG
+    private(set) var fullFrameResendCountForTesting = 0
+
+    var subscriberCountsForTesting: [UUID: Int] {
+        streamsBySurfaceID.mapValues(\.subscriberCount)
+    }
+#endif
 
     func start() {
         guard observers.isEmpty else { return }
@@ -170,8 +177,35 @@ final class ShareGridStreamer {
         }
     }
 
+    /// Replaces every aggregate count with one relay-authoritative snapshot.
+    func replaceSubscriberCounts(
+        _ subscriptions: [ShareGuestSubscription]
+    ) {
+        let wanted = Set(subscriptions.compactMap {
+            UUID(uuidString: $0.pane)
+        })
+        for surfaceID in Array(streamsBySurfaceID.keys)
+        where !wanted.contains(surfaceID) {
+            streamsBySurfaceID.removeValue(
+                forKey: surfaceID
+            )?.outputTask?.cancel()
+            pendingSurfaceIDs.remove(surfaceID)
+        }
+        for subscription in subscriptions {
+            setSubscriberCount(
+                ws: subscription.ws,
+                pane: subscription.pane,
+                count: subscription.count
+            )
+        }
+        refreshNotificationDemand()
+    }
+
     /// Replaces every subscribed xterm after a socket or Durable Object resync.
     func resendFullFrames() {
+#if DEBUG
+        fullFrameResendCountForTesting += 1
+#endif
         requestBaselinesForAllPanes()
     }
 

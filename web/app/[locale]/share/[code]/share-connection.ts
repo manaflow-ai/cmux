@@ -173,6 +173,7 @@ const CURSOR_SEND_INTERVAL_MS = 33;
 const BUBBLE_VISIBLE_MS = 5_000;
 const RECONNECT_BASE_MS = 800;
 const RECONNECT_MAX_MS = 10_000;
+const MAX_CONSECUTIVE_WEBSOCKET_UPGRADE_FAILURES = 5;
 const RETRY_AFTER_MIN_SECONDS = 1;
 const RETRY_AFTER_MAX_SECONDS = 3_600;
 const MAX_TOKEN_RESPONSE_CHARS = 64 * 1024;
@@ -368,6 +369,7 @@ export class ShareClient {
   private stopped = true;
   private connectionGeneration = 0;
   private reconnectAttempt = 0;
+  private websocketUpgradeFailures = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingCursorResolver: (() => CursorPos | null) | undefined;
   private cursorTimer: ReturnType<typeof setTimeout> | null = null;
@@ -418,6 +420,7 @@ export class ShareClient {
     this.clearTerminalInputQueue();
     this.pendingCursorResolver = undefined;
     this.reconnectAttempt = 0;
+    this.websocketUpgradeFailures = 0;
     const socket = this.ws;
     this.ws = null;
     if (socket) {
@@ -527,8 +530,11 @@ export class ShareClient {
     }
     socket.binaryType = "arraybuffer";
     this.ws = socket;
+    let didOpen = false;
     socket.onopen = () => {
       if (!this.isCurrentSocket(socket, generation)) return;
+      didOpen = true;
+      this.websocketUpgradeFailures = 0;
       this.send({ t: "hello", proto: PROTO_VERSION });
     };
     const dropUnmarkedPayload = (): void => {
@@ -732,6 +738,16 @@ export class ShareClient {
       if (isUnavailableClose(event)) {
         this.markUnavailable();
         return;
+      }
+      if (!didOpen) {
+        this.websocketUpgradeFailures += 1;
+        if (
+          this.websocketUpgradeFailures >=
+          MAX_CONSECUTIVE_WEBSOCKET_UPGRADE_FAILURES
+        ) {
+          this.markUnavailable();
+          return;
+        }
       }
       this.scheduleReconnect();
     };

@@ -186,6 +186,12 @@ export interface PendingAccessRequest {
   email: string;
 }
 
+export interface GuestSubscriptionCount {
+  ws: string;
+  pane: string;
+  count: number;
+}
+
 export type ServerMessage =
   | SessionSnapshot
   | { t: "ack-request"; nonce: string }
@@ -229,6 +235,7 @@ export type ServerMessage =
   | { t: "guest-input"; user: string; ws: string; pane: string; data: string }
   | { t: "guest-resync"; user: string; ws: string; pane: string }
   | { t: "guest-sub"; ws: string; pane: string; count: number }
+  | { t: "guest-subs"; subscriptions: GuestSubscriptionCount[] }
   | { t: "error"; code: string; message: string };
 
 // ---------------------------------------------------------------------------

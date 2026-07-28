@@ -11,8 +11,6 @@ extension ContentView {
     static func commandPaletteShareCommandContributions(
         isFeatureEnabled: Bool
     ) -> [CommandPaletteCommandContribution] {
-        guard isFeatureEnabled else { return [] }
-
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
@@ -26,7 +24,10 @@ extension ContentView {
                 )),
                 subtitle: constant(String(localized: "command.share.subtitle", defaultValue: "Share")),
                 keywords: ["share", "multiplayer", "collab", "collaborate", "invite", "session", "live"],
-                when: { !$0.bool(CommandPaletteContextKeys.shareSessionActive) }
+                when: {
+                    isFeatureEnabled
+                        && !$0.bool(CommandPaletteContextKeys.shareSessionActive)
+                }
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.showShareSession",
@@ -66,11 +67,9 @@ extension ContentView {
             )
         }
         registry.register(commandId: "palette.stopSharing") {
-            guard CmuxFeatureFlags.shared.isMultiplayerShareUIEnabled else { return }
             shareSessionController.stopSharing()
         }
         registry.register(commandId: "palette.showShareSession") {
-            guard CmuxFeatureFlags.shared.isMultiplayerShareUIEnabled else { return }
             shareSessionController.showSessionPanel()
         }
     }

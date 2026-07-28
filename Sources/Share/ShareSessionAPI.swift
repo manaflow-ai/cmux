@@ -59,6 +59,7 @@ enum ShareSessionAPIError: Error, CustomStringConvertible, Sendable {
 protocol ShareSessionAPIProviding: Sendable {
     func createSession() async throws -> ShareSessionCreateResult
     func hostToken(code: String) async throws -> ShareTokenResult
+    func endSession(code: String) async throws
 }
 
 actor ShareSessionAPI: ShareSessionAPIProviding {
@@ -132,6 +133,24 @@ actor ShareSessionAPI: ShareSessionAPIProviding {
         return result
     }
 
+    /// `DELETE /api/share/sessions/<code>` revokes the Durable Object session
+    /// even when the host WebSocket is between connections.
+    func endSession(code: String) async throws {
+        guard WorkspaceShareGrantValidator.isValidCode(code),
+              let encoded = code.addingPercentEncoding(
+                  withAllowedCharacters: .urlPathAllowed
+              ) else {
+            throw ShareSessionAPIError.malformedResponse(
+                "share code is not URL-encodable"
+            )
+        }
+        _ = try await request(
+            "DELETE",
+            path: "/api/share/sessions/\(encoded)",
+            timeoutInterval: 2.5
+        )
+    }
+
     private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
             return try JSONDecoder().decode(type, from: data)
@@ -143,7 +162,8 @@ actor ShareSessionAPI: ShareSessionAPIProviding {
     private func request(
         _ method: String,
         path: String,
-        jsonBody: [String: Any]? = nil
+        jsonBody: [String: Any]? = nil,
+        timeoutInterval: TimeInterval = 30
     ) async throws -> Data {
         let tokens: (accessToken: String, refreshToken: String)
         do {
@@ -171,7 +191,7 @@ actor ShareSessionAPI: ShareSessionAPIProviding {
 
         var req = URLRequest(url: url)
         req.httpMethod = method
-        req.timeoutInterval = 30
+        req.timeoutInterval = timeoutInterval
         req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         req.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         if let jsonBody {

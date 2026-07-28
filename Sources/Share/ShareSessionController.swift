@@ -67,6 +67,7 @@ final class ShareSessionController {
     private(set) var lastErrorText: String?
 
     var isSharing: Bool { status != .idle }
+    var hasPendingStop: Bool { socketStopTask != nil }
 
     private(set) var sharedWorkspaceIDs: Set<UUID> = []
     private(set) weak var tabManager: TabManager?
@@ -89,6 +90,8 @@ final class ShareSessionController {
     private var socketEventTask: Task<Void, Never>?
     @ObservationIgnored
     private var socketStopTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var socketStopGeneration: UInt64 = 0
     @ObservationIgnored
     private var globalCancellables = Set<AnyCancellable>()
     @ObservationIgnored
@@ -141,9 +144,22 @@ final class ShareSessionController {
 
     func installActiveSocketForTesting(
         _ socket: ShareSocket,
-        connection: UInt64
+        connection: UInt64,
+        code: String? = nil,
+        owner: TabManager? = nil,
+        sharedWorkspaceIDs: Set<UUID>? = nil
     ) {
         self.socket = socket
+        if let code {
+            self.code = code
+            api = apiProvider()
+        }
+        if let owner {
+            tabManager = owner
+        }
+        if let sharedWorkspaceIDs {
+            self.sharedWorkspaceIDs = sharedWorkspaceIDs
+        }
         activeSocketConnection = connection
         acknowledgementGate.connectionOpened()
         shouldTeardownAfterAcknowledgement = false
@@ -168,6 +184,22 @@ final class ShareSessionController {
 
     var hasSocketEventTaskForTesting: Bool {
         socketEventTask != nil
+    }
+
+    var fullFrameResendCountForTesting: Int {
+        streamer.fullFrameResendCountForTesting
+    }
+
+    var subscriberCountsForTesting: [UUID: Int] {
+        streamer.subscriberCountsForTesting
+    }
+
+    func handleSocketOpenedForTesting(connection: UInt64) {
+        handleSocketOpened(connection: connection)
+    }
+
+    func synchronizeSharedLayoutForTesting() {
+        syncSharedAndLayouts()
     }
 #endif
 
@@ -252,6 +284,15 @@ final class ShareSessionController {
         teardownSession(finalMessage: .end)
     }
 
+    /// Revokes the relay and waits for the bounded socket/API teardown. App
+    /// termination uses this path so process exit cannot cancel revocation.
+    func stopSharingAndWait() async {
+        if isSharing {
+            teardownSession(finalMessage: .end)
+        }
+        await socketStopTask?.value
+    }
+
     /// Stops only the session owned by the exact per-window manager being
     /// retired. Closing another main window must not affect the process-wide
     /// session.
@@ -324,13 +365,7 @@ final class ShareSessionController {
                 guard let self, !Task.isCancelled else { return }
                 switch event {
                 case .opened(let connection):
-                    guard self.isSharing else { continue }
-                    self.activeSocketConnection = connection
-                    self.acknowledgementGate.connectionOpened()
-                    self.shouldTeardownAfterAcknowledgement = false
-                    self.pendingResyncHello = nil
-                    self.status = .active
-                    _ = self.sendHello()
+                    self.handleSocketOpened(connection: connection)
                 case .text(let text, let connection, let sequence):
                     guard self.activeSocketConnection == connection else {
                         continue
@@ -371,6 +406,20 @@ final class ShareSessionController {
         showChatWindow()
     }
 
+    private func handleSocketOpened(connection: UInt64) {
+        guard isSharing else { return }
+        activeSocketConnection = connection
+        acknowledgementGate.connectionOpened()
+        shouldTeardownAfterAcknowledgement = false
+        pendingResyncHello = nil
+        status = .active
+        if sendHello() {
+            // A normal host reconnect preserves guest subscription counts in
+            // the relay, so no guest-sub delta requests a new terminal state.
+            streamer.resendFullFrames()
+        }
+    }
+
     nonisolated static func reconnectEndpoint(
         created: ShareSessionCreateResult,
         refreshed: ShareTokenResult
@@ -397,14 +446,44 @@ final class ShareSessionController {
         activeStartGeneration = nil
         socketEventTask?.cancel()
         socketEventTask = nil
-        socketStopTask?.cancel()
-        if let socket {
-            socketStopTask = Task { @MainActor in
-                if let finalMessage {
-                    _ = await socket.sendAndStop(finalMessage)
-                } else {
-                    await socket.stop()
+        let previousStopTask = socketStopTask
+        let socketToStop = socket
+        let apiToEnd = api
+        let codeToEnd = code
+        if socketToStop != nil || (apiToEnd != nil && codeToEnd != nil) {
+            socketStopGeneration &+= 1
+            let stopGeneration = socketStopGeneration
+            socketStopTask = Task { @MainActor [weak self] in
+                await previousStopTask?.value
+                guard !Task.isCancelled else { return }
+                async let socketStop: Void = {
+                    guard let socketToStop else { return }
+                    if let finalMessage {
+                        _ = await socketToStop.sendAndStop(finalMessage)
+                    } else {
+                        await socketToStop.stop()
+                    }
+                }()
+                async let relayRevoke: Void = {
+                    guard finalMessage == .end,
+                          let apiToEnd,
+                          let codeToEnd else {
+                        return
+                    }
+                    do {
+                        try await apiToEnd.endSession(code: codeToEnd)
+                    } catch {
+                        shareSessionLogger.warning(
+                            "The share-session revocation fallback did not complete"
+                        )
+                    }
+                }()
+                _ = await (socketStop, relayRevoke)
+                guard let self,
+                      self.socketStopGeneration == stopGeneration else {
+                    return
                 }
+                self.socketStopTask = nil
             }
         }
         socket = nil
@@ -488,12 +567,10 @@ final class ShareSessionController {
         guard socket?.send(.approve(user: user, role: role)) == .admitted else {
             return
         }
-        resolveAccessRequest(user: user, resolution: role == .editor ? .approvedEditor : .approvedViewer)
     }
 
     func deny(user: String) {
         guard socket?.send(.deny(user: user)) == .admitted else { return }
-        resolveAccessRequest(user: user, resolution: .denied)
     }
 
     func kick(user: String) {
@@ -503,15 +580,6 @@ final class ShareSessionController {
 
     func setRole(user: String, role: ShareRole) {
         socket?.send(.role(user: user, role: role))
-    }
-
-    private func resolveAccessRequest(user: String, resolution: ShareFeedItem.AccessResolution) {
-        for index in feed.indices {
-            if case .accessRequest(let requestUser, let email, _) = feed[index].kind,
-               requestUser == user {
-                feed[index].kind = .accessRequest(user: requestUser, email: email, resolution: resolution)
-            }
-        }
     }
 
     // MARK: - Outbound sync
@@ -614,7 +682,7 @@ final class ShareSessionController {
     private func syncSharedAndLayouts() {
         guard isSharing, let tabManager else { return }
         guard let workspace = sharedWorkspace(in: tabManager) else {
-            teardownSession()
+            teardownSession(finalMessage: .end)
             return
         }
         let shared = [ShareLayoutSerializer.sharedWorkspace(for: workspace)]
@@ -935,6 +1003,8 @@ final class ShareSessionController {
             )
         case .guestSub(let ws, let pane, let count):
             return routeGuestSub(ws: ws, pane: pane, count: count)
+        case .guestSubscriptions(let subscriptions):
+            return routeGuestSubscriptions(subscriptions)
         case .guestResync(let user, let ws, let pane):
             return routeGuestResync(
                 user: user,
@@ -1162,6 +1232,27 @@ final class ShareSessionController {
             return false
         }
         streamer.setSubscriberCount(ws: ws, pane: pane, count: count)
+        return true
+    }
+
+    /// Replaces stale local aggregate counts after every host connection.
+    private func routeGuestSubscriptions(
+        _ subscriptions: [ShareGuestSubscription]
+    ) -> Bool {
+        guard let tabManager,
+              let workspace = sharedWorkspace(in: tabManager) else {
+            return false
+        }
+        for subscription in subscriptions {
+            guard let workspaceID = UUID(uuidString: subscription.ws),
+                  workspaceID == workspace.id,
+                  sharedWorkspaceIDs == [workspaceID],
+                  let paneID = UUID(uuidString: subscription.pane),
+                  workspace.terminalPanel(for: paneID) != nil else {
+                return false
+            }
+        }
+        streamer.replaceSubscriberCounts(subscriptions)
         return true
     }
 

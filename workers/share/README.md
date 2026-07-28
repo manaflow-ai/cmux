@@ -84,9 +84,11 @@ URLs. Runtime invariant logs contain event names and numeric metadata only.
 | --- | --- |
 | `GET /healthz` | Unauthenticated liveness check |
 | `GET /v2/share/sessions/<code>/ws` | Authenticated host or guest WebSocket |
+| `DELETE /v2/share/sessions/<code>` | Authenticated host revocation, including while its WebSocket is disconnected |
 
 The WebSocket accepts `?token=` for browsers or `Authorization: Bearer` for
-native clients.
+native clients. Revocation accepts only `Authorization: Bearer`, requires a
+host claim, and rechecks the persisted session owner inside the Durable Object.
 
 ## Development
 

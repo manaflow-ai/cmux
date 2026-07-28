@@ -56,4 +56,22 @@ describe("worker protocol discovery", () => {
       expect(await rejected.json()).toEqual({ error: "not_found" });
     }
   });
+
+  it("recognizes the authenticated v2 session revocation route", async () => {
+    const worker = await workerPromise;
+    const url =
+      "https://share.example.com/v2/share/sessions/code12345";
+    const revoke = await worker.fetch(
+      new Request(url, { method: "DELETE" }),
+      env,
+    );
+    expect(revoke.status).toBe(503);
+    expect(await revoke.json()).toEqual({ error: "not_configured" });
+
+    const wrongMethod = await worker.fetch(
+      new Request(url, { method: "POST" }),
+      env,
+    );
+    expect(wrongMethod.status).toBe(405);
+  });
 });

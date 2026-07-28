@@ -396,6 +396,16 @@ export class ShareSessionCore {
     return { connections: this.conns.size, dirtyCursors: this.dirtyCursors.size };
   }
 
+  /** Ends a session without requiring a live host WebSocket.
+   *
+   * The Worker verifies the host token before routing this call, then the
+   * Durable Object verifies the persisted owner again.
+   */
+  endByHost(user: string, now: number = Date.now()): Effect[] {
+    if (this.s.host.user !== user || this.s.ended) return [];
+    return this.endSession("host-stopped", now);
+  }
+
   // -------------------------------------------------------------------------
   // Connection lifecycle
 
@@ -557,6 +567,14 @@ export class ShareSessionCore {
     effects.push(...this.reconcileAlarm(), { kind: "persist" });
     effects.push({ kind: "send", to: id, msg: this.snapshotFor(id) });
     effects.push(...this.broadcastPresence(id));
+    effects.push({
+      kind: "send",
+      to: id,
+      msg: {
+        t: "guest-subs",
+        subscriptions: this.guestSubscriptionCounts(),
+      },
+    });
     // Re-surface pending join requests to the freshly (re)connected host.
     const pending = this.pendingRequests();
     for (const request of pending) {
@@ -1608,6 +1626,38 @@ export class ShareSessionCore {
       if (!c.isHost && c.active && c.subs.has(key)) count += 1;
     }
     return [{ kind: "send", to: hostConn.id, msg: { t: "guest-sub", ws, pane, count } }];
+  }
+
+  /** Complete aggregate subscription state for a newly connected host. */
+  private guestSubscriptionCounts(): Array<{
+    ws: string;
+    pane: string;
+    count: number;
+  }> {
+    const counts = new Map<
+      string,
+      { ws: string; pane: string; count: number }
+    >();
+    for (const conn of this.conns.values()) {
+      if (conn.isHost || !conn.active) continue;
+      for (const key of conn.subs) {
+        const separator = key.indexOf(SUB_KEY_SEPARATOR);
+        if (separator < 0) continue;
+        const ws = key.slice(0, separator);
+        const pane = key.slice(separator + SUB_KEY_SEPARATOR.length);
+        const current = counts.get(key);
+        if (current) {
+          current.count += 1;
+        } else {
+          counts.set(key, { ws, pane, count: 1 });
+        }
+      }
+    }
+    return [...counts.values()].sort(
+      (left, right) =>
+        left.ws.localeCompare(right.ws) ||
+        left.pane.localeCompare(right.pane),
+    );
   }
 
   private broadcastActive(msg: ServerMessage, except: ConnId | null): Effect[] {

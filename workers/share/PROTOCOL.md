@@ -61,6 +61,11 @@ API checks this response before minting a share token, preventing an old
 Worker deployment from creating a blank or partially compatible session.
 
 Sessions end when the host sends `end` or remains disconnected for 120 seconds.
+The web API can also send an authenticated
+`DELETE /v2/share/sessions/<code>` with a non-creating host token. The Worker
+verifies that token, and the Durable Object independently checks the persisted
+host user before ending the session. This path lets a Mac revoke a session
+while its WebSocket is reconnecting.
 The Durable Object persists the end timestamp and retains an ended-code
 tombstone for ten minutes, twice the create-token lifetime. The original
 create token therefore expires at least five minutes before the cleanup alarm
@@ -164,7 +169,10 @@ numbers strictly between zero and one. Pane ids are unique within a layout.
 - `error`
 - `ack-request`: `{"t":"ack-request","nonce":"<opaque string>"}`
 
-The host also receives `guest-input`, `guest-resync`, and `guest-sub`.
+The host also receives `guest-input`, `guest-resync`, `guest-sub`, and
+`guest-subs`. `guest-subs` is the complete aggregate terminal subscription
+state sent after every host connection, so the Mac replaces stale counts
+before serving later subscribers.
 `guest-input.user` and `guest-resync.user` always come from the verified
 socket attachment.
 

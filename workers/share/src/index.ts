@@ -15,6 +15,7 @@ import {
 export { ShareSession };
 
 const WS_PATH = /^\/v2\/share\/sessions\/([A-Za-z0-9]{8,64})\/ws$/;
+const SESSION_PATH = /^\/v2\/share\/sessions\/([A-Za-z0-9]{8,64})$/;
 const MAX_BEARER_TOKEN_BYTES = 8 * 1024;
 
 function json(body: unknown, status = 200): Response {
@@ -38,13 +39,22 @@ export default {
       });
     }
 
-    const match = WS_PATH.exec(url.pathname);
+    const wsMatch = WS_PATH.exec(url.pathname);
+    const sessionMatch = SESSION_PATH.exec(url.pathname);
+    const match = wsMatch ?? sessionMatch;
     if (match?.[1]) {
       const code = match[1];
-      if (request.method !== "GET") {
+      const isWebSocketRoute = wsMatch !== null;
+      if (
+        (isWebSocketRoute && request.method !== "GET") ||
+        (!isWebSocketRoute && request.method !== "DELETE")
+      ) {
         return json({ error: "method_not_allowed" }, 405);
       }
-      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      if (
+        isWebSocketRoute &&
+        request.headers.get("upgrade")?.toLowerCase() !== "websocket"
+      ) {
         return json({ error: "expected_websocket" }, 426);
       }
       if (!env.SHARE_JWT_PUBLIC_KEY) {
@@ -55,13 +65,16 @@ export default {
       // the query string; native clients may use the Authorization header.
       const bearer = request.headers.get("authorization");
       const token =
-        url.searchParams.get("token") ??
+        (isWebSocketRoute ? url.searchParams.get("token") : null) ??
         (bearer?.toLowerCase().startsWith("bearer ") ? bearer.slice(7).trim() : null);
       if (!token || utf8ByteLength(token) > MAX_BEARER_TOKEN_BYTES) {
         return json({ error: "unauthorized" }, 401);
       }
       const claims = await verifyShareToken(token, code, env.SHARE_JWT_PUBLIC_KEY);
       if (!claims) return json({ error: "unauthorized" }, 401);
+      if (!isWebSocketRoute && !claims.host) {
+        return json({ error: "host_required" }, 403);
+      }
 
       const stub = env.SHARE_SESSION.get(env.SHARE_SESSION.idFromName(code));
       // Forward the upgrade with verified identity in headers the DO trusts.
@@ -75,7 +88,7 @@ export default {
       headers.set("x-share-create", claims.create ? "1" : "0");
       headers.set("x-share-code", code);
       const forward = new Request(url.origin + url.pathname, {
-        method: "GET",
+        method: request.method,
         headers,
       });
       return stub.fetch(forward);

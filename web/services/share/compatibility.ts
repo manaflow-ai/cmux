@@ -70,6 +70,13 @@ export function shareWorkerWebSocketBaseUrl(override?: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
+export function shareWorkerHTTPBaseUrl(override?: string): string {
+  const url = configuredShareWorkerBaseUrl(override);
+  if (url.protocol === "ws:") url.protocol = "http:";
+  if (url.protocol === "wss:") url.protocol = "https:";
+  return url.toString().replace(/\/$/, "");
+}
+
 export function shareWorkerHealthUrl(override?: string): string {
   const url = configuredShareWorkerBaseUrl(override);
   if (url.protocol === "ws:") url.protocol = "http:";

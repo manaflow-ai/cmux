@@ -2,6 +2,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
 import type { ShareWorkerCompatibilityError } from "./compatibility";
+import type { ShareSessionRelayError } from "./session";
 
 export type ShareRateLimitCheck = (
   id: string,
@@ -125,6 +126,17 @@ export function shareErrorResponse(error: unknown): Response {
       { error: (error as ShareWorkerCompatibilityError).code },
       503,
     );
+  }
+  if (tag === "ShareSessionRelayError") {
+    const typed = error as ShareSessionRelayError;
+    switch (typed.code) {
+      case "share_session_forbidden":
+        return jsonResponse({ error: typed.code }, 403);
+      case "share_session_not_found":
+        return jsonResponse({ error: typed.code }, 404);
+      case "share_worker_unavailable":
+        return jsonResponse({ error: typed.code }, 503);
+    }
   }
   // Token and key material can be present in unexpected crypto failures.
   // Preserve an operational signal without logging the error or request.

@@ -76,9 +76,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
   }
 
   override async fetch(request: Request): Promise<Response> {
-    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-      return new Response("expected websocket", { status: 426 });
-    }
     const user = request.headers.get("x-share-user");
     const email = request.headers.get("x-share-email") ?? "";
     const isHost = request.headers.get("x-share-host") === "1";
@@ -89,6 +86,18 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     }
 
     let core = await this.ensureCore();
+    if (request.method === "DELETE") {
+      if (!isHost) return new Response("host required", { status: 403 });
+      if (!core) return new Response("no such session", { status: 404 });
+      if (core.persisted.host.user !== user) {
+        return new Response("not the session host", { status: 403 });
+      }
+      await this.apply(core.endByHost(user, Date.now()));
+      return new Response(null, { status: 204 });
+    }
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      return new Response("expected websocket", { status: 426 });
+    }
     if (!core) {
       // Only a create-endpoint token materializes a session: a host-claim
       // refresh token reconnects to an existing session but can never squat
