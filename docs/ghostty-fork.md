@@ -101,6 +101,26 @@ The pinned `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
+### PTY reader and child lifecycle teardown
+
+- Commits:
+  - `8bf503f98` (test: cover dead PTY and child cleanup)
+  - `5ef5cba63` (fix: terminate dead PTY readers and reap children)
+- File:
+  - `src/termio/Exec.zig`
+- Summary:
+  - Treats a zero-byte PTY read as authoritative EOF instead of returning to
+    `poll()`, preventing an `io-gather` thread from spinning when a dead
+    descriptor remains permanently readable without `POLLHUP`.
+  - Handles `POLLHUP`, `POLLERR`, and `POLLNVAL` as terminal conditions while
+    draining any readable tail bytes before the gather pipeline exits.
+  - Gives surface teardown a nonblocking `waitpid` fallback when Darwin no
+    longer exposes an already-exited child through `getpgid`, while accepting
+    `ECHILD` when the normal process watcher won the reaping race.
+  - Conflict note: future PTY read-pipeline changes must keep EOF independent
+    of platform-specific poll flags, and process teardown must leave exactly
+    one owner consuming every direct child's wait status.
+
 ### Bounded renderer mailbox turns and continuation recovery
 
 - Commits:
