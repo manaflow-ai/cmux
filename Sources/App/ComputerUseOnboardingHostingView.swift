@@ -44,8 +44,13 @@ final class ComputerUseOnboardingHostingView: NSHostingView<AnyView> {
 }
 
 /// Keeps onboarding window geometry subordinate to explicit controller transitions.
+///
+/// An NSPanel subclass so the borderless permission companion can carry
+/// `.nonactivatingPanel`: clicking or dragging the helper tile beside System
+/// Settings must never activate cmux, which would raise the main terminal
+/// window over the permission pane the user is dragging into.
 @MainActor
-final class ComputerUseOnboardingWindow: NSWindow {
+final class ComputerUseOnboardingWindow: NSPanel {
     private var appKitOwnedSize: NSSize
     private var appKitOwnsAnimatedFrameTransition = false
     private var appKitOwnedAnimationDuration: TimeInterval?

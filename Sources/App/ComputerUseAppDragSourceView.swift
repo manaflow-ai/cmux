@@ -20,14 +20,24 @@ final class ComputerUseAppDragSourceView: NSView, NSDraggingSource {
         self.onDragEnded = onDragEnded
     }
 
+    /// A press here is the start of a drag into the System Settings permission
+    /// list. Delay window ordering so AppKit activates nothing on mouse-down,
+    /// then suppress it entirely once the drag begins — activating cmux would
+    /// raise the main terminal window over the pane the user is dropping into.
+    override func shouldDelayWindowOrdering(for event: NSEvent) -> Bool {
+        true
+    }
+
     override func mouseDown(with event: NSEvent) {
         // Keep the initial press in this view so dragging the card never moves
         // the onboarding window. AppKit sends the threshold-crossing event to
         // `mouseDragged(with:)` below.
+        NSApp.preventWindowOrdering()
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let helperAppURL else { return }
+        NSApp.preventWindowOrdering()
 
         let pasteboardItem = Self.pasteboardItem(for: helperAppURL)
         let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)

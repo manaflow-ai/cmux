@@ -48,6 +48,11 @@ final class ComputerUseUXCoordinator {
         self.userDefaults = userDefaults
         self.workspaceTitle = workspaceTitle
         self.featureEnabled = featureEnabled
+        runtimeService.helperBuildReplacedHandler = { [userDefaults] in
+            ComputerUseOnboardingWindowController.invalidateDirectCaptureReady(
+                in: userDefaults
+            )
+        }
     }
 
     deinit {

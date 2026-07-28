@@ -42,7 +42,13 @@ action goes directly to the matching permanent System Settings pane instead of
 raising a second native TCC prompt first. If the helper is absent from the
 permission list, the compact companion supplies a draggable **cmux Computer
 Use** app tile; add it, turn it on, and let onboarding advance after the helper
-reports the grant. Agents must not call a standalone driver's permission
+reports the grant. The companion is a nonactivating panel: dragging its tile or
+pressing Back never activates cmux, so the main terminal window cannot rise
+over the System Settings pane mid-drag. On macOS Tahoe, turning Screen
+Recording on is followed by the system's separate direct-capture consent —
+an alert saying the helper "is attempting to bypass the system private window
+picker". This is expected; onboarding says so in place, and allowing it is
+required before setup can complete. Agents must not call a standalone driver's permission
 prompt while onboarding is active, because that creates unrelated permission
 dialogs under the wrong process identity.
 
