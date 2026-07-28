@@ -4,6 +4,11 @@ import Foundation
 /// Preserves terminal input order while Ghostty is resolving a clipboard read.
 @MainActor
 final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
+    private struct BufferedEvent {
+        let event: Event
+        let discardWhenFull: Bool
+    }
+
     private nonisolated let reservedRequestAdmissionCount =
         AtomicUInt64Generation()
     private nonisolated let admittedRequestAdmissionCount =
@@ -13,7 +18,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
     private var confirmationRequestIDs: Set<RequestID> = []
     private var initialCompletionRequestIDs: Set<RequestID> = []
     private var confirmedRequestIDs: Set<RequestID> = []
-    private var bufferedEvents: [Event] = []
+    private var bufferedEvents: [BufferedEvent] = []
     private var nextBufferedEventIndex = 0
     private var isReplaying = false
 
@@ -43,24 +48,41 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
 
     func shouldDefer(
         _ event: Event,
-        replay: (Event) -> Void = { _ in }
+        discardWhenFull: Bool = false
     ) -> Bool {
         guard !isReplaying else { return false }
         guard hasRequestInFlight else { return false }
         guard bufferedEventCount < maximumBufferedEvents else {
-            // Key-up and flags-changed events cannot be dropped without
-            // leaving terminal keyboard state stuck, and this synchronous
-            // AppKit callback cannot wait without blocking the UI. At the
-            // emergency bound, fail open by replaying accepted events in FIFO
-            // order before routing the current event normally.
-            replayBufferedEvents(
-                replay,
-                whileRequestsAreActive: true
-            )
-            return false
+            if discardWhenFull {
+                return true
+            }
+            if let discardableIndex = bufferedEvents[
+                nextBufferedEventIndex...
+            ].firstIndex(where: \.discardWhenFull) {
+                bufferedEvents.remove(at: discardableIndex)
+            }
+            // Keyboard, button, and modifier events must retain exact order so
+            // terminal input state cannot become stuck. Production clipboard
+            // preparation has a five-second deadline, providing their bound;
+            // only high-frequency lossy pointer events use the count bound.
         }
-        bufferedEvents.append(event)
+        bufferedEvents.append(
+            BufferedEvent(
+                event: event,
+                discardWhenFull: discardWhenFull
+            )
+        )
         return true
+    }
+
+    /// Cancels a request whose native surface lifetime ended. Deferred input
+    /// is discarded rather than replayed into a replacement terminal.
+    func cancelRequest(id: RequestID) {
+        guard activeRequestIDs.remove(id) != nil else { return }
+        confirmationRequestIDs.remove(id)
+        initialCompletionRequestIDs.remove(id)
+        confirmedRequestIDs.remove(id)
+        discardBufferedEvents()
     }
 
     func completeRequest(
@@ -105,11 +127,9 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
     }
 
     private func replayBufferedEvents(
-        _ replay: (Event) -> Void,
-        whileRequestsAreActive: Bool = false
+        _ replay: (Event) -> Void
     ) {
-        guard (whileRequestsAreActive || !hasRequestInFlight),
-              !isReplaying else {
+        guard !hasRequestInFlight, !isReplaying else {
             return
         }
         isReplaying = true
@@ -121,11 +141,16 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
             }
         }
 
-        while (whileRequestsAreActive || !hasRequestInFlight),
+        while !hasRequestInFlight,
               nextBufferedEventIndex < bufferedEvents.count {
-            let event = bufferedEvents[nextBufferedEventIndex]
+            let event = bufferedEvents[nextBufferedEventIndex].event
             nextBufferedEventIndex += 1
             replay(event)
         }
+    }
+
+    private func discardBufferedEvents() {
+        bufferedEvents.removeAll(keepingCapacity: true)
+        nextBufferedEventIndex = 0
     }
 }

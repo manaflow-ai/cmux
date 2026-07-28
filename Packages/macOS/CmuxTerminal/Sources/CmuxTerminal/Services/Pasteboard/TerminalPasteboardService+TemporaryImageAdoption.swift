@@ -58,13 +58,20 @@ extension TerminalPasteboardService {
         let fileExtension = source.pathExtension.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-        guard let type = UTType(filenameExtension: fileExtension),
+        let normalizedExtension = fileExtension.lowercased()
+        guard !normalizedExtension.isEmpty,
+              normalizedExtension.utf8.count <= 16,
+              normalizedExtension.utf8.allSatisfy({ byte in
+                (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(byte)
+                    || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+              }),
+              let type = UTType(filenameExtension: normalizedExtension),
               type.conforms(to: .image) else {
             throw CocoaError(.fileReadCorruptFile)
         }
 
         let destination = temporaryImageFileURL(
-            fileExtension: sanitizedImageFileExtension(fileExtension)
+            fileExtension: normalizedExtension
         ).standardizedFileURL
         guard destination.deletingLastPathComponent() == destinationDirectory else {
             throw CocoaError(.fileWriteInvalidFileName)

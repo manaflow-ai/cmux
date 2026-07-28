@@ -29,12 +29,14 @@ extension GhosttyNSView {
         }
     }
 
+    func cancelClipboardRead(_ requestID: UInt) {
+        terminalClipboardInputSequencer.cancelRequest(id: requestID)
+    }
+
     func routeInputDuringClipboardRead(_ event: NSEvent) -> Bool {
         terminalClipboardInputSequencer.shouldDefer(
             event,
-            replay: { [weak self] event in
-                self?.replayClipboardDeferredInput(event)
-            }
+            discardWhenFull: event.cmuxCanDiscardDuringClipboardRead
         )
     }
 
@@ -74,6 +76,23 @@ extension GhosttyNSView {
             scrollWheel(with: event)
         default:
             assertionFailure("Unsupported clipboard-sequenced input event")
+        }
+    }
+}
+
+private extension NSEvent {
+    var cmuxCanDiscardDuringClipboardRead: Bool {
+        switch type {
+        case .mouseMoved,
+             .mouseEntered,
+             .mouseExited,
+             .leftMouseDragged,
+             .rightMouseDragged,
+             .otherMouseDragged,
+             .scrollWheel:
+            return true
+        default:
+            return false
         }
     }
 }

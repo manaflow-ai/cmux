@@ -40,6 +40,21 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
                 index += 1
                 continue
             }
+            if let activeRawTextElementName = rawTextElementName {
+                guard let closingTag = scanRawTextClosingTag(
+                    in: source,
+                    at: index,
+                    name: activeRawTextElementName
+                ) else {
+                    output.append(source[index])
+                    index += 1
+                    continue
+                }
+                output.append(contentsOf: source[index..<closingTag.endIndex])
+                rawTextElementName = nil
+                index = closingTag.endIndex
+                continue
+            }
             let tag: HTMLFoundationCompatibilityTag
             switch scanTag(in: source, at: index) {
             case .tag(let scannedTag):
@@ -51,20 +66,6 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
             case .unterminated:
                 output.append(contentsOf: source[index...])
                 index = source.count
-                continue
-            }
-
-            if let activeRawTextElementName = rawTextElementName {
-                output.append(contentsOf: source[index..<tag.endIndex])
-                if tag.isClosing,
-                   equalsIgnoringASCIICase(
-                    source,
-                    range: tag.nameRange,
-                    bytes: activeRawTextElementName
-                   ) {
-                    rawTextElementName = nil
-                }
-                index = tag.endIndex
                 continue
             }
 
@@ -167,6 +168,46 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
             cursor += 1
         }
         return .unterminated
+    }
+
+    private func scanRawTextClosingTag(
+        in source: [UInt8],
+        at startIndex: Int,
+        name: [UInt8]
+    ) -> HTMLFoundationCompatibilityTag? {
+        let nameStart = startIndex + 2
+        let nameEnd = nameStart + name.count
+        guard startIndex + 1 < source.count,
+              source[startIndex + 1] == Self.slash,
+              nameEnd < source.count,
+              equalsIgnoringASCIICase(
+                source,
+                range: nameStart..<nameEnd,
+                bytes: name
+              ) else {
+            return nil
+        }
+
+        var cursor = nameEnd
+        while cursor < source.count, isASCIIWhitespace(source[cursor]) {
+            cursor += 1
+        }
+        if cursor < source.count, source[cursor] == Self.slash {
+            cursor += 1
+            while cursor < source.count, isASCIIWhitespace(source[cursor]) {
+                cursor += 1
+            }
+        }
+        guard cursor < source.count,
+              source[cursor] == Self.greaterThan else {
+            return nil
+        }
+        return HTMLFoundationCompatibilityTag(
+            nameRange: nameStart..<nameEnd,
+            endIndex: cursor + 1,
+            isClosing: true,
+            selfClosingSlashIndex: nil
+        )
     }
 
     private func matchingRawTextElementName(

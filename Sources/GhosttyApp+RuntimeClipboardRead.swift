@@ -28,21 +28,25 @@ extension GhosttyApp {
                   let requestSurface = requestTerminalSurface.surface,
                   let preparationService = requestSurfaceView?
                     .imageTransferPreparation else {
-                requestSurfaceView?.completeClipboardRead(
-                    clipboardRequestID,
-                    confirmed: false
-                )
+                requestSurfaceView?.cancelClipboardRead(clipboardRequestID)
                 return
             }
             func completeClipboardRequest(with text: String) {
                 Task { @MainActor in
+                    guard requestSurfaceIdentity.matches(
+                        requestTerminalSurface
+                    ) else {
+                        requestSurfaceView?.cancelClipboardRead(
+                            clipboardRequestID
+                        )
+                        return
+                    }
                     defer {
                         requestSurfaceView?.completeClipboardRead(
                             clipboardRequestID,
                             confirmed: false
                         )
                     }
-                    guard requestSurfaceIdentity.matches(requestTerminalSurface) else { return }
                     // Remote tmux mirror panes need tmux to bracket the paste
                     // because the local manual-I/O surface cannot know the
                     // remote pane's bracketed-paste mode.
