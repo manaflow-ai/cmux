@@ -62,9 +62,9 @@ final class FocusSurfaceBroadcaster {
     /// The app-wide broadcaster used by ``Workspace`` to emit focus broadcasts.
     ///
     /// Posts the real `.ghosttyDidFocusSurface` notification and logs (DEBUG builds)
-    /// whenever the bounded drain trips, and logs/drops the pending payload when the
-    /// cross-turn circuit breaker trips, so a future re-entrancy regression is
-    /// observable instead of a silent hours-long hang.
+    /// whenever the bounded drain trips, and logs when the cross-turn circuit
+    /// breaker trips after reconciling the latest pending payload once, so a future
+    /// re-entrancy regression is observable instead of a silent hours-long hang.
     static let shared = FocusSurfaceBroadcaster(
         onDrainBoundExceeded: { payload in
 #if DEBUG
@@ -100,8 +100,8 @@ final class FocusSurfaceBroadcaster {
     ///   - onDrainBoundExceeded: Invoked with the still-pending payload when a flush
     ///     hits ``maxCoalescedDeliveries`` and defers the remainder to a follow-up
     ///     flush. Used for structured logging of a non-converging focus cycle.
-    ///   - onCircuitBreakerTripped: Invoked with the last pending payload when the
-    ///     cross-turn circuit breaker drops it to stop a non-converging cycle.
+    ///   - onCircuitBreakerTripped: Invoked with the final reconciled payload when
+    ///     the cross-turn circuit breaker stops a non-converging cycle.
     ///   - deliver: Performs the actual broadcast. Defaults to posting
     ///     `.ghosttyDidFocusSurface`. Injected by tests to capture deliveries.
     init(

@@ -114,7 +114,10 @@ struct FocusSurfaceBroadcastCoalescerTests {
 
         #expect(scheduler.count == 0)
         #expect(turns == 4)
-        #expect(delivered.count == 8)
+        // The breaker preserves the latest requested focus once before dropping
+        // the re-entrant continuation that would otherwise keep rescheduling.
+        #expect(delivered.count == 9)
+        #expect(delivered.last == 8843)
         #expect(boundExceeded == [8843, 8843, 8843, 8843])
         #expect(tripped == [8843])
         #expect(reentryBudget > 0)

@@ -24,13 +24,14 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
     ///   - maxCoalescedDeliveries: Upper bound on deliveries performed by a single
     ///     flush. Values below one are clamped to one.
     ///   - maxConsecutiveBoundedFlushes: Upper bound on consecutive flushes that
-    ///     hit ``maxCoalescedDeliveries`` before the last pending payload is
+    ///     hit ``maxCoalescedDeliveries`` before the last pending payload gets one
+    ///     final reconciliation delivery and the re-entrant continuation is
     ///     dropped. Values below one are clamped to one.
     ///   - schedule: Schedules deferred main-actor flush work.
     ///   - onDrainBoundExceeded: Called with the still-pending payload when a
     ///     flush hits ``maxCoalescedDeliveries`` and defers to another turn.
-    ///   - onCircuitBreakerTripped: Called with the dropped payload when a
-    ///     non-converging cycle reaches ``maxConsecutiveBoundedFlushes``.
+    ///   - onCircuitBreakerTripped: Called with the final reconciled payload when
+    ///     a non-converging cycle reaches ``maxConsecutiveBoundedFlushes``.
     ///   - deliver: Delivers one pending payload.
     public init(
         maxCoalescedDeliveries: Int = 8,
@@ -78,14 +79,19 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
             pending = nil
             iterations += 1
             if iterations > maxCoalescedDeliveries {
-                pending = next
                 hitDeliveryBound = true
                 consecutiveBoundedFlushes += 1
                 onDrainBoundExceeded(next)
                 if consecutiveBoundedFlushes >= maxConsecutiveBoundedFlushes {
                     pending = nil
                     consecutiveBoundedFlushes = 0
+                    deliver(next)
+                    // Preserve the latest focus once before tripping, then drop
+                    // only the continuation emitted by a non-converging observer.
+                    pending = nil
                     onCircuitBreakerTripped(next)
+                } else {
+                    pending = next
                 }
                 break
             }

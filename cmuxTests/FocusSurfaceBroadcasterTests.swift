@@ -204,6 +204,7 @@ struct FocusSurfaceBroadcasterTests {
         let scheduler = ManualScheduler()
         var delivered: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         var boundExceeded: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
+        var tripped: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         let relay = BroadcasterRelay()
         let reentryTarget = Self.payload(8843)
         var reentryBudget = 1_000
@@ -212,6 +213,7 @@ struct FocusSurfaceBroadcasterTests {
             maxCoalescedDeliveries: 2,
             schedule: { scheduler.append($0) },
             onDrainBoundExceeded: { boundExceeded.append($0) },
+            onCircuitBreakerTripped: { tripped.append($0) },
             deliver: { payload in
                 delivered.append(payload)
                 if reentryBudget > 0 {
@@ -235,16 +237,24 @@ struct FocusSurfaceBroadcasterTests {
             "A self-sustaining focus cycle must not be able to enqueue another flush forever."
         )
         #expect(
-            turns <= 4,
-            "The circuit breaker should trip after a small number of consecutive bounded turns, got \(turns)."
+            turns == 4,
+            "The circuit breaker should trip after four consecutive bounded turns, got \(turns)."
         )
         #expect(
-            delivered.count <= 8,
-            "The cycle delivered \(delivered.count) focus broadcasts before tripping."
+            delivered.count == 9,
+            "The cycle should reconcile the latest pending focus once before tripping; got \(delivered.count)."
         )
         #expect(
-            boundExceeded.count <= 4,
-            "The cycle exceeded the per-turn bound \(boundExceeded.count) times before tripping."
+            delivered.last == reentryTarget,
+            "The circuit breaker must not drop the latest requested focus payload."
+        )
+        #expect(
+            boundExceeded.count == 4,
+            "The cycle should exceed the per-turn bound four times before tripping; got \(boundExceeded.count)."
+        )
+        #expect(
+            tripped == [reentryTarget],
+            "The circuit breaker should report the final reconciled payload once."
         )
         #expect(
             reentryBudget > 0,
