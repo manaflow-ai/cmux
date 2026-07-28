@@ -12,6 +12,11 @@ import OSLog
 /// draining renderer work.
 @MainActor
 struct WorkspaceTerminalFontSizeSnapshotProjection {
+    struct LineageProjection {
+        let lineage: TerminalFontSizeLineage?
+        let representedRequestTokens: Set<UUID>
+    }
+
     struct Intent {
         let acceptedOrder: UInt64
         let requestSequence: UInt64
@@ -51,6 +56,26 @@ struct WorkspaceTerminalFontSizeSnapshotProjection {
     func sessionFontSizeOverrideBasePoints(
         for terminalPanel: TerminalPanel
     ) -> Float32? {
+        guard let projection = lineageProjection(
+            for: terminalPanel
+        ) else {
+            return terminalPanel.surface
+                .sessionFontSizeOverrideBasePoints()
+        }
+        guard let lineage = projection.lineage,
+              lineage.isExplicitOverride,
+              TerminalFontSizePolicy()
+                .acceptsPersistedBasePoints(
+                    lineage.basePoints
+                ) else {
+            return nil
+        }
+        return lineage.basePoints
+    }
+
+    func lineageProjection(
+        for terminalPanel: TerminalPanel
+    ) -> LineageProjection? {
         var intentsByToken: [UUID: Intent] = [:]
         for intent in commonIntents {
             intentsByToken[intent.requestToken] = intent
@@ -62,8 +87,7 @@ struct WorkspaceTerminalFontSizeSnapshotProjection {
             by: Intent.precedes
         )
         guard let firstIntent = intents.first else {
-            return terminalPanel.surface
-                .sessionFontSizeOverrideBasePoints()
+            return nil
         }
 
         var lineage =
@@ -72,6 +96,7 @@ struct WorkspaceTerminalFontSizeSnapshotProjection {
                     firstIntent.magnificationPercent
             )
         var projectedTokens: Set<UUID> = []
+        var representedRequestTokens: Set<UUID> = []
         for intent in intents {
             let alreadyIncludesChange =
                 terminalPanel.surface.hasAppliedFontSizeChange(
@@ -84,27 +109,30 @@ struct WorkspaceTerminalFontSizeSnapshotProjection {
                 || projectedTokens.contains(
                     intent.counterpartTransferToken
                 )
-            guard !alreadyIncludesChange else { continue }
-            lineage = intent.change.resultingInheritanceLineage(
-                from: lineage,
-                configuredRuntimePoints:
-                    intent.configuredRuntimePoints,
-                magnificationPercent:
-                    intent.magnificationPercent
+            if !alreadyIncludesChange {
+                lineage =
+                    intent.change
+                        .resultingInheritanceLineage(
+                            from: lineage,
+                            configuredRuntimePoints:
+                                intent.configuredRuntimePoints,
+                            magnificationPercent:
+                                intent.magnificationPercent
+                        )
+                projectedTokens.insert(intent.requestToken)
+                projectedTokens.insert(
+                    intent.requestTransferToken
+                )
+            }
+            representedRequestTokens.insert(
+                intent.requestToken
             )
-            projectedTokens.insert(intent.requestToken)
-            projectedTokens.insert(intent.requestTransferToken)
         }
-
-        guard let lineage,
-              lineage.isExplicitOverride,
-              TerminalFontSizePolicy()
-                .acceptsPersistedBasePoints(
-                    lineage.basePoints
-                ) else {
-            return nil
-        }
-        return lineage.basePoints
+        return LineageProjection(
+            lineage: lineage,
+            representedRequestTokens:
+                representedRequestTokens
+        )
     }
 }
 
@@ -1425,7 +1453,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         )
     }
 
-    private func appendTransferSnapshotProjectionIntents(
+    func appendTransferSnapshotProjectionIntents(
         for panelIds: Set<UUID>,
         panelIntents:
             inout [
@@ -1810,6 +1838,15 @@ final class WorkspaceTerminalFontSizeCoordinator {
         let state =
             transferResourceStates[request.resourceKey]
             ?? TransferResourceState()
+        precondition(
+            activeTransferRequestTokens.insert(
+                request.token
+            ).inserted
+        )
+        TerminalSurface
+            .activateFontSizeChangeReconciliationToken(
+                request.token
+            )
         state.appendRequest(
             TransferRequestRecord(
                 request: request,
@@ -2582,7 +2619,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
         terminalPanel.surface.markFontSizeChangeReconciledForTransfer(
             token: request.token
         )
-        activeTransferRequestTokens.insert(request.token)
         terminalPanel.surface.markFontSizeChangeReconciledForTransfer(
             token: requestTransferToken(for: request)
         )

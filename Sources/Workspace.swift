@@ -6860,22 +6860,64 @@ final class Workspace: Identifiable, ObservableObject {
             let surface = terminalPanel.surface
             let inheritanceContext =
                 activeTerminalFontSizeChangeInheritanceContext
-            let sourceFontSizeLineage =
-                surface.fontSizeLineageSnapshot(
-                    magnificationPercent:
-                        inheritanceContext?.magnificationPercent
-                )
-            let inheritedFontSizeLineage =
-                inheritanceContext?
-                    .inheritedLineage(from: terminalPanel)
-                ?? sourceFontSizeLineage
+            let transferProjection =
+                terminalFontSizeChangeArbiter?
+                    .transferInheritanceProjection(
+                        for: terminalPanel
+                    )
+            let sourceFontSizeLineage:
+                TerminalFontSizeLineage?
+            if let transferProjection {
+                sourceFontSizeLineage =
+                    transferProjection.lineage
+            } else if let inheritanceContext {
+                sourceFontSizeLineage =
+                    surface.fontSizeLineageForAdjustment(
+                        fallbackRuntimePoints:
+                            inheritanceContext
+                                .configuredRuntimePoints,
+                        magnificationPercent:
+                            inheritanceContext
+                                .magnificationPercent
+                    )
+            } else {
+                sourceFontSizeLineage =
+                    surface.fontSizeLineageSnapshot()
+            }
+            let inheritedFontSizeLineage: TerminalFontSizeLineage?
+            if let inheritanceContext {
+                inheritedFontSizeLineage =
+                    inheritanceContext.inheritedLineage(
+                        from: sourceFontSizeLineage,
+                        alreadyIncludesChange:
+                            surface.hasAppliedFontSizeChange(
+                                token:
+                                    inheritanceContext.token
+                            )
+                            || transferProjection?
+                                .representedRequestTokens
+                                .contains(
+                                    inheritanceContext.token
+                                ) == true
+                    )
+            } else {
+                inheritedFontSizeLineage =
+                    sourceFontSizeLineage
+            }
+            var fontSizeChangeTokens =
+                surface.fontSizeChangeTokensForInheritance()
+            fontSizeChangeTokens.formUnion(
+                transferProjection?
+                    .representedRequestTokens
+                ?? []
+            )
             guard let sourceSurface = surface.surface else {
                 if let inheritedFontSizeLineage {
                     var config = CmuxSurfaceConfigTemplate()
                     config.fontSizeLineage = inheritedFontSizeLineage
                     config.fontSizeChangeToken = inheritanceContext?.token
                     config.fontSizeChangeTokens =
-                        surface.fontSizeChangeTokensForInheritance()
+                        fontSizeChangeTokens
                     lastTerminalConfigInheritancePanelId = terminalPanel.id
                     lastTerminalConfigInheritanceFontSizeLineage =
                         inheritedFontSizeLineage
@@ -6892,7 +6934,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
             config.fontSizeChangeToken = inheritanceContext?.token
             config.fontSizeChangeTokens =
-                surface.fontSizeChangeTokensForInheritance()
+                fontSizeChangeTokens
             // Prevent ARC from releasing panel/surface before the C calls above complete.
             withExtendedLifetime((terminalPanel, surface)) {}
             rememberTerminalConfigInheritanceSource(terminalPanel)
@@ -6955,23 +6997,68 @@ final class Workspace: Identifiable, ObservableObject {
         }()
         let inheritanceContext =
             activeTerminalFontSizeChangeInheritanceContext
-        let sourceLineage =
-            sourcePanel?.surface.fontSizeLineageSnapshot(
-                magnificationPercent:
-                    inheritanceContext?.magnificationPercent
-            )
+        let transferProjection =
+            sourcePanel.flatMap {
+                terminalFontSizeChangeArbiter?
+                    .transferInheritanceProjection(for: $0)
+            }
+        let sourceLineage: TerminalFontSizeLineage?
+        if let transferProjection {
+            sourceLineage = transferProjection.lineage
+        } else if let inheritanceContext {
+            sourceLineage =
+                sourcePanel?.surface
+                    .fontSizeLineageForAdjustment(
+                        fallbackRuntimePoints:
+                            inheritanceContext
+                                .configuredRuntimePoints,
+                        magnificationPercent:
+                            inheritanceContext
+                                .magnificationPercent
+                    )
+        } else {
+            sourceLineage =
+                sourcePanel?.surface
+                    .fontSizeLineageSnapshot()
+        }
+        let inheritedLineage: TerminalFontSizeLineage?
+        if let inheritanceContext {
+            inheritedLineage =
+                inheritanceContext.inheritedLineage(
+                    from: sourceLineage,
+                    alreadyIncludesChange:
+                        sourcePanel?.surface
+                            .hasAppliedFontSizeChange(
+                                token:
+                                    inheritanceContext.token
+                            ) == true
+                        || transferProjection?
+                            .representedRequestTokens
+                            .contains(
+                                inheritanceContext.token
+                            ) == true
+                )
+        } else {
+            inheritedLineage = sourceLineage
+        }
         guard let fontSizeLineage =
-                inheritanceContext?.inheritedLineage(from: sourcePanel)
-                ?? sourceLineage
+                inheritedLineage
                 ?? lastTerminalConfigInheritanceFontSizeLineage else {
             return nil
         }
+        var fontSizeChangeTokens =
+            sourcePanel?.surface
+                .fontSizeChangeTokensForInheritance()
+            ?? []
+        fontSizeChangeTokens.formUnion(
+            transferProjection?.representedRequestTokens
+            ?? []
+        )
         var config = CmuxSurfaceConfigTemplate()
         config.fontSizeLineage = fontSizeLineage
         config.fontSizeChangeToken = inheritanceContext?.token
         config.fontSizeChangeTokens =
-            sourcePanel?.surface.fontSizeChangeTokensForInheritance()
-            ?? []
+            fontSizeChangeTokens
         return config
     }
 

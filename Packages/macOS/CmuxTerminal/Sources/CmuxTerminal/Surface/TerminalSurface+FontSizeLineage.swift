@@ -33,8 +33,21 @@ extension TerminalSurface {
     @MainActor
     public func markFontSizeChangeReconciledForTransfer(token: UUID) {
         pruneRetiredFontSizeTransferTokens(force: false)
-        Self.activeTransferReconciliationTokens.insert(token)
+        Self.activateFontSizeChangeReconciliationToken(token)
         transferReconciledFontSizeChangeTokens.insert(token)
+    }
+
+    /// Keeps projected request provenance live until its coordinator retires.
+    ///
+    /// A descendant can inherit an accepted request before the moved source
+    /// panel reaches that request. The coordinator activates the request token
+    /// when it enters the bounded ledger, and clears it when the request
+    /// retires. Individual surfaces still opt in by carrying the token.
+    @MainActor
+    public static func activateFontSizeChangeReconciliationToken(
+        _ token: UUID
+    ) {
+        activeTransferReconciliationTokens.insert(token)
     }
 
     /// Removes transient transfer provenance from this surface after its

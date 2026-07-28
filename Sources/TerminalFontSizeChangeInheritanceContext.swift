@@ -57,7 +57,21 @@ struct TerminalFontSizeChangeInheritanceContext {
                 fallbackRuntimePoints: configuredRuntimePoints,
                 magnificationPercent: magnificationPercent
             )
-        if sourceTerminalPanel.surface.hasAppliedFontSizeChange(token: token) {
+        return inheritedLineage(
+            from: sourceLineage,
+            alreadyIncludesChange:
+                sourceTerminalPanel.surface
+                    .hasAppliedFontSizeChange(
+                        token: token
+                    )
+        )
+    }
+
+    func inheritedLineage(
+        from sourceLineage: TerminalFontSizeLineage?,
+        alreadyIncludesChange: Bool
+    ) -> TerminalFontSizeLineage {
+        if alreadyIncludesChange {
             return sourceLineage ?? fallbackLineage
         }
         if let sourceLineage {

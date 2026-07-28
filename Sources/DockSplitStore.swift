@@ -513,15 +513,52 @@ final class DockSplitStore: BonsplitDelegate {
         }
         let inheritanceContext =
             activeTerminalFontSizeChangeInheritanceContext
-        let sourceLineage =
-            sourceTerminalPanel?.surface.fontSizeLineageSnapshot(
-                magnificationPercent:
-                    inheritanceContext?.magnificationPercent
-            )
+        let transferProjection =
+            sourceTerminalPanel.flatMap {
+                terminalFontSizeChangeArbiter?
+                    .transferInheritanceProjection(for: $0)
+            }
+        let sourceLineage: TerminalFontSizeLineage?
+        if let transferProjection {
+            sourceLineage = transferProjection.lineage
+        } else if let inheritanceContext {
+            sourceLineage =
+                sourceTerminalPanel?.surface
+                    .fontSizeLineageForAdjustment(
+                        fallbackRuntimePoints:
+                            inheritanceContext
+                                .configuredRuntimePoints,
+                        magnificationPercent:
+                            inheritanceContext
+                                .magnificationPercent
+                    )
+        } else {
+            sourceLineage =
+                sourceTerminalPanel?.surface
+                    .fontSizeLineageSnapshot()
+        }
+        let inheritedLineage: TerminalFontSizeLineage?
+        if let inheritanceContext {
+            inheritedLineage =
+                inheritanceContext.inheritedLineage(
+                    from: sourceLineage,
+                    alreadyIncludesChange:
+                        sourceTerminalPanel?.surface
+                            .hasAppliedFontSizeChange(
+                                token:
+                                    inheritanceContext.token
+                            ) == true
+                        || transferProjection?
+                            .representedRequestTokens
+                            .contains(
+                                inheritanceContext.token
+                            ) == true
+                )
+        } else {
+            inheritedLineage = sourceLineage
+        }
         guard let lineage =
-                inheritanceContext?
-                    .inheritedLineage(from: sourceTerminalPanel)
-                ?? sourceLineage
+                inheritedLineage
                 ?? lastTerminalFontSizeLineage else {
             return nil
         }
@@ -530,13 +567,19 @@ final class DockSplitStore: BonsplitDelegate {
             return nil
         }
         rememberDurableTerminalFontSizeLineage(lineage)
+        var fontSizeChangeTokens =
+            sourceTerminalPanel?.surface
+                .fontSizeChangeTokensForInheritance()
+            ?? []
+        fontSizeChangeTokens.formUnion(
+            transferProjection?.representedRequestTokens
+            ?? []
+        )
         var config = CmuxSurfaceConfigTemplate()
         config.fontSizeLineage = lineage
         config.fontSizeChangeToken = inheritanceContext?.token
         config.fontSizeChangeTokens =
-            sourceTerminalPanel?.surface
-                .fontSizeChangeTokensForInheritance()
-            ?? []
+            fontSizeChangeTokens
         return config
     }
 

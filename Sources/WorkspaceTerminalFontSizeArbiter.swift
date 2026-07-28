@@ -614,6 +614,32 @@ final class WorkspaceTerminalFontSizeArbiter {
         )
     }
 
+    func transferInheritanceProjection(
+        for terminalPanel: TerminalPanel
+    ) -> WorkspaceTerminalFontSizeSnapshotProjection
+        .LineageProjection? {
+        var panelIntents:
+            [
+                UUID:
+                    [
+                        WorkspaceTerminalFontSizeSnapshotProjection
+                            .Intent
+                    ]
+            ] = [:]
+        for coordinator in retainedCoordinators.values {
+            coordinator
+                .appendTransferSnapshotProjectionIntents(
+                    for: [terminalPanel.id],
+                    panelIntents: &panelIntents
+                )
+        }
+        guard !panelIntents.isEmpty else { return nil }
+        return WorkspaceTerminalFontSizeSnapshotProjection(
+            commonIntents: [],
+            panelIntents: panelIntents
+        ).lineageProjection(for: terminalPanel)
+    }
+
     private func appendDeferredSnapshotProjectionIntents(
         matching predicate:
             (DeferredWorkspaceTerminalFontSizeCoordinatorJoin)
