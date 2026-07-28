@@ -11,6 +11,8 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
     public let url: URL?
     /// The browser profile the panel used, if any.
     public let profileID: UUID?
+    /// Whether the panel limits local-file access to the displayed file.
+    public let usesFileOnlyReadAccess: Bool
     /// The pane that originally hosted the panel.
     public let originalPaneId: UUID
     /// The tab index the panel occupied within its pane.
@@ -42,6 +44,7 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
         workspaceId: UUID,
         url: URL?,
         profileID: UUID?,
+        usesFileOnlyReadAccess: Bool = false,
         originalPaneId: UUID,
         originalTabIndex: Int,
         fallbackSplitOrientation: SplitOrientation?,
@@ -52,6 +55,7 @@ public struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
         self.workspaceId = workspaceId
         self.url = url
         self.profileID = profileID
+        self.usesFileOnlyReadAccess = usesFileOnlyReadAccess
         self.originalPaneId = originalPaneId
         self.originalTabIndex = originalTabIndex
         self.fallbackSplitOrientation = fallbackSplitOrientation

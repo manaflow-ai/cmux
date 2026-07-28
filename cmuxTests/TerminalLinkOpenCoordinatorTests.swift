@@ -37,6 +37,11 @@ struct TerminalLinkOpenCoordinatorTests {
             browserURLs.append(url)
             return true
         }
+
+        func openOrFocusTerminalBrowserFileLink(url: URL, sourcePanelId: UUID) -> Bool {
+            browserURLs.append(url)
+            return true
+        }
     }
 
     private func makeDefaults() -> UserDefaults {

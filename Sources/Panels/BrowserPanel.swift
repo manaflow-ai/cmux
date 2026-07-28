@@ -955,11 +955,23 @@ enum BrowserFileSystemAccessBridge {
     """
 }
 
-func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL? {
+enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Sendable {
+    case containingDirectory
+    case fileOnly
+}
+
+func browserReadAccessURL(
+    forLocalFileURL fileURL: URL,
+    fileManager: FileManager = .default,
+    policy: BrowserLocalFileReadAccessPolicy = .containingDirectory
+) -> URL? {
     guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
     let path = fileURL.path
     var isDirectory: ObjCBool = false
     if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+        return fileURL
+    }
+    if policy == .fileOnly {
         return fileURL
     }
 
@@ -970,12 +982,19 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 
 @MainActor
 @discardableResult
-func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
+func browserLoadRequest(
+    _ request: URLRequest,
+    in webView: WKWebView,
+    localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
+) -> WKNavigation? {
     guard let url = request.url else { return nil }
     webView.applyBrowserUserAgentPolicy(for: url)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
-        guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
+        guard let readAccessURL = browserReadAccessURL(
+            forLocalFileURL: url,
+            policy: localFileReadAccessPolicy
+        ) else { return nil }
         webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
         return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
     }
@@ -2717,6 +2736,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
 
@@ -4064,13 +4084,15 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
+        self.localFileReadAccessPolicy = localFileReadAccessPolicy
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -4088,7 +4110,8 @@ final class BrowserPanel: Panel, ObservableObject {
         self.websiteDataStore = websiteDataStore
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if let prewarmed = Self.claimedPrewarmedWebView(
+        if localFileReadAccessPolicy == .containingDirectory,
+           let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -5962,7 +5985,11 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         noteDiscardedWebViewRestoreNavigationStarted()
         userStoppedLoadSinceWebViewReplacement = false
-        let startedNavigation = browserLoadRequest(effectiveRequest, in: webView)
+        let startedNavigation = browserLoadRequest(
+            effectiveRequest,
+            in: webView,
+            localFileReadAccessPolicy: localFileReadAccessPolicy
+        )
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {

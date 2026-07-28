@@ -18,6 +18,9 @@ protocol TerminalLinkOpenContainer: AnyObject {
 
     @discardableResult
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool
+
+    @discardableResult
+    func openOrFocusTerminalBrowserFileLink(url: URL, sourcePanelId: UUID) -> Bool
 }
 
 /// Shared HTML-file action used by both Ghostty's direct Command-click
@@ -46,7 +49,7 @@ struct TerminalHTMLFileBrowserAction {
         container: any TerminalLinkOpenContainer
     ) -> Bool {
         guard let browserURL = browserURL(for: fileURL) else { return false }
-        return container.openTerminalBrowserLink(
+        return container.openOrFocusTerminalBrowserFileLink(
             url: browserURL,
             sourcePanelId: sourcePanelId
         )

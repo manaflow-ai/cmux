@@ -43,4 +43,30 @@ extension Workspace: TerminalLinkOpenContainer {
             url: url
         ) != nil
     }
+
+    func openOrFocusTerminalBrowserFileLink(url: URL, sourcePanelId: UUID) -> Bool {
+        let canonicalURL = url.standardizedFileURL.resolvingSymlinksInPath()
+        if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
+            $0.localFileReadAccessPolicy == .fileOnly
+                && $0.currentURL?.standardizedFileURL.resolvingSymlinksInPath() == canonicalURL
+        }) {
+            focusPanel(existing.id)
+            return true
+        }
+
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
+            return newBrowserSurface(
+                inPane: targetPane,
+                url: canonicalURL,
+                focus: true,
+                localFileReadAccessPolicy: .fileOnly
+            ) != nil
+        }
+        return newBrowserSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            url: canonicalURL,
+            localFileReadAccessPolicy: .fileOnly
+        ) != nil
+    }
 }

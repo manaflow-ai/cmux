@@ -98,7 +98,8 @@ extension DockSplitStore {
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
-        transparentBackground: Bool = false
+        transparentBackground: Bool = false,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
         let panel = BrowserPanel(
@@ -111,7 +112,8 @@ extension DockSplitStore {
             proxyEndpoint: settings.proxyEndpoint,
             bypassRemoteProxy: settings.bypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier
+            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
+            localFileReadAccessPolicy: localFileReadAccessPolicy
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
         panel.webViewDidRequestClose = { [weak self, weak panel] in

@@ -46,4 +46,38 @@ extension DockSplitStore: TerminalLinkOpenContainer {
             focus: true
         ) != nil
     }
+
+    func openOrFocusTerminalBrowserFileLink(url: URL, sourcePanelId: UUID) -> Bool {
+        let canonicalURL = url.standardizedFileURL.resolvingSymlinksInPath()
+        if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
+            $0.localFileReadAccessPolicy == .fileOnly
+                && $0.currentURL?.standardizedFileURL.resolvingSymlinksInPath() == canonicalURL
+        }) {
+            focusPanel(existing.id)
+            return true
+        }
+
+        guard let sourcePane = paneId(forPanelId: sourcePanelId) else { return false }
+        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
+            from: sourcePane,
+            in: bonsplitController
+        ) {
+            return newSurface(
+                kind: .browser,
+                inPane: targetPane,
+                url: canonicalURL,
+                focus: true,
+                localFileReadAccessPolicy: .fileOnly
+            ) != nil
+        }
+        return newSplit(
+            kind: .browser,
+            orientation: .horizontal,
+            insertFirst: false,
+            sourcePanelId: sourcePanelId,
+            url: canonicalURL,
+            focus: true,
+            localFileReadAccessPolicy: .fileOnly
+        ) != nil
+    }
 }

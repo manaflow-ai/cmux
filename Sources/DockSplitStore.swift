@@ -265,7 +265,8 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
     ) -> UUID? {
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
@@ -282,7 +283,8 @@ final class DockSplitStore: BonsplitDelegate {
             ),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            localFileReadAccessPolicy: localFileReadAccessPolicy
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
@@ -315,7 +317,8 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         initialDividerPosition: CGFloat? = nil,
         preferredProfileID: UUID? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
     ) -> UUID? {
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId)
@@ -330,7 +333,8 @@ final class DockSplitStore: BonsplitDelegate {
                 sourcePanelId: source
             ),
             tmuxStartCommand: tmuxStartCommand,
-            preferredProfileID: preferredProfileID
+            preferredProfileID: preferredProfileID,
+            localFileReadAccessPolicy: localFileReadAccessPolicy
         ) else { return nil }
 
         guard let source, let sourcePaneId = paneId(forPanelId: source) else {
@@ -428,7 +432,8 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
     ) -> (any Panel)? {
         switch kind {
         case .terminal:
@@ -450,7 +455,8 @@ final class DockSplitStore: BonsplitDelegate {
                 url: url,
                 initialRequest: initialRequest,
                 preferredProfileID: preferredProfileID,
-                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+                localFileReadAccessPolicy: localFileReadAccessPolicy
             )
         }
     }
