@@ -1021,7 +1021,7 @@
       "attachNewWindow": "Send --new-window til at åbne spejlet i et dedikeret nyt vindue i stedet for det nuværende vindue.",
       "attachSockets": "Socket-kommandoerne remote.tmux.* nedenfor giver finere kontrol. remote.tmux.mirror er spejlets indgangspunkt; den accepterer vindues- og kalderrouting og kan valgfrit vælge det spejlede workspace.",
       "attachCli": "Værter, der autentificerer ikke-interaktivt (ssh-agent eller en nøgle i ~/.ssh/config) tilknyttes uden nogen prompt. Hvis værten har brug for interaktiv autentificering (en adgangskode, værtsnøglebekræftelse eller MFA), kører cmux ssh inline i din terminal, så du kan autentificere, og spejler derefter ind i det aktuelle vindue. Accepterer --port, --identity, og --no-focus.",
-      "troubleshootTitle": "Hvis du får \"Tilladelse nægtet\"",
+      "troubleshootTitle": "Hvis du får \"Permission denied\"",
       "troubleshootDesc": "Destinationen gives til ssh som den er, så et alias skal indeholde alt, hvad ssh behøver for at logge ind — oftest bruger (uden det prøver ssh dit lokale brugernavn) og IdentityFile:",
       "troubleshootFallback": "Eller send brugeren eksplicit: cmux ssh-tmux dev@my-ssh-alias. Hvis almindelig ssh <destination> ikke logger dig ind, så gør cmux ssh-tmux <destination> heller ikke.",
       "howTitle": "Hvordan det virker",

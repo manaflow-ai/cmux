@@ -60,6 +60,12 @@ describe("message catalog completeness", () => {
           mismatches.push(`${locale}:${path} rich text tags`);
         }
 
+        const sourceRuntimeArguments = runtimeArguments(source);
+        const targetRuntimeArguments = runtimeArguments(target);
+        if (!arraysEqual(sourceRuntimeArguments, targetRuntimeArguments)) {
+          mismatches.push(`${locale}:${path} runtime arguments`);
+        }
+
         const sourceProtectedTokens = protectedTokens(source);
         const missingProtectedTokens = sourceProtectedTokens.filter(
           (token) =>
@@ -242,14 +248,26 @@ function technicalRichTextValues(message: string): string[] {
 }
 
 function richTextTags(message: string): string[] {
-  return [...message.matchAll(/<([A-Za-z][A-Za-z0-9]*)>/gu)]
-    .map((match) => match[1]!)
-    .sort();
+  return [
+    ...new Set(
+      [...message.matchAll(/<([A-Za-z][A-Za-z0-9]*)>/gu)]
+        .map((match) => match[1]!),
+    ),
+  ].sort();
+}
+
+function runtimeArguments(message: string): string[] {
+  return [
+    ...new Set(
+      [...message.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)(?=[,}])/gu)]
+        .map((match) => match[1]!),
+    ),
+  ].sort();
 }
 
 const protectedTokenPatterns = [
-  /AGPL-3\.0/gu,
-  /GPL-3\.0/gu,
+  /(?<![\p{L}\p{N}_])AGPL-3\.0(?![\p{L}\p{N}_])/gu,
+  /(?<![\p{L}\p{N}_])GPL-3\.0(?![\p{L}\p{N}_])/gu,
   /remote\.tmux\.\*/gu,
   /remote\.tmux\.mirror/gu,
   /split-window/gu,
@@ -314,7 +332,10 @@ function countProtectedTokenOccurrences(
 
   const escapedToken = token.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   return [...message.matchAll(
-    new RegExp(`${escapedToken}(?![\\p{L}\\p{N}_])`, "gu"),
+    new RegExp(
+      `(?<![\\p{L}\\p{N}_])${escapedToken}(?![\\p{L}\\p{N}_])`,
+      "gu",
+    ),
   )].length;
 }
 

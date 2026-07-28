@@ -582,8 +582,8 @@
         "cmuxTitle": "cmux 為工作流程提供了一個介面",
         "cmuxP1": "cmux 不需要內建一個通用 worktree 管理器。它提供<customCommands>自訂命令</customCommands>、可程式化的<api>CLI 和 socket API</api>，以及可重複使用的<skills>技能</skills>。加號按鈕可以啟動你自己的 worktree 命令、多 repo 設定、非 Git 沙盒或遠端環境。",
         "cmuxP2": "這就是 <home>cmux home</home> 重要的原因。最好的 worktree 管理器，是當工作流程改變時你的代理也能修改的那個；而最適合這個循環的終端機，會把通知、Cmd+Shift+U 和 Cmd+Control+U 接到介面裡。",
-        "agentsExample": "你正在cmux總部工作。任務可能包括：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\n當使用者要求新任務時：\n1. 決定任務需要哪些儲存庫。\n2. 在worktrees/[task]/[repo]中建立相符的工作樹。\n3. 閱讀每個工作樹的AGENTS.md。\n4. 立即啟動設定腳本，然後繼續執行任務。",
-        "launchCommand": "光碟 ~/fun/cmux-hq\nCodex --yolo 「修正 subrouter xyz 問題，可能以 xyz 方式與 cmux 相關」"
+        "agentsExample": "你正在 cmux-hq 中工作。任務可能包括：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\n當使用者要求新任務時：\n1. 決定任務需要哪些儲存庫。\n2. 在worktrees/[task]/[repo]中建立相符的工作樹。\n3. 閱讀每個工作樹的AGENTS.md。\n4. 立即啟動設定腳本，然後繼續執行任務。",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"修正 subrouter xyz 問題，可能與 cmux 相關\""
       },
       "cmuxFork": {
         "title": "cmux Fork 正式推出",
@@ -1020,7 +1020,7 @@
       "attachNewWindow": "傳 --new-window 讓鏡子在專用的新視窗中開啟，而不是目前的視窗。",
       "attachSockets": "remote.tmux.* socket 指令（如下）提供更細緻的控制。remote.tmux.mirror 是鏡像入口點;它接受視窗/呼叫者路由，並可選擇鏡像工作區。",
       "attachCli": "非互動式認證的主機（如 ssh-agent，或 ~/.ssh/config中的金鑰）會無提示地連接。若主機需要互動式驗證（密碼、主機金鑰確認或 MFA）， cmux 會在終端機內聯執行 ssh，讓你能進行認證，然後鏡像到目前視窗。接受 --port、 --identity和 --no-focus。",
-      "troubleshootTitle": "如果你收到「許可被拒」",
+      "troubleshootTitle": "如果出現「Permission denied」錯誤",
       "troubleshootDesc": "目的地會直接交給 ssh，因此別名必須包含 ssh 登入所需的所有資訊——最常見的是 User（沒有別名，ssh 會嘗試你的本地使用者名稱）和 IdentityFile：",
       "troubleshootFallback": "或者明確傳達使用者： cmux ssh-tmux dev@my-ssh-alias。如果普通的 ssh <destination> 不讓你登入， cmux ssh-tmux <destination> 也不會。",
       "howTitle": "運作原理",

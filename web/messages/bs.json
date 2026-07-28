@@ -775,7 +775,7 @@
         "cmuxTitle": "cmux daje workflowu površinu",
         "cmuxP1": "cmux ne treba ugrađeni univerzalni worktree menadžer. Daje vam <customCommands>prilagođene komande</customCommands>, programabilni <api>CLI i socket API</api> i ponovo upotrebljive <skills>skills</skills>. Plus dugme može pokrenuti vašu worktree komandu, multi-repo setup, no-git sandbox ili udaljeno okruženje.",
         "cmuxP2": "Zato je <home>cmux home</home> važan. Najbolji worktree menadžer je onaj koji vaši agenti mogu promijeniti kada se workflow promijeni, a najbolji terminal za taj krug drži notifikacije, Cmd+Shift+U i Cmd+Control+U ugrađene u površinu.",
-        "agentsExample": "Radite u cmux-sjedištu. Zadaci mogu uključivati: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nKada korisnik traži novi zadatak: \n1. Odlučite koji repozitoriji su potrebni zadatku. \n2. Kreirati odgovarajuća radna stabla u worktrees/[task]/[repo]. \n3. Pročitaj AGENTS.md svakog radnog stabla. \n4. Odmah pokrenite njegove skripte za podešavanje, a zatim nastavite zadatak.",
+        "agentsExample": "Radite u cmux-hq. Zadaci mogu uključivati: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nKada korisnik traži novi zadatak: \n1. Odlučite koji repozitoriji su potrebni zadatku. \n2. Kreirati odgovarajuća radna stabla u worktrees/[task]/[repo]. \n3. Pročitaj AGENTS.md svakog radnog stabla. \n4. Odmah pokrenite njegove skripte za podešavanje, a zatim nastavite zadatak.",
         "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"popravi probleme xyz podrutera, može se odnositi na cmux na xyz način\""
       },
       "cmuxClaudeTeams": {
@@ -1020,7 +1020,7 @@
       "attachNewWindow": "Prođite --new-window da otvorite ogledalo u novom novom prozoru umjesto u trenutnom prozoru.",
       "attachSockets": "Komande utičnice remote.tmux.* (ispod) daju finiju kontrolu. remote.tmux.mirror je ulazna tačka ogledala; prihvata rutiranje prozora/pozivaoca i opciono može izabrati zrcaljeni radni prostor.",
       "attachCli": "Hostovi koji se autentifikuju neinteraktivno (ssh-agent ili ključ u ~/.ssh/config) se pričvršćuju bez prompta. Ako je hostu potrebna interaktivna autentikacija (lozinka, potvrda ključa hosta ili MFA), cmux pokreće ssh inline u vašem terminalu kako biste se mogli autentifikovati, a zatim se preslikava u trenutni prozor. Prihvata --port, --identitet i --no-focus.",
-      "troubleshootTitle": "Ako dobijete \"Dozvola odbijena\"",
+      "troubleshootTitle": "Ako dobijete \"Permission denied\"",
       "troubleshootDesc": "Odredište se predaje ssh-u kakvo je, tako da pseudonim mora sadržavati sve što je ssh-u potrebno za prijavu - najčešće User (bez njega, ssh pokušava vaše lokalno korisničko ime) i IdentityFile:",
       "troubleshootFallback": "Ili eksplicitno proslijedite korisnika: cmux ssh-tmux dev@my-ssh-alias. Ako vas obični ssh <destination> ne prijavi, neće ni cmux ssh-tmux <destination>.",
       "howTitle": "Kako to radi",

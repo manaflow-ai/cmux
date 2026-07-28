@@ -775,8 +775,8 @@
         "cmuxTitle": "cmux daje workflowowi powierzchnię",
         "cmuxP1": "cmux nie potrzebuje wbudowanego uniwersalnego menedżera worktree. Daje <customCommands>własne polecenia</customCommands>, programowalne <api>CLI i API socketu</api> oraz wielorazowe <skills>skills</skills>. Przycisk plus może uruchomić twoje polecenie worktree, setup wielu repozytoriów, sandbox bez Gita albo środowisko zdalne.",
         "cmuxP2": "Dlatego <home>cmux home</home> ma znaczenie. Najlepszy menedżer worktree to ten, który twoje agenty mogą zmienić, gdy zmienia się workflow.",
-        "agentsExample": "Pracujesz w cmux-HQ. Zadania mogą obejmować: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nGdy użytkownik prosi o nowe zadanie: \n1. Zdecyduj, które repozytoria wymaga zadania. \n2. Stwórz pasujące drzewa robocze w worktrees/[task]/[repo]. \n3. Przeczytaj AGENTS.md każdego drzewa pracy. \n4. Natychmiast uruchomić skrypty konfiguracyjne, a następnie kontynuować zadanie.",
-        "launchCommand": "CD ~/fun/cmux-hq \nCodex --yolo \"napraw problemy subroutera xyz, może to dotyczyć cmux w sposób xyz\""
+        "agentsExample": "Pracujesz w cmux-hq. Zadania mogą obejmować: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nGdy użytkownik prosi o nowe zadanie: \n1. Zdecyduj, których repozytoriów wymaga zadanie. \n2. Stwórz pasujące drzewa robocze w worktrees/[task]/[repo]. \n3. Przeczytaj AGENTS.md każdego drzewa pracy. \n4. Natychmiast uruchomić skrypty konfiguracyjne, a następnie kontynuować zadanie.",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"napraw problemy subroutera xyz, może to dotyczyć cmux w sposób xyz\""
       },
       "cmuxClaudeTeams": {
         "title": "Claude Code agentów zespołu jako rodzimych cmux szyb",
@@ -797,7 +797,7 @@
       },
       "gpl": {
         "title": "cmux jest teraz GPL",
-        "summary": "cmux przejęta z AGPL-3.0 na GPL-3.0.",
+        "summary": "cmux przelicencjonowany z AGPL-3.0 na GPL-3.0.",
         "date": "30 marca 2026",
         "p1": "cmux przelicencjonowany z AGPL-3.0 do GPL-3.0. Klauzula dotycząca korzystania z sieci AGPLnie ma znaczenia dla aplikacji desktopowej, ale wiele firm całkowicie AGPL zakazuje. GPL rezygnuje z tej klauzuli, jednocześnie wymagając, by forki pozostały open source. Podwójna licencja (GPL + komercyjna) pozostaje taka sama."
       },
@@ -988,7 +988,7 @@
     },
     "gpl": {
       "metaTitle": "cmux jest teraz GPL",
-      "metaDescription": "cmux przejęta z AGPL-3.0 na GPL-3.0."
+      "metaDescription": "cmux przelicencjonowany z AGPL-3.0 na GPL-3.0."
     },
     "cmuxSsh": {
       "metaTitle": "cmux SSH",
@@ -1020,7 +1020,7 @@
       "attachNewWindow": "Przejdź --new-window , aby otworzyć lustro w dedykowanym nowym oknie zamiast w obecnym.",
       "attachSockets": "Polecenia gniazda remote.tmux.* (poniżej) zapewniają precyzyjniejszą kontrolę. remote.tmux.mirror jest punktem wejścia lustrzanego odbicia; akceptuje routing okna/wywołującego i może opcjonalnie wybrać lustrzaną przestrzeń roboczą.",
       "attachCli": "Hosty uwierzytelniające się nieinteraktywnie (agent ssh lub klucz w ~/.ssh/config) łączą się bez żadnego powiadomienia. Jeśli host potrzebuje interaktywnej uwierzytelniania (hasło, potwierdzenie klucza hosta lub MFA), cmux uruchamia SSH inline w terminalu, aby móc się uwierzytelnić, a następnie lustrzanie do bieżącego okna. Akceptuje --port, --identityi --no-focus.",
-      "troubleshootTitle": "Jeśli dostaniesz \"Zgoda odrzucona\"",
+      "troubleshootTitle": "Jeśli zobaczysz „Permission denied”",
       "troubleshootDesc": "Miejsce docelowe jest przekazywane do ssh w obecnej formie, więc alias musi zawierać wszystko, czego ssh potrzebuje do logowania — najczęściej User (bez niego ssh próbuje lokalnej nazwy użytkownika) oraz IdentityFile:",
       "troubleshootFallback": "Albo przekażcie użytkownika wprost: cmux ssh-tmux dev@my-ssh-alias. Jeśli zwykłe ssh <destination> nie zaloguje cię, cmux ssh-tmux <destination> też nie.",
       "howTitle": "Jak to działa",
@@ -1030,7 +1030,7 @@
       "behaviorSplit": "Splits: podział lub zamknięcie panelu w lustrzanym oknie jest propagowane do tmux z split-window, dzięki czemu układ cmux i tmux pozostają zsynchronizowane. Programowe podziały (cmux new-split lub surface.split przez gniazdo) raportują akceptację bez surface id — nowy panel pojawia się asynchronicznie tmux potwierdza zmianę układu. Żądania zawierające opcje, których podział nie może uwzględnić (polecenie startowe, katalog roboczy, pozycja dzielnika, lewo/górne umiejscowienie), są odrzucane na początku, zanim zdalna sesja zostanie zmutowana.",
       "behaviorReorder": "Zmiana kolejności: przeciąganie i przesuwanie kolejności lustrzanych zakładek przestawia tmux okna swap-window.",
       "behaviorCwd": "Katalog roboczy: aktualny folder panelu zdalnego jest śledzony i wyświetlany na zakładce.",
-      "behaviorPaste": "Wklej i upuszczaj: wklejony tekst oraz usunięte obrazy/pliki przechodzą przez tmux paste-buffer -p, więc zdalna aplikacja (np. agent kodujący) otrzymuje prawdziwe wklejone w klamsach — obraz pojawia się jako [Obraz #N], a nie jako lokalna ścieżka.",
+      "behaviorPaste": "Wklejanie i przeciąganie: wklejony tekst oraz upuszczone obrazy lub pliki przechodzą przez tmux paste-buffer -p, więc zdalna aplikacja, na przykład agent kodujący, otrzymuje prawdziwe wklejenie w nawiasach; obraz pojawia się jako [Obraz #N], a nie jako lokalna ścieżka.",
       "behaviorMouse": "Mysz: kliknięcia, przewijanie i przeciąganie docierają do aplikacji zdalnej, gdy jest włączony tryb myszy. Przytrzymaj Shift podczas przeciągania, aby natywnie cmux zaznaczenie/kopiowanie tekstu (tak samo jak w każdym terminalu z aplikacją w trybie myszy).",
       "behaviorUnicode": "Wyjście poprawne w Unicode: znaki wielobajtowe są zachowywane nawet wtedy, gdy tmux rozdziela je na aktualizacje, dzięki czemu rysowanie ramek i inne szerokie treści renderują się czysto.",
       "socketTitle": "Polecenia gniazda",
@@ -1071,7 +1071,7 @@
       "cliThen": "Następnie możesz uruchamiać polecenia takie jak:",
       "autoUpdates": "Automatyczne aktualizacje",
       "autoUpdatesDesc": "cmux automatycznie sprawdza aktualizacje przez Sparkle. Gdy aktualizacja jest dostępna, zobaczysz wskaźnik aktualizacji na pasku tytułu. Możesz też sprawdzić ręcznie przez cmux > Sprawdź aktualizacje w pasku menu.",
-      "sessionRestore": "Przywracanie układu i obsługiwanych sesji agentów",
+      "sessionRestore": "Przywracanie sesji (obecne zachowanie)",
       "sessionRestoreDesc": "Po ponownym uruchomieniu cmux przywraca tylko układ i metadane:",
       "sessionItem1": "Układ okien, workspace'ów i paneli",
       "sessionItem2": "Katalogi robocze",
@@ -1807,7 +1807,7 @@
       "exampleAgentButtonsUse": "Dodanie Codexjednym kliknięciem, Claudelub niestandardowych launcherów agentów, przy jednoczesnym zachowaniu widocznych wbudowanych przycisków kart.",
       "customizationExamplesCallout": "Szczegółowe fragmenty znajdują się w <code>skills/cmux-customization/references/examples.md</code>. Agenci ładują ten plik tylko wtedy, gdy potrzebny jest wzorzec biblioteki przykładów.",
       "customizationExamplePrompts": "Przykładowe prompty",
-      "customizationPromptWorktree": "Użyj dostosowania $cmux-customization skonfigurowania przykładu agentów w drzewie roboczym.",
+      "customizationPromptWorktree": "Użyj $cmux-customization, aby skonfigurować przykład agentów w drzewie roboczym.",
       "customizationPromptFullStack": "Użyj $cmux-customization, aby stworzyć projekt lokalny układ full-stack-dev z kontrolą Dock.",
       "customizationPromptAgentButtons": "Użyj $cmux-customization, aby dodać przyciski szybkiego agenta dla Codex i Claude.",
       "diagnosticsScope": "Sprawdzenia stanu CLI dostępności, dostępu do socketu, środowiska cmux , walidacji ustawień, markerów instalacji hooków, magazynów sesji, ustawień automatycznego wznowienia oraz obsługiwanych binarnych operatorów agentów.",
@@ -2261,7 +2261,7 @@
     "ohMyClaudeCode": {
       "title": "oh-my-claudecode",
       "metaTitle": "oh-my-claudecode - cmux",
-      "metaDescription": "Uruchom Oh My Claude Code (OMC cmux z natywną integracją split pane do orkiestracji wieloagentowej.",
+      "metaDescription": "Uruchom Oh My Claude Code (OMC) wewnątrz cmux z natywną integracją dzielonych paneli do orkiestracji wieloagentowej.",
       "intro": "cmux omc uruchamia Oh My Claude Code (OMC) w środowisku świadomym cmux. OMC to system orkiestracji wieloagentowej dla Claude Code z 19 wyspecjalizowanymi agentami, inteligentnym routowaniem modeli i potokami zespołowymi opartymi na tmux. Gdy OMC tworzy panele drużyn, staje się natywnym cmux split.",
       "usage": "Zastosowanie",
       "usageDesc": "Wszystkie argumenty po OMC są przekazywane do OMC CLI.",
@@ -2393,7 +2393,7 @@
         },
         "disputes": {
           "heading": "8. Rozstrzyganie sporów",
-          "arbitration": "Zgadzasz się, że wszelkie spory między Tobą a Firmą dotyczące Aplikacji lub tych Warunków zostaną rozstrzygnięte w drodze wiążącego arbitrażu, a nie w sądzie, z wyjątkiem tego, że każda ze stron może wnieść indywidualne roszczenia do sądu drobnych roszczeń lub ubiegać się o sprawiedliwe odszkodowanie za nadużycie własności intelektualnej. Arbitraż będzie prowadzony przez JAMS zgodnie z obowiązującymi zasadami.",
+          "arbitration": "Zgadzasz się, że wszelkie spory między Tobą a Firmą dotyczące Aplikacji lub tych Warunków zostaną rozstrzygnięte w drodze wiążącego arbitrażu, a nie w sądzie, z wyjątkiem tego, że każda ze stron może wnieść indywidualne roszczenia do sądu drobnych roszczeń lub dochodzić niepieniężnych środków ochrony prawnej, w tym nakazu sądowego, w przypadku naruszenia praw własności intelektualnej. Arbitraż będzie prowadzony przez JAMS zgodnie z obowiązującymi zasadami.",
           "juryWaiver": "TY I SPÓŁKA ZRZEKACIE SIĘ WSZELKICH KONSTYTUCYJNYCH I USTAWOWYCH PRAW DO POZYWANIA W SĄDZIE I PROWADZENIA PROCESU PRZED SĘDZIĄ LUB ŁAWĄ PRZYSIĘGŁYCH.",
           "classWaiver": "TY I SPÓŁKA ZGADZACIE SIĘ, ŻE KAŻDA Z NICH MOŻE WNOSIĆ ROSZCZENIA PRZECIWKO DRUGIEJ WYŁĄCZNIE INDYWIDUALNIE, A NIE NA ZASADZIE KLASOWEJ, REPREZENTATYWNEJ CZY ZBIOROWEJ.",
           "optOut": "Masz prawo zrezygnować z tej umowy arbitrażowej, wysyłając <email>founders@manaflow.com</email> pisemne powiadomienie w ciągu 30 dni od pierwszego podlegania tej umowy."

@@ -291,13 +291,20 @@ export function linkedText(text: string, locale: string): ReactNode[] {
     const index = match.index ?? 0;
     if (index > cursor) nodes.push(text.slice(cursor, index));
     const href = match[2];
+    const sameOriginPath =
+      href.startsWith("https://cmux.com/")
+        ? href.slice("https://cmux.com".length)
+        : href === "https://cmux.com"
+          ? "/"
+          : null;
+    const localizedHref = href.startsWith("/") ? href : sameOriginPath;
     nodes.push(
-      href.startsWith("/") ? (
+      localizedHref ? (
         <ContentLocaleLink
           key={`${index}-${href}`}
           contentLocales={locales}
           currentLocale={locale}
-          href={href}
+          href={localizedHref}
         >
           {match[1]}
         </ContentLocaleLink>

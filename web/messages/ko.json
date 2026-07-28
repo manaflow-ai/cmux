@@ -239,7 +239,7 @@
         "unknown": "알 수 없음"
       },
       "cancel": {
-        "body": "프로 접근 권한은 {date}년까지 유효합니다. 현재 결제 기간 종료 시 취소 확인 박스를 확인하세요.",
+        "body": "프로 접근 권한은 {date}까지 유효합니다. 현재 결제 기간 종료 시 취소 확인 박스를 확인하세요.",
         "teamBody": "팀 접근은 {date}일까지 유효합니다. 현재 결제 기간 종료 시 취소 확인 박스를 확인하세요.",
         "checkbox": "제 계획은 현재 기간 종료 시점에 종료된다는 것을 알고 있습니다."
       },
@@ -582,8 +582,8 @@
         "cmuxTitle": "cmux는 워크플로우에 표면을 제공합니다.",
         "cmuxP1": "cmux에는 내장된 범용 작업 트리 관리자가 필요하지 않습니다. <customCommands>사용자 정의 명령</customCommands>, 프로그래밍 가능한 <api>CLI 및 소켓 API</api>, 재사용 가능한 <skills>skills</skills>를 제공합니다. 더하기 버튼을 사용하면 자체 작업 트리 명령, 다중 저장소 설정, git 없는 샌드박스 또는 원격 환경을 시작할 수 있습니다.",
         "cmuxP2": "이것이 <home>cmux home</home>가 중요한 이유입니다. 최고의 작업 트리 관리자는 워크플로가 변경될 때 에이전트가 변경할 수 있는 관리자이며, 해당 루프에 가장 적합한 터미널은 알림, Cmd+Shift+U 및 Cmd+Control+U를 표면에 연결해 유지합니다.",
-        "agentsExample": "당신은 cmux사에서 근무하고 있습니다. 업무는 다음과 같을 수 있습니다: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\n사용자가 새 작업을 요청할 때: \n1. 작업에 필요한 저장소를 결정한다. \n2. worktrees/[task]/[repo]에서 매칭되는 워크트리를 생성합니다. \n3. 각 워크트리의 AGENTS.md을 읽으세요. \n4. 설정 스크립트를 즉시 시작한 후 작업을 계속합니다.",
-        "launchCommand": "CD ~/fun/cmux-hq \n코덱스 --yolo \"서브라우터 XYZ 문제를 해결하기, xyz 방식으로 cmux 와 관련이 있을 수 있다\"고 적혀 있습니다."
+        "agentsExample": "cmux-hq에서 작업하고 있습니다. 업무는 다음과 같을 수 있습니다: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\n사용자가 새 작업을 요청할 때: \n1. 작업에 필요한 저장소를 결정한다. \n2. worktrees/[task]/[repo]에서 매칭되는 워크트리를 생성합니다. \n3. 각 워크트리의 AGENTS.md을 읽으세요. \n4. 설정 스크립트를 즉시 시작한 후 작업을 계속합니다.",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"서브라우터 XYZ 문제를 해결하세요. cmux와 관련이 있을 수 있습니다\""
       },
       "cmuxFork": {
         "title": "cmux Fork 소개",
@@ -1020,7 +1020,7 @@
       "attachNewWindow": "--new-window 현재 창 대신 전용 새 창에서 거울을 열도록 패스하세요.",
       "attachSockets": "아래의 remote.tmux.* 소켓 명령어가 더 세밀한 제어를 제공합니다. remote.tmux.mirror는 미러 진입점이며; 창/호출자 라우팅을 수락하며 선택적으로 미러된 작업 공간을 선택할 수 있습니다.",
       "attachCli": "비인터랙티브로 인증하는 호스트(ssh-agent 또는 ~/.ssh/config키)는 아무런 안내 없이 연결합니다. 호스트가 대화형 인증(비밀번호, 호스트 키 확인, MFA)이 필요하면, cmux 터미널에서 ssh를 인라인으로 실행하여 인증한 후 현재 창에 미러링합니다. --port, --identity, --no-focus를 받습니다.",
-      "troubleshootTitle": "만약 \"허가 거부됨\"을 받는다면,",
+      "troubleshootTitle": "\"Permission denied\" 오류가 표시되는 경우",
       "troubleshootDesc": "목적지는 있는 그대로 ssh에 전달되므로, 별칭은 ssh가 로그인하는 데 필요한 모든 것을 담아야 합니다 — 가장 흔히 User(별칭 없이는 ssh가 로컬 사용자 이름을 시도합니다)와 IdentityFile입니다:",
       "troubleshootFallback": "또는 사용자에게 명시적으로 전달할 수 있습니다: cmux ssh-tmux dev@my-ssh-alias. 일반 ssh <destination> 가 로그인하지 않는다면, cmux ssh-tmux <destination> 도 로그인하지 않습니다.",
       "howTitle": "작동 원리",

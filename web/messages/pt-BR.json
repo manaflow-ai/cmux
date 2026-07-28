@@ -775,8 +775,8 @@
         "cmuxTitle": "cmux dá uma superfície ao workflow",
         "cmuxP1": "cmux não precisa de um gerenciador universal de worktree embutido. Ele oferece <customCommands>comandos personalizados</customCommands>, uma <api>CLI e socket API</api> programáveis e <skills>skills</skills> reutilizáveis. O botão de mais pode iniciar seu próprio comando de worktree, setup multi-repo, sandbox sem Git ou ambiente remoto.",
         "cmuxP2": "É por isso que <home>cmux home</home> importa. O melhor gerenciador de worktree é aquele que seus agentes conseguem mudar quando seu workflow muda, e o melhor terminal para esse ciclo mantém notificações, Cmd+Shift+U e Cmd+Control+U conectados à superfície.",
-        "agentsExample": "Você está trabalhando na sede cmux. As tarefas podem envolver: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nQuando o usuário pede uma nova tarefa: \n1. Decidir quais repositórios a tarefa precisa. \n2. Criar árvores de trabalho correspondentes em worktrees/[task]/[repo]. \n3. Leia as AGENTS.md de cada árvore de trabalho. \n4. Inicie os scripts de configuração imediatamente e continue a tarefa.",
-        "launchCommand": "CD ~/fun/cmux-hq \nO códex --yolo \"Corrigir problemas do subroteador XYZ, pode estar relacionado a cmux de determinada forma\""
+        "agentsExample": "Você está trabalhando no cmux-hq. As tarefas podem envolver: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nQuando o usuário pede uma nova tarefa: \n1. Decidir quais repositórios a tarefa precisa. \n2. Criar árvores de trabalho correspondentes em worktrees/[task]/[repo]. \n3. Leia as AGENTS.md de cada árvore de trabalho. \n4. Inicie os scripts de configuração imediatamente e continue a tarefa.",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"Corrigir problemas do subroteador XYZ, pode estar relacionado a cmux de determinada forma\""
       },
       "cmuxClaudeTeams": {
         "title": "Claude Code agentes de equipe como painéis nativos cmux",
@@ -1019,8 +1019,8 @@
       "attachIntro": "Execute cmux ssh-tmux <destination> em um terminal — um alias ~/.ssh/config ou user@host. cmux espelha as sessões tmux daquele host na barra lateral da janela atual: cada sessão se torna um espaço de trabalho, cada janela uma aba, e janelas multi-painéis se tornam divisões dentro da aba.",
       "attachNewWindow": "Passe --new-window para abrir o espelho em uma janela nova dedicada em vez da janela atual.",
       "attachSockets": "Os comandos remote.tmux.* socket (abaixo) oferecem um controle mais preciso. remote.tmux.mirror é o ponto de entrada do espelho; aceita roteamento janela/chamador e pode opcionalmente selecionar o espaço de trabalho espelhado.",
-      "attachCli": "Hosts que se autenticam de forma não interativa (ssh-agent ou uma chave em ~/.ssh/config) se conectam sem nenhum aviso. Se o host precisar de autenticação interativa (uma senha, confirmação de chave de host ou MFA), cmux executa ssh inline no seu terminal para que você possa autenticar, depois espelha na janela atual. Aceita --port, --identitye --no-focus.",
-      "troubleshootTitle": "Se você receber \"Permissão negada\"",
+      "attachCli": "Hosts que se autenticam de forma não interativa (ssh-agent ou uma chave em ~/.ssh/config) se conectam sem nenhum aviso. Se o host precisar de autenticação interativa (uma senha, confirmação de chave de host ou MFA), cmux executa ssh inline no seu terminal para que você possa autenticar, depois espelha na janela atual. Aceita --port, --identity e --no-focus.",
+      "troubleshootTitle": "Se você receber \"Permission denied\"",
       "troubleshootDesc": "O destino é passado para o ssh como está, então um alias deve carregar tudo o que o ssh precisa para fazer login — mais comumente User (sem ele, o ssh tenta seu nome de usuário local) e IdentityFile:",
       "troubleshootFallback": "Ou passe explicitamente para o usuário: cmux ssh-tmux dev@my-ssh-alias. Se o <destination> ssh simples não te loginar, cmux ssh-tmux <destination> também não vai.",
       "howTitle": "Como funciona",

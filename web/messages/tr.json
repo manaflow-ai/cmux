@@ -240,7 +240,7 @@
       },
       "cancel": {
         "body": "Pro erişiminiz {date}'a kadar aktif kalır. Dönem sonunda iptal onaylamak için kutuyu işaretleyin.",
-        "teamBody": "Takım erişimi {date} yılına kadar aktif kalır. Dönem sonunda iptal onaylamak için kutuyu işaretleyin.",
+        "teamBody": "Takım erişimi {date} tarihine kadar aktif kalır. Dönem sonunda iptal onaylamak için kutuyu işaretleyin.",
         "checkbox": "Planımın mevcut dönem sonunda sona ereceğini anlıyorum."
       },
       "actions": {
@@ -775,8 +775,8 @@
         "cmuxTitle": "cmux iş akışına bir yüzey kazandırır",
         "cmuxP1": "cmux yerleşik bir evrensel worktree yöneticisine ihtiyaç duymaz. Size <customCommands>özel komutlar</customCommands>, programlanabilir bir <api>CLI ve soket API</api> ve yeniden kullanılabilir <skills>beceriler</skills> verir. Artı düğmesi kendi worktree komutunuzu, çoklu depo kurulumunuzu, no-git korumalı alanınızı veya uzak ortamınızı başlatabilir.",
         "cmuxP2": "Bu nedenle <home>cmux home</home> önemlidir. En iyi worktree yöneticisi, iş akışınız değiştiğinde temsilcilerinizin değiştirebileceği yöneticidir ve bu döngü için en iyi terminal, Cmd+Shift+U ve Cmd+Control+U bildirimlerini yüzeye bağlı olarak tutar.",
-        "agentsExample": "cmux-merkezde çalışıyorsunuz. Görevler şunları içerebilir: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nKullanıcı yeni bir görev istediğinde: \n1. Görevin hangi depolara ihtiyacı olduğuna karar verin. \n2. worktrees/[task]/[repo]'de uyumlu çalışma ağaçları oluşturun. \n3. Her çalışma ağacının AGENTS.md okuyun. \n4. Kurulum betiklerini hemen başlatın, sonra göreve devam edin.",
-        "launchCommand": "CD ~/fun/cmux-hq \nCodex --yolo \"Alt yönlendirici XYZ sorunlarını düzeltin, cmux ile xyz şekilde ilişkilendirilebilir\""
+        "agentsExample": "cmux-hq içinde çalışıyorsunuz. Görevler şunları içerebilir: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nKullanıcı yeni bir görev istediğinde: \n1. Görevin hangi depolara ihtiyacı olduğuna karar verin. \n2. worktrees/[task]/[repo]'de uyumlu çalışma ağaçları oluşturun. \n3. Her çalışma ağacının AGENTS.md okuyun. \n4. Kurulum betiklerini hemen başlatın, sonra göreve devam edin.",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"Alt yönlendirici XYZ sorunlarını düzeltin, cmux ile xyz şekilde ilişkilendirilebilir\""
       },
       "cmuxClaudeTeams": {
         "title": "Claude Code takım arkadaşı ajanları yerel cmux panelleri olarak",
@@ -1020,7 +1020,7 @@
       "attachNewWindow": "Aynayı mevcut pencere yerine yeni bir pencerede açmak için --new-window ver.",
       "attachSockets": "remote.tmux.* soketi komutları (aşağıda) daha ince kontrol sağlar. remote.tmux.mirror ayna giriş noktasıdır; pencere/çağıran yönlendirmesini kabul eder ve isteğe bağlı olarak aynalanan çalışma alanını seçebilir.",
       "attachCli": "Etkileşimsiz kimlik doğrulama sağlayan ana bilgisayarlar (ssh-agent veya ~/.ssh/configiçindeki anahtar) herhangi bir prompt olmadan bağlanır. Eğer ana bilgisayar etkileşimli kimlik doğrulama (şifre, ana anahtarı onayı veya MFA) gerekiyorsa, cmux terminalinizde ssh inline çalıştırır ki kimlik doğrulama yapabilesiniz, ardından mevcut pencereye yansıtma yapar. --port, --identityve --no-focuskabul eder.",
-      "troubleshootTitle": "\"İzin reddedildi\" alırsan.",
+      "troubleshootTitle": "\"Permission denied\" hatası alırsanız",
       "troubleshootDesc": "Hedef olduğu gibi ssh'ye verilir, yani bir takma ad, giriş için gereken her şeyi ssh taşımalıdır — en yaygın olarak Kullanıcı (ssh olmadan ssh yerel kullanıcı adınızı dener) ve IdentityFile'i taşımalıdır:",
       "troubleshootFallback": "Ya da kullanıcıya açıkça ilet: cmux ssh-tmux dev@my-ssh-alias. Eğer sade ssh <destination> sizi giriş yapmazsa, cmux ssh-tmux <destination> de girmez.",
       "howTitle": "Nasıl çalışır",
@@ -2259,7 +2259,7 @@
     "ohMyClaudeCode": {
       "title": "oh-my-claudecode",
       "metaTitle": "oh-my-claudecode - cmux",
-      "metaDescription": "Oh My Claude Code (OMC cmux içinde çok ajanlı orkestrasyon için yerel bölünmüş panel entegrasyonu ile çalıştırın.",
+      "metaDescription": "Oh My Claude Code'u (OMC) çok ajanlı orkestrasyon için yerel bölünmüş panel entegrasyonuyla cmux içinde çalıştırın.",
       "intro": "cmux omc, Oh My Claude Code (OMC)'yi cmux bilinçli bir ortamda başlatıyor. OMC, 19 uzman ajan, akıllı model yönlendirme ve tmux tabanlı ekip boru hatları ile Claude Code için çok ajanlı bir düzenleme sistemidir. OMC takım panelleri oluşturduğunda, bunlar yerel cmux bölünmelere dönüşür.",
       "usage": "Kullanım",
       "usageDesc": "Omc'den sonraki tüm argümanlar omc CLIiletir.",

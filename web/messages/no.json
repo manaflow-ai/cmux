@@ -205,7 +205,7 @@
       "banners": {
         "cancelled": "Planen din vil kanselleres ved slutten av gjeldende faktureringsperiode.",
         "resumed": "Planen din er gjenopptatt og vil fornyes som normalt.",
-        "nosub": "Det ble ikke funnet noe aktivt Stripe-abonnement for denne kontoen.",
+        "nosub": "Fant ikke noe aktivt abonnement for denne kontoen.",
         "error": "Faktureringen kunne ikke oppdateres. Prøv igjen snart."
       },
       "free": {
@@ -253,7 +253,7 @@
     },
     "nav": {
       "brand": "cmux",
-      "vaultGroup": "Hvelv",
+      "vaultGroup": "Vault",
       "vaultOverview": "Oversikt",
       "vaultSessions": "Sesjoner",
       "vaultCliSetup": "CLI-oppsett",
@@ -266,7 +266,7 @@
     "home": {
       "title": "Dashbord",
       "description": "Velg et produktdashbord.",
-      "vaultName": "Hvelv",
+      "vaultName": "Vault",
       "vaultDescription": "Bla gjennom synkroniserte agentøkter og administrer CLI-tilgang.",
       "vaultLink": "Åpne Vault",
       "subrouterName": "Subruter",
@@ -780,7 +780,7 @@
       },
       "cmuxClaudeTeams": {
         "title": "Claude Code-lagkameratagenter som native cmux-paneler",
-        "summary": "Claude Codesin lagkameratmodus krever tmux. cmux later som lagkamerater blir native splits med sidepanelmetadata og varsler.",
+        "summary": "Claude Codes lagkameratmodus krever tmux. I cmux blir lagkamerater native splits med sidepanelmetadata og varsler.",
         "date": "30. mars 2026",
         "p1": "Claude Code har en eksperimentell <agentTeamsLink>lagkameratmodus</agentTeamsLink> som spawner underagenter parallelt. Den krever tmux og innstilling <code>CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1</code>. <code>cmux claude-teams</code> håndterer alt dette for deg: den setter env-varen, plasserer en tmux shim på PATH som oversetter alle tmux kommandoer (<code>split-window</code>, <code>send-keys</code>, <code>capture-pane</code>) til cmuxsin native split/workspace API, og execs inn i <code>claude --teammate-mode auto</code>. Én kommando.",
         "p2": "Shimen oversetter <code>split-window</code> til <code>surface.split</code>, <code>send-keys</code> til <code>surface.send_text</code>, <code>capture-pane</code> til <code>surface.read_text</code>. Lagkamerater stables vertikalt i en høyre kolonne, og utjevner automatisk når agenter spawner og går ut. Hvert panel vises i sidepanelet med varsler. Fungerer over SSH via Go-relé-daemonen.",
@@ -980,7 +980,7 @@
     },
     "cmuxClaudeTeams": {
       "metaTitle": "Claude Code-lagkameratagenter som native cmux-paneler",
-      "metaDescription": "Claude Codesin lagkameratmodus krever tmux. cmux later som lagkamerater blir native splits med sidepanelmetadata og varsler."
+      "metaDescription": "Claude Codes lagkameratmodus krever tmux. I cmux blir lagkamerater native splits med sidepanelmetadata og varsler."
     },
     "cmuxOmo": {
       "metaTitle": "oh-my-openagent-underagenter som native cmux-paneler",
@@ -999,7 +999,7 @@
     "remoteTmux": {
       "moshContrast": "Bruk cmux mosh-tmux for roaming mellom nettverk. Den åpner en fullt integrert Mosh-terminal koblet til en navngitt tmux-økt; den erstatter ikke den innebygde speilingen av arbeidsområder, faner og delinger fra SSH tmux-kontrollmodus.",
       "title": "Ekstern tmux",
-      "metaTitle": "Fjern tmux (beta)",
+      "metaTitle": "Ekstern tmux (beta)",
       "metaDescription": "Kjør en ekstern tmux -økt fra cmux over SSH ved å bruke tmux kontrollmodus. Sesjoner blir arbeidsområder, vinduer blir faner, og vinduspanelene blir en innebygd cmux delt.",
       "intro": "Remote tmux speiler en tmux økt som kjører på en ekstern maskin inn i cmux over SSH, ved bruk av tmux kontrollmodus (tmux -CC). I stedet for en vanlig SSH terminal, projiseres den eksterne sesjonen inn i cmuxsitt native UI — arbeidsområder, faner, splits, scrollback og kopiering — og cmux styrer den ekte tmux -serveren bak den. Det er et Beta Features-flagg og endrer ikke lokale terminaler.",
       "betaNote": "Beta. Denne funksjonen er frivillig og stabiliserer seg fortsatt — se begrensningene nedenfor.",
@@ -1020,7 +1020,7 @@
       "attachNewWindow": "La --new-window åpne speilet i et dedikert nytt vindu i stedet for det nåværende vinduet.",
       "attachSockets": "Socket-kommandoene remote.tmux.* nedenfor gir mer detaljert kontroll. remote.tmux.mirror er inngangspunktet for speiling; det støtter vindus- og anropsruting og kan velge det speilede arbeidsområdet.",
       "attachCli": "Verter som autentiserer ikke-interaktivt (ssh-agent eller en nøkkel i ~/.ssh/config) kobler seg til uten noen prompt. Hvis verten trenger interaktiv autentisering (passord, vertsnøkkelbekreftelse eller MFA), kjører cmux ssh inline i terminalen din slik at du kan autentisere, og speiler deretter inn i det nåværende vinduet. Godtar --port, --identity, og --no-focus.",
-      "troubleshootTitle": "Hvis du får \"Tillatelse avslått\"",
+      "troubleshootTitle": "Hvis du får \"Permission denied\"",
       "troubleshootDesc": "Destinasjonen blir gitt til ssh som den er, så et alias må bære alt ssh trenger for å logge inn — oftest bruker (uten det prøver ssh ditt lokale brukernavn) og IdentityFile:",
       "troubleshootFallback": "Eller send brukeren eksplisitt: cmux ssh-tmux dev@my-ssh-alias. Hvis vanlig ssh <destination> ikke logger deg inn, vil ikke cmux ssh-tmux <destination> heller ikke.",
       "howTitle": "Hvordan det fungerer",
@@ -1860,7 +1860,7 @@
       "ssh": "SSH",
       "remoteTmux": "Ekstern tmux",
       "ohMyPi": "oh-my-pi",
-      "vault": "Hvelv",
+      "vault": "Vault",
       "taskManager": "Oppgavebehandler"
     },
     "dock": {
@@ -2290,8 +2290,8 @@
       "envSocket": "Vei til den cmux kontrollkontakten for at shimen skal kobles til"
     },
     "vault": {
-      "title": "Hvelv",
-      "metaTitle": "Hvelv",
+      "title": "Vault",
+      "metaTitle": "Vault",
       "metaDescription": "Søk i gamle Codex-, Claude Code-, OpenCode- og Pi-økter i cmux Vault, og åpne deretter en økt på nytt i arbeidsområdet der du trenger den.",
       "intro": "Vault er et panel i høyre sidefelt for å finne gamle AI-kodeagentøkter basert på transkripsjonsinnhold i stedet for terminalhistorikk.",
       "indexesTitle": "Hva Vault indekserer",
@@ -4760,7 +4760,7 @@
       "never": "Aldri"
     },
     "cliAuth": {
-      "section": "Hvelv",
+      "section": "Vault",
       "eyebrow": "cmux Vault",
       "title": "Godkjenn CLI tilgang",
       "description": "Bekreft koden som vises av cmux-vault for å koble denne enheten til din innloggede cmux -konto.",
@@ -4771,7 +4771,7 @@
       "error": "Kunne ikke godkjenne denne koden. Sjekk at den ikke har utløpt."
     },
     "sessions": {
-      "section": "Hvelv",
+      "section": "Vault",
       "eyebrow": "cmux Vault",
       "title": "Synkroniserte økter",
       "description": "Nylige transkripsjoner av kodeagenter synkronisert fra dine lokale maskiner.",

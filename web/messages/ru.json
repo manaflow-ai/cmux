@@ -775,8 +775,8 @@
         "cmuxTitle": "cmux дает workflow поверхность",
         "cmuxP1": "cmux не нужен встроенный универсальный менеджер worktree. Он дает <customCommands>пользовательские команды</customCommands>, программируемые <api>CLI и socket API</api> и переиспользуемые <skills>skills</skills>. Кнопка plus может запускать вашу команду worktree, multi-repo setup, no-git sandbox или удаленную среду.",
         "cmuxP2": "Поэтому <home>cmux home</home> важен. Лучший менеджер worktree — тот, который ваши агенты могут изменить, когда меняется workflow.",
-        "agentsExample": "Вы работаете в cmux-штабе. Задачи могут включать: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nКогда пользователь просит новую задачу: \n1. Определите, какие репозитории нужны задаче. \n2. Создайте подходящие рабочие деревья в worktrees/[task]/[repo]. \n3. Прочитайте AGENTS.md каждого рабочего дерева. \n4. Сразу запустите настройки скриптов, затем продолжите задачу.",
-        "launchCommand": "CD ~/fun/cmux-hq \nCodex --yolo «исправить проблемы с XYZ подроутером, возможно, это связано с cmux в xyz формате»"
+        "agentsExample": "Вы работаете в cmux-hq. Задачи могут включать: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nКогда пользователь просит новую задачу: \n1. Определите, какие репозитории нужны задаче. \n2. Создайте подходящие рабочие деревья в worktrees/[task]/[repo]. \n3. Прочитайте AGENTS.md каждого рабочего дерева. \n4. Сразу запустите настройки скриптов, затем продолжите задачу.",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"исправить проблемы с XYZ подроутером, возможно, это связано с cmux в xyz формате\""
       },
       "cmuxClaudeTeams": {
         "title": "Claude Code агенты напарников в роли нативных cmux панелей",
@@ -1020,7 +1020,7 @@
       "attachNewWindow": "Передайте --new-window открыть зеркало в отдельном новом окне вместо текущего.",
       "attachSockets": "Команды remote.tmux.* сокета (ниже) обеспечивают более тонкий контроль. remote.tmux.mirror — это точка входа зеркала; она принимает маршрутизацию окна/вызывающего и может по желанию выбрать зеркальное рабочее пространство.",
       "attachCli": "Хосты, которые аутентифицируются неинтерактивно (ssh-agent, или ключ в ~/.ssh/config), присоединяются без запроса. Если хосту нужна интерактивная аутентификация (пароль, подтверждение ключа хоста или MFA), cmux запускает ssh inline в вашем терминале для аутентификации, затем зеркалирует в текущем окне. Принимает --port, --identityи --no-focus.",
-      "troubleshootTitle": "Если вы получите «Разрешение отказано»",
+      "troubleshootTitle": "Если появляется ошибка «Permission denied»",
       "troubleshootDesc": "Получатель передаётся в ssh как есть, поэтому псевдоним должен нести всё необходимое для входа — чаще всего User (без него ssh пробует ваш локальный логин) и IdentityFile:",
       "troubleshootFallback": "Или передайте пользователю явно: cmux ssh-tmux dev@my-ssh-alias. Если обычный ssh <destination> не входит в систему, cmux ssh-tmux <destination> тоже не будет.",
       "howTitle": "Как это работает",

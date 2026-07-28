@@ -582,8 +582,8 @@
         "cmuxTitle": "cmux 为工作流程提供了一个界面",
         "cmuxP1": "cmux 不需要内置一个通用 worktree 管理器。它提供<customCommands>自定义命令</customCommands>、可编程的<api>CLI 和 socket API</api>，以及可复用的<skills>技能</skills>。加号按钮可以启动你自己的 worktree 命令、多仓库设置、非 Git 沙盒或远程环境。",
         "cmuxP2": "这就是 <home>cmux home</home> 重要的原因。最好的 worktree 管理器，是当工作流变化时你的代理也能修改的那个；而最适合这个循环的终端，会把通知、Cmd+Shift+U 和 Cmd+Control+U 接到界面里。",
-        "agentsExample": "你正在cmux部工作。任务可能包括：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\n当用户请求新任务时：\n1. 确定任务需要哪些仓库。\n2. 在worktrees/[task]/[repo]中创建匹配的工作树。\n3. 阅读每个工作树的 AGENTS.md。\n4. 立即启动其设置脚本，然后继续执行任务。",
-        "launchCommand": "CD的 ~/fun/cmux-hq\nCodex --yolo “修复子路由器 xyz 问题，可能以 xyz 方式与 cmux 相关”"
+        "agentsExample": "你正在 cmux-hq 中工作。任务可能包括：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\n当用户请求新任务时：\n1. 确定任务需要哪些仓库。\n2. 在worktrees/[task]/[repo]中创建匹配的工作树。\n3. 阅读每个工作树的 AGENTS.md。\n4. 立即启动其设置脚本，然后继续执行任务。",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"修复子路由器 xyz 问题，可能与 cmux 相关\""
       },
       "cmuxFork": {
         "title": "cmux Fork 正式推出",
@@ -1020,7 +1020,7 @@
       "attachNewWindow": "通过 --new-window ，在专用新窗口中打开镜子，而不是当前窗口。",
       "attachSockets": "remote.tmux.*套接字命令（如下图）提供了更细致的控制。remote.tmux.mirror 是镜像入口点;它接受窗口/调用者路由，并可选择镜像工作区。",
       "attachCli": "非交互式认证的主机（ssh-agent，或 ~/.ssh/config中的密钥）无需提示即可连接。如果主机需要交互式认证（密码、主机密钥确认或 MFA）， cmux 会在终端内联运行ssh以便认证，然后镜像到当前窗口。接受 --port、 --identity和 --no-focus。",
-      "troubleshootTitle": "如果你收到“许可被拒”",
+      "troubleshootTitle": "如果出现“Permission denied”错误",
       "troubleshootDesc": "目的地是按原样交给 ssh，因此别名必须包含 ssh 登录所需的一切——最常见的是 User（没有别名，ssh 会尝试你的本地用户名）和 IdentityFile：",
       "troubleshootFallback": "或者明确传递给用户： cmux ssh-tmux dev@my-ssh-alias。如果普通 ssh <destination> 不让你登录， cmux ssh-tmux <destination> 也不会。",
       "howTitle": "工作原理",
@@ -4645,7 +4645,7 @@
         }
       ]
     },
-    "help": "有问题？请提交 <github>GitHub issue</github>，或发送电子邮件至 <email>founders@manaflow.com</email>。",
+    "help": "有问题？加入我们的 <discord>Discord</discord>、提交 <github>GitHub issue</github>，或发送电子邮件至 <email>founders@manaflow.com</email>。",
     "faq": {
       "title": "FAQ",
       "items": [

@@ -789,9 +789,9 @@
       },
       "cmuxOmo": {
         "title": "oh-my-openagent subagentes como paneles de cmux nativos",
-        "summary": "oh-my-openagent orquesta agentes especialistas Claude, GPTy Gemini en paralelo. cmux omo convierte cada panel tmux en una división nativa.",
+        "summary": "oh-my-openagent orquesta agentes especialistas Claude, GPT y Gemini en paralelo. cmux omo convierte cada panel tmux en una división nativa.",
         "date": "30 de marzo de 2026",
-        "p1": "<code>cmux omo</code> integra oh-my-openagent (antes oh-my-opencode), un plugin para OpenCode que orquesta agentes especialistas en Claude, GPTy Gemini en paralelo. Cada agente tiene su propio panel de tmux. <code>cmux omo</code> usa el mismo tmux shim que <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>: falso <code>TMUX</code> env var, cada comando tmux traducido a cmux se separa. Autoinstala el plugin en una configuración sombra para que <code>~/.config/opencode</code> permanezca intacto.",
+        "p1": "<code>cmux omo</code> integra oh-my-openagent (antes oh-my-opencode), un plugin para OpenCode que orquesta agentes especialistas en Claude, GPT y Gemini en paralelo. Cada agente tiene su propio panel de tmux. <code>cmux omo</code> usa el mismo tmux shim que <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>: falso <code>TMUX</code> env var, cada comando tmux traducido a cmux se separa. Autoinstala el plugin en una configuración sombra para que <code>~/.config/opencode</code> permanezca intacto.",
         "p2": "La cuña también intercepta <code>terminal-notifier</code> llamadas y las enruta a través de <code>cmux notify</code>. Funciona sobre SSH mediante el demonio de relé Go.",
         "readDocs": "Lee la documentación"
       },
@@ -984,7 +984,7 @@
     },
     "cmuxOmo": {
       "metaTitle": "oh-my-openagent subagentes como paneles de cmux nativos",
-      "metaDescription": "oh-my-openagent orquesta agentes especialistas Claude, GPTy Gemini en paralelo. cmux omo convierte cada panel tmux en una división nativa."
+      "metaDescription": "oh-my-openagent orquesta agentes especialistas Claude, GPT y Gemini en paralelo. cmux omo convierte cada panel tmux en una división nativa."
     },
     "gpl": {
       "metaTitle": "cmux ahora es GPL",
@@ -1020,7 +1020,7 @@
       "attachNewWindow": "Pasa --new-window para abrir el espejo en una ventana nueva dedicada en lugar de la ventana actual.",
       "attachSockets": "Los comandos de socket remote.tmux.* que aparecen abajo ofrecen un control más preciso. remote.tmux.mirror es el punto de entrada del espejo; acepta enrutamiento por ventana y llamada, y puede seleccionar opcionalmente el espacio de trabajo espejado.",
       "attachCli": "Los hosts que se autentican de forma no interactiva (ssh-agent o una clave en ~/.ssh/config) se conectan sin aviso. Si el host necesita autenticación interactiva (una contraseña, confirmación de clave de host o MFA), cmux ejecuta ssh en línea en tu terminal para que puedas autenticarte, y luego se refleja en la ventana actual. Acepta --port, --identityy --no-focus.",
-      "troubleshootTitle": "Si te dejan \"Permiso denegado\"",
+      "troubleshootTitle": "Si aparece «Permission denied»",
       "troubleshootDesc": "El destino se entrega a ssh tal cual, por lo que un alias debe llevar todo lo que ssh necesita para iniciar sesión — lo más común es User (sin él, ssh prueba tu nombre de usuario local) y IdentityFile:",
       "troubleshootFallback": "O pasa explícitamente al usuario: cmux ssh-tmux dev@my-ssh-alias. Si el <destination> ssh simple no te inicia sesión, cmux ssh-tmux <destination> tampoco lo hará.",
       "howTitle": "Cómo funciona",
@@ -1448,7 +1448,7 @@
       "wsFieldEnv": "Variables de entorno heredadas por cada shell en el espacio de trabajo",
       "wsFieldSetup": "El comando de arranque se envía al primer terminal del espacio de trabajo antes que el comando propio de ese terminal",
       "workspaceActionsDefaultTitle": "Predeterminado para nuevos espacios de trabajo",
-      "workspaceActionsDefaultDesc": "Utiliza el submenú <defaultMenu>Default for New Workspace</defaultMenu> para elegir qué diseño de espacio de trabajo guardado debe ejecutarse en plano Nuevo Espacio de Trabajo, o elige Ninguno para volver a un terminal en blanco. El cuadro de diálogo de guardar también tiene una casilla <checkbox>Use as default for new workspaces</checkbox>. La configuración es <action>ui.newWorkspace.action</action>; un valor <localConfig>.cmux/cmux.json</localConfig> prevalece sobre <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
+      "workspaceActionsDefaultDesc": "Utiliza el submenú <defaultMenu>Default for New Workspace</defaultMenu> para elegir qué diseño de espacio de trabajo guardado debe ejecutarse al crear un espacio de trabajo nuevo sin más, o elige Ninguno para volver a un terminal en blanco. El cuadro de diálogo de guardar también tiene una casilla <checkbox>Use as default for new workspaces</checkbox>. La configuración es <action>ui.newWorkspace.action</action>; un valor <localConfig>.cmux/cmux.json</localConfig> prevalece sobre <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
       "title": "Atajos de teclado",
@@ -4577,7 +4577,7 @@
           "enterprise": "true"
         },
         {
-          "label": "Ejecución autoalojada y con aislada de la red",
+          "label": "Ejecución autoalojada y aislada de la red",
           "free": "false",
           "pro": "false",
           "team": "false",

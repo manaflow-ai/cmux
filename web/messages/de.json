@@ -582,8 +582,8 @@
         "cmuxTitle": "cmux gibt dem Workflow eine Oberfläche",
         "cmuxP1": "cmux benötigt keinen integrierten universellen Worktree-Manager. Es bietet Ihnen benutzerdefinierte <customCommands>-Befehle</customCommands>, einen programmierbaren <api>CLI und einen Socket API</api> sowie wiederverwendbare <skills>skills</skills>. Mit der Plus-Schaltfläche können Sie Ihren eigenen Worktree-Befehl, ein Multi-Repo-Setup, eine No-Git-Sandbox oder eine Remote-Umgebung starten.",
         "cmuxP2": "Deshalb ist <home>cmux home</home> wichtig. Der beste Worktree-Manager ist derjenige, den Ihre Agenten ändern können, wenn sich Ihr Workflow ändert, und das beste Terminal für diese Schleife hält Benachrichtigungen, Cmd+Shift+U und Cmd+Control+U in der Oberfläche fest.",
-        "agentsExample": "Sie arbeiten in cmux-HQ. Aufgaben können Folgendes umfassen: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nWenn der Nutzer nach einer neuen Aufgabe fragt: \n1. Entscheiden Sie, welche Repositories die Aufgabe benötigt. \n2. Erstellen Sie passende Arbeitsbäume in worktrees/[task]/[repo]. \n3. Lies die AGENTS.md jedes Arbeitsbaums. \n4. Starte sofort die Setup-Skripte und setze dann die Aufgabe fort.",
-        "launchCommand": "CD ~/fun/cmux-hq \nDer Codex --yolo \"Problem mit Subrouter XYZ beheben, könnte auf xyz-Weise mit cmux zusammenhängen\""
+        "agentsExample": "Sie arbeiten in cmux-hq. Aufgaben können Folgendes umfassen: \n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nWenn der Nutzer nach einer neuen Aufgabe fragt: \n1. Entscheiden Sie, welche Repositories die Aufgabe benötigt. \n2. Erstellen Sie passende Arbeitsbäume in worktrees/[task]/[repo]. \n3. Lies die AGENTS.md jedes Arbeitsbaums. \n4. Starte sofort die Setup-Skripte und setze dann die Aufgabe fort.",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"Problem mit Subrouter XYZ beheben, könnte auf xyz-Weise mit cmux zusammenhängen\""
       },
       "cmuxFork": {
         "title": "Wir stellen cmux Fork vor",
@@ -1020,7 +1020,7 @@
       "attachNewWindow": "Lass --new-window den Spiegel in einem dedizierten neuen Fenster statt im aktuellen Fenster öffnen.",
       "attachSockets": "Die remote.tmux.* Socket-Befehle (unten) bieten eine feinere Kontrolle. remote.tmux.mirror ist der Spiegel-Eintrittspunkt; er akzeptiert Fenster-/Aufrufer-Routing und kann optional den gespiegelten Arbeitsbereich auswählen.",
       "attachCli": "Hosts, die sich nicht-interaktiv authentifizieren (ssh-agent oder ein Schlüssel in ~/.ssh/config), werden ohne Aufforderung verbunden. Wenn der Host eine interaktive Authentifizierung benötigt (Passwort, Host-Schlüssel-Bestätigung oder MFA), führt cmux ssh inline in deinem Terminal aus, damit du dich authentifizieren kannst, und spiegelt dann in das aktuelle Fenster. Akzeptiert --port, --identity, und --no-focus.",
-      "troubleshootTitle": "Wenn du \"Erlaubnis verweigert\" bekommst.",
+      "troubleshootTitle": "Wenn „Permission denied“ angezeigt wird",
       "troubleshootDesc": "Das Ziel wird ssh wie es ist zugewiesen, sodass ein Alias alles tragen muss, was ssh zum Einloggen benötigt – am häufigsten User (ohne Alias, ssh versucht deinen lokalen Benutzernamen) und IdentityFile:",
       "troubleshootFallback": "Oder übergebe den Nutzer explizit: cmux ssh-tmux dev@my-ssh-alias. Wenn ein einfaches ssh <destination> dich nicht anmeldet, cmux ssh-tmux <destination> auch nicht.",
       "howTitle": "Wie es funktioniert",
