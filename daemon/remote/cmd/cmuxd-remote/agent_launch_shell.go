@@ -17,6 +17,20 @@ case "${1:-}" in
   -c|-lc|-ic|-lic|-ilc)
     shell_flags=$1
     shift
+    # Claude Code passes login mode as a separate token when capturing a shell
+    # snapshot: "$SHELL" -c -l <script>. Fold separate shell options back into
+    # the command-mode flag before selecting the script argument.
+    while [ "$#" -gt 1 ]; do
+      case "$1" in
+        -l|-i)
+          shell_flags="-${1#-}${shell_flags#-}"
+          shift
+          ;;
+        *)
+          break
+          ;;
+      esac
+    done
     if [ "$#" -eq 0 ] || [ -z "$shim_dir" ]; then
       exec "$original_shell" "$shell_flags" "$@"
     fi

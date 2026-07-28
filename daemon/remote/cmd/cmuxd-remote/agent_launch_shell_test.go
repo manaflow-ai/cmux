@@ -32,9 +32,9 @@ func TestClaudeTeamsShellSnapshotKeepsManagedTmuxAheadOfRebuiltPath(t *testing.T
 	snapshotPathLog := filepath.Join(root, "snapshot-path.log")
 	resolvedTmuxLog := filepath.Join(root, "resolved-tmux.log")
 	originalShell := filepath.Join(root, "zsh")
-	writeAgentLaunchTestExecutable(t, originalShell, `#!/bin/sh
+writeAgentLaunchTestExecutable(t, originalShell, `#!/bin/sh
 set -eu
-if [ "${1:-}" != "-lic" ]; then
+if [ "${1:-}" != "-lc" ]; then
   echo "unexpected shell argv: $*" >&2
   exit 64
 fi
@@ -46,9 +46,9 @@ exec /bin/sh -c "$1"
 	writeAgentLaunchTestExecutable(t, filepath.Join(profileBin, "tmux"), `#!/bin/sh
 exit 0
 `)
-	writeAgentLaunchTestExecutable(t, filepath.Join(agentBin, "claude"), `#!/bin/sh
+writeAgentLaunchTestExecutable(t, filepath.Join(agentBin, "claude"), `#!/bin/sh
 set -eu
-"$SHELL" -lic 'printf "%s\n" "$PATH" > "$CMUX_TEST_SNAPSHOT_PATH_LOG"'
+"$SHELL" -c -l 'printf "%s\n" "$PATH" > "$CMUX_TEST_SNAPSHOT_PATH_LOG"'
 PATH="$(cat "$CMUX_TEST_SNAPSHOT_PATH_LOG")"
 export PATH
 command -v tmux > "$CMUX_TEST_RESOLVED_TMUX_LOG"
