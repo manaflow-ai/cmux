@@ -9062,10 +9062,10 @@ impl Mux {
         };
         drop(registry);
 
-        for surface in removed {
+        for surface in &removed {
             self.purge_surface_side_tables(surface.id);
-            surface.kill();
         }
+        self.retire_surface_runtimes(removed);
         if terminal_count != 0 {
             let registry = self.workspace_registry.lock().unwrap();
             self.emit_terminal_registry_changed(&registry, terminal_revision);
