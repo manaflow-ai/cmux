@@ -9,6 +9,8 @@ final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
     let respondsToListings: Bool
     let applicationIdentifier: String
     let pageIdentifier: UInt64
+    let dropsFirstSessionSetup: Bool
+    private var didDropSessionSetup = false
     private(set) var sentSelectors: [String] = []
 
     init(
@@ -16,18 +18,27 @@ final class SuccessfulWebInspectorTransport: SimulatorWebInspectorTransport {
         respondsToCensus: Bool = true,
         respondsToListings: Bool = true,
         applicationIdentifier: String = "APP",
-        pageIdentifier: UInt64 = 7
+        pageIdentifier: UInt64 = 7,
+        dropsFirstSessionSetup: Bool = false
     ) {
         self.service = service
         self.respondsToCensus = respondsToCensus
         self.respondsToListings = respondsToListings
         self.applicationIdentifier = applicationIdentifier
         self.pageIdentifier = pageIdentifier
+        self.dropsFirstSessionSetup = dropsFirstSessionSetup
     }
 
     func send(propertyList: [String: Any]) throws {
         let selector = propertyList["__selector"] as? String
         if let selector { sentSelectors.append(selector) }
+        if selector == "_rpc_forwardSocketSetup:",
+           dropsFirstSessionSetup,
+           !didDropSessionSetup {
+            didDropSessionSetup = true
+            service?.releaseSessionWithoutMutationGate(emit: false)
+            return
+        }
         if selector == "_rpc_getConnectedApplications:" {
             guard respondsToCensus else { return }
             deliver([
