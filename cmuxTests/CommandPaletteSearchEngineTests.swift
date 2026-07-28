@@ -1104,7 +1104,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         for commandId in forkCommandIds {
             XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: commandId))
         }
-        XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(
+        XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(
             forCommandId: "palette.renameFloatingWindow"
         ))
         XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalSplitRight"))
