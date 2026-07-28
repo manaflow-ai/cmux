@@ -1135,6 +1135,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1F0A00800000000000000C1 /* MacPairedMacBackupRecordWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00800000000000000C2 /* MacPairedMacBackupRecordWire.swift */; };
 		D1F0A00500000000000000E1 /* MacPresenceDecisionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */; };
 		D1F0A00200000000000000B1 /* MacPresenceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */; };
+		A78C41010000000000000001 /* MacSentryStartupPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78C41010000000000000002 /* MacSentryStartupPolicy.swift */; };
 		875900000000000000000009 /* MainThreadHangCaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87590000000000000000000A /* MainThreadHangCaptureStore.swift */; };
 		87590000000000000000000B /* MainThreadHangSampleRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87590000000000000000000C /* MainThreadHangSampleRunner.swift */; };
 		875900000000000000000003 /* MainThreadHangWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000004 /* MainThreadHangWatchdog.swift */; };
@@ -2388,6 +2389,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */; };
 		B95EC019F70D4F23BD3C8D1D /* WorkspaceWorkingDirectorySpawnUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81464EB0D515022903F26DD8 /* WorkspaceWorkingDirectorySpawnUITests.swift */; };
 		8672E0088672E0088672E008 /* WorkstreamEvent+FeedIngress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0078672E0078672E007 /* WorkstreamEvent+FeedIngress.swift */; };
+		A78C42010000000000000001 /* XCUIApplication+CmuxTestApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78C42010000000000000002 /* XCUIApplication+CmuxTestApplication.swift */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
 /* End PBXBuildFile section */
 
@@ -3517,6 +3519,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1F0A00800000000000000C2 /* MacPairedMacBackupRecordWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacPairedMacBackupRecordWire.swift; sourceTree = "<group>"; };
 		D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPresenceDecisionCache.swift; sourceTree = "<group>"; };
 		D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPresenceMonitor.swift; sourceTree = "<group>"; };
+		A78C41010000000000000002 /* MacSentryStartupPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MacSentryStartupPolicy.swift; sourceTree = "<group>"; };
 		87590000000000000000000A /* MainThreadHangCaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangCaptureStore.swift; sourceTree = "<group>"; };
 		87590000000000000000000C /* MainThreadHangSampleRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangSampleRunner.swift; sourceTree = "<group>"; };
 		875900000000000000000004 /* MainThreadHangWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangWatchdog.swift; sourceTree = "<group>"; };
@@ -4753,6 +4756,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
 		81464EB0D515022903F26DD8 /* WorkspaceWorkingDirectorySpawnUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWorkingDirectorySpawnUITests.swift; sourceTree = "<group>"; };
 		8672E0078672E0078672E007 /* WorkstreamEvent+FeedIngress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkstreamEvent+FeedIngress.swift"; sourceTree = "<group>"; };
+		A78C42010000000000000002 /* XCUIApplication+CmuxTestApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XCUIApplication+CmuxTestApplication.swift"; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -4942,6 +4946,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7B5F1A2E9C0D4B6A8E217303 /* BrowserReliabilityRegressionUITests.swift */,
 				8478A0000000000000000001 /* BrowserRecoveryHTTPServer.swift */,
 				C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */,
+				A78C42010000000000000002 /* XCUIApplication+CmuxTestApplication.swift */,
 				D10000000000000000A00011 /* SettingsUITestSupport.swift */,
 				D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */,
 				D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */,
@@ -5409,6 +5414,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A6D1F0000000000000000001 /* ReleasingWindowController.swift */,
 				A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */,
 				D35B71010000000000000002 /* StartupBreadcrumbLog.swift */,
+				A78C41010000000000000002 /* MacSentryStartupPolicy.swift */,
 				A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */,
 				9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */,
 				B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */,
@@ -8375,6 +8381,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1F0A00800000000000000C1 /* MacPairedMacBackupRecordWire.swift in Sources */,
 				D1F0A00500000000000000E1 /* MacPresenceDecisionCache.swift in Sources */,
 				D1F0A00200000000000000B1 /* MacPresenceMonitor.swift in Sources */,
+				A78C41010000000000000001 /* MacSentryStartupPolicy.swift in Sources */,
 				875900000000000000000009 /* MainThreadHangCaptureStore.swift in Sources */,
 				87590000000000000000000B /* MainThreadHangSampleRunner.swift in Sources */,
 				875900000000000000000003 /* MainThreadHangWatchdog.swift in Sources */,
@@ -9422,6 +9429,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */,
 				F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */,
 				B95EC019F70D4F23BD3C8D1D /* WorkspaceWorkingDirectorySpawnUITests.swift in Sources */,
+				A78C42010000000000000001 /* XCUIApplication+CmuxTestApplication.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
