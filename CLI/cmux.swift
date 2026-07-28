@@ -10306,9 +10306,9 @@ struct CMUXCLI {
             authScriptLines += sharingOptions.successfulForegroundAuthenticationCleanupShellLines()
         }
         let authScriptBody = authScriptLines.joined(separator: "\n")
-        let authScript = authenticationLockPath == nil
-            ? authScriptBody
-            : "/bin/zsh -fc \(shellQuote(authScriptBody))"
+        let authScript = SSHForegroundAuthenticationRetryPolicy().classifyingTransientFailure(
+            in: authScriptBody
+        )
         return buildReusableSSHStartupCommand(
             sshCommand: attachScript,
             shellFeatures: "",
