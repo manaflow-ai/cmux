@@ -118,6 +118,33 @@ public final class BrowserAutomationNavigationCoordinator {
         didAssociate(instanceID: instanceID, navigationID: navigationID, targetURL: targetURL)
     }
 
+    /// Transfers an active transaction to an app-owned replacement navigation.
+    ///
+    /// The replacement is accepted only when the transaction is still bound to
+    /// the exact navigation being replaced. Later cancellation from the old
+    /// navigation is therefore ignored, while the replacement can complete the
+    /// original transaction.
+    ///
+    /// - Parameters:
+    ///   - instanceID: Identity of the WebView instance performing both loads.
+    ///   - replacedNavigationID: Identity of the navigation cancelled by the app.
+    ///   - replacementNavigationID: Identity returned by the replacement load.
+    public func didReplaceNavigation(
+        instanceID: UUID,
+        replacedNavigationID: ObjectIdentifier?,
+        replacementNavigationID: ObjectIdentifier?
+    ) {
+        guard let replacedNavigationID,
+              let replacementNavigationID,
+              let activeTicket,
+              activeTicket.instanceID == instanceID,
+              activeNavigationID == replacedNavigationID else {
+            return
+        }
+        activeNavigationID = replacementNavigationID
+        downloadPolicyNavigationID = nil
+    }
+
     /// Resolves a reload after WebKit returns no navigation identity.
     ///
     /// A document-less new tab is already in its requested state. Active recovery/deferred

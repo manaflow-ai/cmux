@@ -25,6 +25,7 @@ import WebKit
     var handleDroppedFileNavigation: (([URL]) -> Bool)?
     var currentRestoreAttemptID: (() -> UUID?)?
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
+    var didReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?, WKNavigation?) -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
@@ -324,8 +325,12 @@ import WebKit
 #endif
             if opened {
                 reportTerminalCancellation()
-            } else {
-                webView.applyBrowserUserAgentPolicy(for: url)
+            } else if restartNavigationForUserAgentPolicyIfNeeded(
+                navigationAction,
+                in: webView,
+                decisionHandler: decisionHandler
+            ) {
+                return
             }
             decisionHandler(opened ? .cancel : .allow)
             return
@@ -446,10 +451,43 @@ import WebKit
                 clearAttemptedRequest()
             }
         }
-        if navigationAction.targetFrame?.isMainFrame == true {
-            webView.applyBrowserUserAgentPolicy(for: navigationAction.request.url)
+        if restartNavigationForUserAgentPolicyIfNeeded(
+            navigationAction,
+            in: webView,
+            decisionHandler: decisionHandler
+        ) {
+            return
         }
         decisionHandler(.allow)
+    }
+
+    private func restartNavigationForUserAgentPolicyIfNeeded(
+        _ navigationAction: WKNavigationAction,
+        in webView: WKWebView,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) -> Bool {
+        guard navigationAction.targetFrame?.isMainFrame == true else { return false }
+        guard let requestNavigation else {
+            webView.applyBrowserUserAgentPolicy(for: navigationAction.request.url)
+            return false
+        }
+        guard let restartRequest = webView.browserUserAgentPolicyRestartRequest(
+            for: navigationAction.request
+        ) else {
+            return false
+        }
+
+        let replacedNavigation = activeMainFrameNavigation
+        decisionHandler(.cancel)
+        requestNavigation(restartRequest, .currentTab, { [weak self, weak webView] replacementNavigation in
+            guard let self, let webView else { return }
+            self.didReplaceNavigationForUserAgentPolicy?(
+                webView,
+                replacedNavigation,
+                replacementNavigation
+            )
+        })
+        return true
     }
 
     private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {

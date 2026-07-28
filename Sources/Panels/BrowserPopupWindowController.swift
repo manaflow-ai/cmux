@@ -687,8 +687,13 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
             controller?.presentInsecureHTTPAlert(for: url, in: webView) { policy in
-                if policy == .allow {
-                    webView.applyBrowserUserAgentPolicy(for: url)
+                if policy == .allow,
+                   self.restartNavigationForUserAgentPolicyIfNeeded(
+                       navigationAction,
+                       in: webView,
+                       decisionHandler: decisionHandler
+                   ) {
+                    return
                 }
                 decisionHandler(policy)
             }
@@ -711,8 +716,35 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         } else {
             clearAttemptedRequest()
         }
-        webView.applyBrowserUserAgentPolicy(for: url)
+        if restartNavigationForUserAgentPolicyIfNeeded(
+            navigationAction,
+            in: webView,
+            decisionHandler: decisionHandler
+        ) {
+            return
+        }
         decisionHandler(.allow)
+    }
+
+    private func restartNavigationForUserAgentPolicyIfNeeded(
+        _ navigationAction: WKNavigationAction,
+        in webView: WKWebView,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) -> Bool {
+        guard navigationAction.targetFrame?.isMainFrame != false else { return false }
+        guard let controller else {
+            webView.applyBrowserUserAgentPolicy(for: navigationAction.request.url)
+            return false
+        }
+        guard let restartRequest = webView.browserUserAgentPolicyRestartRequest(
+            for: navigationAction.request
+        ) else {
+            return false
+        }
+
+        decisionHandler(.cancel)
+        controller.requestNavigation(restartRequest, in: webView)
+        return true
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

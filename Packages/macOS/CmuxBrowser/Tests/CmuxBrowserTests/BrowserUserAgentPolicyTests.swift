@@ -1,12 +1,6 @@
 import Foundation
 import Testing
-import WebKit
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxBrowser
 
 @Suite
 struct BrowserUserAgentPolicyTests {
@@ -24,9 +18,11 @@ struct BrowserUserAgentPolicyTests {
     @Test func googleSheetsKeepsEmbeddedWebKitIdentity() {
         let sheetURL = URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
         let sheetsRedirectURL = URL(string: "https://sheets.google.com/")!
+        let legacyRedirectURL = URL(string: "https://spreadsheets.google.com/")!
 
         #expect(policy.customUserAgent(for: sheetURL) == nil)
         #expect(policy.customUserAgent(for: sheetsRedirectURL) == nil)
+        #expect(policy.customUserAgent(for: legacyRedirectURL) == nil)
     }
 
     @Test func otherGoogleWorkspaceEditorsRemainSafariCompatible() {
@@ -40,16 +36,5 @@ struct BrowserUserAgentPolicyTests {
     @Test func localDocumentsKeepEmbeddedWebKitIdentity() {
         #expect(policy.customUserAgent(for: URL(string: "about:blank")!) == nil)
         #expect(policy.customUserAgent(for: URL(fileURLWithPath: "/tmp/example.html")) == nil)
-    }
-
-    @MainActor
-    @Test func applyingPolicySwitchesIdentityAcrossDestinations() {
-        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-
-        policy.apply(to: webView, for: URL(string: "https://workspace.google.com/")!)
-        #expect(webView.customUserAgent == policy.safariCompatibleUserAgent)
-
-        policy.apply(to: webView, for: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!)
-        #expect(webView.customUserAgent == nil)
     }
 }
