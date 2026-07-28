@@ -149,7 +149,8 @@ struct ClosedMainWindowRoutingTests {
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowBId })
         #expect(!app.focusMainWindow(windowId: windowBId))
         #expect(!windowB.isVisible)
-        #expect(app.tabManagerFor(windowId: windowBId) === managerB)
+        #expect(app.tabManagerFor(windowId: windowBId) == nil)
+        #expect(app.windowId(for: managerB) == nil)
     }
 
     @Test("Recovered visible window stays listed and focusable")
