@@ -25,9 +25,17 @@ public struct AgentProcessCandidateSelector: Sendable {
         )
         self.executableIdentityMatcher = executableIdentityMatcher
         self.launchExecutableMatcher = launchExecutableMatcher
-        normalizedArgumentNeedles = Self.unconstrainedArgumentNeedles(
-            in: policy.detectionRules
-        ).map {
+        normalizedArgumentNeedles = policy.detectionRules.flatMap { rule in
+            var needles: [String] = []
+            if rule.processName == nil, rule.processNames.isEmpty {
+                needles.append(contentsOf: rule.argvContains)
+            }
+            if rule.alternateProcessNames.isEmpty {
+                needles.append(contentsOf: rule.alternateArgvContains)
+                needles.append(contentsOf: rule.alternateArgvContainsAny)
+            }
+            return needles
+        }.map {
             Array($0.replacingOccurrences(of: "\\", with: "/").lowercased().utf8)
         }
         guard policy.usesBuiltInFastPath else {
@@ -36,10 +44,10 @@ public struct AgentProcessCandidateSelector: Sendable {
         }
 
         processIDs = Set(processes.compactMap { process in
-            Self.isCandidate(
-                process,
-                executableIdentityMatcher: executableIdentityMatcher
-            ) ? process.processID : nil
+            let shouldDecode = process.isTerminalForegroundProcessGroup
+                || process.shouldInspectArguments
+                || executableIdentityMatcher.matches(process.name, process.path)
+            return shouldDecode ? process.processID : nil
         })
     }
 
@@ -92,32 +100,5 @@ public struct AgentProcessCandidateSelector: Sendable {
             recordedKind: metadata.agentLaunchKind,
             recordedExecutable: metadata.agentLaunchExecutable
         )
-    }
-
-    private static func unconstrainedArgumentNeedles(
-        in rules: [AgentProcessDetectionRule]
-    ) -> [String] {
-        rules.flatMap { rule in
-            var needles: [String] = []
-            if rule.processName == nil, rule.processNames.isEmpty {
-                needles.append(contentsOf: rule.argvContains)
-            }
-            if rule.alternateProcessNames.isEmpty {
-                needles.append(contentsOf: rule.alternateArgvContains)
-                needles.append(contentsOf: rule.alternateArgvContainsAny)
-            }
-            return needles
-        }
-    }
-
-    private static func isCandidate(
-        _ process: AgentProcessCandidate,
-        executableIdentityMatcher: AgentProcessExecutableIdentityMatcher
-    ) -> Bool {
-        if process.isTerminalForegroundProcessGroup || process.shouldInspectArguments {
-            return true
-        }
-
-        return executableIdentityMatcher.matches(process.name, process.path)
     }
 }
