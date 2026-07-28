@@ -2,6 +2,12 @@ import CmuxSidebar
 import Foundation
 
 extension Workspace {
+    enum ManagedAgentRetryLaunchReadiness {
+        case ready
+        case awaitingIdle
+        case invalidated
+    }
+
     func hasActiveAgentLifecycleForRetry(panelId: UUID) -> Bool {
         (agentLifecycleStatesByPanelId[panelId] ?? [:]).contains { key, lifecycle in
             !AgentHibernationLifecycleStatusKeys.isManualKey(key) &&
@@ -20,16 +26,23 @@ extension Workspace {
         return binding
     }
 
-    /// Final MainActor ownership gate before the coordinator injects a retry.
-    func canSafelySendManagedAgentRetry(
+    /// Final MainActor ownership classification before a retry is injected.
+    func managedAgentRetryLaunchReadiness(
         binding: SurfaceResumeBindingSnapshot,
         panelId: UUID
-    ) -> Bool {
+    ) -> ManagedAgentRetryLaunchReadiness {
+        guard panels[panelId] is TerminalPanel else {
+            return .invalidated
+        }
         let currentBinding = surfaceResumeBindingsByPanelId[panelId]
-        return panels[panelId] is TerminalPanel &&
-            (currentBinding == nil || currentBinding == binding) &&
-            !hasActiveAgentLifecycleForRetry(panelId: panelId) &&
-            panelShellActivityStates[panelId] == .promptIdle
+        guard currentBinding == nil || currentBinding == binding else {
+            return .invalidated
+        }
+        guard !hasActiveAgentLifecycleForRetry(panelId: panelId),
+              panelShellActivityStates[panelId] == .promptIdle else {
+            return .awaitingIdle
+        }
+        return .ready
     }
 
     func sendManagedAgentRetry(

@@ -127,11 +127,19 @@ struct AgentSessionRetryOrderingTests {
 
         fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(panelId: fixture.panelId)
         #expect(fixture.workspace.statusEntries[fixture.statusKey]?.icon == "arrow.clockwise")
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .ready(attempt: 1, maximumAttempts: 3)
+        )
 
         finishLifecycleTeardown(workspace: fixture.workspace, panelId: fixture.panelId)
         fixture.workspace.updatePanelShellActivityState(
             panelId: fixture.panelId,
             state: .promptIdle
+        )
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .launching(attempt: 1, maximumAttempts: 3)
         )
 
         fixture.workspace.updatePanelShellActivityState(
@@ -164,6 +172,47 @@ struct AgentSessionRetryOrderingTests {
         )
         #expect(fixture.workspace.statusEntries[fixture.statusKey]?.value == expectedStatus)
         fixture.workspace.agentSessionRetryCoordinator.cancelAll()
+    }
+
+    @MainActor
+    @Test("retry readiness deadline abandons a pane that never becomes idle")
+    func readinessDeadlineAbandonsRetry() throws {
+        let fixture = try makeFixture(suffix: "readiness-deadline")
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let binding = managedBinding(sessionId: "readiness-deadline")
+
+        fixture.workspace.updatePanelShellActivityState(
+            panelId: fixture.panelId,
+            state: .commandRunning
+        )
+        #expect(fixture.workspace.setSurfaceResumeBinding(binding, panelId: fixture.panelId))
+        fixture.workspace.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .running
+        )
+        #expect(fixture.workspace.clearSurfaceResumeBinding(
+            panelId: fixture.panelId,
+            agentSessionEnded: true
+        ))
+        fixture.workspace.agentSessionRetryCoordinator.commandFinished(
+            panelId: fixture.panelId,
+            exitCode: 1
+        )
+        fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(panelId: fixture.panelId)
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .ready(attempt: 1, maximumAttempts: 3)
+        )
+
+        fixture.workspace.agentSessionRetryCoordinator.retryReadinessDeadlineFired(
+            panelId: fixture.panelId
+        )
+
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId] == nil
+        )
+        #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
     }
 
     @MainActor

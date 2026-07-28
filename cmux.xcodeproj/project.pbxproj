@@ -121,6 +121,8 @@
 		A9E020000000000000000009 /* AgentSessionProcessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000009 /* AgentSessionProcessStore.swift */; };
 		A9E020000000000000000001 /* AgentSessionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000001 /* AgentSessionProvider.swift */; };
 		A9E02000000000000000000F /* AgentSessionRendererKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000F /* AgentSessionRendererKind.swift */; };
+		E90140000000000000000019 /* AgentSessionRetryCoordinator+Scheduling.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9014000000000000000001A /* AgentSessionRetryCoordinator+Scheduling.swift */; };
+		E90140000000000000000015 /* AgentSessionRetryCoordinator+SurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90140000000000000000016 /* AgentSessionRetryCoordinator+SurfaceTransfer.swift */; };
 		E90140000000000000000001 /* AgentSessionRetryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90140000000000000000002 /* AgentSessionRetryCoordinator.swift */; };
 		E90140000000000000000007 /* AgentSessionRetryCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90140000000000000000008 /* AgentSessionRetryCoordinatorTests.swift */; };
 		E90140000000000000000013 /* AgentSessionRetryInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90140000000000000000014 /* AgentSessionRetryInteractionTests.swift */; };
@@ -2587,6 +2589,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E010000000000000000009 /* AgentSessionProcessStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionProcessStore.swift; sourceTree = "<group>"; };
 		A9E010000000000000000001 /* AgentSessionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionProvider.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000F /* AgentSessionRendererKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRendererKind.swift; sourceTree = "<group>"; };
+		E9014000000000000000001A /* AgentSessionRetryCoordinator+Scheduling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSessionRetryCoordinator+Scheduling.swift"; sourceTree = "<group>"; };
+		E90140000000000000000016 /* AgentSessionRetryCoordinator+SurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSessionRetryCoordinator+SurfaceTransfer.swift"; sourceTree = "<group>"; };
 		E90140000000000000000002 /* AgentSessionRetryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRetryCoordinator.swift; sourceTree = "<group>"; };
 		E90140000000000000000008 /* AgentSessionRetryCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRetryCoordinatorTests.swift; sourceTree = "<group>"; };
 		E90140000000000000000014 /* AgentSessionRetryInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRetryInteractionTests.swift; sourceTree = "<group>"; };
@@ -5541,6 +5545,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
 				E90140000000000000000002 /* AgentSessionRetryCoordinator.swift */,
+				E9014000000000000000001A /* AgentSessionRetryCoordinator+Scheduling.swift */,
+				E90140000000000000000016 /* AgentSessionRetryCoordinator+SurfaceTransfer.swift */,
 				E90140000000000000000012 /* AgentSessionRetryPanelState.swift */,
 				8777E0028777E0028777E002 /* Workspace+AttentionFlashRouting.swift */,
 				791100020000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift */,
@@ -7860,6 +7866,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E020000000000000000009 /* AgentSessionProcessStore.swift in Sources */,
 				A9E020000000000000000001 /* AgentSessionProvider.swift in Sources */,
 				A9E02000000000000000000F /* AgentSessionRendererKind.swift in Sources */,
+				E90140000000000000000019 /* AgentSessionRetryCoordinator+Scheduling.swift in Sources */,
+				E90140000000000000000015 /* AgentSessionRetryCoordinator+SurfaceTransfer.swift in Sources */,
 				E90140000000000000000001 /* AgentSessionRetryCoordinator.swift in Sources */,
 				E90140000000000000000011 /* AgentSessionRetryPanelState.swift in Sources */,
 				A9F200000000000000000010 /* AgentSessionRunningSession.swift in Sources */,

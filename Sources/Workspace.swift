@@ -4700,8 +4700,8 @@ final class Workspace: Identifiable, ObservableObject {
             }
             return
         }
-        agentSessionRetryCoordinator.shellActivityDidChange(panelId: panelId, state: state)
         panelShellActivityStates[panelId] = state
+        agentSessionRetryCoordinator.shellActivityDidChange(panelId: panelId, state: state)
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }

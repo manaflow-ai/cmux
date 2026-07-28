@@ -4,12 +4,13 @@ import Foundation
 struct AgentSessionRetryPanelState {
     enum Phase: Equatable {
         case waiting(attempt: Int, maximumAttempts: Int, exitCode: Int)
+        case ready(attempt: Int, maximumAttempts: Int)
         case launching(attempt: Int, maximumAttempts: Int)
         case exhausted(maximumAttempts: Int)
 
         var isWaitingOrExhausted: Bool {
             switch self {
-            case .waiting, .exhausted:
+            case .waiting, .ready, .exhausted:
                 true
             case .launching:
                 false
