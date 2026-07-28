@@ -127,6 +127,25 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["paste-2", "paste-2-complete", "suffix"])
     }
 
+    @Test("cancelling a stale request discards its deferred input")
+    func cancellingStaleRequestDiscardsDeferredInput() {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 8
+        )
+        var delivered: [String] = []
+        sequencer.beginRequest(id: 1)
+        #expect(sequencer.shouldDefer("stale-suffix"))
+
+        sequencer.cancelRequest(id: 1)
+        sequencer.beginRequest(id: 2)
+        #expect(sequencer.shouldDefer("current-suffix"))
+        sequencer.completeRequest(id: 2, confirmed: false) {
+            delivered.append($0)
+        }
+
+        #expect(delivered == ["current-suffix"])
+    }
+
     @Test("confirmation keeps input queued until confirmed completion")
     func confirmationKeepsInputQueued() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
@@ -228,28 +247,30 @@ struct TerminalClipboardInputSequencerTests {
         #expect(secondService === preparationService)
     }
 
-    @Test("bounded input queue flushes instead of dropping overflow")
-    func boundedInputQueueFlushesOverflow() {
+    @Test("pointer overflow never releases keyboard input before paste")
+    func pointerOverflowNeverReleasesKeyboardInput() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
             maximumBufferedEvents: 2
         )
         var delivered: [String] = []
         sequencer.beginRequest(id: 1)
 
-        #expect(sequencer.shouldDefer("first", replay: { _ in }))
-        #expect(sequencer.shouldDefer("second", replay: { _ in }))
+        #expect(sequencer.shouldDefer("pointer-1", discardWhenFull: true))
+        #expect(sequencer.shouldDefer("pointer-2", discardWhenFull: true))
         #expect(
-            !sequencer.shouldDefer(
-                "overflow",
-                replay: { delivered.append($0) }
+            sequencer.shouldDefer(
+                "pointer-3",
+                discardWhenFull: true
             )
         )
-        delivered.append("overflow")
+        #expect(sequencer.shouldDefer("return", discardWhenFull: false))
+        #expect(delivered.isEmpty)
+
         sequencer.completeRequest(id: 1, confirmed: false) {
             delivered.append($0)
         }
 
-        #expect(delivered == ["first", "second", "overflow"])
+        #expect(delivered == ["pointer-2", "return"])
     }
 
     private func makeReadRequest(

@@ -84,6 +84,18 @@ struct HTMLPlainTextParserTests {
         #expect(parser.plainText(from: html) == "Visible")
     }
 
+    @Test("raw-text less-than names cannot consume the closing tag")
+    func rawTextLessThanNameCannotConsumeClosingTag() {
+        let parser = HTMLPlainTextParser()
+        let html = """
+        <script>if (a<b) { hidden() }</script>
+        <template>also hidden</template>
+        <p>Visible</p>
+        """
+
+        #expect(parser.plainText(from: html) == "Visible")
+    }
+
     @Test("decodes common non-ASCII named entities")
     func decodesCommonNonASCIINamedEntities() {
         let parser = HTMLPlainTextParser()
