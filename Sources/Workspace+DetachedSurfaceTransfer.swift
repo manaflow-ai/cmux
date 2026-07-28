@@ -46,7 +46,7 @@ extension Workspace {
         let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         /// Retry attempts only when the source proved this binding owned the running command.
-        let agentSessionRetryCompletedAttempts: Int? = nil
+        let agentSessionRetryCompletedAttempts: Int?
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
