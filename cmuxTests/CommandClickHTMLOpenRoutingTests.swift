@@ -143,6 +143,96 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func restrictedHTMLNewTabPreservesFileOnlyReadAccess() throws {
+        _ = NSApplication.shared
+
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousShared
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: sourcePanelId))
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>restricted child tab</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let browser = try #require(workspace.newBrowserSurface(
+            inPane: paneId,
+            url: htmlURL,
+            focus: true,
+            localFileReadAccessPolicy: .fileOnly
+        ))
+        browser.openLinkInNewTab(url: htmlURL)
+
+        let browsers = workspace.panels.values.compactMap { $0 as? BrowserPanel }
+        #expect(browsers.count == 2)
+        #expect(browsers.allSatisfy { $0.localFileReadAccessPolicy == .fileOnly })
+    }
+
+    @Test
+    func provisionalNavigationPreventsStaleHTMLBrowserReuse() throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        let previousSupportedFiles = defaults.object(forKey: supportedFilesKey)
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            restore(previousSupportedFiles, forKey: supportedFilesKey, in: defaults)
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+        }
+        defaults.set(true, forKey: supportedFilesKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>provisional navigation</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path
+        ))
+        let firstBrowser = try #require(workspace.panels.values.compactMap { $0 as? BrowserPanel }.first)
+        firstBrowser.isMainFrameProvisionalNavigationActive = true
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path
+        ))
+
+        #expect(workspace.panels.values.compactMap { $0 as? BrowserPanel }.count == 2)
+    }
+
+    @Test
     func htmlSymlinkOpensResolvedTargetInBrowser() throws {
         _ = NSApplication.shared
 
