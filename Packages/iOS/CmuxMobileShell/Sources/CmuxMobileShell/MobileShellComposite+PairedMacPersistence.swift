@@ -126,7 +126,7 @@ extension MobileShellComposite {
                         now: Date()
                     )
                 }
-                await self.clearForgottenMacDeviceID(
+                await self.clearHiddenMacDeviceID(
                     ticket.macDeviceID,
                     instanceTag: instanceTag,
                     scope: scope

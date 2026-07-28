@@ -2,7 +2,7 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// Introduces the durable notification-feed contract without reproducing its UI.
+/// Introduces the durable notification feed with a capture of its production UI.
 struct OnboardingNotificationsView: View {
     var body: some View {
         ZStack {
@@ -18,7 +18,10 @@ struct OnboardingNotificationsView: View {
                     "mobile.onboarding.notifications.body",
                     defaultValue: "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
                 ),
-                visual: OnboardingNotificationPreview()
+                visual: OnboardingScreenshot(
+                    content: .notifications,
+                    accessibilityLabel: title
+                )
             )
         }
     }

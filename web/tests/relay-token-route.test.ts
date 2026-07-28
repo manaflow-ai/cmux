@@ -344,10 +344,50 @@ describe("POST /api/relay/token", () => {
     expect(invalid.status).toBe(400);
     expect(checks).toBe(1);
 
+    const blocked = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => ({ rateLimited: false, error: "blocked" }),
+      }),
+    );
+    expect(blocked.status).toBe(429);
+
     const unavailable = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => {
+          throw new Error("firewall unreachable");
+        },
+      }),
+    );
+    expect(unavailable.status).toBe(503);
+  });
+
+  test("skips rate limiting when no rule is configured", async () => {
+    // An unset rule id env var means the operator wants no rate limiting.
+    // This must mint credentials, not 503 every device off the relay network.
+    const response = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
       deps({ isVercel: () => true, rateLimitRuleId: () => undefined }),
     );
-    expect(unavailable.status).toBe(503);
+    expect(response.status).toBe(200);
+  });
+
+  test("fails open when the configured rate-limit rule no longer exists", async () => {
+    // Vercel reports a deleted firewall rule as not-found. That is an operator
+    // action, not an outage, so the mint must proceed as if unlimited.
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
+        checkRateLimit: async () => ({ rateLimited: false, error: "not-found" }),
+      }),
+    );
+    expect(response.status).toBe(200);
   });
 });

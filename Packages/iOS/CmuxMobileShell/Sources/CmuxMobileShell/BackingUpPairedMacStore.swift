@@ -6,7 +6,7 @@ public import Foundation
 /// backup in sync with the local store, and restores from it on sign-in. Wraps
 /// the real ``MobilePairedMacStore`` at the composition root behind the
 /// ``MobilePairedMacBackup`` flag, so EVERY paired-Mac mutation (route refresh,
-/// pairing, rename, forget, active switch) flows through one seam — no per-call-
+/// pairing, rename, legacy delete, active switch) flows through one seam — no per-call-
 /// site patching.
 ///
 /// - Writes (`upsert`/`remove`/`setActive`) forward to the local store first (it
@@ -81,17 +81,11 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // new host, and the previously-active one now cleared) instead of the whole
         // account. Scoped to the current team — single-active is per (account, team).
         let previouslyActive: MobilePairedMac?
-        let existedBeforeUpsert: Bool
         if markActive, let account = stackUserID, !account.isEmpty {
             let existing = (try? await inner.loadAll(stackUserID: account, teamID: team)) ?? []
             previouslyActive = existing.first { $0.isActive }
-            existedBeforeUpsert = existing.contains {
-                cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                    && $0.instanceTag == instanceTag
-            }
         } else {
             previouslyActive = nil
-            existedBeforeUpsert = true
         }
         try await inner.upsert(
             macDeviceID: macDeviceID,
@@ -110,20 +104,21 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // selected on another device. Only `setCustomization` sends custom keys.
         guard let account = stackUserID, !account.isEmpty else { return }
         lastSignedInAccount = account
-        let allowsTombstoneRevive = await clearPendingDelete(
+        _ = await clearPendingDelete(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
             account: account,
             teamID: team
         )
-            || (markActive && !existedBeforeUpsert)
+        // Every server tombstone is a legacy-delete artifact. Always let a
+        // current local row revive it so obsolete deletes cannot block backup.
         await uploadCurrentRecord(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
             account: account,
             teamID: team,
             includesCustomizations: false,
-            allowTombstoneRevive: allowsTombstoneRevive
+            allowTombstoneRevive: true
         )
         // `markActive` clears the active flag of the account's previously-active
         // host locally; mirror THAT one record too so the backup keeps its
@@ -416,7 +411,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             // read/restore still applies this tombstone and retries the backup
             // delete instead of restoring the stale live record from the server.
             // The catch below rolls this intent back if the local delete itself
-            // fails, so the outbox never claims a row was forgotten locally when it
+            // fails, so the outbox never claims a row was deleted locally when it
             // was not.
             await addPendingDelete(
                 macDeviceID: macDeviceID,

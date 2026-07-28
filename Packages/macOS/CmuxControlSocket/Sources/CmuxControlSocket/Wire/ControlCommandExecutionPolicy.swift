@@ -75,7 +75,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     }
 
     /// Socket-worker methods; internal so package tests can pin the exact set.
-    static let socketWorkerMethods: Set<String> = [
+    static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
         "auth.status",
@@ -275,7 +275,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // The async serve-web request is acknowledged as queued, so this verb
         // never waits for a main-actor completion.
         "vscode.open",
-    ]
+     ]).union(simulatorMethods)
 
     /// Socket-worker methods that are also safe to invoke from the main
     /// thread. The invariant is deadlock-freedom, not zero cost: a member's
@@ -399,6 +399,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "read_screen",
     ]
 
+    /// The v1 diagnostic-read family. These commands await actor-owned
+    /// diagnostic snapshots, so they run on the socket worker and are not
+    /// callable from the main thread.
+    static let diagnosticReadV1Commands: Set<String> = [
+        "iroh_diag",
+    ]
+
     /// The v1 resolution-read family (tranche D): the v1 twins of the v2
     /// resolution reads. Nonisolated `TerminalController` bodies take one
     /// `v2MainSync` snapshot hop and format their reply lines on the worker.
@@ -436,6 +443,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
             .union(terminalReadV1Commands)
+            .union(diagnosticReadV1Commands)
             .union(resolutionReadV1Commands)
             .union(terminalSendV1Commands)
             .union(["ping"])

@@ -1042,6 +1042,22 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertGreaterThan(panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(), 0)
     }
 
+    /// Bounded poll on the main run loop. The first runtime-surface creation for a surface
+    /// waits on the Claude command shim install, which hops through a detached Task and a
+    /// main-actor continuation, so the attempt lands a turn or more after init returns. The
+    /// invariant these tests guard is that the attempt needs no window attach, not that it
+    /// happens synchronously inside init.
+    private func waitUntil(timeout: TimeInterval = 5.0, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
     func testInitialInputSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
         let panel = TerminalPanel(
             workspaceId: UUID(),
@@ -1052,9 +1068,9 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Restored auto-resume input should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertNil(panel.surface.uiWindow, "The runtime must start without any real window attach.")
+        XCTAssertTrue(
+            waitUntil { panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 },
             "Restored auto-resume input must start the terminal runtime without waiting for a window attach."
         )
     }
@@ -1069,9 +1085,9 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Command-launched offscreen terminals should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertNil(panel.surface.uiWindow, "The runtime must start without any real window attach.")
+        XCTAssertTrue(
+            waitUntil { panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 },
             "Offscreen command-launched terminals must start the runtime without waiting for a window attach."
         )
     }
@@ -2433,54 +2449,6 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
         XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 0, column: 3))
     }
 
-    func testCursorSelectionXRangeUsesCellInteriorWhenAvailable() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 20,
-                rectMaxX: 30,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 20.5, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 29.5, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeKeepsNonzeroDragAtRightEdge() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 99.5,
-                rectMaxX: 120,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 98, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 99, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeKeepsNonzeroDragForCollapsedCellWidth() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 50,
-                rectMaxX: 50.4,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 50.2, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 51.2, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeReturnsNilWhenViewCannotExpressHorizontalDrag() {
-        XCTAssertNil(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 0,
-                rectMaxX: 10,
-                boundsWidth: 1
-            )
-        )
-    }
 }
 
 
@@ -2561,6 +2529,52 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
     }
 }
 
+@Suite("Terminal keyboard copy mode cursor appearance")
+@MainActor
+struct TerminalKeyboardCopyModeCursorAppearanceTests {
+    @Test func cursorUsesAnUnfilledCellOutline() throws {
+        let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let layer = try #require(surfaceView.keyboardCopyModeCursorOverlayView.layer)
+        let backgroundAlpha = layer.backgroundColor
+            .flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+
+        #expect(backgroundAlpha == 0)
+        #expect(layer.borderWidth == 1)
+    }
+
+    @Test func cursorUsesGhosttyRuntimeSnapshotColor() {
+        let color = GhosttyNSView.keyboardCopyModeCursorColor(
+            red: 0x33,
+            green: 0x66,
+            blue: 0x99
+        )
+        #expect(color.hexString() == "#336699")
+    }
+
+    @Test func wideCursorOutlineSpansBothAlignedGridCells() {
+        let metrics = KeyboardCopyModeGridMetrics(
+            cellWidth: 9.5,
+            cellHeight: 18,
+            xInset: 4,
+            yInset: 6,
+            viewHeight: 200
+        )
+        let cell = KeyboardCopyModeResolvedCell(
+            cursor: TerminalKeyboardCopyModeCursor(row: 2, column: 3),
+            widthCells: 2,
+            color: .clear
+        )
+
+        #expect(
+            metrics.topOriginRect(for: cell)
+                == CGRect(x: 32.5, y: 42, width: 19, height: 18)
+        )
+        #expect(
+            metrics.appKitRect(for: cell)
+                == CGRect(x: 32.5, y: 140, width: 19, height: 18)
+        )
+    }
+}
 
 final class GhosttyBackgroundThemeTests: XCTestCase {
     func testColorClampsOpacity() {
