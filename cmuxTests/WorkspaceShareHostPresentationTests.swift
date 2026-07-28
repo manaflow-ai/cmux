@@ -276,8 +276,8 @@ struct WorkspaceShareHostPresentationTests {
         await socket.stop()
     }
 
-    @Test("A stale pending snapshot cannot resurrect a resolved request")
-    func stalePendingSnapshotCannotResurrectResolvedRequest() async throws {
+    @Test("Mailbox admission does not resolve an approval before relay confirmation")
+    func approvalWaitsForAuthoritativePendingMembership() async throws {
         let controller = ShareSessionController { nil }
         let socket = ShareSocket(
             endpoint: ShareSocket.Endpoint(
@@ -310,6 +310,9 @@ struct WorkspaceShareHostPresentationTests {
             sequence: 1
         )
         controller.approve(user: "guest-1", role: .editor)
+
+        #expect(controller.feed.contains(\.isPendingAccessRequest))
+
         await controller.handleServerTextForTesting(
             #"{"t":"access-request","user":"guest-1","email":"guest@example.com","pending":[{"user":"guest-1","email":"guest@example.com"}]}"#,
             connection: 1,
@@ -321,17 +324,7 @@ struct WorkspaceShareHostPresentationTests {
             sequence: 3
         )
 
-        #expect(!controller.feed.contains(\.isPendingAccessRequest))
-        #expect(controller.feed.contains {
-            if case .accessRequest(
-                user: "guest-1",
-                email: "guest@example.com",
-                resolution: .approvedEditor
-            ) = $0.kind {
-                return true
-            }
-            return false
-        })
+        #expect(controller.feed.contains(\.isPendingAccessRequest))
         await socket.stop()
     }
 
@@ -519,6 +512,23 @@ struct WorkspaceShareHostPresentationTests {
 
         let visibleCommandIDs = ContentView.commandPaletteShareCommandContributions(
             isFeatureEnabled: true
+        )
+        .filter { $0.when(context) }
+        .map(\.commandId)
+
+        #expect(
+            Set(visibleCommandIDs)
+                == ["palette.showShareSession", "palette.stopSharing"]
+        )
+    }
+
+    @Test("An active share keeps panel and stop actions after the release flag turns off")
+    func activeSharingIgnoresLaterFeatureFlagRemoval() {
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.shareSessionActive, true)
+
+        let visibleCommandIDs = ContentView.commandPaletteShareCommandContributions(
+            isFeatureEnabled: false
         )
         .filter { $0.when(context) }
         .map(\.commandId)

@@ -522,6 +522,27 @@ describe("ShareClient token refresh failures", () => {
     expect(retryDelays()).toEqual([800]);
   });
 
+  test("stops retrying a WebSocket endpoint that never completes an upgrade", async () => {
+    globalThis.fetch = (async () => tokenSuccess()) as typeof fetch;
+    const client = trackedClient();
+
+    client.start();
+    await settle();
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const socket = FakeWebSocket.instances[attempt];
+      expect(socket).toBeDefined();
+      socket?.serverClose(1006, "upgrade failed");
+      if (attempt < 4) {
+        await runOnlyTimer();
+      }
+    }
+
+    expect(client.session.get().status).toBe("unavailable");
+    expect(client.session.get().reconnecting).toBe(false);
+    expect(retryDelays()).toEqual([]);
+  });
+
   test("stop cancels reconnect timers and ignores a late token response", async () => {
     const first = deferred<Response>();
     const second = deferred<Response>();
