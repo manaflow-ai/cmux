@@ -78,6 +78,29 @@ struct SimulatorPaneCoordinatorTests {
         #expect(coordinator.frameTransport == nil)
     }
 
+    @Test("Web Inspector failures do not fail a live hidden Simulator pane")
+    func webInspectorFailureIsToolLocal() async throws {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await eventually { coordinator.status == .streaming }
+        #expect(coordinator.frameTransport == nil)
+        let failure = SimulatorFailure(
+            code: "web_inspector_failed",
+            message: "The Web Inspector socket closed.",
+            isRecoverable: true
+        )
+
+        await client.emit(.message(.failure(failure)))
+        await eventually { coordinator.controlFailure == failure }
+
+        #expect(coordinator.failure == nil)
+        #expect(coordinator.status == .streaming)
+        try await coordinator.waitForSelectedDeviceStreaming()
+    }
+
     @Test("Selection delegates boot and attachment to the client")
     func deviceActivation() async {
         let client = SimulatorPaneClientSpy(devices: [Self.device(id: "pad", family: .iPad, state: .shutdown)])
