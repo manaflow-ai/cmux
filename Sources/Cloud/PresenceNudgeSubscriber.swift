@@ -28,6 +28,11 @@ final class PresenceNudgeSubscriber {
     private var auth: AuthCoordinator?
     private var loopTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
+    /// The team/service scope the running loop was started for. A scope change
+    /// (team switch, service URL change) restarts the loop so the directed
+    /// stream re-subscribes with fresh headers instead of riding the old
+    /// socket to the service's 15-minute deadline.
+    private var activeScopeKey: String?
 
     private init() {}
 
@@ -56,15 +61,26 @@ final class PresenceNudgeSubscriber {
         loopTask = nil
     }
 
+    /// The subscription is scoped by team and service URL (the connect
+    /// headers). Token VALUES are refreshed per reconnect, so they are not
+    /// part of the key; a team or URL change must restart the stream.
+    private func currentScopeKey() -> String? {
+        guard let auth,
+              PresenceSettings.isEnabled(),
+              let url = PresenceHeartbeatClient.resolvedServiceURL() else { return nil }
+        return "\(auth.resolvedTeamID ?? "")|\(url.absoluteString)"
+    }
+
     private func evaluate() {
-        let shouldRun = auth != nil
-            && PresenceSettings.isEnabled()
-            && PresenceHeartbeatClient.resolvedServiceURL() != nil
-        if shouldRun, loopTask == nil {
-            startLoop()
-        } else if !shouldRun, loopTask != nil {
+        let scopeKey = currentScopeKey()
+        guard scopeKey != activeScopeKey else { return }
+        if loopTask != nil {
             loopTask?.cancel()
             loopTask = nil
+        }
+        activeScopeKey = scopeKey
+        if scopeKey != nil {
+            startLoop()
         }
     }
 
@@ -106,6 +122,14 @@ final class PresenceNudgeSubscriber {
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             return false
         }
+        // URLSessionWebSocketTask requires ws/wss; the service URL is stated as
+        // https. Same conversion as the iOS PresenceClient.subscribeURL.
+        switch comps.scheme?.lowercased() {
+        case "https": comps.scheme = "wss"
+        case "http": comps.scheme = "ws"
+        case "wss", "ws": break
+        default: return false
+        }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
             + "/v1/presence/subscribe"
         comps.queryItems = [URLQueryItem(
@@ -123,29 +147,39 @@ final class PresenceNudgeSubscriber {
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
 
-        var delivered = false
-        while !Task.isCancelled {
-            let message: URLSessionWebSocketTask.Message
-            do {
-                message = try await task.receive()
-            } catch {
-                // Normal service-side close at token expiry surfaces here too;
-                // `delivered` decides whether this stream counted as healthy.
-                return delivered
-            }
-            delivered = true
-            switch message {
-            case let .string(text):
-                handleFrame(text)
-            case let .data(data):
-                if let text = String(data: data, encoding: .utf8) {
-                    handleFrame(text)
+        // `URLSessionWebSocketTask.receive()` does not observe Swift task
+        // cancellation, so a cancelled loop would otherwise stay suspended in
+        // receive (and the deferred cancel above would never run) until the
+        // service's stream deadline. The cancellation handler tears the socket
+        // down immediately, which makes the suspended receive throw.
+        return await withTaskCancellationHandler {
+            var delivered = false
+            while !Task.isCancelled {
+                let message: URLSessionWebSocketTask.Message
+                do {
+                    message = try await task.receive()
+                } catch {
+                    // Normal service-side close at token expiry surfaces here
+                    // too; `delivered` decides whether the stream was healthy.
+                    return delivered
                 }
-            @unknown default:
-                break
+                delivered = true
+                guard !Task.isCancelled else { return delivered }
+                switch message {
+                case let .string(text):
+                    handleFrame(text)
+                case let .data(data):
+                    if let text = String(data: data, encoding: .utf8) {
+                        handleFrame(text)
+                    }
+                @unknown default:
+                    break
+                }
             }
+            return delivered
+        } onCancel: {
+            task.cancel(with: .goingAway, reason: nil)
         }
-        return delivered
     }
 
     private func handleFrame(_ text: String) {

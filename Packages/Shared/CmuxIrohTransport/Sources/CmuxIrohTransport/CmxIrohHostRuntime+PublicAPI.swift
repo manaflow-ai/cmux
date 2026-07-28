@@ -41,15 +41,21 @@ extension CmxIrohHostRuntime {
     }
 
     /// Runs one registration/policy refresh round now, as if the renewal
-    /// timer had fired. Called when an external signal (a server-directed
-    /// presence nudge) says broker-side state for this binding changed, so
-    /// the host re-registers and re-reads policy within seconds instead of
-    /// waiting out the hint-expiry renewal. Coalesces with an in-flight
-    /// refresh through the standard pending-replay path; no-op unless active.
-    public func requestRegistrationRefresh() {
+    /// timer had fired, and waits for that round to settle. Called when an
+    /// external signal (a server-directed presence nudge) says broker-side
+    /// state for this binding changed, so the host re-registers and re-reads
+    /// policy within seconds instead of waiting out the hint-expiry renewal.
+    /// Coalesces with an in-flight refresh through the standard pending-replay
+    /// path; no-op unless active. Await-to-settled matters for the caller: a
+    /// refresh that discovers the binding was revoked or REPLACED (different
+    /// binding id) fails closed into the terminal `.failed` phase, and the
+    /// composition root reads the post-refresh snapshot to decide whether a
+    /// full rebuild is needed.
+    public func requestRegistrationRefresh() async {
         guard lifecyclePhase == .active,
               registrationRefreshEnabled else { return }
         scheduleRegistrationRefresh(revision: lifecycleRevision)
+        await registrationRefreshTask?.value
     }
 
     /// Returns current verified private alias material without broker path hints.

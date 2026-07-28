@@ -426,6 +426,11 @@ export class TeamPresence extends DurableObject {
     let delivered = 0;
     for (const ws of this.ctx.getWebSockets()) {
       if (wsDeviceScope(ws) !== input.deviceId) continue;
+      // Revalidate ownership at delivery, not just at subscribe: an unpinned
+      // device may have accepted a scoped subscription from a user who then
+      // LOST the first-heartbeat pin race, and that stale socket must not
+      // receive owner-only frames.
+      if (wsUserId(ws) !== pinned) continue;
       if (wsExpiresAt(ws) <= now) continue;
       try {
         ws.send(json);

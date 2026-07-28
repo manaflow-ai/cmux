@@ -301,14 +301,33 @@ final class MobileHostIrohRuntime {
 
     /// A server-directed presence nudge said broker-side state for this
     /// device changed (its binding was revoked or replaced). Refresh the
-    /// active runtime's registration now, and run the standard retry
-    /// evaluation so an absent runtime reactivates instead of waiting for
-    /// the next network change or renewal deadline.
+    /// active runtime's registration now; when that refresh discovers the
+    /// binding is gone (a replacement returns a different binding id, which
+    /// the runtime rejects and fails closed on), rebuild through the shared
+    /// reconcile path so a fresh activation re-registers under the new server
+    /// state. An absent runtime goes through the standard retry evaluation.
     func refreshRegistrationFromServerSignal() {
-        if let runtime {
-            Task { await runtime.requestRegistrationRefresh() }
+        guard let signalRuntime = runtime else {
+            retryIfNeeded()
+            return
         }
-        retryIfNeeded()
+        Task { @MainActor [weak self] in
+            await signalRuntime.requestRegistrationRefresh()
+            guard let self,
+                  self.runtime === signalRuntime,
+                  self.desiredActive,
+                  !self.signOutIntentActive,
+                  self.transitionTask == nil else { return }
+            guard await signalRuntime.snapshot().state == .failed else { return }
+            guard self.runtime === signalRuntime,
+                  self.desiredActive,
+                  !self.signOutIntentActive,
+                  self.transitionTask == nil else { return }
+            self.scheduleReconcile(
+                eraseAccountState: false,
+                restartActiveRuntime: true
+            )
+        }
     }
 
     func makeDiagnosticSessionID() -> Int {
