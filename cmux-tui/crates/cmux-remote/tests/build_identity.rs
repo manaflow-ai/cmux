@@ -80,13 +80,17 @@ impl BuildFixture {
         String::from_utf8(output.stdout).unwrap().trim().to_owned()
     }
 
-    fn run(&self, override_identity: Option<&str>) -> String {
+    fn run_output(&self, override_identity: Option<&str>) -> Output {
         let mut command = Command::new(&self.executable);
         command.env("CARGO_MANIFEST_DIR", &self.manifest_dir).env_remove(BUILD_COMMIT_ENV);
         if let Some(identity) = override_identity {
             command.env(BUILD_COMMIT_ENV, identity);
         }
-        let output = command.output().unwrap();
+        command.output().unwrap()
+    }
+
+    fn run(&self, override_identity: Option<&str>) -> String {
+        let output = self.run_output(override_identity);
         assert_success("run build.rs", &output);
         String::from_utf8(output.stdout).unwrap()
     }
@@ -192,4 +196,30 @@ fn cargo_tracks_source_inputs_without_watching_target() {
         tracked.iter().all(|path| !Path::new(path).starts_with(&target_dir)),
         "Cargo watched target output: {tracked:?}"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn cargo_directive_paths_reject_cr_and_lf() {
+    for (name, line_break) in [("carriage return", '\r'), ("line feed", '\n')] {
+        let fixture = BuildFixture::new();
+        let source =
+            fixture.root.join(format!("cmux-tui/directive{line_break}cargo:warning=injected.rs"));
+        fs::write(source, "const INJECTED: bool = true;\n").unwrap();
+
+        let output = fixture.run_output(None);
+        assert!(
+            !output.status.success(),
+            "build script accepted a source path containing {name}\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("Cargo directive path contains CR or LF"),
+            "build script rejected {name} for an unexpected reason\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
