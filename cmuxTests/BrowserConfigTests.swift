@@ -5513,6 +5513,18 @@ final class BrowserReadAccessURLTests: XCTestCase {
         XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
     }
 
+    func testFileOnlyPolicyRejectsDirectoryURL() throws {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        XCTAssertNil(browserReadAccessURL(
+            forLocalFileURL: dir,
+            policy: .fileOnly
+        ))
+    }
+
     func testUsesParentDirectoryWhenFileDoesNotExist() throws {
         let missing = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).html")
         let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: missing))
