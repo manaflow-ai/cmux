@@ -23,19 +23,6 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
         "xmp",
     ].map { Array($0.utf8) }
 
-    private struct Tag {
-        let nameRange: Range<Int>
-        let endIndex: Int
-        let isClosing: Bool
-        let selfClosingSlashIndex: Int?
-    }
-
-    private enum TagScan {
-        case tag(Tag)
-        case invalidOpener
-        case unterminated
-    }
-
     func normalize(_ data: Data) -> Data {
         let source = Array(data)
         let openingReplacement = Array(
@@ -53,8 +40,8 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
                 index += 1
                 continue
             }
-            let tag: Tag
-            switch Self.scanTag(in: source, at: index) {
+            let tag: HTMLFoundationCompatibilityTag
+            switch scanTag(in: source, at: index) {
             case .tag(let scannedTag):
                 tag = scannedTag
             case .invalidOpener:
@@ -70,7 +57,7 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
             if let activeRawTextElementName = rawTextElementName {
                 output.append(contentsOf: source[index..<tag.endIndex])
                 if tag.isClosing,
-                   Self.equalsIgnoringASCIICase(
+                   equalsIgnoringASCIICase(
                     source,
                     range: tag.nameRange,
                     bytes: activeRawTextElementName
@@ -81,7 +68,7 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
                 continue
             }
 
-            if Self.equalsIgnoringASCIICase(
+            if equalsIgnoringASCIICase(
                 source,
                 range: tag.nameRange,
                 bytes: Self.templateName
@@ -90,7 +77,7 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
                     ? closingReplacement
                     : openingReplacement
                 output.append(contentsOf: replacement)
-                Self.appendTagSuffix(
+                appendTagSuffix(
                     from: source,
                     tag: tag,
                     omittingSelfClosingSlash: !tag.isClosing,
@@ -99,7 +86,7 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
             } else {
                 output.append(contentsOf: source[index..<tag.endIndex])
                 if !tag.isClosing {
-                    rawTextElementName = Self.rawTextElementName(
+                    rawTextElementName = matchingRawTextElementName(
                         in: source,
                         range: tag.nameRange
                     )
@@ -111,9 +98,9 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
         return Data(output)
     }
 
-    private static func appendTagSuffix(
+    private func appendTagSuffix(
         from source: [UInt8],
-        tag: Tag,
+        tag: HTMLFoundationCompatibilityTag,
         omittingSelfClosingSlash: Bool,
         to output: inout [UInt8]
     ) {
@@ -127,14 +114,14 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
         output.append(contentsOf: source[(slashIndex + 1)..<tag.endIndex])
     }
 
-    private static func scanTag(
+    private func scanTag(
         in source: [UInt8],
         at startIndex: Int
-    ) -> TagScan {
+    ) -> HTMLFoundationCompatibilityTagScan {
         var cursor = startIndex + 1
         guard cursor < source.count else { return .invalidOpener }
 
-        let isClosing = source[cursor] == slash
+        let isClosing = source[cursor] == Self.slash
         if isClosing {
             cursor += 1
         }
@@ -152,20 +139,20 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
                 if byte == activeQuote {
                     quote = nil
                 }
-            } else if byte == singleQuote || byte == doubleQuote {
+            } else if byte == Self.singleQuote || byte == Self.doubleQuote {
                 quote = byte
-            } else if byte == greaterThan {
+            } else if byte == Self.greaterThan {
                 var lastContentIndex = cursor - 1
                 while lastContentIndex >= nameRange.upperBound,
                       isASCIIWhitespace(source[lastContentIndex]) {
                     lastContentIndex -= 1
                 }
                 let selfClosingSlashIndex =
-                    source[lastContentIndex] == slash
+                    source[lastContentIndex] == Self.slash
                         ? lastContentIndex
                         : nil
                 return .tag(
-                    Tag(
+                    HTMLFoundationCompatibilityTag(
                         nameRange: nameRange,
                         endIndex: cursor + 1,
                         isClosing: isClosing,
@@ -178,16 +165,16 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
         return .unterminated
     }
 
-    private static func rawTextElementName(
+    private func matchingRawTextElementName(
         in source: [UInt8],
         range: Range<Int>
     ) -> [UInt8]? {
-        rawTextElementNames.first {
+        Self.rawTextElementNames.first {
             equalsIgnoringASCIICase(source, range: range, bytes: $0)
         }
     }
 
-    private static func equalsIgnoringASCIICase(
+    private func equalsIgnoringASCIICase(
         _ source: [UInt8],
         range: Range<Int>,
         bytes: [UInt8]
@@ -201,20 +188,23 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
         return true
     }
 
-    private static func lowercaseASCII(_ byte: UInt8) -> UInt8 {
-        (uppercaseA...uppercaseZ).contains(byte) ? byte + 32 : byte
+    private func lowercaseASCII(_ byte: UInt8) -> UInt8 {
+        (Self.uppercaseA...Self.uppercaseZ).contains(byte) ? byte + 32 : byte
     }
 
-    private static func isTagNameByte(_ byte: UInt8) -> Bool {
-        (lowercaseA...lowercaseZ).contains(byte)
-            || (uppercaseA...uppercaseZ).contains(byte)
-            || (zero...nine).contains(byte)
-            || byte == hyphen
-            || byte == colon
+    private func isTagNameByte(_ byte: UInt8) -> Bool {
+        (Self.lowercaseA...Self.lowercaseZ).contains(byte)
+            || (Self.uppercaseA...Self.uppercaseZ).contains(byte)
+            || (Self.zero...Self.nine).contains(byte)
+            || byte == Self.hyphen
+            || byte == Self.colon
     }
 
-    private static func isASCIIWhitespace(_ byte: UInt8) -> Bool {
-        byte == space || byte == tab || byte == lineFeed || byte == carriageReturn
+    private func isASCIIWhitespace(_ byte: UInt8) -> Bool {
+        byte == Self.space
+            || byte == Self.tab
+            || byte == Self.lineFeed
+            || byte == Self.carriageReturn
     }
 
     private static let tab: UInt8 = 0x09
