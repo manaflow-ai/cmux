@@ -92,13 +92,22 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
         #expect(captureStartCount == 1)
 
-        try? await ContinuousClock().sleep(for: .milliseconds(40))
-        do {
-            let captured = try await evaluator.captureVisibleViewport(from: webView)
-            #expect(captured === expected)
-        } catch {
-            Issue.record("Expected capture to recover after quarantine: \(error)")
+        // The quarantine window expires on wall-clock time (`cleanupTimeout`),
+        // so poll until the evaluator accepts a new capture instead of
+        // assuming a fixed delay is long enough on a loaded CI host.
+        var recovered: NSImage?
+        for _ in 0..<400 {
+            do {
+                recovered = try await evaluator.captureVisibleViewport(from: webView)
+                break
+            } catch {
+                try? await ContinuousClock().sleep(for: .milliseconds(5))
+            }
         }
+        if recovered == nil {
+            Issue.record("Expected capture to recover after quarantine")
+        }
+        #expect(recovered === expected)
         #expect(captureStartCount == 2)
 
         firstCompletion?(.success(expected))
