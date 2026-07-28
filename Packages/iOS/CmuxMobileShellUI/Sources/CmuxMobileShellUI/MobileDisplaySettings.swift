@@ -100,6 +100,20 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// History rows the terminal mirror hydrates when it connects (deeper
+    /// values scroll further back; larger one-time download at connect).
+    /// Defaults to ``MobileTerminalScrollbackPreference/defaultRows``.
+    /// Mutating this clamps to the supported range and writes through to the
+    /// injected ``UserDefaults`` under the shared preference key the shell
+    /// reads at hydration time.
+    public var terminalScrollbackRows: Int {
+        didSet {
+            let clamped = MobileTerminalScrollbackPreference.clamped(terminalScrollbackRows)
+            if clamped != terminalScrollbackRows { terminalScrollbackRows = clamped }
+            defaults.set(clamped, forKey: MobileTerminalScrollbackPreference.defaultsKey)
+        }
+    }
+
     /// How many lines a workspace row's activity preview shows (1 or 2).
     /// Defaults to 2. Mutating this clamps to the supported range and writes
     /// through to the injected ``UserDefaults``.
@@ -153,6 +167,7 @@ public final class MobileDisplaySettings {
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalFilesChipEnabled = defaults.bool(forKey: Self.terminalFilesChipEnabledKey)
+        self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
         self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(

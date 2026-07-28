@@ -434,32 +434,39 @@ final class MobileHostService {
         )
     }
 
-    /// Render-grid fast path: the frame is already JSON-encoded, so the event
-    /// envelope is spliced around it without parsing the grid into a dictionary
-    /// and re-serializing it — this is the hottest producer in the app
-    /// (issue #8842).
+    /// Render-grid fast path: frames arrive already JSON-encoded, so the event
+    /// envelope is spliced around them without parsing the grid into a
+    /// dictionary and re-serializing it — this is the hottest producer in the
+    /// app (issue #8842). Each connection receives the anchor variant it
+    /// negotiated at subscribe time (viewport = v1 Mac-scroll mirror, screen =
+    /// v2 active-area anchor for local scrollback), admitted through the same
+    /// synchronous bounded queues as every other event.
     nonisolated static func emitRenderGridEvent(
-        payloadJSON: Data,
-        surfaceID: String,
-        isFullFrame: Bool
+        framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payloadJSON: Data, isFullFrame: Bool)],
+        surfaceID: String
     ) {
         let topic = MobileHostEventTopicPolicy.renderGridTopic
-        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
+        guard !framesByAnchor.isEmpty,
+              MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
             return
         }
-        var envelope = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":"#.utf8)
-        envelope.append(payloadJSON)
-        envelope.append(UInt8(ascii: "}"))
-        guard let frame = try? MobileSyncFrameCodec.encodeFrame(envelope) else {
-            mobileHostLog.error("mobile host dropped oversized render-grid event")
-            return
+        var encodedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
+        for (anchor, item) in framesByAnchor {
+            var envelope = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":"#.utf8)
+            envelope.append(item.payloadJSON)
+            envelope.append(UInt8(ascii: "}"))
+            guard let frame = try? MobileSyncFrameCodec.encodeFrame(envelope) else {
+                mobileHostLog.error("mobile host dropped oversized render-grid event")
+                continue
+            }
+            encodedByAnchor[anchor] = (frame, item.isFullFrame)
         }
-        deliverEventFrame(
-            frame,
-            topic: topic,
-            coalesceKey: surfaceID,
-            isFullRenderGridFrame: isFullFrame
-        )
+        guard !encodedByAnchor.isEmpty else { return }
+        deliverEventFrames(topic: topic, coalesceKey: surfaceID) { connection in
+            encodedByAnchor[
+                MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
+            ]
+        }
     }
 
     /// Encodes the shared event envelope once for every connection. Returns
@@ -493,15 +500,28 @@ final class MobileHostService {
     }
 
     /// Fans one encoded event frame out to every registered connection through
-    /// synchronous bounded admission, then acts on the admission outcomes:
-    /// starts at most one drain per connection, closes connections whose
-    /// non-droppable events overflowed, and requests full-frame resyncs for
-    /// surfaces whose queued render-grid frames were shed.
+    /// synchronous bounded admission.
     nonisolated private static func deliverEventFrame(
         _ frame: Data,
         topic: String,
         coalesceKey: String?,
         isFullRenderGridFrame: Bool
+    ) {
+        deliverEventFrames(topic: topic, coalesceKey: coalesceKey) { _ in
+            (frame, isFullRenderGridFrame)
+        }
+    }
+
+    /// Fans encoded event frames out to every registered connection through
+    /// synchronous bounded admission, then acts on the admission outcomes:
+    /// starts at most one drain per connection, closes connections whose
+    /// non-droppable events overflowed, and requests full-frame resyncs for
+    /// surfaces whose queued render-grid frames were shed. `frameFor` picks
+    /// each connection's frame variant; `nil` skips that connection.
+    nonisolated private static func deliverEventFrames(
+        topic: String,
+        coalesceKey: String?,
+        frameFor: (MobileHostConnection) -> (frame: Data, isFullRenderGridFrame: Bool)?
     ) {
         let connections = MobileHostConnectionRegistry.shared.snapshot()
         guard !connections.isEmpty else { return }
@@ -510,11 +530,12 @@ final class MobileHostService {
         #endif
         var resyncSurfaceIDs = Set<String>()
         for connection in connections {
+            guard let item = frameFor(connection) else { continue }
             let result = connection.enqueueEventFrame(
-                frame,
+                item.frame,
                 topic: topic,
                 coalesceKey: coalesceKey,
-                isFullRenderGridFrame: isFullRenderGridFrame
+                isFullRenderGridFrame: item.isFullRenderGridFrame
             )
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
             if result.startDrain {
@@ -1798,6 +1819,9 @@ actor MobileHostConnection {
     }
 
     private let id: UUID
+
+    /// Stable identity for cross-registry lookups (anchor preferences).
+    nonisolated var connectionID: UUID { id }
     private let transport: any CmxByteTransport
     private let writer: MobileHostSerializedTransportWriter
     private let independentEventWriter: (any MobileHostIndependentEventWriting)?
@@ -1972,6 +1996,7 @@ actor MobileHostConnection {
                 nextTopics: nil
             )
         }
+        MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         await independentEventWriter?.close()
         await transport.close()
@@ -2229,6 +2254,17 @@ actor MobileHostConnection {
                 topics: topics,
                 transport: selectedTransport
             )
+            if topics.contains("terminal.render_grid") {
+                // Anchor negotiation: "screen" clients own their local
+                // viewport/scrollback and receive active-area-anchored frames;
+                // everything else keeps the v1 viewport-mirror contract.
+                let anchor: MobileTerminalRenderGridFrame.Anchor =
+                    (request.params["render_grid_anchor"] as? String)
+                        == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+                    ? .screen
+                    : .viewport
+                MobileTerminalRenderGridAnchorRegistry.shared.set(anchor, connectionID: id)
+            }
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif

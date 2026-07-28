@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import CmuxControlSocket
 import Foundation
 
@@ -162,7 +163,58 @@ extension TerminalController: ControlPaneContext {
         if case .dock = placement, let invalid = validateDockPaneCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
             return invalid
         }
+        let hasProfileParam = inputs.profileRaw != nil
+            || inputs.hasInvalidProfileParam
+            || inputs.hasMultipleProfileParams
+        let preferredBrowserProfileID: UUID?
+        if panelType != .browser, hasProfileParam {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.profileRequiresBrowserPane.description,
+                candidates: []
+            )
+        } else if inputs.hasMultipleProfileParams {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.multipleProfileSelectors.description,
+                candidates: []
+            )
+        } else if panelType == .browser, inputs.hasInvalidProfileParam {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.invalidProfileSelector.description,
+                candidates: []
+            )
+        } else if panelType == .browser, let selector = inputs.profileRaw {
+            switch BrowserProfileStore.shared.resolveProfileSelection(selector) {
+            case .matched(let profile):
+                preferredBrowserProfileID = profile.id
+            case .notFound:
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.profileNotFound(selector).description,
+                    candidates: []
+                )
+            case .ambiguous(let profiles):
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.ambiguousProfile(selector, profiles).description,
+                    candidates: profiles.map {
+                        ControlPaneBrowserProfileCandidate(id: $0.id, displayName: $0.displayName)
+                    }
+                )
+            }
+        } else {
+            preferredBrowserProfileID = nil
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            if let selector = inputs.profileRaw {
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.browserDisabled.description,
+                    candidates: []
+                )
+            }
             return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
         }
 
@@ -186,12 +238,20 @@ extension TerminalController: ControlPaneContext {
                 orientation: orientation,
                 insertFirst: insertFirst,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+                preferredProfileID: preferredBrowserProfileID,
                 inputs: inputs
             )
         }
 
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
+        }
+        if panelType == .browser, preferredBrowserProfileID != nil, ws.isRemoteWorkspace {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.profileUnavailableInRemoteWorkspace.description,
+                candidates: []
+            )
         }
         if panelType == .terminal {
             let remoteTarget: RemoteTmuxControlPaneLocation?
@@ -260,8 +320,17 @@ extension TerminalController: ControlPaneContext {
                 orientation: orientation,
                 insertFirst: insertFirst,
                 url: url,
+                preferredProfileID: preferredBrowserProfileID,
                 focus: focus,
                 creationPolicy: .automationPreload,
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+            )?.id
+        } else if panelType == .simulator {
+            newPanelId = ws.newSimulatorSplit(
+                from: sourcePanelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
             )?.id
         } else {
@@ -304,28 +373,7 @@ extension TerminalController: ControlPaneContext {
         )
     }
 
-    /// The byte-faithful twin of `v2PanelType`, mapping a raw token to a
-    /// `PanelType` (used only by the create path; the coordinator passes the raw
-    /// string so Bonsplit/PanelType stay app-side).
-    private func panelType(forRawToken raw: String) -> PanelType? {
-        switch v2NormalizedToken(raw) {
-        case "terminal":
-            return .terminal
-        case "browser":
-            return .browser
-        case "markdown":
-            return .markdown
-        case "filepreview":
-            return .filePreview
-        case "rightsidebartool":
-            return .rightSidebarTool
-        case "agentsession":
-            return .agentSession
-        default:
-            return nil
-        }
-    }
-
+    private func panelType(forRawToken raw: String) -> PanelType? { v2PanelType(rawToken: raw) }
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped
     /// onto ``ControlPaneCreateResolution``.
     private func browserDisabledCreateResolution(

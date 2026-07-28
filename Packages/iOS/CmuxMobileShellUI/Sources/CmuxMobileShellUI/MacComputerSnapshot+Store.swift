@@ -36,13 +36,13 @@ extension MacComputerSnapshot {
             )
             let presence: DeviceTreePresence? = summary
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
-            let connectionStatus = connectionStatuses[mac.macDeviceID]
-            let exactConnectionStatus = connectionStatus == .connected
-                && store.connectedMacDeviceID == mac.macDeviceID
-                && mac.instanceTag != nil
-                && store.connectedMacInstanceTag != mac.instanceTag
-                ? nil
-                : connectionStatus
+            let exactConnectionStatus = MobileShellComposite.exactPairingConnectionStatus(
+                deviceStatus: connectionStatuses[mac.macDeviceID],
+                connectedMacDeviceID: store.connectedMacDeviceID,
+                connectedMacInstanceTag: store.connectedMacInstanceTag,
+                rowMacDeviceID: mac.macDeviceID,
+                rowInstanceTag: mac.instanceTag
+            )
             return MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
                 instanceTag: mac.instanceTag,
