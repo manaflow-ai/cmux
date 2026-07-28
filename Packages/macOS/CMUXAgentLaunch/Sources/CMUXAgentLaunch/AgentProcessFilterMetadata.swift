@@ -17,20 +17,4 @@ public struct AgentProcessFilterMetadata: Sendable {
 
     /// The first argv element after the process executable.
     public let firstArgumentAfterExecutable: String?
-
-    init(
-        projectWorkingDirectory: String?,
-        argumentsContainAnyNeedle: Bool,
-        agentLaunchKind: String?,
-        agentLaunchExecutable: String?,
-        executableArgument: String?,
-        firstArgumentAfterExecutable: String?
-    ) {
-        self.projectWorkingDirectory = projectWorkingDirectory
-        self.argumentsContainAnyNeedle = argumentsContainAnyNeedle
-        self.agentLaunchKind = agentLaunchKind
-        self.agentLaunchExecutable = agentLaunchExecutable
-        self.executableArgument = executableArgument
-        self.firstArgumentAfterExecutable = firstArgumentAfterExecutable
-    }
 }
