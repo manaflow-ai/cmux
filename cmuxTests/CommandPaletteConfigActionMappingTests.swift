@@ -41,6 +41,7 @@ struct CommandPaletteConfigActionMappingTests {
             ("palette.mobileConnect", .mobileConnect),
             ("palette.newTerminalTab", .newTerminal),
             ("palette.newBrowserTab", .newBrowser),
+            ("palette.newSimulatorPane", .newSimulator),
             ("palette.newAgentChat", .newAgentChat),
             ("palette.terminalSplitRight", .splitRight),
             ("palette.terminalSplitDown", .splitDown),
@@ -106,6 +107,55 @@ struct CommandPaletteConfigActionMappingTests {
                 action: .builtIn(.newAgentChat)
             ).paletteTargetRequirement == .window
         )
+        #expect(
+            configAction(
+                id: "simulator",
+                action: .builtIn(.newSimulator)
+            ).paletteTargetRequirement == .panelInPane
+        )
+    }
+
+    @Test func everyBuiltInHasOneStaticAutomationContract() {
+        let focusArguments = [
+            CmuxActionArgumentDefinition(
+                name: "focus",
+                valueType: .boolean,
+                required: false
+            )
+        ]
+        let expected: [(
+            action: CmuxSurfaceTabBarBuiltInAction,
+            target: CmuxConfigPaletteTargetRequirement,
+            arguments: [CmuxActionArgumentDefinition]
+        )] = [
+            (.newWorkspace, .window, focusArguments),
+            (.newAgentChat, .window, []),
+            (.cloudVM, .window, []),
+            (.mobileConnect, .window, []),
+            (.newTerminal, .panelInPane, focusArguments),
+            (.newBrowser, .panelInPane, focusArguments),
+            (.newSimulator, .panelInPane, focusArguments),
+            (.splitRight, .panelInPane, focusArguments),
+            (.splitDown, .panelInPane, focusArguments),
+        ]
+
+        #expect(expected.count == CmuxSurfaceTabBarBuiltInAction.allCases.count)
+        for contract in expected {
+            #expect(
+                contract.action.commandPaletteTargetRequirement == contract.target
+            )
+            #expect(contract.action.commandPaletteArguments == contract.arguments)
+        }
+        #expect(
+            CommandPaletteCommandContribution.newSimulatorPane.arguments
+                == CmuxSurfaceTabBarBuiltInAction.newSimulator.commandPaletteArguments
+        )
+
+        var context = CommandPaletteContextSnapshot()
+        #expect(!CommandPaletteCommandContribution.newSimulatorPane.when(context))
+        context.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
+        context.setBool(CommandPaletteContextKeys.panelHasPane, true)
+        #expect(CommandPaletteCommandContribution.newSimulatorPane.when(context))
     }
 
     @Test func newTabVisibilityRequiresFocusedPanelInLivePane() {
