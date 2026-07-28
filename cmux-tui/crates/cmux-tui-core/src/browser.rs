@@ -6076,7 +6076,7 @@ mod tests {
     }
 
     #[test]
-    fn coalesced_navigation_keeps_its_first_ordering_barrier() {
+    fn coalesced_navigation_keeps_replacement_order_after_intervening_input() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         let done = browser.take_worker_done_for_test();
@@ -6087,14 +6087,15 @@ mod tests {
 
         browser.navigate("https://first.test").unwrap();
         browser.mouse_event("mousePressed", 1.0, 1.0, Some("left"), Some(1)).unwrap();
+        let replacement_sequence = browser.command_order.lock().unwrap().next_sequence;
         browser.navigate("https://latest.test").unwrap();
 
         {
             let pending = browser.latest_nav.lock().unwrap();
             let pending = pending.as_ref().expect("coalesced navigation");
             assert_eq!(
-                pending.sequence, 1,
-                "replacing the destination must not move navigation behind intervening pointer input"
+                pending.sequence, replacement_sequence,
+                "the replacement navigation must retain its position after intervening pointer input"
             );
             assert!(matches!(
                 &pending.command,
