@@ -251,6 +251,50 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             "The newly split pane must be the active input target without a click; got \(String(describing: mirror.activePaneId))"
         )
 
+#if DEBUG
+        // Reproduce the first keystroke after promotion while AppKit has no
+        // viable terminal responder. The real per-key repair path must target
+        // the active inner pane, never the now-hidden workspace container.
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try #require(
+            NSApp.windows.first { $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)" }
+        )
+        let keyDown = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "x",
+            charactersIgnoringModifiers: "x",
+            isARepeat: false,
+            keyCode: 7
+        ))
+        let expectedInputPanel = try #require(mirror.panel(forPane: 5))
+        var repairTargetPanelId: UUID?
+        let previousRepairObserver = appDelegate.debugFocusedTerminalKeyRepairObserverForTesting
+        appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { observedWindow, event, responder, panelId in
+            previousRepairObserver?(observedWindow, event, responder, panelId)
+            guard observedWindow === window, event.keyCode == keyDown.keyCode else { return }
+            repairTargetPanelId = panelId
+        }
+        defer { appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = previousRepairObserver }
+
+        appDelegate.repairFocusedTerminalKeyboardRoutingIfNeeded(
+            window: window,
+            event: keyDown,
+            firstResponderOverride: window
+        )
+
+        #expect(
+            repairTargetPanelId == expectedInputPanel.id,
+            "The first key after a 1→2 tmux promotion must repair toward the active inner pane"
+        )
+#else
+        Issue.record("DEBUG key-repair target instrumentation is required for this regression")
+#endif
+
         harness.workspace.moveFocus(direction: .left)
 
         #expect(

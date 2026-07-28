@@ -807,7 +807,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `SidebarDragState`, read by the `debug.sidebar.simulate_drag` handler.
     // TODO(de-singletonize): move SidebarDragStateRegistry off AppDelegate.shared when AppDelegate is decomposed.
     let sidebarDragStateRegistry = SidebarDragStateRegistry()
-    var debugFocusedTerminalKeyRepairObserverForTesting: ((NSWindow, NSEvent, NSResponder?) -> Void)?
+    var debugFocusedTerminalKeyRepairObserverForTesting: ((NSWindow, NSEvent, NSResponder?, UUID) -> Void)?
     #endif
     private lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
@@ -5600,7 +5600,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "target=\(targetLabel) " +
             "fr=\(before) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)"
         )
-        debugFocusedTerminalKeyRepairObserverForTesting?(window, event, firstResponder)
+        debugFocusedTerminalKeyRepairObserverForTesting?(window, event, firstResponder, panelId)
 #endif
 
         terminalPanel.hostedView.ensureFocus(for: workspace.id, surfaceId: panelId)
