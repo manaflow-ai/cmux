@@ -173,6 +173,50 @@ struct RightSidebarExactTargetBindingTests {
         #expect(manager.selectedWorkspace === selectedWorkspace)
     }
 
+    @Test("Presenting a different sidebar without focus invalidates completed focus")
+    func nonFocusingPresentationInvalidatesCompletedFocus() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let state = FileExplorerState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = contentView
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: window,
+            tabManager: manager,
+            fileExplorerState: state
+        )
+        let focusHost = RightSidebarKeyboardFocusView(
+            frame: NSRect(x: 0, y: 0, width: 24, height: 24)
+        )
+        defer {
+            _ = window.makeFirstResponder(nil)
+            focusHost.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        #expect(controller.focusRightSidebar(mode: .sessions))
+        contentView.addSubview(focusHost)
+        controller.registerRightSidebarHost(focusHost)
+        #expect(controller.debugPendingRightSidebarFocusMode == nil)
+        #expect(controller.activeRightSidebarMode == .sessions)
+        #expect(window.firstResponder === focusHost)
+
+        #expect(controller.presentRightSidebar(mode: .files))
+        #expect(state.mode == .files)
+        #expect(controller.activeRightSidebarMode == nil)
+        #expect(controller.intent == nil)
+        #expect(window.firstResponder !== focusHost)
+        #expect(!controller.restoreTargetAfterWindowBecameKey())
+        #expect(state.mode == .files)
+    }
+
     @Test("Stale explicit targets fail closed instead of falling back to selection")
     func staleExplicitTargetsFailClosed() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
