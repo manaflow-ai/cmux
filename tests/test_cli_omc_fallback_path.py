@@ -98,6 +98,8 @@ omc-node-helper "$@"
             ("setup",),
             ("teleport", "list"),
             ("test-prompt", "ultrawork fix bugs"),
+            ("team", "shutdown", "demo"),
+            ("team", "status", "demo"),
             ("update",),
             ("update-reconcile",),
             ("version",),
@@ -121,17 +123,19 @@ omc-node-helper "$@"
                 return 1
 
         omc_log.unlink(missing_ok=True)
-        real_launch = subprocess.run(
-            [cli_path, "omc", "start a team"],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-            timeout=30,
-        )
-        if real_launch.returncode == 0 or omc_log.exists():
-            print("FAIL: real OMC launch continued without a live cmux surface context")
-            return 1
+        for invocation in (("start a team",), ("team", "1:codex", "review this")):
+            omc_log.unlink(missing_ok=True)
+            real_launch = subprocess.run(
+                [cli_path, "omc", *invocation],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=30,
+            )
+            if real_launch.returncode == 0 or omc_log.exists():
+                print(f"FAIL: real OMC launch {invocation!r} continued without a live cmux surface context")
+                return 1
         with focused_cmux_server(root / "focused-cmux.sock") as (socket_path, requests):
             focused_env = env.copy()
             focused_env["CMUX_SOCKET_PATH"] = socket_path

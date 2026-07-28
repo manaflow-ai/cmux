@@ -129,7 +129,13 @@ func omoLaunchIsNonLaunch(args []string) bool {
 }
 
 func omcLaunchIsNonLaunch(args []string) bool {
-	return conservativeAgentNonLaunchInvocation(args, omcManagementCommands, nil, nil, nil)
+	return conservativeAgentNonLaunchInvocation(
+		args,
+		omcManagementCommands,
+		map[string]map[string]bool{"team": {"shutdown": true, "status": true}},
+		nil,
+		nil,
+	)
 }
 
 func omxLaunchIsNonLaunch(args []string) bool {

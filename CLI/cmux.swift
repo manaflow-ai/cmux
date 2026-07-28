@@ -20179,32 +20179,20 @@ struct CMUXCLI {
         for envVar in extraEnvVars {
             setenv(envVar.key, envVar.value, 1)
         }
-        if let launchContext {
-            setenv("CMUX_WORKSPACE_ID", launchContext.workspaceId, 1)
-            setenv("CMUX_TAB_ID", launchContext.workspaceId, 1)
-            if let surfaceId = launchContext.surfaceId {
-                setenv("CMUX_SURFACE_ID", surfaceId, 1)
-                setenv("CMUX_PANEL_ID", surfaceId, 1)
+        let canonicalEnvironment = canonicalizedTmuxCompatLaunchEnvironment(
+            processEnvironment,
+            launchContext: launchContext
+        )
+        for key in [
+            "CMUX_WORKSPACE_ID",
+            "CMUX_SURFACE_ID",
+            "CMUX_PANEL_ID",
+            "CMUX_TAB_ID",
+            "CMUX_PANE_ID",
+        ] {
+            if let value = canonicalEnvironment[key] {
+                setenv(key, value, 1)
             } else {
-                unsetenv("CMUX_SURFACE_ID")
-                unsetenv("CMUX_PANEL_ID")
-            }
-            if let paneId = launchContext.paneId {
-                setenv("CMUX_PANE_ID", paneId, 1)
-            } else {
-                unsetenv("CMUX_PANE_ID")
-            }
-        } else {
-            // An inherited routing identity was rejected or could not be validated. Do not
-            // leak any primary or legacy fragment into the agent process: mixed stale values
-            // can route later Claude/OMO/OMX/OMC commands to an unrelated surface.
-            for key in [
-                "CMUX_WORKSPACE_ID",
-                "CMUX_SURFACE_ID",
-                "CMUX_PANEL_ID",
-                "CMUX_TAB_ID",
-                "CMUX_PANE_ID",
-            ] {
                 unsetenv(key)
             }
         }
@@ -21418,6 +21406,13 @@ struct CMUXCLI {
         guard let rootSurfaceId = launchContext.surfaceId, !rootSurfaceId.isEmpty else {
             throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
         }
+        // A surface UUID survives workspace moves, so the validated context may
+        // supersede every inherited primary and legacy routing alias. Stamp the
+        // same identity into the app server, root Codex process, and watcher.
+        launcherEnvironment = canonicalizedTmuxCompatLaunchEnvironment(
+            launcherEnvironment,
+            launchContext: launchContext
+        )
         let rootWorkspaceId = launchContext.workspaceId
         try Self.validateCodexTeamsWorkingDirectory(
             commandArgs: commandArgs,

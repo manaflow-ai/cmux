@@ -96,6 +96,9 @@ extension AgentLaunchSanitizer {
                 "update-reconcile",
                 "version",
             ],
+            managementSubcommands: [
+                "team": ["shutdown", "status"],
+            ],
             booleanOptions: [],
             valueOptions: []
         )

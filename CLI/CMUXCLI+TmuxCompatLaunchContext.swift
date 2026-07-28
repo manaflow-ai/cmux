@@ -168,6 +168,41 @@ extension CMUXCLI {
         }
     }
 
+    /// Replaces inherited routing aliases with one socket-validated launch identity.
+    func canonicalizedTmuxCompatLaunchEnvironment(
+        _ processEnvironment: [String: String],
+        launchContext: TmuxCompatLaunchContext?
+    ) -> [String: String] {
+        var environment = processEnvironment
+        if let launchContext {
+            environment["CMUX_WORKSPACE_ID"] = launchContext.workspaceId
+            environment["CMUX_TAB_ID"] = launchContext.workspaceId
+            if let surfaceId = launchContext.surfaceId {
+                environment["CMUX_SURFACE_ID"] = surfaceId
+                environment["CMUX_PANEL_ID"] = surfaceId
+            } else {
+                environment.removeValue(forKey: "CMUX_SURFACE_ID")
+                environment.removeValue(forKey: "CMUX_PANEL_ID")
+            }
+            if let paneId = launchContext.paneId {
+                environment["CMUX_PANE_ID"] = paneId
+            } else {
+                environment.removeValue(forKey: "CMUX_PANE_ID")
+            }
+        } else {
+            for key in [
+                "CMUX_WORKSPACE_ID",
+                "CMUX_SURFACE_ID",
+                "CMUX_PANEL_ID",
+                "CMUX_TAB_ID",
+                "CMUX_PANE_ID",
+            ] {
+                environment.removeValue(forKey: key)
+            }
+        }
+        return environment
+    }
+
     func createClaudeTeamsShimDirectory(
         processEnvironment: [String: String],
         commandArgs: [String],

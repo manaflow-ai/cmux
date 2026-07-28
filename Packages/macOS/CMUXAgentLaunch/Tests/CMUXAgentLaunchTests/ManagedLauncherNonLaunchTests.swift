@@ -59,6 +59,8 @@ struct ManagedLauncherNonLaunchTests {
         }
         #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["--help"]))
         #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["--version"]))
+        #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["team", "status", "demo"]))
+        #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["team", "shutdown", "demo"]))
     }
 
     @Test("OMC rejects agent and team launch commands")
@@ -68,6 +70,7 @@ struct ManagedLauncherNonLaunchTests {
             ["launch"],
             ["interop"],
             ["team"],
+            ["team", "1:codex", "review this"],
             ["autoresearch"],
             ["ralphthon"],
             ["ultragoal"],

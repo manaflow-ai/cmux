@@ -33,6 +33,9 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 		{"omx first-token help", omxLaunchIsNonLaunch, []string{"--help"}, true},
 		{"omx leading option dispatches launch", omxLaunchIsNonLaunch, []string{"--scope", "project", "setup"}, false},
 		{"omc management", omcLaunchIsNonLaunch, []string{"doctor", "conflicts"}, true},
+		{"omc team status", omcLaunchIsNonLaunch, []string{"team", "status", "demo"}, true},
+		{"omc team shutdown", omcLaunchIsNonLaunch, []string{"team", "shutdown", "demo"}, true},
+		{"omc team launch", omcLaunchIsNonLaunch, []string{"team", "1:codex", "review this"}, false},
 		{"omc real launch", omcLaunchIsNonLaunch, []string{"start a team"}, false},
 	}
 
