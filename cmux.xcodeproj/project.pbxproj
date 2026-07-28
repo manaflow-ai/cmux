@@ -205,16 +205,32 @@
 		A7206E010000000000000001 /* AppIconAppearanceObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206E020000000000000001 /* AppIconAppearanceObserverTests.swift */; };
 		D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
+		A88500000000000000000010 /* ApplicationCaptureLivenessFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000000F /* ApplicationCaptureLivenessFailure.swift */; };
+		A88500000000000000000012 /* ApplicationCaptureLivenessState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000011 /* ApplicationCaptureLivenessState.swift */; };
 		A88100000000000000000002 /* ApplicationCaptureRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */; };
+		A88500000000000000000014 /* ApplicationCaptureState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000013 /* ApplicationCaptureState.swift */; };
+		A88500000000000000000016 /* ApplicationCaptureTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000015 /* ApplicationCaptureTarget.swift */; };
 		2689CA2841799FCD2BEDD8F5 /* ApplicationCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */; };
 		A88100000000000000000008 /* ApplicationNamedKeySendResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */; };
 		B9C454C9A61C652B239187F5 /* ApplicationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */; };
 		86EA36CE72323E5D628A65A2 /* ApplicationPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */; };
 		A88300000000000000000006 /* ApplicationSurfaceCommandPaletteIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000005 /* ApplicationSurfaceCommandPaletteIntegration.swift */; };
+		A88500000000000000000018 /* ApplicationSurfaceInputEnqueueResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000017 /* ApplicationSurfaceInputEnqueueResult.swift */; };
+		A88500000000000000000002 /* ApplicationSurfaceInputEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000001 /* ApplicationSurfaceInputEvent.swift */; };
+		A88500000000000000000004 /* ApplicationSurfaceInputEventKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000003 /* ApplicationSurfaceInputEventKind.swift */; };
 		A88400000000000000000002 /* ApplicationSurfaceInputPump.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88400000000000000000001 /* ApplicationSurfaceInputPump.swift */; };
+		A88500000000000000000006 /* ApplicationSurfacePendingStop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000005 /* ApplicationSurfacePendingStop.swift */; };
+		A8850000000000000000001A /* ApplicationSurfacePickerButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000019 /* ApplicationSurfacePickerButton.swift */; };
+		A8850000000000000000001C /* ApplicationSurfacePickerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000001B /* ApplicationSurfacePickerModel.swift */; };
+		A8850000000000000000001E /* ApplicationSurfacePickerPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000001D /* ApplicationSurfacePickerPhase.swift */; };
+		A88500000000000000000020 /* ApplicationSurfacePickerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000001F /* ApplicationSurfacePickerRow.swift */; };
 		A88300000000000000000004 /* ApplicationSurfacePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000003 /* ApplicationSurfacePickerView.swift */; };
 		A88300000000000000000002 /* ApplicationSurfaceRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */; };
+		A88500000000000000000008 /* ApplicationSurfaceRuntimeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000007 /* ApplicationSurfaceRuntimeError.swift */; };
+		A8850000000000000000000A /* ApplicationSurfaceRuntimeLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88500000000000000000009 /* ApplicationSurfaceRuntimeLease.swift */; };
+		A8850000000000000000000C /* ApplicationSurfaceSessionDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000000B /* ApplicationSurfaceSessionDescriptor.swift */; };
 		A88200000000000000000002 /* ApplicationSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88200000000000000000001 /* ApplicationSurfaceTests.swift */; };
+		A8850000000000000000000E /* ApplicationWindowDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8850000000000000000000D /* ApplicationWindowDescriptor.swift */; };
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
@@ -2702,16 +2718,32 @@
 		A7206E020000000000000001 /* AppIconAppearanceObserverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconAppearanceObserverTests.swift; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconDockTilePlugin.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
+		A8850000000000000000000F /* ApplicationCaptureLivenessFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureLivenessFailure.swift; sourceTree = "<group>"; };
+		A88500000000000000000011 /* ApplicationCaptureLivenessState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureLivenessState.swift; sourceTree = "<group>"; };
 		A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureRepresentable.swift; sourceTree = "<group>"; };
+		A88500000000000000000013 /* ApplicationCaptureState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureState.swift; sourceTree = "<group>"; };
+		A88500000000000000000015 /* ApplicationCaptureTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureTarget.swift; sourceTree = "<group>"; };
 		3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationCaptureView.swift; sourceTree = "<group>"; };
 		A88100000000000000000007 /* ApplicationNamedKeySendResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationNamedKeySendResult.swift; sourceTree = "<group>"; };
 		FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationPanel.swift; sourceTree = "<group>"; };
 		1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationPanelView.swift; sourceTree = "<group>"; };
 		A88300000000000000000005 /* ApplicationSurfaceCommandPaletteIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSurfaceCommandPaletteIntegration.swift; sourceTree = "<group>"; };
+		A88500000000000000000017 /* ApplicationSurfaceInputEnqueueResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfaceInputEnqueueResult.swift; sourceTree = "<group>"; };
+		A88500000000000000000001 /* ApplicationSurfaceInputEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceInputEvent.swift; sourceTree = "<group>"; };
+		A88500000000000000000003 /* ApplicationSurfaceInputEventKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceInputEventKind.swift; sourceTree = "<group>"; };
 		A88400000000000000000001 /* ApplicationSurfaceInputPump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfaceInputPump.swift; sourceTree = "<group>"; };
+		A88500000000000000000005 /* ApplicationSurfacePendingStop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfacePendingStop.swift; sourceTree = "<group>"; };
+		A88500000000000000000019 /* ApplicationSurfacePickerButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfacePickerButton.swift; sourceTree = "<group>"; };
+		A8850000000000000000001B /* ApplicationSurfacePickerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfacePickerModel.swift; sourceTree = "<group>"; };
+		A8850000000000000000001D /* ApplicationSurfacePickerPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfacePickerPhase.swift; sourceTree = "<group>"; };
+		A8850000000000000000001F /* ApplicationSurfacePickerRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfacePickerRow.swift; sourceTree = "<group>"; };
 		A88300000000000000000003 /* ApplicationSurfacePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ApplicationSurfacePickerView.swift; sourceTree = "<group>"; };
 		A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceRuntime.swift; sourceTree = "<group>"; };
+		A88500000000000000000007 /* ApplicationSurfaceRuntimeError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceRuntimeError.swift; sourceTree = "<group>"; };
+		A88500000000000000000009 /* ApplicationSurfaceRuntimeLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceRuntimeLease.swift; sourceTree = "<group>"; };
+		A8850000000000000000000B /* ApplicationSurfaceSessionDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationSurfaceSessionDescriptor.swift; sourceTree = "<group>"; };
 		A88200000000000000000001 /* ApplicationSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSurfaceTests.swift; sourceTree = "<group>"; };
+		A8850000000000000000000D /* ApplicationWindowDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ApplicationWindowDescriptor.swift; sourceTree = "<group>"; };
 		A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowBackdropControllerDependencies.swift; sourceTree = "<group>"; };
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -5501,7 +5533,14 @@
 					C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */,
 					C0A710C10000000000000001 /* ComputerUseRuntimePaths.swift */,
 					C0A710010000000000000001 /* ComputerUseRuntimeService.swift */,
+					A88500000000000000000001 /* ApplicationSurfaceInputEvent.swift */,
+					A88500000000000000000003 /* ApplicationSurfaceInputEventKind.swift */,
+					A88500000000000000000005 /* ApplicationSurfacePendingStop.swift */,
 					A88300000000000000000001 /* ApplicationSurfaceRuntime.swift */,
+					A88500000000000000000007 /* ApplicationSurfaceRuntimeError.swift */,
+					A88500000000000000000009 /* ApplicationSurfaceRuntimeLease.swift */,
+					A8850000000000000000000B /* ApplicationSurfaceSessionDescriptor.swift */,
+					A8850000000000000000000D /* ApplicationWindowDescriptor.swift */,
 					C0A710030000000000000001 /* ComputerUseSessionScope.swift */,
 					C0A710050000000000000001 /* ComputerUseStateRepository.swift */,
 					C0A710A10000000000000001 /* AgentCursorPointerView.swift */,
@@ -6326,9 +6365,18 @@
 				C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */,
 				C57B00010000000000000002 /* CustomSidebarPanel.swift */,
 				C57B00090000000000000002 /* CustomSidebarPanelView.swift */,
+				A8850000000000000000000F /* ApplicationCaptureLivenessFailure.swift */,
+				A88500000000000000000011 /* ApplicationCaptureLivenessState.swift */,
 				FB02C91CE0E90EF1C486B9EB /* ApplicationPanel.swift */,
 				1B78BEC351B28EBD42C1DCA8 /* ApplicationPanelView.swift */,
 				A88100000000000000000001 /* ApplicationCaptureRepresentable.swift */,
+				A88500000000000000000013 /* ApplicationCaptureState.swift */,
+				A88500000000000000000015 /* ApplicationCaptureTarget.swift */,
+				A88500000000000000000017 /* ApplicationSurfaceInputEnqueueResult.swift */,
+				A88500000000000000000019 /* ApplicationSurfacePickerButton.swift */,
+				A8850000000000000000001B /* ApplicationSurfacePickerModel.swift */,
+				A8850000000000000000001D /* ApplicationSurfacePickerPhase.swift */,
+				A8850000000000000000001F /* ApplicationSurfacePickerRow.swift */,
 				A88300000000000000000003 /* ApplicationSurfacePickerView.swift */,
 				3C9E9ACA5B0AD0E936281E89 /* ApplicationCaptureView.swift */,
 				A88400000000000000000001 /* ApplicationSurfaceInputPump.swift */,
@@ -8014,15 +8062,31 @@
 				D37777040000000000000001 /* AppDelegateSettingsPresentation.swift in Sources */,
 				A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
+				A88500000000000000000010 /* ApplicationCaptureLivenessFailure.swift in Sources */,
+				A88500000000000000000012 /* ApplicationCaptureLivenessState.swift in Sources */,
 				A88100000000000000000002 /* ApplicationCaptureRepresentable.swift in Sources */,
+				A88500000000000000000014 /* ApplicationCaptureState.swift in Sources */,
+				A88500000000000000000016 /* ApplicationCaptureTarget.swift in Sources */,
 				2689CA2841799FCD2BEDD8F5 /* ApplicationCaptureView.swift in Sources */,
 				A88100000000000000000008 /* ApplicationNamedKeySendResult.swift in Sources */,
 				B9C454C9A61C652B239187F5 /* ApplicationPanel.swift in Sources */,
 				86EA36CE72323E5D628A65A2 /* ApplicationPanelView.swift in Sources */,
 				A88300000000000000000006 /* ApplicationSurfaceCommandPaletteIntegration.swift in Sources */,
+				A88500000000000000000018 /* ApplicationSurfaceInputEnqueueResult.swift in Sources */,
+				A88500000000000000000002 /* ApplicationSurfaceInputEvent.swift in Sources */,
+				A88500000000000000000004 /* ApplicationSurfaceInputEventKind.swift in Sources */,
 				A88400000000000000000002 /* ApplicationSurfaceInputPump.swift in Sources */,
+				A88500000000000000000006 /* ApplicationSurfacePendingStop.swift in Sources */,
+				A8850000000000000000001A /* ApplicationSurfacePickerButton.swift in Sources */,
+				A8850000000000000000001C /* ApplicationSurfacePickerModel.swift in Sources */,
+				A8850000000000000000001E /* ApplicationSurfacePickerPhase.swift in Sources */,
+				A88500000000000000000020 /* ApplicationSurfacePickerRow.swift in Sources */,
 				A88300000000000000000004 /* ApplicationSurfacePickerView.swift in Sources */,
 				A88300000000000000000002 /* ApplicationSurfaceRuntime.swift in Sources */,
+				A88500000000000000000008 /* ApplicationSurfaceRuntimeError.swift in Sources */,
+				A8850000000000000000000A /* ApplicationSurfaceRuntimeLease.swift in Sources */,
+				A8850000000000000000000C /* ApplicationSurfaceSessionDescriptor.swift in Sources */,
+				A8850000000000000000000E /* ApplicationWindowDescriptor.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
 					D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
