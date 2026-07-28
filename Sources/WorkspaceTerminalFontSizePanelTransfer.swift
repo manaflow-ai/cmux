@@ -18,14 +18,20 @@ final class WorkspaceTerminalFontSizePanelTransfer {
     }
 
     func attach(to workspace: Workspace) {
-        arbiter?.associatePanelTransfer(
+        guard let arbiter else { return }
+        workspace.terminalFontSizeChangeArbiter = arbiter
+        workspace._dockSplit?.terminalFontSizeChangeArbiter =
+            arbiter
+        arbiter.associatePanelTransfer(
             self,
             with: workspace
         )
     }
 
     func attach(to windowDock: DockSplitStore) {
-        arbiter?.associatePanelTransfer(
+        guard let arbiter else { return }
+        windowDock.terminalFontSizeChangeArbiter = arbiter
+        arbiter.associatePanelTransfer(
             self,
             with: windowDock
         )

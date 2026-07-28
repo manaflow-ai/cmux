@@ -101,6 +101,7 @@ final class WorkspaceTerminalFontSizeArbiter {
     private var isPerformingFontSizeWorkIdleActions = false
     private var extendedFontSizeWorkIdleBarrierTokens:
         Set<UUID> = []
+    private var nextAcceptedRequestOrderValue: UInt64 = 0
 
     nonisolated init(
         maximumDeferredCoordinatorJoinCount: Int = 256
@@ -115,6 +116,11 @@ final class WorkspaceTerminalFontSizeArbiter {
     ) {
         retainedCoordinators[ObjectIdentifier(coordinator)] =
             coordinator
+    }
+
+    func nextAcceptedRequestOrder() -> UInt64 {
+        nextAcceptedRequestOrderValue &+= 1
+        return nextAcceptedRequestOrderValue
     }
 
     func release(
@@ -367,6 +373,7 @@ final class WorkspaceTerminalFontSizeArbiter {
         windowDockSlot: WorkspaceTerminalFontSizeCoordinator.WindowDockSlot,
         preferredCoordinator:
             WorkspaceTerminalFontSizeCoordinator,
+        acceptedOrder: UInt64,
         deferFlush: Bool
     ) -> Bool {
         appendDeferredCoordinatorJoin(
@@ -375,6 +382,8 @@ final class WorkspaceTerminalFontSizeArbiter {
                 workspaceReference: workspaceReference,
                 windowDockSlot: windowDockSlot,
                 preferredCoordinator: preferredCoordinator,
+                acceptedOrder: acceptedOrder,
+                projectionToken: UUID(),
                 change: change,
                 deferFlush: deferFlush
             ),
@@ -392,6 +401,7 @@ final class WorkspaceTerminalFontSizeArbiter {
         windowDockSlot: WorkspaceTerminalFontSizeCoordinator.WindowDockSlot,
         preferredCoordinator:
             WorkspaceTerminalFontSizeCoordinator,
+        acceptedOrder: UInt64,
         deferFlush: Bool
     ) -> Bool? {
         guard hasFontSizeWorkIdleBarrier else { return nil }
@@ -401,6 +411,8 @@ final class WorkspaceTerminalFontSizeArbiter {
                 workspaceReference: workspaceReference,
                 windowDockSlot: windowDockSlot,
                 preferredCoordinator: preferredCoordinator,
+                acceptedOrder: acceptedOrder,
+                projectionToken: UUID(),
                 change: change,
                 deferFlush: deferFlush
             ),
@@ -470,7 +482,8 @@ final class WorkspaceTerminalFontSizeArbiter {
                 join.change,
                 workspaceId: join.workspaceId,
                 workspaceReference: join.workspaceReference,
-                windowDockSlot: join.windowDockSlot
+                windowDockSlot: join.windowDockSlot,
+                acceptedOrder: join.acceptedOrder
             ) else {
                 eventCoordinator.scheduleOutstandingContinuation()
                 return
@@ -524,42 +537,125 @@ final class WorkspaceTerminalFontSizeArbiter {
         }
     }
 
-    /// Window close snapshots are synchronous. Drain every accepted request
-    /// across retained owners first so the snapshot cannot persist a bounded,
-    /// partially applied workspace mutation. Native failures use the existing
-    /// idle-barrier retry limit, while transfer-stage waiters resume only when
-    /// an earlier stage makes progress.
-    func settleAcceptedWorkForWindowCloseSnapshot() {
-        var preparedCoordinators: Set<ObjectIdentifier> = []
-
-        while true {
-            promoteDeferredCoordinatorJoins()
-            let coordinators =
-                Array(retainedCoordinators.values)
-            guard !coordinators.isEmpty else { return }
-
-            for coordinator in coordinators {
-                let identifier = ObjectIdentifier(coordinator)
-                if preparedCoordinators.insert(identifier).inserted {
-                    coordinator
-                        .beginSynchronousWindowCloseSnapshotSettlement()
-                }
-            }
-
-            var didDrain = false
-            for coordinator in coordinators {
-                didDrain =
-                    coordinator
-                        .settleSynchronouslyUntilPanelTransferBlocked()
-                    || didDrain
-            }
-            if !retainedCoordinators.isEmpty, !didDrain {
-                assertionFailure(
-                    "Workspace font-size snapshot settlement stalled behind panel transfer stages"
-                )
-                return
-            }
+    func snapshotProjection(
+        for workspace: Workspace,
+        panelIds: Set<UUID>
+    ) -> WorkspaceTerminalFontSizeSnapshotProjection? {
+        var commonIntents:
+            [WorkspaceTerminalFontSizeSnapshotProjection.Intent] = []
+        var panelIntents:
+            [
+                UUID:
+                    [
+                        WorkspaceTerminalFontSizeSnapshotProjection
+                            .Intent
+                    ]
+            ] = [:]
+        for coordinator in retainedCoordinators.values {
+            coordinator.appendSnapshotProjectionIntents(
+                targeting: workspace,
+                panelIds: panelIds,
+                commonIntents: &commonIntents,
+                panelIntents: &panelIntents
+            )
         }
+        appendDeferredSnapshotProjectionIntents(
+            matching: {
+                $0.workspaceId == workspace.id
+                    && $0.workspaceReference.value === workspace
+            },
+            to: &commonIntents
+        )
+        guard !commonIntents.isEmpty
+                || !panelIntents.isEmpty else {
+            return nil
+        }
+        return WorkspaceTerminalFontSizeSnapshotProjection(
+            commonIntents: commonIntents,
+            panelIntents: panelIntents
+        )
+    }
+
+    func snapshotProjection(
+        for dock: DockSplitStore,
+        panelIds: Set<UUID>
+    ) -> WorkspaceTerminalFontSizeSnapshotProjection? {
+        var commonIntents:
+            [WorkspaceTerminalFontSizeSnapshotProjection.Intent] = []
+        var panelIntents:
+            [
+                UUID:
+                    [
+                        WorkspaceTerminalFontSizeSnapshotProjection
+                            .Intent
+                    ]
+            ] = [:]
+        for coordinator in retainedCoordinators.values {
+            coordinator.appendSnapshotProjectionIntents(
+                targeting: dock,
+                panelIds: panelIds,
+                commonIntents: &commonIntents,
+                panelIntents: &panelIntents
+            )
+        }
+        appendDeferredSnapshotProjectionIntents(
+            matching: {
+                $0.windowDockSlot.value === dock
+            },
+            to: &commonIntents
+        )
+        guard !commonIntents.isEmpty
+                || !panelIntents.isEmpty else {
+            return nil
+        }
+        return WorkspaceTerminalFontSizeSnapshotProjection(
+            commonIntents: commonIntents,
+            panelIntents: panelIntents
+        )
+    }
+
+    private func appendDeferredSnapshotProjectionIntents(
+        matching predicate:
+            (DeferredWorkspaceTerminalFontSizeCoordinatorJoin)
+                -> Bool,
+        to intents:
+            inout [
+                WorkspaceTerminalFontSizeSnapshotProjection.Intent
+            ]
+    ) {
+        for join in deferredCoordinatorJoins[
+            deferredCoordinatorJoinHead...
+        ] where predicate(join) {
+            intents.append(
+                deferredSnapshotProjectionIntent(for: join)
+            )
+        }
+        for join in deferredCoordinatorJoinsAfterFontSizeWorkIdle
+        where predicate(join) {
+            intents.append(
+                deferredSnapshotProjectionIntent(for: join)
+            )
+        }
+    }
+
+    private func deferredSnapshotProjectionIntent(
+        for join: DeferredWorkspaceTerminalFontSizeCoordinatorJoin
+    ) -> WorkspaceTerminalFontSizeSnapshotProjection.Intent {
+        let configuration =
+            join.preferredCoordinator
+                .snapshotProjectionConfiguration()
+        return WorkspaceTerminalFontSizeSnapshotProjection.Intent(
+            acceptedOrder: join.acceptedOrder,
+            requestSequence: 0,
+            requestToken: join.projectionToken,
+            requestTransferToken: join.projectionToken,
+            counterpartTransferToken: join.projectionToken,
+            change: join.change,
+            configuredRuntimePoints:
+                configuration.configuredRuntimePoints,
+            magnificationPercent:
+                configuration.magnificationPercent
+        )
     }
 
     func removeDeferredCoordinatorJoins(

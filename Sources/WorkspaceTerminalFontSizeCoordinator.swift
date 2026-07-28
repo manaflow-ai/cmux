@@ -4,6 +4,110 @@ import CmuxTerminal
 import CmuxTerminalCore
 import OSLog
 
+/// Read-only overlay used while serializing a workspace or Dock.
+///
+/// Native font rebuilds remain bounded across run-loop turns. A snapshot
+/// instead replays the accepted request metadata over each terminal's current
+/// lineage, so persistence observes the final intent without synchronously
+/// draining renderer work.
+@MainActor
+struct WorkspaceTerminalFontSizeSnapshotProjection {
+    struct Intent {
+        let acceptedOrder: UInt64
+        let requestSequence: UInt64
+        let requestToken: UUID
+        let requestTransferToken: UUID
+        let counterpartTransferToken: UUID
+        let change: WorkspaceTerminalFontSizeChange
+        let configuredRuntimePoints: Float32
+        let magnificationPercent: Int
+
+        static func precedes(_ lhs: Intent, _ rhs: Intent) -> Bool {
+            if lhs.acceptedOrder != rhs.acceptedOrder {
+                return lhs.acceptedOrder < rhs.acceptedOrder
+            }
+            if lhs.requestSequence != rhs.requestSequence {
+                return lhs.requestSequence < rhs.requestSequence
+            }
+            return lhs.requestToken.uuidString
+                < rhs.requestToken.uuidString
+        }
+    }
+
+    private let commonIntents: [Intent]
+    private let panelIntents: [UUID: [Intent]]
+
+    init(
+        commonIntents: [Intent],
+        panelIntents: [UUID: [Intent]]
+    ) {
+        self.commonIntents =
+            commonIntents.sorted(by: Intent.precedes)
+        self.panelIntents = panelIntents.mapValues {
+            $0.sorted(by: Intent.precedes)
+        }
+    }
+
+    func sessionFontSizeOverrideBasePoints(
+        for terminalPanel: TerminalPanel
+    ) -> Float32? {
+        var intentsByToken: [UUID: Intent] = [:]
+        for intent in commonIntents {
+            intentsByToken[intent.requestToken] = intent
+        }
+        for intent in panelIntents[terminalPanel.id] ?? [] {
+            intentsByToken[intent.requestToken] = intent
+        }
+        let intents = intentsByToken.values.sorted(
+            by: Intent.precedes
+        )
+        guard let firstIntent = intents.first else {
+            return terminalPanel.surface
+                .sessionFontSizeOverrideBasePoints()
+        }
+
+        var lineage =
+            terminalPanel.surface.fontSizeLineageSnapshot(
+                magnificationPercent:
+                    firstIntent.magnificationPercent
+            )
+        var projectedTokens: Set<UUID> = []
+        for intent in intents {
+            let alreadyIncludesChange =
+                terminalPanel.surface.hasAppliedFontSizeChange(
+                    token: intent.requestToken
+                )
+                || terminalPanel.surface.hasAppliedFontSizeChange(
+                    token: intent.counterpartTransferToken
+                )
+                || projectedTokens.contains(intent.requestToken)
+                || projectedTokens.contains(
+                    intent.counterpartTransferToken
+                )
+            guard !alreadyIncludesChange else { continue }
+            lineage = intent.change.resultingInheritanceLineage(
+                from: lineage,
+                configuredRuntimePoints:
+                    intent.configuredRuntimePoints,
+                magnificationPercent:
+                    intent.magnificationPercent
+            )
+            projectedTokens.insert(intent.requestToken)
+            projectedTokens.insert(intent.requestTransferToken)
+        }
+
+        guard let lineage,
+              lineage.isExplicitOverride,
+              TerminalFontSizePolicy()
+                .acceptsPersistedBasePoints(
+                    lineage.basePoints
+                ) else {
+            return nil
+        }
+        return lineage.basePoints
+    }
+}
+
 @MainActor
 final class WorkspaceTerminalFontSizeCoordinator {
     typealias Arbiter = WorkspaceTerminalFontSizeArbiter
@@ -115,6 +219,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private struct PendingRequest {
         let token: UUID
         let sequence: UInt64
+        let acceptedOrder: UInt64
         let resourceKey: RequestResourceKey
         let target: RequestTarget
         let batchLineage: EventBatchLineage
@@ -645,6 +750,33 @@ final class WorkspaceTerminalFontSizeCoordinator {
             }
             precondition(activeIntervalCount == 0)
         }
+
+        func snapshotProjectionRequests(
+            for panelIds: Set<UUID>
+        ) -> [UUID: [PendingRequest]] {
+            var result: [UUID: [PendingRequest]] = [:]
+            for (panelId, obligation) in obligationsByPanelId
+            where panelIds.contains(panelId) {
+                guard var record = obligation.nextRequest else {
+                    continue
+                }
+                while true {
+                    result[panelId, default: []].append(
+                        record.request
+                    )
+                    if record === obligation.throughRequest {
+                        break
+                    }
+                    guard let next = record.next else {
+                        preconditionFailure(
+                            "Transfer projection interval lost its final request"
+                        )
+                    }
+                    record = next
+                }
+            }
+            return result
+        }
     }
 
     private struct PendingEventBatch {
@@ -827,6 +959,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     func attachWindowDock(_ dock: DockSplitStore) {
         windowDockSlot.value = dock
+        dock.terminalFontSizeChangeArbiter = arbiter
         let requestCoordinator = windowDockSlot.coordinator ?? self
         requestCoordinator.signalMutationRetry()
         requestCoordinator.windowDockResourceKeys[ObjectIdentifier(dock)] =
@@ -854,6 +987,17 @@ final class WorkspaceTerminalFontSizeCoordinator {
         windowDockSlot.pendingInheritanceContext = nil
     }
 
+    private func registerSnapshotProjectionTargets(
+        workspace: Workspace,
+        windowDockSlot: WindowDockSlot
+    ) {
+        workspace.terminalFontSizeChangeArbiter = arbiter
+        workspace._dockSplit?.terminalFontSizeChangeArbiter =
+            arbiter
+        windowDockSlot.value?.terminalFontSizeChangeArbiter =
+            arbiter
+    }
+
     @discardableResult
     func enqueue(
         _ change: WorkspaceTerminalFontSizeChange,
@@ -864,6 +1008,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
               let workspace = tabManager?.workspacesById[workspaceId] else {
             return false
         }
+        let acceptedOrder = arbiter.nextAcceptedRequestOrder()
+        registerSnapshotProjectionTargets(
+            workspace: workspace,
+            windowDockSlot: windowDockSlot
+        )
         arbiter.promoteDeferredCoordinatorJoins()
         let workspaceReference = WeakWorkspaceReference(workspace)
         if let accepted =
@@ -874,6 +1023,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                         workspaceReference: workspaceReference,
                         windowDockSlot: windowDockSlot,
                         preferredCoordinator: self,
+                        acceptedOrder: acceptedOrder,
                         deferFlush: deferFlush
                     ) {
             return accepted
@@ -887,6 +1037,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 workspace: workspace,
                 workspaceReference: workspaceReference,
                 windowDockSlot: windowDockSlot,
+                acceptedOrder: acceptedOrder,
                 deferFlush: deferFlush
             )
             arbiter.signalPanelTransferProgress()
@@ -904,6 +1055,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 workspace: workspace,
                 workspaceReference: workspaceReference,
                 windowDockSlot: windowDockSlot,
+                acceptedOrder: acceptedOrder,
                 deferFlush: deferFlush
             )
         }
@@ -919,6 +1071,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 workspace: workspace,
                 workspaceReference: workspaceReference,
                 windowDockSlot: windowDockSlot,
+                acceptedOrder: acceptedOrder,
                 deferFlush: deferFlush
             )
         }
@@ -933,7 +1086,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
             change,
             workspaceId: workspaceId,
             workspaceReference: workspaceReference,
-            windowDockSlot: windowDockSlot
+            windowDockSlot: windowDockSlot,
+            acceptedOrder: acceptedOrder
         ) else {
             eventCoordinator.scheduleOutstandingContinuation()
             return false
@@ -973,13 +1127,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
             closingManager: tabManager,
             closingWindowDockSlot: windowDockSlot
         )
-    }
-
-    /// Finishes already accepted work before close history captures terminal
-    /// overrides. The arbiter includes foreign coordinators that temporarily
-    /// own work targeting this window.
-    func settleAcceptedWorkForWindowCloseSnapshot() {
-        arbiter.settleAcceptedWorkForWindowCloseSnapshot()
     }
 
     func cancelWork(
@@ -1192,11 +1339,144 @@ final class WorkspaceTerminalFontSizeCoordinator {
         return coordinator
     }
 
+    func snapshotProjectionConfiguration()
+        -> WorkspaceTerminalFontConfigurationSnapshot {
+        configurationSnapshot()
+    }
+
+    func appendSnapshotProjectionIntents(
+        targeting workspace: Workspace,
+        panelIds: Set<UUID>,
+        commonIntents:
+            inout [WorkspaceTerminalFontSizeSnapshotProjection.Intent],
+        panelIntents:
+            inout [
+                UUID:
+                    [
+                        WorkspaceTerminalFontSizeSnapshotProjection
+                            .Intent
+                    ]
+            ]
+    ) {
+        if let activeRequest,
+           request(activeRequest.request, targets: workspace) {
+            commonIntents.append(
+                snapshotProjectionIntent(
+                    for: activeRequest.request
+                )
+            )
+        }
+        if let request =
+                pendingEventBatch?.workspaceRequests[workspace.id],
+           self.request(request, targets: workspace) {
+            commonIntents.append(
+                snapshotProjectionIntent(for: request)
+            )
+        }
+        for request in sealedRequests.elements
+        where self.request(request, targets: workspace) {
+            commonIntents.append(
+                snapshotProjectionIntent(for: request)
+            )
+        }
+        appendTransferSnapshotProjectionIntents(
+            for: panelIds,
+            panelIntents: &panelIntents
+        )
+    }
+
+    func appendSnapshotProjectionIntents(
+        targeting dock: DockSplitStore,
+        panelIds: Set<UUID>,
+        commonIntents:
+            inout [WorkspaceTerminalFontSizeSnapshotProjection.Intent],
+        panelIntents:
+            inout [
+                UUID:
+                    [
+                        WorkspaceTerminalFontSizeSnapshotProjection
+                            .Intent
+                    ]
+            ]
+    ) {
+        if let activeRequest,
+           request(activeRequest.request, targets: dock) {
+            commonIntents.append(
+                snapshotProjectionIntent(
+                    for: activeRequest.request
+                )
+            )
+        }
+        if let request = pendingEventBatch?.windowDockRequest,
+           self.request(request, targets: dock) {
+            commonIntents.append(
+                snapshotProjectionIntent(for: request)
+            )
+        }
+        for request in sealedRequests.elements
+        where self.request(request, targets: dock) {
+            commonIntents.append(
+                snapshotProjectionIntent(for: request)
+            )
+        }
+        appendTransferSnapshotProjectionIntents(
+            for: panelIds,
+            panelIntents: &panelIntents
+        )
+    }
+
+    private func appendTransferSnapshotProjectionIntents(
+        for panelIds: Set<UUID>,
+        panelIntents:
+            inout [
+                UUID:
+                    [
+                        WorkspaceTerminalFontSizeSnapshotProjection
+                            .Intent
+                    ]
+            ]
+    ) {
+        guard !panelIds.isEmpty else { return }
+        for state in transferResourceStates.values {
+            for (panelId, requests) in
+                    state.snapshotProjectionRequests(
+                        for: panelIds
+                    ) {
+                panelIntents[panelId, default: []].append(
+                    contentsOf: requests.map {
+                        snapshotProjectionIntent(for: $0)
+                    }
+                )
+            }
+        }
+    }
+
+    private func snapshotProjectionIntent(
+        for request: PendingRequest
+    ) -> WorkspaceTerminalFontSizeSnapshotProjection.Intent {
+        let configuration = request.batchLineage.configuration
+        return WorkspaceTerminalFontSizeSnapshotProjection.Intent(
+            acceptedOrder: request.acceptedOrder,
+            requestSequence: request.sequence,
+            requestToken: request.token,
+            requestTransferToken:
+                requestTransferToken(for: request),
+            counterpartTransferToken:
+                counterpartTransferToken(for: request),
+            change: request.change,
+            configuredRuntimePoints:
+                configuration.configuredRuntimePoints,
+            magnificationPercent:
+                configuration.magnificationPercent
+        )
+    }
+
     private func deferCoordinatorJoin(
         _ change: WorkspaceTerminalFontSizeChange,
         workspace: Workspace,
         workspaceReference: WeakWorkspaceReference,
         windowDockSlot: WindowDockSlot,
+        acceptedOrder: UInt64,
         deferFlush: Bool
     ) -> Bool {
         arbiter.deferCoordinatorJoin(
@@ -1205,18 +1485,23 @@ final class WorkspaceTerminalFontSizeCoordinator {
             workspaceReference: workspaceReference,
             windowDockSlot: windowDockSlot,
             preferredCoordinator: self,
+            acceptedOrder: acceptedOrder,
             deferFlush: deferFlush
         )
     }
 
     func claimWorkspace(_ workspace: Workspace) {
+        workspace.terminalFontSizeChangeArbiter = arbiter
         workspace.terminalFontSizeChangeCoordinator = self
+        workspace._dockSplit?.terminalFontSizeChangeArbiter =
+            arbiter
         workspace._dockSplit?.terminalFontSizeChangeCoordinator = self
         workspace._dockSplit?.terminalFontSizeOwningWorkspace = workspace
     }
 
     func claimWindowDockSlot(_ slot: WindowDockSlot) {
         slot.coordinator = self
+        slot.value?.terminalFontSizeChangeArbiter = arbiter
         slot.value?.terminalFontSizeChangeCoordinator = self
         slot.value?.terminalFontSizeOwningWorkspace = nil
         if let dock = slot.value {
@@ -1398,7 +1683,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
         _ change: WorkspaceTerminalFontSizeChange,
         workspaceId: UUID,
         workspaceReference: WeakWorkspaceReference,
-        windowDockSlot: WindowDockSlot
+        windowDockSlot: WindowDockSlot,
+        acceptedOrder: UInt64
     ) -> Bool {
         let additionalRequestCount: Int
         if let pendingEventBatch,
@@ -1435,6 +1721,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             let windowDockRequest = PendingRequest(
                 token: UUID(),
                 sequence: nextRequestSequence,
+                acceptedOrder: acceptedOrder,
                 resourceKey:
                     .windowDock(ObjectIdentifier(windowDockSlot)),
                 target: .windowDock(
@@ -1464,6 +1751,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             batch.workspaceRequests[workspaceId] = PendingRequest(
                 token: UUID(),
                 sequence: nextRequestSequence,
+                acceptedOrder: acceptedOrder,
                 resourceKey: .workspace(workspaceId),
                 target: .workspace(
                     id: workspaceId,
@@ -2575,38 +2863,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
         isSettlingForFontSizeWorkIdleBarrier = true
         mutationFailureCountSinceIdleBarrier = 0
         signalMutationRetry()
-    }
-
-    func beginSynchronousWindowCloseSnapshotSettlement() {
-        invalidateScheduledDrain()
-        isSettlingForFontSizeWorkIdleBarrier = true
-        mutationFailureCountSinceIdleBarrier = 0
-        guard mutationRetryDisposition
-                != .awaitingPanelTransferStage else {
-            return
-        }
-        resetMutationRetryState()
-    }
-
-    /// Returns whether a drain ran. A false result with outstanding work means
-    /// this coordinator is parked behind an earlier panel-transfer stage.
-    @discardableResult
-    func settleSynchronouslyUntilPanelTransferBlocked() -> Bool {
-        invalidateScheduledDrain()
-        var didDrain = false
-        while activeRequest != nil || hasPendingRequests {
-            switch mutationRetryDisposition {
-            case .ready:
-                break
-            case .backoff, .awaitingSignal:
-                mutationRetryDisposition = .ready
-            case .awaitingPanelTransferStage:
-                return didDrain
-            }
-            drain(scheduleContinuation: false)
-            didDrain = true
-        }
-        return didDrain
     }
 
     /// A new user request or terminal ownership transition is evidence that

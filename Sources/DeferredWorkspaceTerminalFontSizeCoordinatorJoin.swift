@@ -10,6 +10,8 @@ struct DeferredWorkspaceTerminalFontSizeCoordinatorJoin {
         WorkspaceTerminalFontSizeCoordinator.WindowDockSlot
     let preferredCoordinator:
         WorkspaceTerminalFontSizeCoordinator
+    let acceptedOrder: UInt64
+    let projectionToken: UUID
     var change: WorkspaceTerminalFontSizeChange
     var deferFlush: Bool
 
