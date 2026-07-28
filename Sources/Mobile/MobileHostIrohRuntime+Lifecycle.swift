@@ -268,9 +268,10 @@ extension MobileHostIrohRuntime {
         let inspectionRevision = retryInspectionRevision
         retryInspectionTask = Task { @MainActor [weak self] in
             defer {
-                guard let self,
-                      self.retryInspectionRevision == inspectionRevision else { return }
-                self.retryInspectionTask = nil
+                if let self,
+                   self.retryInspectionRevision == inspectionRevision {
+                    self.retryInspectionTask = nil
+                }
             }
             guard let self,
                   self.retryInspectionRevision == inspectionRevision,
