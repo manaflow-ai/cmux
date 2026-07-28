@@ -22,8 +22,14 @@ final class DynamicNotchPanel: NSPanel {
         )
         self.hasShadow = false
         self.backgroundColor = .clear
-        self.level = .screenSaver
-        self.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        self.level = NSWindow.Level(
+            rawValue: NSWindow.Level.statusBar.rawValue + 1
+        )
+        self.collectionBehavior = [
+            .canJoinAllSpaces,
+            .stationary,
+            .fullScreenAuxiliary,
+        ]
     }
 
     override var canBecomeKey: Bool {

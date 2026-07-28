@@ -5140,7 +5140,7 @@ struct CMUXCLI {
             ]
             let allowedSpecKeys: Set<String> = [
                 "version", "title", "subtitle", "body", "delivery", "icon",
-                "wait", "timeout", "actions", "inputs",
+                "wait", "timeout", "actions", "inputs", "appearance",
                 "workspace", "surface", "window",
             ]
             let stringSpecKeys = [
@@ -5154,6 +5154,7 @@ struct CMUXCLI {
                 }
                 || (spec["wait"].map { !isJSONBoolean($0) } ?? false)
                 || (spec["timeout"].map { !isJSONNumber($0) } ?? false)
+                || (spec["appearance"].map { !($0 is [String: Any]) } ?? false)
             if hasInvalidSpecShape {
                 throw CLIError(message: String(
                     localized: "cli.notify.error.invalidSpec",
@@ -5184,6 +5185,22 @@ struct CMUXCLI {
             let (rawActions, _) = parseRepeatedOption(commandArgs, name: "--action")
             let (rawInputs, _) = parseRepeatedOption(commandArgs, name: "--input")
             let (rawSecureInputs, _) = parseRepeatedOption(commandArgs, name: "--secure-input")
+            let (rawStyles, _) = parseRepeatedOption(commandArgs, name: "--style")
+            let appearance: DynamicNotchAppearanceOverrides
+            do {
+                let specAppearance = try spec["appearance"].map {
+                    try DynamicNotchAppearanceOverrides(jsonObject: $0)
+                } ?? DynamicNotchAppearanceOverrides()
+                let directAppearance = try DynamicNotchAppearanceOverrides(
+                    assignments: rawStyles
+                )
+                appearance = specAppearance.merging(directAppearance)
+            } catch {
+                throw CLIError(message: String(
+                    localized: "cli.notify.error.invalidSpec",
+                    defaultValue: "Invalid notification spec; run cmux notify --print-schema"
+                ))
+            }
             let waitsForAction = hasFlag(commandArgs, name: "--wait")
                 || (spec["wait"] as? Bool ?? false)
             let timeoutRaw = optionValue(commandArgs, name: "--timeout")
@@ -5374,6 +5391,7 @@ struct CMUXCLI {
             let hasNotchControls = icon != nil
                 || !actions.isEmpty
                 || !inputs.isEmpty
+                || !appearance.isEmpty
                 || waitsForAction
                 || timeoutRaw != nil
                 || spec["timeout"] != nil
@@ -5466,6 +5484,9 @@ struct CMUXCLI {
             if let icon { params["icon"] = icon }
             if !actions.isEmpty { params["actions"] = actions }
             if !inputs.isEmpty { params["inputs"] = inputs }
+            if !appearance.isEmpty {
+                params["appearance"] = appearance.foundationJSONObject
+            }
             if let responseToken { params["response_token"] = responseToken.uuidString }
             let method: String
             if explicitSurfaceArg != nil {
@@ -15374,7 +15395,8 @@ struct CMUXCLI {
     /// Versioned runtime contract for agent-authored notification forms. Keep
     /// this in sync with the parser in `notify` and docs/notifications.md.
     private func notificationSpecSchema() -> String {
-        #"""
+        let appearanceSchema = DynamicNotchAppearanceOverrides.jsonSchemaString
+        return #"""
         {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -15458,6 +15480,7 @@ struct CMUXCLI {
                 }
               }
             },
+            "appearance": \#(appearanceSchema),
             "workspace": { "type": "string" },
             "surface": { "type": "string" },
             "window": { "type": "string" }
@@ -17077,6 +17100,7 @@ struct CMUXCLI {
               --action <id=Label>    Add an interactive action (repeatable, max 4)
               --input <id=Label>     Add a text field (repeatable, max 4)
               --secure-input <id=Label>   Add a masked text field
+              --style <key=value>    Override one appearance token (repeatable)
               --spec <json|@file|->  Load a runtime form from JSON, a file, or stdin
               --print-schema         Print the JSON form schema without connecting to cmux
               --wait                 Wait and print the action result
@@ -35835,7 +35859,7 @@ export default CMUXSessionRestore;
           send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
           send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
           send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
-          notify --title <text> [--subtitle <text>] [--body <text>] [--delivery default|system|notch] [--icon <sf-symbol>] [--action <id=Label>] [--input <id=Label>] [--secure-input <id=Label>] [--spec <json|@file|->] [--print-schema] [--wait] [--timeout <seconds>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          notify --title <text> [--subtitle <text>] [--body <text>] [--delivery default|system|notch] [--icon <sf-symbol>] [--action <id=Label>] [--input <id=Label>] [--secure-input <id=Label>] [--style <key=value>] [--spec <json|@file|->] [--print-schema] [--wait] [--timeout <seconds>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-notifications
           dismiss-notification (--id <uuid> | --all-read)
           mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)

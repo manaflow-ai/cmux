@@ -16,6 +16,12 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
     var rightSidebarFocusFirstItem: Bool?
     var rightSidebarResolution: ControlDebugRightSidebarFocusResolution = .windowNotFound
     var remoteTmuxSizingPayload: JSONValue?
+    var screenshotLabel: String?
+    var screenshotWindowIdentifier: String??
+    var screenshotResponse = "OK capture-id /tmp/capture.png"
+    var dynamicNotchSnapshot: JSONValue?
+    var dynamicNotchPhase: String?
+    var acceptsDynamicNotchPhase = true
 
     func controlDebugSetShortcut(arguments: String) -> String {
         setShortcutArguments = arguments
@@ -34,6 +40,24 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
 
     func controlDebugRemoteTmuxSizingSettled() -> JSONValue? {
         remoteTmuxSizingPayload
+    }
+
+    func controlDebugCaptureScreenshot(
+        label: String,
+        windowIdentifier: String?
+    ) -> String {
+        screenshotLabel = label
+        screenshotWindowIdentifier = windowIdentifier
+        return screenshotResponse
+    }
+
+    func controlDebugDynamicNotchSnapshot() -> JSONValue? {
+        dynamicNotchSnapshot
+    }
+
+    func controlDebugSetDynamicNotchPhase(_ phase: String) -> Bool {
+        dynamicNotchPhase = phase
+        return acceptsDynamicNotchPhase
     }
 }
 
@@ -64,6 +88,85 @@ struct ControlCommandCoordinatorDebugV1Tests {
         let (coordinator, _) = makeCoordinator()
         #expect(coordinator.handleDebugV1(command: "ping", args: "") == nil)
         #expect(coordinator.handleDebugV1(command: "simulate_type", args: "hi") == nil)
+    }
+
+    @Test func v1ScreenshotPreservesLegacyUntargetedCapture() {
+        let (coordinator, context) = makeCoordinator()
+        let reply = coordinator.handleDebugV1(
+            command: "screenshot",
+            args: "legacy-label"
+        )
+
+        #expect(reply == context.screenshotResponse)
+        #expect(context.screenshotLabel == "legacy-label")
+        #expect(context.screenshotWindowIdentifier == .some(nil))
+    }
+
+    @Test func v2ScreenshotForwardsWindowIdentifier() {
+        let (coordinator, context) = makeCoordinator()
+        let request = ControlRequest(
+            id: .int(1),
+            method: "debug.window.screenshot",
+            params: [
+                "label": .string("notch"),
+                "window_identifier": .string("cmux.dynamicNotchNotification"),
+            ]
+        )
+
+        #expect(coordinator.handle(request) == .ok(.object([
+            "screenshot_id": .string("capture-id"),
+            "path": .string("/tmp/capture.png"),
+        ])))
+        #expect(context.screenshotLabel == "notch")
+        #expect(
+            context.screenshotWindowIdentifier
+                == .some("cmux.dynamicNotchNotification")
+        )
+    }
+
+    @Test func dynamicNotchInspectReturnsPresenterSnapshot() {
+        let (coordinator, context) = makeCoordinator()
+        let snapshot: JSONValue = .object([
+            "phase": .string("retracted"),
+            "window_number": .int(42),
+        ])
+        context.dynamicNotchSnapshot = snapshot
+
+        let response = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "debug.dynamic_notch.inspect",
+            params: [:]
+        ))
+
+        #expect(response == .ok(snapshot))
+    }
+
+    @Test func dynamicNotchPhaseValidatesAndForwardsPhase() {
+        let (coordinator, context) = makeCoordinator()
+        let response = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "debug.dynamic_notch.phase",
+            params: ["phase": .string("expanded")]
+        ))
+
+        #expect(response == .ok(.object(["phase": .string("expanded")])))
+        #expect(context.dynamicNotchPhase == "expanded")
+    }
+
+    @Test func dynamicNotchPhaseRejectsUnknownValue() {
+        let (coordinator, context) = makeCoordinator()
+        let response = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "debug.dynamic_notch.phase",
+            params: ["phase": .string("floating")]
+        ))
+
+        guard case .err(let code, _, _) = response else {
+            Issue.record("Expected invalid_params")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.dynamicNotchPhase == nil)
     }
 
     @Test func remoteTmuxSizingSettlementUsesMainActorDebugSeam() {

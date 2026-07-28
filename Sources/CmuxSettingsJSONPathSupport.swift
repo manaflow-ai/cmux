@@ -386,7 +386,7 @@ enum BrowserSettingsFileMapping {
 extension CmuxSettingsFileStore {
     // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
     // validate against this set so new persisted settings need an explicit cmux.json review.
-    static let supportedSettingsJSONPaths: Set<String> = [
+    static let supportedSettingsJSONPaths: Set<String> = Set([
         PaneChromeSettings.paneBorderColorKey,
         PaneChromeSettings.activePaneBorderColorKey,
         "app.language",
@@ -434,6 +434,7 @@ extension CmuxSettingsFileStore {
         "terminal.resumeCommands",
         "terminal.uploadCommands",
         "notifications.delivery",
+        "notifications.dynamicNotch",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
@@ -522,5 +523,9 @@ extension CmuxSettingsFileStore {
         "fileEditor.wordWrap",
         "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
-    ]
+    ]).union(
+        DynamicNotchAppearanceToken.allCases.map {
+            "notifications.dynamicNotch.\($0.rawValue)"
+        }
+    )
 }

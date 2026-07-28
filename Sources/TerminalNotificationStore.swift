@@ -11,6 +11,14 @@ nonisolated private let terminalNotificationLogger = Logger(
     category: "notification"
 )
 
+enum DynamicNotchNotificationMutation {
+    case upsert(
+        notification: TerminalNotification,
+        superseding: Set<UUID>
+    )
+    case dismiss(Set<UUID>)
+}
+
 // UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
 // removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
 // usernoted under the hood. When usernoted is slow, this blocks the calling thread
@@ -420,14 +428,23 @@ final class TerminalNotificationStore: ObservableObject {
     private var notificationSettingsURLOpener: (URL) -> Void = { url in
         NSWorkspace.shared.open(url)
     }
-    private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
+    private var notificationDeliveryHandler: (
+        TerminalNotificationStore,
+        TerminalNotification,
+        TerminalNotificationPolicyEffects,
+        Set<UUID>
+    ) -> Void = {
         store,
         notification,
-        effects in
-        store.routeNotificationDelivery(notification, effects: effects)
+        effects,
+        superseding in
+        store.routeNotificationDelivery(
+            notification,
+            effects: effects,
+            superseding: superseding
+        )
     }
-    private var dynamicNotchDeliveryHandler: ((TerminalNotification) -> Void)?
-    private var dynamicNotchDismissalHandler: ((UUID) -> Void)?
+    private var dynamicNotchMutationHandler: ((DynamicNotchNotificationMutation) -> Void)?
     private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
@@ -1247,7 +1264,8 @@ final class TerminalNotificationStore: ObservableObject {
         deliverNotificationSideEffects(
             notification,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-            effects: effects
+            effects: effects,
+            supersedingDynamicNotchIDs: []
         )
     }
     private func recordNotification(
@@ -1293,8 +1311,14 @@ final class TerminalNotificationStore: ObservableObject {
             "notification.store.record workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") removed=\(idsToClear.count) unread=\(!notification.isRead ? 1 : 0) paneFlash=\(notification.paneFlash ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0) total=\(notifications.count)"
         )
 #endif
+        let supersededIDs = Set(idsToClear.compactMap(UUID.init(uuidString:)))
+        let canAtomicallyReplaceDynamicNotch = effects.desktop
+            && usesDynamicNotchDelivery(for: notification)
+            && dynamicNotchMutationHandler != nil
         if !idsToClear.isEmpty {
-            dismissDynamicNotchPresentations(withIdentifiers: idsToClear)
+            if !canAtomicallyReplaceDynamicNotch {
+                dismissDynamicNotchPresentations(withIdentifiers: idsToClear)
+            }
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             // A newer notification for this tab+surface superseded the old one
@@ -1343,7 +1367,10 @@ final class TerminalNotificationStore: ObservableObject {
         deliverNotificationSideEffects(
             notification,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-            effects: effects
+            effects: effects,
+            supersedingDynamicNotchIDs: canAtomicallyReplaceDynamicNotch
+                ? supersededIDs
+                : []
         )
     }
 
@@ -1360,7 +1387,8 @@ final class TerminalNotificationStore: ObservableObject {
     private func deliverNotificationSideEffects(
         _ notification: TerminalNotification,
         shouldSuppressExternalDelivery: Bool,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        supersedingDynamicNotchIDs: Set<UUID>
     ) {
         guard effects.desktop || effects.sound || effects.command else {
 #if DEBUG
@@ -1381,11 +1409,21 @@ final class TerminalNotificationStore: ObservableObject {
             // per notification or in Settings. Show it even when its target is
             // focused, but do not mirror it to the phone from this normally
             // suppressed path.
-            notificationDeliveryHandler(self, notification, effects)
+            notificationDeliveryHandler(
+                self,
+                notification,
+                effects,
+                supersedingDynamicNotchIDs
+            )
         } else if shouldSuppressExternalDelivery {
             suppressedNotificationFeedbackHandler(self, notification, effects)
         } else {
-            notificationDeliveryHandler(self, notification, effects)
+            notificationDeliveryHandler(
+                self,
+                notification,
+                effects,
+                supersedingDynamicNotchIDs
+            )
             // Mirror to the user's iPhone (opt-in, off by default). Only on the
             // desktop-delivery path so it matches what the Mac actually shows;
             // suppressed/focused notifications are not forwarded. The badge is
@@ -1685,7 +1723,7 @@ final class TerminalNotificationStore: ObservableObject {
         let originalCount = updated.count
         updated.removeAll { $0.id == id }
         guard updated.count != originalCount else { return }
-        dynamicNotchDismissalHandler?(id)
+        dynamicNotchMutationHandler?(.dismiss([id]))
         notifications = updated
         notificationFeedHistory.markRead(ids: [id])
         if let removed {
@@ -2001,16 +2039,22 @@ final class TerminalNotificationStore: ObservableObject {
 
     func routeNotificationDelivery(
         _ notification: TerminalNotification,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        superseding: Set<UUID> = []
     ) {
         guard usesDynamicNotchDelivery(for: notification),
-              let dynamicNotchDeliveryHandler else {
+              let dynamicNotchMutationHandler else {
             scheduleUserNotification(notification, effects: effects)
             return
         }
 
         if effects.desktop {
-            dynamicNotchDeliveryHandler(notification)
+            dynamicNotchMutationHandler(
+                .upsert(
+                    notification: notification,
+                    superseding: superseding
+                )
+            )
         }
         playLocalNotificationFeedback(
             title: resolvedNotificationTitle(for: notification),
@@ -2032,16 +2076,15 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func configureDynamicNotchDelivery(
-        present: ((TerminalNotification) -> Void)?,
-        dismiss: ((UUID) -> Void)?
+        _ handler: ((DynamicNotchNotificationMutation) -> Void)?
     ) {
-        dynamicNotchDeliveryHandler = present
-        dynamicNotchDismissalHandler = dismiss
+        dynamicNotchMutationHandler = handler
     }
 
     private func dismissDynamicNotchPresentations(withIdentifiers identifiers: [String]) {
-        guard let dynamicNotchDismissalHandler else { return }
-        identifiers.compactMap(UUID.init(uuidString:)).forEach(dynamicNotchDismissalHandler)
+        let identifiers = Set(identifiers.compactMap(UUID.init(uuidString:)))
+        guard !identifiers.isEmpty else { return }
+        dynamicNotchMutationHandler?(.dismiss(identifiers))
     }
 
     private func playSuppressedNotificationFeedback(
@@ -2312,7 +2355,7 @@ final class TerminalNotificationStore: ObservableObject {
     func configureNotificationDeliveryHandlerForTesting(
         _ handler: @escaping (TerminalNotificationStore, TerminalNotification) -> Void
     ) {
-        notificationDeliveryHandler = { store, notification, _ in
+        notificationDeliveryHandler = { store, notification, _, _ in
             handler(store, notification)
         }
     }
@@ -2320,12 +2363,18 @@ final class TerminalNotificationStore: ObservableObject {
     func configureNotificationDeliveryHandlerForTesting(
         _ handler: @escaping (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void
     ) {
-        notificationDeliveryHandler = handler
+        notificationDeliveryHandler = { store, notification, effects, _ in
+            handler(store, notification, effects)
+        }
     }
 
     func resetNotificationDeliveryHandlerForTesting() {
-        notificationDeliveryHandler = { store, notification, effects in
-            store.routeNotificationDelivery(notification, effects: effects)
+        notificationDeliveryHandler = { store, notification, effects, superseding in
+            store.routeNotificationDelivery(
+                notification,
+                effects: effects,
+                superseding: superseding
+            )
         }
     }
 

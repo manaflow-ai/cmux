@@ -29,6 +29,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
         XCTAssertNotNil(properties["actions"])
         XCTAssertNotNil(properties["inputs"])
+        let appearance = try XCTUnwrap(properties["appearance"] as? [String: Any])
+        XCTAssertEqual(appearance["additionalProperties"] as? Bool, false)
+        let appearanceProperties = try XCTUnwrap(
+            appearance["properties"] as? [String: Any]
+        )
+        XCTAssertNotNil(appearanceProperties["expandedWidth"])
+        XCTAssertNotNil(appearanceProperties["inputBorderColor"])
         let constraints = try XCTUnwrap(schema["allOf"] as? [[String: Any]])
         let waitConstraint = try XCTUnwrap(constraints.first { constraint in
             guard let ifSchema = constraint["if"] as? [String: Any],
@@ -62,6 +69,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             (
                 #"{"version":1,"wait":true,"timeout":0}"#,
                 "--wait requires a positive --timeout"
+            ),
+            (
+                #"{"version":1,"appearance":{"expandedWidth":299}}"#,
+                "Invalid notification spec"
+            ),
+            (
+                #"{"version":1,"appearance":{"unknown":1}}"#,
+                "Invalid notification spec"
             ),
         ]
 
@@ -134,6 +149,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             let inputs = params["inputs"] as? [[String: Any]]
             XCTAssertEqual(inputs?.first?["id"] as? String, "reason")
             XCTAssertEqual(inputs?.first?["secure"] as? Bool, false)
+            let appearance = params["appearance"] as? [String: Any]
+            XCTAssertEqual(appearance?["expandedWidth"] as? Double, 640)
+            XCTAssertEqual(appearance?["accentColor"] as? String, "#112233")
+            XCTAssertEqual(appearance?["showScrollIndicators"] as? Bool, false)
 
             let responseURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(
@@ -159,7 +178,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
         }
 
-        let spec = #"{"version":1,"title":"Deploy?","icon":"hand.raised.fill","timeout":30,"actions":[{"id":"approve","label":"Approve"},{"id":"deny","label":"Deny"}],"inputs":[{"id":"reason","label":"Reason","placeholder":"Optional"}]}"#
+        let spec = #"{"version":1,"title":"Deploy?","icon":"hand.raised.fill","timeout":30,"actions":[{"id":"approve","label":"Approve"},{"id":"deny","label":"Deny"}],"inputs":[{"id":"reason","label":"Reason","placeholder":"Optional"}],"appearance":{"expandedWidth":520,"accentColor":"#112233"}}"#
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -167,6 +186,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             executablePath: cliPath,
             arguments: [
                 "notify", "--surface", surfaceID, "--spec", spec, "--wait", "--json",
+                "--style", "expandedWidth=640",
+                "--style", "showScrollIndicators=false",
             ],
             environment: environment,
             timeout: 5

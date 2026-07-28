@@ -62,9 +62,71 @@ choice=$(cmux notify --delivery notch --title "Deploy?" \
 
 Set `notifications.delivery` to `dynamicNotch` in `~/.config/cmux/cmux.json`, or choose Dynamic Notch under Settings > App > Notification Delivery. The panel is independent of macOS Notification Center, so Focus and Do Not Disturb do not suppress it.
 
-Dynamic Notch notifications accumulate in a compact tray instead of replacing one another. The tray shows the pending count, expands into a newest-first scrollable list while hovered, and collapses when the pointer leaves. Each button, dismissal, or timeout resolves only its own row.
+Dynamic Notch notifications accumulate in a compact tray instead of replacing one another. The tray shows the pending count, expands into a newest-first scrollable list while hovered, and collapses when the pointer leaves or Escape is pressed. Each button, dismissal, or timeout resolves only its own row.
 
 `cmux notify --delivery notch` overrides the setting for one notification. `--icon` accepts an SF Symbol name, repeated `--action id=Label` flags add up to four buttons, and `--input id=Label` or `--secure-input id=Label` add runtime-defined fields. IDs must be unique ASCII strings containing only letters, numbers, `.`, `_`, or `-`. `--timeout` controls dismissal. `--wait` prints the selected action id when no fields exist, and prints JSON containing `action`, `notification_id`, and `values` when the form has fields. cmux never executes action payloads as shell commands.
+
+### Appearance
+
+Use Settings > App > Dynamic Notch Appearance, or set global values under `notifications.dynamicNotch`:
+
+```jsonc
+{
+  "notifications": {
+    "delivery": "dynamicNotch",
+    "dynamicNotch": {
+      "expandedWidth": 560,
+      "maximumExpandedHeight": 640,
+      "rowHorizontalPadding": 22,
+      "accentColor": "#0A84FF",
+      "shellBackgroundColor": "#111318",
+      "shellBackgroundOpacity": 0.96,
+      "showScrollIndicators": false
+    }
+  }
+}
+```
+
+Override any value for one notification with repeated `--style key=value` flags:
+
+```bash
+cmux notify --delivery notch --title "Approval needed" \
+  --style expandedWidth=620 \
+  --style rowHorizontalPadding=24 \
+  --style accentColor=#FF9F0A
+```
+
+The JSON form API accepts the same keys under `appearance`:
+
+```json
+{
+  "version": 1,
+  "title": "Approve deployment?",
+  "appearance": {
+    "expandedWidth": 620,
+    "accentColor": "#FF9F0A",
+    "bodyLineLimit": 8
+  }
+}
+```
+
+Precedence is global `cmux.json`, then the form's `appearance`, then direct `--style` flags. Direct flags win when a key appears more than once. Each accumulated row retains its own text, input, row, and action styling. The newest pending notification controls tray-wide dimensions, shell chrome, and compact styling. Removing it restores the next row's tray-wide values.
+
+Colors accept `system`, `null` in JSON, or `#RRGGBB`. `system` and `null` use the native semantic color for that role. Every numeric value is range-checked. Unknown keys, invalid colors, non-finite numbers, and out-of-range values reject the notification before display.
+
+Available tokens:
+
+- Layout: `compactWidth`, `compactHeight`, `syntheticNotchWidth`, `expandedWidth`, `maximumExpandedHeight`, `shellPadding`, `floatingOuterPadding`, `compactHorizontalPadding`, `compactVerticalPadding`, `rowHorizontalPadding`, `rowTopPadding`, `rowBottomPadding`, `dividerHorizontalPadding`, `floatingCornerRadius`, `notchTopCornerRadius`, `notchBottomCornerRadius`, `rowCornerRadius`, `compactCornerRadius`, `inputCornerRadius`, `inputHorizontalPadding`, `inputVerticalPadding`, `compactIconSize`, `notificationIconSize`, `notificationIconFrame`, `shellBorderWidth`, `inputBorderWidth`.
+
+- Spacing: `compactSpacing`, `rowSpacing`, `headerSpacing`, `textSpacing`, `inputSpacing`, `inputLabelSpacing`, `actionSpacing`.
+
+- Colors: `shellBackgroundColor`, `shellBorderColor`, `primaryTextColor`, `secondaryTextColor`, `accentColor`, `dividerColor`, `rowBackgroundColor`, `compactBackgroundColor`, `compactTextColor`, `compactIconColor`, `closeButtonColor`, `inputBackgroundColor`, `inputTextColor`, `inputBorderColor`.
+
+- Behavior: `animationDuration`, `arrivalRevealDuration`, `shellBackgroundOpacity`, `rowBackgroundOpacity`, `compactBackgroundOpacity`, `inputBackgroundOpacity`, `titleLineLimit`, `subtitleLineLimit`, `bodyLineLimit`, `showScrollIndicators`, `pointerRevealDistance`, `retractWhenPointerLeaves`.
+
+On a display without a physical notch, cmux draws a synthetic notch inside the menu-bar band. New arrivals show the compact pill for `arrivalRevealDuration` seconds, with rapid arrivals resetting that interval on the same panel. It then retracts to the plain notch silhouette while the pointer is away, reveals the pending count when the pointer approaches the configured `pointerRevealDistance`, and expands the accumulated tray on hover. Set `retractWhenPointerLeaves` to `false` to keep the count visible. The same panel moves between displays when the pointer approaches another display's top center. Menu-bar height falls back to the system status-bar thickness when macOS auto-hides the menu bar.
+
+Run `cmux notify --print-schema` for exact types, ranges, and defaults. The command works without a running cmux instance, which lets agents validate and generate forms before connecting.
 
 Agents can pass the complete form with `--spec '<json>'`, `--spec @path`, or `--spec -` for stdin:
 
@@ -75,6 +137,10 @@ Agents can pass the complete form with `--spec '<json>'`, `--spec @path`, or `--
   "body": "Production will restart.",
   "icon": "shippingbox.fill",
   "timeout": 300,
+  "appearance": {
+    "expandedWidth": 620,
+    "accentColor": "#0A84FF"
+  },
   "actions": [
     { "id": "approve", "label": "Approve" },
     { "id": "deny", "label": "Deny" }
@@ -91,7 +157,7 @@ Agents can pass the complete form with `--spec '<json>'`, `--spec @path`, or `--
 }
 ```
 
-`cmux notify --print-schema` prints the versioned JSON Schema without connecting to a running app. Unknown keys and invalid types are rejected. Scalar command-line flags override the spec, while repeated `--action`, `--input`, and `--secure-input` values are appended. Custom actions replace the built-in Open button.
+`cmux notify --print-schema` prints the versioned JSON Schema without connecting to a running app. Unknown keys and invalid types are rejected. Scalar command-line flags and repeated `--style` values override the spec, while repeated `--action`, `--input`, and `--secure-input` values are appended. Custom actions replace the built-in Open button.
 
 Explicit delivery overrides and interactive forms require a local cmux socket. A relayed Cloud VM CLI can still send ordinary notifications, which use the Mac's configured delivery mode.
 
@@ -101,7 +167,7 @@ action=$(printf '%s' "$response" | jq -r .action)
 reason=$(printf '%s' "$response" | jq -r .values.reason)
 ```
 
-The response action is a caller-defined action id, `open`, `dismiss`, `timeout`, or `dismissed`. `replaced` remains reserved for compatibility with cmux versions that displayed only one Dynamic Notch notification. Callers should treat every value except their accepted action ids as cancellation.
+The response action is a caller-defined action id, `open`, `dismiss`, `timeout`, `replaced`, or `dismissed`. `replaced` means a newer notification from the same workspace surface atomically replaced that row. Callers should treat every value except their accepted action ids as cancellation.
 
 ## Navigation
 

@@ -15868,14 +15868,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func configureUserNotifications() {
         notificationDelivery.configureUserNotifications(delegate: self)
-        TerminalNotificationStore.shared.configureDynamicNotchDelivery(
-            present: { [weak self] notification in
-                self?.dynamicNotchNotificationPresenter.present(notification)
-            },
-            dismiss: { [weak self] notificationID in
-                self?.dynamicNotchNotificationPresenter.dismiss(id: notificationID)
-            }
-        )
+        TerminalNotificationStore.shared.configureDynamicNotchDelivery {
+            [weak self] mutation in
+            self?.dynamicNotchNotificationPresenter.apply(mutation)
+        }
     }
 
     private func disableNativeTabbingShortcut() {

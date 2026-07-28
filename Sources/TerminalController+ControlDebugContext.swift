@@ -120,7 +120,29 @@ extension TerminalController: ControlDebugContext {
         panelSnapshotReset(surfaceArgument)
     }
 
-    func controlDebugCaptureScreenshot(label: String) -> String { captureScreenshot(label) }
+    func controlDebugCaptureScreenshot(
+        label: String,
+        windowIdentifier: String?
+    ) -> String {
+        captureScreenshot(
+            label,
+            windowIdentifier: windowIdentifier
+        )
+    }
+
+    func controlDebugDynamicNotchSnapshot() -> JSONValue? {
+        guard let snapshot = AppDelegate.shared?
+            .dynamicNotchNotificationPresenter.debugSnapshot() else {
+            return nil
+        }
+        return JSONValue(foundationObject: snapshot)
+    }
+
+    func controlDebugSetDynamicNotchPhase(_ phase: String) -> Bool {
+        AppDelegate.shared?
+            .dynamicNotchNotificationPresenter.debugSetPhase(phase)
+            ?? false
+    }
 
     func controlDebugShowCanvasCommandScrollHint(
         routing: ControlRoutingSelectors

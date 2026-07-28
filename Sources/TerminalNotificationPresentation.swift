@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Presentation controls that stay attached to a notification while policy
@@ -31,6 +32,7 @@ struct TerminalNotificationPresentation: Hashable, Sendable {
     let iconSymbolName: String?
     let actions: [Action]
     let inputs: [Input]
+    let appearance: DynamicNotchAppearanceOverrides
     let responseToken: UUID?
     let timeout: TimeInterval
 
@@ -39,6 +41,7 @@ struct TerminalNotificationPresentation: Hashable, Sendable {
         iconSymbolName: String? = nil,
         actions: [Action] = [],
         inputs: [Input] = [],
+        appearance: DynamicNotchAppearanceOverrides = DynamicNotchAppearanceOverrides(),
         responseToken: UUID? = nil,
         timeout: TimeInterval = 8
     ) {
@@ -46,6 +49,7 @@ struct TerminalNotificationPresentation: Hashable, Sendable {
         self.iconSymbolName = iconSymbolName
         self.actions = actions
         self.inputs = inputs
+        self.appearance = appearance
         self.responseToken = responseToken
         self.timeout = timeout
     }

@@ -855,6 +855,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D14A0C030000000000000003 /* DynamicNotchKit in Frameworks */ = {isa = PBXBuildFile; productRef = D14A0C020000000000000002 /* DynamicNotchKit */; };
 		D14A0D090000000000000009 /* DynamicNotchNotificationCompactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D0A000000000000000A /* DynamicNotchNotificationCompactView.swift */; };
+		D14A0D110000000000000011 /* DynamicNotchNotificationAppearance+Rendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D120000000000000012 /* DynamicNotchNotificationAppearance+Rendering.swift */; };
 		D14A0D0B000000000000000B /* DynamicNotchNotificationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D0C000000000000000C /* DynamicNotchNotificationListView.swift */; };
 		D14A0D010000000000000001 /* DynamicNotchNotificationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D020000000000000002 /* DynamicNotchNotificationPresenter.swift */; };
 		D14A0D070000000000000007 /* DynamicNotchNotificationTrayModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14A0D080000000000000008 /* DynamicNotchNotificationTrayModel.swift */; };
@@ -3174,6 +3175,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockWorkingDirectoryInheritanceTests.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D14A0D0A000000000000000A /* DynamicNotchNotificationCompactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationCompactView.swift; sourceTree = "<group>"; };
+		D14A0D120000000000000012 /* DynamicNotchNotificationAppearance+Rendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DynamicNotchNotificationAppearance+Rendering.swift"; sourceTree = "<group>"; };
 		D14A0D0C000000000000000C /* DynamicNotchNotificationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationListView.swift; sourceTree = "<group>"; };
 		D14A0D020000000000000002 /* DynamicNotchNotificationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationPresenter.swift; sourceTree = "<group>"; };
 		D14A0D080000000000000008 /* DynamicNotchNotificationTrayModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicNotchNotificationTrayModel.swift; sourceTree = "<group>"; };
@@ -5795,6 +5797,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEFEF80000000000000002 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift */,
 				A5F10000000000000000000C /* TerminalNotification.swift */,
 				D14A0D020000000000000002 /* DynamicNotchNotificationPresenter.swift */,
+				D14A0D120000000000000012 /* DynamicNotchNotificationAppearance+Rendering.swift */,
 				D14A0D0A000000000000000A /* DynamicNotchNotificationCompactView.swift */,
 				D14A0D0C000000000000000C /* DynamicNotchNotificationListView.swift */,
 				D14A0D080000000000000008 /* DynamicNotchNotificationTrayModel.swift */,
@@ -8000,6 +8003,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
 				D14A0D090000000000000009 /* DynamicNotchNotificationCompactView.swift in Sources */,
+				D14A0D110000000000000011 /* DynamicNotchNotificationAppearance+Rendering.swift in Sources */,
 				D14A0D0B000000000000000B /* DynamicNotchNotificationListView.swift in Sources */,
 				D14A0D010000000000000001 /* DynamicNotchNotificationPresenter.swift in Sources */,
 				D14A0D070000000000000007 /* DynamicNotchNotificationTrayModel.swift in Sources */,

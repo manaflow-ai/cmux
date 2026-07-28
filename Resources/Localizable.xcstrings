@@ -172992,121 +172992,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux notify [flags]\n\nأرسل إشعارًا إلى مساحة/سطح العمل.\n\nالأعلام:\n  --title <text>         عنوان الإشعار (default: \"الإشعار\")\n  --subtitle <text>      العنوان الفرعي للإخطار\n  --body <text>          هيئة الإخطار\n  --delivery <mode>      default أو system أو notch\n  --icon <sf-symbol>     اسم Dynamic Notch SF Symbol\n  --action <id=Label>    إضافة إجراء تفاعلي (قابل للتكرار، بحد أقصى 4)\n  --input <id=Label>     إضافة حقل نصي (قابل للتكرار، بحد أقصى 4)\n  --secure-input <id=Label>   أضف حقل نص مقنع\n  --spec <json|@file|->  قم بتحميل نموذج وقت التشغيل من JSON أو ملف أو stdin\n  --print-schema         اطبع مخطط النموذج JSON دون الاتصال بـ cmux\n  --wait                 انتظر واطبع نتيجة الإجراء\n  --timeout <seconds>    مهلة الرفض التلقائي؛ 0 مستمر (default: 8، أو 300 مع --wait)\n  --workspace <id|ref|index>   مساحة العمل المستهدفة، باستثناء السطح الصريح UUID الذي يتم حله عالميًا\n  --surface <id|ref|index>     السطح المستهدف (تستخدم المراجع/الفهارس سياق مساحة العمل/النافذة)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n\nمثال:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "الاستخدام: cmux notify [flags]\n\nأرسل إشعارًا إلى مساحة/سطح العمل.\n\nالأعلام:\n  --title <text>         عنوان الإشعار (default: \"الإشعار\")\n  --subtitle <text>      العنوان الفرعي للإخطار\n  --body <text>          هيئة الإخطار\n  --delivery <mode>      default أو system أو notch\n  --icon <sf-symbol>     اسم Dynamic Notch SF Symbol\n  --action <id=Label>    إضافة إجراء تفاعلي (قابل للتكرار، بحد أقصى 4)\n  --input <id=Label>     إضافة حقل نصي (قابل للتكرار، بحد أقصى 4)\n  --secure-input <id=Label>   أضف حقل نص مقنع\n  --style <key=value>    تجاوز رمز مظهر واحد (قابل للتكرار)\n  --spec <json|@file|->  قم بتحميل نموذج وقت التشغيل من JSON أو ملف أو stdin\n  --print-schema         اطبع مخطط النموذج JSON دون الاتصال بـ cmux\n  --wait                 انتظر واطبع نتيجة الإجراء\n  --timeout <seconds>    مهلة الرفض التلقائي؛ 0 مستمر (default: 8، أو 300 مع --wait)\n  --workspace <id|ref|index>   مساحة العمل المستهدفة، باستثناء السطح الصريح UUID الذي يتم حله عالميًا\n  --surface <id|ref|index>     السطح المستهدف (تستخدم المراجع/الفهارس سياق مساحة العمل/النافذة)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n\nمثال:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Upotreba: cmux notify [flags]\n\nPošaljite obavijest radnom prostoru/površini.\n\nzastave:\n  --title <text>         Naslov obavještenja (default: \"Obavijest\")\n  --subtitle <text>      Podnaslov obavještenja\n  --body <text>          Notification body\n  --delivery <mode>      default, system ili notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol naziv\n  --action <id=Label>    Dodajte interaktivnu radnju (ponovljiva, maksimalno 4)\n  --input <id=Label>     Dodajte tekstualno polje (ponovljivo, maksimalno 4)\n  --secure-input <id=Label>   Dodajte maskirano tekstualno polje\n  --spec <json|@file|->  Učitajte runtime obrazac iz JSON, datoteke ili stdin\n  --print-schema         Ispišite šemu obrasca JSON bez povezivanja na cmux\n  --wait                 Pričekajte i odštampajte rezultat akcije\n  --timeout <seconds>    Auto-dismiss timeout; 0 ostaje (default: 8, ili 300 sa --wait)\n  --workspace <id|ref|index>   Ciljni radni prostor, osim eksplicitnih površinskih UUID-ova rješavaju globalno\n  --surface <id|ref|index>     Ciljna površina (refs/indeksi koriste kontekst radnog prostora/prozora)\n  --window <id|ref|index>      Kontekst prozora za radne prostore/površine reference i indekse\n\nprimjer:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Upotreba: cmux notify [flags]\n\nPošaljite obavijest radnom prostoru/površini.\n\nzastave:\n  --title <text>         Naslov obavještenja (default: \"Obavijest\")\n  --subtitle <text>      Podnaslov obavještenja\n  --body <text>          Notification body\n  --delivery <mode>      default, system ili notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol naziv\n  --action <id=Label>    Dodajte interaktivnu radnju (ponovljiva, maksimalno 4)\n  --input <id=Label>     Dodajte tekstualno polje (ponovljivo, maksimalno 4)\n  --secure-input <id=Label>   Dodajte maskirano tekstualno polje\n  --style <key=value>    Nadjačajte jedan token izgleda (ponovljivo)\n  --spec <json|@file|->  Učitajte runtime obrazac iz JSON, datoteke ili stdin\n  --print-schema         Ispišite šemu obrasca JSON bez povezivanja na cmux\n  --wait                 Pričekajte i odštampajte rezultat akcije\n  --timeout <seconds>    Auto-dismiss timeout; 0 ostaje (default: 8, ili 300 sa --wait)\n  --workspace <id|ref|index>   Ciljni radni prostor, osim eksplicitnih površinskih UUID-ova rješavaju globalno\n  --surface <id|ref|index>     Ciljna površina (refs/indeksi koriste kontekst radnog prostora/prozora)\n  --window <id|ref|index>      Kontekst prozora za radne prostore/površine reference i indekse\n\nprimjer:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brug: cmux notify [flags]\n\nSend en notifikation til et arbejdsområde/-overflade.\n\nFlag:\n  --title <text>         Meddelelsestitel (default: \"Meddelelse\")\n  --subtitle <text>      Meddelelse undertekst\n  --body <text>          Notifikationsorgan\n  --delivery <mode>      default, system eller notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol navn\n  --action <id=Label>    Tilføj en interaktiv handling (kan gentages, maks. 4)\n  --input <id=Label>     Tilføj et tekstfelt (kan gentages, maks. 4)\n  --secure-input <id=Label>   Tilføj et maskeret tekstfelt\n  --spec <json|@file|->  Indlæs en runtime-formular fra JSON, en fil eller stdin\n  --print-schema         Udskriv JSON-formularskemaet uden at oprette forbindelse til cmux\n  --wait                 Vent og udskriv handlingsresultatet\n  --timeout <seconds>    Auto-afvis timeout; 0 fortsætter (default: 8 eller 300 med --wait)\n  --workspace <id|ref|index>   Målarbejdsområde, undtagen eksplicit overflade UUID'er løses globalt\n  --surface <id|ref|index>     Målflade (refer/indekser bruger arbejdsområde/vinduekontekst)\n  --window <id|ref|index>      Vindueskontekst for arbejdsområde/overfladerefer og indekser\n\nEksempel:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Brug: cmux notify [flags]\n\nSend en notifikation til et arbejdsområde/-overflade.\n\nFlag:\n  --title <text>         Meddelelsestitel (default: \"Meddelelse\")\n  --subtitle <text>      Meddelelse undertekst\n  --body <text>          Notifikationsorgan\n  --delivery <mode>      default, system eller notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol navn\n  --action <id=Label>    Tilføj en interaktiv handling (kan gentages, maks. 4)\n  --input <id=Label>     Tilføj et tekstfelt (kan gentages, maks. 4)\n  --secure-input <id=Label>   Tilføj et maskeret tekstfelt\n  --style <key=value>    Tilsidesæt ét udseendetoken (kan gentages)\n  --spec <json|@file|->  Indlæs en runtime-formular fra JSON, en fil eller stdin\n  --print-schema         Udskriv JSON-formularskemaet uden at oprette forbindelse til cmux\n  --wait                 Vent og udskriv handlingsresultatet\n  --timeout <seconds>    Auto-afvis timeout; 0 fortsætter (default: 8 eller 300 med --wait)\n  --workspace <id|ref|index>   Målarbejdsområde, undtagen eksplicit overflade UUID'er løses globalt\n  --surface <id|ref|index>     Målflade (refer/indekser bruger arbejdsområde/vinduekontekst)\n  --window <id|ref|index>      Vindueskontekst for arbejdsområde/overfladerefer og indekser\n\nEksempel:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux notify [flags]\n\nSenden Sie eine Benachrichtigung an einen Arbeitsbereich/eine Oberfläche.\n\nFlaggen:\n  --title <text>         Titel der Benachrichtigung (default: „Benachrichtigung“)\n  --subtitle <text>      Untertitel der Benachrichtigung\n  --body <text>          Benachrichtigungsstelle\n  --delivery <mode>      default, system oder notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol Name\n  --action <id=Label>    Fügen Sie eine interaktive Aktion hinzu (wiederholbar, max. 4)\n  --input <id=Label>     Fügen Sie ein Textfeld hinzu (wiederholbar, max. 4)\n  --secure-input <id=Label>   Fügen Sie ein maskiertes Textfeld hinzu\n  --spec <json|@file|->  Laden Sie ein Laufzeitformular aus JSON, einer Datei oder stdin\n  --print-schema         Drucken Sie das JSON-Formularschema, ohne eine Verbindung zu cmux herzustellen\n  --wait                 Warten Sie und drucken Sie das Aktionsergebnis aus\n  --timeout <seconds>    Zeitüberschreitung beim automatischen Schließen; 0 bleibt bestehen (default: 8, bzw. 300 bei --wait)\n  --workspace <id|ref|index>   Zielarbeitsbereich, mit Ausnahme expliziter Oberflächen-UUIDs, die global aufgelöst werden\n  --surface <id|ref|index>     Zieloberfläche (Referenzen/Indizes verwenden Arbeitsbereich/Fensterkontext)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereichs-/Oberflächenreferenzen und Indizes\n\nBeispiel:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Verwendung: cmux notify [flags]\n\nSenden Sie eine Benachrichtigung an einen Arbeitsbereich/eine Oberfläche.\n\nFlaggen:\n  --title <text>         Titel der Benachrichtigung (default: „Benachrichtigung“)\n  --subtitle <text>      Untertitel der Benachrichtigung\n  --body <text>          Benachrichtigungsstelle\n  --delivery <mode>      default, system oder notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol Name\n  --action <id=Label>    Fügen Sie eine interaktive Aktion hinzu (wiederholbar, max. 4)\n  --input <id=Label>     Fügen Sie ein Textfeld hinzu (wiederholbar, max. 4)\n  --secure-input <id=Label>   Fügen Sie ein maskiertes Textfeld hinzu\n  --style <key=value>    Einen Darstellungswert überschreiben (wiederholbar)\n  --spec <json|@file|->  Laden Sie ein Laufzeitformular aus JSON, einer Datei oder stdin\n  --print-schema         Drucken Sie das JSON-Formularschema, ohne eine Verbindung zu cmux herzustellen\n  --wait                 Warten Sie und drucken Sie das Aktionsergebnis aus\n  --timeout <seconds>    Zeitüberschreitung beim automatischen Schließen; 0 bleibt bestehen (default: 8, bzw. 300 bei --wait)\n  --workspace <id|ref|index>   Zielarbeitsbereich, mit Ausnahme expliziter Oberflächen-UUIDs, die global aufgelöst werden\n  --surface <id|ref|index>     Zieloberfläche (Referenzen/Indizes verwenden Arbeitsbereich/Fensterkontext)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereichs-/Oberflächenreferenzen und Indizes\n\nBeispiel:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux notify [flags]\n\nSend a notification to a workspace/surface.\n\nFlags:\n  --title <text>         Notification title (default: \"Notification\")\n  --subtitle <text>      Notification subtitle\n  --body <text>          Notification body\n  --delivery <mode>      default, system, or notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol name\n  --action <id=Label>    Add an interactive action (repeatable, max 4)\n  --input <id=Label>     Add a text field (repeatable, max 4)\n  --secure-input <id=Label>   Add a masked text field\n  --spec <json|@file|->  Load a runtime form from JSON, a file, or stdin\n  --print-schema         Print the JSON form schema without connecting to cmux\n  --wait                 Wait and print the action result\n  --timeout <seconds>    Auto-dismiss timeout; 0 persists (default: 8, or 300 with --wait)\n  --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally\n  --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Usage: cmux notify [flags]\n\nSend a notification to a workspace/surface.\n\nFlags:\n  --title <text>         Notification title (default: \"Notification\")\n  --subtitle <text>      Notification subtitle\n  --body <text>          Notification body\n  --delivery <mode>      default, system, or notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol name\n  --action <id=Label>    Add an interactive action (repeatable, max 4)\n  --input <id=Label>     Add a text field (repeatable, max 4)\n  --secure-input <id=Label>   Add a masked text field\n  --style <key=value>    Override one appearance token (repeatable)\n  --spec <json|@file|->  Load a runtime form from JSON, a file, or stdin\n  --print-schema         Print the JSON form schema without connecting to cmux\n  --wait                 Wait and print the action result\n  --timeout <seconds>    Auto-dismiss timeout; 0 persists (default: 8, or 300 with --wait)\n  --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally\n  --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux notify [flags]\n\nEnviar una notificación a un espacio de trabajo/superficie.\n\nBanderas:\n  --title <text>         Título de la notificación (default: \"Notificación\")\n  --subtitle <text>      Subtítulo de notificación\n  --body <text>          Organismo de notificación\n  --delivery <mode>      default, system o notch\n  --icon <sf-symbol>     nombre Dynamic Notch SF Symbol\n  --action <id=Label>    Agregar una acción interactiva (repetible, máximo 4)\n  --input <id=Label>     Agregar un campo de texto (repetible, máximo 4)\n  --secure-input <id=Label>   Agregar un campo de texto enmascarado\n  --spec <json|@file|->  Cargue un formulario en tiempo de ejecución desde JSON, un archivo o stdin\n  --print-schema         Imprima el esquema del formulario JSON sin conectarse a cmux\n  --wait                 Espere e imprima el resultado de la acción.\n  --timeout <seconds>    Tiempo de espera de descarte automático; 0 persiste (default: 8, o 300 con --wait)\n  --workspace <id|ref|index>   Espacio de trabajo de destino, excepto que las superficies explícitas UUID se resuelvan globalmente\n  --surface <id|ref|index>     Superficie de destino (las referencias/índices utilizan el espacio de trabajo/contexto de la ventana)\n  --window <id|ref|index>      Contexto de ventana para índices y referencias de espacio de trabajo/superficie\n\nEjemplo:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Uso: cmux notify [flags]\n\nEnviar una notificación a un espacio de trabajo/superficie.\n\nBanderas:\n  --title <text>         Título de la notificación (default: \"Notificación\")\n  --subtitle <text>      Subtítulo de notificación\n  --body <text>          Organismo de notificación\n  --delivery <mode>      default, system o notch\n  --icon <sf-symbol>     nombre Dynamic Notch SF Symbol\n  --action <id=Label>    Agregar una acción interactiva (repetible, máximo 4)\n  --input <id=Label>     Agregar un campo de texto (repetible, máximo 4)\n  --secure-input <id=Label>   Agregar un campo de texto enmascarado\n  --style <key=value>    Sobrescribe un valor de apariencia (repetible)\n  --spec <json|@file|->  Cargue un formulario en tiempo de ejecución desde JSON, un archivo o stdin\n  --print-schema         Imprima el esquema del formulario JSON sin conectarse a cmux\n  --wait                 Espere e imprima el resultado de la acción.\n  --timeout <seconds>    Tiempo de espera de descarte automático; 0 persiste (default: 8, o 300 con --wait)\n  --workspace <id|ref|index>   Espacio de trabajo de destino, excepto que las superficies explícitas UUID se resuelvan globalmente\n  --surface <id|ref|index>     Superficie de destino (las referencias/índices utilizan el espacio de trabajo/contexto de la ventana)\n  --window <id|ref|index>      Contexto de ventana para índices y referencias de espacio de trabajo/superficie\n\nEjemplo:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux notify [flags]\n\nEnvoyez une notification à un espace de travail/surface.\n\nDrapeaux :\n  --title <text>         Titre de la notification (default : « Notification »)\n  --subtitle <text>      Sous-titre des notifications\n  --body <text>          Corps de notification\n  --delivery <mode>      default, system ou notch\n  --icon <sf-symbol>     Nom Dynamic Notch SF Symbol\n  --action <id=Label>    Ajouter une action interactive (répétable, max 4)\n  --input <id=Label>     Ajouter un champ de texte (répétable, max 4)\n  --secure-input <id=Label>   Ajouter un champ de texte masqué\n  --spec <json|@file|->  Charger un formulaire d'exécution à partir de JSON, d'un fichier ou de stdin\n  --print-schema         Imprimer le schéma du formulaire JSON sans vous connecter à cmux\n  --wait                 Attendez et imprimez le résultat de l'action\n  --timeout <seconds>    Délai d'expiration automatique ; 0 persiste (default : 8, ou 300 avec --wait)\n  --workspace <id|ref|index>   Espace de travail cible, à l'exception des surfaces explicites UUID résolues globalement\n  --surface <id|ref|index>     Surface cible (les références/index utilisent le contexte d'espace de travail/fenêtre)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d'espace de travail/surface\n\nExemple:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Utilisation : cmux notify [flags]\n\nEnvoyez une notification à un espace de travail/surface.\n\nDrapeaux :\n  --title <text>         Titre de la notification (default : « Notification »)\n  --subtitle <text>      Sous-titre des notifications\n  --body <text>          Corps de notification\n  --delivery <mode>      default, system ou notch\n  --icon <sf-symbol>     Nom Dynamic Notch SF Symbol\n  --action <id=Label>    Ajouter une action interactive (répétable, max 4)\n  --input <id=Label>     Ajouter un champ de texte (répétable, max 4)\n  --secure-input <id=Label>   Ajouter un champ de texte masqué\n  --style <key=value>    Remplacer une valeur d’apparence (répétable)\n  --spec <json|@file|->  Charger un formulaire d'exécution à partir de JSON, d'un fichier ou de stdin\n  --print-schema         Imprimer le schéma du formulaire JSON sans vous connecter à cmux\n  --wait                 Attendez et imprimez le résultat de l'action\n  --timeout <seconds>    Délai d'expiration automatique ; 0 persiste (default : 8, ou 300 avec --wait)\n  --workspace <id|ref|index>   Espace de travail cible, à l'exception des surfaces explicites UUID résolues globalement\n  --surface <id|ref|index>     Surface cible (les références/index utilisent le contexte d'espace de travail/fenêtre)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d'espace de travail/surface\n\nExemple:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilizzo: cmux notify [flags]\n\nInvia una notifica a un'area di lavoro/superficie.\n\nBandiere:\n  --title <text>         Titolo della notifica (default: \"Notifica\")\n  --subtitle <text>      Sottotitolo della notifica\n  --body <text>          Organismo di notifica\n  --delivery <mode>      default, system o notch\n  --icon <sf-symbol>     Nome Dynamic Notch SF Symbol\n  --action <id=Label>    Aggiungi un'azione interattiva (ripetibile, max 4)\n  --input <id=Label>     Aggiungi un campo di testo (ripetibile, max 4)\n  --secure-input <id=Label>   Aggiungi un campo di testo mascherato\n  --spec <json|@file|->  Carica un modulo runtime da JSON, un file o stdin\n  --print-schema         Stampa lo schema del modulo JSON senza connettersi a cmux\n  --wait                 Attendi e stampa il risultato dell'azione\n  --timeout <seconds>    Timeout di eliminazione automatica; 0 persiste (default: 8 o 300 con --wait)\n  --workspace <id|ref|index>   Area di lavoro di destinazione, ad eccezione degli UUID di superficie espliciti che si risolvono a livello globale\n  --surface <id|ref|index>     Superficie di destinazione (riferimenti/indici utilizzano spazio di lavoro/contesto della finestra)\n  --window <id|ref|index>      Contesto della finestra per riferimenti e indici di area di lavoro/superficie\n\nEsempio:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Utilizzo: cmux notify [flags]\n\nInvia una notifica a un'area di lavoro/superficie.\n\nBandiere:\n  --title <text>         Titolo della notifica (default: \"Notifica\")\n  --subtitle <text>      Sottotitolo della notifica\n  --body <text>          Organismo di notifica\n  --delivery <mode>      default, system o notch\n  --icon <sf-symbol>     Nome Dynamic Notch SF Symbol\n  --action <id=Label>    Aggiungi un'azione interattiva (ripetibile, max 4)\n  --input <id=Label>     Aggiungi un campo di testo (ripetibile, max 4)\n  --secure-input <id=Label>   Aggiungi un campo di testo mascherato\n  --style <key=value>    Sostituisci un valore di aspetto (ripetibile)\n  --spec <json|@file|->  Carica un modulo runtime da JSON, un file o stdin\n  --print-schema         Stampa lo schema del modulo JSON senza connettersi a cmux\n  --wait                 Attendi e stampa il risultato dell'azione\n  --timeout <seconds>    Timeout di eliminazione automatica; 0 persiste (default: 8 o 300 con --wait)\n  --workspace <id|ref|index>   Area di lavoro di destinazione, ad eccezione degli UUID di superficie espliciti che si risolvono a livello globale\n  --surface <id|ref|index>     Superficie di destinazione (riferimenti/indici utilizzano spazio di lavoro/contesto della finestra)\n  --window <id|ref|index>      Contesto della finestra per riferimenti e indici di area di lavoro/superficie\n\nEsempio:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux notify [フラグ]\n\nワークスペースまたはサーフェスに通知を送信します。\n\nフラグ:\n  --title <テキスト>         通知タイトル（既定: \"Notification\"）\n  --subtitle <テキスト>      通知サブタイトル\n  --body <テキスト>          通知本文\n  --delivery <モード>        default、system、notch\n  --icon <SF Symbol>         Dynamic Notch の SF Symbol 名\n  --action <id=ラベル>       操作ボタンを追加（最大4個、繰り返し可）\n  --input <id=ラベル>        テキスト入力欄を追加（最大4個、繰り返し可）\n  --secure-input <id=ラベル> マスクされた入力欄を追加\n  --spec <json|@file|->      JSON、ファイル、標準入力から実行時フォームを読み込み\n  --print-schema             cmux に接続せず JSON フォームスキーマを出力\n  --wait                     操作結果を待って出力\n  --timeout <秒>             自動消去までの秒数。0 は表示を維持（既定: 8、--wait 時は300）\n  --workspace <id|ref|index> 対象ワークスペース（明示的なサーフェス UUID はグローバルに解決）\n  --surface <id|ref|index>   対象サーフェス（ref/index はワークスペース/ウインドウのコンテキストを使用）\n  --window <id|ref|index>    ワークスペース/サーフェスの ref/index 用ウインドウコンテキスト\n\n例:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "使用法: cmux notify [フラグ]\n\nワークスペースまたはサーフェスに通知を送信します。\n\nフラグ:\n  --title <テキスト>         通知タイトル（既定: \"Notification\"）\n  --subtitle <テキスト>      通知サブタイトル\n  --body <テキスト>          通知本文\n  --delivery <モード>        default、system、notch\n  --icon <SF Symbol>         Dynamic Notch の SF Symbol 名\n  --action <id=ラベル>       操作ボタンを追加（最大4個、繰り返し可）\n  --input <id=ラベル>        テキスト入力欄を追加（最大4個、繰り返し可）\n  --secure-input <id=ラベル> マスクされた入力欄を追加\n  --style <key=value>    外観トークンを上書き（繰り返し可）\n  --spec <json|@file|->      JSON、ファイル、標準入力から実行時フォームを読み込み\n  --print-schema             cmux に接続せず JSON フォームスキーマを出力\n  --wait                     操作結果を待って出力\n  --timeout <秒>             自動消去までの秒数。0 は表示を維持（既定: 8、--wait 時は300）\n  --workspace <id|ref|index> 対象ワークスペース（明示的なサーフェス UUID はグローバルに解決）\n  --surface <id|ref|index>   対象サーフェス（ref/index はワークスペース/ウインドウのコンテキストを使用）\n  --window <id|ref|index>    ワークスペース/サーフェスの ref/index 用ウインドウコンテキスト\n\n例:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការប្រើប្រាស់៖ cmux notify [flags]\n\nផ្ញើការជូនដំណឹងទៅកាន់កន្លែងធ្វើការ/ផ្ទៃ។\n\nទង់ជាតិ៖\n  --title <text>         ចំណងជើងការជូនដំណឹង (default: \"ការជូនដំណឹង\")\n  --subtitle <text>      ចំណងជើងរងការជូនដំណឹង\n  --body <text>          ស្ថាប័នជូនដំណឹង\n  --delivery <mode>      default, system, ឬ notch\n  --icon <sf-symbol>     ឈ្មោះ Dynamic Notch SF Symbol\n  --action <id=Label>    បន្ថែមសកម្មភាពអន្តរកម្ម (អាចធ្វើម្តងទៀតបាន អតិបរមា 4)\n  --input <id=Label>     បន្ថែមវាលអត្ថបទ (អាចធ្វើម្តងទៀតបាន អតិបរមា 4)\n  --secure-input <id=Label>   បន្ថែមវាលអត្ថបទដែលបានបិទបាំង\n  --spec <json|@file|->  ផ្ទុកទម្រង់ពេលវេលាដំណើរការពី JSON ឯកសារ ឬ stdin\n  --print-schema         បោះពុម្ពគ្រោងការណ៍ទម្រង់ JSON ដោយមិនចាំបាច់ភ្ជាប់ទៅ cmux\n  --wait                 រង់ចាំ ហើយបោះពុម្ពលទ្ធផលសកម្មភាព\n  --timeout <seconds>    អស់ពេលបិទដោយស្វ័យប្រវត្តិ; 0 បន្ត (default: 8 ឬ 300 ជាមួយ --wait)\n  --workspace <id|ref|index>   កំណត់ផ្ទៃការងារ លើកលែងតែផ្ទៃច្បាស់លាស់ UUIDs ដោះស្រាយជាសកល\n  --surface <id|ref|index>     ផ្ទៃគោលដៅ (refs/indexes ប្រើ workspace/window context)\n  --window <id|ref|index>      បរិបទ​បង្អួច​សម្រាប់​កន្លែង​ធ្វើ​ការ/ការ​យោង​ផ្ទៃ​និង​លិបិក្រម\n\nឧទាហរណ៍៖\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "ការប្រើប្រាស់៖ cmux notify [flags]\n\nផ្ញើការជូនដំណឹងទៅកាន់កន្លែងធ្វើការ/ផ្ទៃ។\n\nទង់ជាតិ៖\n  --title <text>         ចំណងជើងការជូនដំណឹង (default: \"ការជូនដំណឹង\")\n  --subtitle <text>      ចំណងជើងរងការជូនដំណឹង\n  --body <text>          ស្ថាប័នជូនដំណឹង\n  --delivery <mode>      default, system, ឬ notch\n  --icon <sf-symbol>     ឈ្មោះ Dynamic Notch SF Symbol\n  --action <id=Label>    បន្ថែមសកម្មភាពអន្តរកម្ម (អាចធ្វើម្តងទៀតបាន អតិបរមា 4)\n  --input <id=Label>     បន្ថែមវាលអត្ថបទ (អាចធ្វើម្តងទៀតបាន អតិបរមា 4)\n  --secure-input <id=Label>   បន្ថែមវាលអត្ថបទដែលបានបិទបាំង\n  --style <key=value>    ប្តូរតម្លៃរូបរាងមួយ (អាចធ្វើម្តងទៀត)\n  --spec <json|@file|->  ផ្ទុកទម្រង់ពេលវេលាដំណើរការពី JSON ឯកសារ ឬ stdin\n  --print-schema         បោះពុម្ពគ្រោងការណ៍ទម្រង់ JSON ដោយមិនចាំបាច់ភ្ជាប់ទៅ cmux\n  --wait                 រង់ចាំ ហើយបោះពុម្ពលទ្ធផលសកម្មភាព\n  --timeout <seconds>    អស់ពេលបិទដោយស្វ័យប្រវត្តិ; 0 បន្ត (default: 8 ឬ 300 ជាមួយ --wait)\n  --workspace <id|ref|index>   កំណត់ផ្ទៃការងារ លើកលែងតែផ្ទៃច្បាស់លាស់ UUIDs ដោះស្រាយជាសកល\n  --surface <id|ref|index>     ផ្ទៃគោលដៅ (refs/indexes ប្រើ workspace/window context)\n  --window <id|ref|index>      បរិបទ​បង្អួច​សម្រាប់​កន្លែង​ធ្វើ​ការ/ការ​យោង​ផ្ទៃ​និង​លិបិក្រម\n\nឧទាហរណ៍៖\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux notify [flags]\n\n작업 영역/표면에 알림을 보냅니다.\n\n플래그:\n  --title <text>         알림 제목(default: \"알림\")\n  --subtitle <text>      알림 자막\n  --body <text>          통지 본문\n  --delivery <mode>      default, system 또는 notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol 이름\n  --action <id=Label>    대화형 작업 추가(반복 가능, 최대 4개)\n  --input <id=Label>     텍스트 필드 추가(반복 가능, 최대 4개)\n  --secure-input <id=Label>   마스크된 텍스트 필드 추가\n  --spec <json|@file|->  JSON, 파일 또는 stdin에서 런타임 양식 로드\n  --print-schema         cmux에 연결하지 않고 JSON 양식 스키마 인쇄\n  --wait                 기다렸다가 작업 결과를 인쇄하세요.\n  --timeout <seconds>    자동 해제 시간 초과; 0이 지속됨(default: 8 또는 --wait의 경우 300)\n  --workspace <id|ref|index>   명시적인 표면 UUID를 제외한 대상 작업 공간은 전역적으로 확인됩니다.\n  --surface <id|ref|index>     대상 표면(참조/색인은 작업 공간/창 컨텍스트를 사용함)\n  --window <id|ref|index>      작업 공간/표면 참조 및 색인에 대한 창 컨텍스트\n\n예:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "사용법: cmux notify [flags]\n\n작업 영역/표면에 알림을 보냅니다.\n\n플래그:\n  --title <text>         알림 제목(default: \"알림\")\n  --subtitle <text>      알림 자막\n  --body <text>          통지 본문\n  --delivery <mode>      default, system 또는 notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol 이름\n  --action <id=Label>    대화형 작업 추가(반복 가능, 최대 4개)\n  --input <id=Label>     텍스트 필드 추가(반복 가능, 최대 4개)\n  --secure-input <id=Label>   마스크된 텍스트 필드 추가\n  --style <key=value>    모양 값 하나 재정의(반복 가능)\n  --spec <json|@file|->  JSON, 파일 또는 stdin에서 런타임 양식 로드\n  --print-schema         cmux에 연결하지 않고 JSON 양식 스키마 인쇄\n  --wait                 기다렸다가 작업 결과를 인쇄하세요.\n  --timeout <seconds>    자동 해제 시간 초과; 0이 지속됨(default: 8 또는 --wait의 경우 300)\n  --workspace <id|ref|index>   명시적인 표면 UUID를 제외한 대상 작업 공간은 전역적으로 확인됩니다.\n  --surface <id|ref|index>     대상 표면(참조/색인은 작업 공간/창 컨텍스트를 사용함)\n  --window <id|ref|index>      작업 공간/표면 참조 및 색인에 대한 창 컨텍스트\n\n예:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bruk: cmux notify [flags]\n\nSend et varsel til et arbeidsområde/overflate.\n\nFlagg:\n  --title <text>         Varslingstittel (default: \"Varsling\")\n  --subtitle <text>      Undertekst for varsel\n  --body <text>          Meldingsorgan\n  --delivery <mode>      default, system eller notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol navn\n  --action <id=Label>    Legg til en interaktiv handling (kan gjentas, maks 4)\n  --input <id=Label>     Legg til et tekstfelt (kan gjentas, maks 4)\n  --secure-input <id=Label>   Legg til et maskert tekstfelt\n  --spec <json|@file|->  Last inn et kjøretidsskjema fra JSON, en fil eller stdin\n  --print-schema         Skriv ut JSON-skjemaskjemaet uten å koble til cmux\n  --wait                 Vent og skriv ut handlingsresultatet\n  --timeout <seconds>    Automatisk avvis tidsavbrudd; 0 vedvarer (default: 8 eller 300 med --wait)\n  --workspace <id|ref|index>   Målarbeidsområde, unntatt eksplisitt overflate UUIDs løses globalt\n  --surface <id|ref|index>     Måloverflate (refer/indekser bruker arbeidsområde/vinduskontekst)\n  --window <id|ref|index>      Vinduskontekst for arbeidsområde/overflaterefs og indekser\n\nEksempel:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Bruk: cmux notify [flags]\n\nSend et varsel til et arbeidsområde/overflate.\n\nFlagg:\n  --title <text>         Varslingstittel (default: \"Varsling\")\n  --subtitle <text>      Undertekst for varsel\n  --body <text>          Meldingsorgan\n  --delivery <mode>      default, system eller notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol navn\n  --action <id=Label>    Legg til en interaktiv handling (kan gjentas, maks 4)\n  --input <id=Label>     Legg til et tekstfelt (kan gjentas, maks 4)\n  --secure-input <id=Label>   Legg til et maskert tekstfelt\n  --style <key=value>    Overstyr én utseendeverdi (kan gjentas)\n  --spec <json|@file|->  Last inn et kjøretidsskjema fra JSON, en fil eller stdin\n  --print-schema         Skriv ut JSON-skjemaskjemaet uten å koble til cmux\n  --wait                 Vent og skriv ut handlingsresultatet\n  --timeout <seconds>    Automatisk avvis tidsavbrudd; 0 vedvarer (default: 8 eller 300 med --wait)\n  --workspace <id|ref|index>   Målarbeidsområde, unntatt eksplisitt overflate UUIDs løses globalt\n  --surface <id|ref|index>     Måloverflate (refer/indekser bruker arbeidsområde/vinduskontekst)\n  --window <id|ref|index>      Vinduskontekst for arbeidsområde/overflaterefs og indekser\n\nEksempel:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Użycie: cmux notify [flags]\n\nWyślij powiadomienie do obszaru roboczego/powierzchni.\n\nFlagi:\n  --title <text>         Tytuł powiadomienia (default: „Powiadomienie”)\n  --subtitle <text>      Podtytuł powiadomienia\n  --body <text>          Organ notyfikacyjny\n  --delivery <mode>      default, system lub notch\n  --icon <sf-symbol>     Nazwa Dynamic Notch SF Symbol\n  --action <id=Label>    Dodaj akcję interaktywną (powtarzalną, maksymalnie 4)\n  --input <id=Label>     Dodaj pole tekstowe (powtarzalne, max 4)\n  --secure-input <id=Label>   Dodaj zamaskowane pole tekstowe\n  --spec <json|@file|->  Załaduj formularz wykonawczy z JSON, plik lub stdin\n  --print-schema         Wydrukuj schemat formularza JSON bez łączenia się z cmux\n  --wait                 Poczekaj i wydrukuj wynik akcji\n  --timeout <seconds>    Limit czasu automatycznego odrzucania; 0 utrzymuje się (default: 8 lub 300 w przypadku --wait)\n  --workspace <id|ref|index>   Docelowy obszar roboczy, z wyjątkiem jawnych powierzchni UUID rozstrzyganych globalnie\n  --surface <id|ref|index>     Powierzchnia docelowa (referencje/indeksy korzystają z kontekstu obszaru roboczego/okna)\n  --window <id|ref|index>      Kontekst okna dla odnośników i indeksów obszaru roboczego/powierzchni\n\nPrzykład:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Użycie: cmux notify [flags]\n\nWyślij powiadomienie do obszaru roboczego/powierzchni.\n\nFlagi:\n  --title <text>         Tytuł powiadomienia (default: „Powiadomienie”)\n  --subtitle <text>      Podtytuł powiadomienia\n  --body <text>          Organ notyfikacyjny\n  --delivery <mode>      default, system lub notch\n  --icon <sf-symbol>     Nazwa Dynamic Notch SF Symbol\n  --action <id=Label>    Dodaj akcję interaktywną (powtarzalną, maksymalnie 4)\n  --input <id=Label>     Dodaj pole tekstowe (powtarzalne, max 4)\n  --secure-input <id=Label>   Dodaj zamaskowane pole tekstowe\n  --style <key=value>    Zastąp jedną wartość wyglądu (powtarzalne)\n  --spec <json|@file|->  Załaduj formularz wykonawczy z JSON, plik lub stdin\n  --print-schema         Wydrukuj schemat formularza JSON bez łączenia się z cmux\n  --wait                 Poczekaj i wydrukuj wynik akcji\n  --timeout <seconds>    Limit czasu automatycznego odrzucania; 0 utrzymuje się (default: 8 lub 300 w przypadku --wait)\n  --workspace <id|ref|index>   Docelowy obszar roboczy, z wyjątkiem jawnych powierzchni UUID rozstrzyganych globalnie\n  --surface <id|ref|index>     Powierzchnia docelowa (referencje/indeksy korzystają z kontekstu obszaru roboczego/okna)\n  --window <id|ref|index>      Kontekst okna dla odnośników i indeksów obszaru roboczego/powierzchni\n\nPrzykład:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux notify [flags]\n\nEnvie uma notificação para um espaço de trabalho/superfície.\n\nBandeiras:\n  --title <text>         Título da notificação (default: \"Notificação\")\n  --subtitle <text>      Legenda de notificação\n  --body <text>          Corpo de notificação\n  --delivery <mode>      default, system ou notch\n  --icon <sf-symbol>     Nome Dynamic Notch SF Symbol\n  --action <id=Label>    Adicione uma ação interativa (repetível, no máximo 4)\n  --input <id=Label>     Adicione um campo de texto (repetível, no máximo 4)\n  --secure-input <id=Label>   Adicione um campo de texto mascarado\n  --spec <json|@file|->  Carregar um formulário de tempo de execução de JSON, um arquivo ou stdin\n  --print-schema         Imprima o esquema do formulário JSON sem conectar-se ao cmux\n  --wait                 Aguarde e imprima o resultado da ação\n  --timeout <seconds>    Tempo limite de dispensa automática; 0 persiste (default: 8 ou 300 com --wait)\n  --workspace <id|ref|index>   Espaço de trabalho de destino, exceto UUIDs de superfície explícita resolvidos globalmente\n  --surface <id|ref|index>     Superfície de destino (refs/índices usam contexto de espaço de trabalho/janela)\n  --window <id|ref|index>      Contexto da janela para referências e índices de espaço de trabalho/superfície\n\nExemplo:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Uso: cmux notify [flags]\n\nEnvie uma notificação para um espaço de trabalho/superfície.\n\nBandeiras:\n  --title <text>         Título da notificação (default: \"Notificação\")\n  --subtitle <text>      Legenda de notificação\n  --body <text>          Corpo de notificação\n  --delivery <mode>      default, system ou notch\n  --icon <sf-symbol>     Nome Dynamic Notch SF Symbol\n  --action <id=Label>    Adicione uma ação interativa (repetível, no máximo 4)\n  --input <id=Label>     Adicione um campo de texto (repetível, no máximo 4)\n  --secure-input <id=Label>   Adicione um campo de texto mascarado\n  --style <key=value>    Substitua um valor de aparência (repetível)\n  --spec <json|@file|->  Carregar um formulário de tempo de execução de JSON, um arquivo ou stdin\n  --print-schema         Imprima o esquema do formulário JSON sem conectar-se ao cmux\n  --wait                 Aguarde e imprima o resultado da ação\n  --timeout <seconds>    Tempo limite de dispensa automática; 0 persiste (default: 8 ou 300 com --wait)\n  --workspace <id|ref|index>   Espaço de trabalho de destino, exceto UUIDs de superfície explícita resolvidos globalmente\n  --surface <id|ref|index>     Superfície de destino (refs/índices usam contexto de espaço de trabalho/janela)\n  --window <id|ref|index>      Contexto da janela para referências e índices de espaço de trabalho/superfície\n\nExemplo:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Использование: cmux notify [flags]\n\nОтправьте уведомление в рабочую область/поверхность.\n\nФлаги:\n  --title <text>         Название уведомления (default: «Уведомление»)\n  --subtitle <text>      Подзаголовок уведомления\n  --body <text>          Тело уведомления\n  --delivery <mode>      default, system или notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol имя\n  --action <id=Label>    Добавить интерактивное действие (повторяемое, максимум 4)\n  --input <id=Label>     Добавить текстовое поле (повторяемое, максимум 4)\n  --secure-input <id=Label>   Добавить скрытое текстовое поле\n  --spec <json|@file|->  Загрузите форму времени выполнения из JSON, файла или stdin.\n  --print-schema         Распечатайте схему формы JSON без подключения к cmux.\n  --wait                 Подождите и распечатайте результат действия\n  --timeout <seconds>    Тайм-аут автоматического закрытия; 0 сохраняется (default: 8 или 300 с --wait)\n  --workspace <id|ref|index>   Целевая рабочая область, за исключением явных поверхностных UUID, которые разрешаются глобально.\n  --surface <id|ref|index>     Целевая поверхность (ссылки/индексы используют контекст рабочей области/окна)\n  --window <id|ref|index>      Контекст окна для ссылок и индексов рабочей области/поверхности\n\nПример:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Использование: cmux notify [flags]\n\nОтправьте уведомление в рабочую область/поверхность.\n\nФлаги:\n  --title <text>         Название уведомления (default: «Уведомление»)\n  --subtitle <text>      Подзаголовок уведомления\n  --body <text>          Тело уведомления\n  --delivery <mode>      default, system или notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol имя\n  --action <id=Label>    Добавить интерактивное действие (повторяемое, максимум 4)\n  --input <id=Label>     Добавить текстовое поле (повторяемое, максимум 4)\n  --secure-input <id=Label>   Добавить скрытое текстовое поле\n  --style <key=value>    Переопределить один параметр оформления (повторяемый)\n  --spec <json|@file|->  Загрузите форму времени выполнения из JSON, файла или stdin.\n  --print-schema         Распечатайте схему формы JSON без подключения к cmux.\n  --wait                 Подождите и распечатайте результат действия\n  --timeout <seconds>    Тайм-аут автоматического закрытия; 0 сохраняется (default: 8 или 300 с --wait)\n  --workspace <id|ref|index>   Целевая рабочая область, за исключением явных поверхностных UUID, которые разрешаются глобально.\n  --surface <id|ref|index>     Целевая поверхность (ссылки/индексы используют контекст рабочей области/окна)\n  --window <id|ref|index>      Контекст окна для ссылок и индексов рабочей области/поверхности\n\nПример:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การใช้งาน: cmux notify [flags]\n\nส่งการแจ้งเตือนไปยังพื้นที่ทำงาน/Surface\n\nธง:\n  --title <text>         ชื่อการแจ้งเตือน (default: \"การแจ้งเตือน\")\n  --subtitle <text>      คำบรรยายการแจ้งเตือน\n  --body <text>          เนื้อหาการแจ้งเตือน\n  --delivery <mode>      default, system หรือ notch\n  --icon <sf-symbol>     ชื่อ Dynamic Notch SF Symbol\n  --action <id=Label>    เพิ่มการดำเนินการแบบโต้ตอบ (ทำซ้ำได้ สูงสุด 4 รายการ)\n  --input <id=Label>     เพิ่มช่องข้อความ (ทำซ้ำได้ สูงสุด 4 ช่อง)\n  --secure-input <id=Label>   เพิ่มช่องข้อความที่ปกปิด\n  --spec <json|@file|->  โหลดแบบฟอร์มรันไทม์จาก JSON ไฟล์หรือ stdin\n  --print-schema         พิมพ์สกีมาแบบฟอร์ม JSON โดยไม่ต้องเชื่อมต่อกับ cmux\n  --wait                 รอและพิมพ์ผลการดำเนินการ\n  --timeout <seconds>    หมดเวลาปิดอัตโนมัติ 0 ยังคงอยู่ (default: 8 หรือ 300 พร้อม --wait)\n  --workspace <id|ref|index>   พื้นที่ทำงานเป้าหมาย ยกเว้นพื้นผิวที่ชัดเจนของ UUID จะได้รับการแก้ไขแบบโกลบอล\n  --surface <id|ref|index>     พื้นผิวเป้าหมาย (การอ้างอิง/ดัชนีใช้พื้นที่ทำงาน/บริบทหน้าต่าง)\n  --window <id|ref|index>      บริบทหน้าต่างสำหรับการอ้างอิงพื้นที่ทำงาน/พื้นผิวและดัชนี\n\nตัวอย่าง:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "การใช้งาน: cmux notify [flags]\n\nส่งการแจ้งเตือนไปยังพื้นที่ทำงาน/Surface\n\nธง:\n  --title <text>         ชื่อการแจ้งเตือน (default: \"การแจ้งเตือน\")\n  --subtitle <text>      คำบรรยายการแจ้งเตือน\n  --body <text>          เนื้อหาการแจ้งเตือน\n  --delivery <mode>      default, system หรือ notch\n  --icon <sf-symbol>     ชื่อ Dynamic Notch SF Symbol\n  --action <id=Label>    เพิ่มการดำเนินการแบบโต้ตอบ (ทำซ้ำได้ สูงสุด 4 รายการ)\n  --input <id=Label>     เพิ่มช่องข้อความ (ทำซ้ำได้ สูงสุด 4 ช่อง)\n  --secure-input <id=Label>   เพิ่มช่องข้อความที่ปกปิด\n  --style <key=value>    แทนที่ค่ารูปลักษณ์หนึ่งค่า (ระบุซ้ำได้)\n  --spec <json|@file|->  โหลดแบบฟอร์มรันไทม์จาก JSON ไฟล์หรือ stdin\n  --print-schema         พิมพ์สกีมาแบบฟอร์ม JSON โดยไม่ต้องเชื่อมต่อกับ cmux\n  --wait                 รอและพิมพ์ผลการดำเนินการ\n  --timeout <seconds>    หมดเวลาปิดอัตโนมัติ 0 ยังคงอยู่ (default: 8 หรือ 300 พร้อม --wait)\n  --workspace <id|ref|index>   พื้นที่ทำงานเป้าหมาย ยกเว้นพื้นผิวที่ชัดเจนของ UUID จะได้รับการแก้ไขแบบโกลบอล\n  --surface <id|ref|index>     พื้นผิวเป้าหมาย (การอ้างอิง/ดัชนีใช้พื้นที่ทำงาน/บริบทหน้าต่าง)\n  --window <id|ref|index>      บริบทหน้าต่างสำหรับการอ้างอิงพื้นที่ทำงาน/พื้นผิวและดัชนี\n\nตัวอย่าง:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kullanım: cmux notify [flags]\n\nBir çalışma alanına/yüzeyine bildirim gönderin.\n\nBayraklar:\n  --title <text>         Bildirim başlığı (default: \"Bildirim\")\n  --subtitle <text>      Bildirim alt başlığı\n  --body <text>          Bildirim kuruluşu\n  --delivery <mode>      default, system veya notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol adı\n  --action <id=Label>    Etkileşimli bir eylem ekleyin (tekrarlanabilir, maksimum 4)\n  --input <id=Label>     Bir metin alanı ekleyin (tekrarlanabilir, maksimum 4)\n  --secure-input <id=Label>   Maskelenmiş metin alanı ekleme\n  --spec <json|@file|->  JSON'den, bir dosyadan veya stdin'den bir çalışma zamanı formu yükleyin\n  --print-schema         cmux'ye bağlanmadan JSON form şemasını yazdırın\n  --wait                 Bekleyin ve eylem sonucunu yazdırın\n  --timeout <seconds>    Otomatik kapatma zaman aşımı; 0 devam ediyor (default: 8 veya --wait ile 300)\n  --workspace <id|ref|index>   Açık yüzey UUID'lerin genel olarak çözümlenmesi dışında hedef çalışma alanı\n  --surface <id|ref|index>     Hedef yüzey (refs/dizinler çalışma alanı/pencere bağlamını kullanır)\n  --window <id|ref|index>      Çalışma alanı/yüzey referansları ve dizinler için pencere bağlamı\n\nÖrnek:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Kullanım: cmux notify [flags]\n\nBir çalışma alanına/yüzeyine bildirim gönderin.\n\nBayraklar:\n  --title <text>         Bildirim başlığı (default: \"Bildirim\")\n  --subtitle <text>      Bildirim alt başlığı\n  --body <text>          Bildirim kuruluşu\n  --delivery <mode>      default, system veya notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol adı\n  --action <id=Label>    Etkileşimli bir eylem ekleyin (tekrarlanabilir, maksimum 4)\n  --input <id=Label>     Bir metin alanı ekleyin (tekrarlanabilir, maksimum 4)\n  --secure-input <id=Label>   Maskelenmiş metin alanı ekleme\n  --style <key=value>    Bir görünüm değerini geçersiz kıl (tekrarlanabilir)\n  --spec <json|@file|->  JSON'den, bir dosyadan veya stdin'den bir çalışma zamanı formu yükleyin\n  --print-schema         cmux'ye bağlanmadan JSON form şemasını yazdırın\n  --wait                 Bekleyin ve eylem sonucunu yazdırın\n  --timeout <seconds>    Otomatik kapatma zaman aşımı; 0 devam ediyor (default: 8 veya --wait ile 300)\n  --workspace <id|ref|index>   Açık yüzey UUID'lerin genel olarak çözümlenmesi dışında hedef çalışma alanı\n  --surface <id|ref|index>     Hedef yüzey (refs/dizinler çalışma alanı/pencere bağlamını kullanır)\n  --window <id|ref|index>      Çalışma alanı/yüzey referansları ve dizinler için pencere bağlamı\n\nÖrnek:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Використання: cmux notify [flags]\n\nНадішліть сповіщення на робочу область/поверхню.\n\nПрапори:\n  --title <text>         Назва сповіщення (default: \"Сповіщення\")\n  --subtitle <text>      Підзаголовок сповіщення\n  --body <text>          Орган повідомлення\n  --delivery <mode>      default, system або notch\n  --icon <sf-symbol>     Ім'я Dynamic Notch SF Symbol\n  --action <id=Label>    Додайте інтерактивну дію (повторювана, максимум 4)\n  --input <id=Label>     Додайте текстове поле (повторюване, максимум 4)\n  --secure-input <id=Label>   Додайте замасковане текстове поле\n  --spec <json|@file|->  Завантажте форму виконання з JSON, файлу або stdin\n  --print-schema         Надрукуйте схему форми JSON без підключення до cmux\n  --wait                 Зачекайте і роздрукуйте результат дії\n  --timeout <seconds>    Час очікування автоматичного відхилення; 0 зберігається (default: 8 або 300 із --wait)\n  --workspace <id|ref|index>   Цільова робоча область, за винятком явних поверхневих UUID, які вирішуються глобально\n  --surface <id|ref|index>     Цільова поверхня (посилання/індекси використовують контекст робочої області/вікна)\n  --window <id|ref|index>      Контекст вікна для посилань та індексів робочої області/поверхні\n\nприклад:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "Використання: cmux notify [flags]\n\nНадішліть сповіщення на робочу область/поверхню.\n\nПрапори:\n  --title <text>         Назва сповіщення (default: \"Сповіщення\")\n  --subtitle <text>      Підзаголовок сповіщення\n  --body <text>          Орган повідомлення\n  --delivery <mode>      default, system або notch\n  --icon <sf-symbol>     Ім'я Dynamic Notch SF Symbol\n  --action <id=Label>    Додайте інтерактивну дію (повторювана, максимум 4)\n  --input <id=Label>     Додайте текстове поле (повторюване, максимум 4)\n  --secure-input <id=Label>   Додайте замасковане текстове поле\n  --style <key=value>    Перевизначити один параметр вигляду (можна повторювати)\n  --spec <json|@file|->  Завантажте форму виконання з JSON, файлу або stdin\n  --print-schema         Надрукуйте схему форми JSON без підключення до cmux\n  --wait                 Зачекайте і роздрукуйте результат дії\n  --timeout <seconds>    Час очікування автоматичного відхилення; 0 зберігається (default: 8 або 300 із --wait)\n  --workspace <id|ref|index>   Цільова робоча область, за винятком явних поверхневих UUID, які вирішуються глобально\n  --surface <id|ref|index>     Цільова поверхня (посилання/індекси використовують контекст робочої області/вікна)\n  --window <id|ref|index>      Контекст вікна для посилань та індексів робочої області/поверхні\n\nприклад:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux notify [flags]\n\n向工作区/表面发送通知。\n\n标志：\n  --title <text>         通知标题（default：“通知”）\n  --subtitle <text>      通知字幕\n  --body <text>          通知正文\n  --delivery <mode>      default、system 或 notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol 名称\n  --action <id=Label>    添加交互动作（可重复，最多 4 个）\n  --input <id=Label>     添加文本字段（可重复，最多 4 个）\n  --secure-input <id=Label>   添加屏蔽文本字段\n  --spec <json|@file|->  从 JSON、文件或 stdin 加载运行时表单\n  --print-schema         打印 JSON 表单架构而不连接到 cmux\n  --wait                 等待并打印操作结果\n  --timeout <seconds>    超时自动关闭； 0 持续存在（default：8，或 --wait 为 300）\n  --workspace <id|ref|index>   目标工作空间，除了显式曲面 UUID 全局解析\n  --surface <id|ref|index>     目标表面（引用/索引使用工作区/窗口上下文）\n  --window <id|ref|index>      工作区/表面参考和索引的窗口上下文\n\n例子：\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "用法： cmux notify [flags]\n\n向工作区/表面发送通知。\n\n标志：\n  --title <text>         通知标题（default：“通知”）\n  --subtitle <text>      通知字幕\n  --body <text>          通知正文\n  --delivery <mode>      default、system 或 notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol 名称\n  --action <id=Label>    添加交互动作（可重复，最多 4 个）\n  --input <id=Label>     添加文本字段（可重复，最多 4 个）\n  --secure-input <id=Label>   添加屏蔽文本字段\n  --style <key=value>    覆盖一个外观值（可重复）\n  --spec <json|@file|->  从 JSON、文件或 stdin 加载运行时表单\n  --print-schema         打印 JSON 表单架构而不连接到 cmux\n  --wait                 等待并打印操作结果\n  --timeout <seconds>    超时自动关闭； 0 持续存在（default：8，或 --wait 为 300）\n  --workspace <id|ref|index>   目标工作空间，除了显式曲面 UUID 全局解析\n  --surface <id|ref|index>     目标表面（引用/索引使用工作区/窗口上下文）\n  --window <id|ref|index>      工作区/表面参考和索引的窗口上下文\n\n例子：\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux notify [flags]\n\n向工作區/表面發送通知。\n\n標誌：\n  --title <text>         通知標題（default：「通知」）\n  --subtitle <text>      通知字幕\n  --body <text>          通知正文\n  --delivery <mode>      default、system 或 notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol 名稱\n  --action <id=Label>    增加互動動作（可重複，最多 4 個）\n  --input <id=Label>     新增文字欄位（可重複，最多 4 個）\n  --secure-input <id=Label>   新增屏蔽文字字段\n  --spec <json|@file|->  從 JSON、檔案或 stdin 載入執行時間表單\n  --print-schema         列印 JSON 表單架構而不連接到 cmux\n  --wait                 等待並列印操作結果\n  --timeout <seconds>    逾時自動關閉； 0 持續存在（default：8，或 --wait 為 300）\n  --workspace <id|ref|index>   目標工作空間，除了顯式曲面 UUID 全域解析\n  --surface <id|ref|index>     目標表面（引用/索引使用工作區/視窗上下文）\n  --window <id|ref|index>      工作區/表面參考和索引的視窗上下文\n\n例子：\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
+            "value": "用法： cmux notify [flags]\n\n向工作區/表面發送通知。\n\n標誌：\n  --title <text>         通知標題（default：「通知」）\n  --subtitle <text>      通知字幕\n  --body <text>          通知正文\n  --delivery <mode>      default、system 或 notch\n  --icon <sf-symbol>     Dynamic Notch SF Symbol 名稱\n  --action <id=Label>    增加互動動作（可重複，最多 4 個）\n  --input <id=Label>     新增文字欄位（可重複，最多 4 個）\n  --secure-input <id=Label>   新增屏蔽文字字段\n  --style <key=value>    覆寫一個外觀值（可重複）\n  --spec <json|@file|->  從 JSON、檔案或 stdin 載入執行時間表單\n  --print-schema         列印 JSON 表單架構而不連接到 cmux\n  --wait                 等待並列印操作結果\n  --timeout <seconds>    逾時自動關閉； 0 持續存在（default：8，或 --wait 為 300）\n  --workspace <id|ref|index>   目標工作空間，除了顯式曲面 UUID 全域解析\n  --surface <id|ref|index>     目標表面（引用/索引使用工作區/視窗上下文）\n  --window <id|ref|index>      工作區/表面參考和索引的視窗上下文\n\n例子：\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  choice=$(cmux notify --delivery notch --title \"Deploy?\" --action deploy=Deploy --action cancel=Cancel --wait)\n  cmux notify --print-schema\n  cmux notify --spec @approval.json --wait --json"
           }
         }
       }
@@ -259710,6 +259710,227 @@
           "stringUnit": {
             "state": "translated",
             "value": "到達可能"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.appearance.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Notch の外観"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.appearance.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configure tray dimensions, padding, spacing, colors, opacity, and scrolling."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トレイのサイズ、余白、間隔、色、不透明度、スクロールを設定します。"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.editor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These global values update open trays. CLI and JSON notification overrides can replace any token."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのグローバル値は開いているトレイに即時反映されます。CLI と JSON の通知ごとの上書きで任意のトークンを変更できます。"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.editor.resetAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてリセット"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.group.layout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レイアウト"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.group.spacing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spacing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "間隔"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.group.colors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.group.behavior": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behavior"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動作"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.token.points": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Points"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポイント"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.token.color": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System color or #RRGGBB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムカラーまたは #RRGGBB"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.token.number": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validated numeric value"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検証済みの数値"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.token.integer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Line count"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行数"
+          }
+        }
+      }
+    },
+    "settings.notifications.dynamicNotch.token.boolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled or disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効または無効"
           }
         }
       }

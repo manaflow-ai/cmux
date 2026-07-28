@@ -1,3 +1,4 @@
+import CmuxSettings
 import SwiftUI
 
 /// Interactive content hosted by DynamicNotchKit for one terminal notification.
@@ -5,6 +6,7 @@ struct DynamicNotchNotificationView: View {
     let notification: TerminalNotification
     let isTrayExpanded: Bool
     let shouldAutofocus: Bool
+    let appearance: DynamicNotchAppearance
     let performAction: (String, [String: String]) -> Void
     @State private var values: [String: String]
     @FocusState private var focusedInputID: String?
@@ -13,11 +15,13 @@ struct DynamicNotchNotificationView: View {
         notification: TerminalNotification,
         isTrayExpanded: Bool,
         shouldAutofocus: Bool,
+        appearance: DynamicNotchAppearance,
         performAction: @escaping (String, [String: String]) -> Void
     ) {
         self.notification = notification
         self.isTrayExpanded = isTrayExpanded
         self.shouldAutofocus = shouldAutofocus
+        self.appearance = appearance
         self.performAction = performAction
         _values = State(initialValue: Dictionary(
             uniqueKeysWithValues: notification.presentation.inputs.map {
@@ -27,29 +31,44 @@ struct DynamicNotchNotificationView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: appearance.dimension(.rowSpacing)) {
+            HStack(alignment: .top, spacing: appearance.dimension(.headerSpacing)) {
                 Image(systemName: notification.presentation.iconSymbolName ?? "bell.badge.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(.tint)
-                    .frame(width: 30, height: 30)
+                    .font(.system(
+                        size: appearance.dimension(.notificationIconSize),
+                        weight: .semibold
+                    ))
+                    .foregroundStyle(
+                        appearance.color(.accentColor, system: .accentColor)
+                    )
+                    .frame(
+                        width: appearance.dimension(.notificationIconFrame),
+                        height: appearance.dimension(.notificationIconFrame)
+                    )
                     .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: appearance.dimension(.textSpacing)) {
                     Text(notification.title)
                         .font(.headline)
-                        .lineLimit(2)
+                        .foregroundStyle(
+                            appearance.color(.primaryTextColor, system: .primary)
+                        )
+                        .lineLimit(appearance.integer(.titleLineLimit))
                     if !notification.subtitle.isEmpty {
                         Text(notification.subtitle)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .foregroundStyle(
+                                appearance.color(.secondaryTextColor, system: .secondary)
+                            )
+                            .lineLimit(appearance.integer(.subtitleLineLimit))
                     }
                     if !notification.body.isEmpty {
                         Text(notification.body)
                             .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(4)
+                            .foregroundStyle(
+                                appearance.color(.secondaryTextColor, system: .secondary)
+                            )
+                            .lineLimit(appearance.integer(.bodyLineLimit))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -60,7 +79,9 @@ struct DynamicNotchNotificationView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(
+                            appearance.color(.closeButtonColor, system: .secondary)
+                        )
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
@@ -69,12 +90,23 @@ struct DynamicNotchNotificationView: View {
             }
 
             if !notification.presentation.inputs.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(
+                    alignment: .leading,
+                    spacing: appearance.dimension(.inputSpacing)
+                ) {
                     ForEach(notification.presentation.inputs, id: \.id) { input in
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(
+                            alignment: .leading,
+                            spacing: appearance.dimension(.inputLabelSpacing)
+                        ) {
                             Text(input.label)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(
+                                    appearance.color(
+                                        .secondaryTextColor,
+                                        system: .secondary
+                                    )
+                                )
                             Group {
                                 if input.kind == .secure {
                                     SecureField(
@@ -89,13 +121,18 @@ struct DynamicNotchNotificationView: View {
                                 }
                             }
                             .focused($focusedInputID, equals: input.id)
+                            .modifier(
+                                DynamicNotchInputAppearanceModifier(
+                                    appearance: appearance
+                                )
+                            )
                         }
                         .accessibilityIdentifier("DynamicNotchNotificationInput.\(input.id)")
                     }
                 }
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: appearance.dimension(.actionSpacing)) {
                 ForEach(
                     Array(notification.presentation.actions.enumerated()),
                     id: \.element.id
@@ -123,10 +160,19 @@ struct DynamicNotchNotificationView: View {
                 }
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 18)
-        .frame(width: 430)
+        .padding(.horizontal, appearance.dimension(.rowHorizontalPadding))
+        .padding(.top, appearance.dimension(.rowTopPadding))
+        .padding(.bottom, appearance.dimension(.rowBottomPadding))
+        .frame(maxWidth: .infinity)
+        .background(
+            appearance.color(.rowBackgroundColor, system: .clear)
+                .opacity(Double(appearance.dimension(.rowBackgroundOpacity))),
+            in: RoundedRectangle(
+                cornerRadius: appearance.dimension(.rowCornerRadius),
+                style: .continuous
+            )
+        )
+        .tint(appearance.color(.accentColor, system: .accentColor))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("DynamicNotchNotification")
         .onAppear {
@@ -163,5 +209,54 @@ struct DynamicNotchNotificationView: View {
         }
         .controlSize(.small)
         .accessibilityIdentifier("DynamicNotchNotificationAction.\(action.id)")
+    }
+}
+
+private struct DynamicNotchInputAppearanceModifier: ViewModifier {
+    let appearance: DynamicNotchAppearance
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if appearance.usesNativeInputStyle {
+            content
+        } else {
+            content
+                .textFieldStyle(.plain)
+                .foregroundStyle(
+                    appearance.color(.inputTextColor, system: .primary)
+                )
+                .padding(
+                    .horizontal,
+                    appearance.dimension(.inputHorizontalPadding)
+                )
+                .padding(
+                    .vertical,
+                    appearance.dimension(.inputVerticalPadding)
+                )
+                .background(
+                    appearance.color(
+                        .inputBackgroundColor,
+                        system: Color(nsColor: .textBackgroundColor)
+                    )
+                    .opacity(Double(appearance.dimension(.inputBackgroundOpacity))),
+                    in: RoundedRectangle(
+                        cornerRadius: appearance.dimension(.inputCornerRadius),
+                        style: .continuous
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: appearance.dimension(.inputCornerRadius),
+                        style: .continuous
+                    )
+                    .stroke(
+                        appearance.color(
+                            .inputBorderColor,
+                            system: Color(nsColor: .separatorColor)
+                        ),
+                        lineWidth: appearance.dimension(.inputBorderWidth)
+                    )
+                }
+        }
     }
 }

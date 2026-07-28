@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+@MainActor
 extension NSScreen {
     static var screenWithMouse: NSScreen? {
         let mouseLocation = NSEvent.mouseLocation
@@ -17,20 +18,12 @@ extension NSScreen {
     }
 
     var hasNotch: Bool {
-        auxiliaryTopLeftArea?.width != nil && auxiliaryTopRightArea?.width != nil
+        defaultDynamicNotchGeometry.hasHardwareNotch
     }
 
     var notchSize: NSSize? {
-        guard
-            let topLeftNotchpadding: CGFloat = auxiliaryTopLeftArea?.width,
-            let topRightNotchpadding: CGFloat = auxiliaryTopRightArea?.width
-        else {
-            return nil
-        }
-
-        let notchHeight = safeAreaInsets.top
-        let notchWidth = frame.width - topLeftNotchpadding - topRightNotchpadding
-        return .init(width: notchWidth, height: notchHeight)
+        guard hasNotch else { return nil }
+        return defaultDynamicNotchGeometry.notchFrame.size
     }
 
     var notchFrame: NSRect? {
@@ -44,24 +37,23 @@ extension NSScreen {
     }
 
     var menubarHeight: CGFloat {
-        frame.maxY - visibleFrame.maxY
+        defaultDynamicNotchGeometry.menuBarHeight
     }
 
     var notchFrameWithMenubarAsBackup: NSRect {
-        if let notchFrame {
-            return notchFrame
-        } else {
-            let arbitraryNotchWidth: CGFloat = 300
-            let arbitraryNotchHeight: CGFloat = menubarHeight
+        defaultDynamicNotchGeometry.notchFrame
+    }
 
-            let arbitraryNotchFrame = NSRect(
-                x: frame.midX - (arbitraryNotchWidth / 2),
-                y: frame.maxY - arbitraryNotchHeight,
-                width: arbitraryNotchWidth,
-                height: arbitraryNotchHeight
-            )
+    func dynamicNotchGeometry(
+        syntheticNotchWidth: CGFloat = 164
+    ) -> DynamicNotchScreenGeometry {
+        DynamicNotchScreenGeometry(
+            screen: self,
+            syntheticNotchWidth: syntheticNotchWidth
+        )
+    }
 
-            return arbitraryNotchFrame
-        }
+    private var defaultDynamicNotchGeometry: DynamicNotchScreenGeometry {
+        dynamicNotchGeometry()
     }
 }

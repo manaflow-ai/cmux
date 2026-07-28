@@ -205,6 +205,7 @@ extension TerminalController: ControlNotificationContext {
                     kind: $0.kind == .secure ? .secure : .text
                 )
             },
+            appearance: presentation.appearance,
             responseToken: presentation.responseToken,
             timeout: presentation.timeout
         )

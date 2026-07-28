@@ -17,7 +17,16 @@ The local patches:
   leaking;
 - isolate the AppKit-backed models to the main actor, break the
   `DynamicNotchInfo` view-retain cycle, and keep `NSVisualEffectView` inputs in
-  sync when SwiftUI updates the wrapper.
+  sync when SwiftUI updates the wrapper;
+- expose `DynamicNotchChrome` so cmux can change shell colors, opacity, borders,
+  padding, and corner radii at runtime without patching the vendored source for
+  each notification style;
+- add pure screen geometry, synthetic menu-bar notch sizing, compact content
+  inside that synthetic notch, pointer-hover callbacks, display relocation,
+  synchronous panel configuration, and status-bar-level panel behavior for
+  cmux's persistent notification tray;
+- allow direct compact/expanded conversion without an intermediate hidden
+  state so a single panel can animate rapid notification updates.
 
 To update, replace this directory from a reviewed upstream revision, restore
 those patches, update the revision above, and retain `LICENSE`.

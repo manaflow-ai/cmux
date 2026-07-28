@@ -86,6 +86,20 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(
                 section: .app,
+                id: "dynamic-notch-appearance",
+                title: String(
+                    localized: "settings.notifications.dynamicNotch.appearance.title",
+                    defaultValue: "Dynamic Notch Appearance"
+                ),
+                detailText: String(
+                    localized: "settings.notifications.dynamicNotch.appearance.subtitle",
+                    defaultValue: "Configure tray dimensions, padding, spacing, colors, opacity, and scrolling."
+                ),
+                paths: ["notifications.dynamicNotch"],
+                synonyms: "notifications.dynamicNotch dynamic notch theme style appearance width height padding spacing colors opacity scrolling"
+            ),
+            .init(
+                section: .app,
                 id: "agent-permission-prompt",
                 title: String(localized: "settings.notifications.agentPermissionPrompt.title", defaultValue: "Agent Needs Permission"),
                 synonyms: "notifications.agentPermissionPrompt agent permission prompt approval blocked claude codex tool notify"

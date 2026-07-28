@@ -868,6 +868,546 @@
           "descriptionKey": "schemaDescriptions.notifications.delivery",
           "description": "Present desktop notifications through macOS Notification Center or an interactive Dynamic Notch panel. Dynamic Notch is not suppressed by Focus or Do Not Disturb."
         },
+        "dynamicNotch": {
+          "descriptionKey": "schemaDescriptions.notifications.dynamicNotch",
+          "description": "Configure Dynamic Notch dimensions, padding, spacing, colors, opacity, line limits, and scrolling. Per-notification appearance overrides use the same keys.",
+          "additionalProperties": false,
+          "properties": {
+            "accentColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "actionSpacing": {
+              "default": 8,
+              "maximum": 32,
+              "minimum": 0,
+              "type": "number"
+            },
+            "animationDuration": {
+              "default": 0.28,
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            "arrivalRevealDuration": {
+              "default": 3,
+              "maximum": 30,
+              "minimum": 0,
+              "type": "number"
+            },
+            "bodyLineLimit": {
+              "default": 4,
+              "maximum": 40,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "closeButtonColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "compactBackgroundColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "compactBackgroundOpacity": {
+              "default": 1,
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "compactCornerRadius": {
+              "default": 0,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "compactHeight": {
+              "default": 26,
+              "maximum": 120,
+              "minimum": 24,
+              "type": "number"
+            },
+            "compactHorizontalPadding": {
+              "default": 8,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "compactIconColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "compactIconSize": {
+              "default": 13,
+              "maximum": 48,
+              "minimum": 8,
+              "type": "number"
+            },
+            "compactSpacing": {
+              "default": 5,
+              "maximum": 32,
+              "minimum": 0,
+              "type": "number"
+            },
+            "compactTextColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "compactVerticalPadding": {
+              "default": 4,
+              "maximum": 32,
+              "minimum": 0,
+              "type": "number"
+            },
+            "compactWidth": {
+              "default": 84,
+              "maximum": 360,
+              "minimum": 72,
+              "type": "number"
+            },
+            "dividerColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "dividerHorizontalPadding": {
+              "default": 18,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "expandedWidth": {
+              "default": 460,
+              "maximum": 1200,
+              "minimum": 300,
+              "type": "number"
+            },
+            "floatingCornerRadius": {
+              "default": 20,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "floatingOuterPadding": {
+              "default": 20,
+              "maximum": 80,
+              "minimum": 0,
+              "type": "number"
+            },
+            "headerSpacing": {
+              "default": 12,
+              "maximum": 48,
+              "minimum": 0,
+              "type": "number"
+            },
+            "inputBackgroundColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "inputBackgroundOpacity": {
+              "default": 1,
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "inputBorderColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "inputBorderWidth": {
+              "default": 1,
+              "maximum": 8,
+              "minimum": 0,
+              "type": "number"
+            },
+            "inputCornerRadius": {
+              "default": 6,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "inputHorizontalPadding": {
+              "default": 7,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "inputLabelSpacing": {
+              "default": 4,
+              "maximum": 24,
+              "minimum": 0,
+              "type": "number"
+            },
+            "inputSpacing": {
+              "default": 8,
+              "maximum": 32,
+              "minimum": 0,
+              "type": "number"
+            },
+            "inputTextColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "inputVerticalPadding": {
+              "default": 5,
+              "maximum": 24,
+              "minimum": 0,
+              "type": "number"
+            },
+            "maximumExpandedHeight": {
+              "default": 520,
+              "maximum": 1400,
+              "minimum": 160,
+              "type": "number"
+            },
+            "notchBottomCornerRadius": {
+              "default": 20,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "notchTopCornerRadius": {
+              "default": 15,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "notificationIconFrame": {
+              "default": 30,
+              "maximum": 96,
+              "minimum": 8,
+              "type": "number"
+            },
+            "notificationIconSize": {
+              "default": 24,
+              "maximum": 64,
+              "minimum": 8,
+              "type": "number"
+            },
+            "primaryTextColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "pointerRevealDistance": {
+              "default": 96,
+              "maximum": 400,
+              "minimum": 0,
+              "type": "number"
+            },
+            "retractWhenPointerLeaves": {
+              "default": true,
+              "type": "boolean"
+            },
+            "rowBackgroundColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "rowBackgroundOpacity": {
+              "default": 1,
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "rowBottomPadding": {
+              "default": 18,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "rowCornerRadius": {
+              "default": 0,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "rowHorizontalPadding": {
+              "default": 18,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "rowSpacing": {
+              "default": 12,
+              "maximum": 48,
+              "minimum": 0,
+              "type": "number"
+            },
+            "rowTopPadding": {
+              "default": 16,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "secondaryTextColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "shellBackgroundColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "shellBackgroundOpacity": {
+              "default": 1,
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "shellBorderColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "shellBorderWidth": {
+              "default": 1,
+              "maximum": 8,
+              "minimum": 0,
+              "type": "number"
+            },
+            "shellPadding": {
+              "default": 15,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
+            "showScrollIndicators": {
+              "default": true,
+              "type": "boolean"
+            },
+            "subtitleLineLimit": {
+              "default": 1,
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "syntheticNotchWidth": {
+              "default": 164,
+              "maximum": 480,
+              "minimum": 72,
+              "type": "number"
+            },
+            "textSpacing": {
+              "default": 3,
+              "maximum": 24,
+              "minimum": 0,
+              "type": "number"
+            },
+            "titleLineLimit": {
+              "default": 2,
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
         "dockBadge": {
           "type": "boolean",
           "default": true,

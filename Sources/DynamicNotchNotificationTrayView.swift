@@ -1,65 +1,52 @@
+import CmuxSettings
 import SwiftUI
 
 /// Compact-on-idle notification tray that expands into a scrollable list on hover.
 struct DynamicNotchNotificationTrayView: View {
-    private static let compactWidth: CGFloat = 104
-    private static let compactHeight: CGFloat = 32
-    private static let expandedWidth: CGFloat = 460
-    private static let maximumExpandedHeight: CGFloat = 520
-
     let model: DynamicNotchNotificationTrayModel
-    let hoverChanged: (Bool) -> Void
     let performAction: (String, [String: String], TerminalNotification) -> Void
 
-    @State private var listContentHeight = Self.compactHeight
+    @State private var listContentHeight: CGFloat = 32
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let notifications = model.notifications
-        let isExpanded = model.isExpanded
+        let appearance = model.trayAppearance
+        let animationDuration = Double(appearance.dimension(.animationDuration))
         let expandedHeight = min(
-            max(listContentHeight, Self.compactHeight),
-            Self.maximumExpandedHeight
+            max(listContentHeight, 1),
+            appearance.dimension(.maximumExpandedHeight)
         )
 
-        ZStack(alignment: .top) {
-            DynamicNotchNotificationListView(
-                notifications: notifications,
-                isExpanded: isExpanded,
-                viewportHeight: expandedHeight,
-                contentHeightChanged: { listContentHeight = $0 },
-                performAction: performAction
-            )
-            .opacity(isExpanded ? 1 : 0)
-            .allowsHitTesting(isExpanded)
-            .accessibilityHidden(!isExpanded)
-
-            Button {
-                withAnimation(.snappy(duration: 0.28)) {
-                    model.setExpanded(true)
+        DynamicNotchNotificationListView(
+            notifications: notifications,
+            isExpanded: model.phase == .expanded,
+            viewportHeight: expandedHeight,
+            globalAppearance: model.globalAppearance,
+            trayAppearance: appearance,
+            contentHeightChanged: { height in
+                if reduceMotion {
+                    listContentHeight = height
+                } else {
+                    withAnimation(.snappy(duration: animationDuration)) {
+                        listContentHeight = height
+                    }
                 }
-                hoverChanged(true)
-            } label: {
-                DynamicNotchNotificationCompactView(count: notifications.count)
-            }
-            .buttonStyle(.plain)
-            .opacity(isExpanded ? 0 : 1)
-            .allowsHitTesting(!isExpanded)
-            .accessibilityHidden(isExpanded)
-            .accessibilityIdentifier("DynamicNotchNotificationExpand")
-        }
+            },
+            performAction: performAction
+        )
         .frame(
-            width: isExpanded ? Self.expandedWidth : Self.compactWidth,
-            height: isExpanded ? expandedHeight : Self.compactHeight,
+            width: appearance.dimension(.expandedWidth),
+            height: expandedHeight,
             alignment: .top
         )
         .contentShape(Rectangle())
         .clipped()
-        .onHover { hovering in
-            withAnimation(.snappy(duration: 0.28)) {
-                model.setExpanded(hovering)
-            }
-            hoverChanged(hovering)
-        }
+        .animation(
+            reduceMotion ? nil : .snappy(duration: animationDuration),
+            value: notifications.map(\.id)
+        )
+        .tint(appearance.color(.accentColor, system: .accentColor))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("DynamicNotchNotificationTray")
     }

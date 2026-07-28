@@ -88,6 +88,7 @@ struct SettingsRowAnchorResolutionTests {
         "notifications.agentTurnComplete",
         "notifications.command",
         "notifications.delivery",
+        "notifications.dynamicNotch",
         "notifications.dockBadge",
         "notifications.paneFlash",
         "notifications.showInMenuBar",

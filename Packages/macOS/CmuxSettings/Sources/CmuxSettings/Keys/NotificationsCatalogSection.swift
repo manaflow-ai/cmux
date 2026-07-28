@@ -8,6 +8,13 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationDeliveryMode"
     )
 
+    /// Global Dynamic Notch geometry, spacing, colors, and behavior.
+    public let dynamicNotch = DefaultsKey<DynamicNotchAppearance>(
+        id: "notifications.dynamicNotch",
+        defaultValue: DynamicNotchAppearance(),
+        userDefaultsKey: "notificationDynamicNotchAppearance"
+    )
+
     public let dockBadge = DefaultsKey<Bool>(
         id: "notifications.dockBadge",
         defaultValue: true,

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxSettings
 @testable import CmuxControlSocket
 
 @MainActor
@@ -46,7 +47,7 @@ struct ControlCommandCoordinatorNotificationPresentationTests {
         #expect(presentation.timeout == 8)
     }
 
-    @Test func dynamicFormCrossesTheControlSeamWithoutLosingCallerData() {
+    @Test func dynamicFormCrossesTheControlSeamWithoutLosingCallerData() throws {
         let context = FakeNotificationPresentationContext()
         let coordinator = ControlCommandCoordinator(context: context)
         let notificationID = UUID()
@@ -73,6 +74,11 @@ struct ControlCommandCoordinatorNotificationPresentationTests {
                     "label": .string("Token"),
                     "secure": .bool(true),
                 ]),
+            ]),
+            "appearance": .object([
+                "expandedWidth": .int(620),
+                "accentColor": .string("#0A84FF"),
+                "showScrollIndicators": .bool(false),
             ]),
             "response_token": .string(responseToken.uuidString),
             "timeout": .double(120),
@@ -107,6 +113,11 @@ struct ControlCommandCoordinatorNotificationPresentationTests {
                     kind: .secure
                 ),
             ],
+            appearance: try DynamicNotchAppearanceOverrides(jsonObject: [
+                "expandedWidth": 620,
+                "accentColor": "#0A84FF",
+                "showScrollIndicators": false,
+            ]),
             responseToken: responseToken,
             timeout: 120
         ))
@@ -222,6 +233,18 @@ struct ControlCommandCoordinatorNotificationPresentationTests {
                     "placeholder": .int(42),
                 ]),
             ]),
+        ],
+        [
+            "delivery": JSONValue.string("system"),
+            "appearance": .object(["expandedWidth": .int(620)]),
+        ],
+        [
+            "delivery": JSONValue.string("dynamicNotch"),
+            "appearance": .object(["expandedWidth": .int(299)]),
+        ],
+        [
+            "delivery": JSONValue.string("dynamicNotch"),
+            "appearance": .object(["unknown": .int(1)]),
         ],
     ])
     func malformedOrUnsafeFormsAreRejectedBeforeAppMutation(

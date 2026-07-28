@@ -7,6 +7,84 @@ extension Tag {
     @Tag static var floatingStyle: Self
 }
 
+@Suite("Dynamic Notch screen geometry")
+struct DynamicNotchScreenGeometryTests {
+    @Test("Notchless screens synthesize a centered menu-bar notch")
+    func syntheticNotchUsesMenuBarBand() {
+        let geometry = DynamicNotchScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_415),
+            safeAreaTop: 0,
+            auxiliaryTopLeftWidth: nil,
+            auxiliaryTopRightWidth: nil,
+            statusBarThickness: 24,
+            syntheticNotchWidth: 164
+        )
+
+        #expect(!geometry.hasHardwareNotch)
+        #expect(geometry.menuBarHeight == 25)
+        #expect(
+            geometry.notchFrame
+                == CGRect(x: 1_198, y: 1_415, width: 164, height: 25)
+        )
+    }
+
+    @Test("Status-bar thickness survives an auto-hidden menu bar")
+    func statusBarFallbackHandlesAutoHide() {
+        let geometry = DynamicNotchScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080),
+            safeAreaTop: 0,
+            auxiliaryTopLeftWidth: nil,
+            auxiliaryTopRightWidth: nil,
+            statusBarThickness: 24,
+            syntheticNotchWidth: 180
+        )
+
+        #expect(geometry.menuBarHeight == 24)
+        #expect(geometry.notchFrame.maxY == geometry.screenFrame.maxY)
+    }
+
+    @Test("Physical notch geometry wins over the synthetic width")
+    func hardwareNotchUsesSafeAreas() {
+        let geometry = DynamicNotchScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1_728, height: 1_117),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_728, height: 1_080),
+            safeAreaTop: 37,
+            auxiliaryTopLeftWidth: 756,
+            auxiliaryTopRightWidth: 756,
+            statusBarThickness: 24,
+            syntheticNotchWidth: 100
+        )
+
+        #expect(geometry.hasHardwareNotch)
+        #expect(geometry.notchFrame.width == 216)
+        #expect(geometry.notchFrame.height == 37)
+    }
+
+    @Test("Reveal distance expands down and sideways within the screen")
+    func revealRegionSupportsPointerProximity() {
+        let geometry = DynamicNotchScreenGeometry(
+            screenFrame: CGRect(x: 2_560, y: -358, width: 1_728, height: 1_117),
+            visibleFrame: CGRect(x: 2_560, y: -358, width: 1_728, height: 1_080),
+            safeAreaTop: 37,
+            auxiliaryTopLeftWidth: 756,
+            auxiliaryTopRightWidth: 756,
+            statusBarThickness: 24,
+            syntheticNotchWidth: 164
+        )
+
+        #expect(geometry.isNearNotch(
+            CGPoint(x: geometry.notchFrame.midX, y: geometry.notchFrame.minY - 80),
+            distance: 96
+        ))
+        #expect(!geometry.isNearNotch(
+            CGPoint(x: geometry.screenFrame.minX, y: geometry.screenFrame.minY),
+            distance: 96
+        ))
+    }
+}
+
 /// Hey there! Looks like you found DynamicNotchKit's tests.
 /// Please note that these tests do NOT actually "test" anything. They are only here to serve as examples of usage of DynamicNotchKit.
 /// To run these tests, simply `cd` into the `DynamicNotchKit` directory and run `swift test`. Alternatively, open this package directly in Xcode, and the tests should show up in the sidebar.
@@ -274,14 +352,16 @@ struct DynamicNotchKitTests {
 
     @Test("DynamicNotch - Rapid Fire", .tags(.notchStyle))
     func dynamicNotchRapidFire() async throws {
+        let notch = DynamicNotchInfo(
+            icon: .init(systemName: "gauge.with.dots.needle.100percent"),
+            title: "Rapid Fire Test 1"
+        )
+        await notch.expand()
         for i in 0 ..< 30 {
-            let notch = DynamicNotchInfo(
-                icon: .init(systemName: "gauge.with.dots.needle.100percent"),
-                title: "Rapid Fire Test \(i + 1)"
-            )
-
-            await notch.expand()
-            await notch.hide()
+            withAnimation {
+                notch.title = "Rapid Fire Test \(i + 1)"
+            }
         }
+        await notch.hide()
     }
 }

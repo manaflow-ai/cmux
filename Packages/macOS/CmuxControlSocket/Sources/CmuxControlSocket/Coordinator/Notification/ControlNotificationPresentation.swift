@@ -1,3 +1,4 @@
+public import CmuxSettings
 public import Foundation
 
 /// Validated, app-independent presentation controls for a notification create
@@ -55,6 +56,7 @@ public struct ControlNotificationPresentation: Sendable, Equatable {
     public let iconSymbolName: String?
     public let actions: [Action]
     public let inputs: [Input]
+    public let appearance: DynamicNotchAppearanceOverrides
     public let responseToken: UUID?
     public let timeout: TimeInterval
 
@@ -64,6 +66,7 @@ public struct ControlNotificationPresentation: Sendable, Equatable {
         iconSymbolName: String? = nil,
         actions: [Action] = [],
         inputs: [Input] = [],
+        appearance: DynamicNotchAppearanceOverrides = DynamicNotchAppearanceOverrides(),
         responseToken: UUID? = nil,
         timeout: TimeInterval = 8
     ) {
@@ -72,6 +75,7 @@ public struct ControlNotificationPresentation: Sendable, Equatable {
         self.iconSymbolName = iconSymbolName
         self.actions = actions
         self.inputs = inputs
+        self.appearance = appearance
         self.responseToken = responseToken
         self.timeout = timeout
     }
@@ -85,9 +89,10 @@ public struct ControlNotificationPresentation: Sendable, Equatable {
             let icon = try Self.parseIcon(parameters)
             let actions = try Self.parseActions(parameters)
             let inputs = try Self.parseInputs(parameters)
+            let appearance = try Self.parseAppearance(parameters)
             let responseToken = try Self.parseResponseToken(parameters)
             let timeout = try Self.parseTimeout(parameters)
-            guard (actions.isEmpty && inputs.isEmpty && responseToken == nil)
+            guard (actions.isEmpty && inputs.isEmpty && appearance.isEmpty && responseToken == nil)
                     || delivery == .dynamicNotch else {
                 return nil
             }
@@ -97,6 +102,7 @@ public struct ControlNotificationPresentation: Sendable, Equatable {
                 iconSymbolName: icon,
                 actions: actions,
                 inputs: inputs,
+                appearance: appearance,
                 responseToken: responseToken,
                 timeout: timeout
             )
@@ -246,6 +252,24 @@ public struct ControlNotificationPresentation: Sendable, Equatable {
             throw ParseError.invalid
         }
         return token
+    }
+
+    private static func parseAppearance(
+        _ parameters: [String: JSONValue]
+    ) throws -> DynamicNotchAppearanceOverrides {
+        guard let value = parameters["appearance"] else {
+            return DynamicNotchAppearanceOverrides()
+        }
+        guard case .object = value else {
+            throw ParseError.invalid
+        }
+        do {
+            return try DynamicNotchAppearanceOverrides(
+                jsonObject: value.foundationObject
+            )
+        } catch {
+            throw ParseError.invalid
+        }
     }
 
     private static func parseTimeout(

@@ -81,7 +81,10 @@ extension ControlCommandCoordinator {
             return debugContext?.controlDebugPanelSnapshotReset(surfaceArgument: args)
                 ?? Self.debugContextUnavailableResponse
         case "screenshot":
-            return debugContext?.controlDebugCaptureScreenshot(label: args)
+            return debugContext?.controlDebugCaptureScreenshot(
+                label: args,
+                windowIdentifier: nil
+            )
                 ?? Self.debugContextUnavailableResponse
         default:
             return nil

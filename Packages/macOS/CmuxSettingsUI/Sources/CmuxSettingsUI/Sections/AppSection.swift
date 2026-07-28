@@ -46,6 +46,7 @@ public struct AppSection: View {
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
     @State private var notificationDelivery: DefaultsValueModel<NotificationDeliveryMode>
+    @State private var dynamicNotchAppearance: DefaultsValueModel<DynamicNotchAppearance>
     @State private var dockBadge: DefaultsValueModel<Bool>
     @State private var menuBarOnly: DefaultsValueModel<Bool>
     @State private var showInMenuBar: DefaultsValueModel<Bool>
@@ -69,6 +70,7 @@ public struct AppSection: View {
     // Sticky: a picker change can rewrite the OS AppleLanguages override even when the selection returns to its starting value (clearing a preserved foreign override via an explicit pick, then System), so the restart hint must not rely on the value comparison alone.
     @State private var languageOverrideTouched = false
     @State private var telemetryAtAppear: Bool?
+    @State private var showsDynamicNotchAppearanceEditor = false
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -100,6 +102,7 @@ public struct AppSection: View {
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _notificationDelivery = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.delivery))
+        _dynamicNotchAppearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dynamicNotch))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
         _menuBarOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.menuBarOnly))
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
@@ -140,8 +143,11 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, notificationDelivery, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, notificationDelivery, dynamicNotchAppearance, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
+        }
+        .sheet(isPresented: $showsDynamicNotchAppearanceEditor) {
+            DynamicNotchAppearanceEditor(model: dynamicNotchAppearance)
         }
     }
 
@@ -655,6 +661,30 @@ public struct AppSection: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .accessibilityIdentifier("SettingsNotificationDeliveryPicker")
+            }
+
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("notifications.dynamicNotch"),
+                String(
+                    localized: "settings.notifications.dynamicNotch.appearance.title",
+                    defaultValue: "Dynamic Notch Appearance"
+                ),
+                subtitle: String(
+                    localized: "settings.notifications.dynamicNotch.appearance.subtitle",
+                    defaultValue: "Configure tray dimensions, padding, spacing, colors, opacity, and scrolling."
+                )
+            ) {
+                Button(
+                    String(
+                        localized: "settings.app.workspaceLayouts.customize",
+                        defaultValue: "Customize…"
+                    )
+                ) {
+                    showsDynamicNotchAppearanceEditor = true
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsDynamicNotchAppearanceCustomize")
             }
 
             SettingsCardDivider()

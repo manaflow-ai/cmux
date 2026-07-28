@@ -116,6 +116,8 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "notifications": [
+                    "delivery": SettingCatalog().notifications.delivery.defaultValue.rawValue,
+                    "dynamicNotch": SettingCatalog().notifications.dynamicNotch.defaultValue.encodeForJSON(),
                     "dockBadge": NotificationBadgeSettings.defaultDockBadgeEnabled,
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
                     "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,

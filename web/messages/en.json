@@ -1782,6 +1782,7 @@
         "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
         "activePaneBorderColor": "Optional border color drawn around the focused cmux pane in split workspaces.",
         "notifications": {
+          "dynamicNotch": "Configure Dynamic Notch dimensions, padding, spacing, colors, opacity, line limits, and scrolling.",
           "delivery": "Present desktop notifications through macOS Notification Center or an interactive Dynamic Notch panel. Dynamic Notch is not suppressed by Focus or Do Not Disturb.",
           "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw.",
           "agentPermissionPrompt": "Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent.",

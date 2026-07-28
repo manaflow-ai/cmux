@@ -170,10 +170,10 @@ struct NativeNotificationFallbackCommandTests {
 
         let authorizationAttempted = BoolRecorder()
         var presentedIDs: [UUID] = []
-        store.configureDynamicNotchDelivery(
-            present: { presentedIDs.append($0.id) },
-            dismiss: { _ in }
-        )
+        store.configureDynamicNotchDelivery { mutation in
+            guard case .upsert(let notification, _) = mutation else { return }
+            presentedIDs.append(notification.id)
+        }
         store.configureNotificationAuthorizationHandlerForTesting { _ in
             authorizationAttempted.setTrue()
         }
@@ -198,6 +198,58 @@ struct NativeNotificationFallbackCommandTests {
     }
 
     @Test
+    func dynamicNotchReplacementIsDeliveredAsOneAtomicMutation() {
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+        let key = NotificationsCatalogSection().delivery.userDefaultsKey
+        let originalValue = defaults.object(forKey: key)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        resetState(originalAppFocusOverride: false)
+        defaults.set(NotificationDeliveryMode.dynamicNotch.rawValue, forKey: key)
+        defer {
+            if let originalValue {
+                defaults.set(originalValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+            resetState(originalAppFocusOverride: originalAppFocusOverride)
+        }
+
+        let tabID = UUID()
+        let surfaceID = UUID()
+        var mutations: [DynamicNotchNotificationMutation] = []
+        store.configureDynamicNotchDelivery { mutations.append($0) }
+
+        store.addNotification(
+            tabId: tabID,
+            surfaceId: surfaceID,
+            title: "First",
+            subtitle: "",
+            body: ""
+        )
+        let firstID = store.notifications[0].id
+        store.addNotification(
+            tabId: tabID,
+            surfaceId: surfaceID,
+            title: "Replacement",
+            subtitle: "",
+            body: ""
+        )
+        let replacementID = store.notifications[0].id
+
+        #expect(mutations.count == 2)
+        guard case .upsert(let first, let firstSuperseding) = mutations[0],
+              case .upsert(let replacement, let replacementSuperseding) = mutations[1] else {
+            Issue.record("Expected two upsert mutations")
+            return
+        }
+        #expect(first.id == firstID)
+        #expect(firstSuperseding.isEmpty)
+        #expect(replacement.id == replacementID)
+        #expect(replacementSuperseding == [firstID])
+    }
+
+    @Test
     func explicitSystemDeliveryOverridesDynamicNotchPreference() {
         let store = TerminalNotificationStore.shared
         let defaults = UserDefaults.standard
@@ -218,10 +270,10 @@ struct NativeNotificationFallbackCommandTests {
         let authorizationAttempted = BoolRecorder()
         let nativeScheduled = BoolRecorder()
         var presentedIDs: [UUID] = []
-        store.configureDynamicNotchDelivery(
-            present: { presentedIDs.append($0.id) },
-            dismiss: { _ in }
-        )
+        store.configureDynamicNotchDelivery { mutation in
+            guard case .upsert(let notification, _) = mutation else { return }
+            presentedIDs.append(notification.id)
+        }
         store.configureNotificationAuthorizationHandlerForTesting { completion in
             authorizationAttempted.setTrue()
             completion(true, .authorized)
@@ -302,7 +354,7 @@ struct NativeNotificationFallbackCommandTests {
         store.resetUserNotificationSchedulerForTesting()
         store.resetNotificationCommandRunnerForTesting()
         store.resetSuppressedNotificationFeedbackHandlerForTesting()
-        store.configureDynamicNotchDelivery(present: nil, dismiss: nil)
+        store.configureDynamicNotchDelivery(nil)
         AppFocusState.overrideIsFocused = originalAppFocusOverride
     }
 }
