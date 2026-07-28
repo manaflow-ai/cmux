@@ -3136,6 +3136,23 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn default_scrollback_retains_long_agent_transcript() {
+        let options = SurfaceOptions::default();
+        let mut terminal =
+            Terminal::new(options.cols, options.rows, options.scrollback, Callbacks::default())
+                .unwrap();
+        for line in 0..20_000 {
+            terminal.vt_write(
+                format!("omp-history-{line:05} {}\r\n", "x".repeat(64)).as_bytes(),
+            );
+        }
+
+        let scrollback = terminal.plain_text().unwrap();
+        assert!(scrollback.contains("omp-history-00000"));
+        assert!(scrollback.contains("omp-history-19999"));
+    }
+
     #[derive(Clone, Default)]
     struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
 
