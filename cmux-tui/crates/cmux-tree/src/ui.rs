@@ -758,6 +758,7 @@ fn tone_style(tone: LineTone) -> Style {
 
 #[cfg(test)]
 mod tests {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use serde_json::json;
@@ -838,8 +839,7 @@ mod tests {
         assert_eq!(truncate_width("東京terminal", 6), "東京t…");
     }
 
-    #[test]
-    fn long_conversation_list_draws_a_proportional_scrollbar() {
+    fn long_conversation_app() -> App {
         let config = Config {
             machines: vec![MachineConfig {
                 id: "machine".into(),
@@ -861,7 +861,12 @@ mod tests {
             .collect();
         app.machines[0].rows = flatten_thread_tree(app.machines[0].threads.clone());
         app.machines[0].selected_thread_id = Some("thread-0".into());
+        app
+    }
 
+    #[test]
+    fn long_conversation_list_uses_cmux_tui_scrollbar_visuals() {
+        let mut app = long_conversation_app();
         let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();
         terminal.draw(|frame| draw(&mut app, frame)).unwrap();
 
@@ -870,7 +875,60 @@ mod tests {
             ..app.columns.conversations.y + app.columns.conversations.height)
             .map(|y| terminal.backend().buffer()[(x, y)].symbol())
             .collect::<Vec<_>>();
-        assert!(track.contains(&"┃"));
-        assert!(track.contains(&"│"));
+        assert!(track.contains(&"▕"));
+        assert!(track.iter().all(|symbol| matches!(*symbol, "▕" | " ")));
+    }
+
+    #[test]
+    fn conversation_mouse_wheel_scroll_survives_redraw() {
+        let mut app = long_conversation_app();
+        let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();
+        terminal.draw(|frame| draw(&mut app, frame)).unwrap();
+        let column = app.columns.conversations.x + 1;
+        let row = app.columns.conversations.y + 3;
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        });
+        terminal.draw(|frame| draw(&mut app, frame)).unwrap();
+
+        assert_eq!(app.conversation_scroll, 3);
+    }
+
+    #[test]
+    fn conversation_scrollbar_thumb_drags_to_the_end() {
+        let mut app = long_conversation_app();
+        let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();
+        terminal.draw(|frame| draw(&mut app, frame)).unwrap();
+        let x = app.columns.conversations.x + app.columns.conversations.width - 1;
+        let top = app.columns.conversations.y + 2;
+        let bottom =
+            app.columns.conversations.y + app.columns.conversations.height.saturating_sub(1);
+        let max_scroll = app.machines[0].rows.len() * 3 - app.conversation_viewport_height;
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: x,
+            row: top,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: x,
+            row: bottom,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: x,
+            row: bottom,
+            modifiers: KeyModifiers::NONE,
+        });
+        terminal.draw(|frame| draw(&mut app, frame)).unwrap();
+
+        assert_eq!(app.conversation_scroll, max_scroll);
     }
 }
