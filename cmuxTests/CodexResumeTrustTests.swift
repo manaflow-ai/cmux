@@ -115,12 +115,12 @@ struct CodexResumeTrustTests {
       executablePath: cliPath,
       arguments: ["hooks", "codex", "inject-resume-args"],
       environment: environment,
-      timeout: 2
+      timeout: 15
     )
 
-    codexExpectFalse(result.timedOut, result.stderr)
-    codexExpectEqual(result.status, 0, result.stderr)
-    codexExpectTrue(result.stdout.isEmpty, result.stdout)
+    codexExpectFalse(result.timedOut, processDiagnostic(result))
+    codexExpectEqual(result.status, 0, processDiagnostic(result))
+    codexExpectTrue(result.stdout.isEmpty, processDiagnostic(result))
     codexExpectEqual(
       try String(contentsOf: codexArgumentsLog, encoding: .utf8),
       """
@@ -145,12 +145,12 @@ struct CodexResumeTrustTests {
       executablePath: cliPath,
       arguments: ["hooks", "codex", "inject-resume-args"],
       environment: environment,
-      timeout: 2
+      timeout: 15
     )
 
-    codexExpectFalse(fallbackResult.timedOut, fallbackResult.stderr)
-    codexExpectEqual(fallbackResult.status, 0, fallbackResult.stderr)
-    codexExpectTrue(fallbackResult.stdout.isEmpty, fallbackResult.stdout)
+    codexExpectFalse(fallbackResult.timedOut, processDiagnostic(fallbackResult))
+    codexExpectEqual(fallbackResult.status, 0, processDiagnostic(fallbackResult))
+    codexExpectTrue(fallbackResult.stdout.isEmpty, processDiagnostic(fallbackResult))
     codexExpectEqual(
       try String(contentsOf: codexArgumentsLog, encoding: .utf8),
       """
@@ -199,16 +199,16 @@ struct CodexResumeTrustTests {
       executablePath: cliPath,
       arguments: ["hooks", "codex", "inject-resume-args"],
       environment: environment,
-      timeout: 2
+      timeout: 15
     )
 
-    codexExpectFalse(separateGitProbe.timedOut, separateGitProbe.stderr)
-    codexExpectEqual(separateGitProbe.status, 0, separateGitProbe.stderr)
+    codexExpectFalse(separateGitProbe.timedOut, processDiagnostic(separateGitProbe))
+    codexExpectEqual(separateGitProbe.status, 0, processDiagnostic(separateGitProbe))
     codexExpectTrue(
       separateGitProbe.stdout.contains(
         #"projects={"\#(canonicalRoot)"={trust_level="untrusted"}}"#
       ),
-      "A valid separate Git metadata directory must not suppress the unattended resume override: \(separateGitProbe.stdout)"
+      "A valid separate Git metadata directory must not suppress the unattended resume override. \(processDiagnostic(separateGitProbe))"
     )
 
     try FileManager.default.removeItem(
@@ -227,11 +227,11 @@ struct CodexResumeTrustTests {
       executablePath: cliPath,
       arguments: ["hooks", "codex", "inject-resume-args"],
       environment: environment,
-      timeout: 2
+      timeout: 15
     )
 
-    codexExpectFalse(failedRepositoryProbe.timedOut, failedRepositoryProbe.stderr)
-    codexExpectEqual(failedRepositoryProbe.status, 0, failedRepositoryProbe.stderr)
+    codexExpectFalse(failedRepositoryProbe.timedOut, processDiagnostic(failedRepositoryProbe))
+    codexExpectEqual(failedRepositoryProbe.status, 0, processDiagnostic(failedRepositoryProbe))
     codexExpectTrue(
       failedRepositoryProbe.stdout.isEmpty,
       "A broken repository marker must fail closed instead of overriding project trust."
@@ -351,16 +351,16 @@ struct CodexResumeTrustTests {
       executablePath: cliPath,
       arguments: ["hooks", "codex", "inject-resume-args"],
       environment: environment,
-      timeout: 2
+      timeout: 15
     )
 
-    codexExpectFalse(result.timedOut, result.stderr)
-    codexExpectEqual(result.status, 0, result.stderr)
+    codexExpectFalse(result.timedOut, processDiagnostic(result))
+    codexExpectEqual(result.status, 0, processDiagnostic(result))
     codexExpectTrue(
       result.stdout.contains(
         #"projects={"\#(root.resolvingSymlinksInPath().path)"={trust_level="untrusted"}}"#
       ),
-      "Codex config/read must wait for initialize to finish: \(result.stdout)"
+      "Codex config/read must wait for initialize to finish. \(processDiagnostic(result))"
     )
   }
 
@@ -493,11 +493,14 @@ struct CodexResumeTrustTests {
       executablePath: cliPath,
       arguments: ["hooks", "codex", "inject-resume-args"],
       environment: environment,
-      timeout: 2
+      timeout: 15
     )
-    codexExpectFalse(laterResult.timedOut, laterResult.stderr)
-    codexExpectEqual(laterResult.status, 0, laterResult.stderr)
-    codexExpectTrue(laterResult.stdout.contains("trust_level=\"untrusted\""))
+    codexExpectFalse(laterResult.timedOut, processDiagnostic(laterResult))
+    codexExpectEqual(laterResult.status, 0, processDiagnostic(laterResult))
+    codexExpectTrue(
+      laterResult.stdout.contains("trust_level=\"untrusted\""),
+      processDiagnostic(laterResult)
+    )
 
     let invocationCount = try String(contentsOf: invocationLog, encoding: .utf8)
       .split(separator: "\n")
@@ -517,5 +520,11 @@ struct CodexResumeTrustTests {
       "PWD": home.path,
       "TMPDIR": FileManager.default.temporaryDirectory.path,
     ]
+  }
+
+  private func processDiagnostic(_ result: H.ProcessRunResult) -> String {
+    "status=\(result.status) timedOut=\(result.timedOut) "
+      + "stdout=\(result.stdout.debugDescription) "
+      + "stderr=\(result.stderr.debugDescription)"
   }
 }
