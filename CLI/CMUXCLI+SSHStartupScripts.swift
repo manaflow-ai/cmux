@@ -373,7 +373,7 @@ extension CMUXCLI {
         ]
         if hasOneTimeCommand {
             scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")
-            scriptLines += ["    ( cmux_ssh_foreground_auth )", "    cmux_ssh_status=$?", "    if [ \"$cmux_ssh_status\" -eq 0 ]; then cmux_ssh_reauth_required=0; cmux_ssh_auth_retry=0; elif [ \"$cmux_ssh_status\" -eq 254 ]; then if [ \"$cmux_ssh_auth_retry\" -ge \"$cmux_ssh_auth_retry_limit\" ]; then cmux_ssh_status=255; break; fi; cmux_ssh_auth_retry=$((cmux_ssh_auth_retry + 1)); else break; fi", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
+            scriptLines += ["    ( cmux_ssh_foreground_auth )", "    cmux_ssh_status=$?; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi", "    if [ \"$cmux_ssh_status\" -eq 0 ]; then cmux_ssh_reauth_required=0; cmux_ssh_auth_retry=0; elif [ \"$cmux_ssh_status\" -eq 254 ]; then if [ \"$cmux_ssh_auth_retry\" -ge \"$cmux_ssh_auth_retry_limit\" ]; then cmux_ssh_status=255; break; fi; cmux_ssh_auth_retry=$((cmux_ssh_auth_retry + 1)); else break; fi", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
         }
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty,
            !hasOneTimeCommand {
