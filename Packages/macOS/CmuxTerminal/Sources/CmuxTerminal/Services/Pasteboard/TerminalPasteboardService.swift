@@ -115,20 +115,29 @@ public final class TerminalPasteboardService: Sendable {
 }
 
 extension TerminalPasteboardService: TerminalClipboardWriting {
-    /// Writes a string to the given ghostty clipboard location, honoring an
-    /// armed one-shot capture for the standard location.
+    /// Publishes all textual representations as one pasteboard item, honoring
+    /// an armed one-shot capture for the standard location.
     ///
-    /// An armed capture only consumes writes its predicate accepts; any other
+    /// An armed capture only consumes writes its predicate accepts (matched
+    /// against the preferred plain-text representation); any other
     /// standard-location write (e.g. a user copy racing a VT export) passes
     /// through to the real pasteboard with the capture left armed.
-    public func writeString(_ string: String, to location: ghostty_clipboard_e) {
+    public func writeRepresentations(
+        _ representations: [TerminalClipboardRepresentation],
+        to location: ghostty_clipboard_e
+    ) {
+        guard !representations.isEmpty else { return }
+        let preferredValue = representations.first(where: {
+            normalizedTerminalClipboardMIMEType($0.mimeType) == "text/plain"
+        })?.string ?? representations[0].string
+
         if location == GHOSTTY_CLIPBOARD_STANDARD {
             standardClipboardWriteCaptureLock.lock()
             let armed = standardClipboardWriteCapture
             standardClipboardWriteCaptureLock.unlock()
 
             if let armed {
-                if armed.accepts(string) {
+                if armed.accepts(preferredValue) {
                     // Claim the one-shot slot atomically: only the write that
                     // actually clears it may capture. A concurrent matching
                     // write that loses this race falls through to the real
@@ -141,12 +150,12 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
                     }
                     standardClipboardWriteCaptureLock.unlock()
                     if claimed {
-                        armed.capture(string)
+                        armed.capture(preferredValue)
                         return
                     }
                 } else {
                     Self.logger.info(
-                        "standard write passed through armed capture (length \(string.count, privacy: .public))"
+                        "standard write passed through armed capture (length \(preferredValue.count, privacy: .public))"
                     )
                 }
             }
@@ -156,14 +165,29 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
         // already invalidated the selection) must not clear the clipboard:
         // clearContents-then-write-nothing silently destroys whatever the
         // user last copied.
-        guard !string.isEmpty else {
+        guard !preferredValue.isEmpty else {
             Self.logger.info("ignored empty clipboard write")
             return
         }
 
         guard let pasteboard = pasteboard(for: location) else { return }
+        // A pasteboard item can only be attached to one pasteboard, so the
+        // retry path below needs a freshly built copy.
+        let makeItem: () -> NSPasteboardItem = {
+            let item = NSPasteboardItem()
+            var writtenTypes = Set<NSPasteboard.PasteboardType>()
+            for representation in representations {
+                let type = terminalPasteboardType(forMIMEType: representation.mimeType)
+                guard writtenTypes.insert(type).inserted else { continue }
+                _ = item.setString(
+                    representation.string,
+                    forType: type
+                )
+            }
+            return item
+        }
         let clearedChangeCount = pasteboard.clearContents()
-        if !pasteboard.setString(string, forType: .string) {
+        if !pasteboard.writeObjects([makeItem()]) {
             // A contended pasteboard can reject the write after clearContents,
             // leaving the clipboard empty. Retry once so the failure is not
             // silent data loss — but only while nothing else has written in
@@ -171,12 +195,21 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
             var retried = false
             if pasteboard.changeCount == clearedChangeCount {
                 pasteboard.clearContents()
-                retried = pasteboard.setString(string, forType: .string)
+                retried = pasteboard.writeObjects([makeItem()])
             }
             Self.logger.error(
-                "pasteboard setString failed (length \(string.count, privacy: .public)), retry \(retried ? "succeeded" : "skipped-or-failed", privacy: .public)"
+                "pasteboard write failed (length \(preferredValue.count, privacy: .public)), retry \(retried ? "succeeded" : "skipped-or-failed", privacy: .public)"
             )
         }
+    }
+
+    /// Writes a string to the given ghostty clipboard location, honoring an
+    /// armed one-shot capture for the standard location.
+    public func writeString(_ string: String, to location: ghostty_clipboard_e) {
+        writeRepresentations(
+            [.init(mimeType: "text/plain", string: string)],
+            to: location
+        )
     }
 
     /// Arms a one-shot diversion of the next matching standard-clipboard
@@ -223,6 +256,29 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
 
         guard action() else { return nil }
         return capture.value
+    }
+
+}
+
+private func normalizedTerminalClipboardMIMEType(_ mimeType: String) -> String {
+    let base = mimeType.split(separator: ";", maxSplits: 1).first ?? Substring(mimeType)
+    return String(base)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+}
+
+private func terminalPasteboardType(
+    forMIMEType mimeType: String
+) -> NSPasteboard.PasteboardType {
+    switch normalizedTerminalClipboardMIMEType(mimeType) {
+    case "text/plain":
+        return .string
+    case "text/html":
+        return .html
+    case "text/rtf":
+        return .rtf
+    default:
+        return NSPasteboard.PasteboardType(mimeType)
     }
 }
 
