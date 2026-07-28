@@ -281,8 +281,18 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "await delay(1)\n"
                 "expect(finished).toBe(true)\n"
             ),
+            "indented-timer-alias.ts": (
+                '  import { setTimeout as delay } from "timers/promises"\n'
+                "await delay(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
             "node-timer-namespace.ts": (
                 'import * as timers from "node:timers/promises"\n'
+                "await timers.setTimeout(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
+            "indented-timer-namespace.ts": (
+                '  import * as timers from "timers/promises"\n'
                 "await timers.setTimeout(1)\n"
                 "expect(finished).toBe(true)\n"
             ),
@@ -304,6 +314,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             ),
             "shell-after-uncalled-function-installer.sh": (
                 'install_fake() { sleep() { advance_clock "$@"; }; }\n'
+                "sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "shell-real-sleep-wrapper.sh": (
+                'sleep() { /bin/sleep "$@"; }\n'
+                "sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "shell-after-unreachable-function.sh": (
+                'if false; then sleep() { advance_clock "$@"; }; fi\n'
                 "sleep 1\n"
                 'assert "$actual" "$expected"\n'
             ),
@@ -711,7 +731,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "continuous-clock-assigned-capture.swift",
                     "node-timer-alias.ts",
                     "timer-delay-alias.ts",
+                    "indented-timer-alias.ts",
                     "node-timer-namespace.ts",
+                    "indented-timer-namespace.ts",
                     "template-multiline-interpolation.ts",
                     "js-comment-close.ts",
                     "shell-arithmetic-before-sleep.sh",
@@ -727,6 +749,8 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "shell-command-after-function.sh",
                     "shell-after-subshell-function.sh",
                     "shell-after-uncalled-function-installer.sh",
+                    "shell-real-sleep-wrapper.sh",
+                    "shell-after-unreachable-function.sh",
                 )
                 else 1
             )
