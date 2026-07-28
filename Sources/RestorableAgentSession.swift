@@ -517,9 +517,9 @@ enum AgentResumeCommandBuilder {
         }
         if case .custom = kind {
             guard let customRegistration else { return nil }
-            if let arguments = resumeArgv.registeredBuiltInKind(
-                registrationID: customRegistration.id,
-                resumeCommand: customRegistration.resumeCommand,
+            if let registeredResumeKind = customRegistration.registeredResumeKind,
+               let arguments = resumeArgv.registeredBuiltInKind(
+                kind: registeredResumeKind,
                 sessionId: sessionId,
                 executablePath: launchCommand?.executablePath,
                 arguments: launchCommand?.arguments ?? []
