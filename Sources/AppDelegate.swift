@@ -36,9 +36,10 @@ private enum CmuxThemeNotifications {
 struct MacSentryStartupPolicy {
     let telemetryEnabled: Bool
     let isRunningUnderXCTest: Bool
+    let allowUnderXCTest: Bool
 
     var shouldStart: Bool {
-        telemetryEnabled && !isRunningUnderXCTest
+        telemetryEnabled && (!isRunningUnderXCTest || allowUnderXCTest)
     }
 }
 
@@ -1272,7 +1273,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         let shouldStartSentry = MacSentryStartupPolicy(
             telemetryEnabled: telemetryEnabled,
-            isRunningUnderXCTest: isRunningUnderXCTest
+            isRunningUnderXCTest: isRunningUnderXCTest,
+            allowUnderXCTest: env["CMUX_TEST_SENTRY_ENABLED"] == "1"
         ).shouldStart
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",

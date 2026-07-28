@@ -199,8 +199,19 @@ import Testing
         #expect(
             MacSentryStartupPolicy(
                 telemetryEnabled: true,
-                isRunningUnderXCTest: true
+                isRunningUnderXCTest: true,
+                allowUnderXCTest: false
             ).shouldStart == false
+        )
+    }
+
+    @Test func explicitTestTelemetryOptInStartsSentry() {
+        #expect(
+            MacSentryStartupPolicy(
+                telemetryEnabled: true,
+                isRunningUnderXCTest: true,
+                allowUnderXCTest: true
+            ).shouldStart == true
         )
     }
 
@@ -208,7 +219,8 @@ import Testing
         #expect(
             MacSentryStartupPolicy(
                 telemetryEnabled: true,
-                isRunningUnderXCTest: false
+                isRunningUnderXCTest: false,
+                allowUnderXCTest: false
             ).shouldStart == true
         )
     }
@@ -217,7 +229,8 @@ import Testing
         #expect(
             MacSentryStartupPolicy(
                 telemetryEnabled: false,
-                isRunningUnderXCTest: false
+                isRunningUnderXCTest: false,
+                allowUnderXCTest: false
             ).shouldStart == false
         )
     }
