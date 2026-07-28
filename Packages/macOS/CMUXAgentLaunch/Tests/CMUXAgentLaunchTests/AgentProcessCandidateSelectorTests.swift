@@ -3,6 +3,8 @@ import Testing
 
 @Suite("Agent process candidate selector")
 struct AgentProcessCandidateSelectorTests {
+    private let kernProcArgs = KernProcArgsTestSupport()
+
     @Test func selectsOnlyProcessesAllowedByBuiltInPolicy() {
         let processes = [
             candidate(processID: 1, name: "zsh", isForeground: true),

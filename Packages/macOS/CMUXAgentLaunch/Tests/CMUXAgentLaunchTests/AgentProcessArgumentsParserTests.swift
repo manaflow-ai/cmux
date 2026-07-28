@@ -3,6 +3,8 @@ import Testing
 
 @Suite("Agent process arguments parser")
 struct AgentProcessArgumentsParserTests {
+    private let kernProcArgs = KernProcArgsTestSupport()
+
     @Test func preservesEmptyArgumentElements() throws {
         let bytes = kernProcArgs(
             arguments: ["codex", "", "resume"],
