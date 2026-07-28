@@ -119,6 +119,9 @@ jobs:
 
       - name: Build cmux-tui (native)
         if: matrix.cross == false
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
+          PACKAGE_NPM: ${{ inputs.package_npm }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -127,10 +130,9 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
-          CMUX_TUI_DISTRIBUTION_VERSION="${{ inputs.version }}"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
-          if [[ "${{ inputs.package_npm }}" == "true" ]]; then
-            CMUX_TUI_NPM_BOOTSTRAP_VERSION="${{ inputs.version }}"
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
@@ -138,6 +140,9 @@ jobs:
 
       - name: Build cmux-tui (cross)
         if: matrix.cross == true
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
+          PACKAGE_NPM: ${{ inputs.package_npm }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -146,10 +151,9 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
-          CMUX_TUI_DISTRIBUTION_VERSION="${{ inputs.version }}"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
-          if [[ "${{ inputs.package_npm }}" == "true" ]]; then
-            CMUX_TUI_NPM_BOOTSTRAP_VERSION="${{ inputs.version }}"
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
@@ -320,6 +324,9 @@ jobs:
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
       - name: Build libghostty-vt + cmux-tui (Windows GNU)
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
+          PACKAGE_NPM: ${{ inputs.package_npm }}
         shell: bash
         run: |
           # Keep the manual Zig build and Cargo's build script on the same
@@ -327,10 +334,9 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty rev-parse HEAD)"
-          CMUX_TUI_DISTRIBUTION_VERSION="${{ inputs.version }}"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
-          if [[ "${{ inputs.package_npm }}" == "true" ]]; then
-            CMUX_TUI_NPM_BOOTSTRAP_VERSION="${{ inputs.version }}"
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cd ghostty

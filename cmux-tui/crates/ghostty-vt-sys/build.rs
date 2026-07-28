@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -25,9 +25,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
-    println!("cargo:rerun-if-changed={}", ghostty_dir.join("include").display());
-    println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig").display());
-    println!("cargo:rerun-if-changed={}", ghostty_dir.join("src").display());
+    emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("include"));
+    emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("build.zig"));
+    emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("src"));
 
     // Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo
     // profile: the VT parser is on the PTY hot path and a debug zig build
@@ -64,7 +64,7 @@ fn main() {
     }
 
     let lib_dir = prefix.join("lib");
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    emit_cargo_path_directive("rustc-link-search=native", &lib_dir);
     if target.contains("windows") {
         // zig installs the Windows static archive as `ghostty-vt-static.lib`
         // (distinct from the DLL import library `ghostty-vt.lib`), but rustc's
@@ -96,6 +96,14 @@ fn main() {
         .generate()
         .expect("bindgen failed for ghostty/vt.h");
     bindings.write_to_file(out_dir.join("bindings.rs")).expect("failed to write bindings.rs");
+}
+
+fn emit_cargo_path_directive(directive: &str, path: &Path) {
+    let value = path.to_string_lossy();
+    if value.bytes().any(|byte| matches!(byte, b'\r' | b'\n')) {
+        panic!("Cargo directive path contains CR or LF");
+    }
+    println!("cargo:{directive}={value}");
 }
 
 // std::fs::canonicalize on Windows returns \\?\-prefixed extended-length

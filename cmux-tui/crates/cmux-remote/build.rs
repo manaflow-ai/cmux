@@ -138,7 +138,7 @@ fn track_git_path(manifest_dir: &Path, path: &str) {
     if let Some(path) = git(manifest_dir, &["rev-parse", "--git-path", path])
         && Path::new(&path).exists()
     {
-        println!("cargo:rerun-if-changed={path}");
+        emit_cargo_path_directive("rerun-if-changed", Path::new(&path));
     }
 }
 
@@ -146,8 +146,16 @@ fn track_source_files(git_root: &Path, source_files: &[u8]) {
     for path in nul_separated(source_files) {
         let path =
             std::str::from_utf8(path).unwrap_or_else(|_| panic!("cmux-tui has a non-UTF-8 path"));
-        println!("cargo:rerun-if-changed={}", git_root.join(path).display());
+        emit_cargo_path_directive("rerun-if-changed", &git_root.join(path));
     }
+}
+
+fn emit_cargo_path_directive(directive: &str, path: &Path) {
+    let value = path.to_string_lossy();
+    if value.bytes().any(|byte| matches!(byte, b'\r' | b'\n')) {
+        panic!("Cargo directive path contains CR or LF");
+    }
+    println!("cargo:{directive}={value}");
 }
 
 fn nul_separated(values: &[u8]) -> impl Iterator<Item = &[u8]> {
