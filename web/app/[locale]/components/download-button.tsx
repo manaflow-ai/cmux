@@ -8,7 +8,9 @@ import { Link, usePathname } from "../../../i18n/navigation";
 import {
   DOWNLOAD_CONFIRMATION_HREF,
   DOWNLOAD_CONFIRMATION_PATH,
+  DOWNLOAD_PLATFORMS,
   DOWNLOAD_URL,
+  PLATFORM_DOWNLOADS,
   WAITLIST_PLATFORMS,
   type WaitlistPlatform,
 } from "../../lib/download";
@@ -205,6 +207,22 @@ export function DownloadButton({
                   <span className="flex-1 text-left">{tp("ios")}</span>
                   <ExternalLinkIcon />
                 </Menu.Item>
+                {DOWNLOAD_PLATFORMS.map((platform) => (
+                  <Menu.Item
+                    key={platform}
+                    render={<Link href={PLATFORM_DOWNLOADS[platform].page} />}
+                    onClick={() =>
+                      posthog.capture("cmux_browser_platform_page_clicked", {
+                        location,
+                        platform,
+                      })
+                    }
+                    className={menuItemClass}
+                  >
+                    <PlatformIcon name={platform} />
+                    <span className="flex-1 text-left">{tp(platform)}</span>
+                  </Menu.Item>
+                ))}
                 <Menu.Separator className="mx-1 my-1.5 h-px bg-border" />
                 <Menu.Group>
                   <Menu.GroupLabel className="px-2.5 pb-1 pt-1 text-xs text-muted">

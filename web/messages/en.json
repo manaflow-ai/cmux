@@ -27,6 +27,56 @@
     "backToMac": "cmux for Mac",
     "galleryItemAlt": "{name} running in a cmux terminal on iPhone"
   },
+  "browserDownloads": {
+    "eyebrow": "cmux Browser",
+    "title": "cmux for {platform}",
+    "tagline": "A Chromium browser and agent workspace, built together.",
+    "logoAlt": "cmux app icon",
+    "portableCta": "Portable ZIP",
+    "featuresTitle": "Built for agentic work",
+    "features": {
+      "chromium": {
+        "title": "Real Chromium",
+        "description": ": Chrome-quality tabs, rendering, extensions, and omnibox behavior"
+      },
+      "workspaces": {
+        "title": "Task-shaped workspaces",
+        "description": ": organize web tabs and tools around the task instead of one endless tab strip"
+      },
+      "terminals": {
+        "title": "Terminal surfaces",
+        "description": ": keep shells and browser tabs in the same window and compositor"
+      },
+      "openSource": {
+        "title": "Free and open source",
+        "description": ": inspect the code, file issues, and build from source on GitHub"
+      }
+    },
+    "installTitle": "Install",
+    "releaseTitle": "Releases and updates",
+    "releaseBody": "These links always point to the latest stable release on <github>GitHub Releases</github>. cmux verifies signed update manifests before installing an update.",
+    "sourceLink": "View source on GitHub",
+    "otherPlatform": "cmux for {platform}",
+    "macLink": "cmux terminal for Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Download cmux for Windows",
+      "metaDescription": "Download cmux for Windows x64: a free, open-source Chromium browser and agent workspace with task-shaped tabs and terminal surfaces.",
+      "subtitle": "A native x64 build with Chromium tabs, cmux workspaces, and familiar Windows keyboard conventions.",
+      "primaryCta": "Download installer (.exe)",
+      "requirements": "Windows 10 or later · x64",
+      "installBody": "Run the installer and follow the Windows prompts. Choose the portable ZIP if you prefer to keep cmux in a folder without a system-wide install."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Download cmux for Linux",
+      "metaDescription": "Download cmux for Linux x64: a free, open-source Chromium browser and agent workspace with task-shaped tabs and terminal surfaces.",
+      "subtitle": "A native x64 build with Chromium tabs, cmux workspaces, and integrated terminal surfaces.",
+      "primaryCta": "Download .deb",
+      "requirements": "Debian or Ubuntu · x64",
+      "installBody": "Download the Debian package and install it with your package manager. Choose the portable ZIP for a per-user install and in-app updates."
+    }
+  },
   "meta": {
     "title": "cmux — The terminal built for multitasking, organization, and programmability",
     "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
@@ -662,7 +712,7 @@
     "faqGhosttyQ": "How does cmux relate to Ghostty?",
     "faqGhosttyA": "cmux is not a fork of Ghostty. It uses <link>libghostty</link> as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.",
     "faqPlatformQ": "What platforms does it support?",
-    "faqPlatformA": "macOS only, for now. cmux is a native Swift + AppKit app. <waitlist>Join the waitlist</waitlist> to hear when Linux, Windows, and Android are ready.",
+    "faqPlatformA": "The native cmux terminal is built for macOS. You can also <windows>download cmux for Windows</windows> or <linux>download cmux for Linux</linux>; <waitlist>join the Android waitlist</waitlist> for the remaining platform.",
     "faqAgentsQ": "What coding agents does cmux work with?",
     "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
@@ -4654,8 +4704,8 @@
     "title": "Join the {platform} waitlist",
     "titleAny": "Join the waitlist",
     "description": "{platform} support is on the way. Leave your email and we'll let you know the moment it's ready.",
-    "descriptionAny": "cmux is macOS-first today. Leave your email and we'll tell you the moment Linux, Windows, or Android is ready.",
-    "calloutText": "Coming to Linux, Windows, and Android.",
+    "descriptionAny": "cmux is now available on macOS, Windows, Linux, and iOS. Leave your email and we'll tell you the moment Android is ready.",
+    "calloutText": "Now on Windows and Linux. Android is coming.",
     "platformsLabel": "Which platforms?",
     "selectPlatform": "Pick at least one platform.",
     "emailLabel": "Email",
@@ -4667,7 +4717,7 @@
     "sendError": "Couldn't send. Please try again.",
     "successTitle": "You're on the list",
     "successBody": "We'll email you when the {platform} build is ready.",
-    "successBodyAny": "We'll email you when cmux is ready on your platform.",
+    "successBodyAny": "We'll email you when cmux is ready on Android.",
     "done": "Done"
   },
   "enterprise": {

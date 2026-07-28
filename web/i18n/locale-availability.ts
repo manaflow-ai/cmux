@@ -26,6 +26,8 @@ export const englishFallbackContentLocales = [
 ] as const satisfies readonly Locale[];
 
 const fallbackContentRoutes = [
+  { path: "/windows", locales: fallbackContentLocales },
+  { path: "/linux", locales: fallbackContentLocales },
   { path: "/pricing", locales: fallbackContentLocales },
   {
     path: "/docs/agent-integrations/oh-my-pi",

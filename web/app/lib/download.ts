@@ -1,10 +1,10 @@
 /**
  * Single source of truth for cmux download links.
  *
- * `DOWNLOAD_URL` is the actual release asset. cmux ships only a macOS build,
- * so there is one asset; if win/linux builds are added later, route them from
- * here (and from the confirmation page) rather than duplicating URLs at call
- * sites.
+ * `DOWNLOAD_URL` is the native macOS terminal release asset. Windows and Linux
+ * ship the cross-platform cmux browser workspace instead; their stable assets
+ * are kept in `PLATFORM_DOWNLOADS` so landing pages, menus, and tests share the
+ * same URLs.
  *
  * `DOWNLOAD_CONFIRMATION_PATH` is the locale-agnostic in-app route that every
  * Download CTA navigates to (same-tab). That page auto-triggers the real
@@ -30,12 +30,47 @@ export const DOWNLOAD_INTENT_PARAM = "dl";
 export const DOWNLOAD_CONFIRMATION_HREF = `${DOWNLOAD_CONFIRMATION_PATH}?${DOWNLOAD_INTENT_PARAM}=1`;
 
 /**
- * Platforms shown in the Download button's platform picker, besides macOS
- * (which is the button's primary action) and iOS (which links out to the
- * Founders Edition). These have no build yet, so picking one opens the
- * waitlist dialog.
+ * Stable cross-platform cmux browser artifacts. GitHub's `latest` redirect
+ * keeps these URLs release-independent while the asset names stay fixed by
+ * cmux-browser's release workflow.
  */
-export const WAITLIST_PLATFORMS = ["linux", "android", "windows"] as const;
+export const PLATFORM_DOWNLOADS = {
+  windows: {
+    page: "/windows",
+    primary: {
+      artifact: "installer",
+      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64-installer.exe",
+    },
+    portable: {
+      artifact: "portable-zip",
+      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64.zip",
+    },
+  },
+  linux: {
+    page: "/linux",
+    primary: {
+      artifact: "deb",
+      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-linux-x64.deb",
+    },
+    portable: {
+      artifact: "portable-zip",
+      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-linux-x64.zip",
+    },
+  },
+} as const;
+
+export type DownloadPlatform = keyof typeof PLATFORM_DOWNLOADS;
+
+export const DOWNLOAD_PLATFORMS = Object.keys(
+  PLATFORM_DOWNLOADS,
+) as DownloadPlatform[];
+
+/**
+ * Platforms shown in the Download button's waitlist section. Windows and
+ * Linux now have dedicated download pages, leaving Android as the unreleased
+ * desktop/mobile target.
+ */
+export const WAITLIST_PLATFORMS = ["android"] as const;
 
 export type WaitlistPlatform = (typeof WAITLIST_PLATFORMS)[number];
 
@@ -53,7 +88,5 @@ export type WaitlistTarget = WaitlistPlatform | "any";
  * rather than only as a raw event.
  */
 export const WAITLIST_EARLY_ACCESS_FLAGS: Record<WaitlistPlatform, string> = {
-  linux: "cmux-for-linux",
   android: "cmux-for-android",
-  windows: "cmux-for-windows",
 };
