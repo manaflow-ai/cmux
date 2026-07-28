@@ -2441,12 +2441,13 @@ def _python_bindings_after_statement(
                 case_bindings.update(
                     _python_binding_updates(case.guard)
                 )
-            variants.append(
-                _python_bindings_after_block(
-                    case.body,
-                    case_bindings,
+            if _python_block_may_complete(case.body):
+                variants.append(
+                    _python_bindings_after_block(
+                        case.body,
+                        case_bindings,
+                    )
                 )
-            )
         return _python_merge_binding_variants(variants)
 
     result = bindings.copy()
@@ -3268,7 +3269,10 @@ class _PythonSleepVisitor(ast.NodeVisitor):
                 self.visit(case.guard)
             for statement in case.body:
                 self.visit(statement)
-            states.append(self._scope_state())
+                if not _python_statement_may_complete(statement):
+                    break
+            if _python_block_may_complete(case.body):
+                states.append(self._scope_state())
         self._merge_scope_states(states)
 
     def _visit_comprehension(
@@ -4321,6 +4325,11 @@ def _shell_function_scope_events(
         body = text[opening + 1 : closing]
         wraps_real_sleep = bool(
             re.search(r"/(?:usr/)?bin/sleep(?=\s|$)", body)
+            or re.search(
+                r"/(?:usr/)?bin/env(?:\s+[^\s;&|]+)*"
+                r"\s+sleep(?=\s|$)",
+                body,
+            )
             or re.search(
                 r"(?:^|[;&|({])\s*command"
                 r"(?:\s+(?:--|-p))*\s+sleep(?=\s|$)",
