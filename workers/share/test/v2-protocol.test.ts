@@ -516,6 +516,29 @@ describe("terminal binary authorization and routing", () => {
     }
   });
 
+  it("does not lose the first editor input that wakes a hibernated session", () => {
+    let core = bootedCore();
+    approveGuest(core, "c-alice", ALICE, "editor");
+
+    core = new ShareSessionCore(structuredClone(core.persisted));
+    core.restore(
+      [
+        { id: "c-host", ...HOST },
+        { id: "c-alice", ...ALICE },
+      ],
+      T0 + 1,
+    );
+
+    const forwarded = binarySends(
+      routeFrame(core, "c-alice", inputFrame(encoder.encode("first-after-wake")), T0 + 2),
+    );
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]?.to).toBe("c-host");
+    expect(decodeTerminalFrame(forwarded[0]?.data ?? new Uint8Array())?.payload).toEqual(
+      encoder.encode("first-after-wake"),
+    );
+  });
+
   it("shares the 60/socket/s terminal-input budget with JSON input", () => {
     const core = bootedCore();
     approveGuest(core, "c-alice", ALICE, "editor");

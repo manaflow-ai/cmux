@@ -318,6 +318,34 @@ describe("terminal-only split renderer", () => {
     expect(html).not.toContain('role="application"');
   });
 
+  test("preserves legal edge split ratios without viewer-side reclamping", () => {
+    const layout: LayoutNode = {
+      kind: "split",
+      axis: "h",
+      ratio: 0.01,
+      a: { kind: "pane", pane: "terminal:1", content: "terminal" },
+      b: {
+        kind: "split",
+        axis: "v",
+        ratio: 0.99,
+        a: { kind: "pane", pane: "browser:1", content: "browser" },
+        b: { kind: "pane", pane: "agent:1", content: "agent" },
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      createElement(LayoutView, {
+        client: {} as ShareClient,
+        ws: "workspace:1",
+        node: layout,
+        canType: false,
+      }),
+    );
+
+    expect(html).toContain("flex-basis:1%");
+    expect(html).toContain("flex-basis:99%");
+  });
+
   test("viewer terminal overlay is non-editable", () => {
     const html = renderToStaticMarkup(
       createElement(LayoutView, {
