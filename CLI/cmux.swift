@@ -2,6 +2,7 @@ import Foundation
 import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxSettings
+import CmuxSimulator
 import CoreFoundation
 import CryptoKit
 import Darwin
@@ -1914,14 +1915,35 @@ final class SocketClient {
     }
 
     func connect() throws {
+        try connectWithRetry(deadline: nil)
+    }
+
+    /// Connects using the remaining absolute deadline for both the socket
+    /// operation timeout and the existing short retry window.
+    func connect(deadline: Date) throws {
+        try connectWithRetry(deadline: deadline)
+    }
+
+    private func connectWithRetry(deadline: Date?) throws {
         if socketFD >= 0 { return }
-        let deadline = Date().addingTimeInterval(Self.connectRetryDeadline)
+        let retryDeadline = min(
+            deadline ?? .distantFuture,
+            Date.now.addingTimeInterval(Self.connectRetryDeadline)
+        )
         while true {
             do {
-                try connectOnce()
+                if let deadline {
+                    let remaining = deadline.timeIntervalSinceNow
+                    guard remaining > 0 else {
+                        throw CLIError(message: "Socket connection deadline exceeded")
+                    }
+                    try connectOnce(responseTimeout: remaining, deadline: deadline)
+                } else {
+                    try connectOnce()
+                }
                 return
             } catch {
-                guard Self.shouldRetryConnect(error), Date() < deadline else {
+                guard Self.shouldRetryConnect(error), Date.now < retryDeadline else {
                     throw error
                 }
                 usleep(Self.connectRetryIntervalMicros)
@@ -1942,9 +1964,17 @@ final class SocketClient {
         lastConfiguredReceiveTimeout = nil
     }
 
-    func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
+    func send(
+        command: String,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
+    ) throws -> String {
         if relayEndpoint != nil, socketFD < 0 {
-            try connect()
+            if let deadline {
+                try connect(deadline: deadline)
+            } else {
+                try connect()
+            }
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         let shouldCloseAfterSend = relayEndpoint != nil
@@ -1954,7 +1984,18 @@ final class SocketClient {
             }
         }
 
-        let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        func boundedTimeout(_ timeout: TimeInterval) throws -> TimeInterval {
+            guard let deadline else { return timeout }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Command timed out")
+            }
+            return min(timeout, remaining)
+        }
+
+        let initialResponseTimeout = try boundedTimeout(
+            responseTimeout ?? Self.responseTimeoutSeconds
+        )
         if lastConfiguredReceiveTimeout != initialResponseTimeout {
             try configureReceiveTimeout(initialResponseTimeout)
         }
@@ -1971,7 +2012,8 @@ final class SocketClient {
         try writeAll(
             Data(payload.utf8),
             timeoutMessage: "Command timed out",
-            failureMessage: "Failed to write to socket"
+            failureMessage: "Failed to write to socket",
+            deadline: deadline
         )
 
         var data = Data()
@@ -1979,7 +2021,8 @@ final class SocketClient {
         var receivedCompleteResponse = false
 
         while true {
-            let currentTimeout = sawNewline ? Self.multilineResponseIdleTimeoutSeconds : initialResponseTimeout
+            let phaseTimeout = sawNewline ? Self.multilineResponseIdleTimeoutSeconds : initialResponseTimeout
+            let currentTimeout = try boundedTimeout(phaseTimeout)
             operation.phase = sawNewline ? .readMultilineResponse : .waitForResponse
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
@@ -2079,9 +2122,16 @@ final class SocketClient {
         }
     }
 
-    private func connectOnce(responseTimeout: TimeInterval? = nil) throws {
+    private func connectOnce(
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
+    ) throws {
         if let relayEndpoint {
-            try connectToRelay(endpoint: relayEndpoint, responseTimeout: responseTimeout)
+            try connectToRelay(
+                endpoint: relayEndpoint,
+                responseTimeout: responseTimeout,
+                deadline: deadline
+            )
             return
         }
 
@@ -2120,16 +2170,27 @@ final class SocketClient {
             }
         }
 
-        let result = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+        let connectErrno: Int32
+        if let deadline {
+            connectErrno = connectSocket(deadline: deadline) {
+                withUnsafePointer(to: &addr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                    }
+                }
             }
+        } else {
+            let result = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+            connectErrno = result == 0 ? 0 : errno
         }
-        if result == 0 {
+        if connectErrno == 0 {
             return
         }
 
-        let connectErrno = errno
         Darwin.close(socketFD)
         socketFD = -1
         throw SocketConnectError(path: path, errnoValue: connectErrno)
@@ -2211,9 +2272,16 @@ final class SocketClient {
         data.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func connectToRelay(endpoint: RelayEndpoint, responseTimeout: TimeInterval? = nil) throws {
+    private func connectToRelay(
+        endpoint: RelayEndpoint,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
+    ) throws {
         let credentials = try Self.relayCredentials(for: endpoint)
-        let timeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let timeout = try remainingSocketTimeout(
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
         guard socketFD >= 0 else {
@@ -2241,13 +2309,24 @@ final class SocketClient {
             throw CLIError(message: "Invalid relay endpoint \(endpoint.host):\(endpoint.port)")
         }
 
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+        let connectErrno: Int32
+        if let deadline {
+            connectErrno = connectSocket(deadline: deadline) {
+                withUnsafePointer(to: &address) { pointer in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                        Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+                    }
+                }
             }
+        } else {
+            let result = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                    Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+                }
+            }
+            connectErrno = result == 0 ? 0 : errno
         }
-        if result != 0 {
-            let connectErrno = errno
+        if connectErrno != 0 {
             close()
             throw CLIError(
                 message: "Failed to connect to relay at \(endpoint.host):\(endpoint.port) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
@@ -2255,15 +2334,70 @@ final class SocketClient {
         }
 
         do {
-            try authenticateRelay(credentials: credentials, responseTimeout: timeout)
+            try authenticateRelay(
+                credentials: credentials,
+                responseTimeout: timeout,
+                deadline: deadline
+            )
         } catch {
             close()
             throw error
         }
     }
 
-    private func authenticateRelay(credentials: RelayCredentials, responseTimeout: TimeInterval) throws {
-        let challengeLine = try readLine(responseTimeout: responseTimeout)
+    private func connectSocket(deadline: Date, operation: () -> Int32) -> Int32 {
+        let originalFlags = fcntl(socketFD, F_GETFL, 0)
+        guard originalFlags >= 0 else { return errno }
+        guard fcntl(socketFD, F_SETFL, originalFlags | O_NONBLOCK) == 0 else {
+            return errno
+        }
+        defer {
+            if socketFD >= 0 {
+                _ = fcntl(socketFD, F_SETFL, originalFlags)
+            }
+        }
+
+        let result = operation()
+        if result == 0 { return 0 }
+        let connectErrno = errno
+        guard connectErrno == EINPROGRESS
+            || connectErrno == EALREADY
+            || connectErrno == EAGAIN
+            || connectErrno == EWOULDBLOCK
+        else {
+            return connectErrno
+        }
+
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return ETIMEDOUT }
+            var descriptor = pollfd(fd: socketFD, events: Int16(POLLOUT), revents: 0)
+            let timeoutMillis = min(max(Int(ceil(remaining * 1_000)), 0), Int(Int32.max))
+            let ready = Darwin.poll(&descriptor, 1, Int32(timeoutMillis))
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return errno
+            }
+            guard ready > 0 else { return ETIMEDOUT }
+
+            var socketError: Int32 = 0
+            var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+            let errorResult = withUnsafeMutablePointer(to: &socketError) { pointer in
+                getsockopt(socketFD, SOL_SOCKET, SO_ERROR, pointer, &socketErrorLength)
+            }
+            return errorResult == 0 ? socketError : errno
+        }
+    }
+
+    private func authenticateRelay(
+        credentials: RelayCredentials,
+        responseTimeout: TimeInterval,
+        deadline: Date? = nil
+    ) throws {
+        let challengeLine = try readLine(
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
         guard let challengeData = challengeLine.data(using: .utf8),
               let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
               (challenge["protocol"] as? String) == "cmux-relay-auth",
@@ -2282,13 +2416,21 @@ final class SocketClient {
             "relay_id": relayID,
             "mac": Self.hexString(from: mac),
         ])
+        try configureSocketWriteSafety(remainingSocketTimeout(
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        ))
         try writeAll(
             authPayload + Data([0x0A]),
             timeoutMessage: "Relay command timed out",
-            failureMessage: "Failed to write to relay socket"
+            failureMessage: "Failed to write to relay socket",
+            deadline: deadline
         )
 
-        let authResponseLine = try readLine(responseTimeout: responseTimeout)
+        let authResponseLine = try readLine(
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
         guard let authResponseData = authResponseLine.data(using: .utf8),
               let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
               (authResponse["ok"] as? Bool) == true else {
@@ -2296,10 +2438,25 @@ final class SocketClient {
         }
     }
 
+    private func remainingSocketTimeout(
+        responseTimeout: TimeInterval?,
+        deadline: Date?
+    ) throws -> TimeInterval {
+        guard let deadline else {
+            return responseTimeout ?? Self.responseTimeoutSeconds
+        }
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0 else {
+            throw CLIError(message: "Socket connection deadline exceeded")
+        }
+        return min(responseTimeout ?? Self.responseTimeoutSeconds, remaining)
+    }
+
     private func writeAll(
         _ data: Data,
         timeoutMessage: String,
-        failureMessage: String
+        failureMessage: String,
+        deadline: Date? = nil
     ) throws {
         try data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
@@ -2307,6 +2464,14 @@ final class SocketClient {
             }
             var offset = 0
             while offset < data.count {
+                if let deadline {
+                    let remaining = deadline.timeIntervalSinceNow
+                    guard remaining > 0 else {
+                        close()
+                        throw CLIError(message: timeoutMessage)
+                    }
+                    try configureSocketWriteSafety(remaining)
+                }
                 let written = Darwin.write(socketFD, baseAddress.advanced(by: offset), data.count - offset)
                 if written < 0 {
                     let errorCode = errno
@@ -2439,11 +2604,25 @@ final class SocketClient {
 #endif
     }
 
-    private func readLine(maxBytes: Int = 16 * 1024, responseTimeout: TimeInterval? = nil) throws -> String {
+    private func readLine(
+        maxBytes: Int = 16 * 1024,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
+    ) throws -> String {
         var data = Data()
 
         while data.count < maxBytes {
-            try configureReceiveTimeout(responseTimeout ?? Self.responseTimeoutSeconds)
+            let timeout: TimeInterval
+            if let deadline {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    throw CLIError(message: "Relay command timed out")
+                }
+                timeout = min(responseTimeout ?? Self.responseTimeoutSeconds, remaining)
+            } else {
+                timeout = responseTimeout ?? Self.responseTimeoutSeconds
+            }
+            try configureReceiveTimeout(timeout)
 
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
@@ -2825,6 +3004,7 @@ final class SocketClient {
 struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
+    let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -2844,9 +3024,15 @@ struct CMUXCLI {
         return keys
     }
 
-    init(args: [String], initialSIGPIPEInspectionPayload: [String: Any]? = nil) {
+    init(
+        args: [String],
+        initialSIGPIPEInspectionPayload: [String: Any]? = nil,
+        simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning =
+            SimulatorOwnedCommandRunner()
+    ) {
         self.args = args
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
+        self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
     }
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
@@ -4436,6 +4622,10 @@ struct CMUXCLI {
                 idFormat: idFormat
             )
 
+        case "simulator":
+            try runSimulatorNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+        case "ios":
+            try runIOSNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "workspace":
             try runWorkspaceNamespace(
                 commandArgs: commandArgs,
@@ -4583,7 +4773,8 @@ struct CMUXCLI {
                         let count = pane["surface_count"] as? Int ?? 0
                         let prefix = focused ? "* " : "  "
                         let focusTag = focused ? "  [focused]" : ""
-                        print("\(prefix)\(handle)  [\(count) surface\(count == 1 ? "" : "s")]\(focusTag)")
+                        let dockTag = dockScopeTag(pane)
+                        print("\(prefix)\(handle)  [\(count) surface\(count == 1 ? "" : "s")]\(dockTag)\(focusTag)")
                     }
                 }
             }
@@ -4606,13 +4797,14 @@ struct CMUXCLI {
                 if surfaces.isEmpty {
                     print("No surfaces in pane")
                 } else {
+                    let dockTag = dockScopeTag(payload)
                     for surface in surfaces {
                         let selected = (surface["selected"] as? Bool) == true
                         let handle = textHandle(surface, idFormat: idFormat)
                         let title = (surface["title"] as? String) ?? ""
                         let prefix = selected ? "* " : "  "
                         let selTag = selected ? "  [selected]" : ""
-                        print("\(prefix)\(handle)  \(title)\(selTag)")
+                        print("\(prefix)\(handle)  \(title)\(dockTag)\(selTag)")
                     }
                 }
             }
@@ -4646,6 +4838,7 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
+            let profile = try parseBrowserProfileOption(commandArgs).selector
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = ["direction": direction]
@@ -4655,6 +4848,15 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let profile {
+                guard type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "browser" else {
+                    throw CLIError(message: String(
+                        localized: "browser.profile.automation.error.profileRequiresBrowserPane",
+                        defaultValue: "Browser profiles can only be used when creating a browser pane"
+                    ))
+                }
+                params["profile"] = profile
+            }
             if let placement { params["placement"] = placement }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
@@ -4853,7 +5055,8 @@ struct CMUXCLI {
                         let prefix = focused ? "* " : "  "
                         let focusTag = focused ? "  [focused]" : ""
                         let titlePart = title.isEmpty ? "" : "  \"\(title)\""
-                        print("\(prefix)\(handle)  \(sType)\(focusTag)\(titlePart)")
+                        let dockTag = dockScopeTag(surface)
+                        print("\(prefix)\(handle)  \(sType)\(dockTag)\(focusTag)\(titlePart)")
                     }
                 }
             }
@@ -5985,13 +6188,15 @@ struct CMUXCLI {
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String,
-        responseTimeout: TimeInterval? = nil
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) throws {
         try Self.authenticateSocketClientIfNeeded(
             client,
             explicitPassword: explicitPassword,
             socketPath: socketPath,
-            responseTimeout: responseTimeout
+            responseTimeout: responseTimeout,
+            deadline: deadline
         )
     }
 
@@ -5999,13 +6204,18 @@ struct CMUXCLI {
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String,
-        responseTimeout: TimeInterval? = nil
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) throws {
         if let socketPassword = SocketPasswordResolver.resolve(
             explicit: explicitPassword,
             socketPath: socketPath
         ) {
-            let authResponse = try client.send(command: "auth \(socketPassword)", responseTimeout: responseTimeout)
+            let authResponse = try client.send(
+                command: "auth \(socketPassword)",
+                responseTimeout: responseTimeout,
+                deadline: deadline
+            )
             if authResponse.hasPrefix("ERROR:"),
                !authResponse.contains("Unknown command 'auth'") {
                 throw CLIError(message: authResponse)
@@ -8135,8 +8345,8 @@ struct CMUXCLI {
             method = "canvas.set_viewport"
         case "new-pane":
             if let type = optionValue(rest, name: "--type")?.lowercased() {
-                guard ["terminal", "browser"].contains(type) else {
-                    throw CLIError(message: "Usage: cmux canvas new-pane [--type terminal|browser]")
+                guard ["terminal", "browser", "simulator"].contains(type) else {
+                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]"))
                 }
                 params["type"] = type
             }
@@ -13106,7 +13316,10 @@ struct CMUXCLI {
             }
             var markers: [String] = []
             if (profile["current"] as? Bool) == true {
-                markers.append("current")
+                markers.append(String(
+                    localized: "cli.browser.profiles.marker.lastUsed",
+                    defaultValue: "last used"
+                ))
             }
             if (profile["built_in_default"] as? Bool) == true {
                 markers.append("default")
@@ -13379,7 +13592,8 @@ struct CMUXCLI {
             // Parse routing flags before URL assembly so they never leak into the URL string.
             let (workspaceOpt, argsAfterWorkspace) = parseOption(subArgs, name: "--workspace")
             let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
-            let (focusOpt, urlArgs) = parseOption(argsAfterWindow, name: "--focus")
+            let (focusOpt, argsAfterFocus) = parseOption(argsAfterWindow, name: "--focus")
+            let (profileSelector, urlArgs) = try parseBrowserProfileOption(argsAfterFocus)
             // Reject unrecognized flags instead of folding them into the URL, where they
             // would silently produce an unparseable URL (blank page) or a search query.
             if let strayFlag = urlArgs.first(where: { $0.hasPrefix("--") }) {
@@ -13400,6 +13614,12 @@ struct CMUXCLI {
 
             if surfaceRaw != nil, subcommand == "open" {
                 // Treat `browser <surface> open <url>` as navigate for agent-browser ergonomics.
+                guard profileSelector == nil else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.profile.error.navigateUnsupported",
+                        defaultValue: "--profile is only supported when browser open creates a new pane; omit the surface selector"
+                    ))
+                }
                 let sid = try requireSurface()
                 guard !url.isEmpty else {
                     throw CLIError(message: "browser <surface> open requires a URL")
@@ -13415,6 +13635,9 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             if !url.isEmpty {
                 params["url"] = url
+            }
+            if let profileSelector {
+                params["profile"] = profileSelector
             }
             if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = sourceSurface
@@ -14982,7 +15205,7 @@ struct CMUXCLI {
               set-viewport --x <n> --y <n> [--zoom <n>]
                                             Center the viewport on a canvas point
                                             (optionally set magnification)
-              new-pane [--type terminal|browser]
+              new-pane [--type terminal|browser|simulator]
                                             Create a new free-floating canvas pane
               join <surface> <target>       Move a surface into the pane hosting target (tab)
               break <surface>               Tear a surface out of its multi-tab pane
@@ -14995,6 +15218,10 @@ struct CMUXCLI {
               cmux canvas new-pane --type terminal
               cmux canvas align tidy
             """
+        case "simulator":
+            return simulatorSubcommandUsage()
+        case "ios":
+            return iosSubcommandUsage()
         case "events":
             return """
             Usage: cmux events [options]
@@ -15707,13 +15934,14 @@ struct CMUXCLI {
                 localized: "cli.workspaceGroup.help.destructiveDelete",
                 defaultValue: "Delete the group AND close every member workspace. Explicitly destructive."
             )
+            let overview = String(
+                localized: "cli.workspaceGroup.help.overview",
+                defaultValue: "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; the group header IS the anchor's sidebar representation. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
+            )
             return """
             Usage: cmux workspace-group <subcommand> [flags]
 
-            Manage collapsible workspace groups in the sidebar. Each group is
-            owned by an "anchor" workspace; the group header IS the anchor's
-            sidebar representation. Closing the anchor dissolves the group
-            while preserving its other members as ungrouped workspaces.
+            \(overview)
 
             Subcommands:
               list [--json]
@@ -15999,18 +16227,20 @@ struct CMUXCLI {
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser>           Pane type (default: terminal)
+              --type <terminal|browser|simulator> Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
               --placement <workspace|dock>        Target container (default: workspace).
                                                   dock splits the right-sidebar Dock.
               --workspace <id|ref|index>          Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>             Window context for workspace refs and indexes
               --url <url>                         URL for browser panes
+              \(String(localized: "cli.newPane.help.profileDescription", defaultValue: "--profile <name|uuid>                Browser profile name or UUID"))
               --focus <true|false>                Focus the new pane (default: false)
 
             Example:
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
+              cmux new-pane --type simulator --direction right
               cmux new-pane --type browser --placement dock --url https://example.com
             """
         case "new-surface":
@@ -16020,7 +16250,7 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser|agent-session>   Surface type (default: terminal)
+              --type <terminal|browser|simulator|agent-session>   Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
               --placement <workspace|dock>  Target container (default: workspace).
                                            dock adds the surface to the right-sidebar Dock
@@ -16037,6 +16267,7 @@ struct CMUXCLI {
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --type simulator --pane pane:1 --focus true
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
               cmux new-surface --type browser --placement dock --url https://example.com
             """
@@ -16832,7 +17063,7 @@ struct CMUXCLI {
             `open`/`open-split`/`new`/`identify` can run without an explicit surface.
 
             Subcommands:
-              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
+              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
                 open/open-split/new default to $CMUX_WORKSPACE_ID when --workspace is omitted and --window is not set
                 --focus defaults to false
               disable | enable | status
@@ -16986,6 +17217,49 @@ struct CMUXCLI {
             remaining.append(arg)
         }
         return (value, remaining)
+    }
+
+    func parseBrowserProfileOption(_ args: [String]) throws -> (selector: String?, remaining: [String]) {
+        var remaining: [String] = []
+        var selector: String?
+        var index = 0
+        var pastTerminator = false
+        while index < args.count {
+            let arg = args[index]
+            if pastTerminator || arg == "--" {
+                pastTerminator = true
+                remaining.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--profile" {
+                guard index + 1 < args.count, !args[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.profile.error.emptySelector",
+                        defaultValue: "--profile requires a non-empty profile name or UUID"
+                    ))
+                }
+                selector = args[index + 1]
+                index += 2
+                continue
+            }
+            if arg.hasPrefix("--profile=") {
+                selector = String(arg.dropFirst("--profile=".count))
+                index += 1
+                continue
+            }
+            remaining.append(arg)
+            index += 1
+        }
+        guard let selector else { return (nil, remaining) }
+        let normalized = selector.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.browser.profile.error.emptySelector",
+                defaultValue: "--profile requires a non-empty profile name or UUID"
+            ))
+        }
+        return (normalized, remaining)
     }
 
     func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
@@ -17933,7 +18207,14 @@ struct CMUXCLI {
             if workspaces.isEmpty {
                 throw CLIError(message: "Workspace not found")
             }
-            let workspaceNodes = try workspaces.map { try buildTreeWorkspaceNode(workspace: $0, activePath: activePath, client: client) }
+            let workspaceNodes = try workspaces.map {
+                try buildTreeWorkspaceNode(
+                    workspace: $0,
+                    activePath: activePath,
+                    includeGlobalDock: true,
+                    client: client
+                )
+            }
             var node = window
             let isActiveWindow = treeItemMatchesHandle(node, handle: activePath.windowHandle)
             node["current"] = isActiveWindow
@@ -17993,7 +18274,14 @@ struct CMUXCLI {
         }
         let workspacePayload = try client.sendV2(method: "workspace.list", params: workspaceParams)
         let workspaces = workspacePayload["workspaces"] as? [[String: Any]] ?? []
-        let workspaceNodes = try workspaces.map { try buildTreeWorkspaceNode(workspace: $0, activePath: activePath, client: client) }
+        let workspaceNodes = try workspaces.map {
+            try buildTreeWorkspaceNode(
+                workspace: $0,
+                activePath: activePath,
+                includeGlobalDock: ($0["selected"] as? Bool) == true,
+                client: client
+            )
+        }
         var windowNode = window
         let isActiveWindow = treeItemMatchesHandle(windowNode, handle: activePath.windowHandle)
         windowNode["current"] = isActiveWindow
@@ -18006,6 +18294,7 @@ struct CMUXCLI {
     private func buildTreeWorkspaceNode(
         workspace: [String: Any],
         activePath: TreePath,
+        includeGlobalDock: Bool,
         client: SocketClient
     ) throws -> [String: Any] {
         var workspaceNode = workspace
@@ -18016,8 +18305,12 @@ struct CMUXCLI {
 
         let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceHandle])
         let surfacePayload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceHandle])
-        let panes = panePayload["panes"] as? [[String: Any]] ?? []
-        let surfaces = surfacePayload["surfaces"] as? [[String: Any]] ?? []
+        let panes = (panePayload["panes"] as? [[String: Any]] ?? []).filter {
+            includeGlobalDock || ($0["dock_scope"] as? String) != "global"
+        }
+        let surfaces = (surfacePayload["surfaces"] as? [[String: Any]] ?? []).filter {
+            includeGlobalDock || ($0["dock_scope"] as? String) != "global"
+        }
         let browserURLsByHandle = fetchTreeBrowserURLs(
             workspaceHandle: workspaceHandle,
             surfaces: surfaces,
@@ -18305,6 +18598,9 @@ struct CMUXCLI {
 
     private func treePaneLabel(_ pane: [String: Any], idFormat: CLIIDFormat) -> String {
         var parts = ["pane \(textHandle(pane, idFormat: idFormat))"]
+        if let dockScope = pane["dock_scope"] as? String {
+            parts.append("[dock:\(dockScope)]")
+        }
         if (pane["focused"] as? Bool) == true {
             parts.append("[focused]")
         }
@@ -18318,6 +18614,9 @@ struct CMUXCLI {
         let rawType = ((surface["type"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let surfaceType = rawType.isEmpty ? "unknown" : rawType
         var parts = ["surface \(textHandle(surface, idFormat: idFormat))", "[\(surfaceType)]"]
+        if let dockScope = surface["dock_scope"] as? String {
+            parts.append("[dock:\(dockScope)]")
+        }
         let title = (surface["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !title.isEmpty {
             parts.append("\"\(title)\"")
@@ -18340,6 +18639,11 @@ struct CMUXCLI {
             parts.append(url)
         }
         return parts.joined(separator: " ")
+    }
+
+    private func dockScopeTag(_ item: [String: Any]) -> String {
+        guard let scope = item["dock_scope"] as? String else { return "" }
+        return "  [dock:\(scope)]"
     }
 
     private func renderTopText(
@@ -19037,18 +19341,6 @@ struct CMUXCLI {
 
     func isUUID(_ value: String) -> Bool {
         return UUID(uuidString: value) != nil
-    }
-
-    func jsonString(_ object: Any) -> String {
-        var options: JSONSerialization.WritingOptions = [.prettyPrinted]
-        options.insert(.sortedKeys)
-        options.insert(.withoutEscapingSlashes)
-        guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: options),
-              let output = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return output
     }
 
     private func parseRPCParams(_ args: [String]) throws -> [String: Any] {
@@ -28083,7 +28375,7 @@ struct CMUXCLI {
         if def.name == "codex" {
             return 5_000
         }
-        return 120_000
+        return Self.feedHookProcessTimeoutMilliseconds
     }
 
     private static func timeoutSecondsFromMilliseconds(_ timeoutMs: Int) -> Int {
@@ -33828,17 +34120,17 @@ export default CMUXSessionRestore;
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
 
-        // Sync. For actionable events we block up to 120s waiting
-        // for the user's Feed click; the hook's stdout is then a
+        // Sync. For actionable events we wait for the user's Feed click;
+        // the hook's stdout is then a
         // proper hookSpecificOutput that Claude honors directly
         // (no keystroke injection, no guessing the TUI layout).
         // If the user doesn't click in time the hook emits {}
         // and Claude falls back to its native TUI prompt.
         //
-        // Wait is capped at 120s and the wrapper's hook timeout
-        // is 125s so the socket always returns before Claude
-        // would kill the hook subprocess itself.
-        let waitTimeout: Double = isActionable ? 120 : 0
+        // The response deadline stays below the generated 120s process
+        // timeout, so a stalled daemon still returns neutral output before
+        // the agent kills (and may deny) the hook subprocess.
+        let waitTimeout = isActionable ? Self.feedHookDecisionWaitSeconds : 0
         let params: [String: Any] = [
             "event": eventDict,
             "wait_timeout_seconds": waitTimeout,
@@ -33870,17 +34162,29 @@ export default CMUXSessionRestore;
 
         var ownedClient: SocketClient?
         defer { ownedClient?.close() }
+        let clientDeadline = Date().addingTimeInterval(Self.feedHookClientDeadlineSeconds)
+
+        func remainingResponseTime() throws -> TimeInterval {
+            let remaining = clientDeadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Feed hook response deadline exceeded")
+            }
+            return remaining
+        }
+
         let activeClient: SocketClient
         if let client {
             activeClient = client
         } else if let socketPath {
             let feedClient = SocketClient(path: socketPath)
             do {
-                try feedClient.connect()
+                try feedClient.connect(deadline: clientDeadline)
                 try authenticateClientIfNeeded(
                     feedClient,
                     explicitPassword: socketPassword,
-                    socketPath: socketPath
+                    socketPath: socketPath,
+                    responseTimeout: try remainingResponseTime(),
+                    deadline: clientDeadline
                 )
             } catch {
                 feedClient.close()
@@ -33898,7 +34202,8 @@ export default CMUXSessionRestore;
         do {
             response = try activeClient.send(
                 command: line,
-                responseTimeout: waitTimeout + 5
+                responseTimeout: try remainingResponseTime(),
+                deadline: clientDeadline
             )
         } catch {
             print("{}")
@@ -34259,15 +34564,6 @@ export default CMUXSessionRestore;
                     return hermesAgentBlock("User denied permission via cmux Feed.")
                 }
                 return "{}"
-            }
-            if source == "antigravity" {
-                let reason = mode == "deny"
-                    ? "User denied permission via cmux Feed."
-                    : "User approved via cmux Feed."
-                return encode([
-                    "decision": mode == "deny" ? "deny" : "allow",
-                    "reason": reason,
-                ])
             }
             if mode == "deny" {
                 return encode(nonClaudePreToolDecision(
@@ -35161,6 +35457,8 @@ export default CMUXSessionRestore;
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]
+          \(simulatorCommandUsageLine)
+          \(iosCommandUsageLine)
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows
           current-window
@@ -35191,8 +35489,8 @@ export default CMUXSessionRestore;
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
-          new-surface [--type <terminal|browser|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
+          new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
+          new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
@@ -35266,8 +35564,8 @@ export default CMUXSessionRestore;
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status
-          browser open [url] [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
-          browser open-split [url]
+          browser open [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
+          browser open-split [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
           browser goto|navigate <url> [--snapshot-after]
           browser back|forward|reload [--snapshot-after]
           browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]

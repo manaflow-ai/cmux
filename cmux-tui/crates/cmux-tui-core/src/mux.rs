@@ -16,8 +16,17 @@ use zeroize::Zeroize;
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
-use crate::layout::{Rect, layout_screen};
-use crate::model::{Node, Pane, Screen, State, Workspace};
+#[cfg(test)]
+use crate::layout::layout_screen_with_viewport;
+use crate::layout::{
+    LayoutResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, layout_screen,
+};
+#[cfg(test)]
+use crate::model::ViewportColumn;
+use crate::model::{
+    LayoutColumn, LayoutMutationKey, LayoutResizeOwner, LayoutUndoConfirmation, Node, Pane,
+    ProjectedSplitRatioUpdate, Screen, State, Workspace,
+};
 use crate::pairing::PairingBroker;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
@@ -545,6 +554,108 @@ pub struct ZoomState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayoutUndoResult {
+    Undone { screen: ScreenId, revision: u64 },
+    ConfirmationRequired { screen: ScreenId, revision: u64, closes_panes: Vec<PaneId> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayoutUndoError {
+    Unavailable,
+    Stale(String),
+}
+
+impl LayoutUndoError {
+    pub const UNAVAILABLE_CODE: &'static str = "layout-undo-unavailable";
+    pub const STALE_CODE: &'static str = "layout-undo-stale";
+
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Unavailable => Self::UNAVAILABLE_CODE,
+            Self::Stale(_) => Self::STALE_CODE,
+        }
+    }
+}
+
+impl fmt::Display for LayoutUndoError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unavailable => formatter.write_str("no layout change to undo"),
+            Self::Stale(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for LayoutUndoError {}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LayoutRatioError {
+    UnknownPaneSplit { pane: PaneId },
+    UnknownSplit { split: SplitId },
+    UnrepresentableViewportWidth { split: SplitId, ratio: f32, width: f32 },
+}
+
+impl LayoutRatioError {
+    pub const UNKNOWN_TARGET_CODE: &'static str = "layout-ratio-target-missing";
+    pub const OUT_OF_RANGE_CODE: &'static str = "layout-ratio-out-of-range";
+
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::UnknownPaneSplit { .. } | Self::UnknownSplit { .. } => Self::UNKNOWN_TARGET_CODE,
+            Self::UnrepresentableViewportWidth { .. } => Self::OUT_OF_RANGE_CODE,
+        }
+    }
+}
+
+impl fmt::Display for LayoutRatioError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownPaneSplit { pane } => write!(formatter, "unknown pane/split {pane}"),
+            Self::UnknownSplit { split } => write!(formatter, "unknown split {split}"),
+            Self::UnrepresentableViewportWidth { split, ratio, width } => write!(
+                formatter,
+                "split {split} ratio {ratio} implies viewport width {width}; width must be between {MIN_VIEWPORT_PANE_WIDTH} and {MAX_VIEWPORT_PANE_WIDTH}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LayoutRatioError {}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ViewportWidthError {
+    OutOfRange { width: f32 },
+    PaneNotResizable { pane: PaneId },
+}
+
+impl ViewportWidthError {
+    pub const OUT_OF_RANGE_CODE: &'static str = "viewport-width-out-of-range";
+    pub const COLUMN_MISSING_CODE: &'static str = "viewport-column-not-found";
+
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::OutOfRange { .. } => Self::OUT_OF_RANGE_CODE,
+            Self::PaneNotResizable { .. } => Self::COLUMN_MISSING_CODE,
+        }
+    }
+}
+
+impl fmt::Display for ViewportWidthError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OutOfRange { .. } => {
+                formatter.write_str("viewport pane width must be between 0.1 and 1.0")
+            }
+            Self::PaneNotResizable { pane } => {
+                write!(formatter, "pane {pane} has no resizable viewport column")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ViewportWidthError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SidebarPluginOptions {
     pub command: Vec<String>,
     pub cwd: Option<String>,
@@ -618,32 +729,42 @@ pub(crate) struct ControlClientResize {
 }
 
 #[derive(Default)]
-struct LatestClientSize {
-    size: Option<(u16, u16)>,
-    from_report: bool,
+struct SurfaceClientSizing {
+    excluded_clients: HashSet<u64>,
+    exclusive_client: Option<u64>,
 }
 
 #[derive(Default)]
 struct ClientSizingState {
     surfaces: ClientSurfaceSizes,
     report_order: HashMap<(SurfaceId, u64), u64>,
-    next_report_order: u64,
-    excluded_clients: HashSet<u64>,
-    exclusive_client: Option<u64>,
+    latest_explicit_size: Option<(u64, (u16, u16))>,
+    next_size_order: u64,
+    policies: HashMap<SurfaceId, SurfaceClientSizing>,
 }
 
 impl ClientSizingState {
+    fn next_size_order(&mut self) -> u64 {
+        self.next_size_order = self.next_size_order.wrapping_add(1).max(1);
+        self.next_size_order
+    }
+
+    fn record_explicit_size(&mut self, size: (u16, u16)) {
+        let order = self.next_size_order();
+        self.latest_explicit_size = Some((order, size));
+    }
+
     fn rollback_token(
         &self,
         surface: SurfaceId,
-        attached_clients: &HashSet<u64>,
+        attached_clients: Option<&HashSet<u64>>,
     ) -> ClientSizingRollbackToken {
         let participating_surface_clients = self
             .surfaces
             .get(&surface)
             .into_iter()
             .flat_map(HashMap::keys)
-            .filter(|client| self.client_participates(**client))
+            .filter(|client| self.client_participates(surface, **client))
             .copied()
             .collect();
         ClientSizingRollbackToken {
@@ -656,24 +777,31 @@ impl ClientSizingState {
                 })
                 .collect(),
             participating_surface_clients,
-            uses_excluded_fallback: self.uses_excluded_fallback(attached_clients),
+            uses_excluded_fallback: self.uses_excluded_fallback(surface, attached_clients),
         }
     }
 
-    fn client_participates(&self, client: u64) -> bool {
-        self.exclusive_client.map_or_else(
-            || !self.excluded_clients.contains(&client),
+    fn client_participates(&self, surface: SurfaceId, client: u64) -> bool {
+        let Some(policy) = self.policies.get(&surface) else {
+            return true;
+        };
+        policy.exclusive_client.map_or_else(
+            || !policy.excluded_clients.contains(&client),
             |exclusive| exclusive == client,
         )
     }
 
-    fn uses_excluded_fallback(&self, attached_clients: &HashSet<u64>) -> bool {
-        let attached_participates =
-            attached_clients.iter().any(|client| self.client_participates(*client));
-        let reporter_participates = self
-            .surfaces
-            .values()
-            .any(|viewers| viewers.keys().any(|client| self.client_participates(*client)));
+    fn uses_excluded_fallback(
+        &self,
+        surface: SurfaceId,
+        attached_clients: Option<&HashSet<u64>>,
+    ) -> bool {
+        let attached_participates = attached_clients.is_some_and(|clients| {
+            clients.iter().any(|client| self.client_participates(surface, *client))
+        });
+        let reporter_participates = self.surfaces.get(&surface).is_some_and(|viewers| {
+            viewers.keys().any(|client| self.client_participates(surface, *client))
+        });
         !attached_participates && !reporter_participates
     }
 
@@ -681,23 +809,73 @@ impl ClientSizingState {
         self.surfaces
             .get(&surface)?
             .iter()
-            .filter(|(client, _)| use_excluded || self.client_participates(**client))
+            .filter(|(client, _)| use_excluded || self.client_participates(surface, **client))
             .map(|(_, size)| *size)
             .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)))
     }
 
-    fn latest_effective_size(&self, attached_clients: &HashSet<u64>) -> Option<(u16, u16)> {
-        let use_excluded = self.uses_excluded_fallback(attached_clients);
-        let surface = self
+    fn latest_effective_size(
+        &self,
+        attached_clients: &HashMap<SurfaceId, HashSet<u64>>,
+    ) -> Option<(u64, (u16, u16))> {
+        // The default for a newly created surface is session-wide, so this
+        // must consider every report. Cache fallback once per surface to keep
+        // multiple viewers on the same surface linear instead of quadratic.
+        let mut fallback_by_surface = HashMap::<SurfaceId, bool>::new();
+        let ((surface, _), order) = self
             .report_order
             .iter()
             .filter(|((surface, client), _)| {
+                let use_excluded = *fallback_by_surface.entry(*surface).or_insert_with(|| {
+                    self.uses_excluded_fallback(*surface, attached_clients.get(surface))
+                });
                 self.surfaces.get(surface).is_some_and(|viewers| viewers.contains_key(client))
-                    && (use_excluded || self.client_participates(*client))
+                    && (use_excluded || self.client_participates(*surface, *client))
             })
             .max_by_key(|(_, order)| *order)
-            .map(|((surface, _), _)| *surface)?;
-        self.effective_size(surface, use_excluded)
+            .map(|(key, order)| (*key, *order))?;
+        let use_excluded = fallback_by_surface[&surface];
+        self.effective_size(surface, use_excluded).map(|size| (order, size))
+    }
+
+    fn creation_size(
+        &mut self,
+        attached_clients: &HashMap<SurfaceId, HashSet<u64>>,
+    ) -> Option<(u16, u16)> {
+        let report = self.latest_effective_size(attached_clients);
+        match (self.latest_explicit_size, report) {
+            (Some((explicit_order, explicit)), Some((report_order, _)))
+                if explicit_order >= report_order =>
+            {
+                Some(explicit)
+            }
+            (_, Some((_, report))) => {
+                self.latest_explicit_size = None;
+                Some(report)
+            }
+            (Some((_, explicit)), None) => Some(explicit),
+            (None, None) => None,
+        }
+    }
+
+    fn note_applied_report(
+        &mut self,
+        surface: SurfaceId,
+        client: u64,
+        attached_clients: &HashSet<u64>,
+        effective: Option<(u16, u16)>,
+        report_order: u64,
+    ) {
+        let use_excluded = self.uses_excluded_fallback(surface, Some(attached_clients));
+        let contributes = use_excluded || self.client_participates(surface, client);
+        if effective.is_some()
+            && contributes
+            && self
+                .latest_explicit_size
+                .is_some_and(|(explicit_order, _)| report_order > explicit_order)
+        {
+            self.latest_explicit_size = None;
+        }
     }
 }
 
@@ -711,8 +889,8 @@ pub struct Mux {
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
+    next_in_process_resize_owner: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
-    latest_client_size: Mutex<LatestClientSize>,
     provider_workspace: Mutex<ProviderWorkspaceState>,
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
@@ -736,6 +914,8 @@ pub struct Mux {
     terminal_create_after_materialization_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -749,6 +929,7 @@ pub struct Mux {
     pub(crate) daemon_handoff_pending: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,
@@ -936,8 +1117,8 @@ impl Mux {
             next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
+            next_in_process_resize_owner: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
-            latest_client_size: Mutex::new(LatestClientSize::default()),
             provider_workspace: Mutex::new(provider_workspace),
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
@@ -961,6 +1142,8 @@ impl Mux {
             terminal_create_after_materialization_lock: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_workspace_reservation: Mutex::new(None),
+            #[cfg(test)]
+            viewport_split_after_spawn: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -971,6 +1154,9 @@ impl Mux {
             daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            surface_operation_admission: Arc::new(
+                crate::server::ServerSurfaceOperationAdmission::default(),
+            ),
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,
@@ -1395,6 +1581,11 @@ impl Mux {
                 active_pane: pane_id,
                 zoomed_pane: None,
                 zellij_auto_layout: Some(vec![pane_id]),
+                viewport_splits: Default::default(),
+                viewport_base_width: None,
+                layout_columns: Vec::new(),
+                layout_revision: 0,
+                layout_undo: Default::default(),
             });
             workspace.active_screen = workspace.screens.len() - 1;
         }
@@ -1613,6 +1804,18 @@ impl Mux {
 
     fn next_notification_id(&self) -> u64 {
         self.next_notification_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Allocate an undo-coalescing owner for one in-process frontend.
+    ///
+    /// Layout undo is in-memory state, so this namespace intentionally follows
+    /// the mux lifecycle rather than durable workspace identity.
+    pub fn allocate_in_process_resize_owner(&self) -> u64 {
+        self.next_in_process_resize_owner
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
+                Some(owner.wrapping_add(1).max(1))
+            })
+            .expect("in-process resize owner allocation cannot fail")
     }
 
     fn new_workspace_key() -> anyhow::Result<String> {
@@ -1956,6 +2159,15 @@ impl Mux {
         self.subscribers.subscribe_attached_surface(surface)
     }
 
+    pub fn subscribe_surface_session(&self, surface: SurfaceId) -> Option<MuxEventReceiver> {
+        let state = self.state.lock().unwrap();
+        let pane = state.pane_of(surface)?;
+        let (workspace_index, screen_index) = state.screen_of(pane)?;
+        let workspace = state.workspaces.get(workspace_index)?;
+        let screen = workspace.screens.get(screen_index)?;
+        Some(self.subscribers.subscribe_surface_session(surface, workspace.id, screen.id, pane))
+    }
+
     pub fn emit(&self, event: MuxEvent) {
         self.subscribers.emit(event);
     }
@@ -1999,6 +2211,11 @@ impl Mux {
         let mut index = HashMap::new();
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                debug_assert!(
+                    screen.layout_column_projection_is_consistent(),
+                    "screen {} has a stale layout column projection",
+                    screen.id
+                );
                 index_node(&screen.root, workspace_index, screen_index, screen.id, &mut index);
             }
         }
@@ -2443,14 +2660,16 @@ impl Mux {
         requested: Option<(u16, u16)>,
         default: (u16, u16),
     ) -> (u16, u16) {
-        let mut latest = self.latest_client_size.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().unwrap();
         if let Some((cols, rows)) = requested {
             let size = clamp_terminal_size(cols, rows);
-            latest.size = Some(size);
-            latest.from_report = false;
+            sizing.record_explicit_size(size);
             return size;
         }
-        latest.size.unwrap_or_else(|| clamp_terminal_size(default.0, default.1))
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        sizing
+            .creation_size(&attached_clients)
+            .unwrap_or_else(|| clamp_terminal_size(default.0, default.1))
     }
 
     /// Record a genuine client-chosen size (protocol resize-surface, sized
@@ -2458,25 +2677,8 @@ impl Mux {
     /// unsized surface creation.
     pub fn record_client_size(&self, cols: u16, rows: u16) -> (u16, u16) {
         let size = clamp_terminal_size(cols, rows);
-        let mut latest = self.latest_client_size.lock().unwrap();
-        latest.size = Some(size);
-        latest.from_report = true;
+        self.client_sizing.lock().unwrap().record_explicit_size(size);
         size
-    }
-
-    fn reconcile_latest_client_size(
-        &self,
-        sizing: &ClientSizingState,
-        attached_clients: &HashSet<u64>,
-    ) {
-        let mut latest = self.latest_client_size.lock().unwrap();
-        if let Some(size) = sizing.latest_effective_size(attached_clients) {
-            latest.size = Some(size);
-            latest.from_report = true;
-        } else if latest.from_report {
-            latest.size = None;
-            latest.from_report = false;
-        }
     }
 
     /// Record one viewer's available grid and resize the shared surface to
@@ -2503,16 +2705,22 @@ impl Mux {
         // Serialize the report and its application. Otherwise an older
         // effective size can reach the PTY after a newer shared minimum.
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
         let result = self.resize_surface_for_client_locked(
             &mut sizing,
-            &attached_clients,
+            Some(&attached_clients),
             id,
             client,
             requested,
             None,
         )?;
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        sizing.note_applied_report(
+            id,
+            client,
+            &attached_clients,
+            result.1,
+            result.2.applied_report_order,
+        );
         drop(sizing);
         Ok(result.0)
     }
@@ -2541,10 +2749,10 @@ impl Mux {
         // leases through this same sizing lock after dropping the registry lock.
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached = self.control_clients.record_size(client, id, requested.0, requested.1)?;
-        let attached_clients = self.control_clients.attached_client_ids();
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
         let result = self.resize_surface_for_client_locked(
             &mut sizing,
-            &attached_clients,
+            Some(&attached_clients),
             id,
             client,
             requested,
@@ -2557,7 +2765,13 @@ impl Mux {
         }
         let result = result?;
         self.control_clients.set_report_order(client, id, result.2.applied_report_order);
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        sizing.note_applied_report(
+            id,
+            client,
+            &attached_clients,
+            result.1,
+            result.2.applied_report_order,
+        );
         drop(sizing);
         Ok(ControlClientResize {
             accepted: result.0.0,
@@ -2571,24 +2785,28 @@ impl Mux {
     fn resize_surface_for_client_locked(
         &self,
         sizing: &mut ClientSizingState,
-        attached_clients: &HashSet<u64>,
+        attached_clients: Option<&HashSet<u64>>,
         id: SurfaceId,
         client: u64,
         requested: (u16, u16),
         completion: Option<SurfaceResizeCompletion>,
     ) -> anyhow::Result<AppliedClientSize> {
         let previous_geometry = self.surface(id).map(|surface| surface.size());
-        if sizing.exclusive_client.is_some_and(|exclusive| exclusive != client) {
-            sizing.excluded_clients.insert(client);
+        if sizing
+            .policies
+            .get(&id)
+            .and_then(|policy| policy.exclusive_client)
+            .is_some_and(|exclusive| exclusive != client)
+        {
+            sizing.policies.entry(id).or_default().excluded_clients.insert(client);
         }
-        sizing.next_report_order = sizing.next_report_order.wrapping_add(1).max(1);
-        let report_order = sizing.next_report_order;
+        let report_order = sizing.next_size_order();
         let previous_order = sizing.report_order.insert((id, client), report_order);
         let previous = {
             let viewers = sizing.surfaces.entry(id).or_default();
             viewers.insert(client, requested)
         };
-        let use_excluded = sizing.uses_excluded_fallback(attached_clients);
+        let use_excluded = sizing.uses_excluded_fallback(id, attached_clients);
         let effective = sizing.effective_size(id, use_excluded);
         let Some(effective) = effective else {
             return Ok((
@@ -2684,8 +2902,8 @@ impl Mux {
                 sizing.report_order.remove(&(id, client));
             }
         }
-        let attached_clients = self.control_clients.attached_client_ids();
-        let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
+        let use_excluded = sizing.uses_excluded_fallback(id, Some(&attached_clients));
         let desired_geometry =
             sizing.effective_size(id, use_excluded).or(rollback.previous_geometry);
         let restore =
@@ -2706,8 +2924,7 @@ impl Mux {
                     Err(_) => SurfaceResizeRestore::Complete(false),
                 }
             });
-        let rollback_token = sizing.rollback_token(id, &attached_clients);
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        let rollback_token = sizing.rollback_token(id, Some(&attached_clients));
         drop(sizing);
         drop(lifecycle);
 
@@ -2757,8 +2974,8 @@ impl Mux {
             return;
         }
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
-        if sizing.rollback_token(id, &attached_clients) != rollback_token {
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
+        if sizing.rollback_token(id, Some(&attached_clients)) != rollback_token {
             return;
         }
         // The failed attach already changed the real surface geometry. If
@@ -2791,32 +3008,47 @@ impl Mux {
                 sizing.report_order.remove(&(id, client));
             }
         }
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+    }
+
+    fn apply_effective_client_size(
+        &self,
+        sizing: &ClientSizingState,
+        surface_id: SurfaceId,
+        attached_clients: Option<&HashSet<u64>>,
+    ) {
+        let use_excluded = sizing.uses_excluded_fallback(surface_id, attached_clients);
+        if let Some((cols, rows)) = sizing.effective_size(surface_id, use_excluded) {
+            let _ = self.resize_surface(surface_id, cols, rows);
+        } else if let Some(surface) = self.surface(surface_id) {
+            let _ = surface.release_viewer_size();
+        }
     }
 
     fn apply_effective_client_sizes(
         &self,
         sizing: &ClientSizingState,
         affected: impl IntoIterator<Item = SurfaceId>,
-        use_excluded: bool,
+        attached_clients: &HashMap<SurfaceId, HashSet<u64>>,
     ) {
         let mut affected = affected.into_iter().collect::<Vec<_>>();
         affected.sort_unstable();
         affected.dedup();
         for surface_id in affected {
-            if let Some((cols, rows)) = sizing.effective_size(surface_id, use_excluded) {
-                let _ = self.resize_surface(surface_id, cols, rows);
-            } else if let Some(surface) = self.surface(surface_id) {
-                let _ = surface.release_viewer_size();
-            }
+            self.apply_effective_client_size(sizing, surface_id, attached_clients.get(&surface_id));
         }
     }
 
     pub fn remove_surface_size_client(&self, id: SurfaceId, client: u64) {
         // Removal participates in the same ordering as size reports.
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
-        let fallback_before = sizing.uses_excluded_fallback(&attached_clients);
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
+        // Final-stream cleanup runs after the registry removes this
+        // attachment. Reconstruct the preceding attachment set so an
+        // unreported client only triggers geometry when its removal actually
+        // changes excluded-report fallback.
+        let mut attached_clients_before = attached_clients.clone();
+        attached_clients_before.insert(client);
+        let fallback_before = sizing.uses_excluded_fallback(id, Some(&attached_clients_before));
         let removed = {
             let removed = sizing
                 .surfaces
@@ -2828,57 +3060,100 @@ impl Mux {
             removed
         };
         sizing.report_order.remove(&(id, client));
-        let fallback_after = sizing.uses_excluded_fallback(&attached_clients);
+        let fallback_after = sizing.uses_excluded_fallback(id, Some(&attached_clients));
         // A final unreported attachment can be the only thing suppressing
-        // excluded-report fallback. Reconcile all reports even though that
-        // attachment had no lease of its own to remove.
-        if !removed && !fallback_after {
+        // this terminal's excluded-report fallback even though it had no
+        // visibility lease of its own to remove.
+        if !removed && fallback_before == fallback_after {
             return;
         }
-        let fallback_changed = fallback_before != fallback_after;
-        let mut affected = if fallback_changed || fallback_after {
-            sizing.surfaces.keys().copied().collect::<Vec<_>>()
-        } else {
-            vec![id]
-        };
-        affected.push(id);
         #[cfg(test)]
         let before_apply = self.client_resize_before_apply.lock().unwrap().clone();
         #[cfg(test)]
         if let Some(hook) = before_apply {
             hook();
         }
-        self.apply_effective_client_sizes(&sizing, affected, fallback_after);
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        self.apply_effective_client_size(&sizing, id, Some(&attached_clients));
         drop(sizing);
     }
 
+    #[cfg(test)]
     pub fn remove_size_client(&self, client: u64) {
+        self.remove_size_client_from_attached_surfaces(client, []);
+    }
+
+    pub(crate) fn remove_size_client_from_attached_surfaces(
+        &self,
+        client: u64,
+        attached_surfaces: impl IntoIterator<Item = SurfaceId>,
+    ) {
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
-        let fallback_before = sizing.uses_excluded_fallback(&attached_clients);
-        let mut affected = Vec::new();
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        // The registry snapshot no longer contains this client. Reconstruct
+        // whether each old attachment suppressed excluded-report fallback so
+        // an unsized disconnect only reapplies geometry when that changed.
+        let detached_fallbacks = attached_surfaces
+            .into_iter()
+            .map(|surface| {
+                let used_fallback = if sizing.client_participates(surface, client) {
+                    false
+                } else {
+                    sizing.uses_excluded_fallback(surface, attached_clients.get(&surface))
+                };
+                (surface, used_fallback)
+            })
+            .collect::<HashMap<_, _>>();
+        let mut affected = HashSet::new();
         for (surface, viewers) in &mut sizing.surfaces {
             if viewers.remove(&client).is_some() {
-                affected.push(*surface);
+                affected.insert(*surface);
             }
         }
         sizing.surfaces.retain(|_, viewers| !viewers.is_empty());
-        sizing.report_order.retain(|(_, reporter), _| *reporter != client);
-        let restored_exclusive = sizing.exclusive_client == Some(client);
-        if restored_exclusive {
-            sizing.exclusive_client = None;
-            sizing.excluded_clients.clear();
-        } else {
-            sizing.excluded_clients.remove(&client);
+        sizing.report_order.retain(|(surface, reporter), _| {
+            if *reporter != client {
+                return true;
+            }
+            affected.insert(*surface);
+            false
+        });
+        let mut restored_surfaces = HashSet::new();
+        for (surface, policy) in &mut sizing.policies {
+            let changed = if policy.exclusive_client == Some(client) {
+                policy.exclusive_client = None;
+                policy.excluded_clients.clear();
+                restored_surfaces.insert(*surface);
+                true
+            } else {
+                policy.excluded_clients.remove(&client)
+            };
+            if changed {
+                affected.insert(*surface);
+            }
         }
-        let fallback_after = sizing.uses_excluded_fallback(&attached_clients);
-        if restored_exclusive || fallback_before != fallback_after || fallback_after {
-            affected.extend(sizing.surfaces.keys().copied());
+        sizing.policies.retain(|_, policy| {
+            policy.exclusive_client.is_some() || !policy.excluded_clients.is_empty()
+        });
+        for (surface, fallback_before) in detached_fallbacks {
+            let fallback_after =
+                sizing.uses_excluded_fallback(surface, attached_clients.get(&surface));
+            if fallback_before != fallback_after {
+                affected.insert(surface);
+            }
         }
-        self.apply_effective_client_sizes(&sizing, affected, fallback_after);
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        let mut changed_clients = HashSet::new();
+        for surface in restored_surfaces {
+            if let Some(clients) = attached_clients.get(&surface) {
+                changed_clients.extend(clients.iter().copied());
+            }
+            if let Some(reporters) = sizing.surfaces.get(&surface) {
+                changed_clients.extend(reporters.keys().copied());
+            }
+        }
+        changed_clients.remove(&client);
+        self.apply_effective_client_sizes(&sizing, affected, &attached_clients);
         drop(sizing);
+        self.emit_client_sizing_changes(changed_clients);
     }
 
     pub fn client_surface_size(&self, id: SurfaceId, client: u64) -> Option<(u16, u16)> {
@@ -2897,107 +3172,121 @@ impl Mux {
         }
     }
 
-    /// Include or exclude one live client's reported dimensions from the
+    /// Include or exclude one live client's dimensions from one terminal's
     /// tmux-style shared minimum. Validation, mutation, and disconnect cleanup
     /// share one lifecycle lock so a stale menu action cannot retain a dead ID.
-    pub fn set_client_size_participation(&self, client: u64, participating: bool) -> Option<bool> {
+    pub fn set_client_size_participation(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        participating: bool,
+    ) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
+        self.surface(surface)?;
         let mut sizing = self.client_sizing.lock().unwrap();
-        let known = self.control_clients.contains(client)
-            || sizing.surfaces.values().any(|viewers| viewers.contains_key(&client));
-        if !known {
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(surface);
+        let mut known_clients = attached_clients.clone();
+        if let Some(reporters) = sizing.surfaces.get(&surface) {
+            known_clients.extend(reporters.keys().copied());
+        }
+        if !known_clients.contains(&client) {
             return None;
         }
-        let attached_clients = self.control_clients.attached_client_ids();
-        let changed = if participating {
-            sizing.excluded_clients.remove(&client)
-        } else {
-            sizing.excluded_clients.insert(client)
-        };
-        if !changed {
+        if sizing.client_participates(surface, client) == participating {
             return Some(false);
         }
-        sizing.exclusive_client = None;
-        let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
-        let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
-        self.apply_effective_client_sizes(&sizing, affected, use_excluded);
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        let policy = sizing.policies.entry(surface).or_default();
+        if let Some(exclusive) = policy.exclusive_client.take() {
+            policy
+                .excluded_clients
+                .extend(known_clients.iter().copied().filter(|candidate| *candidate != exclusive));
+            policy.excluded_clients.remove(&exclusive);
+        }
+        if participating {
+            policy.excluded_clients.remove(&client);
+        } else {
+            policy.excluded_clients.insert(client);
+        }
+        if policy.excluded_clients.is_empty() {
+            sizing.policies.remove(&surface);
+        }
+        self.apply_effective_client_size(&sizing, surface, Some(&attached_clients));
         drop(sizing);
         self.emit_client_sizing_changes([client]);
         Some(true)
     }
 
-    /// Atomically make one client the only sizing participant. This avoids
-    /// transient intermediate grids while a menu action updates many clients.
-    pub fn use_only_client_size(&self, target: u64) -> Option<bool> {
+    /// Atomically make one client the only sizing participant for one terminal.
+    pub fn use_only_client_size(&self, surface: SurfaceId, target: u64) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
+        self.surface(surface)?;
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
-        let mut known_clients = self.control_clients.client_ids();
-        for viewers in sizing.surfaces.values() {
-            known_clients.extend(viewers.keys().copied());
-        }
-        let target_is_connected = self.control_clients.contains(target);
-        let target_is_reporting =
-            sizing.surfaces.values().any(|viewers| viewers.contains_key(&target));
-        if !target_is_connected && !target_is_reporting {
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(surface);
+        let reporters = sizing.surfaces.get(&surface);
+        let target_is_reporting = reporters.is_some_and(|viewers| viewers.contains_key(&target));
+        if !target_is_reporting {
             return None;
+        }
+        let mut known_clients = attached_clients.clone();
+        if let Some(reporters) = reporters {
+            known_clients.extend(reporters.keys().copied());
         }
         let excluded = known_clients
             .iter()
             .copied()
             .filter(|client| *client != target)
             .collect::<HashSet<_>>();
-        if sizing.excluded_clients == excluded && sizing.exclusive_client == Some(target) {
+        let policy = sizing.policies.entry(surface).or_default();
+        if policy.excluded_clients == excluded && policy.exclusive_client == Some(target) {
             return Some(false);
         }
-        sizing.excluded_clients = excluded;
-        sizing.exclusive_client = Some(target);
-        let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
-        let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
-        self.apply_effective_client_sizes(&sizing, affected, use_excluded);
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        policy.excluded_clients = excluded;
+        policy.exclusive_client = Some(target);
+        self.apply_effective_client_size(&sizing, surface, Some(&attached_clients));
         drop(sizing);
         self.emit_client_sizing_changes(known_clients);
         Some(true)
     }
 
-    /// Atomically restore every connected or reporting client to sizing.
-    pub fn use_all_client_sizes(&self) -> bool {
+    /// Atomically restore every connected or reporting client for one terminal.
+    pub fn use_all_client_sizes(&self, surface: SurfaceId) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
+        self.surface(surface)?;
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids();
-        if sizing.excluded_clients.is_empty() && sizing.exclusive_client.is_none() {
-            return false;
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(surface);
+        let Some(_) = sizing.policies.remove(&surface) else {
+            return Some(false);
+        };
+        let mut known_clients = attached_clients.clone();
+        if let Some(reporters) = sizing.surfaces.get(&surface) {
+            known_clients.extend(reporters.keys().copied());
         }
-        let mut known_clients = self.control_clients.client_ids();
-        for viewers in sizing.surfaces.values() {
-            known_clients.extend(viewers.keys().copied());
-        }
-        sizing.excluded_clients.clear();
-        sizing.exclusive_client = None;
-        let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
-        debug_assert!(!sizing.uses_excluded_fallback(&attached_clients) || affected.is_empty());
-        self.apply_effective_client_sizes(&sizing, affected, false);
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        self.apply_effective_client_size(&sizing, surface, Some(&attached_clients));
         drop(sizing);
         self.emit_client_sizing_changes(known_clients);
-        true
+        Some(true)
     }
 
-    pub fn client_size_participates(&self, client: u64) -> bool {
-        self.client_sizing.lock().unwrap().client_participates(client)
+    pub fn client_size_participates(&self, surface: SurfaceId, client: u64) -> bool {
+        self.client_sizing.lock().unwrap().client_participates(surface, client)
     }
 
     pub fn control_clients_json(&self, requesting_client: u64) -> Value {
         let mut clients = self.control_clients.list_json(requesting_client);
+        let sizing = self.client_sizing.lock().unwrap();
         if let Some(clients) = clients.as_array_mut() {
             for info in clients {
                 let id = info.get("client").and_then(Value::as_u64).unwrap_or_default();
-                info["size_participating"] = serde_json::json!(self.client_size_participates(id));
+                if let Some(sizes) = info.get_mut("sizes").and_then(Value::as_array_mut) {
+                    for size in sizes {
+                        let surface =
+                            size.get("surface").and_then(Value::as_u64).unwrap_or_default();
+                        size["size_participating"] =
+                            serde_json::json!(sizing.client_participates(surface, id));
+                    }
+                }
             }
         }
-        let sizing = self.client_sizing.lock().unwrap();
         let local_sizes = sizing
             .surfaces
             .iter()
@@ -3007,6 +3296,7 @@ impl Mux {
                         "surface": surface,
                         "cols": cols,
                         "rows": rows,
+                        "size_participating": sizing.client_participates(*surface, 0),
                     })
                 })
             })
@@ -3025,7 +3315,6 @@ impl Mux {
                     "attached": local_sizes.iter().filter_map(|size| size.get("surface")).cloned().collect::<Vec<_>>(),
                     "sizes": local_sizes,
                     "self": requesting_client == 0,
-                    "size_participating": !sizing.excluded_clients.contains(&0),
                 }),
             );
         }
@@ -3516,11 +3805,11 @@ impl Mux {
     fn purge_surface_side_tables(&self, surface: SurfaceId) {
         self.agent_records.lock().unwrap().remove(&surface);
         self.surface_notifications.lock().unwrap().remove(&surface);
+        let _lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
         sizing.surfaces.remove(&surface);
         sizing.report_order.retain(|(reported_surface, _), _| *reported_surface != surface);
-        let attached_clients = self.control_clients.attached_client_ids();
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        sizing.policies.remove(&surface);
     }
 
     pub fn list_agents(
@@ -3666,6 +3955,10 @@ impl Mux {
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> CellPixelUpdate {
         self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
+    }
+
+    pub fn cell_pixel_size(&self) -> (u16, u16) {
+        *self.cell_pixels.lock().unwrap()
     }
 
     pub fn set_cell_pixel_size_reporting(
@@ -4116,6 +4409,11 @@ impl Mux {
                         active_pane: pane_id,
                         zoomed_pane: None,
                         zellij_auto_layout: Some(vec![pane_id]),
+                        viewport_splits: Default::default(),
+                        viewport_base_width: None,
+                        layout_columns: Vec::new(),
+                        layout_revision: 0,
+                        layout_undo: Default::default(),
                     });
                     ws.active_screen = ws.screens.len() - 1;
                     let workspace = ws.id;
@@ -4521,6 +4819,11 @@ impl Mux {
                     active_pane: pane_id,
                     zoomed_pane: None,
                     zellij_auto_layout: Some(vec![pane_id]),
+                    viewport_splits: Default::default(),
+                    viewport_base_width: None,
+                    layout_columns: Vec::new(),
+                    layout_revision: 0,
+                    layout_undo: Default::default(),
                 });
                 state.workspaces[wi].active_screen = 0;
                 let entity = crate::server::tree_entity_json(
@@ -4649,6 +4952,11 @@ impl Mux {
                         active_pane: pane_id,
                         zoomed_pane: None,
                         zellij_auto_layout: Some(vec![pane_id]),
+                        viewport_splits: Default::default(),
+                        viewport_base_width: None,
+                        layout_columns: Vec::new(),
+                        layout_revision: 0,
+                        layout_undo: Default::default(),
                     });
                     state.workspaces[workspace_index].active_screen = 0;
                     let entity = crate::server::tree_entity_json(
@@ -4726,6 +5034,11 @@ impl Mux {
                         active_pane: pane_id,
                         zoomed_pane: None,
                         zellij_auto_layout: Some(vec![pane_id]),
+                        viewport_splits: Default::default(),
+                        viewport_base_width: None,
+                        layout_columns: Vec::new(),
+                        layout_revision: 0,
+                        layout_undo: Default::default(),
                     }],
                     active_screen: 0,
                 });
@@ -4874,6 +5187,11 @@ impl Mux {
                     active_pane: pane_id,
                     zoomed_pane: None,
                     zellij_auto_layout: Some(vec![pane_id]),
+                    viewport_splits: Default::default(),
+                    viewport_base_width: None,
+                    layout_columns: Vec::new(),
+                    layout_revision: 0,
+                    layout_undo: Default::default(),
                 });
                 state.workspaces[wi].active_screen = 0;
                 let entity = crate::server::tree_entity_json(
@@ -5012,13 +5330,56 @@ impl Mux {
         dir: SplitDir,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.split_with_viewport_width(target, dir, size, None)
+    }
+
+    /// Add a terminal as a viewport-width column after the target's column.
+    ///
+    /// Updated frontends render the new column at `width` times their own
+    /// viewport width. The ordinary split ratio remains valid fallback data
+    /// for older clients.
+    pub fn new_pane_right(
+        self: &Arc<Self>,
+        target: PaneId,
+        width: f32,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        if !width.is_finite()
+            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
+        {
+            return Err(ViewportWidthError::OutOfRange { width }.into());
+        }
+        self.split_with_viewport_width(target, SplitDir::Right, size, Some(width))
+    }
+
+    fn split_with_viewport_width(
+        self: &Arc<Self>,
+        target: PaneId,
+        dir: SplitDir,
+        size: Option<(u16, u16)>,
+        viewport_width: Option<f32>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let cwd = self.pane_cwd(target);
         let workspace_key = self
             .workspace_key_for_pane(target)
             .ok_or_else(|| anyhow::anyhow!("pane {target} has no workspace"))?;
-        let surface = self.spawn_surface_in_workspace(&workspace_key, cwd, size, None)?;
+        let surface = match self.spawn_surface_in_workspace(&workspace_key, cwd, size, None) {
+            Ok(surface) => surface,
+            Err(error) if viewport_width.is_some() => {
+                eprintln!("cmux-tui: viewport pane PTY creation failed: {error:#}");
+                return Err(anyhow::anyhow!("pane creation failed"));
+            }
+            Err(error) => return Err(error),
+        };
+        #[cfg(test)]
+        if viewport_width.is_some()
+            && let Some(hook) = self.viewport_split_after_spawn.lock().unwrap().clone()
+        {
+            hook();
+        }
         let pane_id = self.next_id();
         let split_id = self.next_id();
+        let base_column_id = viewport_width.map(|_| self.next_id());
         let active_at = self.next_active_at();
         let mut done = false;
         let mut changed_screen = None;
@@ -5029,13 +5390,46 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             'outer: for ws in state.workspaces.iter_mut() {
                 for screen in ws.screens.iter_mut() {
-                    if screen.root.split_leaf(target, split_id, dir, pane_id) {
+                    if !screen.root.contains(target) {
+                        continue;
+                    }
+                    let before = screen.layout_snapshot();
+                    let split = if let Some(width) = viewport_width {
+                        screen.insert_layout_column_after(
+                            target,
+                            base_column_id.expect("viewport column has a base id"),
+                            LayoutColumn {
+                                id: split_id,
+                                width,
+                                root: Node::Leaf(pane_id),
+                                zellij_auto_layout: Some(vec![pane_id]),
+                            },
+                        )
+                    } else if screen.layout_columns_active() {
+                        let inserted =
+                            screen.layout_column_for_pane_mut(target).is_some_and(|column| {
+                                let inserted =
+                                    column.root.split_leaf(target, split_id, dir, pane_id);
+                                if inserted {
+                                    column.zellij_auto_layout = None;
+                                }
+                                inserted
+                            });
+                        if inserted {
+                            screen.sync_layout_column_projection();
+                        }
+                        inserted
+                    } else {
+                        let inserted = screen.root.split_leaf(target, split_id, dir, pane_id);
+                        if inserted {
+                            screen.zellij_auto_layout = None;
+                        }
+                        inserted
+                    };
+                    if split {
                         screen.active_pane = pane_id;
-                        // A directional split damages the automatic layout.
-                        // The next Alt-N can establish a fresh Zellij layout
-                        // from stable pane ids, but close must preserve this
-                        // manual tree until then.
-                        screen.zellij_auto_layout = None;
+                        screen.zoomed_pane = None;
+                        screen.record_layout_change(before, vec![pane_id], None);
                         changed_screen = Some(screen.id);
                         changed_workspace = Some(ws.id);
                         done = true;
@@ -5076,12 +5470,19 @@ impl Mux {
             }
         }
         if !done {
-            self.fail_hosted_terminal_attachment(
-                &surface,
-                "terminal-split-attach-failed",
-                "pane-disappeared-before-attach",
-            )?;
-            anyhow::bail!("pane {target} not found");
+            if viewport_width.is_none() {
+                self.fail_hosted_terminal_attachment(
+                    &surface,
+                    "terminal-split-attach-failed",
+                    "pane-disappeared-before-attach",
+                )?;
+                anyhow::bail!("pane {target} not found");
+            }
+            // Registry close failure must not leave an unbound Running
+            // terminal. The shared discard path restores every canonical
+            // terminal to its registry workspace when close cannot commit.
+            self.discard_spawned(vec![surface]);
+            anyhow::bail!("pane creation failed");
         }
         self.emit(MuxEvent::TreeDelta(delta.expect("successful split has a tree delta")));
         if let Some(screen) = changed_screen {
@@ -5125,25 +5526,29 @@ impl Mux {
                     if !screen.root.contains(target) {
                         continue;
                     }
-                    let mut panes = screen.zellij_auto_layout.clone().unwrap_or_else(|| {
-                        let mut panes = Vec::new();
-                        screen.root.pane_ids(&mut panes);
-                        panes.sort_unstable();
-                        panes
-                    });
-                    let mut current_panes = Vec::new();
-                    screen.root.pane_ids(&mut current_panes);
-                    let current_panes = current_panes.into_iter().collect::<HashSet<_>>();
-                    panes.retain(|pane| current_panes.contains(pane));
-                    panes.push(pane_id);
-                    screen.root =
-                        crate::layout::zellij_default_pane_layout_with_ids(&panes, &mut || {
-                            self.next_id()
-                        })
-                        .expect("new pane layout always has at least one pane");
+                    let before = screen.layout_snapshot();
+                    if screen.layout_columns_active() {
+                        let column = screen
+                            .layout_column_for_pane_mut(target)
+                            .expect("screen containing target has a column");
+                        append_to_auto_layout(
+                            &mut column.root,
+                            &mut column.zellij_auto_layout,
+                            pane_id,
+                            || self.next_id(),
+                        );
+                        screen.sync_layout_column_projection();
+                    } else {
+                        append_to_auto_layout(
+                            &mut screen.root,
+                            &mut screen.zellij_auto_layout,
+                            pane_id,
+                            || self.next_id(),
+                        );
+                    }
                     screen.active_pane = pane_id;
                     screen.zoomed_pane = None;
-                    screen.zellij_auto_layout = Some(panes);
+                    screen.record_layout_change(before, vec![pane_id], None);
                     changed_screen = Some(screen.id);
                     changed_workspace = Some(ws.id);
                     break 'outer;
@@ -6062,8 +6467,19 @@ impl Mux {
                         && (screen.root.contains_stack_pane(previous)
                             || screen.root.contains_stack_pane(pane)))
                     .then_some(screen.id);
-                    screen.root.expand_stack_pane(previous);
-                    screen.root.expand_stack_pane(pane);
+                    if screen.layout_columns_active() {
+                        let mut expanded = false;
+                        for column in &mut screen.layout_columns {
+                            expanded |= column.root.expand_stack_pane(previous);
+                            expanded |= column.root.expand_stack_pane(pane);
+                        }
+                        if expanded {
+                            screen.sync_layout_column_projection();
+                        }
+                    } else {
+                        screen.root.expand_stack_pane(previous);
+                        screen.root.expand_stack_pane(pane);
+                    }
                     screen.active_pane = pane;
                     stamp_pane_focus(self, &mut state, pane);
                     (true, Self::active_surface_in_state(&state), layout_changed)
@@ -6084,61 +6500,363 @@ impl Mux {
 
     /// Set the deepest split ratio in `dir` on the path to `pane`.
     pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) -> bool {
+        self.set_ratio_checked(pane, dir, ratio).is_ok()
+    }
+
+    /// Set a pane-addressed split ratio while preserving rejection details.
+    pub fn set_ratio_checked(
+        &self,
+        pane: PaneId,
+        dir: SplitDir,
+        ratio: f32,
+    ) -> Result<(), LayoutRatioError> {
+        enum RatioOutcome {
+            Unchanged,
+            Changed(ScreenId),
+            Failed(LayoutRatioError),
+        }
+
         let ratio = clamp_split_ratio(ratio);
-        let changed_screen = {
+        let outcome = {
             let mut state = self.state.lock().unwrap();
             state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(|screen| {
-                if screen.root.set_deepest_ratio(pane, dir, ratio) {
-                    screen.zellij_auto_layout = None;
-                    Some(screen.id)
+                if !screen.root.contains(pane) {
+                    return None;
+                }
+                let split = screen.root.deepest_split_for_pane(pane, dir)?;
+                if !screen.is_projected_viewport_split(split)
+                    && screen.root.split_ratio(split) == Some(ratio)
+                {
+                    return Some(RatioOutcome::Unchanged);
+                }
+                let before = screen.layout_snapshot();
+                let changed = if screen.layout_columns_active() {
+                    match screen.set_projected_viewport_split_ratio(split, ratio) {
+                        ProjectedSplitRatioUpdate::Applied => true,
+                        ProjectedSplitRatioUpdate::Unchanged => {
+                            return Some(RatioOutcome::Unchanged);
+                        }
+                        ProjectedSplitRatioUpdate::Unrepresentable { width } => {
+                            return Some(RatioOutcome::Failed(
+                                LayoutRatioError::UnrepresentableViewportWidth {
+                                    split,
+                                    ratio,
+                                    width,
+                                },
+                            ));
+                        }
+                        ProjectedSplitRatioUpdate::NotProjected => {
+                            let changed = screen.layout_columns.iter_mut().any(|column| {
+                                let changed = column.root.set_split_ratio(split, ratio);
+                                if changed {
+                                    column.zellij_auto_layout = None;
+                                }
+                                changed
+                            });
+                            if changed {
+                                screen.sync_layout_column_projection();
+                            }
+                            changed
+                        }
+                    }
+                } else {
+                    let changed = screen.root.set_deepest_ratio(pane, dir, ratio);
+                    if changed {
+                        screen.zellij_auto_layout = None;
+                    }
+                    changed
+                };
+                if changed {
+                    screen.record_layout_change(before, Vec::new(), None);
+                    Some(RatioOutcome::Changed(screen.id))
                 } else {
                     None
                 }
             })
         };
-        if let Some(screen) = changed_screen {
-            self.emit(MuxEvent::TreeChanged);
-            self.emit(MuxEvent::LayoutChanged(screen));
-            true
-        } else {
-            false
+        match outcome {
+            Some(RatioOutcome::Changed(screen)) => {
+                self.emit(MuxEvent::TreeChanged);
+                self.emit(MuxEvent::LayoutChanged(screen));
+                Ok(())
+            }
+            Some(RatioOutcome::Unchanged) => Ok(()),
+            Some(RatioOutcome::Failed(error)) => Err(error),
+            None => Err(LayoutRatioError::UnknownPaneSplit { pane }),
         }
     }
 
     /// Set one split ratio by its stable split-tree node id.
     pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> bool {
+        self.set_split_ratio_checked(split, ratio).is_ok()
+    }
+
+    /// Set one split ratio while preserving rejection details.
+    pub fn set_split_ratio_checked(
+        &self,
+        split: SplitId,
+        ratio: f32,
+    ) -> Result<(), LayoutRatioError> {
+        self.set_split_ratio_inner(split, ratio, None)
+    }
+
+    /// Set one split ratio as part of a client-scoped resize transaction.
+    pub fn set_split_ratio_in_transaction(
+        &self,
+        split: SplitId,
+        ratio: f32,
+        client: u64,
+        transaction: u64,
+    ) -> bool {
+        self.set_split_ratio_in_transaction_checked(split, ratio, client, transaction).is_ok()
+    }
+
+    /// Set one transactional split ratio while preserving rejection details.
+    pub fn set_split_ratio_in_transaction_checked(
+        &self,
+        split: SplitId,
+        ratio: f32,
+        client: u64,
+        transaction: u64,
+    ) -> Result<(), LayoutRatioError> {
+        self.set_split_ratio_inner(
+            split,
+            ratio,
+            Some((LayoutResizeOwner::ControlClient(client), transaction)),
+        )
+    }
+
+    /// Set one in-process transactional split ratio without sharing the
+    /// control-client ownership namespace.
+    pub fn set_split_ratio_in_process_transaction_checked(
+        &self,
+        split: SplitId,
+        ratio: f32,
+        owner: u64,
+        transaction: u64,
+    ) -> Result<(), LayoutRatioError> {
+        self.set_split_ratio_inner(
+            split,
+            ratio,
+            Some((LayoutResizeOwner::InProcess(owner), transaction)),
+        )
+    }
+
+    fn set_split_ratio_inner(
+        &self,
+        split: SplitId,
+        ratio: f32,
+        transaction: Option<(LayoutResizeOwner, u64)>,
+    ) -> Result<(), LayoutRatioError> {
         let ratio = clamp_split_ratio(ratio);
         let changed_screen = {
             let mut state = self.state.lock().unwrap();
             let Some((workspace_index, screen_index, owner)) =
                 state.split_screens.get(&split).copied()
             else {
-                return false;
+                return Err(LayoutRatioError::UnknownSplit { split });
             };
-            let changed = state
+            if state
                 .workspaces
-                .get_mut(workspace_index)
-                .and_then(|workspace| workspace.screens.get_mut(screen_index))
-                .filter(|screen| screen.id == owner)
-                .and_then(|screen| {
-                    if screen.root.set_split_ratio(split, ratio) {
-                        screen.zellij_auto_layout = None;
-                        Some(screen.id)
-                    } else {
-                        None
-                    }
-                });
-            if changed.is_none() {
+                .get(workspace_index)
+                .and_then(|workspace| workspace.screens.get(screen_index))
+                .is_none_or(|screen| screen.id != owner)
+            {
                 state.split_screens.remove(&split);
+                return Err(LayoutRatioError::UnknownSplit { split });
             }
-            changed
+            let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+            if !screen.is_projected_viewport_split(split)
+                && screen.root.split_ratio(split) == Some(ratio)
+            {
+                return Ok(());
+            }
+            let coalesce = transaction
+                .map(|(owner, transaction)| LayoutMutationKey::Resize { owner, transaction });
+            let before = screen.layout_snapshot_for_coalescing_change(coalesce);
+            let changed = if screen.layout_columns_active() {
+                match screen.set_projected_viewport_split_ratio(split, ratio) {
+                    ProjectedSplitRatioUpdate::Applied => true,
+                    ProjectedSplitRatioUpdate::Unchanged => return Ok(()),
+                    ProjectedSplitRatioUpdate::Unrepresentable { width } => {
+                        return Err(LayoutRatioError::UnrepresentableViewportWidth {
+                            split,
+                            ratio,
+                            width,
+                        });
+                    }
+                    ProjectedSplitRatioUpdate::NotProjected => {
+                        let changed = screen.layout_columns.iter_mut().any(|column| {
+                            let changed = column.root.set_split_ratio(split, ratio);
+                            if changed {
+                                column.zellij_auto_layout = None;
+                            }
+                            changed
+                        });
+                        if changed {
+                            let projection_changed = screen.root.set_split_ratio(split, ratio);
+                            debug_assert!(projection_changed);
+                        }
+                        changed
+                    }
+                }
+            } else {
+                let changed = screen.root.set_split_ratio(split, ratio);
+                if changed {
+                    screen.zellij_auto_layout = None;
+                }
+                changed
+            };
+            if !changed {
+                state.split_screens.remove(&split);
+                return Err(LayoutRatioError::UnknownSplit { split });
+            }
+            screen.record_prepared_layout_change(before, Vec::new(), coalesce);
+            screen.id
         };
-        if let Some(screen) = changed_screen {
-            self.emit(MuxEvent::LayoutChanged(screen));
-            true
-        } else {
-            false
+        self.emit(MuxEvent::LayoutChanged(changed_screen));
+        Ok(())
+    }
+
+    /// Set the width of the horizontal viewport column containing `pane`.
+    pub fn set_viewport_pane_width(&self, pane: PaneId, width: f32) -> bool {
+        self.set_viewport_pane_width_checked(pane, width).is_ok()
+    }
+
+    /// Set a viewport column width while preserving rejection details.
+    pub fn set_viewport_pane_width_checked(
+        &self,
+        pane: PaneId,
+        width: f32,
+    ) -> Result<(), ViewportWidthError> {
+        self.set_viewport_pane_width_inner(pane, width, None)
+    }
+
+    /// Set a viewport column width as part of a client-scoped resize transaction.
+    pub fn set_viewport_pane_width_in_transaction(
+        &self,
+        pane: PaneId,
+        width: f32,
+        client: u64,
+        transaction: u64,
+    ) -> bool {
+        self.set_viewport_pane_width_in_transaction_checked(pane, width, client, transaction)
+            .is_ok()
+    }
+
+    /// Set a transactional viewport width while preserving rejection details.
+    pub fn set_viewport_pane_width_in_transaction_checked(
+        &self,
+        pane: PaneId,
+        width: f32,
+        client: u64,
+        transaction: u64,
+    ) -> Result<(), ViewportWidthError> {
+        self.set_viewport_pane_width_inner(
+            pane,
+            width,
+            Some((LayoutResizeOwner::ControlClient(client), transaction)),
+        )
+    }
+
+    /// Set one in-process transactional viewport width without sharing the
+    /// control-client ownership namespace.
+    pub fn set_viewport_pane_width_in_process_transaction_checked(
+        &self,
+        pane: PaneId,
+        width: f32,
+        owner: u64,
+        transaction: u64,
+    ) -> Result<(), ViewportWidthError> {
+        self.set_viewport_pane_width_inner(
+            pane,
+            width,
+            Some((LayoutResizeOwner::InProcess(owner), transaction)),
+        )
+    }
+
+    fn set_viewport_pane_width_inner(
+        &self,
+        pane: PaneId,
+        width: f32,
+        transaction: Option<(LayoutResizeOwner, u64)>,
+    ) -> Result<(), ViewportWidthError> {
+        if !width.is_finite()
+            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
+        {
+            return Err(ViewportWidthError::OutOfRange { width });
         }
+        let changed_screen = {
+            let mut state = self.state.lock().unwrap();
+            let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
+                return Err(ViewportWidthError::PaneNotResizable { pane });
+            };
+            let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+            if !screen.layout_columns_active() {
+                return Err(ViewportWidthError::PaneNotResizable { pane });
+            }
+            let Some(column_index) =
+                screen.layout_columns.iter().position(|column| column.root.contains(pane))
+            else {
+                return Err(ViewportWidthError::PaneNotResizable { pane });
+            };
+            if (screen.layout_columns[column_index].width - width).abs() < f32::EPSILON {
+                return Ok(());
+            }
+            let coalesce = transaction
+                .map(|(owner, transaction)| LayoutMutationKey::Resize { owner, transaction });
+            let before = screen.layout_snapshot_for_coalescing_change(coalesce);
+            screen.layout_columns[column_index].width = width;
+            screen.sync_layout_column_width_projection();
+            screen.record_prepared_layout_change(before, Vec::new(), coalesce);
+            screen.id
+        };
+        self.emit(MuxEvent::LayoutChanged(changed_screen));
+        Ok(())
+    }
+
+    fn pane_navigation_layout(screen: &Screen, pane: PaneId, dir: Direction) -> LayoutResult {
+        const NAVIGATION_COLUMN_WIDTH: u16 = 10_000;
+        let column_area = Rect { x: 0, y: 0, width: NAVIGATION_COLUMN_WIDTH, height: 10_000 };
+        if !screen.layout_columns_active() {
+            return layout_screen(&screen.root, column_area, Some(screen.active_pane));
+        }
+        let Some(current_index) =
+            screen.layout_columns.iter().position(|column| column.root.contains(pane))
+        else {
+            return layout_screen(&screen.root, column_area, Some(screen.active_pane));
+        };
+        let neighbor_index = match dir {
+            Direction::Up | Direction::Down => None,
+            Direction::Left => current_index.checked_sub(1),
+            Direction::Right => {
+                current_index.checked_add(1).filter(|index| *index < screen.layout_columns.len())
+            }
+        };
+        let Some(neighbor_index) = neighbor_index else {
+            return layout_screen(
+                &screen.layout_columns[current_index].root,
+                column_area,
+                Some(screen.active_pane),
+            );
+        };
+
+        let (left_index, right_index) = if neighbor_index < current_index {
+            (neighbor_index, current_index)
+        } else {
+            (current_index, neighbor_index)
+        };
+        let mut result = LayoutResult { virtual_width: 20_000, ..Default::default() };
+        for (index, x) in [(left_index, 0), (right_index, NAVIGATION_COLUMN_WIDTH)] {
+            let mut column = layout_screen(
+                &screen.layout_columns[index].root,
+                Rect { x, ..column_area },
+                Some(screen.active_pane),
+            );
+            result.panes.append(&mut column.panes);
+            result.stacked_headers.extend(column.stacked_headers);
+        }
+        result
     }
 
     pub fn pane_neighbor(&self, pane: PaneId, dir: Direction) -> anyhow::Result<Option<PaneId>> {
@@ -6148,11 +6866,7 @@ impl Mux {
             };
             let screen = &state.workspaces[wi].screens[si];
             let (dx, dy) = dir.delta();
-            let layout = layout_screen(
-                &screen.root,
-                Rect { x: 0, y: 0, width: 10_000, height: 10_000 },
-                Some(screen.active_pane),
-            );
+            let layout = Self::pane_navigation_layout(screen, pane, dir);
             Ok(layout.neighbor(pane, dx, dy))
         })
     }
@@ -6164,11 +6878,7 @@ impl Mux {
             };
             let screen = &state.workspaces[wi].screens[si];
             let (dx, dy) = dir.delta();
-            let layout = layout_screen(
-                &screen.root,
-                Rect { x: 0, y: 0, width: 10_000, height: 10_000 },
-                Some(screen.active_pane),
-            );
+            let layout = Self::pane_navigation_layout(screen, pane, dir);
             Ok(layout.neighbor_by_recency(pane, dx, dy, |candidate| {
                 state.panes.get(&candidate).map(|pane| pane.focused_at).unwrap_or_default()
             }))
@@ -6194,11 +6904,37 @@ impl Mux {
     }
 
     pub fn swap_panes(&self, pane: PaneId, target: PaneId) -> bool {
+        if pane == target {
+            return false;
+        }
         let changed_screen = {
             let mut state = self.state.lock().unwrap();
             state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(|screen| {
-                if screen.root.swap_leaves(pane, target) {
-                    screen.zellij_auto_layout = None;
+                if !screen.root.contains(pane) || !screen.root.contains(target) {
+                    return None;
+                }
+                let before = screen.layout_snapshot();
+                let changed = if screen.layout_columns_active()
+                    && screen.root.contains(pane)
+                    && screen.root.contains(target)
+                {
+                    for column in &mut screen.layout_columns {
+                        if column.root.contains(pane) || column.root.contains(target) {
+                            column.zellij_auto_layout = None;
+                            column.root.swap_leaf_ids(pane, target);
+                        }
+                    }
+                    screen.sync_layout_column_projection();
+                    true
+                } else {
+                    let changed = screen.root.swap_leaves(pane, target);
+                    if changed {
+                        screen.zellij_auto_layout = None;
+                    }
+                    changed
+                };
+                if changed {
+                    screen.record_layout_change(before, Vec::new(), None);
                     Some(screen.id)
                 } else {
                     None
@@ -6225,6 +6961,7 @@ impl Mux {
                 anyhow::bail!("unknown pane {target}");
             };
             let screen = &mut state.workspaces[wi].screens[si];
+            let before = screen.layout_snapshot();
             let next = match mode {
                 ZoomMode::Toggle if screen.zoomed_pane == Some(target) => None,
                 ZoomMode::Toggle => Some(target),
@@ -6233,6 +6970,9 @@ impl Mux {
             };
             let changed = screen.zoomed_pane != next;
             screen.zoomed_pane = next;
+            if changed {
+                screen.record_layout_change(before, Vec::new(), None);
+            }
             (screen.id, target, next, changed)
         };
         if changed.3 {
@@ -6240,6 +6980,286 @@ impl Mux {
             self.emit(MuxEvent::LayoutChanged(changed.0));
         }
         Ok(ZoomState { pane: changed.1, zoomed: changed.2.is_some(), zoomed_pane: changed.2 })
+    }
+
+    /// Undo the latest structural layout transaction on `pane`'s screen.
+    ///
+    /// Transactions that created panes return a confirmation preview first.
+    /// The caller must retry with the exact preview revision and
+    /// `confirm_close=true`, preventing a stale confirmation from closing a
+    /// pane created by a newer action.
+    pub fn undo_layout(
+        &self,
+        pane: PaneId,
+        expected_revision: Option<u64>,
+        confirm_close: bool,
+    ) -> anyhow::Result<LayoutUndoResult> {
+        let (workspace, screen_id, preview) = {
+            let mut state = self.state.lock().unwrap();
+            let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
+                return Err(LayoutUndoError::Stale(
+                    "layout undo target is no longer available".to_string(),
+                )
+                .into());
+            };
+            let workspace = state.workspaces[workspace_index].id;
+            let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
+            let entry = {
+                let screen = &state.workspaces[workspace_index].screens[screen_index];
+                let Some(entry) = screen.layout_undo.back().cloned() else {
+                    return Err(LayoutUndoError::Unavailable.into());
+                };
+                if entry.after_revision != screen.layout_revision {
+                    return Err(LayoutUndoError::Stale(
+                        "layout changed since the last undoable action".to_string(),
+                    )
+                    .into());
+                }
+                entry
+            };
+            if let Some(expected) = expected_revision
+                && expected != entry.after_revision
+            {
+                return Err(LayoutUndoError::Stale(format!(
+                    "layout revision conflict: expected {expected}, current {}",
+                    entry.after_revision
+                ))
+                .into());
+            }
+            if !entry.created_panes.is_empty() && !confirm_close {
+                let mut pane_tabs = Vec::with_capacity(entry.created_panes.len());
+                for created in &entry.created_panes {
+                    let Some(created_pane) = state.panes.get(created) else {
+                        return Err(LayoutUndoError::Stale(format!(
+                            "created pane {created} disappeared before undo preview"
+                        ))
+                        .into());
+                    };
+                    pane_tabs.push((*created, created_pane.tabs.clone()));
+                }
+                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                let revision = screen.layout_revision.saturating_add(1);
+                screen.layout_revision = revision;
+                let latest = screen
+                    .layout_undo
+                    .back_mut()
+                    .expect("validated layout undo entry remains present");
+                latest.after_revision = revision;
+                latest.confirmation = Some(LayoutUndoConfirmation { revision, pane_tabs });
+                return Ok(LayoutUndoResult::ConfirmationRequired {
+                    screen: screen_id,
+                    revision,
+                    closes_panes: entry.created_panes,
+                });
+            }
+            (workspace, screen_id, entry)
+        };
+        if !preview.created_panes.is_empty() && expected_revision.is_none() {
+            return Err(LayoutUndoError::Stale(
+                "confirmed layout undo requires the preview revision".to_string(),
+            )
+            .into());
+        }
+        if preview.created_panes.is_empty() {
+            let revision = {
+                let mut state = self.state.lock().unwrap();
+                let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
+                    return Err(LayoutUndoError::Stale(
+                        "layout undo target disappeared before the change could commit".to_string(),
+                    )
+                    .into());
+                };
+                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                let Some(entry) = screen.layout_undo.pop_back() else {
+                    return Err(
+                        LayoutUndoError::Stale("layout undo disappeared".to_string()).into()
+                    );
+                };
+                if entry.after_revision != screen.layout_revision
+                    || expected_revision.is_some_and(|expected| expected != entry.after_revision)
+                {
+                    screen.layout_undo.push_back(entry);
+                    return Err(LayoutUndoError::Stale(
+                        "layout changed before undo could commit".to_string(),
+                    )
+                    .into());
+                }
+                let revision = screen.layout_revision.saturating_add(1);
+                screen.restore_layout_snapshot(entry.before);
+                screen.layout_revision = revision;
+                if let Some(previous) = screen.layout_undo.back_mut() {
+                    previous.after_revision = revision;
+                    previous.coalesce = None;
+                    previous.confirmation = None;
+                }
+                Self::rebuild_split_screen_index(&mut state);
+                revision
+            };
+            self.emit(MuxEvent::TreeChanged);
+            self.emit(MuxEvent::LayoutChanged(screen_id));
+            return Ok(LayoutUndoResult::Undone { screen: screen_id, revision });
+        }
+
+        let lifecycle = self.workspace_lifecycle(workspace);
+        let _workspace_lifecycle = lifecycle.lock().unwrap();
+        let notifications = self.surface_notifications();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let mutation = WorkspaceMutation::local("cmux-tui-layout-undo");
+        let (removed, deltas, selection_resync, terminal_revision, terminal_count, revision) = {
+            let mut state = self.state.lock().unwrap();
+            let Some(workspace_index) = state.workspace_index(workspace) else {
+                return Err(LayoutUndoError::Stale(
+                    "layout undo workspace is no longer available".to_string(),
+                )
+                .into());
+            };
+            let Some(screen_index) = state.workspaces[workspace_index]
+                .screens
+                .iter()
+                .position(|screen| screen.id == screen_id)
+            else {
+                return Err(LayoutUndoError::Stale(
+                    "layout undo screen is no longer available".to_string(),
+                )
+                .into());
+            };
+            let entry = {
+                let screen = &state.workspaces[workspace_index].screens[screen_index];
+                let Some(entry) = screen.layout_undo.back().cloned() else {
+                    return Err(
+                        LayoutUndoError::Stale("layout undo disappeared".to_string()).into()
+                    );
+                };
+                if entry.after_revision != screen.layout_revision
+                    || expected_revision != Some(entry.after_revision)
+                {
+                    return Err(LayoutUndoError::Stale(
+                        "layout changed before confirmed undo could commit".to_string(),
+                    )
+                    .into());
+                }
+                entry
+            };
+            let mut remaining_history =
+                state.workspaces[workspace_index].screens[screen_index].layout_undo.clone();
+            remaining_history.pop_back();
+
+            let mut before_panes = Vec::new();
+            entry.before.root.pane_ids(&mut before_panes);
+            let before_panes = before_panes.into_iter().collect::<HashSet<_>>();
+            let mut current_panes = Vec::new();
+            state.workspaces[workspace_index].screens[screen_index]
+                .root
+                .pane_ids(&mut current_panes);
+            let expected_panes = before_panes
+                .iter()
+                .copied()
+                .chain(entry.created_panes.iter().copied())
+                .collect::<HashSet<_>>();
+            if current_panes.into_iter().collect::<HashSet<_>>() != expected_panes {
+                return Err(LayoutUndoError::Stale(
+                    "screen panes changed since the action being undone".to_string(),
+                )
+                .into());
+            }
+
+            let selection_before = active_tree_selection(&state);
+            let mut tabs = Vec::new();
+            let mut deltas = Vec::new();
+            let Some(confirmation) = entry
+                .confirmation
+                .as_ref()
+                .filter(|confirmation| confirmation.revision == entry.after_revision)
+            else {
+                return Err(
+                    LayoutUndoError::Stale("layout undo confirmation expired".to_string()).into()
+                );
+            };
+            if confirmation
+                .pane_tabs
+                .iter()
+                .map(|(pane, _)| *pane)
+                .ne(entry.created_panes.iter().copied())
+            {
+                return Err(LayoutUndoError::Stale(
+                    "layout undo confirmation no longer matches its created panes".to_string(),
+                )
+                .into());
+            }
+            for (created, confirmed_tabs) in &confirmation.pane_tabs {
+                let Some(pane) = state.panes.get(created) else {
+                    return Err(LayoutUndoError::Stale(format!(
+                        "created pane {created} disappeared before undo"
+                    ))
+                    .into());
+                };
+                if &pane.tabs != confirmed_tabs {
+                    return Err(LayoutUndoError::Stale(format!(
+                        "tabs in pane {created} changed since the undo confirmation"
+                    ))
+                    .into());
+                }
+                tabs.extend(confirmed_tabs.iter().copied());
+                if let Some(delta) = close_pane_delta(&state, &notifications, *created) {
+                    deltas.push(delta);
+                }
+            }
+            let hosted = tabs
+                .iter()
+                .filter_map(|id| state.surfaces.get(id))
+                .filter_map(|surface| surface.terminal_host_identity())
+                .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
+                .collect::<Vec<_>>();
+            let batch = registry.close_terminals_atomically(&mutation, &hosted)?;
+            let mut removed = Vec::new();
+            for surface in tabs {
+                if let (Some(surface), _) = remove_surface(self, &mut state, surface) {
+                    removed.push(surface);
+                }
+            }
+            let Some(screen_index) = state.workspaces[workspace_index]
+                .screens
+                .iter()
+                .position(|screen| screen.id == screen_id)
+            else {
+                return Err(LayoutUndoError::Stale(
+                    "layout changed while undo was closing panes".to_string(),
+                )
+                .into());
+            };
+            let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+            let revision = screen.layout_revision.max(entry.after_revision).saturating_add(1);
+            screen.restore_layout_snapshot(entry.before);
+            screen.layout_revision = revision;
+            screen.layout_undo = remaining_history;
+            if let Some(previous) = screen.layout_undo.back_mut() {
+                previous.after_revision = revision;
+                previous.coalesce = None;
+                previous.confirmation = None;
+            }
+            Self::rebuild_split_screen_index(&mut state);
+            let selection_resync = selection_before != active_tree_selection(&state);
+            (removed, deltas, selection_resync, batch.revision, batch.closed, revision)
+        };
+        drop(registry);
+
+        for surface in removed {
+            self.purge_surface_side_tables(surface.id);
+            surface.kill();
+        }
+        if terminal_count != 0 {
+            let registry = self.workspace_registry.lock().unwrap();
+            self.emit_terminal_registry_changed(&registry, terminal_revision);
+        }
+        if deltas.is_empty() {
+            self.emit(MuxEvent::TreeChanged);
+        } else {
+            for delta in deltas {
+                self.emit_tree_delta(delta, selection_resync);
+            }
+        }
+        self.emit(MuxEvent::LayoutChanged(screen_id));
+        Ok(LayoutUndoResult::Undone { screen: screen_id, revision })
     }
 
     pub fn apply_layout(
@@ -6318,6 +7338,11 @@ impl Mux {
                 active_pane,
                 zoomed_pane: None,
                 zellij_auto_layout: None,
+                viewport_splits: Default::default(),
+                viewport_base_width: None,
+                layout_columns: Vec::new(),
+                layout_revision: 0,
+                layout_undo: Default::default(),
             };
             let ws = &mut state.workspaces[workspace_index];
             ws.screens.push(screen);
@@ -6662,6 +7687,11 @@ impl Mux {
                     active_pane: pane,
                     zoomed_pane: None,
                     zellij_auto_layout: Some(vec![pane]),
+                    viewport_splits: Default::default(),
+                    viewport_base_width: None,
+                    layout_columns: Vec::new(),
+                    layout_revision: 0,
+                    layout_undo: Default::default(),
                 });
                 state.workspaces[destination].active_screen = 0;
                 pane
@@ -7377,6 +8407,89 @@ fn clamp_split_ratio(ratio: f32) -> f32 {
     ratio.clamp(0.05, 0.95)
 }
 
+fn append_to_auto_layout(
+    root: &mut Node,
+    auto_layout: &mut Option<Vec<PaneId>>,
+    pane: PaneId,
+    mut next_id: impl FnMut() -> SplitId,
+) {
+    let mut panes = auto_layout.clone().unwrap_or_else(|| {
+        let mut panes = Vec::new();
+        root.pane_ids(&mut panes);
+        panes.sort_unstable();
+        panes
+    });
+    let current_panes = root.pane_ids_vec().into_iter().collect::<HashSet<_>>();
+    panes.retain(|pane| current_panes.contains(pane));
+    panes.push(pane);
+    *root = crate::layout::zellij_default_pane_layout_with_ids(&panes, &mut next_id)
+        .expect("new pane layout always has at least one pane");
+    *auto_layout = Some(panes);
+}
+
+fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) -> bool {
+    screen.invalidate_layout_undo();
+    if screen.layout_columns_active() {
+        let Some(index) =
+            screen.layout_columns.iter().position(|column| column.root.contains(pane))
+        else {
+            return true;
+        };
+        let column = &mut screen.layout_columns[index];
+        let root = std::mem::replace(&mut column.root, Node::Leaf(0));
+        let stack_expanded = root.stack_expanded_pane();
+        match root.remove_leaf(pane) {
+            Some(mut root) => {
+                if let Some(panes) = column.zellij_auto_layout.as_mut() {
+                    panes.retain(|candidate| *candidate != pane);
+                    if let Some(layout) =
+                        crate::layout::zellij_default_pane_layout_with_ids(panes, &mut || {
+                            mux.next_id()
+                        })
+                    {
+                        root = layout;
+                        if let Some(expanded) = stack_expanded {
+                            root.expand_stack_pane(expanded);
+                        }
+                    } else {
+                        column.zellij_auto_layout = None;
+                    }
+                }
+                column.root = root;
+            }
+            None => {
+                screen.layout_columns.remove(index);
+            }
+        }
+        if screen.layout_columns.is_empty() {
+            return false;
+        }
+        screen.collapse_single_layout_column();
+        return true;
+    }
+
+    let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
+    let stack_expanded = root.stack_expanded_pane();
+    let Some(mut root) = root.remove_leaf(pane) else {
+        return false;
+    };
+    if let Some(panes) = screen.zellij_auto_layout.as_mut() {
+        panes.retain(|candidate| *candidate != pane);
+        if let Some(layout) =
+            crate::layout::zellij_default_pane_layout_with_ids(panes, &mut || mux.next_id())
+        {
+            root = layout;
+            if let Some(expanded) = stack_expanded {
+                root.expand_stack_pane(expanded);
+            }
+        } else {
+            screen.zellij_auto_layout = None;
+        }
+    }
+    screen.root = root;
+    true
+}
+
 fn unique_screen_ids(ids: impl IntoIterator<Item = ScreenId>) -> Vec<ScreenId> {
     let mut unique = Vec::new();
     for id in ids {
@@ -7602,57 +8715,37 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return (removed, false);
     };
-    let (was_active, root, mut zellij_auto_layout) = {
+    let (was_active, screen_remains) = {
         let screen = &mut state.workspaces[wi].screens[si];
         let was_active = screen.active_pane == pane_id;
         if screen.zoomed_pane == Some(pane_id) {
             screen.zoomed_pane = None;
         }
-        let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
-        (was_active, root, screen.zellij_auto_layout.take())
+        let screen_remains = remove_pane_from_screen_layout(mux, screen, pane_id);
+        (was_active, screen_remains)
     };
-    let stack_expanded = root.stack_expanded_pane();
-    match root.remove_leaf(pane_id) {
-        Some(mut root) => {
-            if let Some(panes) = zellij_auto_layout.as_mut() {
-                panes.retain(|pane| *pane != pane_id);
-                if let Some(layout) =
-                    crate::layout::zellij_default_pane_layout_with_ids(panes, &mut || mux.next_id())
-                {
-                    root = layout;
-                    if let Some(expanded) = stack_expanded {
-                        root.expand_stack_pane(expanded);
-                    }
-                } else {
-                    zellij_auto_layout = None;
-                }
-            }
-            let next_active = if was_active {
-                let mut ids = Vec::new();
-                root.pane_ids(&mut ids);
-                most_recent_pane(state, &ids)
-            } else {
-                None
-            };
-            let screen = &mut state.workspaces[wi].screens[si];
-            screen.root = root;
-            screen.zellij_auto_layout = zellij_auto_layout;
-            if let Some(next) = next_active {
-                screen.active_pane = next;
-            }
-            stamp_changed_active_pane(mux, state, previous_active);
-            return (removed, true);
+    if screen_remains {
+        let next_active = if was_active {
+            let mut ids = Vec::new();
+            state.workspaces[wi].screens[si].root.pane_ids(&mut ids);
+            most_recent_pane(state, &ids)
+        } else {
+            None
+        };
+        if let Some(next) = next_active {
+            state.workspaces[wi].screens[si].active_pane = next;
         }
-        None => {
-            // Screen emptied: drop it from the workspace.
-            let ws = &mut state.workspaces[wi];
-            ws.screens.remove(si);
-            ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
-            if !ws.screens.is_empty() {
-                stamp_changed_active_pane(mux, state, previous_active);
-                return (removed, true);
-            }
-        }
+        stamp_changed_active_pane(mux, state, previous_active);
+        return (removed, true);
+    }
+
+    // Screen emptied: drop it from the workspace.
+    let ws = &mut state.workspaces[wi];
+    ws.screens.remove(si);
+    ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
+    if !ws.screens.is_empty() {
+        stamp_changed_active_pane(mux, state, previous_active);
+        return (removed, true);
     }
 
     // The screen emptied, but the workspace remains as a canonical registry
@@ -7667,50 +8760,30 @@ fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return;
     };
-    let (was_active, root, mut zellij_auto_layout) = {
+    let (was_active, screen_remains) = {
         let screen = &mut state.workspaces[wi].screens[si];
         let was_active = screen.active_pane == pane_id;
         if screen.zoomed_pane == Some(pane_id) {
             screen.zoomed_pane = None;
         }
-        let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
-        (was_active, root, screen.zellij_auto_layout.take())
+        let screen_remains = remove_pane_from_screen_layout(mux, screen, pane_id);
+        (was_active, screen_remains)
     };
-    let stack_expanded = root.stack_expanded_pane();
-    match root.remove_leaf(pane_id) {
-        Some(mut root) => {
-            if let Some(panes) = zellij_auto_layout.as_mut() {
-                panes.retain(|pane| *pane != pane_id);
-                if let Some(layout) =
-                    crate::layout::zellij_default_pane_layout_with_ids(panes, &mut || mux.next_id())
-                {
-                    root = layout;
-                    if let Some(expanded) = stack_expanded {
-                        root.expand_stack_pane(expanded);
-                    }
-                } else {
-                    zellij_auto_layout = None;
-                }
-            }
-            let next_active = if was_active {
-                let mut ids = Vec::new();
-                root.pane_ids(&mut ids);
-                most_recent_pane(state, &ids)
-            } else {
-                None
-            };
-            let screen = &mut state.workspaces[wi].screens[si];
-            screen.root = root;
-            screen.zellij_auto_layout = zellij_auto_layout;
-            if let Some(next) = next_active {
-                screen.active_pane = next;
-            }
+    if screen_remains {
+        let next_active = if was_active {
+            let mut ids = Vec::new();
+            state.workspaces[wi].screens[si].root.pane_ids(&mut ids);
+            most_recent_pane(state, &ids)
+        } else {
+            None
+        };
+        if let Some(next) = next_active {
+            state.workspaces[wi].screens[si].active_pane = next;
         }
-        None => {
-            let ws = &mut state.workspaces[wi];
-            ws.screens.remove(si);
-            ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
-        }
+    } else {
+        let ws = &mut state.workspaces[wi];
+        ws.screens.remove(si);
+        ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
     }
 }
 
@@ -7767,12 +8840,18 @@ fn move_tab_in_state(
     let new_idx = index.min(target.tabs.len());
     target.tabs.insert(new_idx, surface);
     target.active_tab = new_idx;
-    if let Some((wi, si)) = state.screen_of(target_pane) {
+    let destination_path = if let Some((wi, si)) = state.screen_of(target_pane) {
         state.active_workspace = wi;
         let ws = &mut state.workspaces[wi];
         ws.active_screen = si;
         let screen = &mut ws.screens[si];
         screen.active_pane = target_pane;
+        Some((ws.id, screen.id))
+    } else {
+        None
+    };
+    if let Some((workspace, screen)) = destination_path {
+        mux.subscribers.update_surface_session_path(surface, workspace, screen, target_pane);
     }
     (true, topology_changed)
 }
@@ -7781,6 +8860,8 @@ fn move_tab_in_state(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
@@ -7968,7 +9049,7 @@ mod tests {
 
         assert!(mux.resize_surface_for_client(missing_surface, 7, 120, 40).is_err());
         assert_eq!(mux.client_surface_size(missing_surface, 7), Some((80, 25)));
-        assert_eq!(mux.latest_client_size.lock().unwrap().size, Some((90, 30)));
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (90, 30));
     }
 
     #[test]
@@ -8021,17 +9102,60 @@ mod tests {
         mux.resize_surface_for_client(surface.id, 2, 80, 50).unwrap();
         assert_eq!(surface.size(), (80, 40));
 
-        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(surface.id, 2, false), Some(true));
         assert_eq!(surface.size(), (120, 40));
-        assert!(!mux.client_size_participates(2));
+        assert!(!mux.client_size_participates(surface.id, 2));
 
         mux.resize_surface_for_client(surface.id, 2, 60, 30).unwrap();
         assert_eq!(surface.size(), (120, 40));
         assert_eq!(mux.client_surface_size(surface.id, 2), Some((60, 30)));
 
-        assert_eq!(mux.set_client_size_participation(2, true), Some(true));
+        assert_eq!(mux.set_client_size_participation(surface.id, 2, true), Some(true));
         assert_eq!(surface.size(), (60, 30));
-        assert!(mux.client_size_participates(2));
+        assert!(mux.client_size_participates(surface.id, 2));
+    }
+
+    #[test]
+    fn excluded_report_does_not_replace_a_newer_participating_creation_default() {
+        let mux = test_mux();
+        let excluded_surface = mux.new_workspace(None, None).unwrap();
+        let latest_surface = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(excluded_surface.id, 1, 100, 30).unwrap();
+        mux.resize_surface_for_client(excluded_surface.id, 2, 90, 25).unwrap();
+        assert_eq!(mux.set_client_size_participation(excluded_surface.id, 2, false), Some(true));
+        mux.resize_surface_for_client(latest_surface.id, 3, 120, 40).unwrap();
+
+        mux.resize_surface_for_client(excluded_surface.id, 2, 60, 20).unwrap();
+
+        assert_eq!(excluded_surface.size(), (100, 30));
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (120, 40));
+    }
+
+    #[test]
+    fn excluded_report_updates_creation_default_when_surface_uses_fallback() {
+        let mux = test_mux();
+        let fallback_surface = mux.new_workspace(None, None).unwrap();
+        let latest_surface = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(fallback_surface.id, 1, 100, 30).unwrap();
+        assert_eq!(mux.set_client_size_participation(fallback_surface.id, 1, false), Some(true));
+        mux.resize_surface_for_client(latest_surface.id, 2, 120, 40).unwrap();
+
+        mux.resize_surface_for_client(fallback_surface.id, 1, 70, 20).unwrap();
+
+        assert_eq!(fallback_surface.size(), (70, 20));
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (70, 20));
+    }
+
+    #[test]
+    fn enabling_an_already_participating_client_does_not_create_a_policy() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        mux.resize_surface_for_client(surface.id, 1, 120, 40).unwrap();
+
+        assert_eq!(mux.set_client_size_participation(surface.id, 1, true), Some(false));
+        assert_eq!(mux.use_all_client_sizes(surface.id), Some(false));
     }
 
     #[test]
@@ -8041,7 +9165,7 @@ mod tests {
         mux.resize_surface_for_client(surface.id, 7, 80, 24).unwrap();
         let events = mux.subscribe();
 
-        assert_eq!(mux.set_client_size_participation(7, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(surface.id, 7, false), Some(true));
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
@@ -8055,12 +9179,30 @@ mod tests {
         let surface = mux.new_workspace(None, None).unwrap();
         mux.resize_surface_for_client(surface.id, 1, 120, 40).unwrap();
         mux.resize_surface_for_client(surface.id, 2, 80, 24).unwrap();
-        assert_eq!(mux.use_only_client_size(1), Some(true));
+        assert_eq!(mux.use_only_client_size(surface.id, 1), Some(true));
 
-        assert_eq!(mux.set_client_size_participation(99, false), None);
+        assert_eq!(mux.set_client_size_participation(surface.id, 99, false), None);
 
-        assert!(mux.client_size_participates(1));
-        assert!(!mux.client_size_participates(2));
+        assert!(mux.client_size_participates(surface.id, 1));
+        assert!(!mux.client_size_participates(surface.id, 2));
+    }
+
+    #[test]
+    fn closed_surfaces_reject_sizing_policy_mutations() {
+        let mux = test_mux();
+        let excluded = mux.new_workspace(None, None).unwrap();
+        let exclusive = mux.new_workspace(None, None).unwrap();
+        mux.resize_surface_for_client(excluded.id, 1, 120, 40).unwrap();
+        mux.resize_surface_for_client(exclusive.id, 2, 80, 24).unwrap();
+        assert!(mux.remove_surface_runtime_for_test(excluded.id).is_some());
+        assert!(mux.remove_surface_runtime_for_test(exclusive.id).is_some());
+
+        assert_eq!(mux.set_client_size_participation(excluded.id, 1, false), None);
+        assert_eq!(mux.use_only_client_size(exclusive.id, 2), None);
+
+        let sizing = mux.client_sizing.lock().unwrap();
+        assert!(!sizing.policies.contains_key(&excluded.id));
+        assert!(!sizing.policies.contains_key(&exclusive.id));
     }
 
     #[test]
@@ -8072,9 +9214,9 @@ mod tests {
         mux.resize_surface_for_client(surface.id, 2, 80, 50).unwrap();
         assert_eq!(surface.size(), (80, 40));
 
-        assert_eq!(mux.set_client_size_participation(1, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(surface.id, 1, false), Some(true));
         assert_eq!(surface.size(), (80, 50));
-        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(surface.id, 2, false), Some(true));
 
         // tmux's ignore-size flag is only effective while at least one
         // size-capable client is not ignored. If every viewer is ignored,
@@ -8083,39 +9225,65 @@ mod tests {
     }
 
     #[test]
-    fn excluding_last_participant_recalculates_other_visible_surfaces() {
+    fn excluded_client_fallback_is_independent_per_surface() {
         let mux = test_mux();
         let first = mux.new_workspace(None, None).unwrap();
         let second = mux.new_workspace(None, None).unwrap();
 
         mux.resize_surface_for_client(first.id, 1, 120, 40).unwrap();
         mux.resize_surface_for_client(second.id, 2, 80, 25).unwrap();
-        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(second.id, 2, false), Some(true));
 
-        // Keep the ignored client's report current without applying it while
-        // another size-capable client still participates elsewhere.
+        // Every viewer on this terminal is excluded, so this terminal alone
+        // falls back to its excluded reports.
         mux.resize_surface_for_client(second.id, 2, 60, 20).unwrap();
-        assert_eq!(second.size(), (80, 25));
+        assert_eq!(second.size(), (60, 20));
 
-        assert_eq!(mux.set_client_size_participation(1, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(first.id, 1, false), Some(true));
         assert_eq!(first.size(), (120, 40));
         assert_eq!(second.size(), (60, 20));
     }
 
     #[test]
-    fn detaching_last_participant_recalculates_ignored_surfaces() {
+    fn detaching_client_does_not_change_another_surface_policy() {
         let mux = test_mux();
         let first = mux.new_workspace(None, None).unwrap();
         let second = mux.new_workspace(None, None).unwrap();
 
         mux.resize_surface_for_client(first.id, 1, 120, 40).unwrap();
         mux.resize_surface_for_client(second.id, 2, 80, 25).unwrap();
-        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
+        assert_eq!(mux.set_client_size_participation(second.id, 2, false), Some(true));
         mux.resize_surface_for_client(second.id, 2, 60, 20).unwrap();
-        assert_eq!(second.size(), (80, 25));
+        assert_eq!(second.size(), (60, 20));
 
         mux.remove_size_client(1);
         assert_eq!(second.size(), (60, 20));
+    }
+
+    #[test]
+    fn detaching_client_does_not_resize_an_unrelated_surface() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+        mux.resize_surface_for_client(first.id, 1, 120, 40).unwrap();
+        mux.resize_surface_for_client(second.id, 2, 80, 25).unwrap();
+        mux.resize_surface(second.id, 100, 35).unwrap();
+
+        mux.remove_size_client(1);
+
+        assert_eq!(second.size(), (100, 35));
+    }
+
+    #[test]
+    fn detaching_unsized_client_does_not_reapply_a_stale_report() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        mux.resize_surface_for_client(surface.id, 1, 80, 24).unwrap();
+        mux.resize_surface(surface.id, 100, 35).unwrap();
+
+        mux.remove_size_client_from_attached_surfaces(2, [surface.id]);
+
+        assert_eq!(surface.size(), (100, 35));
     }
 
     #[test]
@@ -8127,16 +9295,22 @@ mod tests {
         mux.resize_surface_for_client(surface.id, 2, 80, 30).unwrap();
         mux.resize_surface_for_client(other.id, 2, 80, 30).unwrap();
 
-        assert_eq!(mux.use_only_client_size(1), Some(true));
+        assert_eq!(mux.use_only_client_size(surface.id, 1), Some(true));
         assert_eq!(surface.size(), (120, 40));
         mux.resize_surface_for_client(other.id, 2, 60, 20).unwrap();
-        assert_eq!(other.size(), (80, 30));
+        assert_eq!(other.size(), (60, 20));
+        let events = mux.subscribe();
         mux.remove_size_client(1);
 
         assert_eq!(surface.size(), (80, 30));
         assert_eq!(other.size(), (60, 20));
-        assert!(mux.client_size_participates(2));
-        assert_eq!(mux.use_only_client_size(99), None);
+        assert!(mux.client_size_participates(surface.id, 2));
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, MuxEvent::ClientChanged { client: 2, .. }))
+        );
+        assert_eq!(mux.use_only_client_size(surface.id, 99), None);
     }
 
     #[test]
@@ -8268,8 +9442,8 @@ mod tests {
         let surfaces =
             (0..3).map(|_| mux.new_workspace(None, Some((80, 24))).unwrap()).collect::<Vec<_>>();
         let mut reports = HashMap::<(SurfaceId, u64), (u16, u16)>::new();
-        let mut excluded = HashSet::<u64>::new();
-        let mut exclusive = None;
+        let mut excluded = HashMap::<SurfaceId, HashSet<u64>>::new();
+        let mut exclusive = HashMap::<SurfaceId, u64>::new();
         let mut expected =
             surfaces.iter().map(|surface| (surface.id, surface.size())).collect::<HashMap<_, _>>();
         let mut random = 0x5eed_u64;
@@ -8285,8 +9459,8 @@ mod tests {
                 0 | 1 => {
                     let size =
                         ((next(&mut random) % 180 + 1) as u16, (next(&mut random) % 70 + 1) as u16);
-                    if exclusive.is_some_and(|target| target != client) {
-                        excluded.insert(client);
+                    if exclusive.get(&surface).is_some_and(|target| *target != client) {
+                        excluded.entry(surface).or_default().insert(client);
                     }
                     reports.insert((surface, client), size);
                     mux.resize_surface_for_client(surface, client, size.0, size.1).unwrap();
@@ -8296,48 +9470,73 @@ mod tests {
                     mux.remove_surface_size_client(surface, client);
                 }
                 3 => {
-                    if reports.keys().any(|(_, reporter)| *reporter == client) {
-                        let participates = excluded.contains(&client);
+                    if reports.contains_key(&(surface, client)) {
+                        let surface_excluded = excluded.entry(surface).or_default();
+                        let participates = surface_excluded.contains(&client);
                         if participates {
-                            excluded.remove(&client);
+                            surface_excluded.remove(&client);
                         } else {
-                            excluded.insert(client);
+                            surface_excluded.insert(client);
                         }
-                        assert!(mux.set_client_size_participation(client, participates).is_some());
-                        exclusive = None;
+                        if surface_excluded.is_empty() {
+                            excluded.remove(&surface);
+                        }
+                        assert!(
+                            mux.set_client_size_participation(surface, client, participates)
+                                .is_some()
+                        );
+                        exclusive.remove(&surface);
                     }
                 }
                 _ => {
-                    let known = reports.keys().any(|(_, reporter)| *reporter == client);
+                    let known = reports.contains_key(&(surface, client));
                     if known && step % 2 == 0 {
-                        let known_clients =
-                            reports.keys().map(|(_, reporter)| *reporter).collect::<HashSet<_>>();
-                        excluded = known_clients
-                            .into_iter()
-                            .filter(|known_client| *known_client != client)
-                            .collect();
-                        exclusive = Some(client);
-                        assert!(mux.use_only_client_size(client).is_some());
+                        let known_clients = reports
+                            .keys()
+                            .filter_map(|(reported_surface, reporter)| {
+                                (*reported_surface == surface).then_some(*reporter)
+                            })
+                            .collect::<HashSet<_>>();
+                        excluded.insert(
+                            surface,
+                            known_clients
+                                .into_iter()
+                                .filter(|known_client| *known_client != client)
+                                .collect(),
+                        );
+                        exclusive.insert(surface, client);
+                        assert!(mux.use_only_client_size(surface, client).is_some());
                     } else {
                         reports.retain(|(_, reporter), _| *reporter != client);
-                        if exclusive == Some(client) {
-                            exclusive = None;
-                            excluded.clear();
-                        } else {
-                            excluded.remove(&client);
+                        for candidate in &surfaces {
+                            if exclusive.get(&candidate.id) == Some(&client) {
+                                exclusive.remove(&candidate.id);
+                                excluded.remove(&candidate.id);
+                            } else if let Some(surface_excluded) = excluded.get_mut(&candidate.id) {
+                                surface_excluded.remove(&client);
+                                if surface_excluded.is_empty() {
+                                    excluded.remove(&candidate.id);
+                                }
+                            }
                         }
                         mux.remove_size_client(client);
                     }
                 }
             }
 
-            let use_excluded = !reports.keys().any(|(_, reporter)| !excluded.contains(reporter));
             for candidate in &surfaces {
+                let surface_excluded = excluded.get(&candidate.id);
+                let use_excluded = !reports.keys().any(|(reported_surface, reporter)| {
+                    *reported_surface == candidate.id
+                        && !surface_excluded.is_some_and(|clients| clients.contains(reporter))
+                });
                 let effective = reports
                     .iter()
                     .filter(|((reported_surface, reporter), _)| {
                         *reported_surface == candidate.id
-                            && (use_excluded || !excluded.contains(reporter))
+                            && (use_excluded
+                                || !surface_excluded
+                                    .is_some_and(|clients| clients.contains(reporter)))
                     })
                     .map(|(_, size)| *size)
                     .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)));
@@ -8524,6 +9723,11 @@ mod tests {
                     active_pane: p3,
                     zoomed_pane: None,
                     zellij_auto_layout: None,
+                    viewport_splits: Default::default(),
+                    viewport_base_width: None,
+                    layout_columns: Vec::new(),
+                    layout_revision: 0,
+                    layout_undo: Default::default(),
                 }],
                 active_screen: 0,
             }],
@@ -8978,6 +10182,950 @@ mod tests {
             assert!(s.workspaces[0].screens.is_empty());
             assert_eq!(s.workspace_revision, 1);
         });
+    }
+
+    #[test]
+    fn new_pane_right_wraps_the_screen_in_a_viewport_split() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((38, 22))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+
+        let appended =
+            mux.new_pane_right(second_pane, DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22))).unwrap();
+        let appended_pane = mux.with_state(|state| state.pane_of(appended.id).unwrap());
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.active_pane, appended_pane);
+            assert_eq!(screen.zoomed_pane, None);
+            assert_eq!(screen.viewport_splits.len(), 1);
+            let Node::Split { id, dir, ratio, a, b } = &screen.root else {
+                panic!("viewport pane must wrap the screen root");
+            };
+            assert_eq!(*dir, SplitDir::Right);
+            assert!((*ratio - 0.6).abs() < f32::EPSILON);
+            assert!(a.contains(first_pane));
+            assert!(a.contains(second_pane));
+            assert!(matches!(b.as_ref(), Node::Leaf(pane) if *pane == appended_pane));
+            assert_eq!(screen.viewport_splits[id], DEFAULT_VIEWPORT_PANE_WIDTH);
+
+            let layout = layout_screen_with_viewport(
+                &screen.root,
+                Rect { x: 0, y: 0, width: 80, height: 24 },
+                Some(screen.active_pane),
+                screen.viewport_base_width.unwrap_or(1.0),
+                &screen.viewport_splits,
+            );
+            assert_eq!(layout.virtual_width, 133);
+            assert_eq!(layout.rect_of(first_pane).unwrap().width, 40);
+            assert_eq!(layout.rect_of(second_pane).unwrap().width, 40);
+            assert_eq!(
+                layout.rect_of(appended_pane).unwrap(),
+                VirtualRect { x: 80, y: 0, width: 53, height: 24 }
+            );
+        });
+        assert_eq!(mux.pane_neighbor(second_pane, Direction::Right).unwrap(), Some(appended_pane));
+        assert_eq!(mux.pane_neighbor(appended_pane, Direction::Left).unwrap(), Some(second_pane));
+    }
+
+    #[test]
+    fn viewport_neighbor_navigation_remains_adjacent_past_u16_layout_extent() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut panes = vec![first_pane];
+
+        for _ in 0..12 {
+            let previous = *panes.last().unwrap();
+            let surface =
+                mux.new_pane_right(previous, DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22))).unwrap();
+            panes.push(mux.with_state(|state| state.pane_of(surface.id).unwrap()));
+        }
+
+        for pair in panes.windows(2) {
+            let [left, right] = pair else { unreachable!() };
+            assert_eq!(mux.pane_neighbor(*left, Direction::Right).unwrap(), Some(*right));
+            assert_eq!(mux.pane_neighbor(*right, Direction::Left).unwrap(), Some(*left));
+            assert_eq!(mux.pane_focus_neighbor(*left, Direction::Right).unwrap(), Some(*right));
+            assert_eq!(mux.pane_focus_neighbor(*right, Direction::Left).unwrap(), Some(*left));
+        }
+    }
+
+    #[test]
+    fn new_pane_right_rejects_invalid_width_before_spawning() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let surfaces = mux.with_state(|state| state.surfaces.len());
+
+        assert!(mux.new_pane_right(pane, 0.0, None).is_err());
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), surfaces);
+    }
+
+    #[test]
+    fn new_pane_right_discards_spawn_when_target_disappears_before_attachment() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let weak = Arc::downgrade(&mux);
+        *mux.viewport_split_after_spawn.lock().unwrap() = Some(Arc::new(move || {
+            weak.upgrade().unwrap().close_pane(first_pane).unwrap();
+        }));
+
+        let error = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap_err();
+
+        assert_eq!(error.to_string(), "pane creation failed");
+        mux.with_state(|state| {
+            assert!(state.surfaces.is_empty());
+            assert!(state.panes.is_empty());
+            assert!(state.workspaces[0].screens.is_empty());
+        });
+    }
+
+    #[test]
+    fn viewport_columns_resize_independently() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((38, 22))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        let appended =
+            mux.new_pane_right(second_pane, DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22))).unwrap();
+        let appended_pane = mux.with_state(|state| state.pane_of(appended.id).unwrap());
+
+        assert!(mux.set_viewport_pane_width(first_pane, 0.75));
+        assert!(mux.set_viewport_pane_width(appended_pane, 0.5));
+        assert!(!mux.set_viewport_pane_width(appended_pane, 0.0));
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.viewport_base_width, Some(0.75));
+            let appended_split = match screen
+                .root
+                .viewport_column_owner(appended_pane, &screen.viewport_splits)
+                .unwrap()
+            {
+                ViewportColumn::Split(split) => split,
+                ViewportColumn::Base => panic!("appended pane must own a viewport split"),
+            };
+            assert_eq!(screen.viewport_splits[&appended_split], 0.5);
+            let Node::Split { ratio, .. } = &screen.root else {
+                panic!("viewport layout must retain its root split");
+            };
+            assert!((*ratio - 0.6).abs() < f32::EPSILON);
+
+            let layout = layout_screen_with_viewport(
+                &screen.root,
+                Rect { x: 0, y: 0, width: 80, height: 24 },
+                Some(screen.active_pane),
+                screen.viewport_base_width.unwrap(),
+                &screen.viewport_splits,
+            );
+            assert_eq!(layout.virtual_width, 100);
+            assert_eq!(layout.rect_of(first_pane).unwrap().width, 30);
+            assert_eq!(layout.rect_of(second_pane).unwrap().width, 30);
+            assert_eq!(
+                layout.rect_of(appended_pane).unwrap(),
+                VirtualRect { x: 60, y: 0, width: 40, height: 24 }
+            );
+        });
+    }
+
+    #[test]
+    fn projected_viewport_split_ratio_resizes_the_authoritative_column() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let appended = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let appended_pane = mux.with_state(|state| state.pane_of(appended.id).unwrap());
+        let split = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            match &screen.root {
+                Node::Split { id, .. } => *id,
+                _ => panic!("viewport layout must expose a compatibility split"),
+            }
+        });
+
+        let events = mux.subscribe();
+        assert!(mux.set_split_ratio_checked(split, 0.5).is_ok());
+        assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(_)));
+        let after_change = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            (screen.layout_revision, screen.layout_undo.len())
+        });
+        assert!(mux.set_split_ratio_checked(split, 0.5).is_ok());
+        assert!(matches!(
+            mux.set_split_ratio_checked(split, 0.25),
+            Err(LayoutRatioError::UnrepresentableViewportWidth { split: rejected, .. })
+                if rejected == split
+        ));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!((screen.layout_revision, screen.layout_undo.len()), after_change);
+            assert_eq!(screen.viewport_splits[&split], 1.0);
+            assert_eq!(
+                screen
+                    .layout_columns
+                    .iter()
+                    .find(|column| column.root.contains(appended_pane))
+                    .map(|column| column.width),
+                Some(1.0)
+            );
+            assert!(matches!(
+                &screen.root,
+                Node::Split { id, ratio, .. }
+                    if *id == split && (*ratio - 0.5).abs() < f32::EPSILON
+            ));
+            assert!(state.split_screens.contains_key(&split));
+        });
+        assert!(events.try_iter().next().is_none());
+    }
+
+    fn seed_high_ratio_viewport_projection() -> (Arc<Mux>, PaneId, SplitId) {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let middle = mux.new_pane_right(first_pane, 1.0, Some((78, 22))).unwrap();
+        let middle_pane = mux.with_state(|state| state.pane_of(middle.id).unwrap());
+        let right =
+            mux.new_pane_right(middle_pane, MIN_VIEWPORT_PANE_WIDTH, Some((6, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let split = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let Node::Split { id, ratio, .. } = &screen.root else {
+                panic!("three columns should expose a projected root split");
+            };
+            assert!((*ratio - (2.0 / 2.1)).abs() < f32::EPSILON);
+            *id
+        });
+        (mux, right_pane, split)
+    }
+
+    fn assert_high_ratio_projection_resize_applied(
+        mux: &Mux,
+        expected_width: f32,
+        undo_count_before: usize,
+    ) {
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert!(
+                (screen.layout_columns[2].width - expected_width).abs() < 1e-6,
+                "projected ratio should update authoritative width: {:?}",
+                screen.layout_columns
+            );
+            assert_eq!(screen.layout_undo.len(), undo_count_before + 1);
+            assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
+    fn maximum_projected_split_ratio_still_resizes_authoritative_column() {
+        let (mux, _right_pane, split) = seed_high_ratio_viewport_projection();
+        let expected_width = 2.0 * (1.0 - 0.95) / 0.95;
+        let undo_count_before =
+            mux.with_state(|state| state.workspaces[0].screens[0].layout_undo.len());
+        let events = mux.subscribe();
+
+        assert!(mux.set_split_ratio_checked(split, 0.95).is_ok());
+
+        assert_high_ratio_projection_resize_applied(&mux, expected_width, undo_count_before);
+        assert!(matches!(events.try_recv(), Ok(MuxEvent::LayoutChanged(_))));
+    }
+
+    #[test]
+    fn maximum_pane_addressed_ratio_still_resizes_authoritative_column() {
+        let (mux, right_pane, _split) = seed_high_ratio_viewport_projection();
+        let expected_width = 2.0 * (1.0 - 0.95) / 0.95;
+        let undo_count_before =
+            mux.with_state(|state| state.workspaces[0].screens[0].layout_undo.len());
+        let events = mux.subscribe();
+
+        assert!(mux.set_ratio_checked(right_pane, SplitDir::Right, 0.95).is_ok());
+
+        assert_high_ratio_projection_resize_applied(&mux, expected_width, undo_count_before);
+        assert!(matches!(events.try_recv(), Ok(MuxEvent::TreeChanged)));
+        assert!(matches!(events.try_recv(), Ok(MuxEvent::LayoutChanged(_))));
+    }
+
+    #[test]
+    fn set_ratio_resizes_a_projected_viewport_split() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+
+        assert!(mux.set_ratio_checked(first_pane, SplitDir::Right, 0.5).is_ok());
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let Node::Split { id, ratio, .. } = &screen.root else {
+                panic!("viewport layout must expose a compatibility split");
+            };
+            assert!((*ratio - 0.5).abs() < f32::EPSILON);
+            assert_eq!(screen.viewport_splits[id], 1.0);
+            assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
+    fn new_pane_right_inserts_after_the_target_viewport_column() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        let middle = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let middle_pane = mux.with_state(|state| state.pane_of(middle.id).unwrap());
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let layout = layout_screen_with_viewport(
+                &screen.root,
+                Rect { x: 0, y: 0, width: 80, height: 24 },
+                Some(screen.active_pane),
+                screen.viewport_base_width.unwrap(),
+                &screen.viewport_splits,
+            );
+            assert_eq!(
+                layout.panes.iter().map(|(pane, _)| *pane).collect::<Vec<_>>(),
+                vec![first_pane, middle_pane, second_pane]
+            );
+            assert_eq!(layout.rect_of(first_pane).unwrap().x, 0);
+            assert_eq!(layout.rect_of(middle_pane).unwrap().x, 80);
+            assert_eq!(layout.rect_of(second_pane).unwrap().x, 120);
+        });
+    }
+
+    #[test]
+    fn viewport_self_swap_is_a_noop_without_undo_history_or_events() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let before = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            (screen.layout_revision, screen.layout_undo.len(), format!("{:?}", screen.root))
+        });
+        let events = mux.subscribe();
+
+        assert!(!mux.swap_panes(right_pane, right_pane));
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.layout_revision, before.0);
+            assert_eq!(screen.layout_undo.len(), before.1);
+            assert_eq!(format!("{:?}", screen.root), before.2);
+        });
+        assert!(events.try_iter().next().is_none());
+    }
+
+    #[test]
+    fn zellij_new_pane_rebalances_only_the_focused_layout_column() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        let right_added = mux.new_pane(right_pane, Some((38, 10))).unwrap();
+        let right_added_pane = mux.with_state(|state| state.pane_of(right_added.id).unwrap());
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.layout_columns.len(), 2);
+            assert_eq!(screen.layout_columns[0].root.pane_ids_vec(), vec![first_pane]);
+            assert_eq!(
+                screen.layout_columns[1].root.pane_ids_vec(),
+                vec![right_pane, right_added_pane]
+            );
+            assert_eq!(
+                screen.layout_columns[1].zellij_auto_layout.as_deref(),
+                Some([right_pane, right_added_pane].as_slice())
+            );
+            assert_eq!(screen.viewport_splits.len(), 1);
+        });
+
+        let left_added = mux.new_pane(first_pane, Some((38, 10))).unwrap();
+        let left_added_pane = mux.with_state(|state| state.pane_of(left_added.id).unwrap());
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(
+                screen.layout_columns[0].root.pane_ids_vec(),
+                vec![first_pane, left_added_pane]
+            );
+            assert_eq!(
+                screen.layout_columns[1].root.pane_ids_vec(),
+                vec![right_pane, right_added_pane]
+            );
+            assert_eq!(screen.viewport_base_width, Some(1.0));
+            assert_eq!(screen.viewport_splits.values().copied().collect::<Vec<_>>(), vec![0.5]);
+            assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
+    fn layout_undo_removes_only_the_pane_created_in_the_focused_column() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let added = mux.new_pane(right_pane, Some((38, 10))).unwrap();
+        let added_pane = mux.with_state(|state| state.pane_of(added.id).unwrap());
+
+        let LayoutUndoResult::ConfirmationRequired { revision, closes_panes, .. } =
+            mux.undo_layout(added_pane, None, false).unwrap()
+        else {
+            panic!("new pane undo must require confirmation");
+        };
+        assert_eq!(closes_panes, vec![added_pane]);
+        assert!(matches!(
+            mux.undo_layout(added_pane, Some(revision), true).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+
+        assert!(mux.surface(added.id).is_none());
+        assert!(mux.surface(right.id).is_some());
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.layout_columns.len(), 2);
+            assert_eq!(screen.layout_columns[0].root.pane_ids_vec(), vec![first_pane]);
+            assert_eq!(screen.layout_columns[1].root.pane_ids_vec(), vec![right_pane]);
+            assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
+    fn layout_undo_confirmation_fences_exact_created_pane_tab_membership() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        let LayoutUndoResult::ConfirmationRequired { revision, .. } =
+            mux.undo_layout(right_pane, None, false).unwrap()
+        else {
+            panic!("pane creation undo must require confirmation");
+        };
+        let late_tab = mux.new_tab(Some(right_pane), None, Some((38, 22))).unwrap();
+
+        let error = mux.undo_layout(right_pane, Some(revision), true).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<LayoutUndoError>(),
+            Some(LayoutUndoError::Stale(message))
+                if message.contains("tabs in pane") && message.contains("changed")
+        ));
+        assert!(mux.surface(right.id).is_some());
+        assert!(mux.surface(late_tab.id).is_some());
+
+        let LayoutUndoResult::ConfirmationRequired { revision: refreshed, .. } =
+            mux.undo_layout(right_pane, None, false).unwrap()
+        else {
+            panic!("a fresh preview must capture the new tab membership");
+        };
+        assert!(refreshed > revision);
+        assert!(matches!(
+            mux.undo_layout(right_pane, Some(refreshed), true).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        assert!(mux.surface(right.id).is_none());
+        assert!(mux.surface(late_tab.id).is_none());
+    }
+
+    #[test]
+    fn layout_undo_public_edge_failures_are_typed() {
+        let mux = test_mux();
+        let unknown_pane = mux.undo_layout(u64::MAX, None, false).unwrap_err();
+
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let LayoutUndoResult::ConfirmationRequired { .. } =
+            mux.undo_layout(right_pane, None, false).unwrap()
+        else {
+            panic!("pane creation undo must require confirmation");
+        };
+        let missing_revision = mux.undo_layout(right_pane, None, true).unwrap_err();
+
+        assert_eq!(
+            [
+                matches!(
+                    unknown_pane.downcast_ref::<LayoutUndoError>(),
+                    Some(LayoutUndoError::Stale(_))
+                ),
+                matches!(
+                    missing_revision.downcast_ref::<LayoutUndoError>(),
+                    Some(LayoutUndoError::Stale(_))
+                ),
+            ],
+            [true, true],
+            "public layout-undo edge failures must preserve their typed error"
+        );
+    }
+
+    #[test]
+    fn layout_undo_coalesces_resize_and_fences_pane_closure() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.6, 7, 11));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert!(
+                screen
+                    .layout_snapshot_for_coalescing_change(Some(LayoutMutationKey::Resize {
+                        owner: LayoutResizeOwner::ControlClient(7),
+                        transaction: 11,
+                    }))
+                    .is_none(),
+                "continuation samples must reuse the transaction's first snapshot"
+            );
+        });
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 7, 11));
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.layout_columns[1].width, 0.5);
+        });
+
+        let LayoutUndoResult::ConfirmationRequired { revision, closes_panes, .. } =
+            mux.undo_layout(right_pane, None, false).unwrap()
+        else {
+            panic!("pane creation undo must require confirmation");
+        };
+        assert_eq!(closes_panes, vec![right_pane]);
+        assert!(
+            mux.undo_layout(right_pane, None, true)
+                .unwrap_err()
+                .to_string()
+                .contains("requires the preview revision")
+        );
+        assert!(
+            mux.undo_layout(right_pane, Some(revision.saturating_sub(1)), true)
+                .unwrap_err()
+                .to_string()
+                .contains("revision conflict")
+        );
+        assert!(mux.surface(right.id).is_some());
+
+        assert!(matches!(
+            mux.undo_layout(right_pane, Some(revision), true).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        assert!(mux.surface(right.id).is_none());
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert!(!screen.layout_columns_active());
+            assert!(screen.viewport_splits.is_empty());
+            assert_eq!(screen.root.pane_ids_vec(), vec![first_pane]);
+            assert_eq!(screen.active_pane, first_pane);
+            assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
+    fn layout_undo_preserves_focus_when_the_current_pane_survives() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        assert!(mux.focus_pane(first_pane));
+        assert!(mux.set_viewport_pane_width(right_pane, 0.7));
+        assert!(mux.focus_pane(right_pane));
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.active_pane, right_pane);
+            assert_eq!(screen.layout_columns[1].width, 0.5);
+        });
+    }
+
+    #[test]
+    fn layout_undo_restores_focus_to_the_restored_zoomed_pane() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.split(first_pane, SplitDir::Right, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        assert!(mux.focus_pane(first_pane));
+        mux.zoom_pane(Some(first_pane), ZoomMode::On).unwrap();
+        mux.zoom_pane(Some(first_pane), ZoomMode::Off).unwrap();
+        assert!(mux.focus_pane(right_pane));
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.zoomed_pane, Some(first_pane));
+            assert_eq!(screen.active_pane, first_pane);
+            assert_eq!(state.active_pane(), Some(first_pane));
+        });
+    }
+
+    #[test]
+    fn layout_undo_preserves_inactive_stack_selection() {
+        let mux = test_mux();
+        let applied = mux
+            .apply_layout(
+                None,
+                None,
+                &split_spec(
+                    SplitDir::Right,
+                    0.5,
+                    LayoutSpec::Stack { pane_count: 2, expanded_index: 0 },
+                    LayoutSpec::Stack { pane_count: 2, expanded_index: 0 },
+                ),
+                Some((80, 22)),
+            )
+            .unwrap();
+        let [left_first, left_second, right_first, _right_second] =
+            applied.panes.iter().map(|pane| pane.pane).collect::<Vec<_>>()[..]
+        else {
+            panic!("two two-pane stacks should create four panes");
+        };
+        {
+            let mut state = mux.state.lock().unwrap();
+            let screen = &mut state.workspaces[0].screens[0];
+            let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
+            let Node::Split { id, a, b, .. } = root else {
+                panic!("test layout should have two stack branches");
+            };
+            screen.layout_columns = vec![
+                LayoutColumn { id: mux.next_id(), width: 1.0, root: *a, zellij_auto_layout: None },
+                LayoutColumn { id, width: 0.5, root: *b, zellij_auto_layout: None },
+            ];
+            screen.sync_layout_column_projection();
+            Mux::rebuild_split_screen_index(&mut state);
+        }
+
+        assert!(mux.focus_pane(right_first));
+        assert!(mux.set_viewport_pane_width(right_first, 0.7));
+        assert!(mux.focus_pane(left_second));
+        assert!(mux.focus_pane(right_first));
+        assert!(matches!(
+            mux.undo_layout(right_first, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.active_pane, right_first);
+            assert!(matches!(
+                &screen.layout_columns[0].root,
+                Node::Stack { expanded, .. } if *expanded == left_second
+            ));
+            assert!(!matches!(
+                &screen.layout_columns[0].root,
+                Node::Stack { expanded, .. } if *expanded == left_first
+            ));
+            assert!(matches!(
+                &screen.root,
+                Node::Split { a, .. }
+                    if matches!(
+                        a.as_ref(),
+                        Node::Stack { expanded, .. } if *expanded == left_second
+                    )
+            ));
+            assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
+    fn layout_undo_coalesces_every_target_in_one_resize_transaction() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let bottom = mux.split(right_pane, SplitDir::Down, Some((38, 10))).unwrap();
+        let bottom_pane = mux.with_state(|state| state.pane_of(bottom.id).unwrap());
+        let (split, initial_ratio, initial_undo_len) = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let Node::Split { id, ratio, .. } = &screen.layout_columns[1].root else {
+                panic!("right viewport column must contain the vertical split");
+            };
+            (*id, *ratio, screen.layout_undo.len())
+        });
+
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 9, 41));
+        assert!(mux.set_split_ratio_in_transaction_checked(split, 0.7, 9, 41).is_ok());
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.layout_undo.len(), initial_undo_len + 1);
+        });
+
+        assert!(matches!(
+            mux.undo_layout(bottom_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.layout_columns[1].width, 0.5);
+            let Node::Split { ratio, .. } = &screen.layout_columns[1].root else {
+                panic!("right viewport column must retain the vertical split");
+            };
+            assert!((*ratio - initial_ratio).abs() < f32::EPSILON);
+            assert_eq!(screen.layout_undo.len(), initial_undo_len);
+        });
+    }
+
+    #[test]
+    fn layout_undo_separates_resize_transactions_and_clients() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.6, 1, 1));
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 1, 1));
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.8, 1, 2));
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.65, 2, 2));
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].screens[0].layout_columns[1].width, 0.8);
+        });
+
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].screens[0].layout_columns[1].width, 0.7);
+        });
+
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].screens[0].layout_columns[1].width, 0.5);
+        });
+    }
+
+    #[test]
+    fn layout_undo_separates_in_process_and_control_resize_owners_with_same_ids() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        // These model independent in-process and control-client entrypoints
+        // that happen to allocate the same numeric owner and transaction ids.
+        assert!(
+            mux.set_viewport_pane_width_in_process_transaction_checked(right_pane, 0.6, 1, 1)
+                .is_ok()
+        );
+        assert!(mux.set_viewport_pane_width_in_transaction(right_pane, 0.7, 1, 1));
+
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].screens[0].layout_columns[1].width, 0.6);
+        });
+
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].screens[0].layout_columns[1].width, 0.5);
+        });
+    }
+
+    #[test]
+    fn in_process_resize_owner_allocation_is_mux_scoped() {
+        let first = test_mux();
+        assert_eq!(first.allocate_in_process_resize_owner(), 1);
+        assert_eq!(first.allocate_in_process_resize_owner(), 2);
+
+        let second = test_mux();
+        assert_eq!(second.allocate_in_process_resize_owner(), 1);
+    }
+
+    #[test]
+    fn layout_undo_separates_a_new_resize_from_pre_undo_history() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        assert!(mux.set_viewport_pane_width(right_pane, 0.6));
+        assert!(mux.set_viewport_pane_width(first_pane, 0.9));
+        assert!(matches!(
+            mux.undo_layout(first_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+
+        assert!(mux.set_viewport_pane_width(right_pane, 0.7));
+        assert!(matches!(
+            mux.undo_layout(right_pane, None, false).unwrap(),
+            LayoutUndoResult::Undone { .. }
+        ));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.layout_columns[0].width, 1.0);
+            assert_eq!(screen.layout_columns[1].width, 0.6);
+        });
+    }
+
+    #[test]
+    fn closing_a_pane_invalidates_layout_undo_history() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+        assert!(mux.close_pane(right_pane).unwrap());
+        let error = mux.undo_layout(first_pane, None, false).unwrap_err();
+
+        assert_eq!(error.to_string(), "no layout change to undo");
+        assert!(mux.surface(right.id).is_none());
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert!(!screen.layout_columns_active());
+            assert!(screen.layout_column_projection_is_consistent());
+        });
+    }
+
+    #[test]
+    fn closing_the_base_viewport_column_preserves_the_promoted_width() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let middle = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let middle_pane = mux.with_state(|state| state.pane_of(middle.id).unwrap());
+        let right = mux.new_pane_right(middle_pane, 0.4, Some((30, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        assert!(mux.set_viewport_pane_width(first_pane, 0.75));
+
+        assert!(mux.close_pane(first_pane).unwrap());
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.viewport_base_width, Some(0.5));
+            assert_eq!(
+                screen.root.viewport_column_owner(middle_pane, &screen.viewport_splits),
+                Some(ViewportColumn::Base)
+            );
+            let ViewportColumn::Split(right_split) =
+                screen.root.viewport_column_owner(right_pane, &screen.viewport_splits).unwrap()
+            else {
+                panic!("right pane must remain an appended column");
+            };
+            assert_eq!(screen.viewport_splits[&right_split], 0.4);
+            let Node::Split { ratio, .. } = &screen.root else {
+                panic!("two viewport columns must retain one split");
+            };
+            assert!((*ratio - (0.5 / 0.9)).abs() < 0.0001);
+        });
+    }
+
+    #[test]
+    fn closing_a_middle_viewport_column_recomputes_fallback_ratios() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let middle = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let middle_pane = mux.with_state(|state| state.pane_of(middle.id).unwrap());
+        let right = mux.new_pane_right(middle_pane, 0.4, Some((30, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        assert!(mux.set_viewport_pane_width(first_pane, 0.75));
+
+        assert!(mux.close_pane(middle_pane).unwrap());
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.viewport_base_width, Some(0.75));
+            let ViewportColumn::Split(right_split) =
+                screen.root.viewport_column_owner(right_pane, &screen.viewport_splits).unwrap()
+            else {
+                panic!("right pane must remain appended");
+            };
+            assert_eq!(screen.viewport_splits.len(), 1);
+            assert_eq!(screen.viewport_splits[&right_split], 0.4);
+            let Node::Split { ratio, .. } = &screen.root else {
+                panic!("two viewport columns must retain one split");
+            };
+            assert!((*ratio - (0.75 / 1.15)).abs() < 0.0001);
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discard_spawned_restores_unbound_running_terminal_when_registry_close_fails() {
+        const TERMINAL: &str = "00000000000040008000000000000012";
+        const INCARNATION: &str = "10000000000040008000000000000012";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001012".into()), None)
+            .unwrap();
+        let surface =
+            insert_running_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &workspace.key);
+        {
+            let mut state = mux.state.lock().unwrap();
+            let (removed, split_index_dirty) = remove_surface(&mux, &mut state, surface.id);
+            if split_index_dirty {
+                Mux::rebuild_split_screen_index(&mut state);
+            }
+            insert_surface_checked(
+                &mut state,
+                removed.expect("seeded terminal is removable from topology"),
+            )
+            .unwrap();
+        }
+        assert_eq!(mux.with_state(|state| state.pane_of(surface.id)), None);
+        let events = mux.subscribe();
+        mux.workspace_registry.lock().unwrap().set_terminal_close_failure(true).unwrap();
+
+        mux.discard_spawned(vec![surface.clone()]);
+
+        let restored = mux
+            .with_state(|state| state.pane_of(surface.id))
+            .expect("failed close must project the terminal back into reachable topology");
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+        assert!(events.try_iter().any(|event| {
+            matches!(event, MuxEvent::Status(message)
+                if message.contains("could not atomically close discarded terminals"))
+        }));
+
+        mux.workspace_registry.lock().unwrap().set_terminal_close_failure(false).unwrap();
+        assert!(mux.close_pane(restored).unwrap());
     }
 
     #[cfg(unix)]
@@ -9653,6 +11801,57 @@ mod tests {
     }
 
     #[test]
+    fn surface_session_subscription_tracks_real_tab_moves_without_layout_churn() {
+        let mux = test_mux();
+        let source_workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let target = mux
+            .create_browser_surface_in_workspace(
+                source_workspace.workspace,
+                "about:blank#target".into(),
+                Some((80, 24)),
+            )
+            .unwrap();
+        let destination_workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let destination = mux
+            .create_browser_surface_in_workspace(
+                destination_workspace.workspace,
+                "about:blank#destination".into(),
+                Some((80, 24)),
+            )
+            .unwrap();
+        let (source_screen, destination_screen, destination_pane) = mux.with_state(|state| {
+            let source_pane = state.pane_of(target.id).unwrap();
+            let destination_pane = state.pane_of(destination.id).unwrap();
+            let (source_workspace_index, source_screen_index) =
+                state.screen_of(source_pane).unwrap();
+            let (destination_workspace_index, destination_screen_index) =
+                state.screen_of(destination_pane).unwrap();
+            (
+                state.workspaces[source_workspace_index].screens[source_screen_index].id,
+                state.workspaces[destination_workspace_index].screens[destination_screen_index].id,
+                destination_pane,
+            )
+        });
+        let events = mux.subscribe_surface_session(target.id).unwrap();
+
+        assert!(mux.move_tab(target.id, destination_pane, 0));
+        mux.emit(MuxEvent::LayoutChanged(source_screen));
+        mux.emit(MuxEvent::LayoutChanged(destination_screen));
+
+        let received = events.try_iter().collect::<Vec<_>>();
+        assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
+        let layouts = received
+            .iter()
+            .filter_map(|event| match event {
+                MuxEvent::LayoutChanged(screen) => Some(*screen),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(layouts.is_empty());
+        mux.shutdown();
+    }
+
+    #[test]
     fn move_tab_does_not_emit_layout_for_a_removed_source_screen() {
         let mux = test_mux();
         let source = mux.new_workspace(None, None).unwrap();
@@ -9677,7 +11876,7 @@ mod tests {
         let mux = test_mux();
         let (p1, p2, p3) = seed_split_ratio_tree(&mux);
 
-        assert!(mux.set_ratio(p1, SplitDir::Right, 0.8));
+        assert!(mux.set_ratio_checked(p1, SplitDir::Right, 0.8).is_ok());
         mux.with_state(|s| {
             let root = &s.workspaces[0].screens[0].root;
             let Node::Split { ratio: root_ratio, a, .. } = root else {
@@ -9690,7 +11889,7 @@ mod tests {
             assert_eq!(*inner_ratio, 0.8);
         });
 
-        assert!(mux.set_ratio(p2, SplitDir::Right, -1.0));
+        assert!(mux.set_ratio_checked(p2, SplitDir::Right, -1.0).is_ok());
         mux.with_state(|s| {
             let Node::Split { ratio, .. } = &s.workspaces[0].screens[0].root else {
                 panic!("root should be split");
@@ -9698,7 +11897,7 @@ mod tests {
             assert_eq!(*ratio, 0.05);
         });
 
-        assert!(mux.set_ratio(p3, SplitDir::Right, 2.0));
+        assert!(mux.set_ratio_checked(p3, SplitDir::Right, 2.0).is_ok());
         mux.with_state(|s| {
             let Node::Split { a, .. } = &s.workspaces[0].screens[0].root else {
                 panic!("root should be split");
@@ -9709,7 +11908,40 @@ mod tests {
             assert_eq!(*ratio, 0.95);
         });
 
-        assert!(!mux.set_ratio(9999, SplitDir::Right, 0.4));
+        assert!(matches!(
+            mux.set_ratio_checked(9999, SplitDir::Right, 0.4),
+            Err(LayoutRatioError::UnknownPaneSplit { pane: 9999 })
+        ));
+    }
+
+    #[test]
+    fn unchanged_ratio_commands_preserve_undo_metadata_revision_and_events() {
+        let mux = test_mux();
+        let (p1, _, _) = seed_split_ratio_tree(&mux);
+        mux.state.lock().unwrap().workspaces[0].screens[0].zellij_auto_layout = Some(vec![1, 2, 3]);
+        let before = mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            (screen.layout_revision, screen.layout_undo.len(), screen.zellij_auto_layout.clone())
+        });
+        let events = mux.subscribe();
+
+        assert!(mux.set_split_ratio_checked(10, 0.5).is_ok());
+        assert!(mux.set_ratio_checked(p1, SplitDir::Right, 0.5).is_ok());
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(
+                (
+                    screen.layout_revision,
+                    screen.layout_undo.len(),
+                    screen.zellij_auto_layout.clone(),
+                ),
+                before
+            );
+            assert!(state.split_screens.contains_key(&10));
+            assert!(state.split_screens.contains_key(&11));
+        });
+        assert!(events.try_iter().next().is_none());
     }
 
     #[test]
@@ -9719,7 +11951,7 @@ mod tests {
         mux.state.lock().unwrap().workspaces[0].screens[0].zellij_auto_layout = Some(vec![1, 2, 3]);
         let events = mux.subscribe();
 
-        assert!(mux.set_split_ratio(10, 2.0));
+        assert!(mux.set_split_ratio_checked(10, 2.0).is_ok());
         mux.with_state(|s| {
             let Node::Split { id, ratio: root_ratio, a, .. } = &s.workspaces[0].screens[0].root
             else {
@@ -9736,7 +11968,10 @@ mod tests {
         });
         assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(1)));
         assert!(events.try_recv().is_err());
-        assert!(!mux.set_split_ratio(9999, 0.4));
+        assert!(matches!(
+            mux.set_split_ratio_checked(9999, 0.4),
+            Err(LayoutRatioError::UnknownSplit { split: 9999 })
+        ));
     }
 
     #[test]
@@ -9770,7 +12005,7 @@ mod tests {
             assert_eq!(state.split_screens.get(&nested).map(|location| location.2), Some(screen));
         });
         assert!(mux.swap_panes(p1, p3));
-        assert!(mux.set_split_ratio(original, 0.7));
+        assert!(mux.set_split_ratio_checked(original, 0.7).is_ok());
 
         mux.with_state(|s| {
             let Node::Split { id, ratio, .. } = &s.workspaces[0].screens[0].root else {

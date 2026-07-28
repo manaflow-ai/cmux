@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -36,14 +37,89 @@ func validateWorkspaceSelector(workspace *uint64, key *string) error {
 	return nil
 }
 
+func validateViewportPaneWidth(width float32) error {
+	value := float64(width)
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0.1 || value > 1.0 {
+		return fmt.Errorf(
+			"%w: viewport pane width must be between 0.1 and 1.0",
+			ErrInvalidArgument,
+		)
+	}
+	return nil
+}
+
+type layoutUndoWire struct {
+	Undone               *bool     `json:"undone"`
+	ConfirmationRequired *bool     `json:"confirmation_required"`
+	Screen               *uint64   `json:"screen"`
+	Revision             *uint64   `json:"revision"`
+	ClosesPanes          *[]uint64 `json:"closes_panes"`
+}
+
+func decodeLayoutUndoResult(wire layoutUndoWire) (LayoutUndoResult, error) {
+	if wire.Screen == nil {
+		return nil, &decodeError{msg: "layout undo response omitted screen"}
+	}
+	if wire.Revision == nil {
+		return nil, &decodeError{msg: "layout undo response omitted revision"}
+	}
+
+	switch {
+	case wire.Undone != nil &&
+		*wire.Undone &&
+		(wire.ConfirmationRequired == nil || !*wire.ConfirmationRequired):
+		return LayoutUndoUndone{Screen: *wire.Screen, Revision: *wire.Revision}, nil
+	case wire.Undone != nil &&
+		!*wire.Undone &&
+		wire.ConfirmationRequired != nil &&
+		*wire.ConfirmationRequired:
+		if wire.ClosesPanes == nil {
+			return nil, &decodeError{
+				msg: "layout undo confirmation closes_panes must be an array of pane IDs",
+			}
+		}
+		return LayoutUndoConfirmationRequired{
+			Screen: *wire.Screen, Revision: *wire.Revision, ClosesPanes: *wire.ClosesPanes,
+		}, nil
+	default:
+		return nil, &decodeError{
+			msg: "layout undo response does not contain exactly one valid outcome",
+		}
+	}
+}
+
 type CommandError struct {
-	Message string
-	ID      any
+	Message   string
+	ID        any
+	ErrorCode string
+	Delivery  ErrorDelivery
 }
 
 func (e *CommandError) Error() string { return e.Message }
 func (e *CommandError) Is(target error) bool {
 	return target == ErrCommand
+}
+
+type ErrorDelivery string
+
+const (
+	ErrorDeliveryKnownNotDelivered ErrorDelivery = "known-not-delivered"
+	ErrorDeliveryAmbiguous         ErrorDelivery = "ambiguous"
+)
+
+func commandErrorFromResponse(response map[string]any) *CommandError {
+	msg, _ := response["error"].(string)
+	if msg == "" {
+		msg = "unknown error"
+	}
+	code, _ := response["error_code"].(string)
+	delivery, _ := response["error_delivery"].(string)
+	return &CommandError{
+		Message:   msg,
+		ID:        response["id"],
+		ErrorCode: code,
+		Delivery:  ErrorDelivery(delivery),
+	}
 }
 
 type connectionError struct{ msg string }
@@ -196,11 +272,7 @@ func (c *Client) request(ctx context.Context, cmd string, params map[string]any,
 		}
 		return nil
 	}
-	msg, _ := response["error"].(string)
-	if msg == "" {
-		msg = "unknown error"
-	}
-	return &CommandError{Message: msg, ID: response["id"]}
+	return commandErrorFromResponse(response)
 }
 
 func (c *Client) nextRequestID() uint64 {
@@ -270,6 +342,50 @@ func (c *Client) ListWorkspaces(ctx context.Context) (Tree, error) {
 	return result, c.request(ctx, "list-workspaces", nil, &result)
 }
 
+func (c *Client) ListClients(ctx context.Context) ([]ClientInfo, error) {
+	var result []ClientInfo
+	err := c.request(ctx, "list-clients", nil, &result)
+	return result, err
+}
+
+func (c *Client) SetClientSizing(
+	ctx context.Context,
+	surface uint64,
+	client uint64,
+	enabled bool,
+) error {
+	if err := c.requireProtocol(ctx, 10, "set-client-sizing"); err != nil {
+		return err
+	}
+	return c.request(ctx, "set-client-sizing", map[string]any{
+		"surface": surface,
+		"client":  client,
+		"enabled": enabled,
+	}, nil)
+}
+
+func (c *Client) UseOnlyClientSize(ctx context.Context, surface uint64, client uint64) error {
+	if err := c.requireProtocol(ctx, 10, "set-client-sizing"); err != nil {
+		return err
+	}
+	return c.request(ctx, "set-client-sizing", map[string]any{
+		"surface":   surface,
+		"client":    client,
+		"enabled":   true,
+		"exclusive": true,
+	}, nil)
+}
+
+func (c *Client) UseAllClientSizes(ctx context.Context, surface uint64) error {
+	if err := c.requireProtocol(ctx, 10, "set-client-sizing"); err != nil {
+		return err
+	}
+	return c.request(ctx, "set-client-sizing", map[string]any{
+		"surface": surface,
+		"enabled": true,
+	}, nil)
+}
+
 func (c *Client) Send(ctx context.Context, surface uint64, opts SendOptions) error {
 	params := map[string]any{"surface": surface}
 	if opts.Text != nil {
@@ -282,6 +398,40 @@ func (c *Client) Send(ctx context.Context, surface uint64, opts SendOptions) err
 		params["bytes"] = opts.Base64Bytes
 	}
 	return c.request(ctx, "send", params, nil)
+}
+
+func (c *Client) ClearHistory(ctx context.Context, surface uint64) error {
+	if err := c.requireCapability(ctx, "clear-history-v1", "clear-history"); err != nil {
+		return err
+	}
+	return c.request(ctx, "clear-history", map[string]any{"surface": surface}, nil)
+}
+
+func (c *Client) ClearHistoryWithFallback(
+	ctx context.Context,
+	surface uint64,
+	fallbackKey TerminalKeyInput,
+) error {
+	if err := c.requireCapability(ctx, "clear-history-v1", "clear-history"); err != nil {
+		return err
+	}
+	if err := c.requireCapability(
+		ctx,
+		"clear-history-key-v1",
+		"clear-history key fallback",
+	); err != nil {
+		return err
+	}
+	if len(fallbackKey.UTF8) > TerminalKeyTextMaxBytes {
+		return fmt.Errorf(
+			"%w: terminal key text exceeds the 4 KiB protocol limit",
+			ErrInvalidArgument,
+		)
+	}
+	return c.request(ctx, "clear-history", map[string]any{
+		"surface":      surface,
+		"fallback_key": fallbackKey,
+	}, nil)
 }
 
 func (c *Client) ReadScreen(ctx context.Context, surface uint64) (ReadScreenResult, error) {
@@ -345,6 +495,29 @@ func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) 
 	return result, c.request(ctx, "new-pane", params, &result)
 }
 
+func (c *Client) NewPaneRight(ctx context.Context, pane uint64, opts NewPaneRightOptions) (SurfaceResult, error) {
+	if opts.Width != nil {
+		if err := validateViewportPaneWidth(*opts.Width); err != nil {
+			return SurfaceResult{}, err
+		}
+	}
+	if err := c.requireCapability(ctx, "viewport-splits-v1", "viewport panes"); err != nil {
+		return SurfaceResult{}, err
+	}
+	params := map[string]any{"pane": pane}
+	if opts.Width != nil {
+		params["width"] = *opts.Width
+	}
+	if opts.Cols != nil {
+		params["cols"] = *opts.Cols
+	}
+	if opts.Rows != nil {
+		params["rows"] = *opts.Rows
+	}
+	var result SurfaceResult
+	return result, c.request(ctx, "new-pane-right", params, &result)
+}
+
 func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitOptions) (SurfaceResult, error) {
 	params := commandMap(opts)
 	params["pane"] = pane
@@ -358,10 +531,65 @@ func (c *Client) SetRatio(ctx context.Context, pane uint64, dir string, ratio fl
 }
 
 func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32) error {
+	return c.setSplitRatio(ctx, split, ratio, nil)
+}
+
+// SetSplitRatioInTransaction coalesces samples that share one client-scoped transaction.
+func (c *Client) SetSplitRatioInTransaction(ctx context.Context, split uint64, ratio float32, transaction uint64) error {
+	return c.setSplitRatio(ctx, split, ratio, &transaction)
+}
+
+func (c *Client) setSplitRatio(ctx context.Context, split uint64, ratio float32, transaction *uint64) error {
 	if err := c.requireProtocol(ctx, 8, "set-split-ratio"); err != nil {
 		return err
 	}
-	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
+	params := map[string]any{"split": split, "ratio": ratio}
+	if transaction != nil {
+		params["transaction"] = *transaction
+	}
+	return c.request(ctx, "set-split-ratio", params, nil)
+}
+
+func (c *Client) SetViewportPaneWidth(ctx context.Context, pane uint64, width float32) error {
+	return c.setViewportPaneWidth(ctx, pane, width, nil)
+}
+
+// SetViewportPaneWidthInTransaction coalesces samples that share one client-scoped transaction.
+func (c *Client) SetViewportPaneWidthInTransaction(ctx context.Context, pane uint64, width float32, transaction uint64) error {
+	return c.setViewportPaneWidth(ctx, pane, width, &transaction)
+}
+
+func (c *Client) setViewportPaneWidth(ctx context.Context, pane uint64, width float32, transaction *uint64) error {
+	if err := validateViewportPaneWidth(width); err != nil {
+		return err
+	}
+	if err := c.requireCapability(ctx, "viewport-column-resize-v1", "viewport pane resizing"); err != nil {
+		return err
+	}
+	params := map[string]any{"pane": pane, "width": width}
+	if transaction != nil {
+		params["transaction"] = *transaction
+	}
+	return c.request(ctx, "set-viewport-pane-width", params, nil)
+}
+
+// UndoLayout previews the latest layout undo when confirmationRevision is nil.
+// To confirm a pane-closing undo, pass the exact revision returned by
+// LayoutUndoConfirmationRequired.
+func (c *Client) UndoLayout(ctx context.Context, pane uint64, confirmationRevision *uint64) (LayoutUndoResult, error) {
+	if err := c.requireCapability(ctx, "layout-undo-v1", "layout undo"); err != nil {
+		return nil, err
+	}
+	params := map[string]any{"pane": pane}
+	if confirmationRevision != nil {
+		params["revision"] = *confirmationRevision
+		params["confirm_close"] = true
+	}
+	var wire layoutUndoWire
+	if err := c.request(ctx, "undo-layout", params, &wire); err != nil {
+		return nil, err
+	}
+	return decodeLayoutUndoResult(wire)
 }
 
 func (c *Client) SetDefaultColors(ctx context.Context, fg, bg *string) error {
@@ -574,12 +802,8 @@ func (c *Client) openStream(ctx context.Context, request map[string]any) (*Strea
 		if ok, _ := response["ok"].(bool); ok {
 			return &Stream{conn: conn, timeout: c.timeout, buffered: buffered}, nil
 		}
-		msg, _ := response["error"].(string)
-		if msg == "" {
-			msg = "unknown error"
-		}
 		_ = conn.Close()
-		return nil, &CommandError{Message: msg, ID: response["id"]}
+		return nil, commandErrorFromResponse(response)
 	}
 }
 

@@ -32,6 +32,27 @@ public final class JsonTest {
         assertReject("\"\\u１２３4\"");
         assertStringifyReject(Double.NaN);
         assertStringifyReject(Double.POSITIVE_INFINITY);
+        for (Double width : List.of(
+            Double.NaN,
+            Double.POSITIVE_INFINITY,
+            Double.NEGATIVE_INFINITY,
+            0.09,
+            1.01
+        )) {
+            try {
+                CmuxClient.validateViewportPaneWidth(width);
+                throw new AssertionError("accepted invalid viewport width: " + width);
+            } catch (IllegalArgumentException expectedError) {
+                assertEquals(
+                    "viewport pane width must be between 0.1 and 1.0",
+                    expectedError.getMessage(),
+                    "viewport width validation"
+                );
+            }
+        }
+        CmuxClient.validateViewportPaneWidth(null);
+        CmuxClient.validateViewportPaneWidth(0.1);
+        CmuxClient.validateViewportPaneWidth(1.0);
 
         CmuxEvent event = CmuxEvent.from((Map<String, Object>) Json.parse(
             "{\"event\":\"title-changed\",\"surface\":7,\"title\":\"build logs\"}"
@@ -78,10 +99,44 @@ public final class JsonTest {
         assertEquals(null, legacyTree.paneRevision(), "legacy pane revision");
         Tree revisionedTree = Tree.from(Map.of("pane_revision", 7L, "workspaces", List.of()));
         assertEquals(7L, revisionedTree.paneRevision(), "pane revision");
+        Screen viewportScreen = Screen.from((Map<String, Object>) Json.parse(
+            "{\"id\":2,\"name\":null,\"active\":true,\"active_pane\":3,"
+                + "\"layout\":{\"type\":\"leaf\",\"pane\":3},"
+                + "\"viewport_base_width\":0.75,"
+                + "\"viewport_splits\":[{\"split\":4,\"width\":0.5}],\"panes\":[]}"
+        ));
+        assertEquals(0.75, viewportScreen.viewportBaseWidth(), "viewport base width");
+        assertEquals(1, viewportScreen.viewportSplits().size(), "viewport split count");
+        assertEquals(4L, viewportScreen.viewportSplits().get(0).split(), "viewport split id");
+        assertEquals(0.5, viewportScreen.viewportSplits().get(0).width(), "viewport split width");
+        ClientInfo legacyClient = ClientInfo.from((Map<String, Object>) Json.parse(
+            "{\"client\":7,\"transport\":\"ws\",\"connected_seconds\":12,"
+                + "\"attached\":[31,32],\"sizes\":["
+                + "{\"surface\":31,\"cols\":126,\"rows\":38},"
+                + "{\"surface\":32,\"cols\":100,\"rows\":30,\"size_participating\":true}],"
+                + "\"size_participating\":false,\"self\":true}"
+        ));
+        assertEquals(
+            Boolean.FALSE,
+            legacyClient.sizes().get(0).sizeParticipating(),
+            "legacy client sizing participation"
+        );
+        assertEquals(
+            Boolean.TRUE,
+            legacyClient.sizes().get(1).sizeParticipating(),
+            "surface sizing participation"
+        );
         Tree sourceCompatibleTree = new Tree(4, List.of());
         assertEquals(null, sourceCompatibleTree.paneRevision(), "source-compatible tree pane revision");
         Pane sourceCompatiblePane = new Pane(7, "shell", 0, List.of(), false);
         assertEquals(0L, sourceCompatiblePane.focusedAt(), "source-compatible pane focus recency");
+        CmuxCommandException sourceCompatibleCommandError =
+            new CmuxCommandException("failed", 7L, null);
+        assertEquals(
+            null,
+            sourceCompatibleCommandError.errorDelivery(),
+            "source-compatible null delivery"
+        );
 
         CreateTerminalRequest terminalRequest = CreateTerminalRequest.builder()
             .key("stable")

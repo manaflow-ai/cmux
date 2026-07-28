@@ -353,6 +353,7 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
         let capabilities = MobileHostService.mobileHostCapabilities
         #expect(capabilities.contains("workspace.actions.v1"))
+        #expect(capabilities.contains("workspace.metadata.v1"))
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))
         #expect(capabilities.contains("workspace.move.v1"))
@@ -363,9 +364,50 @@ extension MobileHostAuthorizationTests {
             "notification.feed.v1",
         ]))
     }
+    @Test func testWorkspaceChangesCapabilityFollowsFeatureFlag() {
+        let enabled = MobileHostService.mobileHostCapabilities(includingWorkspaceChanges: true)
+        let disabled = MobileHostService.mobileHostCapabilities(includingWorkspaceChanges: false)
+
+        #expect(enabled.contains(MobileHostService.workspaceChangesCapability))
+        #expect(!disabled.contains(MobileHostService.workspaceChangesCapability))
+        // The flag removes exactly the one capability and nothing else.
+        #expect(
+            enabled.filter { $0 != MobileHostService.workspaceChangesCapability } == disabled
+        )
+    }
+
+    @Test @MainActor func testMobileWorkspaceChangesFlagDefaultsAndRemoteValue() {
+        let suiteName = "cmux-tests-mobile-changes-flag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var remoteValue: Any?
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in remoteValue }
+        )
+
+        // Without a remote value the per-build default applies (DEBUG on for
+        // dogfood, Release off); tests compile DEBUG.
+        #expect(flags.isMobileWorkspaceChangesEnabled)
+
+        remoteValue = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isMobileWorkspaceChangesEnabled)
+
+        remoteValue = true
+        flags.applyLoadedFlags()
+        #expect(flags.isMobileWorkspaceChangesEnabled)
+    }
+
     // MARK: - Mobile workspace.action sub-action gate
-    @Test func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {
-        for action in ["pin", "unpin", "rename", "mark_read", "mark_unread", "PIN", "UnPin", "RENAME", "MARK_READ", "Mark_Unread"] {
+    @Test func testMobileWorkspaceActionGateAllowsIdentityAndReadStateActions() {
+        for action in [
+            "pin", "unpin", "rename",
+            "set_description", "clear_description", "set_color", "clear_color",
+            "mark_read", "mark_unread",
+            "PIN", "UnPin", "RENAME", "SET_DESCRIPTION", "CLEAR_COLOR", "MARK_READ", "Mark_Unread",
+        ] {
             #expect(
                 TerminalController.mobileAllowsWorkspaceAction(action),
                 "mobile workspace.action '\(action)' should be allowed"
@@ -374,7 +416,6 @@ extension MobileHostAuthorizationTests {
         for action in [
             "move_up", "move-down", "move_top",
             "close_others", "close_above", "close_below",
-            "set_color", "clear_color", "set_description", "clear_description",
             "clear_name", "close", "self_destruct", "",
         ] {
             #expect(
@@ -383,6 +424,7 @@ extension MobileHostAuthorizationTests {
             )
         }
         #expect(!TerminalController.mobileAllowsWorkspaceAction(nil))
+        #expect(TerminalController.mobileWorkspaceActionKey(" SET-DESCRIPTION ") == "set_description")
     }
 }
 

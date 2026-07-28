@@ -159,6 +159,9 @@ extension ControlCommandCoordinator {
                     dict["cell_height_points"] = .double(height)
                 }
             }
+            if let dockScope = pane.dockScopeRawValue {
+                dict["dock_scope"] = .string(dockScope)
+            }
             return .object(dict)
         }
 
@@ -264,17 +267,21 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Pane or workspace not found", data: nil)
         case let .resolved(snapshot, surfaceRefs, workspaceRef, paneRef, windowRef):
             let surfaces: [JSONValue] = snapshot.surfaces.enumerated().map { index, surface in
-                .object([
+                var item: [String: JSONValue] = [
                     "id": orNull(surface.surfaceID?.uuidString),
                     "ref": surfaceRefs[index],
                     "index": .int(Int64(index)),
                     "title": .string(surface.title),
                     "type": orNull(surface.typeRawValue),
                     "selected": .bool(surface.isSelected),
-                ])
+                ]
+                if let dockScope = surface.dockScopeRawValue {
+                    item["dock_scope"] = .string(dockScope)
+                }
+                return .object(item)
             }
 
-            return .ok(.object([
+            var payload: [String: JSONValue] = [
                 "workspace_id": .string(snapshot.workspaceID.uuidString),
                 "workspace_ref": workspaceRef,
                 "pane_id": .string(snapshot.paneID.uuidString),
@@ -282,7 +289,11 @@ extension ControlCommandCoordinator {
                 "surfaces": .array(surfaces),
                 "window_id": orNull(snapshot.windowID?.uuidString),
                 "window_ref": windowRef,
-            ]))
+            ]
+            if let dockScope = snapshot.dockScopeRawValue {
+                payload["dock_scope"] = .string(dockScope)
+            }
+            return .ok(.object(payload))
         }
     }
 
@@ -294,11 +305,19 @@ extension ControlCommandCoordinator {
         guard context?.controlPaneRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        let profileKeys = ["profile", "profile_id", "profile_name"]
 
         let inputs = ControlPaneCreateInputs(
             directionRaw: string(params, "direction"),
             typeRaw: string(params, "type"),
             urlRaw: string(params, "url"),
+            profileRaw: string(params, "profile")
+                ?? string(params, "profile_id")
+                ?? string(params, "profile_name"),
+            hasInvalidProfileParam: profileKeys.contains {
+                hasNonNull(params, $0) && string(params, $0) == nil
+            },
+            hasMultipleProfileParams: profileKeys.filter { hasNonNull(params, $0) }.count > 1,
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
@@ -365,6 +384,21 @@ extension ControlCommandCoordinator {
                 "placement_strategy": .string("external_browser_disabled"),
                 "url": .string(url),
             ]))
+        case .invalidBrowserProfile(let selector, let message, let candidates):
+            var data: [String: JSONValue] = ["profile": .string(selector)]
+            if !candidates.isEmpty {
+                data["candidates"] = .array(candidates.map { candidate in
+                    .object([
+                        "id": .string(candidate.id.uuidString),
+                        "name": .string(candidate.displayName),
+                    ])
+                })
+            }
+            return .err(
+                code: "invalid_params",
+                message: message,
+                data: .object(data)
+            )
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .noSourceSurface:

@@ -25,6 +25,16 @@ Exactly one provider mode may be active. The direct command's terminating `--` i
 
 The cloud transport invokes OpenSSH with exact remote commands `cmux provider control` and `cmux provider stream`. Provider bearers are generated client-side per connection generation and never carried in argv or environment variables. See [Machine Provider Contract](machine-provider.md#implemented-v1).
 
+`machine-agent` is another implemented hand-written process mode:
+
+```text
+cmux-tui machine-agent [--session <name>] [--socket <path>]
+  [--state <path>] [--cloud-host <host>] [--cloud-user <user>]
+  [--cloud-port <port>] [--cloud-identity <path>]
+```
+
+It verifies one local protocol-v10 session, then opens an outbound OpenSSH registration using the exact remote command `cmux machine register`. Packaged builds expose the same mode as `npx cmux machine-agent`. See [Machine Agent Contract](machine-agent.md).
+
 ## Global Conventions
 
 ### Socket Resolution
@@ -62,9 +72,13 @@ Human output is stable, greppable, and minimal. It must not include colors, tabl
 
 Future commands may opt into stdin only when their command block says so. By default commands do not read stdin.
 
+### Interactive attach
+
+`cmux-tui attach` opens the full session TUI. `cmux-tui attach --surface <id>` accepts a numeric or short surface id and opens only that PTY terminal, using the full host grid without session chrome. This interactive mode is separate from the JSON-lines `attach-surface` verb.
+
 ### Id Arguments
 
-Protocol v5 CLI arguments for ids are numeric. Protocol v6 accepts numeric ids and short ids for any `IdRef` parameter. Numeric-looking strings are rejected as ambiguous when short-id mode is active.
+Generated command verbs accept canonical decimal ids. They reject leading-zero values instead of interpreting a copied short id as a different numeric object. Interactive `attach --surface` also accepts exact six-character short ids; digit-only short ids beginning with zero stay in that fixed-width namespace, so their meaning cannot change when live ids change.
 
 ### Selector Arguments
 
@@ -78,6 +92,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `ping` | implemented | none | global flags | one liveness line |
 | `set-client-info` | implemented | none | `--name <name>`, `--kind <kind>` | none |
 | `list-clients` | implemented | none | global flags | client lines |
+| `set-client-sizing` | implemented protocol 10 | `--surface <id> --enabled <true-or-false>` | `--client <id>`, global flags | none |
 | `detach-client` | implemented | `--client <id>` | global flags | none |
 | `reload-config` | implemented | none | global flags | none |
 | `set-window-title` | implemented | `--title <title>` | global flags | none |
@@ -87,6 +102,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>`, `--cols <n> --rows <n>` | screen and pane/surface lines |
 | `send` | implemented; `--paste` protocol 7 | `--surface <id>` | `--text <text>`, `--bytes <base64>`, `--paste` | none |
 | `read-screen` | implemented | `--surface <id>` | none | screen text |
+| `clear-history` | implemented | `--surface <id>` | none | none |
 | `read-scrollback` | proposed protocol 7 | `--surface <id> --start <n> --count <n>` | none | scrollback text rows |
 | `vt-state` | implemented | `--surface <id>` | none | `cols=<n> rows=<n> data=<base64>` |
 | `new-tab` | implemented | none | `--pane <id>`, `--cwd <path>`, `--cols <n> --rows <n>` | surface id |
@@ -94,12 +110,15 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `new-workspace` | implemented | none | `--name <name>`, `--cols <n> --rows <n>` | surface id |
 | `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
 | `new-pane` | implemented | `--pane <id>` | `--cols <n> --rows <n>` | surface id |
-| `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
-| `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
+| `new-pane-right` | implemented; `viewport-splits-v1` | `--pane <id>` | `--width <fraction>`, `--cols <n> --rows <n>` | surface id |
+| `split` | implemented | `--pane <id> --dir right\|down` | `--cols <n> --rows <n>` | surface id |
+| `set-ratio` | implemented | `--pane <id> --dir right\|down --ratio <n>` | none | none |
 | `set-split-ratio` | implemented | `--split <id> --ratio <n>` | none | none |
-| `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
-| `focus-direction` | implemented | `--dir left|right|up|down` | `--pane <id>` | pane id |
-| `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |
+| `set-viewport-pane-width` | implemented; `viewport-column-resize-v1` | `--pane <id> --width <fraction>` | none | none |
+| `undo-layout` | implemented; `layout-undo-v1` | `--pane <id>` | `--revision <n> --confirm-close` | undo or confirmation line |
+| `pane-neighbor` | implemented | `--pane <id> --dir left\|right\|up\|down` | none | pane id or `null` |
+| `focus-direction` | implemented | `--dir left\|right\|up\|down` | `--pane <id>` | pane id |
+| `swap-pane` | implemented | `--pane <id>` plus one of `--dir left\|right\|up\|down`, `--target <id>` | none | none |
 | `zoom-pane` | implemented | none | `--pane <id>`, `--mode toggle|on|off` | zoom state line |
 | `process-info` | implemented | `--surface <id>` | none | process metadata line |
 | `set-default-colors` | implemented | none | `--fg #rrggbb`, `--bg #rrggbb` | none |

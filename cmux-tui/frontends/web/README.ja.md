@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-プロトコルv9のWebSocket APIとTypeScript SDKのブラウザ向けエントリだけで、
+プロトコルv10のWebSocket APIとTypeScript SDKのブラウザ向けエントリだけで、
 自然なcmuxクライアントを構築できることを示す小規模なサードパーティー形式の
 フロントエンドです。信頼できるワークスペースツリーの表示、アクティブなPTY
 サーフェスへのxterm.jsの接続、キーボード入力の転送、ターミナルセル単位の

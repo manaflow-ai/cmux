@@ -21,7 +21,6 @@ struct MobileSettingsView: View {
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
-    let rescanQR: (() -> Void)?
     let startPairingScanner: (() -> Void)?
     let signOut: (() -> Void)?
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
@@ -88,8 +87,8 @@ struct MobileSettingsView: View {
                 }
 
                 // Hidden entirely when there is nothing to show (no connected
-                // Mac, no store to switch with, no rescan), so the no-devices
-                // screen's reuse of this sheet does not render an empty header.
+                // Mac and no store to switch with), so the no-devices screen's
+                // reuse of this sheet does not render an empty header.
                 if hasConnectionSection {
                     Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
                         if !connectedHostName.isEmpty {
@@ -108,18 +107,6 @@ struct MobileSettingsView: View {
                                 )
                             }
                             .accessibilityIdentifier("MobileSettingsSwitchMac")
-                        }
-                        if let rescanQR {
-                            Button {
-                                rescanQR()
-                                dismiss()
-                            } label: {
-                                Label(
-                                    L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
-                                    systemImage: "qrcode.viewfinder"
-                                )
-                            }
-                            .accessibilityIdentifier("MobileSettingsRescanQR")
                         }
                     }
                     Button {
@@ -313,24 +300,6 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
                         identifier: "MobileSettingsUnreadIndicatorLeftness"
                     )
-                    debugLayoutSlider(
-                        title: L10n.string(
-                            "mobile.settings.profilePictureLeftness",
-                            defaultValue: "Profile Picture Leftness"
-                        ),
-                        value: $displaySettings.profilePictureLeftShift,
-                        range: MobileDisplaySettings.profilePictureLeftShiftRange,
-                        identifier: "MobileSettingsProfilePictureLeftness"
-                    )
-                    debugLayoutSlider(
-                        title: L10n.string(
-                            "mobile.settings.profilePictureSize",
-                            defaultValue: "Profile Picture Size"
-                        ),
-                        value: $displaySettings.profilePictureSize,
-                        range: MobileDisplaySettings.profilePictureSizeRange,
-                        identifier: "MobileSettingsProfilePictureSize"
-                    )
                 }
 
                 Section(L10n.string(
@@ -375,6 +344,20 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.previewLines", defaultValue: "Preview Lines"))
                     }
                     .accessibilityIdentifier("MobileSettingsPreviewLines")
+
+                    Picker(selection: $displaySettings.terminalScrollbackRows) {
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows1k", defaultValue: "1,000 Rows"))
+                            .tag(1000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows4k", defaultValue: "4,000 Rows"))
+                            .tag(4000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows10k", defaultValue: "10,000 Rows"))
+                            .tag(10000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows20k", defaultValue: "20,000 Rows"))
+                            .tag(20000)
+                    } label: {
+                        Text(L10n.string("mobile.settings.terminalScrollback", defaultValue: "Terminal Scrollback"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalScrollback")
                 }
 
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
@@ -535,10 +518,10 @@ struct MobileSettingsView: View {
     }
 
     /// Whether the Connection section has any rows to show. When this sheet is
-    /// reused from the no-devices screen there is no connected Mac, no store to
-    /// switch with, and no rescan action, so the section is omitted entirely.
+    /// reused from the no-devices screen there is no connected Mac or store to
+    /// switch with, so the section is omitted entirely.
     private var hasConnectionSection: Bool {
-        !connectedHostName.isEmpty || store != nil || rescanQR != nil
+        !connectedHostName.isEmpty || store != nil
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
