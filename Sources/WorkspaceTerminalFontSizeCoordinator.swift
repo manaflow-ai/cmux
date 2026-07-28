@@ -30,6 +30,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         case ready
         case backoff
         case awaitingSignal
+        case awaitingPanelTransferStage
     }
 
     private enum CoordinatedMutationDisposition {
@@ -974,6 +975,13 @@ final class WorkspaceTerminalFontSizeCoordinator {
         )
     }
 
+    /// Finishes already accepted work before close history captures terminal
+    /// overrides. The arbiter includes foreign coordinators that temporarily
+    /// own work targeting this window.
+    func settleAcceptedWorkForWindowCloseSnapshot() {
+        arbiter.settleAcceptedWorkForWindowCloseSnapshot()
+    }
+
     func cancelWork(
         targeting closingManager: TabManager?,
         windowDockSlot closingWindowDockSlot: WindowDockSlot
@@ -1071,6 +1079,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
             if mutationRetryDisposition == .backoff {
                 mutationRetryDisposition = .ready
             } else if mutationRetryDisposition == .awaitingSignal {
+                break
+            } else if mutationRetryDisposition
+                        == .awaitingPanelTransferStage {
                 break
             }
             drain(scheduleContinuation: false)
@@ -2034,11 +2045,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 stageToken: stageToken,
                 coordinator: self
            ) {
-            arbiter
-                .panelTransferCurrentCoordinator(
-                    panelTransfer
-                )?
-                .signalMutationRetry()
+            invalidateScheduledDrain()
+            mutationRetryDisposition =
+                .awaitingPanelTransferStage
             return false
         }
         guard budget.reserveRequestVisit(),
@@ -2568,6 +2577,38 @@ final class WorkspaceTerminalFontSizeCoordinator {
         signalMutationRetry()
     }
 
+    func beginSynchronousWindowCloseSnapshotSettlement() {
+        invalidateScheduledDrain()
+        isSettlingForFontSizeWorkIdleBarrier = true
+        mutationFailureCountSinceIdleBarrier = 0
+        guard mutationRetryDisposition
+                != .awaitingPanelTransferStage else {
+            return
+        }
+        resetMutationRetryState()
+    }
+
+    /// Returns whether a drain ran. A false result with outstanding work means
+    /// this coordinator is parked behind an earlier panel-transfer stage.
+    @discardableResult
+    func settleSynchronouslyUntilPanelTransferBlocked() -> Bool {
+        invalidateScheduledDrain()
+        var didDrain = false
+        while activeRequest != nil || hasPendingRequests {
+            switch mutationRetryDisposition {
+            case .ready:
+                break
+            case .backoff, .awaitingSignal:
+                mutationRetryDisposition = .ready
+            case .awaitingPanelTransferStage:
+                return didDrain
+            }
+            drain(scheduleContinuation: false)
+            didDrain = true
+        }
+        return didDrain
+    }
+
     /// A new user request or terminal ownership transition is evidence that
     /// the failed native path may be viable again.
     func signalMutationRetry(
@@ -2620,7 +2661,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             scheduleDrain(
                 after: Self.mutationRetryBackoffInterval
             )
-        case .awaitingSignal:
+        case .awaitingSignal, .awaitingPanelTransferStage:
             break
         }
     }

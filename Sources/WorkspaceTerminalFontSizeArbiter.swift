@@ -524,6 +524,44 @@ final class WorkspaceTerminalFontSizeArbiter {
         }
     }
 
+    /// Window close snapshots are synchronous. Drain every accepted request
+    /// across retained owners first so the snapshot cannot persist a bounded,
+    /// partially applied workspace mutation. Native failures use the existing
+    /// idle-barrier retry limit, while transfer-stage waiters resume only when
+    /// an earlier stage makes progress.
+    func settleAcceptedWorkForWindowCloseSnapshot() {
+        var preparedCoordinators: Set<ObjectIdentifier> = []
+
+        while true {
+            promoteDeferredCoordinatorJoins()
+            let coordinators =
+                Array(retainedCoordinators.values)
+            guard !coordinators.isEmpty else { return }
+
+            for coordinator in coordinators {
+                let identifier = ObjectIdentifier(coordinator)
+                if preparedCoordinators.insert(identifier).inserted {
+                    coordinator
+                        .beginSynchronousWindowCloseSnapshotSettlement()
+                }
+            }
+
+            var didDrain = false
+            for coordinator in coordinators {
+                didDrain =
+                    coordinator
+                        .settleSynchronouslyUntilPanelTransferBlocked()
+                    || didDrain
+            }
+            if !retainedCoordinators.isEmpty, !didDrain {
+                assertionFailure(
+                    "Workspace font-size snapshot settlement stalled behind panel transfer stages"
+                )
+                return
+            }
+        }
+    }
+
     func removeDeferredCoordinatorJoins(
         preferredCoordinator:
             WorkspaceTerminalFontSizeCoordinator

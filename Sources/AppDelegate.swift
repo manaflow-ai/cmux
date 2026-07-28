@@ -16568,6 +16568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !isApplyingSessionRestore else {
             return
         }
+        context.workspaceTerminalFontSizeCoordinator
+            .settleAcceptedWorkForWindowCloseSnapshot()
         let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
         guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(

@@ -5575,9 +5575,16 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 0
             )
 
-            let lineagesAtClose = dockPanels.map {
-                $0.surface.fontSizeLineageSnapshot()
+            let adjustedBeforeClose = dockPanels.count {
+                $0.surface.fontSizeLineageSnapshot()?.basePoints
+                    == 19
             }
+            XCTAssertGreaterThan(adjustedBeforeClose, 0)
+            XCTAssertLessThan(
+                adjustedBeforeClose,
+                dockPanels.count,
+                "The bounded drain must leave accepted work for close settlement"
+            )
             window.performClose(nil)
 
             XCTAssertEqual(
@@ -5585,10 +5592,19 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 0,
                 "Window teardown must cancel its font-size coordinator"
             )
+            let lineagesAfterClose = dockPanels.map {
+                $0.surface.fontSizeLineageSnapshot()
+            }
+            XCTAssertTrue(
+                lineagesAfterClose.allSatisfy {
+                    $0?.basePoints == 19
+                },
+                "Window close must settle the accepted change before recording history and teardown"
+            )
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
             XCTAssertEqual(
                 dockPanels.map { $0.surface.fontSizeLineageSnapshot() },
-                lineagesAtClose,
+                lineagesAfterClose,
                 "A scheduled drain must not mutate panels after their window closes"
             )
 #else
