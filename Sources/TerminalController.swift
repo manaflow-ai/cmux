@@ -118,6 +118,9 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+#if DEBUG
+    private nonisolated static let windowScreenshotCaptureAdmission = DispatchSemaphore(value: 1)
+#endif
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     /// One process-wide admission budget shared by every mobile connection.
@@ -13207,6 +13210,10 @@ class TerminalController {
                 return self.captureAppKitWindowPNGData(window)
             }
         }
+        // Ghostty's terminal IOSurface participates in this AppKit cache path
+        // (pinned by terminal-only UI regression coverage). WKWebView pixels do
+        // not, so only windows with visible browser-backed content need the
+        // current-process compositor.
         let pngData = if captureTarget.needsCompositedCapture {
             captureScreenCaptureKitWindowPNGData(captureTarget.windowID)
                 ?? captureWithAppKit()
@@ -13234,12 +13241,24 @@ class TerminalController {
         guard #available(macOS 14.4, *) else {
             return nil
         }
+        guard Self.windowScreenshotCaptureAdmission.wait(timeout: .now()) == .success else {
+            return nil
+        }
 
-        return socketAwaitCallback(timeout: 5) { completion in
+        let captureTask = Task {
+            defer { Self.windowScreenshotCaptureAdmission.signal() }
+            return await Self.captureScreenCaptureKitWindowPNGDataAsync(windowID)
+        }
+        let captured: Data?? = socketAwaitCallback(timeout: 5) { completion in
             Task {
-                completion(await Self.captureScreenCaptureKitWindowPNGDataAsync(windowID))
+                completion(await captureTask.value)
             }
-        } ?? nil
+        }
+        guard let captured else {
+            captureTask.cancel()
+            return nil
+        }
+        return captured
     }
 
     @available(macOS 14.4, *)

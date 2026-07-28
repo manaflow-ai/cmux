@@ -289,6 +289,25 @@ final class AutomationSocketUITests: XCTestCase {
             waitForTerminalText(marker, surfaceID: surfaceID, timeout: 12.0),
             "Expected marker text to render before taking the screenshot"
         )
+        XCTAssertTrue(
+            app.windows.firstMatch.waitForExistence(timeout: 5.0),
+            "Expected the main window to exist before taking the screenshot"
+        )
+
+        let terminalOnlyCapture = try XCTUnwrap(
+            waitForWindowScreenshotContainingMarker(
+                label: "issue-9065-terminal-only",
+                minimumMarkerPixels: 100,
+                minimumBrowserPixels: 0,
+                timeout: 12.0
+            ),
+            "Expected the AppKit path to capture terminal-only window content"
+        )
+        XCTAssertGreaterThan(
+            terminalOnlyCapture.stats.markerPixels,
+            100,
+            "Expected the terminal-only screenshot to include the magenta marker"
+        )
 
         let browserHTML = """
         <!doctype html>
@@ -336,11 +355,6 @@ final class AutomationSocketUITests: XCTestCase {
                 responseTimeout: 12.0
             ),
             "Expected the browser marker page to finish loading"
-        )
-
-        XCTAssertTrue(
-            app.windows.firstMatch.waitForExistence(timeout: 5.0),
-            "Expected the main window to exist before taking the screenshot"
         )
 
         let captured = try XCTUnwrap(
@@ -437,7 +451,7 @@ final class AutomationSocketUITests: XCTestCase {
                 guard let pngData = try? Data(contentsOf: screenshotURL),
                       let stats = self.windowScreenshotPixelStats(pngData),
                       stats.markerPixels > minimumMarkerPixels,
-                      stats.browserPixels > minimumBrowserPixels else {
+                      stats.browserPixels >= minimumBrowserPixels else {
                     return false
                 }
 

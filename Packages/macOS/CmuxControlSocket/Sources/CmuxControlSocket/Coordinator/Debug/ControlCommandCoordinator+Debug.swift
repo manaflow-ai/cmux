@@ -94,8 +94,6 @@ extension ControlCommandCoordinator {
             return debugPanelSnapshot(request.params)
         case "debug.panel_snapshot.reset":
             return debugPanelSnapshotReset(request.params)
-        case "debug.window.screenshot":
-            return debugScreenshot(request.params)
         case "debug.canvas.command_scroll_hint":
             return debugCanvasCommandScrollHint(request.params)
         default:
