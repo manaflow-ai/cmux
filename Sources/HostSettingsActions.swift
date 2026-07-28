@@ -109,6 +109,14 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
+    func canRegisterSystemWideHotkey(
+        _ shortcut: CmuxSettings.StoredShortcut
+    ) -> Bool {
+        SystemWideHotkeySettings.registrationCandidate(
+            for: StoredShortcut(cmuxSettingsStoredShortcut: shortcut)
+        ) != nil
+    }
+
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
     }

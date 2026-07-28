@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import socket
 import tempfile
 import threading
-from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterator, List, Literal, Optional, Union
+
+TERMINAL_KEY_TEXT_MAX_BYTES = 4 * 1024
 
 
 class CmuxError(Exception):
@@ -19,6 +22,8 @@ class CommandError(CmuxError):
         super().__init__(message)
         self.message = message
         self.response = response
+        code = response.get("error_code") if response is not None else None
+        self.error_code: Optional[str] = code if isinstance(code, str) else None
 
 
 class CmuxConnectionError(CmuxError):
@@ -40,9 +45,191 @@ def _validate_workspace_selector(workspace: Optional[int], key: Optional[str]) -
         raise ValueError("workspace key cannot be empty")
 
 
+def _validate_viewport_pane_width(width: float) -> None:
+    if not math.isfinite(width) or not 0.1 <= width <= 1.0:
+        raise ValueError("viewport pane width must be between 0.1 and 1.0")
+
+
 @dataclass(frozen=True)
 class EmptyResult:
     pass
+
+
+TerminalKey = Literal[
+    "unidentified",
+    "backquote",
+    "backslash",
+    "bracket-left",
+    "bracket-right",
+    "comma",
+    "digit0",
+    "digit1",
+    "digit2",
+    "digit3",
+    "digit4",
+    "digit5",
+    "digit6",
+    "digit7",
+    "digit8",
+    "digit9",
+    "equal",
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z",
+    "minus",
+    "period",
+    "quote",
+    "semicolon",
+    "slash",
+    "backspace",
+    "enter",
+    "space",
+    "tab",
+    "delete",
+    "end",
+    "home",
+    "insert",
+    "page-down",
+    "page-up",
+    "arrow-down",
+    "arrow-left",
+    "arrow-right",
+    "arrow-up",
+    "numpad0",
+    "numpad1",
+    "numpad2",
+    "numpad3",
+    "numpad4",
+    "numpad5",
+    "numpad6",
+    "numpad7",
+    "numpad8",
+    "numpad9",
+    "numpad-add",
+    "numpad-backspace",
+    "numpad-comma",
+    "numpad-decimal",
+    "numpad-divide",
+    "numpad-enter",
+    "numpad-equal",
+    "numpad-multiply",
+    "numpad-subtract",
+    "numpad-up",
+    "numpad-down",
+    "numpad-right",
+    "numpad-left",
+    "numpad-begin",
+    "numpad-home",
+    "numpad-end",
+    "numpad-insert",
+    "numpad-delete",
+    "numpad-page-up",
+    "numpad-page-down",
+    "escape",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f7",
+    "f8",
+    "f9",
+    "f10",
+    "f11",
+    "f12",
+    "f13",
+    "f14",
+    "f15",
+    "f16",
+    "f17",
+    "f18",
+    "f19",
+    "f20",
+]
+TerminalKeyAction = Literal["press", "release", "repeat"]
+
+
+@dataclass(frozen=True)
+class TerminalModifiers:
+    shift: bool = False
+    control: bool = False
+    alt: bool = False
+    super_key: bool = False
+    caps_lock: bool = False
+    num_lock: bool = False
+
+    def to_wire(self) -> Dict[str, bool]:
+        return {
+            "shift": self.shift,
+            "control": self.control,
+            "alt": self.alt,
+            "super": self.super_key,
+            "caps_lock": self.caps_lock,
+            "num_lock": self.num_lock,
+        }
+
+    @classmethod
+    def from_wire(cls, value: Dict[str, Any]) -> TerminalModifiers:
+        return cls(
+            shift=bool(value["shift"]),
+            control=bool(value["control"]),
+            alt=bool(value["alt"]),
+            super_key=bool(value["super"]),
+            caps_lock=bool(value["caps_lock"]),
+            num_lock=bool(value["num_lock"]),
+        )
+
+
+@dataclass(frozen=True)
+class TerminalKeyInput:
+    key: TerminalKey
+    mods: TerminalModifiers = field(default_factory=TerminalModifiers)
+    consumed_mods: TerminalModifiers = field(default_factory=TerminalModifiers)
+    composing: bool = False
+    utf8: str = ""
+    unshifted_codepoint: Optional[str] = None
+    shifted_codepoint: Optional[str] = None
+    base_layout_codepoint: Optional[str] = None
+    action: Optional[TerminalKeyAction] = None
+    macos_option_as_alt: bool = True
+
+    def to_wire(self) -> Dict[str, Any]:
+        return {
+            "key": self.key,
+            "mods": self.mods.to_wire(),
+            "consumed_mods": self.consumed_mods.to_wire(),
+            "composing": self.composing,
+            "utf8": self.utf8,
+            "unshifted_codepoint": self.unshifted_codepoint,
+            "shifted_codepoint": self.shifted_codepoint,
+            "base_layout_codepoint": self.base_layout_codepoint,
+            "action": self.action,
+            "macos_option_as_alt": self.macos_option_as_alt,
+        }
 
 
 @dataclass(frozen=True)
@@ -101,6 +288,79 @@ class ReloadConfigResult:
 @dataclass(frozen=True)
 class SurfaceResult:
     surface: int
+
+
+@dataclass(frozen=True)
+class LayoutUndoUndone:
+    screen: int
+    revision: int
+    undone: bool = field(default=True, init=False)
+
+
+@dataclass(frozen=True)
+class LayoutUndoConfirmationRequired:
+    screen: int
+    revision: int
+    closes_panes: List[int]
+    undone: bool = field(default=False, init=False)
+    confirmation_required: bool = field(default=True, init=False)
+
+
+LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
+
+
+def _layout_undo_u64(data: Dict[str, Any], field: str) -> int:
+    value = data.get(field)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 0
+        or value > 2**64 - 1
+    ):
+        raise ProtocolError(
+            f"layout undo {field} must be an unsigned 64-bit integer"
+        )
+    return value
+
+
+def _decode_layout_undo_result(data: Any) -> LayoutUndoResult:
+    if not isinstance(data, dict):
+        raise ProtocolError("layout undo result must be an object")
+    screen = _layout_undo_u64(data, "screen")
+    revision = _layout_undo_u64(data, "revision")
+    undone = data.get("undone")
+    confirmation_required = data.get("confirmation_required")
+
+    if undone is True and (
+        "confirmation_required" not in data or confirmation_required is False
+    ):
+        return LayoutUndoUndone(screen=screen, revision=revision)
+    if undone is False and confirmation_required is True:
+        raw_closes_panes = data.get("closes_panes")
+        if not isinstance(raw_closes_panes, list):
+            raise ProtocolError(
+                "layout undo confirmation closes_panes must be an array of pane IDs"
+            )
+        closes_panes = []
+        for value in raw_closes_panes:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                or value > 2**64 - 1
+            ):
+                raise ProtocolError(
+                    "layout undo confirmation closes_panes must be an array of pane IDs"
+                )
+            closes_panes.append(value)
+        return LayoutUndoConfirmationRequired(
+            screen=screen,
+            revision=revision,
+            closes_panes=closes_panes,
+        )
+    raise ProtocolError(
+        "layout undo response does not contain exactly one valid outcome"
+    )
 
 
 @dataclass(frozen=True)
@@ -184,6 +444,12 @@ class Pane:
 
 
 @dataclass(frozen=True)
+class ViewportSplit:
+    split: int
+    width: float
+
+
+@dataclass(frozen=True)
 class Screen:
     id: int
     name: Optional[str]
@@ -191,6 +457,8 @@ class Screen:
     active_pane: int
     layout: Layout
     panes: List[Pane]
+    viewport_base_width: Optional[float] = None
+    viewport_splits: List[ViewportSplit] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -500,6 +768,21 @@ class CmuxClient:
         self._request("send", surface=surface, text=text, bytes=encoded)
         return EmptyResult()
 
+    def clear_history(
+        self,
+        surface: int,
+        fallback_key: Optional[TerminalKeyInput] = None,
+    ) -> EmptyResult:
+        self._require_capability("clear-history-v1", "clear-history")
+        params: Dict[str, Any] = {"surface": surface}
+        if fallback_key is not None:
+            self._require_capability("clear-history-key-v1", "clear-history key fallback")
+            if len(fallback_key.utf8.encode("utf-8")) > TERMINAL_KEY_TEXT_MAX_BYTES:
+                raise ValueError("terminal key text exceeds the 4 KiB protocol limit")
+            params["fallback_key"] = fallback_key.to_wire()
+        self._request("clear-history", **params)
+        return EmptyResult()
+
     def read_screen(self, surface: int) -> ReadScreenResult:
         data = self._request("read-screen", surface=surface)
         return ReadScreenResult(text=str(data["text"]))
@@ -603,6 +886,21 @@ class CmuxClient:
         self._require_protocol(9, "new-pane")
         return SurfaceResult(int(self._request("new-pane", pane=pane, cols=cols, rows=rows)["surface"]))
 
+    def new_pane_right(
+        self,
+        pane: int,
+        width: Optional[float] = None,
+        cols: Optional[int] = None,
+        rows: Optional[int] = None,
+    ) -> SurfaceResult:
+        if width is not None:
+            _validate_viewport_pane_width(width)
+        self._require_capability("viewport-splits-v1", "viewport panes")
+        data = self._request(
+            "new-pane-right", pane=pane, width=width, cols=cols, rows=rows
+        )
+        return SurfaceResult(int(data["surface"]))
+
     def split(
         self,
         pane: int,
@@ -616,10 +914,41 @@ class CmuxClient:
         self._request("set-ratio", pane=pane, dir=dir, ratio=ratio)
         return EmptyResult()
 
-    def set_split_ratio(self, split: int, ratio: float) -> EmptyResult:
+    def set_split_ratio(
+        self, split: int, ratio: float, *, transaction: Optional[int] = None
+    ) -> EmptyResult:
         self._require_protocol(8, "set-split-ratio")
-        self._request("set-split-ratio", split=split, ratio=ratio)
+        params = {"split": split, "ratio": ratio}
+        if transaction is not None:
+            params["transaction"] = transaction
+        self._request("set-split-ratio", **params)
         return EmptyResult()
+
+    def set_viewport_pane_width(
+        self, pane: int, width: float, *, transaction: Optional[int] = None
+    ) -> EmptyResult:
+        _validate_viewport_pane_width(width)
+        self._require_capability(
+            "viewport-column-resize-v1", "viewport pane resizing"
+        )
+        params = {"pane": pane, "width": width}
+        if transaction is not None:
+            params["transaction"] = transaction
+        self._request("set-viewport-pane-width", **params)
+        return EmptyResult()
+
+    def undo_layout(
+        self, pane: int, confirmation_revision: Optional[int] = None
+    ) -> LayoutUndoResult:
+        """Preview layout undo, then pass the preview's exact revision to confirm."""
+        self._require_capability("layout-undo-v1", "layout undo")
+        data = self._request(
+            "undo-layout",
+            pane=pane,
+            revision=confirmation_revision,
+            confirm_close=True if confirmation_revision is not None else None,
+        )
+        return _decode_layout_undo_result(data)
 
     def pane_neighbor(self, pane: int, dir: str) -> Dict[str, Any]:
         return self._request("pane-neighbor", pane=pane, dir=dir)
@@ -860,6 +1189,15 @@ def _parse_screen(value: Dict[str, Any]) -> Screen:
         active_pane=int(value.get("active_pane", 0)),
         layout=_parse_layout(value.get("layout", {"type": "leaf", "pane": 0})),
         panes=[_parse_pane(item) for item in value.get("panes", [])],
+        viewport_base_width=(
+            float(value["viewport_base_width"])
+            if value.get("viewport_base_width") is not None
+            else None
+        ),
+        viewport_splits=[
+            ViewportSplit(split=int(item["split"]), width=float(item["width"]))
+            for item in value.get("viewport_splits", [])
+        ],
     )
 
 

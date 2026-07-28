@@ -16,14 +16,14 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":10,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":10,"capabilities":["attach-initial-size","workspace-registry-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
-Responses have this shape:
+Responses have this shape. The second example is a failed `clear-history` request:
 
 ```json
 {"id":1,"ok":true,"data":{}}
-{"id":2,"ok":false,"error":"unknown surface 99"}
+{"id":2,"ok":false,"error":"unknown surface 99","error_delivery":"known-not-delivered"}
 ```
 
 Bad JSON returns `ok:false` with no request id.
@@ -36,7 +36,19 @@ The complete command schemas live in
 rules in [`spec/transports.md`](../spec/transports.md). This guide illustrates
 common flows rather than duplicating the exhaustive command list.
 
+Clients must require the `clear-history-v1` capability before sending `clear-history` to a protocol-v9 server.
+
+Clients may include the structured `fallback_key` defined in `spec/commands.md` only when `identify` also advertises `clear-history-key-v1`. The server clears a primary screen without using the fallback. On an alternate screen it leaves both screens intact and encodes the fallback with the authoritative terminal keyboard modes.
+
+Failed `clear-history` responses add `error_delivery`. `known-not-delivered` proves that no clear or fallback input reached the terminal. `ambiguous` means delivery may have started. Missing or unknown values must be treated as ambiguous.
+
 `provider-managed-workspace-authority-v2` means the mux was provider-locked before its first control client and accepts private mirror commits only with its pre-provisioned authority. `mark-workspaces-provider-managed` validates that authority without changing ownership. Ordinary `close-workspace` and `rename-workspace` requests always fail on that mux. The provider-aware TUI sends an authorized `close-provider-managed-workspace` or `rename-provider-managed-workspace` only after the external provider accepts the corresponding lifecycle request. Provider-aware clients must refuse provider-owned mode when the server does not advertise this capability.
+
+`viewport-splits-v1` adds `new-pane-right` and a `viewport_splits` array to screen snapshots that use horizontal viewport columns. Each entry identifies a stable split id and gives the right child's width as a fraction of the frontend viewport. Frontends that implement it render the existing tree at one viewport width, append the marked right child, and expose horizontal viewport movement. Ordinary screen snapshots omit this viewport-only metadata. Other clients can ignore it and use the split ratio.
+
+`viewport-column-resize-v1` adds `set-viewport-pane-width` and `viewport_base_width`. Widths remain frontend-relative, from 0.1 through 1.0. Clients must require this capability before sending the resize command. An older server still renders the fallback split ratios and rejects the unknown command without changing layout. Invalid widths return `error_code:"viewport-width-out-of-range"`; a missing or ordinary pane returns `error_code:"viewport-column-not-found"`.
+
+`layout-undo-v1` adds server-owned structural layout history and `undo-layout`. A creation undo first returns `confirmation_required`, the pane ids it would close, and a unique confirmation revision bound to those panes' exact tab membership. The client must show that consequence and resend the exact revision with `confirm_close:true`. A stale revision or changed tab membership fails without closing a pane; request a new preview before retrying. Resize-only and other non-destructive entries undo in one request.
 
 `move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
 
@@ -57,6 +69,8 @@ Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. 
 ```json
 {"id":12,"cmd":"set-split-ratio","split":9,"ratio":0.65}
 ```
+
+Ratios are clamped to `0.05..0.95`. A live split in a horizontal viewport can still imply a column width outside the supported `0.1..1.0` range. The server rejects that request with `error_code:"layout-ratio-out-of-range"` and keeps the split and layout unchanged; `layout-ratio-target-missing` is reserved for an absent pane or split.
 
 ## Events
 

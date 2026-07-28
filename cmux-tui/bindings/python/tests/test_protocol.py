@@ -1,11 +1,32 @@
 import unittest
 from unittest.mock import patch
 
-from cmux import CmuxClient, ProtocolError
-from cmux.client import IdentifyResult, Layout, _parse_tree
+from cmux import (
+    TERMINAL_KEY_TEXT_MAX_BYTES,
+    CmuxClient,
+    CommandError,
+    ProtocolError,
+    TerminalKeyInput,
+    TerminalModifiers,
+)
+from cmux.client import (
+    IdentifyResult,
+    Layout,
+    LayoutUndoConfirmationRequired,
+    LayoutUndoUndone,
+    _parse_tree,
+)
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_command_error_preserves_machine_readable_code(self) -> None:
+        error = CommandError(
+            "layout changed",
+            {"ok": False, "error": "layout changed", "error_code": "layout-undo-stale"},
+        )
+
+        self.assertEqual(error.error_code, "layout-undo-stale")
+
     def test_identify_result_preserves_positional_artifact_revisions(self) -> None:
         result = IdentifyResult(
             "cmux-tui", "0.1.2", 7, "main", 42, "cmux-sha", "ghostty-sha"
@@ -146,6 +167,30 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(client.rename_workspace_registry("two", key="stable").workspace_revision, 6)
         self.assertEqual(client.move_workspace_registry(0, key="stable").workspace_revision, 6)
 
+    def test_screen_preserves_viewport_metadata(self) -> None:
+        tree = _parse_tree({
+            "workspaces": [{
+                "id": 1,
+                "name": "one",
+                "active": True,
+                "screens": [{
+                    "id": 2,
+                    "name": None,
+                    "active": True,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "viewport_base_width": 0.75,
+                    "viewport_splits": [{"split": 4, "width": 0.5}],
+                    "panes": [],
+                }],
+            }],
+        })
+
+        screen = tree.workspaces[0].screens[0]
+        self.assertEqual(screen.viewport_base_width, 0.75)
+        self.assertEqual(screen.viewport_splits[0].split, 4)
+        self.assertEqual(screen.viewport_splits[0].width, 0.5)
+
     def test_workspace_registry_selectors_reject_missing_and_empty_keys_locally(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
 
@@ -153,6 +198,101 @@ class ProtocolTests(unittest.TestCase):
             client.create_terminal()
         with self.assertRaisesRegex(ValueError, "workspace or key is required"):
             client.close_workspace_registry(key="  ")
+
+    def test_clear_history_requires_capability_and_preserves_wire_params(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 9
+        client._capabilities = set()
+        with self.assertRaisesRegex(ProtocolError, "clear-history is not supported"):
+            client.clear_history(7)
+
+        requests = []
+        client._capabilities = {"clear-history-v1"}
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+
+        client.clear_history(7)
+
+        self.assertEqual(requests, [("clear-history", {"surface": 7})])
+
+    def test_clear_history_fallback_requires_capability_and_preserves_key(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 9
+        client._capabilities = {"clear-history-v1"}
+        fallback = TerminalKeyInput(
+            key="k",
+            mods=TerminalModifiers(super_key=True),
+            composing=False,
+            unshifted_codepoint="k",
+            shifted_codepoint=None,
+            base_layout_codepoint="k",
+            action="press",
+        )
+
+        with self.assertRaisesRegex(ProtocolError, "clear-history key fallback is not supported"):
+            client.clear_history(7, fallback_key=fallback)
+
+        requests = []
+        client._capabilities.add("clear-history-key-v1")
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+
+        client.clear_history(7, fallback_key=fallback)
+
+        self.assertEqual(
+            requests,
+            [
+                (
+                    "clear-history",
+                    {
+                        "surface": 7,
+                        "fallback_key": {
+                            "key": "k",
+                            "mods": {
+                                "shift": False,
+                                "control": False,
+                                "alt": False,
+                                "super": True,
+                                "caps_lock": False,
+                                "num_lock": False,
+                            },
+                            "consumed_mods": {
+                                "shift": False,
+                                "control": False,
+                                "alt": False,
+                                "super": False,
+                                "caps_lock": False,
+                                "num_lock": False,
+                            },
+                            "composing": False,
+                            "utf8": "",
+                            "unshifted_codepoint": "k",
+                            "shifted_codepoint": None,
+                            "base_layout_codepoint": "k",
+                            "action": "press",
+                            "macos_option_as_alt": True,
+                        },
+                    },
+                )
+            ],
+        )
+
+    def test_clear_history_fallback_rejects_oversized_key_text_locally(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 9
+        client._capabilities = {"clear-history-v1", "clear-history-key-v1"}
+        requests = []
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+        fallback = TerminalKeyInput(
+            key="k",
+            utf8="x" * (TERMINAL_KEY_TEXT_MAX_BYTES + 1),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "terminal key text exceeds the 4 KiB protocol limit"
+        ):
+            client.clear_history(7, fallback_key=fallback)
+
+        self.assertEqual(requests, [])
+
     def test_new_pane_rejects_servers_older_than_protocol_nine(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 8
@@ -176,6 +316,178 @@ class ProtocolTests(unittest.TestCase):
         client.set_split_ratio(1, 0.5)
 
         self.assertEqual(requests, [("set-split-ratio", {"split": 1, "ratio": 0.5})])
+
+    def test_resize_methods_forward_explicit_transactions(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 10
+        client._capabilities = {"viewport-column-resize-v1"}
+        requests = []
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+
+        client.set_split_ratio(1, 0.5, transaction=17)
+        client.set_viewport_pane_width(2, 0.75, transaction=17)
+
+        self.assertEqual(
+            requests,
+            [
+                ("set-split-ratio", {"split": 1, "ratio": 0.5, "transaction": 17}),
+                (
+                    "set-viewport-pane-width",
+                    {"pane": 2, "width": 0.75, "transaction": 17},
+                ),
+            ],
+        )
+
+    def test_viewport_widths_reject_invalid_values_locally(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 10
+        client._capabilities = {
+            "viewport-splits-v1",
+            "viewport-column-resize-v1",
+        }
+        requests = []
+        client._request = lambda command, **params: (
+            requests.append((command, params)) or {"surface": 9}
+        )
+
+        calls = (
+            lambda width: client.new_pane_right(7, width=width),
+            lambda width: client.set_viewport_pane_width(7, width),
+        )
+        invalid_widths = (
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            0.09,
+            1.01,
+        )
+        for call in calls:
+            for width in invalid_widths:
+                with self.subTest(call=call, width=width):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "viewport pane width must be between 0.1 and 1.0",
+                    ):
+                        call(width)
+
+        self.assertEqual(requests, [])
+
+    def test_layout_undo_preserves_preview_revision_for_confirmation(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 10
+        client._capabilities = {"layout-undo-v1"}
+        requests = []
+        responses = [
+            {
+                "undone": False,
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": 8,
+                "closes_panes": [15],
+            },
+            {"undone": True, "screen": 3, "revision": 9},
+        ]
+        client._request = lambda command, **params: (
+            requests.append((command, params)) or responses.pop(0)
+        )
+
+        preview = client.undo_layout(15)
+        self.assertEqual(
+            preview,
+            LayoutUndoConfirmationRequired(
+                screen=3, revision=8, closes_panes=[15]
+            ),
+        )
+        result = client.undo_layout(15, preview.revision)
+        self.assertEqual(result, LayoutUndoUndone(screen=3, revision=9))
+        self.assertEqual(
+            requests,
+            [
+                (
+                    "undo-layout",
+                    {
+                        "pane": 15,
+                        "revision": None,
+                        "confirm_close": None,
+                    },
+                ),
+                (
+                    "undo-layout",
+                    {
+                        "pane": 15,
+                        "revision": 8,
+                        "confirm_close": True,
+                    },
+                ),
+            ],
+        )
+
+    def test_layout_undo_rejects_malformed_results(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 10
+        client._capabilities = {"layout-undo-v1"}
+        responses = (
+            [],
+            {
+                "undone": False,
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": 8,
+            },
+            {
+                "undone": False,
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": 8,
+                "closes_panes": [True],
+            },
+            {
+                "undone": False,
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": 8,
+                "closes_panes": [-1],
+            },
+            {
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": 8,
+                "closes_panes": [15],
+            },
+            {
+                "undone": True,
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": 8,
+                "closes_panes": [15],
+            },
+            {
+                "undone": False,
+                "confirmation_required": True,
+                "screen": True,
+                "revision": 8,
+                "closes_panes": [15],
+            },
+            {
+                "undone": False,
+                "confirmation_required": True,
+                "screen": 3,
+                "revision": -1,
+                "closes_panes": [15],
+            },
+            {
+                "undone": True,
+                "confirmation_required": None,
+                "screen": 3,
+                "revision": 8,
+            },
+        )
+
+        for response in responses:
+            with self.subTest(response=response):
+                client._request = lambda command, **params: response
+                with self.assertRaises(ProtocolError):
+                    client.undo_layout(15)
 
     def test_layout_preserves_protocol_seven_positional_constructor_order(self) -> None:
         first = Layout("leaf", 1)

@@ -20,7 +20,13 @@ FIXTURES = Path(__file__).resolve().with_name("fixtures.json")
 
 sys.path.insert(0, str(PYTHON_BINDING))
 
-from cmux import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
+from cmux import (  # noqa: E402
+    CommandError,
+    CmuxClient,
+    TerminalKeyInput,
+    TerminalModifiers,
+    TimeoutError as CmuxTimeoutError,
+)
 from cmux.client import _parse_event  # noqa: E402
 
 
@@ -184,17 +190,25 @@ def execute_command(client: CmuxClient, request: Dict[str, Any]) -> Dict[str, An
 
 def check_requires(fixture: Dict[str, Any], socket_path: str) -> None:
     commands = fixture.get("requires", {}).get("commands", [])
-    if not commands:
+    capabilities = fixture.get("requires", {}).get("capabilities", [])
+    if not commands and not capabilities:
         return
     unsupported: List[str] = []
     with CmuxClient(socket_path=socket_path, timeout=3.0) as client:
+        if capabilities:
+            advertised = set(client.identify().capabilities)
+            unsupported.extend(
+                f"capability:{capability}"
+                for capability in capabilities
+                if capability not in advertised
+            )
         for command in commands:
             response = client.request(command)
             error = str(response.get("error", ""))
             if response.get("ok") is False and "unknown variant" in error:
                 unsupported.append(command)
     if unsupported:
-        raise FixtureSkipped(f"server lacks required command(s): {', '.join(unsupported)}")
+        raise FixtureSkipped(f"server lacks required feature(s): {', '.join(unsupported)}")
 
 
 def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
@@ -208,15 +222,25 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
         "export-layout": client.export_layout,
         "apply-layout": client.apply_layout,
         "send": lambda **kw: client.send(kw["surface"], text=kw.get("text"), bytes_data=kw.get("bytes")),
+        "clear-history": lambda **kw: client.clear_history(
+            kw["surface"],
+            fallback_key=terminal_key_input(kw.get("fallback_key")),
+        ),
         "read-screen": client.read_screen,
         "vt-state": client.vt_state,
         "new-tab": client.new_tab,
         "new-browser-tab": client.new_browser_tab,
         "new-workspace": client.new_workspace,
         "new-screen": client.new_screen,
+        "new-pane": client.new_pane,
+        "new-pane-right": client.new_pane_right,
         "split": client.split,
         "set-ratio": client.set_ratio,
         "set-split-ratio": client.set_split_ratio,
+        "set-viewport-pane-width": client.set_viewport_pane_width,
+        "undo-layout": lambda **kw: client.undo_layout(
+            kw["pane"], kw.get("revision") if kw.get("confirm_close") else None
+        ),
         "pane-neighbor": client.pane_neighbor,
         "focus-direction": client.focus_direction,
         "swap-pane": client.swap_pane,
@@ -251,6 +275,23 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
     if cmd not in mapping:
         raise FixtureFailure(f"unsupported fixture command {cmd}")
     return mapping[cmd](**params)
+
+
+def terminal_key_input(value: Any) -> Optional[TerminalKeyInput]:
+    if value is None:
+        return None
+    return TerminalKeyInput(
+        key=value["key"],
+        mods=TerminalModifiers.from_wire(value["mods"]),
+        consumed_mods=TerminalModifiers.from_wire(value["consumed_mods"]),
+        composing=bool(value.get("composing", False)),
+        utf8=value["utf8"],
+        unshifted_codepoint=value.get("unshifted_codepoint"),
+        shifted_codepoint=value.get("shifted_codepoint"),
+        base_layout_codepoint=value.get("base_layout_codepoint"),
+        action=value.get("action"),
+        macos_option_as_alt=value["macos_option_as_alt"],
+    )
 
 
 def result_to_data(result: Any) -> Any:
@@ -339,7 +380,7 @@ def wait_contains(client: CmuxClient, request: Dict[str, Any], path: str, needle
 def get_path(value: Any, path: str) -> Any:
     current = value
     for part in path.split("."):
-        match = re.fullmatch(r"([A-Za-z0-9_-]+)(?:\[(\d+)\])?", part)
+        match = re.fullmatch(r"([A-Za-z0-9_-]+)(?:\[(-?\d+)\])?", part)
         if not match:
             raise FixtureFailure(f"bad JSON path segment {part!r}")
         key = match.group(1)
@@ -348,7 +389,7 @@ def get_path(value: Any, path: str) -> Any:
         current = current[key]
         if match.group(2) is not None:
             index = int(match.group(2))
-            if not isinstance(current, list) or index >= len(current):
+            if not isinstance(current, list) or index >= len(current) or index < -len(current):
                 raise FixtureFailure(f"path {path!r} missing index {index}")
             current = current[index]
     return current
