@@ -20740,6 +20740,51 @@ mod tests {
         }));
         mux.close_surface(surviving.id).unwrap();
     }
+
+    #[test]
+    fn established_child_exit_decides_close_on_ordered_worker() {
+        let mux = Mux::new(
+            "established-child-exit-ordered-close-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let exited = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let pane = mux.with_state(|state| state.pane_of(exited.id).unwrap());
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("blocker", false, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited {
+                surface: exited.id,
+                runtime_ms: Some(251),
+            }))
+            .unwrap(),
+            RenderAction::Draw
+        );
+        let surviving = mux.new_tab(Some(pane), None, Some((20, 8))).unwrap();
+        release_tx.send(()).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+
+        assert!(mux.surface(exited.id).is_none());
+        assert!(mux.surface(surviving.id).is_some());
+        assert!(mux.with_state(|state| {
+            state.workspaces.iter().any(|candidate| candidate.id == workspace)
+        }));
+        mux.close_surface(surviving.id).unwrap();
+    }
     #[test]
     fn surface_only_attach_tombstones_an_established_exited_shell() {
         let mux = Mux::new(
