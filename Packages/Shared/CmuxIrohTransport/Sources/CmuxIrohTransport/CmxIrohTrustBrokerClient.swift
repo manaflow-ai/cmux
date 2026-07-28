@@ -1,17 +1,39 @@
 public import CMUXMobileCore
 public import Foundation
 
+/// One access + refresh credential pair captured from a single session snapshot.
+///
+/// Assembling a request from one snapshot prevents pairing a stale access token
+/// with a freshly-rotated refresh token (or vice versa) when a force refresh
+/// lands between two independent token reads.
+public struct CmxIrohBrokerCredentials: Sendable {
+    public let accessToken: String
+    public let refreshToken: String
+
+    public init(accessToken: String, refreshToken: String) {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+    }
+}
+
 /// Supplies the short-lived Stack credentials required by native API calls.
 public struct CmxIrohBrokerTokenSource: Sendable {
     public let accessToken: @Sendable () async -> String?
     public let refreshToken: @Sendable () async -> String?
+    /// Preferred source: returns BOTH tokens from ONE snapshot so a request can
+    /// never mix an old access token with a rotated refresh token. When `nil`,
+    /// the two independent closures above are read in sequence instead (their
+    /// only use now is legacy callers and tests that predate the pair).
+    public let credentialPair: (@Sendable () async -> CmxIrohBrokerCredentials?)?
 
     public init(
         accessToken: @escaping @Sendable () async -> String?,
-        refreshToken: @escaping @Sendable () async -> String?
+        refreshToken: @escaping @Sendable () async -> String?,
+        credentialPair: (@Sendable () async -> CmxIrohBrokerCredentials?)? = nil
     ) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
+        self.credentialPair = credentialPair
     }
 }
 
