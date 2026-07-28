@@ -2,11 +2,11 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 35819	CLI/cmux.swift
-17951	Sources/AppDelegate.swift
+17948	Sources/AppDelegate.swift
 17014	Sources/ContentView.swift
 15297	Sources/TerminalController.swift
 12530	Sources/Workspace.swift
-12347	Sources/GhosttyTerminalView.swift
+12345	Sources/GhosttyTerminalView.swift
 12327	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11567	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
@@ -15,8 +15,8 @@
 7849	Sources/Panels/BrowserPanelView.swift
 7678	cmuxTests/WorkspaceUnitTests.swift
 7305	cmuxTests/WorkspaceRemoteConnectionTests.swift
+6425	cmuxTests/SessionPersistenceTests.swift
 6374	cmuxTests/TerminalAndGhosttyTests.swift
-6371	cmuxTests/SessionPersistenceTests.swift
 6292	Sources/TabManager.swift
 6264	cmuxTests/GhosttyConfigTests.swift
 5758	Sources/TextBoxInput.swift
@@ -44,7 +44,7 @@
 2452	Sources/KeyboardShortcutSettings.swift
 2391	Sources/TerminalNotificationStore.swift
 2337	cmuxTests/CJKIMEInputTests.swift
-2262	Sources/RestorableAgentSession.swift
+2266	Sources/RestorableAgentSession.swift
 2168	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2126	cmuxTests/CmuxConfigTests.swift
 2029	Sources/SharedLiveAgentIndex.swift
@@ -189,6 +189,7 @@
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/macOS/CmuxSimulator/Sources/CmuxSimulatorUI/Coordinator/SimulatorPaneCoordinator+Lifecycle.swift
 734	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandCoordinatorSimulatorTests.swift
+731	cmuxTests/SessionPersistenceResumeBindingTests.swift
 729	Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorUITests/SimulatorRemoteSurfaceLifecycleTests.swift
 728	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/IrohConnectionRecoveryOwnerTests.swift
 726	Sources/RemoteTmuxWindowMirror+Bonsplit.swift
@@ -232,7 +233,6 @@
 680	Sources/FileExplorerSearchController.swift
 680	Sources/PortScanner.swift
 678	Sources/FeatureFlags.swift
-678	cmuxTests/SessionPersistenceResumeBindingTests.swift
 677	Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/WorkspaceCoordinatorTests.swift
 675	Sources/Panels/CodexAppServerSession.swift
 672	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TaskComposer/TaskComposerSheet.swift
