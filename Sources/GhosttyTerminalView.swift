@@ -2652,6 +2652,14 @@ class GhosttyApp {
             )
         }
 
+        if action.tag == GHOSTTY_ACTION_COMMAND_FINISHED {
+            return handleAgentSessionCommandFinishedAction(
+                tabId: callbackTabId,
+                surfaceId: callbackSurfaceId,
+                message: action.action.command_finished
+            )
+        }
+
         guard let surfaceView = callbackContext?.surfaceView else { return false }
         if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
             action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||

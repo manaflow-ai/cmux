@@ -211,6 +211,25 @@ struct ControlCommandCoordinatorSurfaceTests {
         ))
     }
 
+    @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.clear",
+            params: ["agent_session_ended": .bool(true)]
+        ))
+        #expect(context.resumeClearAgentSessionEnded == true)
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(2),
+            method: "surface.resume.clear",
+            params: [:]
+        ))
+        #expect(context.resumeClearAgentSessionEnded == false)
+    }
+
     @Test func paneCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let context = FakeSurfaceControlCommandContext()
         context.paneCreateResolution = .dockUnsupportedType(

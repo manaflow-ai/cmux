@@ -119,7 +119,8 @@ extension ControlCommandCoordinator {
             hasResolvedWindowID: uuid(params, "window_id") != nil,
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
-            expectedSource: optionalTrimmedRawString(params, "source")
+            expectedSource: optionalTrimmedRawString(params, "source"),
+            agentSessionEnded: bool(params, "agent_session_ended") ?? false
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
     }

@@ -1692,6 +1692,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
+        XCTAssertEqual(request["agent_session_ended"] as? Bool, true)
     }
 
     func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
@@ -8090,6 +8091,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
+        XCTAssertEqual(request["agent_session_ended"] as? Bool, true)
     }
 
     func testSurfaceResumeClearCLIForwardsCheckpointAndSourceGuards() throws {
@@ -8149,6 +8151,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, "new-session")
         XCTAssertEqual(request["source"] as? String, "agent-hook")
+        XCTAssertNil(request["agent_session_ended"])
     }
 
     func testSurfaceResumeSetCLIPreservesQuotedShellCommand() throws {

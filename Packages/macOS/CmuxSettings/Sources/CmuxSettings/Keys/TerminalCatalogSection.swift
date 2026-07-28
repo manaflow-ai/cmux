@@ -49,6 +49,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
+    public let autoRetryAgentSessions = DefaultsKey<Bool>(
+        id: "terminal.autoRetryAgentSessions",
+        defaultValue: false,
+        userDefaultsKey: "terminal.autoRetryAgentSessions"
+    )
+
     public let agentHibernationEnabled = DefaultsKey<Bool>(
         id: "terminal.agentHibernation.enabled",
         defaultValue: false,

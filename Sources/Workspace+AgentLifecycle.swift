@@ -223,6 +223,10 @@ extension Workspace {
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+            agentSessionRetryCoordinator.agentLifecycleDidChange(
+                panelId: targetPanelId,
+                lifecycle: lifecycle
+            )
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
     }
@@ -240,6 +244,7 @@ extension Workspace {
             }
             didClear = true
             if recordsHibernationActivity {
+                agentSessionRetryCoordinator.agentLifecycleDidClear(panelId: panelId)
                 recordAgentLifecycleChange(panelId: panelId)
             }
         }
@@ -255,6 +260,7 @@ extension Workspace {
 
     func clearAgentLifecycleStates(panelId: UUID) {
         guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
+        agentSessionRetryCoordinator.cancel(panelId: panelId)
         let manualStates = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
         if !manualStates.isEmpty {
             let host: UUID? = if panels[panelId] != nil {
@@ -277,6 +283,7 @@ extension Workspace {
         let panelIds = Array(agentLifecycleStatesByPanelId.keys)
         guard !panelIds.isEmpty else { return }
         agentLifecycleStatesByPanelId.removeAll()
+        agentSessionRetryCoordinator.cancelAll()
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
         }
