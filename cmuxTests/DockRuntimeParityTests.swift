@@ -459,4 +459,21 @@ struct DockNotificationAttentionTests {
         )
         #expect(projection.unreadPanelIDs == [firstPanelID])
     }
+
+    @Test("Dock panel content receives projected unread state")
+    func dockPanelContentReceivesProjectedUnreadState() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = DockRuntimeParityPanel(title: "Dock")
+        let paneID = try dock.seedRuntimeParityPanel(panel)
+        let tabID = try #require(dock.surfaceIdFromPanelId(panel.id))
+        let content = DockSplitContentView(
+            store: dock,
+            appearance: .fromConfig(WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "test.dock.unread")),
+            windowAppearance: .rightSidebarPanelViewTestDefault,
+            rightSidebarOwnsInputFocus: false,
+            unreadPanelIDs: [panel.id]
+        )
+
+        #expect(content.panelContentView(panel: panel, tabID: tabID, paneId: paneID).hasUnreadNotification)
+    }
 }
