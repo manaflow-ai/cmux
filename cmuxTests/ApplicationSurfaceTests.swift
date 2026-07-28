@@ -302,7 +302,7 @@ struct ApplicationSurfaceTests {
         ))
 
         #expect(panel.id == panelID)
-        #expect(panel.captureTarget == ApplicationPanel.CaptureTarget(
+        #expect(panel.captureTarget == ApplicationCaptureTarget(
             windowID: 88,
             processID: 99
         ))
@@ -473,6 +473,22 @@ struct ApplicationSurfaceTests {
         #expect(panel.workspaceId == destination.id)
         #expect(destination.panelTitle(panelId: panel.id) == "Calculator")
         #expect(source.panelTitle(panelId: panel.id) == nil)
+    }
+
+    @Test func workspaceUsesItsInjectedApplicationSurfaceRuntime() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: "Preview"
+        ))
+
+        #expect(panel.runtime === runtime)
+        panel.close()
     }
 }
 

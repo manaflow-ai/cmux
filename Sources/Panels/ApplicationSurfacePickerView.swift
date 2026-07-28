@@ -1,40 +1,5 @@
 import AppKit
-import Observation
 import SwiftUI
-
-@MainActor
-@Observable
-final class ApplicationSurfacePickerModel {
-    enum Phase: Equatable {
-        case idle
-        case loading
-        case ready
-        case permissionRequired
-        case helperUnavailable
-        case failed(String)
-    }
-
-    var windows: [ApplicationWindowDescriptor] = []
-    var query = ""
-    var selectedWindowID: UInt32?
-    var phase: Phase = .idle
-
-    var filteredWindows: [ApplicationWindowDescriptor] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return windows }
-        return windows.filter {
-            $0.owner.localizedCaseInsensitiveContains(query)
-                || $0.title.localizedCaseInsensitiveContains(query)
-        }
-    }
-
-    func replaceWindows(_ windows: [ApplicationWindowDescriptor]) {
-        self.windows = windows
-        if !windows.contains(where: { $0.windowID == selectedWindowID }) {
-            selectedWindowID = windows.first?.windowID
-        }
-    }
-}
 
 struct ApplicationSurfacePickerView: View {
     @Bindable var model: ApplicationSurfacePickerModel
@@ -227,70 +192,5 @@ struct ApplicationSurfacePickerView: View {
         VStack(spacing: 10, content: content)
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct ApplicationSurfacePickerButton: View {
-    let window: ApplicationWindowDescriptor
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            ApplicationSurfacePickerRow(window: window)
-                .padding(.horizontal, 12)
-                .background(
-                    isHovering
-                        ? Color.accentColor.opacity(0.12)
-                        : Color.clear
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .accessibilityIdentifier("ApplicationSurfaceWindow-\(window.windowID)")
-    }
-}
-
-private struct ApplicationSurfacePickerRow: View {
-    let window: ApplicationWindowDescriptor
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Group {
-                if let icon = NSRunningApplication(
-                    processIdentifier: pid_t(window.processID)
-                )?.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                } else {
-                    Image(systemName: "app")
-                        .resizable()
-                        .padding(5)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 32, height: 32)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(window.title)
-                    .lineLimit(1)
-                HStack(spacing: 6) {
-                    Text(window.owner)
-                    Text(verbatim: "•")
-                    Text(verbatim: "\(Int(window.width)) × \(Int(window.height))")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, 4)
-        .accessibilityElement(children: .combine)
     }
 }

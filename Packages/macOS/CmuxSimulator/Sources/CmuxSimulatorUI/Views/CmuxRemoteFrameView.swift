@@ -9,11 +9,16 @@ import QuartzCore
 /// bytes to Core Animation.
 @MainActor
 public final class CmuxRemoteFrameView: NSView {
+    /// Called once after the first frame from an adopted transport is presented.
     public var onFirstFrame: (() -> Void)?
+    /// Called after each newly published frame is presented.
     public var onFramePresented: (() -> Void)?
+    /// Called when the hosting window starts or stops being visible.
     public var onHostVisibilityChanged: ((Bool) -> Void)?
+    /// Called when an adopted frame transport cannot be opened or read.
     public var onTransportFailure: ((Error) -> Void)?
 
+    /// Pixel dimensions of the currently adopted frame transport.
     public private(set) var framePixelSize = CGSize.zero
 
     private var frameLayer: CALayer?
@@ -25,6 +30,7 @@ public final class CmuxRemoteFrameView: NSView {
     private var isActive = true
     private var isTornDown = false
 
+    /// Creates an empty remote-frame presentation view.
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -39,10 +45,12 @@ public final class CmuxRemoteFrameView: NSView {
     }
 
     @available(*, unavailable)
+    /// Storyboard and archive construction are unsupported.
     public required init?(coder: NSCoder) {
         nil
     }
 
+    /// Replaces the current frame transport with the supplied descriptor.
     public func adopt(_ descriptor: SimulatorFrameTransportDescriptor) {
         guard !isTornDown, descriptor != frameTransportDescriptor else { return }
         let source: SimulatorFrameSurfaceSource
@@ -77,6 +85,7 @@ public final class CmuxRemoteFrameView: NSView {
         reconcilePresentation()
     }
 
+    /// Enables or pauses presentation without releasing the current transport.
     public func setActive(_ active: Bool) {
         guard !isTornDown, active != isActive else { return }
         isActive = active
@@ -95,6 +104,7 @@ public final class CmuxRemoteFrameView: NSView {
         lastFrameSequence = nil
     }
 
+    /// Permanently stops presentation and clears callbacks.
     public func teardown() {
         guard !isTornDown else { return }
         NotificationCenter.default.removeObserver(self)
@@ -107,21 +117,25 @@ public final class CmuxRemoteFrameView: NSView {
         onTransportFailure = nil
     }
 
+    /// Keeps the presentation layer aligned with the view bounds.
     public override func layout() {
         super.layout()
         layoutFrameLayer()
     }
 
+    /// Rebuilds the presentation cadence when display backing changes.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         rebuildPresentationTimer()
     }
 
+    /// Reconciles presentation after the view enters or leaves a window.
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         reconcilePresentation()
     }
 
+    /// Updates visibility observation before the hosting window changes.
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         if window !== newWindow {
             stopPresentationTimer()

@@ -733,9 +733,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
     private var computerUseRuntimeService: ComputerUseRuntimeService?
-    var applicationSurfaceRuntimeService: ComputerUseRuntimeService? {
-        computerUseRuntimeService
-    }
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -2145,9 +2142,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredWindow: NSWindow? = nil
     ) {
         guard
-            let tabManager = preferredTabManager
+            let surfaceTabOwner = preferredTabManager
                 ?? synchronizeActiveMainWindowContext(preferredWindow: preferredWindow),
-            let workspace = tabManager.selectedWorkspace,
+            let workspace = surfaceTabOwner.selectedWorkspace,
             let paneID = workspace.bonsplitController.focusedPaneId
                 ?? workspace.bonsplitController.allPaneIds.first,
             workspace.newApplicationSurface(
@@ -8798,7 +8795,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore(
                 defaults: .standard
             ),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            applicationSurfaceRuntime: computerUseRuntimeService
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

@@ -6,20 +6,6 @@ import Observation
 @MainActor
 @Observable
 final class ApplicationPanel: Panel {
-    struct CaptureTarget: Equatable {
-        let windowID: CGWindowID
-        let processID: pid_t
-    }
-
-    enum CaptureState: Equatable {
-        case starting
-        case streaming
-        case suspended
-        case permissionRequired
-        case windowUnavailable
-        case failed
-    }
-
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .application
@@ -31,7 +17,7 @@ final class ApplicationPanel: Panel {
 
     private(set) var windowID: CGWindowID?
     private(set) var processID: pid_t?
-    private(set) var captureState: CaptureState = .starting
+    private(set) var captureState: ApplicationCaptureState = .starting
     private(set) var captureGeneration = UUID()
 
     private var targetTitle: String?
@@ -56,9 +42,9 @@ final class ApplicationPanel: Panel {
     @ObservationIgnored
     private var displayTitleDidChange: ((String) -> Void)?
 
-    var captureTarget: CaptureTarget? {
+    var captureTarget: ApplicationCaptureTarget? {
         guard let windowID, let processID else { return nil }
-        return CaptureTarget(windowID: windowID, processID: processID)
+        return ApplicationCaptureTarget(windowID: windowID, processID: processID)
     }
 
     var displayTitle: String {
@@ -300,7 +286,7 @@ final class ApplicationPanel: Panel {
         fulfillPendingFocusIfPossible()
     }
 
-    func updateCaptureState(_ state: CaptureState, token: UUID) {
+    func updateCaptureState(_ state: ApplicationCaptureState, token: UUID) {
         guard activeCaptureToken == token else { return }
         captureState = state
     }

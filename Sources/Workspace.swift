@@ -2447,6 +2447,7 @@ final class Workspace: Identifiable, ObservableObject {
     let todoState = WorkspaceTodoState()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
+    private let applicationSurfaceRuntime: (any ApplicationSurfaceRuntime)?
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -2987,12 +2988,14 @@ final class Workspace: Identifiable, ObservableObject {
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
-        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        applicationSurfaceRuntime: (any ApplicationSurfaceRuntime)? = nil
     ) {
         self.id = id ?? UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.applicationSurfaceRuntime = applicationSurfaceRuntime
         self.settings = settings
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
@@ -7816,10 +7819,7 @@ final class Workspace: Identifiable, ObservableObject {
         runtimeLease: ApplicationSurfaceRuntimeLease? = nil
     ) -> ApplicationPanel? {
         if isRemoteTmuxMirror { return nil }
-        guard
-            let runtime = runtime
-                ?? AppDelegate.shared?.applicationSurfaceRuntimeService
-        else {
+        guard let runtime = runtime ?? applicationSurfaceRuntime else {
             return nil
         }
 

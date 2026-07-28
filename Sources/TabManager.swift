@@ -396,6 +396,7 @@ class TabManager: ObservableObject {
     let workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
+    private let applicationSurfaceRuntime: (any ApplicationSurfaceRuntime)?
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -489,6 +490,7 @@ class TabManager: ObservableObject {
         },
         workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        applicationSurfaceRuntime: (any ApplicationSurfaceRuntime)? = nil,
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
@@ -500,6 +502,7 @@ class TabManager: ObservableObject {
             settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
         })
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.applicationSurfaceRuntime = applicationSurfaceRuntime
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -649,12 +652,14 @@ class TabManager: ObservableObject {
     /// initialize the app value more than once during launch.
     static func makeAppBootstrap(
         workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore? = nil,
-        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        applicationSurfaceRuntime: (any ApplicationSurfaceRuntime)? = nil
     ) -> TabManager {
         TabManager(
             createInitialWorkspace: false,
             workspaceDirectoryCustomizationStore: workspaceDirectoryCustomizationStore,
-            nativeSSHConnectionBroker: nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker,
+            applicationSurfaceRuntime: applicationSurfaceRuntime
         )
     }
 
@@ -1014,7 +1019,8 @@ class TabManager: ObservableObject {
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
-            nativeSSHConnectionBroker: nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker,
+            applicationSurfaceRuntime: applicationSurfaceRuntime
         )
     }
 
@@ -1033,7 +1039,8 @@ class TabManager: ObservableObject {
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
             initialDetachedSurface: detachedSurface,
-            nativeSSHConnectionBroker: nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker,
+            applicationSurfaceRuntime: applicationSurfaceRuntime
         )
     }
 

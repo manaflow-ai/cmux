@@ -2,35 +2,6 @@ import AppKit
 import Carbon.HIToolbox
 import CmuxSimulatorUI
 
-enum ApplicationCaptureLivenessFailure: Equatable {
-    case firstFrameTimedOut
-    case frameStalled
-}
-
-struct ApplicationCaptureLivenessState {
-    let startedAt: TimeInterval
-    private(set) var lastFrameAt: TimeInterval?
-
-    mutating func recordFrame(at timestamp: TimeInterval) {
-        lastFrameAt = timestamp
-    }
-
-    func failure(
-        at timestamp: TimeInterval,
-        firstFrameTimeout: TimeInterval,
-        frameStallTimeout: TimeInterval
-    ) -> ApplicationCaptureLivenessFailure? {
-        if let lastFrameAt {
-            return timestamp - lastFrameAt >= frameStallTimeout
-                ? .frameStalled
-                : nil
-        }
-        return timestamp - startedAt >= firstFrameTimeout
-            ? .firstFrameTimedOut
-            : nil
-    }
-}
-
 @MainActor
 final class ApplicationCaptureView: NSView {
     private static let firstFrameTimeout: TimeInterval = 8
@@ -79,7 +50,7 @@ final class ApplicationCaptureView: NSView {
     private let targetFrameRate: Int
     private let runtime: any ApplicationSurfaceRuntime
     private let leaseProvider: @MainActor () async -> ApplicationSurfaceRuntimeLease?
-    private let onStateChanged: (ApplicationPanel.CaptureState) -> Void
+    private let onStateChanged: (ApplicationCaptureState) -> Void
     private let onMovedToWindow: (ApplicationCaptureView) -> Void
     private let remoteFrameView = CmuxRemoteFrameView(frame: .zero)
     private lazy var inputPump = ApplicationSurfaceInputPump { [weak self] event in
@@ -136,7 +107,7 @@ final class ApplicationCaptureView: NSView {
         targetFrameRate: Int,
         runtime: any ApplicationSurfaceRuntime,
         leaseProvider: @escaping @MainActor () async -> ApplicationSurfaceRuntimeLease?,
-        onStateChanged: @escaping (ApplicationPanel.CaptureState) -> Void,
+        onStateChanged: @escaping (ApplicationCaptureState) -> Void,
         onMovedToWindow: @escaping (ApplicationCaptureView) -> Void
     ) {
         sourceWindowID = windowID
@@ -494,7 +465,7 @@ final class ApplicationCaptureView: NSView {
         enqueueKey(event, keyDown: keyDown)
     }
 
-    private func enqueueMouse(_ event: NSEvent, kind: ApplicationSurfaceInputEvent.Kind) {
+    private func enqueueMouse(_ event: NSEvent, kind: ApplicationSurfaceInputEventKind) {
         guard let point = normalizedPoint(for: event) else { return }
         guard inputPump.enqueue(ApplicationSurfaceInputEvent(
             kind: kind,
@@ -665,7 +636,7 @@ final class ApplicationCaptureView: NSView {
         releaseForwardedInputs()
     }
 
-    private func handleRuntimeFailure(_ state: ApplicationPanel.CaptureState) {
+    private func handleRuntimeFailure(_ state: ApplicationCaptureState) {
         guard captureDesired else { return }
         if state == .windowUnavailable {
             targetUnavailable = true

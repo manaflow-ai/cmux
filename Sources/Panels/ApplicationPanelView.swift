@@ -125,7 +125,7 @@ struct ApplicationPanelView: View {
     }
 
     private func captureView(
-        target: ApplicationPanel.CaptureTarget
+        target: ApplicationCaptureTarget
     ) -> some View {
         ApplicationCaptureRepresentable(
             panel: panel,

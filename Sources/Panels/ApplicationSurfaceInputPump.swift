@@ -2,11 +2,6 @@ import Foundation
 
 @MainActor
 final class ApplicationSurfaceInputPump {
-    enum EnqueueResult: Equatable {
-        case accepted
-        case full
-    }
-
     typealias Sender = @MainActor (ApplicationSurfaceInputEvent) async -> Bool
 
     private let maximumQueuedEventCount: Int
@@ -27,7 +22,7 @@ final class ApplicationSurfaceInputPump {
     }
 
     @discardableResult
-    func enqueue(_ event: ApplicationSurfaceInputEvent) -> EnqueueResult {
+    func enqueue(_ event: ApplicationSurfaceInputEvent) -> ApplicationSurfaceInputEnqueueResult {
         if event.kind.isCoalescibleMotion,
            let lastIndex = queue.indices.last,
            queue[lastIndex].kind.isCoalescibleMotion {
@@ -41,7 +36,7 @@ final class ApplicationSurfaceInputPump {
     }
 
     @discardableResult
-    func enqueue(_ events: [ApplicationSurfaceInputEvent]) -> EnqueueResult {
+    func enqueue(_ events: [ApplicationSurfaceInputEvent]) -> ApplicationSurfaceInputEnqueueResult {
         guard !events.isEmpty else { return .accepted }
         guard makeRoom(for: events.count) else { return .full }
         queue.append(contentsOf: events)
