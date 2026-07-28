@@ -17,6 +17,11 @@ extension IrohError: @retroactive DiagnosticFailureProviding {
     private static func diagnosticFailureKind(
         message: String
     ) -> DiagnosticFailureKind {
+        // iroh-ffi's ConnectAttempt fails a cancelled dial with this fixed marker
+        // (CONNECT_CANCELLED_MESSAGE, iroh-ffi src/endpoint.rs, v1.0.2-cmux.4).
+        if message.contains("outgoing connection cancelled") {
+            return .cancelled
+        }
         if message.contains("ConnectionLost(TimedOut)") {
             return .transportIdleTimedOut
         }

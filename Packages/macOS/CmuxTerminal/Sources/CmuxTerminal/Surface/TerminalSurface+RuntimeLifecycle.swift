@@ -111,7 +111,7 @@ extension TerminalSurface {
            let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") {
             ghostty_surface_set_display_id(s, displayID)
         }
-        rendererPresentationAttachmentDidBecomeReady()
+        rendererPresentationReadinessDidChange()
     }
 
     /// Whether the surface model is attached to `view` with a live runtime
@@ -413,7 +413,7 @@ extension TerminalSurface {
                let s = surface {
                 ghostty_surface_set_display_id(s, displayID)
             }
-            rendererPresentationAttachmentDidBecomeReady()
+            rendererPresentationReadinessDidChange()
             return
         }
 
@@ -472,7 +472,7 @@ extension TerminalSurface {
             logDebugEvent("surface.attach.displayId surface=\(id.uuidString.prefix(5)) display=\(displayID)")
 #endif
         }
-        rendererPresentationAttachmentDidBecomeReady()
+        rendererPresentationReadinessDidChange()
     }
 
     @MainActor
@@ -631,6 +631,7 @@ extension TerminalSurface {
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
 
         flushPendingSocketInputIfNeeded()
+        view.runtimeSurfaceDidBecomeReady()
 
         // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
         // miss the first vsync callback and sit on a blank frame until another focus/visibility

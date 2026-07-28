@@ -19,7 +19,7 @@ use cmux_tui_core::terminal_host_protocol::{
     PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
-    TerminalHostLiveness, adopt_terminal_host, decode_terminal_color_overrides,
+    TerminalHostLiveness, TerminalHostRecord, adopt_terminal_host, decode_terminal_color_overrides,
     load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_record_liveness,
     terminal_host_root,
 };
@@ -398,16 +398,7 @@ fn new_host_rolls_back_when_surface_setup_fails_after_connect() {
     let response = request_thread.join().unwrap();
     assert_eq!(response["ok"], false);
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if terminal_host_record_liveness(&record_path, &record).unwrap()
-            == TerminalHostLiveness::Dead
-        {
-            break;
-        }
-        assert!(Instant::now() < deadline, "rolled-back host remained alive");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_terminal_host_dead(&record_path, &record);
     wait_for_no_host_records(&harness.host_root());
     wait_for_process_and_group_absent(shell_pid);
 }
@@ -439,10 +430,7 @@ fn explicit_terminate_escalates_past_a_sighup_ignoring_child() {
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
-    assert_eq!(
-        terminal_host_record_liveness(&record_path, &record).unwrap(),
-        TerminalHostLiveness::Dead,
-    );
+    wait_for_terminal_host_dead(&record_path, &record);
     wait_for_process_and_group_absent(shell_pid);
 }
 
@@ -498,10 +486,7 @@ fn explicit_terminate_reaps_descendants_in_the_pty_group() {
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
-    assert_eq!(
-        terminal_host_record_liveness(&record_path, &record).unwrap(),
-        TerminalHostLiveness::Dead,
-    );
+    wait_for_terminal_host_dead(&record_path, &record);
     wait_for_process_and_group_absent(direct_pid);
     wait_for_process_and_group_absent(descendant_pid);
 }
@@ -643,6 +628,350 @@ fn c1_output_is_normalized_once_before_host_and_frontend_mirrors_observe_it() {
     request(
         &harness.socket,
         serde_json::json!({"id": 2, "cmd": "close-surface", "surface": surface}),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn cleared_history_stays_cleared_after_daemon_reconnect() {
+    let mut harness = RecoveryHarness::start("clear-history-reconnect");
+    let history = format!("history-before-clear-{}", std::process::id());
+    let pending = format!("typed-input-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                concat!(
+                    "i=0; while [ \"$i\" -lt 40 ]; do ",
+                    "printf '%s-%02d\\r\\n' \"$1\" \"$i\"; i=$((i + 1)); done; ",
+                    "printf '\\033]133;A\\007prompt> \\033]133;B\\007%s' \"$2\"; sleep 30",
+                ),
+                "cmux-clear-history",
+                &history,
+                &pending,
+            ],
+            "new_workspace": true,
+            "name": "clear-history-survivor",
+            "cols": 80,
+            "rows": 8,
+        }),
+    );
+    let original_surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    let prompt = format!("prompt> {pending}");
+    assert!(wait_for_screen(&harness.socket, original_surface, &prompt).contains(&prompt));
+    let before = request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "copy", "surface": original_surface, "mode": "scrollback"}),
+    );
+    assert!(before["text"].as_str().unwrap().contains(&history));
+    let records = wait_for_host_records(&harness.host_root(), 1);
+    assert!(records[0].1.supports_clear_history);
+
+    let host_pid = records[0].1.host_pid as libc::pid_t;
+    // SAFETY: the durable record identifies this harness's live terminal host.
+    assert_eq!(unsafe { libc::kill(host_pid, libc::SIGSTOP) }, 0);
+    std::thread::sleep(Duration::from_millis(50));
+    let resume_host = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(250));
+        // SAFETY: this resumes the same host stopped immediately above.
+        assert_eq!(unsafe { libc::kill(host_pid, libc::SIGCONT) }, 0);
+    });
+    let clear_started = Instant::now();
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "clear-history", "surface": original_surface}),
+    );
+    let clear_elapsed = clear_started.elapsed();
+    resume_host.join().unwrap();
+    assert!(
+        clear_elapsed >= Duration::from_millis(150),
+        "clear-history returned before the stopped host applied it: {clear_elapsed:?}"
+    );
+    let screen = request(
+        &harness.socket,
+        serde_json::json!({"id": 4, "cmd": "read-screen", "surface": original_surface}),
+    )["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let scrollback = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "copy",
+            "surface": original_surface,
+            "mode": "scrollback",
+        }),
+    )["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(screen.contains(&prompt));
+    assert!(!screen.contains(&history));
+    assert!(!scrollback.contains(&history));
+
+    harness.sigkill();
+    harness.restart();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let adopted_surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": 6,
+                "cmd": "resolve-terminal",
+                "terminal_id": &terminal_id,
+            }),
+        );
+        if resolved["lifecycle"] == "running"
+            && resolved["terminal_incarnation"].as_str() == Some(incarnation.as_str())
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "replacement daemon did not adopt cleared terminal");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let replay = wait_for_screen(&harness.socket, adopted_surface, &prompt);
+    assert!(replay.contains(&prompt));
+    assert!(!replay.contains(&history), "cleared visible history returned after adoption");
+    let recovered = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 7,
+            "cmd": "copy",
+            "surface": adopted_surface,
+            "mode": "scrollback",
+        }),
+    );
+    assert!(
+        !recovered["text"].as_str().unwrap().contains(&history),
+        "cleared scrollback returned after adoption"
+    );
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 8,
+            "cmd": "close-terminal",
+            "terminal_id": terminal_id,
+            "terminal_incarnation": incarnation,
+        }),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn hosted_clear_history_encodes_fallback_from_authoritative_keyboard_mode() {
+    let harness = RecoveryHarness::start("clear-history-fallback");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                "stty raw -echo; printf '\\033[?1049h\\033[>1uready'; exec cat",
+            ],
+            "new_workspace": true,
+            "name": "clear-history-fallback",
+            "cols": 80,
+            "rows": 8,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    assert!(wait_for_screen(&harness.socket, surface, "ready").contains("ready"));
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    assert!(record.supports_clear_history);
+    let mut observer = connect_host_detailed(
+        &record.endpoint,
+        &record.terminal_id,
+        &record.owner_token,
+        ClientRole::Admin,
+        CapabilityRights::ADMIN,
+    )
+    .unwrap();
+    observer.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "clear-history",
+            "surface": surface,
+            "fallback_key": {
+                "key": "k",
+                "mods": {
+                    "shift": false,
+                    "control": false,
+                    "alt": false,
+                    "super": true,
+                    "caps_lock": false,
+                    "num_lock": false,
+                },
+                "consumed_mods": {
+                    "shift": false,
+                    "control": false,
+                    "alt": false,
+                    "super": false,
+                    "caps_lock": false,
+                    "num_lock": false,
+                },
+                "utf8": "",
+                "unshifted_codepoint": "k",
+                "action": "press",
+                "macos_option_as_alt": true,
+            },
+        }),
+    );
+    let expected = b"\x1b[107;9u";
+    loop {
+        let frame = read_frame(&mut observer.stream, MAX_FRAME_PAYLOAD)
+            .expect("read clear-history fallback output")
+            .expect("host closed before clear-history fallback output");
+        if frame.request_id == 0 {
+            assert_eq!(frame.sequence, observer.next_sequence);
+            observer.next_sequence = observer.next_sequence.wrapping_add(1);
+        }
+        if frame.kind == MessageKind::Output && contains_bytes(&frame.payload, expected) {
+            break;
+        }
+    }
+
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "close-surface", "surface": surface}),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn adopted_legacy_host_rejects_clear_history_fallback() {
+    let mut harness = RecoveryHarness::start("legacy-clear-history-fallback");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                "stty raw -echo; printf '\\033[?1049hready'; exec cat",
+            ],
+            "new_workspace": true,
+            "name": "legacy-clear-history-fallback",
+            "cols": 80,
+            "rows": 8,
+        }),
+    );
+    let original_surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    assert!(wait_for_screen(&harness.socket, original_surface, "ready").contains("ready"));
+    let (record_path, mut record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+
+    harness.sigkill();
+    record.supports_clear_history = false;
+    fs::write(&record_path, serde_json::to_vec(&record).unwrap()).unwrap();
+    harness.restart();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let adopted_surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": 2,
+                "cmd": "resolve-terminal",
+                "terminal_id": &terminal_id,
+            }),
+        );
+        if resolved["lifecycle"] == "running"
+            && resolved["terminal_incarnation"].as_str() == Some(incarnation.as_str())
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "replacement daemon did not adopt legacy host");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(wait_for_screen(&harness.socket, adopted_surface, "ready").contains("ready"));
+
+    let tree = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-workspaces"}));
+    let adopted_tab = tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .find(|tab| tab["surface"].as_u64() == Some(adopted_surface))
+        .expect("adopted terminal missing from workspace tree");
+    assert_eq!(
+        adopted_tab["supports_clear_history_key_fallback"].as_bool(),
+        Some(false),
+        "legacy terminal host was advertised as safe for atomic clear-history fallback"
+    );
+
+    let unsupported = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id": 4,
+            "cmd": "clear-history",
+            "surface": adopted_surface,
+            "fallback_key": {
+                "key": "z",
+                "mods": {
+                    "shift": false,
+                    "control": false,
+                    "alt": false,
+                    "super": false,
+                    "caps_lock": false,
+                    "num_lock": false,
+                },
+                "consumed_mods": {
+                    "shift": false,
+                    "control": false,
+                    "alt": false,
+                    "super": false,
+                    "caps_lock": false,
+                    "num_lock": false,
+                },
+                "utf8": "z",
+                "unshifted_codepoint": "z",
+                "action": "press",
+                "macos_option_as_alt": true,
+            },
+        }),
+    );
+    assert_eq!(unsupported["ok"], false, "legacy host fallback was silently accepted");
+    assert!(
+        unsupported["error"].as_str().unwrap().contains("does not support clear-history"),
+        "unexpected rejection: {unsupported}"
+    );
+    std::thread::sleep(Duration::from_millis(100));
+    let screen = request(
+        &harness.socket,
+        serde_json::json!({"id": 5, "cmd": "read-screen", "surface": adopted_surface}),
+    )["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(screen.contains("ready"));
+    assert!(!screen.contains("readyz"), "fallback key reached legacy host: {screen:?}");
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 6,
+            "cmd": "close-terminal",
+            "terminal_id": terminal_id,
+            "terminal_incarnation": incarnation,
+        }),
     );
     wait_for_no_host_records(&harness.host_root());
 }
@@ -1346,7 +1675,12 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "cmd": "send",
             "surface": surface,
             "text": format!(
-                "/usr/bin/head -c 20000000 /dev/zero; printf '{done}\\n'\n"
+                // Exceed both the host's bounded client queue and Darwin's
+                // dynamically sized Unix-socket buffers. A smaller burst can
+                // fit entirely in the kernel under light load, which does not
+                // represent a stalled writer and made this assertion timing
+                // dependent.
+                "/usr/bin/head -c 64000000 /dev/zero; printf '{done}\\n'\n"
             ),
         }),
     );
@@ -2093,10 +2427,7 @@ fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
     last
 }
 
-fn wait_for_host_records(
-    root: &Path,
-    expected: usize,
-) -> Vec<(PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostRecord)> {
+fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, TerminalHostRecord)> {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let records = load_terminal_host_records(root).unwrap();
@@ -2117,6 +2448,17 @@ fn wait_for_no_host_records(root: &Path) {
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("terminal host record was not removed after close");
+}
+
+fn wait_for_terminal_host_dead(path: &Path, record: &TerminalHostRecord) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if terminal_host_record_liveness(path, record).unwrap() == TerminalHostLiveness::Dead {
+            return;
+        }
+        assert!(Instant::now() < deadline, "terminal host remained alive after termination");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn wait_for_pid_file(path: &Path) -> libc::pid_t {
@@ -2227,7 +2569,7 @@ fn attach_state(path: &Path, surface: u64) -> serde_json::Value {
 }
 
 fn wait_for_host_cursor_snapshot(
-    record: &cmux_tui_core::terminal_host_runtime::TerminalHostRecord,
+    record: &TerminalHostRecord,
     style: ghostty_vt::CursorShape,
     blink: bool,
 ) {

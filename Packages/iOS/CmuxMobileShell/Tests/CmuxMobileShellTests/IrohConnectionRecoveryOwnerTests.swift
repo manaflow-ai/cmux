@@ -81,6 +81,65 @@ extension ReconnectRouteSelectionTests {
         #expect(owner.isCurrent(replacementAttempt))
     }
 
+    @Test func cancelProbingReturnsOwnerToIdle() throws {
+        let owner = MobileConnectionRecoveryOwner()
+        defer { owner.cancel() }
+        let attempt = try #require(owner.begin(
+            trigger: "foreground",
+            sourceConnectionGeneration: UUID(),
+            probing: true
+        ))
+        owner.install(Task {}, for: attempt)
+
+        #expect(owner.cancelProbing())
+        #expect(owner.phase == .idle)
+        #expect(owner.task == nil)
+    }
+
+    @Test func cancelProbingLeavesNonProbePhasesUnchanged() throws {
+        let generation = UUID()
+
+        let idleOwner = MobileConnectionRecoveryOwner()
+        #expect(!idleOwner.cancelProbing())
+        #expect(idleOwner.phase == .idle)
+
+        let redialingOwner = MobileConnectionRecoveryOwner()
+        let redialingAttempt = try #require(redialingOwner.begin(
+            trigger: "networkChange",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ))
+        #expect(!redialingOwner.cancelProbing())
+        #expect(redialingOwner.phase == .redialing(redialingAttempt))
+
+        let validatingOwner = MobileConnectionRecoveryOwner()
+        let validatingAttempt = try #require(validatingOwner.begin(
+            trigger: "networkChange",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ))
+        let replacementGeneration = UUID()
+        #expect(validatingOwner.transitionToValidation(
+            validatingAttempt,
+            connectionGeneration: replacementGeneration
+        ))
+        #expect(!validatingOwner.cancelProbing())
+        #expect(validatingOwner.phase == .validatingReplacement(
+            validatingAttempt,
+            connectionGeneration: replacementGeneration
+        ))
+
+        let failedOwner = MobileConnectionRecoveryOwner()
+        let failedAttempt = try #require(failedOwner.begin(
+            trigger: "networkChange",
+            sourceConnectionGeneration: generation,
+            probing: false
+        ))
+        #expect(failedOwner.fail(failedAttempt))
+        #expect(!failedOwner.cancelProbing())
+        #expect(failedOwner.phase == .failed(failedAttempt))
+    }
+
     @Test func localPinnedIrohRecoveryDoesNotWaitForBackupRefresh() async throws {
         let backup = BlockingSecondFetchBackup()
         let fixture = try await makeRecoveryOwnerFixture(backup: backup)

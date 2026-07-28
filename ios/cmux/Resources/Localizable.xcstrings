@@ -2268,13 +2268,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add a computer to start syncing terminal workspaces."
+            "value": "Sign in to cmux on your computer with this account and it appears here automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータを追加してターミナルワークスペースの同期を開始します。"
+            "value": "コンピュータの cmux にこのアカウントでサインインすると、ここに自動的に表示されます。"
           }
         }
       }
@@ -2285,13 +2285,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No devices"
+            "value": "No Computers"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスがありません"
+            "value": "コンピュータがありません"
           }
         }
       }
@@ -3703,6 +3703,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.search.empty.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try another title, message, workspace, pane, or computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のタイトル、メッセージ、ワークスペース、ペイン、またはコンピュータをお試しください。"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.search.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する通知はありません"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を検索"
           }
         }
       }
@@ -12173,6 +12224,23 @@
         }
       }
     },
+    "mobile.workspaces.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを検索"
+          }
+        }
+      }
+    },
     "mobile.workspaces.settings": {
       "extractionState": "manual",
       "localizations": {
@@ -16878,6 +16946,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@できませんでした: %2$@。"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalScrollback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Scrollback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのスクロールバック"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalScrollback.rows1k": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1,000 Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1,000行"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalScrollback.rows4k": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4,000 Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4,000行"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalScrollback.rows10k": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10,000 Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10,000行"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalScrollback.rows20k": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20,000 Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20,000行"
           }
         }
       }

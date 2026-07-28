@@ -14,7 +14,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import install_pi_extension, resolve_cmux_cli
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -22,12 +22,18 @@ def make_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
-def wait_for_text(path: Path, expected_count: int, timeout: float = 5.0) -> str:
+def wait_for_text(
+    path: Path,
+    expected_count: int,
+    timeout: float = 5.0,
+    expected_substrings: tuple[str, ...] = (),
+) -> str:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if path.exists():
             text = path.read_text(encoding="utf-8")
-            if len([line for line in text.splitlines() if line.strip()]) >= expected_count:
+            has_count = len([line for line in text.splitlines() if line.strip()]) >= expected_count
+            if has_count and all(expected in text for expected in expected_substrings):
                 return text
         time.sleep(0.05)
     return path.read_text(encoding="utf-8") if path.exists() else ""
@@ -42,7 +48,12 @@ def wait_for_path(path: Path, timeout: float = 5.0) -> bool:
     return path.exists()
 
 
-def wait_for_payload_text(path: Path, expected_count: int, timeout: float = 5.0) -> str:
+def wait_for_payload_text(
+    path: Path,
+    expected_count: int,
+    timeout: float = 5.0,
+    expected_substrings: tuple[str, ...] = (),
+) -> str:
     deadline = time.monotonic() + timeout
     pattern = f"{path.name}.*"
 
@@ -50,27 +61,38 @@ def wait_for_payload_text(path: Path, expected_count: int, timeout: float = 5.0)
     def sorted_files() -> list[Path]:
         return sorted(path.parent.glob(pattern), key=lambda file: int(file.name.rsplit(".", 1)[-1]))
 
+    def joined(files: list[Path]) -> str:
+        return "\n---\n".join(file.read_text(encoding="utf-8") for file in files)
+
     while time.monotonic() < deadline:
         files = sorted_files()
         if len(files) >= expected_count:
-            return "\n---\n".join(file.read_text(encoding="utf-8") for file in files)
+            text = joined(files)
+            if all(expected in text for expected in expected_substrings):
+                return text
         time.sleep(0.05)
-    return "\n---\n".join(file.read_text(encoding="utf-8") for file in sorted_files())
+    return joined(sorted_files())
 
 
-def release_fifo(path: Path) -> bool:
-    try:
-        # A nonblocking open fails instead of hanging when the FIFO has no reader.
-        descriptor = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
-    except OSError:
-        return False
-    try:
-        os.write(descriptor, b"release")
-        return True
-    except OSError:
-        return False
-    finally:
-        os.close(descriptor)
+def release_fifo(path: Path, timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            # A nonblocking open fails instead of hanging when the FIFO has no reader.
+            descriptor = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError:
+            # The hook opens the FIFO shortly after it writes its marker file.
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+            continue
+        try:
+            os.write(descriptor, b"release")
+            return True
+        except OSError:
+            return False
+        finally:
+            os.close(descriptor)
 
 
 def communicate_or_kill(process: subprocess.Popen[str], timeout: float) -> tuple[str, str, bool]:
@@ -82,6 +104,18 @@ def communicate_or_kill(process: subprocess.Popen[str], timeout: float) -> tuple
         process.kill()
         stdout, stderr = process.communicate(timeout=5)
         return stdout, stderr, True
+
+
+def line_index(lines: list[str], prefix: str) -> int:
+    # Hook argument lines carry a surface target suffix, so match on the prefix.
+    for index, line in enumerate(lines):
+        if line.startswith(prefix):
+            return index
+    return -1
+
+
+def count_lines(lines: list[str], prefix: str) -> int:
+    return len([line for line in lines if line.startswith(prefix)])
 
 
 def payloads_from_log(text: str) -> list[dict[str, object]]:
@@ -114,28 +148,14 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-pi-extension-") as td:
         root = Path(td)
         config_dir = root / "pi-agent"
+        try:
+            extension_path = install_pi_extension(config_dir, cli_path)
+        except RuntimeError as exc:
+            print("FAIL: pi extension install failed")
+            print(exc)
+            return 1
         env = os.environ.copy()
         env["PI_CODING_AGENT_DIR"] = str(config_dir)
-
-        install = subprocess.run(
-            [cli_path, "hooks", "pi", "install", "--yes"],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-            timeout=20,
-        )
-        if install.returncode != 0:
-            print("FAIL: pi extension install failed")
-            print(f"exit={install.returncode}")
-            print(f"stdout={install.stdout.strip()}")
-            print(f"stderr={install.stderr.strip()}")
-            return 1
-
-        extension_path = config_dir / "extensions" / "cmux-session.ts"
-        if not extension_path.exists():
-            print(f"FAIL: expected extension at {extension_path}")
-            return 1
         extension_text = extension_path.read_text(encoding="utf-8")
         if "cmux-pi-session-extension-marker" not in extension_text:
             print(f"FAIL: expected cmux marker in {extension_path}")
@@ -228,7 +248,7 @@ mv "$payload_tmp" "$CMUX_TEST_PI_STDIN_LOG.$payload_sequence"
 rmdir "$payload_lock"
 trap - EXIT
 if printf '%s' "$payload" | grep -q 'pi-session-nonblocking'; then
-  if [[ "$*" == "hooks pi prompt-submit" ]] && printf '%s' "$payload" | grep -q '"prompt":"do not block"'; then
+  if [[ "$*" == "hooks pi prompt-submit"* ]] && printf '%s' "$payload" | grep -q '"prompt":"do not block"'; then
     : > "$CMUX_TEST_PI_NONBLOCKING_STARTED"
     cat "$CMUX_TEST_PI_NONBLOCKING_RELEASE" >/dev/null
     trap ': > "$CMUX_TEST_PI_NONBLOCKING_FINISHED"' EXIT
@@ -301,6 +321,13 @@ esac
         )
 
         check_env = env.copy()
+        for key in (
+            "CMUX_AGENT_LAUNCH_ARGV_B64",
+            "CMUX_AGENT_LAUNCH_CWD",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE",
+            "CMUX_AGENT_LAUNCH_KIND",
+        ):
+            check_env.pop(key, None)
         check_env["PATH"] = str(bin_dir) + os.pathsep + check_env.get("PATH", "")
         check_env["CMUX_TEST_PI_EXTENSION_PATH"] = str(extension_path)
         check_env["CMUX_SURFACE_ID"] = "surface-pi-test"
@@ -370,6 +397,12 @@ await handlers.get("tool_execution_start")({
   toolName: "bash",
   args: { command: "pwd" }
 }, ctx);
+await handlers.get("tool_execution_end")({
+  toolCallId: "active-tool-call",
+  toolName: "bash",
+  args: { command: "pwd" },
+  result: "/tmp/pi-project"
+}, ctx);
 await handlers.get("agent_end")({
   messages: [{ role: "assistant", content: [{ type: "text", text: "blocked done" }] }],
   stopReason: "completed"
@@ -377,10 +410,11 @@ await handlers.get("agent_end")({
 await handlers.get("agent_settled")({}, ctx);
 // Queue another turn and its event so shutdown must discard both together.
 await handlers.get("before_agent_start")({ prompt: "discard during shutdown" }, ctx);
-await handlers.get("tool_execution_start")({
+await handlers.get("tool_execution_end")({
   toolCallId: "discarded-tool-call",
   toolName: "bash",
-  args: { command: "echo discarded" }
+  args: { command: "echo discarded" },
+  result: "discarded"
 }, ctx);
 await handlers.get("agent_end")({
   messages: [{ role: "assistant", content: "discarded done" }],
@@ -415,7 +449,12 @@ await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_SHUTDOWN_FINISHED, "finishe
         event_overtook_prompt = wait_for_path(nonblocking_overtake, timeout=1.0)
         shutdown_finished_before_release = nonblocking_shutdown_finished.exists()
         pre_release_args = fake_args_log.read_text(encoding="utf-8").splitlines()
-        if event_overtook_prompt or shutdown_finished_before_release or pre_release_args != ["hooks pi prompt-submit"]:
+        if (
+            event_overtook_prompt
+            or shutdown_finished_before_release
+            or len(pre_release_args) != 1
+            or not pre_release_args[0].startswith("hooks pi prompt-submit")
+        ):
             release_fifo(nonblocking_release)
             nonblocking_check.kill()
             stdout, stderr = nonblocking_check.communicate(timeout=5)
@@ -455,9 +494,14 @@ await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_SHUTDOWN_FINISHED, "finishe
         if wait_for_path(nonblocking_discarded_event, timeout=1.0):
             print("FAIL: event for a discarded Pi prompt was delivered after shutdown")
             return 1
-        nonblocking_args = wait_for_text(fake_args_log, 6, timeout=5.0).splitlines()
+        nonblocking_args = wait_for_text(
+            fake_args_log,
+            6,
+            timeout=5.0,
+            expected_substrings=("surface resume clear",),
+        ).splitlines()
         # Shutdown must not start a prompt hook that was queued behind the active hook.
-        if nonblocking_args.count("hooks pi prompt-submit") != 1:
+        if count_lines(nonblocking_args, "hooks pi prompt-submit") != 1:
             print(f"FAIL: queued Pi prompt hook started during shutdown: {nonblocking_args!r}")
             return 1
         nonblocking_payloads = payloads_from_log(wait_for_payload_text(fake_stdin_log, 6, timeout=5.0))
@@ -471,20 +515,23 @@ await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_SHUTDOWN_FINISHED, "finishe
         if not any(payload.get("tool_call_id") == "active-tool-call" for payload in nonblocking_payloads):
             print(f"FAIL: event for the active Pi prompt was not delivered: {nonblocking_payloads!r}")
             return 1
+        resume_clear = (
+            "--json surface resume clear --workspace workspace-pi-test --surface surface-pi-test "
+            "--checkpoint-id pi-session-nonblocking --source agent-hook"
+        )
         for expected in [
-            "hooks feed --source pi --event PreToolUse",
+            "hooks feed --source pi --event PostToolUse",
             "hooks pi notification",
             "hooks pi stop",
-            "--json surface resume clear --workspace workspace-pi-test --surface surface-pi-test --checkpoint-id pi-session-nonblocking --source agent-hook",
+            resume_clear,
         ]:
-            if expected not in nonblocking_args:
+            if line_index(nonblocking_args, expected) < 0:
                 print(f"FAIL: gated Pi event was not delivered after prompt release: {nonblocking_args!r}")
                 return 1
-        resume_clear = "--json surface resume clear --workspace workspace-pi-test --surface surface-pi-test --checkpoint-id pi-session-nonblocking --source agent-hook"
         if not (
-            nonblocking_args.index("hooks pi notification")
-            < nonblocking_args.index("hooks pi stop")
-            < nonblocking_args.index(resume_clear)
+            line_index(nonblocking_args, "hooks pi notification")
+            < line_index(nonblocking_args, "hooks pi stop")
+            < line_index(nonblocking_args, resume_clear)
         ):
             print(f"FAIL: completion hooks were out of order after prompt release: {nonblocking_args!r}")
             return 1
@@ -778,15 +825,25 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 44, timeout=20.0)
-        stdin_log = wait_for_payload_text(fake_stdin_log, 44, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 44 * 3, timeout=20.0)
+        # The prompt-hook harness runs above contribute the first invocations in each log.
+        args_log = wait_for_text(
+            fake_args_log,
+            46,
+            timeout=20.0,
+            expected_substrings=("hooks feed --source pi --event PostToolUse",),
+        )
+        stdin_log = wait_for_payload_text(
+            fake_stdin_log,
+            46,
+            timeout=20.0,
+            expected_substrings=('"hook_event_name":"PostToolUse"',),
+        )
+        env_log = wait_for_text(fake_env_log, 46 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
             "hooks pi stop",
             "hooks pi notification",
-            "hooks feed --source pi --event PreToolUse",
             "hooks feed --source pi --event PostToolUse",
             "surface resume get",
             "surface resume set",
@@ -806,13 +863,22 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
         expected_resume_ops = [
+            # The nonblocking harness run clears its resume binding during shutdown.
             "clear",
-            "set", "get", "clear",
-            "set", "get", "clear",
-            "set", "get",
-            "set", "get",
-            "set", "get",
-            "set", "get",
+            "set",
+            "get",
+            "clear",
+            "set",
+            "get",
+            "clear",
+            "set",
+            "get",
+            "set",
+            "get",
+            "set",
+            "get",
+            "set",
+            "get",
         ]
         if resume_ops != expected_resume_ops:
             print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
@@ -838,8 +904,14 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
         if not any(payload.get("session_id") == "pi-session-test" for payload in payloads):
             print(f"FAIL: extension did not pass session id, got {payloads!r}")
             return 1
-        prompt_payload = next((payload for payload in payloads if payload.get("prompt") == "hello pi"), None)
-        stop_payload = next((payload for payload in payloads if payload.get("last_assistant_message") == "done"), None)
+        prompt_payload = next(
+            (payload for payload in payloads if payload.get("prompt") == "hello pi"),
+            None,
+        )
+        stop_payload = next(
+            (payload for payload in payloads if payload.get("last_assistant_message") == "done"),
+            None,
+        )
         if prompt_payload is None or stop_payload is None:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {payloads!r}")
             return 1
@@ -875,8 +947,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             (
                 payload
                 for payload in payloads
-                if payload.get("session_id") == "pi-session-legacy"
-                and payload.get("hook_event_name") == "Stop"
+                if payload.get("session_id") == "pi-session-legacy" and payload.get("hook_event_name") == "Stop"
             ),
             None,
         )
@@ -887,8 +958,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             (
                 payload
                 for payload in payloads
-                if payload.get("session_id") == "pi-session-unknown"
-                and payload.get("hook_event_name") == "Stop"
+                if payload.get("session_id") == "pi-session-unknown" and payload.get("hook_event_name") == "Stop"
             ),
             None,
         )
@@ -899,8 +969,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             (
                 payload
                 for payload in payloads
-                if payload.get("session_id") == "pi-session-malformed"
-                and payload.get("hook_event_name") == "Stop"
+                if payload.get("session_id") == "pi-session-malformed" and payload.get("hook_event_name") == "Stop"
             ),
             None,
         )
@@ -926,7 +995,11 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             if payload.get("session_id") == "pi-session-test"
             and payload.get("hook_event_name") in {"PreToolUse", "PostToolUse"}
         ]
-        if len(feed_events) != 2 or {payload.get("tool_name") for payload in feed_events} != {"bash"}:
+        feed_event_names = {payload.get("hook_event_name") for payload in feed_events}
+        if feed_event_names not in (
+            {"PostToolUse"},
+            {"PreToolUse", "PostToolUse"},
+        ) or any(payload.get("tool_name") != "bash" for payload in feed_events):
             print(f"FAIL: Pi Feed bridge payloads were incomplete: {feed_events!r}; args={args_log!r}")
             return 1
         if {payload.get("turn_id") for payload in feed_events} != {prompt_turn_id}:

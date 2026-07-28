@@ -1,14 +1,42 @@
 import AppKit
 import CmuxSettings
+import CmuxSimulatorUI
 import WebKit
 
 struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
     let markdownPanel: MarkdownPanel?
     let filePreviewTextEditorFocused: Bool
+    let simulatorFocused: Bool
+    let simulatorPanel: SimulatorPanel?
+    let simulatorTextEditorFocused: Bool
     let rightSidebarFocused: Bool
     /// The full context snapshot a ``ShortcutWhenClause`` evaluates against.
     let shortcutContext: ShortcutContext
+
+    init(
+        browserPanel: BrowserPanel?,
+        markdownPanel: MarkdownPanel?,
+        filePreviewTextEditorFocused: Bool,
+        simulatorFocused: Bool,
+        simulatorPanel: SimulatorPanel? = nil,
+        simulatorTextEditorFocused: Bool = false,
+        rightSidebarFocused: Bool,
+        shortcutContext: ShortcutContext
+    ) {
+        self.browserPanel = browserPanel
+        self.markdownPanel = markdownPanel
+        self.filePreviewTextEditorFocused = filePreviewTextEditorFocused
+        self.simulatorFocused = simulatorFocused
+        self.simulatorPanel = simulatorPanel
+        self.simulatorTextEditorFocused = simulatorTextEditorFocused
+        self.rightSidebarFocused = rightSidebarFocused
+        self.shortcutContext = shortcutContext
+    }
+
+    var allowsSimulatorShortcutRouting: Bool {
+        simulatorFocused && !simulatorTextEditorFocused
+    }
 
     /// Projects the runtime focus snapshot onto the atoms a
     /// ``ShortcutWhenClause`` evaluates against.
@@ -17,9 +45,20 @@ struct ShortcutEventFocusContext {
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
             sidebar: rightSidebarFocused,
-            filePreviewTextEditor: filePreviewTextEditorFocused
+            filePreviewTextEditor: filePreviewTextEditorFocused,
+            simulator: simulatorFocused
         )
     }
+}
+
+func shortcutResponderAcceptsTextEditing(_ responder: NSResponder) -> Bool {
+    if let textView = responder as? NSTextView {
+        return textView.isEditable || textView.isSelectable || textView.isFieldEditor
+    }
+    if let textField = responder as? NSTextField {
+        return textField.isEditable || textField.isSelectable
+    }
+    return false
 }
 
 struct ShortcutEventFocusContextCache {
@@ -61,24 +100,35 @@ extension AppDelegate {
         }
 
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        let browserPanel = shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
+        let simulatorPanel = shortcutFocusedSimulatorPanel(in: shortcutWindow)
+        let simulatorFocused = simulatorPanel != nil
+        let simulatorTextEditorFocused = simulatorFocused
+            && shortcutWindow?.firstResponder.map(shortcutResponderAcceptsTextEditing) == true
+        let browserPanel = simulatorFocused
+            ? nil
+            : shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
         // Only treat a markdown panel as focused when no browser panel owns the
         // event, so a focused browser never routes markdown shortcuts.
         let markdownPanel = browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil
         let filePreviewTextEditorFocused = browserPanel == nil && markdownPanel == nil
             ? shortcutFocusedFilePreviewTextEditor(in: shortcutWindow)
             : false
-        let rightSidebarFocused = shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
+        let rightSidebarFocused = !simulatorFocused
+            && (shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false)
         let focusState = ShortcutFocusState(
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
             sidebar: rightSidebarFocused,
-            filePreviewTextEditor: filePreviewTextEditorFocused
+            filePreviewTextEditor: filePreviewTextEditorFocused,
+            simulator: simulatorFocused
         )
         let context = ShortcutEventFocusContext(
             browserPanel: browserPanel,
             markdownPanel: markdownPanel,
             filePreviewTextEditorFocused: filePreviewTextEditorFocused,
+            simulatorFocused: simulatorFocused,
+            simulatorPanel: simulatorPanel,
+            simulatorTextEditorFocused: simulatorTextEditorFocused,
             rightSidebarFocused: rightSidebarFocused,
             shortcutContext: buildShortcutContext(focusState: focusState, window: shortcutWindow)
         )
@@ -301,6 +351,27 @@ extension AppDelegate {
         }
 
         return tabManager?.focusedBrowserPanel
+    }
+
+    private func shortcutFocusedSimulatorPanel(in window: NSWindow?) -> SimulatorPanel? {
+        guard let window, let responder = window.firstResponder else { return nil }
+        if let context = shortcutMainWindowContext(in: window),
+           let dock = existingWindowDock(forWindowId: context.windowId) {
+            if let panelId = dock.focusedPanelId,
+               let panel = dock.panels[panelId] as? SimulatorPanel,
+               panel.ownedFocusIntent(for: responder, in: window) != nil {
+                return panel
+            }
+        }
+        guard let workspace = shortcutContextTabManager(in: window)?.selectedWorkspace else {
+            return nil
+        }
+        if let panelId = workspace.focusedPanelId,
+           let panel = workspace.panels[panelId] as? SimulatorPanel,
+           panel.ownedFocusIntent(for: responder, in: window) != nil {
+            return panel
+        }
+        return nil
     }
 
     private func shortcutWebInspectorFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
