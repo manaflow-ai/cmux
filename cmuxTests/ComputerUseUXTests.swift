@@ -655,6 +655,73 @@ struct ComputerUseUXTests {
         #expect(window.styleMask == expandedStyle)
     }
 
+    @Test @MainActor func preparingPermissionCompanionHidesMainWindowWithoutMutatingItsChrome() {
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        let window = controller.makeWindow()
+        defer { window.close() }
+        window.center()
+        window.orderBack(nil)
+        let expandedFrame = window.frame
+        let expandedStyle = window.styleMask
+        let standardButtonVisibility = [
+            NSWindow.ButtonType.closeButton,
+            .miniaturizeButton,
+            .zoomButton,
+        ].map { window.standardWindowButton($0)?.isHidden }
+
+        controller.prepareForPermissionCompanion(window)
+
+        #expect(!window.isVisible)
+        #expect(window.frame == expandedFrame)
+        #expect(window.styleMask == expandedStyle)
+        #expect([
+            NSWindow.ButtonType.closeButton,
+            .miniaturizeButton,
+            .zoomButton,
+        ].map { window.standardWindowButton($0)?.isHidden } == standardButtonVisibility)
+    }
+
+    @Test @MainActor func permissionCompanionUsesASeparateBorderlessWindow() {
+        let companionSize = CGSize(width: 472, height: 112)
+        let controller = ComputerUseOnboardingWindowController(
+            runtimeService: ComputerUseRuntimeService()
+        )
+        let mainWindow = controller.makeWindow()
+        defer {
+            controller.dismiss()
+            mainWindow.close()
+        }
+        mainWindow.center()
+        mainWindow.orderBack(nil)
+        let mainFrame = mainWindow.frame
+        let destinationFrame = NSRect(
+            x: mainFrame.maxX + 24,
+            y: mainFrame.midY - companionSize.height / 2,
+            width: companionSize.width,
+            height: companionSize.height
+        )
+
+        controller.configureForPermissionCompanion(
+            mainWindow,
+            frame: destinationFrame
+        )
+
+        let companionWindow = NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        }
+        #expect(!mainWindow.isVisible)
+        #expect(mainWindow.frame == mainFrame)
+        #expect(companionWindow !== mainWindow)
+        #expect(companionWindow?.styleMask == .borderless)
+        #expect(companionWindow?.frame == destinationFrame)
+        #expect(companionWindow?.contentLayoutRect.size == companionSize)
+        #expect(companionWindow?.standardWindowButton(.closeButton) == nil)
+        #expect(companionWindow?.standardWindowButton(.miniaturizeButton) == nil)
+        #expect(companionWindow?.standardWindowButton(.zoomButton) == nil)
+    }
+
     @Test @MainActor func permissionCompanionTransitionAllowsIntermediateWindowFrames() {
         let expandedSize = CGSize(width: 600, height: 440)
         let companionSize = CGSize(width: 472, height: 112)
