@@ -6,8 +6,8 @@ struct ManagedLauncherNonLaunchTests {
     @Test("OMO preserves documented management commands")
     func omoManagementCommands() {
         for command in [
-            "agent", "auth", "completion", "db", "debug", "mcp", "models",
-            "export", "import", "plugin", "plug", "providers", "stats", "uninstall", "upgrade",
+            "acp", "agent", "auth", "completion", "db", "debug", "mcp", "models",
+            "export", "import", "plugin", "plug", "providers", "serve", "stats", "uninstall", "upgrade", "web",
         ] {
             #expect(AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: [command]))
         }

@@ -31,7 +31,7 @@ func TestClaudeTeamsShellSnapshotKeepsManagedTmuxAheadOfRebuiltPath(t *testing.T
 
 	snapshotPathLog := filepath.Join(root, "snapshot-path.log")
 	resolvedTmuxLog := filepath.Join(root, "resolved-tmux.log")
-	originalShell := filepath.Join(root, "profile-shell")
+	originalShell := filepath.Join(root, "zsh")
 	writeAgentLaunchTestExecutable(t, originalShell, `#!/bin/sh
 set -eu
 if [ "${1:-}" != "-lic" ]; then
@@ -84,7 +84,7 @@ command -v tmux > "$CMUX_TEST_RESOLVED_TMUX_LOG"
 	}
 }
 
-func TestClaudeTeamsShellWrapperUsesFishSyntaxWithoutChangingShellIdentity(t *testing.T) {
+func TestClaudeTeamsShellWrapperKeepsFishIdentity(t *testing.T) {
 	fishPath, err := exec.LookPath("fish")
 	if err != nil {
 		t.Skip("fish is not installed")
@@ -128,6 +128,69 @@ func TestClaudeTeamsShellWrapperUsesFishSyntaxWithoutChangingShellIdentity(t *te
 	}
 	if resolved := strings.TrimSpace(string(output)); resolved != filepath.Join(shimDir, "tmux") {
 		t.Fatalf("fish shell wrapper resolved tmux = %q", resolved)
+	}
+}
+
+func TestClaudeTeamsShellWrapperSupportsNonPOSIXLoginShell(t *testing.T) {
+	tcshPath, err := exec.LookPath("tcsh")
+	if err != nil {
+		t.Skip("tcsh is not installed")
+	}
+
+	root := t.TempDir()
+	shimDir := filepath.Join(root, "claude-teams-bin")
+	profileBin := filepath.Join(root, "profile-bin")
+	for _, directory := range []string{shimDir, profileBin} {
+		if err := os.MkdirAll(directory, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeAgentLaunchTestExecutable(t, filepath.Join(shimDir, "tmux"), "#!/bin/sh\nexit 0\n")
+	if err := os.WriteFile(
+		filepath.Join(root, ".tcshrc"),
+		[]byte(`setenv PATH "${CMUX_TEST_PROFILE_BIN}:/usr/bin:/bin"`+"\n"),
+		0644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", root)
+	t.Setenv("SHELL", tcshPath)
+	t.Setenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL", "")
+	t.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", "")
+	t.Setenv("CMUX_TEST_PROFILE_BIN", profileBin)
+	if err := configureClaudeTeamsShellWrapper(shimDir); err != nil {
+		t.Fatal(err)
+	}
+	wrapperPath := os.Getenv("SHELL")
+	if filepath.Base(wrapperPath) != filepath.Base(tcshPath) {
+		t.Fatalf("wrapper shell name = %q, want %q", filepath.Base(wrapperPath), filepath.Base(tcshPath))
+	}
+
+	command := exec.Command(wrapperPath, "-lic", "/usr/bin/which tmux")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("tcsh shell wrapper failed: %v\n%s", err, output)
+	}
+	if resolved := strings.TrimSpace(string(output)); resolved != filepath.Join(shimDir, "tmux") {
+		t.Fatalf("tcsh shell wrapper resolved tmux = %q", resolved)
+	}
+}
+
+func TestClaudeTeamsShellWrapperRejectsUnknownDialectBeforeReplacingShell(t *testing.T) {
+	root := t.TempDir()
+	unknownShell := filepath.Join(root, "unknown-shell")
+	writeAgentLaunchTestExecutable(t, unknownShell, "#!/bin/sh\nexit 0\n")
+	t.Setenv("SHELL", unknownShell)
+	t.Setenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL", "")
+	t.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", "")
+
+	err := configureClaudeTeamsShellWrapper(filepath.Join(root, "claude-teams-bin"))
+	if err == nil || !strings.Contains(err.Error(), "unsupported SHELL") {
+		t.Fatalf("configureClaudeTeamsShellWrapper error = %v", err)
+	}
+	if got := os.Getenv("SHELL"); got != unknownShell {
+		t.Fatalf("unsupported SHELL was replaced with %q", got)
 	}
 }
 

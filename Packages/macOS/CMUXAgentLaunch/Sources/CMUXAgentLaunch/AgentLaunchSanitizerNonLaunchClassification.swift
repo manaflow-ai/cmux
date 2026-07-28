@@ -42,6 +42,7 @@ extension AgentLaunchSanitizer {
         conservativeNonLaunchInvocation(
             args: args,
             managementCommands: [
+                "acp",
                 "agent",
                 "auth",
                 "completion",
@@ -54,9 +55,11 @@ extension AgentLaunchSanitizer {
                 "plugin",
                 "plug",
                 "providers",
+                "serve",
                 "stats",
                 "uninstall",
                 "upgrade",
+                "web",
             ],
             managementSubcommands: [
                 "session": ["delete", "list"],

@@ -22,15 +22,22 @@ case "${1:-}" in
     fi
     shell_command=$1
     shift
+    original_shell_flags=$shell_flags
     case "${original_shell##*/}" in
       fish)
         shell_command='if test -n "$CMUX_CLAUDE_TEAMS_SHIM_DIR"; and test -d "$CMUX_CLAUDE_TEAMS_SHIM_DIR"; set -gx PATH "$CMUX_CLAUDE_TEAMS_SHIM_DIR" $PATH; end; '"$shell_command"
+        ;;
+      csh|tcsh)
+        # csh-family shells reject combined login/interactive flags. Their
+        # command mode still sources the interactive rc file before this prefix.
+        original_shell_flags=-c
+        shell_command='if ( -d "$CMUX_CLAUDE_TEAMS_SHIM_DIR" ) setenv PATH "${CMUX_CLAUDE_TEAMS_SHIM_DIR}:${PATH}"; '"$shell_command"
         ;;
       *)
         shell_command='if [ -n "${CMUX_CLAUDE_TEAMS_SHIM_DIR:-}" ] && [ -d "$CMUX_CLAUDE_TEAMS_SHIM_DIR" ]; then PATH="$CMUX_CLAUDE_TEAMS_SHIM_DIR${PATH:+:$PATH}"; export PATH; fi; '"$shell_command"
         ;;
     esac
-    exec "$original_shell" "$shell_flags" "$shell_command" "$@"
+    exec "$original_shell" "$original_shell_flags" "$shell_command" "$@"
     ;;
   *)
     exec "$original_shell" "$@"
@@ -62,6 +69,9 @@ func configureClaudeTeamsShellWrapper(shimDir string) error {
 	if info.IsDir() || info.Mode()&0111 == 0 {
 		return fmt.Errorf("original shell is not executable: %q", originalShell)
 	}
+	if !claudeTeamsShellWrapperSupports(filepath.Base(originalShell)) {
+		return fmt.Errorf("unsupported SHELL for managed Claude Teams snapshots: %q", originalShell)
+	}
 
 	if err := os.MkdirAll(wrapperDir, 0755); err != nil {
 		return err
@@ -79,4 +89,13 @@ func configureClaudeTeamsShellWrapper(shimDir string) error {
 	os.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", shimDir)
 	os.Setenv("SHELL", wrapperPath)
 	return nil
+}
+
+func claudeTeamsShellWrapperSupports(shellName string) bool {
+	switch shellName {
+	case "ash", "bash", "csh", "dash", "fish", "ksh", "mksh", "sh", "tcsh", "zsh":
+		return true
+	default:
+		return false
+	}
 }

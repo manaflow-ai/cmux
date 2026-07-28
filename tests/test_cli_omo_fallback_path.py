@@ -88,6 +88,7 @@ exec opencode-node-helper "$@"
             return 1
 
         for invocation in (
+            ("acp",),
             ("agent",),
             ("auth",),
             ("completion",),
@@ -100,11 +101,13 @@ exec opencode-node-helper "$@"
             ("plugin",),
             ("plug", "opencode-sample-plugin"),
             ("providers",),
+            ("serve",),
             ("session", "delete", "session-id"),
             ("session", "list"),
             ("stats",),
             ("uninstall",),
             ("upgrade",),
+            ("web",),
             ("--mdns", "models"),
             ("--port", "19777", "models"),
             ("--hostname=127.0.0.1", "models"),

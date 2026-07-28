@@ -225,9 +225,10 @@ var claudeTeamsValueOptions = map[string]bool{
 }
 
 var omoManagementCommands = map[string]bool{
-	"agent": true, "auth": true, "completion": true, "db": true, "debug": true,
+	"acp": true, "agent": true, "auth": true, "completion": true, "db": true, "debug": true,
 	"export": true, "import": true, "mcp": true, "models": true, "plugin": true,
-	"plug": true, "providers": true, "stats": true, "uninstall": true, "upgrade": true,
+	"plug": true, "providers": true, "serve": true, "stats": true, "uninstall": true,
+	"upgrade": true, "web": true,
 }
 
 var omcManagementCommands = map[string]bool{
