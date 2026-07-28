@@ -3,17 +3,21 @@ public import AppKit
 /// AppKit image view that re-renders its icon when the window or effective appearance changes.
 @MainActor
 public final class CmuxResolvedIconImageView: NSView {
-    private static let renderedImageCache = CmuxResolvedIconRenderCache(limit: 128)
-
     private let imageView = NSImageView(frame: .zero)
-    private let renderer = CmuxResolvedIconRenderer()
+    private let renderContext: CmuxResolvedIconRenderContext
     private var request: CmuxResolvedIconRequest?
     private var renderKey: CmuxResolvedIconRenderKey?
     private var lastVisibleRenderKey: CmuxResolvedIconRenderKey?
     private var blankRenderKey: CmuxResolvedIconRenderKey?
 
     /// Creates the resolved icon view.
-    public override init(frame frameRect: NSRect) {
+    public override convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, renderContext: CmuxResolvedIconRenderContext())
+    }
+
+    /// Creates a resolved icon view backed by an explicit render owner.
+    public init(frame frameRect: NSRect, renderContext: CmuxResolvedIconRenderContext) {
+        self.renderContext = renderContext
         super.init(frame: frameRect)
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.imageScaling = .scaleProportionallyDown
@@ -62,24 +66,16 @@ public final class CmuxResolvedIconImageView: NSView {
         let nextKey = CmuxResolvedIconRenderKey(request: request, appearance: effectiveAppearance)
         guard force || renderKey?.shouldSkipRender(for: nextKey) != true else { return }
         guard force || blankRenderKey?.shouldSkipBlankRetry(for: nextKey) != true else { return }
-        if let reusableKey = nextKey.reusableKey,
-           let cachedImage = Self.renderedImageCache.image(for: reusableKey, matching: nextKey) {
-            renderKey = nextKey
-            lastVisibleRenderKey = nextKey
-            blankRenderKey = nil
-            imageView.image = cachedImage
-            imageView.contentTintColor = nil
-            return
-        }
-        switch renderer.render(for: request, appearance: effectiveAppearance) {
+        switch renderContext.render(
+            for: request,
+            appearance: effectiveAppearance,
+            renderKey: nextKey
+        ) {
         case .success(let image):
             renderKey = nextKey
             lastVisibleRenderKey = nextKey
             blankRenderKey = nil
             imageView.image = image
-            if let reusableKey = nextKey.reusableKey {
-                Self.renderedImageCache.insert(image, for: reusableKey, renderKey: nextKey)
-            }
         case .failure(.sourceUnavailable):
             renderKey = nextKey
             lastVisibleRenderKey = nil

@@ -108,6 +108,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
         private static let maximumPendingNodeChangeCount = 64
+        let iconRenderContext = CmuxResolvedIconRenderContext()
 
         init(
             store: FileExplorerStore,
@@ -498,7 +499,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
             if let existing = outlineView.makeView(withIdentifier: identifier, owner: nil) as? FileExplorerCellView {
                 cellView = existing
             } else {
-                cellView = FileExplorerCellView(identifier: identifier)
+                cellView = FileExplorerCellView(
+                    identifier: identifier,
+                    iconRenderContext: iconRenderContext
+                )
             }
 
             let gitStatus = store.gitStatusByPath[node.path]
@@ -921,7 +925,10 @@ final class FileExplorerContainerView: NSView {
         presentation: FileExplorerPanelPresentation,
         searchController: (any FileSearchControlling)? = nil
     ) {
-        headerView = FileExplorerHeaderView()
+        headerView = FileExplorerHeaderView(
+            frame: .zero,
+            iconRenderContext: coordinator.iconRenderContext
+        )
         searchBarView = NSView()
         searchField = FileExplorerSearchField()
         searchStatusLabel = NSTextField(labelWithString: "")

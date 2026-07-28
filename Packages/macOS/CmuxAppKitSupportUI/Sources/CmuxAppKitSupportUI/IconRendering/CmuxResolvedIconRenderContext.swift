@@ -1,24 +1,43 @@
 import AppKit
 
-/// Bounded cache for resolved icon rasters shared by icon views.
+/// Owns a renderer and a bounded raster cache for one icon-view hierarchy.
 @MainActor
-final class CmuxResolvedIconRenderCache {
+public final class CmuxResolvedIconRenderContext {
     private typealias Entry = (
         image: NSImage,
         appearance: NSAppearance,
         assetBundle: Bundle?
     )
 
+    private let renderer = CmuxResolvedIconRenderer()
     private let limit: Int
     private var entries: [CmuxResolvedIconReusableRenderKey: Entry] = [:]
     private var insertionOrder: [CmuxResolvedIconReusableRenderKey] = []
 
-    init(limit: Int) {
-        precondition(limit > 0)
-        self.limit = limit
+    /// Creates an isolated render owner with a bounded reusable-image cache.
+    public init(cacheLimit: Int = 128) {
+        precondition(cacheLimit > 0)
+        self.limit = cacheLimit
     }
 
-    func image(
+    func render(
+        for request: CmuxResolvedIconRequest,
+        appearance: NSAppearance,
+        renderKey: CmuxResolvedIconRenderKey
+    ) -> Result<NSImage, CmuxResolvedIconRenderFailure> {
+        if let reusableKey = renderKey.reusableKey,
+           let cachedImage = image(for: reusableKey, matching: renderKey) {
+            return .success(cachedImage)
+        }
+
+        let result = renderer.render(for: request, appearance: appearance)
+        if case .success(let image) = result, let reusableKey = renderKey.reusableKey {
+            insert(image, for: reusableKey, renderKey: renderKey)
+        }
+        return result
+    }
+
+    private func image(
         for key: CmuxResolvedIconReusableRenderKey,
         matching renderKey: CmuxResolvedIconRenderKey
     ) -> NSImage? {
@@ -30,7 +49,7 @@ final class CmuxResolvedIconRenderCache {
         return entry.image
     }
 
-    func insert(
+    private func insert(
         _ image: NSImage,
         for key: CmuxResolvedIconReusableRenderKey,
         renderKey: CmuxResolvedIconRenderKey

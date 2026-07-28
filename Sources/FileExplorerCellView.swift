@@ -3,7 +3,7 @@ import CmuxAppKitSupportUI
 import UniformTypeIdentifiers
 
 final class FileExplorerCellView: NSTableCellView {
-    private let iconView = CmuxResolvedIconImageView()
+    private let iconView: CmuxResolvedIconImageView
     private let nameLabel = NSTextField(labelWithString: "")
     private let loadingIndicator = NSProgressIndicator()
     private var trackingArea: NSTrackingArea?
@@ -11,7 +11,11 @@ final class FileExplorerCellView: NSTableCellView {
     private var nameLabelTrailingToLoadingConstraint: NSLayoutConstraint!
     private var nameLabelTrailingToContainerConstraint: NSLayoutConstraint!
 
-    init(identifier: NSUserInterfaceItemIdentifier) {
+    init(
+        identifier: NSUserInterfaceItemIdentifier,
+        iconRenderContext: CmuxResolvedIconRenderContext = CmuxResolvedIconRenderContext()
+    ) {
+        iconView = CmuxResolvedIconImageView(frame: .zero, renderContext: iconRenderContext)
         super.init(frame: .zero)
         self.identifier = identifier
         setupViews()
