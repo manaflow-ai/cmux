@@ -30,6 +30,7 @@ def run_claude_teams(
     base_env: dict[str, str],
     node_options: str,
     tmpdir: str | None = None,
+    home: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td:
         tmp = Path(td)
@@ -110,7 +111,7 @@ fs.writeFileSync(
         )
 
         env = base_env.copy()
-        env["HOME"] = str(fake_home)
+        env["HOME"] = home if home is not None else str(fake_home)
         env["PATH"] = f"{real_bin}:{base_env.get('PATH', '/usr/bin:/bin')}"
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
         env["FAKE_SANDBOXED_LOG"] = str(sandboxed_log)
@@ -298,6 +299,9 @@ def main() -> int:
             f"got {node_options_value!r}"
         )
         return 1
+    if "/.claude/cmux/cmux-claude-node-options/" not in require_flag:
+        print(f"FAIL: expected restore preload under HOME, got {require_flag!r}")
+        return 1
 
     if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
         print(
@@ -361,17 +365,17 @@ def main() -> int:
         )
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-bad-tmp-") as td:
-        bad_tmpdir = Path(td) / "not-a-directory"
-        bad_tmpdir.write_text("occupied", encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-bad-home-") as td:
+        bad_home = Path(td) / "not-a-directory"
+        bad_home.write_text("occupied", encoding="utf-8")
         proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
             cli_path,
             base_env,
             "--trace-warnings",
-            tmpdir=str(bad_tmpdir),
+            home=str(bad_home),
         )
     if proc.returncode != 0:
-        print("FAIL: `cmux claude-teams --version` should still succeed when TMPDIR is unusable")
+        print("FAIL: `cmux claude-teams --version` should still succeed when HOME is unusable")
         print(f"exit={proc.returncode}")
         print(f"stdout={proc.stdout.strip()}")
         print(f"stderr={proc.stderr.strip()}")
@@ -379,21 +383,21 @@ def main() -> int:
 
     if node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected claude-teams to skip restore preload injection when TMPDIR is unusable, "
+            "FAIL: expected claude-teams to skip restore preload injection when HOME is unusable, "
             f"got {node_options_value!r}"
         )
         return 1
 
     if runtime_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when HOME is unusable, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
     if child_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected child NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected child NODE_OPTIONS to remain unchanged when HOME is unusable, "
             f"got {child_node_options_value!r}"
         )
         return 1
