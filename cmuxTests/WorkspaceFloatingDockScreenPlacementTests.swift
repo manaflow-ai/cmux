@@ -112,3 +112,29 @@ struct WorkspaceFloatingDockScreenPlacementTests {
         #expect(resolved == CGRect(x: 500, y: 300, width: 400, height: 300))
     }
 }
+
+@Suite
+struct WorkspaceFloatingDockParkingRegressionTests {
+    @Test
+    func parkingUsesANarrowAdaptivePeek() {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let regularWindow = CGRect(x: 240, y: 180, width: 620, height: 420)
+        let narrowWindow = CGRect(x: 240, y: 180, width: 80, height: 420)
+
+        let regularParked = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
+            windowFrame: regularWindow,
+            visibleScreenFrame: screen,
+            isHovered: false
+        )
+        let narrowParked = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
+            windowFrame: narrowWindow,
+            visibleScreenFrame: screen,
+            isHovered: false
+        )
+
+        #expect(screen.intersection(regularParked).width == 24)
+        #expect(screen.intersection(narrowParked).width == 16)
+        #expect(regularParked.size == regularWindow.size)
+        #expect(narrowParked.size == narrowWindow.size)
+    }
+}
