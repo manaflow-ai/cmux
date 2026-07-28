@@ -424,7 +424,8 @@ struct RightSidebarPanelView: View {
                 mode: fileExplorerState.mode,
                 rootDirectory: nil,
                 windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
+                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
+                unreadSource: TerminalNotificationStore.shared.sidebarUnread
             )
             .id("dock.window.\(dock.workspaceId.uuidString)")
         } else {
