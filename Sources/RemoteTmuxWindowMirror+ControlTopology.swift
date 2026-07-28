@@ -2,6 +2,11 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxWindowMirror {
+    /// Live pane surface identities in the same order as the rendered layout.
+    var surfaceIDsInLayoutOrder: [UUID] {
+        paneIDsInOrder.compactMap { panel(forPane: $0)?.id }
+    }
+
     /// Projects the mirror's authoritative pane order into stable identities
     /// consumable by the control socket without duplicating mutable topology.
     func controlPanes() -> [RemoteTmuxControlPane] {

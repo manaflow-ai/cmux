@@ -243,28 +243,44 @@ extension Workspace {
         return (projection.surfaceID, panel)
     }
 
-    /// Resolves notification identity without conflating a projected tmux pane
-    /// with the stable workspace panel that contains its window.
-    func notificationSurfaceTarget(
+    /// Resolves a live surface without conflating a projected tmux pane with
+    /// the stable workspace panel that owns its layout.
+    func surfaceOwnershipTarget(
         for surfaceOrPanelID: UUID
-    ) -> (surfaceID: UUID, containerPanelID: UUID, panel: any Panel)? {
+    ) -> WorkspaceSurfaceOwnershipTarget? {
         if panels[surfaceOrPanelID] != nil {
             if isRemoteTmuxControlContainer(surfaceOrPanelID) {
                 guard let target = terminalInputTarget(forPanelID: surfaceOrPanelID) else {
                     return nil
                 }
-                return (target.surfaceID, surfaceOrPanelID, target.panel)
+                return WorkspaceSurfaceOwnershipTarget(
+                    surfaceID: target.surfaceID,
+                    containerPanelID: surfaceOrPanelID,
+                    panel: target.panel
+                )
             }
             guard let panel = panels[surfaceOrPanelID],
                   surfaceIdFromPanelId(surfaceOrPanelID) != nil else { return nil }
-            return (surfaceOrPanelID, surfaceOrPanelID, panel)
+            return WorkspaceSurfaceOwnershipTarget(
+                surfaceID: surfaceOrPanelID,
+                containerPanelID: surfaceOrPanelID,
+                panel: panel
+            )
         }
         if let remote = remoteTmuxControlPane(surfaceID: surfaceOrPanelID) {
-            return (remote.pane.panel.id, remote.containerPanelID, remote.pane.panel)
+            return WorkspaceSurfaceOwnershipTarget(
+                surfaceID: remote.pane.panel.id,
+                containerPanelID: remote.containerPanelID,
+                panel: remote.pane.panel
+            )
         }
         guard let panelID = panelIdFromSurfaceId(TabID(uuid: surfaceOrPanelID)),
               let panel = panels[panelID] else { return nil }
-        return (panelID, panelID, panel)
+        return WorkspaceSurfaceOwnershipTarget(
+            surfaceID: panelID,
+            containerPanelID: panelID,
+            panel: panel
+        )
     }
 
     private func liveRemoteTmuxContainerFallback(_ panelID: UUID) -> TerminalPanel? {

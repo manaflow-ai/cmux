@@ -14,7 +14,7 @@ extension AppDelegate {
         if let preferredTabID,
            let manager = tabManagerFor(tabId: preferredTabID),
            let workspace = manager.workspacesById[preferredTabID],
-           let target = workspace.notificationSurfaceTarget(for: surfaceID) {
+           let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
             return (preferredTabID, target.surfaceID, manager)
         }
         if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
@@ -33,9 +33,9 @@ extension AppDelegate {
                 guard let manager = tabManagerFor(windowId: summary.windowId),
                       seenManagers.insert(ObjectIdentifier(manager)).inserted,
                       let workspace = manager.tabs.first(where: {
-                          $0.notificationSurfaceTarget(for: surfaceID) != nil
+                          $0.surfaceOwnershipTarget(for: surfaceID) != nil
                       }),
-                      let target = workspace.notificationSurfaceTarget(for: surfaceID) else {
+                      let target = workspace.surfaceOwnershipTarget(for: surfaceID) else {
                     continue
                 }
                 return (workspace.id, target.surfaceID, manager)
@@ -43,14 +43,14 @@ extension AppDelegate {
             if let manager = tabManager,
                seenManagers.insert(ObjectIdentifier(manager)).inserted,
                let workspace = manager.tabs.first(where: {
-                   $0.notificationSurfaceTarget(for: surfaceID) != nil
+                   $0.surfaceOwnershipTarget(for: surfaceID) != nil
                }),
-               let target = workspace.notificationSurfaceTarget(for: surfaceID) {
+               let target = workspace.surfaceOwnershipTarget(for: surfaceID) {
                 return (workspace.id, target.surfaceID, manager)
             }
             return nil
         }
-        guard let target = owner.workspace.notificationSurfaceTarget(for: surfaceID) else {
+        guard let target = owner.workspace.surfaceOwnershipTarget(for: surfaceID) else {
             return nil
         }
         return (owner.workspace.id, target.surfaceID, owner.tabManager)
@@ -78,7 +78,7 @@ extension AppDelegate {
 
         guard let workspace = workspaceFor(tabId: workspaceID) ??
                 tabManager?.tabs.first(where: { $0.id == workspaceID }),
-              let target = workspace.notificationSurfaceTarget(for: panelID),
+              let target = workspace.surfaceOwnershipTarget(for: panelID),
               target.panel.panelType == .terminal else {
             return false
         }

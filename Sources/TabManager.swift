@@ -3103,7 +3103,7 @@ class TabManager: ObservableObject {
     func focusedSurfaceId(for tabId: UUID) -> UUID? {
         guard let workspace = workspacesById[tabId],
               let focusedPanelID = workspace.focusedPanelId else { return nil }
-        return workspace.notificationSurfaceTarget(for: focusedPanelID)?.surfaceID
+        return workspace.surfaceOwnershipTarget(for: focusedPanelID)?.surfaceID
     }
 
     func rememberFocusedSurface(tabId: UUID, surfaceId: UUID) {
@@ -3399,7 +3399,7 @@ class TabManager: ObservableObject {
         )
 
         if let surfaceId {
-            let focusPanelId = tab.notificationSurfaceTarget(for: surfaceId)?.surfaceID
+            let focusPanelId = tab.surfaceOwnershipTarget(for: surfaceId)?.surfaceID
                 ?? targetPanelId
                 ?? surfaceId
             if !suppressFlash {
@@ -3457,13 +3457,13 @@ class TabManager: ObservableObject {
     func focusSurface(tabId: UUID, surfaceId: UUID, focusTransactionId: UUID? = nil) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.focusPanel(
-            tab.notificationSurfaceTarget(for: surfaceId)?.surfaceID ?? surfaceId,
+            tab.surfaceOwnershipTarget(for: surfaceId)?.surfaceID ?? surfaceId,
             focusTransactionId: focusTransactionId
         )
     }
 
     func panelId(forSurfaceOrPanelId surfaceOrPanelId: UUID, in workspace: Workspace) -> UUID? {
-        workspace.notificationSurfaceTarget(for: surfaceOrPanelId)?.containerPanelID
+        workspace.surfaceOwnershipTarget(for: surfaceOrPanelId)?.containerPanelID
     }
 
     func selectNextTab() {

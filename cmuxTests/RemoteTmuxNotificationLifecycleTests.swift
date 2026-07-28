@@ -124,6 +124,12 @@ struct RemoteTmuxNotificationLifecycleTests {
             harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID)
         )
         let panePanel = try #require(mirror.panel(forPane: 4))
+        #expect(mirror.surfaceIDsInLayoutOrder == [panePanel.id])
+        #expect(
+            harness.workspace.forkAgentConversationContextMenuAvailability(
+                forPanelId: panePanel.id
+            ) != .notTerminalPanel
+        )
         let containerPanel = try #require(harness.workspace.panels[containerPanelID])
         let appDelegate = try #require(AppDelegate.shared)
         #expect(appDelegate.locateSurface(surfaceId: panePanel.id)?.workspaceId == harness.workspace.id)
@@ -263,7 +269,12 @@ struct RemoteTmuxNotificationLifecycleTests {
         let mirror = try #require(
             harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID)
         )
+        let retainedPanel = try #require(mirror.panel(forPane: 4))
         let removedPanel = try #require(mirror.panel(forPane: 5))
+        #expect(mirror.surfaceIDsInLayoutOrder == [
+            retainedPanel.id,
+            removedPanel.id,
+        ])
         store.addNotification(
             tabId: harness.workspace.id,
             surfaceId: removedPanel.id,

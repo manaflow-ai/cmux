@@ -28,7 +28,9 @@ extension Workspace {
     func forkAgentConversationContextMenuAvailability(
         forPanelId panelId: UUID
     ) -> WorkspaceForkAgentConversationAvailability {
-        guard panels[panelId] is TerminalPanel else { return .notTerminalPanel }
+        guard surfaceOwnershipTarget(for: panelId)?.panel is TerminalPanel else {
+            return .notTerminalPanel
+        }
         guard let snapshot = forkAgentConversationContextMenuCandidateSnapshot(forPanelId: panelId) else {
             return .noAgentSnapshot
         }
@@ -128,7 +130,9 @@ extension Workspace {
         snapshot: SessionRestorableAgentSnapshot?,
         validationFallbackSnapshot: SessionRestorableAgentSnapshot?
     ) {
-        guard panels[panelId] is TerminalPanel else { return (.notTerminalPanel, nil, nil) }
+        guard surfaceOwnershipTarget(for: panelId)?.panel is TerminalPanel else {
+            return (.notTerminalPanel, nil, nil)
+        }
 
         let isRemoteContext = isRemoteTerminalSurface(panelId)
         if !allowsAgentContinuation(forPanelId: panelId) {

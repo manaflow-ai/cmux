@@ -126,7 +126,7 @@ extension TerminalController {
         if let preferredWorkspaceId,
            let workspace = workspace(id: preferredWorkspaceId, tabManagers: managers) {
             if let preferredSurfaceId,
-               let target = workspace.notificationSurfaceTarget(for: preferredSurfaceId) {
+               let target = workspace.surfaceOwnershipTarget(for: preferredSurfaceId) {
                 return TerminalCallerTarget(workspace: workspace, surfaceId: target.surfaceID)
             }
             // Moved pane (issue #7939): the explicit surface identity outranks
@@ -139,7 +139,7 @@ extension TerminalController {
             }
             if let ttyTarget, ttyTarget.workspace.id == workspace.id { return ttyTarget }
             let focusedSurfaceID = workspace.focusedPanelId.flatMap {
-                workspace.notificationSurfaceTarget(for: $0)?.surfaceID
+                workspace.surfaceOwnershipTarget(for: $0)?.surfaceID
             }
             return TerminalCallerTarget(workspace: workspace, surfaceId: focusedSurfaceID)
         }
@@ -151,12 +151,12 @@ extension TerminalController {
         }
         if let preferredSurfaceId,
            let selected = selectedWorkspace(in: managers),
-           let target = selected.notificationSurfaceTarget(for: preferredSurfaceId) {
+           let target = selected.surfaceOwnershipTarget(for: preferredSurfaceId) {
             return TerminalCallerTarget(workspace: selected, surfaceId: target.surfaceID)
         }
         guard let selected = selectedWorkspace(in: managers) else { return nil }
         let focusedSurfaceID = selected.focusedPanelId.flatMap {
-            selected.notificationSurfaceTarget(for: $0)?.surfaceID
+            selected.surfaceOwnershipTarget(for: $0)?.surfaceID
         }
         return TerminalCallerTarget(workspace: selected, surfaceId: focusedSurfaceID)
     }
@@ -276,7 +276,7 @@ extension TerminalController {
     ) -> TerminalCallerTarget? {
         for manager in tabManagers {
             for workspace in manager.tabs {
-                guard let target = workspace.notificationSurfaceTarget(for: surfaceId) else {
+                guard let target = workspace.surfaceOwnershipTarget(for: surfaceId) else {
                     continue
                 }
                 return TerminalCallerTarget(workspace: workspace, surfaceId: target.surfaceID)

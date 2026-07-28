@@ -19,8 +19,9 @@ extension Workspace {
             forPanelId: panelId
         )
         guard var snapshot = selection.snapshot,
-              var anchorTabId = surfaceIdFromPanelId(panelId),
-              var paneId = paneId(forPanelId: panelId) else {
+              let ownership = surfaceOwnershipTarget(for: panelId),
+              var anchorTabId = surfaceIdFromPanelId(ownership.containerPanelID),
+              var paneId = paneId(forPanelId: ownership.containerPanelID) else {
             return false
         }
         let isRemoteContext = isRemoteTerminalSurface(panelId)
@@ -61,8 +62,13 @@ extension Workspace {
                     snapshot: refreshedSnapshot,
                     isRemoteContext: isRemoteContext
                   ) == selectedValidationIdentity,
-                  let refreshedAnchorTabId = surfaceIdFromPanelId(panelId),
-                  let refreshedPaneId = self.paneId(forPanelId: panelId) else {
+                  let refreshedOwnership = surfaceOwnershipTarget(for: panelId),
+                  let refreshedAnchorTabId = surfaceIdFromPanelId(
+                    refreshedOwnership.containerPanelID
+                  ),
+                  let refreshedPaneId = self.paneId(
+                    forPanelId: refreshedOwnership.containerPanelID
+                  ) else {
                 return false
             }
             selection = refreshedSelection

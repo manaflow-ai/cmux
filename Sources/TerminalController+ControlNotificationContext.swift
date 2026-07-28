@@ -39,7 +39,7 @@ extension TerminalController: ControlNotificationContext {
             return .surfaceNotFound(explicitSurfaceID)
         }
         let surfaceId = (explicitSurfaceID ?? ws.focusedPanelId).flatMap {
-            ws.notificationSurfaceTarget(for: $0)?.surfaceID
+            ws.surfaceOwnershipTarget(for: $0)?.surfaceID
         }
         deliverNotificationSynchronously(
             tabId: ws.id,
@@ -92,7 +92,7 @@ extension TerminalController: ControlNotificationContext {
             }
             return .surfaceNotFound(surfaceID)
         }
-        let targetSurfaceID = ws.notificationSurfaceTarget(for: surfaceID)?.surfaceID ?? surfaceID
+        let targetSurfaceID = ws.surfaceOwnershipTarget(for: surfaceID)?.surfaceID ?? surfaceID
         deliverNotificationSynchronously(
             tabId: ws.id,
             surfaceId: targetSurfaceID,
@@ -160,7 +160,7 @@ extension TerminalController: ControlNotificationContext {
         guard notificationWorkspace(ws, contains: surfaceID) else {
             return .surfaceNotFound(surfaceID)
         }
-        let targetSurfaceID = ws.notificationSurfaceTarget(for: surfaceID)?.surfaceID ?? surfaceID
+        let targetSurfaceID = ws.surfaceOwnershipTarget(for: surfaceID)?.surfaceID ?? surfaceID
         deliverNotificationSynchronously(
             tabId: ws.id,
             surfaceId: targetSurfaceID,
@@ -317,7 +317,7 @@ extension TerminalController: ControlNotificationContext {
     }
 
     private func notificationWorkspace(_ workspace: Workspace, contains surfaceID: UUID) -> Bool {
-        workspace.notificationSurfaceTarget(for: surfaceID) != nil
+        workspace.surfaceOwnershipTarget(for: surfaceID) != nil
     }
 
     /// The marked-read delta the legacy bodies computed: notifications that were

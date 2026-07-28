@@ -274,8 +274,7 @@ struct WorkspaceContentView: View {
                         portalPriority: workspacePortalPriority,
                         onOuterFocus: { workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId) },
                         unreadSurfaceIDs: Set(
-                            workspace.terminalPanels(projectedFromPanelID: panel.id).lazy
-                                .map(\.id)
+                            windowMirror.surfaceIDsInLayoutOrder.lazy
                                 .filter {
                                     notificationStore.hasVisibleNotificationIndicator(
                                         forTabId: workspace.id,
