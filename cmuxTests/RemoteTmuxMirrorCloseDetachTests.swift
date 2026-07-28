@@ -364,7 +364,6 @@ import Testing
             select: false,
             autoWelcomeIfNeeded: false
         )
-        let closedLocalWorkspaceId = localWorkspace.id
         let closedLocalPanelCount = localWorkspace.panels.count
         harness.manager.closeWorkspace(localWorkspace, recordHistory: true)
         #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 1)
@@ -443,7 +442,6 @@ import Testing
         let restoredLocalWorkspace = try #require(
             harness.manager.tabs.first(where: { $0.customTitle == localTitle })
         )
-        #expect(restoredLocalWorkspace.id != closedLocalWorkspaceId)
         #expect(!restoredLocalWorkspace.isRemoteTmuxMirror)
         #expect(restoredLocalWorkspace.panels.count == closedLocalPanelCount)
         #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 0)

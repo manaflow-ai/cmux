@@ -887,8 +887,14 @@ final class RemoteTmuxController {
                 manager.closeWorkspace(workspace)
             case .explicitDetach:
                 // Detach is authoritative even for a pinned final mirror. Closing
-                // its owning window avoids stranding a blank `--new-window` shell.
+                // its owning window avoids stranding a blank `--new-window` shell,
+                // and the closed window must not linger as a recoverable route —
+                // recovering it would resurrect a dead remote path.
+                let owningWindowId = manager.windowId
                 _ = manager.closeWorkspaceNonInteractively(workspace, allowPinned: true)
+                if let owningWindowId, manager.tabs.isEmpty {
+                    AppDelegate.shared?.forgetRecoverableMainWindowRoute(windowId: owningWindowId)
+                }
             }
         }
     }
