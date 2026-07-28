@@ -1852,6 +1852,81 @@ mod tests {
         assert_eq!(database.test_persistence_writes_succeeded(), 1);
     }
 
+    #[tokio::test]
+    async fn failed_approval_never_exposes_transient_device_authorization() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let invitation =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let invitation_request = AuthRequest {
+            mode: AuthKind::Invitation,
+            invitation_id: Some(invitation.id.clone()),
+            device_public_key: client.public_key(),
+            device_name: "phone".into(),
+            session: SessionId([19; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+        };
+        let invitation_authorization = tokio::spawn({
+            let database = database.clone();
+            let request = invitation_request.clone();
+            async move { database.authorize(request).await }
+        });
+        database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
+
+        let baseline_writes = database.test_persistence_writes_started();
+        let blocked = PersistenceReleaseGuard::new(database.persistence.hooks.clone());
+        database.test_fail_next_persistence_writes(1);
+        let approval = tokio::spawn({
+            let database = database.clone();
+            let invitation_id = invitation.id.clone();
+            async move { database.approve(&invitation_id).await }
+        });
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            database.test_wait_for_persistence_writes(baseline_writes + 1),
+        )
+        .await
+        .expect("approval persistence writer did not start");
+
+        let mut enrolled_authorization = tokio::spawn({
+            let database = database.clone();
+            let mut request = invitation_request.clone();
+            request.mode = AuthKind::Enrolled;
+            request.invitation_id = None;
+            async move { database.authorize(request).await }
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut enrolled_authorization)
+                .await
+                .is_err(),
+            "device authorization became visible before approval was durable"
+        );
+
+        drop(blocked);
+        let approval_error = approval.await.unwrap().unwrap_err();
+        assert!(
+            matches!(approval_error, IdentityError::Persistence(message) if message.contains("injected"))
+        );
+        assert!(
+            invitation_authorization.await.unwrap().unwrap_err().contains("injected"),
+            "the pending invitation handshake did not receive the persistence failure"
+        );
+        assert_eq!(enrolled_authorization.await.unwrap().unwrap_err(), "device is not enrolled");
+        assert!(!database.device_is_active(&public_key_fingerprint(&client.public_key())).await);
+
+        let retry = tokio::spawn({
+            let database = database.clone();
+            async move { database.authorize(invitation_request).await }
+        });
+        database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
+        database.deny(&invitation.id).await.unwrap();
+        assert_eq!(retry.await.unwrap().unwrap_err(), "enrollment denied");
+    }
+
     #[test]
     fn legacy_device_state_without_revision_loads_at_revision_zero() {
         let temp = tempfile::tempdir().unwrap();
