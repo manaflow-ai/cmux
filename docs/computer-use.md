@@ -22,12 +22,23 @@ helper.
 
 Codex's built-in `@computer` entry is an OpenAI-bundled plugin. cmux does not
 replace that plugin: it supplies its own local MCP server and the
-`$cmux-computer-use` skill. The first Codex session that successfully attaches
-the server links the app-bundled skill into
-`~/.agents/skills/cmux-computer-use`, which is Codex's user-wide skill location.
-No `npx skills add` step or restart is required. cmux refreshes only a symlink
+`$cmux-computer-use` skill. Both agent wrappers (Claude and Codex) link the
+app-bundled skill into `~/.agents/skills/cmux-computer-use`, the shared
+user-wide skill location, on every session that attaches the server. No
+`npx skills add` step or restart is required. cmux refreshes only a symlink
 that already points at a cmux app bundle and never overwrites a user-owned
-skill directory or unrelated symlink.
+skill directory or unrelated symlink. Because the link targets the launching
+app's own bundle, deleting a dev build leaves it dangling until the next
+agent session inside any cmux build repairs it — which is why both wrappers,
+not just Codex's, must maintain the link.
+
+While Codex runs inside a cmux terminal, its CLI also Apple-Events its own
+"Codex Computer Use" (`com.openai.sky.CUAService`) helper. macOS attributes
+that request to the enclosing terminal app, so a consent dialog naming the
+cmux build and "Codex Computer Use" can appear. It is not cmux's helper or
+driver sending anything (the same TCC entry appears for Ghostty and every
+terminal Codex has run in); allowing or denying it only affects Codex's own
+computer-use path.
 
 The user grants Accessibility and Screen Recording to the helper once. A
 cmux-launched agent then connects through the authenticated, variant-scoped
