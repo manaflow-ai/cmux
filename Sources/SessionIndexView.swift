@@ -1152,6 +1152,7 @@ enum SessionTranscriptLoader {
         let fileURL: URL?
         let usesGrokTranscriptLayout: Bool
         let openCodeDatabasePath: String?
+        let hermesStateDatabaseURL: URL?
         let retention: SessionTranscriptRetention
 
         init(
@@ -1160,6 +1161,7 @@ enum SessionTranscriptLoader {
             fileURL: URL?,
             usesGrokTranscriptLayout: Bool = false,
             openCodeDatabasePath: String? = nil,
+            hermesStateDatabaseURL: URL? = nil,
             retention: SessionTranscriptRetention = .prefix(500)
         ) {
             self.agent = agent
@@ -1167,6 +1169,7 @@ enum SessionTranscriptLoader {
             self.fileURL = fileURL
             self.usesGrokTranscriptLayout = usesGrokTranscriptLayout
             self.openCodeDatabasePath = openCodeDatabasePath
+            self.hermesStateDatabaseURL = hermesStateDatabaseURL
             self.retention = retention
         }
     }
@@ -1200,9 +1203,11 @@ enum SessionTranscriptLoader {
         }
         if source.agent == .hermesAgent {
             let sessionId = source.sessionId
+            let stateDatabaseURL = source.hermesStateDatabaseURL
             return try await Task.detached(priority: .userInitiated) {
                 try loadHermesAgentSynchronously(
                     sessionId: sessionId,
+                    stateDatabaseURL: stateDatabaseURL,
                     retention: source.retention
                 )
             }.value
@@ -1551,6 +1556,7 @@ enum SessionTranscriptLoader {
 
     private static func loadHermesAgentSynchronously(
         sessionId: String,
+        stateDatabaseURL: URL?,
         retention: SessionTranscriptRetention = .prefix(maxPreviewTurns)
     ) throws -> [SessionTranscriptTurn] {
         do {
@@ -1559,7 +1565,8 @@ enum SessionTranscriptLoader {
                 sessionId: sessionId,
                 limit: queryLimit,
                 latest: retention.keepsLatestTurns,
-                preservingOpeningUser: retention.keepsLatestTurns
+                preservingOpeningUser: retention.keepsLatestTurns,
+                stateDBPath: stateDatabaseURL?.path ?? HermesAgentIndex.defaultStateDBPath()
             )
             let didHitTurnLimit = !retention.keepsLatestTurns && turns.count > retention.limit
             var previewTurns: [SessionTranscriptTurn] = turns.prefix(retention.limit).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in

@@ -25,6 +25,12 @@ extension Workspace {
         ) else {
             return false
         }
+        let usesNativeFork = request.targetHarness.usesNativeFork(for: snapshot.kind)
+        guard usesNativeFork
+            ? snapshot.forkCommand != nil
+            : AgentConversationSource(snapshot: snapshot).hasDeterministicTranscriptSource else {
+            return false
+        }
         let sourceSnapshotFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(
             snapshot,
             isRemoteTerminal: sourceIsRemote
@@ -43,11 +49,14 @@ extension Workspace {
             return false
         }
 
-        let refreshedSelection = forkAgentConversationContextMenuOpenSelection(forPanelId: panelId)
+        let refreshedSelection = agentConversationForkSelection(
+            forPanelId: panelId,
+            request: request
+        )
         guard panels[panelId] as? TerminalPanel === sourcePanel,
               isRemoteTerminalSurface(panelId) == sourceIsRemote,
-              refreshedSelection.availability.isAvailable,
-              let refreshedSnapshot = refreshedSelection.snapshot,
+              refreshedSelection?.requiresNativeForkCapability == usesNativeFork,
+              let refreshedSnapshot = refreshedSelection?.snapshot,
               ContentView.commandPaletteForkSnapshotFingerprint(
                   refreshedSnapshot,
                   isRemoteTerminal: sourceIsRemote

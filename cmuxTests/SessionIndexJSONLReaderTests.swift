@@ -35,6 +35,32 @@ struct SessionIndexJSONLReaderTests {
     }
 
     @Test
+    func startReaderSkipsOversizedRecordAndContinuesToLaterMatch() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-oversized-record-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let oversized = #"{"sessionId":"oversized","display":"\#(String(repeating: "x", count: 512))"}"#
+        let matching = #"{"sessionId":"matching","display":"found after oversized record"}"#
+        try Data((oversized + "\n" + matching + "\n").utf8).write(to: url)
+
+        var visitedSessionIDs: [String] = []
+        let metrics = SessionIndexJSONLReader(
+            chunkSize: 31,
+            maximumRecordBytes: 128
+        ).fromStart(url: url) { object in
+            if let sessionID = object["sessionId"] as? String {
+                visitedSessionIDs.append(sessionID)
+            }
+            return false
+        }
+
+        #expect(visitedSessionIDs == ["matching"])
+        #expect(metrics.recordsVisited == 2)
+        #expect(metrics.bytesRead == Data((oversized + "\n" + matching + "\n").utf8).count)
+    }
+
+    @Test
     func tailReaderReturnsNewestRecordsWithoutReadingTheWholeHistory() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-vault-history-\(UUID().uuidString).jsonl")

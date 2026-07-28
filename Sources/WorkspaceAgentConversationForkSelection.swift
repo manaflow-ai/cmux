@@ -1,0 +1,85 @@
+import Foundation
+
+struct WorkspaceAgentConversationForkSelection {
+    let snapshot: SessionRestorableAgentSnapshot
+    let validationFallbackSnapshot: SessionRestorableAgentSnapshot?
+    let requiresNativeForkCapability: Bool
+}
+
+extension Workspace {
+    func agentConversationForkSelection(
+        forPanelId panelId: UUID,
+        request: AgentConversationForkRequest,
+        liveAgentIndex: SharedLiveAgentIndex = .shared
+    ) -> WorkspaceAgentConversationForkSelection? {
+        if request.targetHarness != .current,
+           let transferSnapshot = agentConversationTransferSnapshot(
+               forPanelId: panelId,
+               liveAgentIndex: liveAgentIndex
+           ),
+           !request.targetHarness.usesNativeFork(for: transferSnapshot.kind) {
+            return WorkspaceAgentConversationForkSelection(
+                snapshot: transferSnapshot,
+                validationFallbackSnapshot: nil,
+                requiresNativeForkCapability: false
+            )
+        }
+
+        let nativeSelection = forkAgentConversationContextMenuOpenSelection(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
+        )
+        guard nativeSelection.availability.isAvailable,
+              let nativeSnapshot = nativeSelection.snapshot,
+              request.targetHarness.usesNativeFork(for: nativeSnapshot.kind) else {
+            return nil
+        }
+        return WorkspaceAgentConversationForkSelection(
+            snapshot: nativeSnapshot,
+            validationFallbackSnapshot: nativeSelection.validationFallbackSnapshot,
+            requiresNativeForkCapability: true
+        )
+    }
+
+    func hasAgentConversationTransferSource(forPanelId panelId: UUID) -> Bool {
+        agentConversationTransferSnapshot(forPanelId: panelId) != nil
+    }
+
+    func agentConversationTransferSnapshot(
+        forPanelId panelId: UUID,
+        liveAgentIndex: SharedLiveAgentIndex = .shared
+    ) -> SessionRestorableAgentSnapshot? {
+        guard panels[panelId] is TerminalPanel,
+              !isRemoteTerminalSurface(panelId) else {
+            return nil
+        }
+        if !allowsAgentContinuation(forPanelId: panelId),
+           let observation = liveAgentIndex.index?.entry(workspaceId: id, panelId: panelId) {
+            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+        }
+        guard allowsAgentContinuation(forPanelId: panelId) else { return nil }
+
+        let liveSnapshot = liveAgentIndex.snapshotForForkConversationCandidate(
+            workspaceId: id,
+            panelId: panelId
+        )
+        let restoredSnapshot = restoredAgentSnapshotForContinuation(panelId: panelId)
+        if let liveSnapshot {
+            if AgentConversationSource(snapshot: liveSnapshot).hasDeterministicTranscriptSource {
+                return liveSnapshot
+            }
+            if let restoredSnapshot,
+               restoredSnapshot.kind.rawValue == liveSnapshot.kind.rawValue,
+               restoredSnapshot.sessionId == liveSnapshot.sessionId,
+               AgentConversationSource(snapshot: restoredSnapshot).hasDeterministicTranscriptSource {
+                return restoredSnapshot
+            }
+            return nil
+        }
+        guard let restoredSnapshot,
+              AgentConversationSource(snapshot: restoredSnapshot).hasDeterministicTranscriptSource else {
+            return nil
+        }
+        return restoredSnapshot
+    }
+}

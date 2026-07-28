@@ -60,6 +60,23 @@ extension ContentView {
             )
         }
 
+        if let transferSelection = currentContext.workspace.agentConversationForkSelection(
+            forPanelId: panelId,
+            request: request
+        ), !transferSelection.requiresNativeForkCapability {
+            let didFork = await currentContext.workspace.forkAgentConversation(
+                fromPanelId: panelId,
+                snapshot: transferSelection.snapshot,
+                request: request
+            )
+            guard didFork else {
+                clearCommandPaletteForkableAgentCache(panelKey: panelKey)
+                NSSound.beep()
+                return
+            }
+            return
+        }
+
         let allowsAgentContinuation = currentContext.workspace.allowsAgentContinuation(forPanelId: panelId)
         var fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
         let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)

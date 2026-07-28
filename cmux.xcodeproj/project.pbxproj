@@ -43,6 +43,7 @@
 		901600000000000000000003 /* AgentConversationForkRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901600000000000000000004 /* AgentConversationForkRequest.swift */; };
 		9016B0000000000000000001 /* AgentConversationForkTargetHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016B0000000000000000002 /* AgentConversationForkTargetHarness.swift */; };
 		901600000000000000000005 /* AgentConversationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901600000000000000000006 /* AgentConversationSource.swift */; };
+		9016C0000000000000000001 /* AgentConversationTransferSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016C0000000000000000002 /* AgentConversationTransferSourceTests.swift */; };
 		79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */; };
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
@@ -2290,6 +2291,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5FB1313 /* WorkspaceActionSaveDialogAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1314 /* WorkspaceActionSaveDialogAccessory.swift */; };
 		C7D41E01 /* WorkspaceActionSaveDialogAccessoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D41E02 /* WorkspaceActionSaveDialogAccessoryTests.swift */; };
 		D7AB00000000000000000011 /* WorkspaceAdjacentPaneMoveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */; };
+		9016C0000000000000000003 /* WorkspaceAgentConversationForkSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016C0000000000000000004 /* WorkspaceAgentConversationForkSelection.swift */; };
 		A11EAE000000000000000000 /* WorkspaceAppearanceConfigResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */; };
 		A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */; };
 		A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */; };
@@ -2489,6 +2491,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		901600000000000000000004 /* AgentConversationForkRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkRequest.swift; sourceTree = "<group>"; };
 		9016B0000000000000000002 /* AgentConversationForkTargetHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkTargetHarness.swift; sourceTree = "<group>"; };
 		901600000000000000000006 /* AgentConversationSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationSource.swift; sourceTree = "<group>"; };
+		9016C0000000000000000002 /* AgentConversationTransferSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationTransferSourceTests.swift; sourceTree = "<group>"; };
 		79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTargetResolution.swift; sourceTree = "<group>"; };
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
@@ -4642,6 +4645,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5FB1314 /* WorkspaceActionSaveDialogAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionSaveDialogAccessory.swift; sourceTree = "<group>"; };
 		C7D41E02 /* WorkspaceActionSaveDialogAccessoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionSaveDialogAccessoryTests.swift; sourceTree = "<group>"; };
 		D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAdjacentPaneMoveTests.swift; sourceTree = "<group>"; };
+		9016C0000000000000000004 /* WorkspaceAgentConversationForkSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAgentConversationForkSelection.swift; sourceTree = "<group>"; };
 		A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceConfigResolutionTests.swift; sourceTree = "<group>"; };
 		A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceResolution.swift; sourceTree = "<group>"; };
 		A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionFlashRingView.swift; sourceTree = "<group>"; };
@@ -5092,6 +5096,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				90160000000000000000000C /* SessionTranscriptRetention.swift */,
 				901600000000000000000016 /* WeakWindowReference.swift */,
 				90160000000000000000000E /* Workspace+AgentConversationForkRequest.swift */,
+				9016C0000000000000000004 /* WorkspaceAgentConversationForkSelection.swift */,
 				A11CE0030000000000000001 /* AboutLicenseContent.swift */,
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
@@ -7082,6 +7087,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9A57402C9A57402C9A57402 /* WorkspaceGroupMoveToMenuStateTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
 				850000000000000000000003 /* SessionIndexJSONLReaderTests.swift */,
+				9016C0000000000000000002 /* AgentConversationTransferSourceTests.swift */,
 				850000000000000000000005 /* SessionIndexSnapshotLoaderTests.swift */,
 				850000000000000000000007 /* SessionIndexSyntheticCorpus.swift */,
 				850000000000000000000001 /* SessionIndexTableViewportTests.swift */,
@@ -9173,6 +9179,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001406 /* Workspace.swift in Sources */,
 				7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */,
 				A5FB1313 /* WorkspaceActionSaveDialogAccessory.swift in Sources */,
+				9016C0000000000000000003 /* WorkspaceAgentConversationForkSelection.swift in Sources */,
 				A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */,
 				A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */,
 				CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */,
@@ -9402,6 +9409,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A51D100000000000000002 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift in Sources */,
 				C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */,
 				9016A0000000000000000001 /* AgentConversationCrossHarnessForkTests.swift in Sources */,
+				9016C0000000000000000001 /* AgentConversationTransferSourceTests.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
 				F65760010000000000000001 /* AgentHibernationPlannerSwiftTests.swift in Sources */,
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,

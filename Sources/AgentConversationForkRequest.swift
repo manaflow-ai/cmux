@@ -24,7 +24,7 @@ struct AgentConversationForkRequest: Equatable, Sendable {
             CommandPaletteChoiceArgument(
                 name: harnessArgumentName,
                 title: String(localized: "forkConversation.argument.harness", defaultValue: "Harness"),
-                choices: TargetHarness.allCases.map {
+                choices: TargetHarness.allCases.filter { $0 != .current }.map {
                     .init(value: $0.rawValue, title: $0.title)
                 }
             ),

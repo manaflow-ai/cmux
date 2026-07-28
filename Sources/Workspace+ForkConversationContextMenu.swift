@@ -29,14 +29,16 @@ extension Workspace {
             endForkAgentConversationAction(panelId: panelId)
         }
 
-        var selection = forkAgentConversationContextMenuOpenSelection(
-            forPanelId: panelId
-        )
-        guard var snapshot = selection.snapshot else {
+        guard var selection = agentConversationForkSelection(
+            forPanelId: panelId,
+            request: request
+        ) else {
             return false
         }
+        var snapshot = selection.snapshot
         let isRemoteContext = isRemoteTerminalSurface(panelId)
-        if AgentForkSupport.requiresForkValidationExecutableIdentity(
+        if selection.requiresNativeForkCapability,
+           AgentForkSupport.requiresForkValidationExecutableIdentity(
             snapshot: snapshot,
             isRemoteContext: isRemoteContext
         ) {
@@ -60,23 +62,25 @@ extension Workspace {
                 snapshot: snapshot,
                 isRemoteContext: isRemoteContext
             )
-            let refreshedSelection = forkAgentConversationContextMenuOpenSelection(
-                forPanelId: panelId
-            )
-            guard refreshedSelection.availability.isAvailable,
-                  let refreshedSnapshot = refreshedSelection.snapshot,
+            guard let refreshedSelection = agentConversationForkSelection(
+                forPanelId: panelId,
+                request: request
+            ) else {
+                return false
+            }
+            guard refreshedSelection.requiresNativeForkCapability,
                   ContentView.commandPaletteForkSnapshotFingerprint(
-                    refreshedSnapshot,
-                    isRemoteTerminal: isRemoteContext
+                      refreshedSelection.snapshot,
+                      isRemoteTerminal: isRemoteContext
                   ) == selectedSnapshotFingerprint,
                   AgentForkSupport.forkValidationIdentity(
-                    snapshot: refreshedSnapshot,
-                    isRemoteContext: isRemoteContext
+                      snapshot: refreshedSelection.snapshot,
+                      isRemoteContext: isRemoteContext
                   ) == selectedValidationIdentity else {
                 return false
             }
             selection = refreshedSelection
-            snapshot = refreshedSnapshot
+            snapshot = refreshedSelection.snapshot
             guard currentExecutableFingerprint == cachedExecutableFingerprint,
                   SharedLiveAgentIndex.shared.forkSupportProbeAccepted(
                     workspaceId: id,

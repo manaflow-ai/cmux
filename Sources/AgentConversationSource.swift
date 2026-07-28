@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import os
 
@@ -16,6 +17,7 @@ nonisolated struct AgentConversationSource: Sendable {
     let workingDirectory: String?
     let transcriptPath: String?
     let registration: CmuxVaultAgentRegistration?
+    let launchEnvironment: [String: String]
 
     init(snapshot: SessionRestorableAgentSnapshot) {
         kind = snapshot.kind
@@ -23,6 +25,7 @@ nonisolated struct AgentConversationSource: Sendable {
         workingDirectory = snapshot.workingDirectory
         transcriptPath = snapshot.transcriptPath
         registration = snapshot.registration
+        launchEnvironment = snapshot.launchCommand?.environment ?? [:]
     }
 
     var sessionAgent: SessionAgent {
@@ -54,6 +57,23 @@ nonisolated struct AgentConversationSource: Sendable {
             return nil
         }
         return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+    }
+
+    var hasDeterministicTranscriptSource: Bool {
+        switch kind {
+        case .opencode, .hermesAgent:
+            true
+        default:
+            transcriptURL != nil
+        }
+    }
+
+    var hermesStateDatabaseURL: URL? {
+        guard kind == .hermesAgent else { return nil }
+        return URL(
+            fileURLWithPath: HermesAgentSessionResolver.stateDBPath(env: launchEnvironment),
+            isDirectory: false
+        )
     }
 
     var usesGrokTranscriptLayout: Bool {
@@ -142,6 +162,7 @@ nonisolated struct HermesAgentConversationSourceAdapter: AgentConversationSource
             agent: .hermesAgent,
             sessionId: source.sessionId,
             fileURL: nil,
+            hermesStateDatabaseURL: source.hermesStateDatabaseURL,
             retention: agentConversationTransferRetention
         ))
     }

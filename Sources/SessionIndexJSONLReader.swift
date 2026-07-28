@@ -3,9 +3,14 @@ import Foundation
 /// Streaming, byte-bounded JSONL reader shared by Vault index and preview paths.
 struct SessionIndexJSONLReader: Sendable {
     private let chunkSize: Int
+    private let maximumRecordBytes: Int
 
-    init(chunkSize: Int = 64 * 1024) {
+    init(
+        chunkSize: Int = 64 * 1024,
+        maximumRecordBytes: Int = 2 * 1024 * 1024
+    ) {
         self.chunkSize = max(1, chunkSize)
+        self.maximumRecordBytes = max(1, maximumRecordBytes)
     }
 
     /// Streams records from the beginning until the callback stops or EOF is reached.
@@ -37,10 +42,32 @@ struct SessionIndexJSONLReader: Sendable {
         }
         defer { try? handle.close() }
 
-        var buffer = Data()
-        var lineStart = buffer.startIndex
+        var lineData = Data()
+        lineData.reserveCapacity(min(chunkSize, maximumRecordBytes))
+        var isSkippingOversizedRecord = false
         var bytesRead = 0
         var recordsVisited = 0
+
+        func append(_ segment: Data.SubSequence) {
+            guard !segment.isEmpty, !isSkippingOversizedRecord else { return }
+            guard lineData.count + segment.count <= maximumRecordBytes else {
+                lineData = Data()
+                isSkippingOversizedRecord = true
+                return
+            }
+            lineData.append(contentsOf: segment)
+        }
+
+        func finishRecord() -> Bool {
+            defer {
+                lineData.removeAll(keepingCapacity: true)
+                isSkippingOversizedRecord = false
+            }
+            guard !lineData.isEmpty || isSkippingOversizedRecord else { return false }
+            recordsVisited += 1
+            guard !isSkippingOversizedRecord else { return false }
+            return Self.visit(line: lineData, body: body)
+        }
 
         while maximumBytes.map({ bytesRead < $0 }) != false, !Task.isCancelled {
             let readCount = maximumBytes.map { min(chunkSize, $0 - bytesRead) } ?? chunkSize
@@ -49,34 +76,25 @@ struct SessionIndexJSONLReader: Sendable {
                 break
             }
             bytesRead += chunk.count
-            buffer.append(chunk)
 
-            while let newline = buffer[lineStart...].firstIndex(of: 0x0a) {
-                let line = Data(buffer[lineStart..<newline])
-                lineStart = buffer.index(after: newline)
-                guard !line.isEmpty else { continue }
-                recordsVisited += 1
-                if Self.visit(line: line, body: body) {
+            var segmentStart = chunk.startIndex
+            while let newline = chunk[segmentStart...].firstIndex(of: 0x0a) {
+                append(chunk[segmentStart..<newline])
+                if finishRecord() {
                     return SessionIndexJSONLReadMetrics(
                         bytesRead: bytesRead,
                         recordsVisited: recordsVisited
                     )
                 }
+                segmentStart = chunk.index(after: newline)
             }
-
-            if lineStart > buffer.startIndex,
-               buffer.distance(from: buffer.startIndex, to: lineStart) >= chunkSize {
-                buffer.removeSubrange(buffer.startIndex..<lineStart)
-                lineStart = buffer.startIndex
+            if segmentStart < chunk.endIndex {
+                append(chunk[segmentStart..<chunk.endIndex])
             }
         }
 
-        if lineStart < buffer.endIndex {
-            let line = Data(buffer[lineStart..<buffer.endIndex])
-            if !line.isEmpty {
-                recordsVisited += 1
-                _ = Self.visit(line: line, body: body)
-            }
+        if !lineData.isEmpty || isSkippingOversizedRecord {
+            _ = finishRecord()
         }
         return SessionIndexJSONLReadMetrics(
             bytesRead: bytesRead,
@@ -145,7 +163,9 @@ struct SessionIndexJSONLReader: Sendable {
             }
             guard lineStart < currentLineEnd else { continue }
             recordsVisited += 1
-            if Self.visit(line: Data(payload[lineStart..<currentLineEnd]), body: body) {
+            let recordLength = payload.distance(from: lineStart, to: currentLineEnd)
+            if recordLength <= maximumRecordBytes,
+               Self.visit(line: Data(payload[lineStart..<currentLineEnd]), body: body) {
                 break
             }
         }
