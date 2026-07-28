@@ -272,7 +272,7 @@ struct WorkspaceShareHostPresentationTests {
             }
             return nil
         })
-        #expect(pendingUsers == ["guest-1", "guest-2"])
+        #expect(pendingUsers == Set(["guest-1", "guest-2"]))
         await socket.stop()
     }
 

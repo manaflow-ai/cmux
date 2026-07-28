@@ -1066,7 +1066,7 @@ final class ShareSessionController {
     private func replacePendingAccessRequests(
         with requests: [ShareAccessRequest]
     ) -> Bool {
-        feed.removeAll(\.isPendingAccessRequest)
+        feed.removeAll { $0.isPendingAccessRequest }
         for request in requests {
             guard appendAccessRequest(
                 user: request.user,
