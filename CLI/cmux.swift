@@ -20356,6 +20356,10 @@ struct CMUXCLI {
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
+        if !tmuxCompatIsInformationalInvocation(commandArgs: commandArgs),
+           normalizedTmuxTarget(launchContext?.surfaceId) == nil {
+            throw CLIError(message: managedTerminalRequiredMessage(displayName: "Claude Teams"))
+        }
         // Check custom path from Settings > Automation > Claude Code first.
         // Never fall back to a cmux-bundled provider binary.
         guard let claudeExecutablePath = resolveClaudeExecutable(
@@ -22695,6 +22699,10 @@ struct CMUXCLI {
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
+        if !tmuxCompatIsInformationalInvocation(commandArgs: commandArgs),
+           normalizedTmuxTarget(launchContext?.surfaceId) == nil {
+            throw CLIError(message: managedTerminalRequiredMessage(displayName: "cmux omc"))
+        }
         configureOMCEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,

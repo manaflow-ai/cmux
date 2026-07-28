@@ -155,8 +155,8 @@ fs.writeFileSync(
         env["TERM"] = "xterm-256color"
         env["TERM_PROGRAM"] = "__HOST_TERM_PROGRAM__"
         env["NODE_OPTIONS"] = node_options
-        if tmpdir is not None:
-            env["TMPDIR"] = tmpdir
+        expect_managed_tmux_shim = tmpdir is None
+        env["TMPDIR"] = str(tmp) if tmpdir is None else tmpdir
         explicit_socket_path = str(tmp / "explicit-cmux.sock")
         explicit_socket_password = "topsecret"
 
@@ -215,25 +215,26 @@ fs.writeFileSync(
             print(f"FAIL: expected tmux shim path to end with 'tmux', got {tmux_path!r}")
             raise SystemExit(1)
 
-        expected_tmux_path = str(wrapper_shim_bin / "tmux")
-        if tmux_path != expected_tmux_path:
-            print(
-                "FAIL: expected Claude's restored PATH to resolve the tmux shim "
-                f"at {expected_tmux_path!r}, got {tmux_path!r}"
-            )
-            raise SystemExit(1)
+        if expect_managed_tmux_shim:
+            expected_tmux_path = str(wrapper_shim_bin / "tmux")
+            if tmux_path != expected_tmux_path:
+                print(
+                    "FAIL: expected Claude's restored PATH to resolve the tmux shim "
+                    f"at {expected_tmux_path!r}, got {tmux_path!r}"
+                )
+                raise SystemExit(1)
 
-        if tmux_path.startswith(str(real_bin)):
-            print(f"FAIL: expected cmux tmux shim to shadow PATH, got {tmux_path!r}")
-            raise SystemExit(1)
+            if tmux_path.startswith(str(real_bin)):
+                print(f"FAIL: expected cmux tmux shim to shadow PATH, got {tmux_path!r}")
+                raise SystemExit(1)
 
-        tmux_shim_value = read_text(tmux_shim_log)
-        if tmux_shim_value != expected_tmux_path:
-            print(
-                f"FAIL: expected CMUX_CLAUDE_TEAMS_TMUX_SHIM={expected_tmux_path!r}, "
-                f"got {tmux_shim_value!r}"
-            )
-            raise SystemExit(1)
+            tmux_shim_value = read_text(tmux_shim_log)
+            if tmux_shim_value != expected_tmux_path:
+                print(
+                    f"FAIL: expected CMUX_CLAUDE_TEAMS_TMUX_SHIM={expected_tmux_path!r}, "
+                    f"got {tmux_shim_value!r}"
+                )
+                raise SystemExit(1)
 
         cmux_bin_value = read_text(cmux_bin_log)
         if not cmux_bin_value or cmux_bin_value == "__UNSET__":

@@ -29,6 +29,7 @@ def main() -> int:
         root = Path(td)
         fallback_bin = root / ".bun" / "bin"
         fallback_bin.mkdir(parents=True, exist_ok=True)
+        omc_log = root / "omc.log"
 
         make_executable(
             fallback_bin / "omc-node-helper",
@@ -42,6 +43,7 @@ printf 'args:%s\\n' "$*"
             fallback_bin / "omc",
             """#!/usr/bin/env bash
 set -euo pipefail
+printf 'ran\\n' > "$FAKE_OMC_LOG"
 command -v omc-node-helper
 omc-node-helper "$@"
 """,
@@ -52,6 +54,7 @@ omc-node-helper "$@"
         env["PATH"] = "/usr/bin:/bin"
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_SOCKET_PATH"] = str(root / "missing.sock")
+        env["FAKE_OMC_LOG"] = str(omc_log)
 
         proc = subprocess.run(
             [cli_path, "omc", "--version"],
@@ -80,7 +83,20 @@ omc-node-helper "$@"
             print(f"FAIL: expected fallback helper to remain on PATH, got {lines!r}")
             return 1
 
-    print("PASS: cmux omc preserves fallback provider dirs in PATH")
+        omc_log.unlink()
+        real_launch = subprocess.run(
+            [cli_path, "omc", "start a team"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=30,
+        )
+        if real_launch.returncode == 0 or omc_log.exists():
+            print("FAIL: real OMC launch continued without a live cmux surface context")
+            return 1
+
+    print("PASS: OMC preserves informational fallback and fails closed for real launches")
     return 0
 
 

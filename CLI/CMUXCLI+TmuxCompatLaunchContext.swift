@@ -86,8 +86,10 @@ extension CMUXCLI {
                 windowHandle: String?
             ) throws -> TmuxCompatLaunchContext {
                 let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+                let normalizedSurfaceHandle = tmuxTrimIdSigil(surfaceHandle)
                 guard let surface = surfaces.first(where: {
-                    ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceHandle
+                    ($0["id"] as? String) == surfaceId
+                        || ($0["ref"] as? String) == normalizedSurfaceHandle
                 }),
                 let rawPaneHandle = (surface["pane_id"] as? String) ?? (surface["pane_ref"] as? String) else {
                     throw TmuxCompatLaunchContextError.launchSurfaceHasNoPane
@@ -220,6 +222,10 @@ extension CMUXCLI {
         processEnvironment: [String: String],
         commandArgs: [String]
     ) throws -> URL {
+        let downstreamTmuxMissing = String(
+            localized: "cli.tmux-compat.error.downstreamTmuxMissing",
+            defaultValue: "cmux tmux shim: no downstream tmux executable found"
+        )
         let script = """
         #!/usr/bin/env bash
         set -euo pipefail
@@ -251,7 +257,7 @@ extension CMUXCLI {
         export PATH
         next_tmux="$(type -P tmux || true)"
         if [[ -z "$next_tmux" ]]; then
-          echo "cmux tmux shim: no downstream tmux executable found on PATH" >&2
+          echo \(tmuxShellQuote(downstreamTmuxMissing)) >&2
           exit 127
         fi
         exec "$next_tmux" "$@"
@@ -266,7 +272,13 @@ extension CMUXCLI {
            let rawClaudeShim = normalizedTmuxTarget(processEnvironment["CMUX_CLAUDE_WRAPPER_SHIM"]) {
             let managedRoot = URL(fileURLWithPath: rawRoot, isDirectory: true).standardizedFileURL
             let claudeShim = URL(fileURLWithPath: rawClaudeShim, isDirectory: false).standardizedFileURL
-            if managedRoot.deletingLastPathComponent().lastPathComponent == "cmux-cli-shims",
+            let temporaryRoot = normalizedTmuxTarget(processEnvironment["TMPDIR"])
+                .map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+                ?? FileManager.default.temporaryDirectory.standardizedFileURL
+            let managedBase = temporaryRoot
+                .appendingPathComponent("cmux-cli-shims", isDirectory: true)
+                .standardizedFileURL
+            if managedRoot.deletingLastPathComponent() == managedBase,
                claudeShim.deletingLastPathComponent() == managedRoot,
                claudeShim.lastPathComponent == "claude",
                FileManager.default.isExecutableFile(atPath: claudeShim.path) {
@@ -289,11 +301,8 @@ extension CMUXCLI {
             }
         }
 
-        guard claudeTeamsIsInformationalInvocation(commandArgs: commandArgs) else {
-            throw CLIError(message: String(
-                localized: "cli.claude-teams.error.managedTerminalRequired",
-                defaultValue: "Claude Teams must be launched from a cmux-managed terminal surface. Open a terminal surface in cmux and run this command there."
-            ))
+        guard tmuxCompatIsInformationalInvocation(commandArgs: commandArgs) else {
+            throw CLIError(message: managedTerminalRequiredMessage(displayName: "Claude Teams"))
         }
         return try createTmuxCompatShimDirectory(
             directoryName: "claude-teams-bin",

@@ -60,6 +60,7 @@ claude-node-helper
         env = os.environ.copy()
         env["HOME"] = str(home)
         env["PATH"] = "/usr/bin:/bin"
+        env["TMPDIR"] = str(tmp)
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(managed_bin / "claude")
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(managed_bin)
         env["FAKE_CLAUDE_LOG"] = str(claude_log)
@@ -123,6 +124,36 @@ claude-node-helper
             if not unmanaged.stderr.strip():
                 print(f"FAIL: unmanaged launch lacked actionable guidance for args {real_args!r}")
                 return 1
+
+        contextless = subprocess.run(
+            [cli_path, "claude-teams", "start a team"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=30,
+        )
+        if contextless.returncode == 0 or claude_log.exists():
+            print("FAIL: real Teams launch accepted a managed root without a live surface context")
+            return 1
+
+        managed_tmux = managed_bin / "tmux"
+        managed_tmux.unlink()
+        forged_env = env.copy()
+        forged_tmp = tmp / "different-temp-root"
+        forged_tmp.mkdir()
+        forged_env["TMPDIR"] = str(forged_tmp)
+        forged = subprocess.run(
+            [cli_path, "claude-teams", "start a team"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=forged_env,
+            timeout=30,
+        )
+        if forged.returncode == 0 or claude_log.exists() or managed_tmux.exists():
+            print("FAIL: forged managed-root environment was accepted outside the trusted temp base")
+            return 1
 
     print("PASS: provider fallback survives while real Teams launches require managed routing")
     return 0

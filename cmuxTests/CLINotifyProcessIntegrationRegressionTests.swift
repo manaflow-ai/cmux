@@ -9743,13 +9743,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.stdout.contains(focusedSurface), result.stdout)
     }
 
-    private func stableTmuxNumericId(_ raw: String) -> String {
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in raw.utf8 {
+    private func stableTmuxNumericId(_ raw: String?) -> String {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let source = trimmed.isEmpty ? "cmux" : trimmed
+        var hash: UInt64 = 14695981039346656037
+        for byte in source.utf8 {
             hash ^= UInt64(byte)
-            hash = hash &* 1_099_511_628_211
+            hash = hash &* 1099511628211
         }
-        let value = hash & 0x7fff_ffff_ffff_ffff
+        let value = hash & 0x7fffffffffffffff
         return String(value == 0 ? 1 : value)
     }
 }

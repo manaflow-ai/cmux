@@ -74,6 +74,7 @@ printf 'shim=%s\\n' "$(command -v tmux)"
         env = os.environ.copy()
         env["HOME"] = str(home)
         env["PATH"] = f"{cmux_shim_bin}:{real_bin}:/usr/bin:/bin"
+        env["TMPDIR"] = str(tmp)
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(cmux_shim_bin / "claude")
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(cmux_shim_bin)
 

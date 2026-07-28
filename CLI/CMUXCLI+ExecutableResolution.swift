@@ -3,6 +3,14 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    func managedTerminalRequiredMessage(displayName: String) -> String {
+        let format = String(
+            localized: "cli.tmux-compat.error.managedTerminalRequired",
+            defaultValue: "%@ must be launched from a cmux-managed terminal surface. Open a terminal surface in cmux and run this command there."
+        )
+        return String(format: format, displayName)
+    }
+
     func missingProviderExecutableMessage(displayName: String, executableName: String) -> String {
         let format = String(
             localized: "agentSession.error.missingProviderExecutable",
@@ -148,10 +156,10 @@ extension CMUXCLI {
         )
     }
 
-    /// Whether Claude will exit after printing help or version information. Reuse the
-    /// launch parser so flag-shaped prompt text and option values cannot downgrade a real
-    /// Teams session to the launcher-only tmux shim.
-    func claudeTeamsIsInformationalInvocation(commandArgs: [String]) -> Bool {
+    /// Whether a Claude-backed launcher will exit after printing help or version
+    /// information. Reuse the launch parser so flag-shaped prompt text and option values
+    /// cannot downgrade a real agent session to launcher-only tmux compatibility.
+    func tmuxCompatIsInformationalInvocation(commandArgs: [String]) -> Bool {
         ["--help", "-h", "--version", "-v"].contains { option in
             AgentLaunchSanitizer.claudeTeamsLaunchHasOption(option, args: commandArgs)
         }
