@@ -28,11 +28,11 @@ type notifyingBuffer struct {
 	notify chan struct{}
 }
 
-type errorWriter struct {
+type authErrorWriter struct {
 	err error
 }
 
-func (w errorWriter) Write([]byte) (int, error) {
+func (w authErrorWriter) Write([]byte) (int, error) {
 	return 0, w.err
 }
 
@@ -976,7 +976,7 @@ func TestPersistentDaemonLogsAuthMethodRejectionReason(t *testing.T) {
 func TestPersistentDaemonReportsAuthRejectionWriteFailure(t *testing.T) {
 	writeErr := errors.New("test auth write failed")
 	reader := bufio.NewReader(strings.NewReader("{\"id\":1,\"method\":\"daemon.unsupported\"}\n"))
-	writer := &stdioFrameWriter{writer: bufio.NewWriter(errorWriter{err: writeErr})}
+	writer := &stdioFrameWriter{writer: bufio.NewWriter(authErrorWriter{err: writeErr})}
 
 	err := authenticatePersistentDaemonConn(reader, writer, persistentDaemonFixedTokenVerifier("good-token"))
 	if !errors.Is(err, writeErr) {
