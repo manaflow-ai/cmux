@@ -4290,7 +4290,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func hasLoadedTerminalSurface() -> Bool {
-        let terminalPanels = panels.keys.flatMap { terminalPanels(projectedFromPanelID: $0) }
+        let terminalPanels = panels.keys.flatMap { self.terminalPanels(projectedFromPanelID: $0) }
         guard !terminalPanels.isEmpty else { return true }
         return terminalPanels.contains { $0.surface.surface != nil }
     }
