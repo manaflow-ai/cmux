@@ -132,20 +132,37 @@ struct WindowDockLifecycleTests {
         let dock = appDelegate.windowDock(forWindowId: windowId)
         let panel = try dock.seedTestPanel()
         let panelId = panel.id
+        let paneId = try #require(
+            dock.bonsplitController.focusedPaneId ?? dock.bonsplitController.allPaneIds.first
+        )
         #expect(dock.containsPanel(panelId))
         #expect(AppDelegate.isWindowDockRoutingId(windowId))
 
         appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
         unregistered = true
+        let registryIdsAfterUnregister = Set(
+            GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)
+        )
+
+        let latePanelId = dock.newSurface(
+            kind: .terminal,
+            inPane: paneId,
+            command: "/usr/bin/true",
+            focus: false
+        )
 
         // The store was dropped from the registry and its panels torn down —
-        // no PTY outlives the window.
+        // no PTY outlives the window, even when a stale UI callback retains
+        // the old store and tries to create another panel.
         #expect(appDelegate.existingWindowDock(forWindowId: windowId) == nil)
         #expect(!AppDelegate.isWindowDockRoutingId(windowId))
+        #expect(dock.isRetired)
+        #expect(latePanelId == nil)
         #expect(!dock.containsPanel(panelId))
         #expect(dock.panels.isEmpty)
         #expect(!dock.isVisibleInUI)
         #expect(panel.closeCount == 1)
+        #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterUnregister)
         // A closed window's manager can never seed a NEW Dock (it would have
         // no teardown owner); manager-based lookup fails closed instead.
         #expect(appDelegate.windowDock(for: manager) == nil)
