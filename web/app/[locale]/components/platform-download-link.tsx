@@ -27,12 +27,19 @@ export function PlatformDownloadLink({
       className={className}
       style={style}
       onClick={() =>
-        posthog.capture("cmux_browser_download_clicked", {
-          platform,
-          artifact,
-          location,
-          target: href,
-        })
+        posthog.capture(
+          "cmux_browser_download_clicked",
+          {
+            platform,
+            artifact,
+            location,
+            target: href,
+          },
+          {
+            transport: "sendBeacon",
+            send_instantly: true,
+          },
+        )
       }
     >
       {children}
