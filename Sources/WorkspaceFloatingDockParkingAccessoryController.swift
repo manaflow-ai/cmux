@@ -51,7 +51,10 @@ final class WorkspaceFloatingDockParkingAccessoryController {
                 width: accessoryView.preferredWidth,
                 height: Self.height
             ),
-            styleMask: [.borderless, .nonactivatingPanel],
+            // Hover presentation uses orderFront without taking focus. Keeping
+            // the panel activatable lets inline rename complete the explicit
+            // palette -> owner -> accessory key-window handoff.
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )

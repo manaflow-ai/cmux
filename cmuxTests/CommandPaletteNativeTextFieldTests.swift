@@ -60,7 +60,7 @@ struct CommandPaletteNativeTextFieldTests {
         }
 
         let panel = try #require(controller.presentedWindow)
-        controller.dismissImmediately()
+        controller.dismissImmediately(restoringOwnerAsKey: true)
 
         #expect(controller.presentedWindow == nil)
         #expect(!panel.isVisible)

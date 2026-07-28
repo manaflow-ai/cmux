@@ -9397,9 +9397,17 @@ struct ContentView: View {
         if command.dismissOnRun,
            Self.commandPaletteShouldDismissBeforeRun(forCommandId: command.id) {
             if let postRunFocusTarget {
-                dismissCommandPalette(restoreFocus: true, preferredFocusTarget: postRunFocusTarget)
+                dismissCommandPalette(
+                    restoreFocus: true,
+                    preferredFocusTarget: postRunFocusTarget,
+                    restoreOwnerAsKey: true
+                )
             } else {
-                dismissCommandPalette(restoreFocus: false)
+                dismissCommandPalette(
+                    restoreFocus: false,
+                    preferredFocusTarget: nil,
+                    restoreOwnerAsKey: true
+                )
             }
             command.action()
             return
@@ -9766,8 +9774,15 @@ struct ContentView: View {
 
     private func dismissCommandPalette(
         restoreFocus: Bool,
-        preferredFocusTarget: CommandPaletteRestoreFocusTarget?
+        preferredFocusTarget: CommandPaletteRestoreFocusTarget?,
+        restoreOwnerAsKey: Bool = false
     ) {
+        let inputWindow = commandPaletteInputWindow
+        if let observedWindow {
+            commandPaletteWindowPanelController(for: observedWindow).dismissImmediately(
+                restoringOwnerAsKey: restoreOwnerAsKey
+            )
+        }
         let focusTarget = preferredFocusTarget ?? commandPaletteRestoreFocusTarget
 #if DEBUG
         if case .workspaceDescriptionInput(let target) = commandPaletteMode {
@@ -9809,7 +9824,7 @@ struct ContentView: View {
         commandPaletteTerminalOpenTargetAvailability = []
         isCommandPaletteSearchPending = false
         commandPalettePendingActivation = nil
-        if let window = commandPaletteInputWindow {
+        if let window = inputWindow {
             _ = window.makeFirstResponder(nil)
         }
         syncCommandPaletteDebugStateForObservedWindow()

@@ -112,6 +112,16 @@ final class WindowCommandPalettePanelController: NSObject {
         isPaletteVisible && panel.isVisible ? panel : nil
     }
 
+    /// Removes the native palette window before a command transfers key-window
+    /// ownership or first-responder focus to another cmux surface.
+    func dismissImmediately(restoringOwnerAsKey: Bool = false) {
+        let shouldRestoreOwner = restoringOwnerAsKey && panel.isKeyWindow
+        hidePanel()
+        if shouldRestoreOwner, let ownerWindow, ownerWindow.isVisible {
+            ownerWindow.makeKeyAndOrderFront(nil)
+        }
+    }
+
     func update(
         isVisible: Bool,
         onDismiss: @escaping (CommandPaletteInteractionDismissal) -> Void,
