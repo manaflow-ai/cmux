@@ -598,9 +598,9 @@ def _swift_matching_parenthesis(text: str, start: int) -> Optional[int]:
     return None
 
 
-def _swift_parameter_names(parameters: str) -> set[str]:
-    """Extract local names from a masked Swift function parameter list."""
-    result: set[str] = set()
+def _swift_parameter_bindings(parameters: str) -> dict[str, bool]:
+    """Extract local names and concrete clock identity from Swift parameters."""
+    result: dict[str, bool] = {}
     segment_start = 0
     depths = {"(": 0, "[": 0, "<": 0}
     closing = {")": "(", "]": "[", ">": "<"}
@@ -630,13 +630,25 @@ def _swift_parameter_names(parameters: str) -> set[str]:
             None,
         )
         if local_name is not None:
-            result.add(local_name)
+            type_annotation = segment[colon + 1 :].split("=", 1)[0]
+            result[local_name] = bool(
+                re.fullmatch(
+                    rf"\s*(?:(?:borrowing|consuming|inout|isolated|sending)\s+)*"
+                    rf"{_SWIFT_CLOCK_TYPE_PATTERN}\s*",
+                    type_annotation,
+                )
+            )
     return result
 
 
-def _swift_callable_parameter_scopes(text: str) -> dict[int, set[str]]:
+def _swift_parameter_names(parameters: str) -> set[str]:
+    """Extract local names from a masked Swift function parameter list."""
+    return set(_swift_parameter_bindings(parameters))
+
+
+def _swift_callable_parameter_scopes(text: str) -> dict[int, dict[str, bool]]:
     """Map callable-body opening braces to their lexically bound parameters."""
-    result: dict[int, set[str]] = {}
+    result: dict[int, dict[str, bool]] = {}
     callable_pattern = re.compile(
         r"(?<![.$\w])(?:func\b|init[!?]?(?=\s*\()|subscript\b)"
     )
@@ -667,7 +679,7 @@ def _swift_callable_parameter_scopes(text: str) -> dict[int, set[str]]:
             or callable_pattern.search(suffix)
         ):
             continue
-        result[body_opening] = _swift_parameter_names(
+        result[body_opening] = _swift_parameter_bindings(
             text[opening + 1 : closing]
         )
     return result
@@ -767,12 +779,7 @@ def _swift_closure_bindings(text: str, opening: int) -> dict[str, bool]:
 
     typed_parameters = candidate.group("typed_parameters")
     if typed_parameters is not None:
-        result.update(
-            {
-                name: False
-                for name in _swift_parameter_names(typed_parameters)
-            }
-        )
+        result.update(_swift_parameter_bindings(typed_parameters))
     simple_parameters = candidate.group("simple_parameters")
     if simple_parameters is not None:
         result.update(
@@ -805,10 +812,7 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
                 else "block"
             )
             bindings = type_members.get(event.start(), {}).copy()
-            bindings.update({
-                name: False
-                for name in callable_parameters.get(event.start(), set())
-            })
+            bindings.update(callable_parameters.get(event.start(), {}))
             bindings.update(
                 _swift_closure_bindings(text, event.start())
             )
@@ -1007,6 +1011,42 @@ def _javascript_parameter_aliases(
     }
 
 
+def _javascript_for_loop_declarations(
+    text: str,
+    aliases: set[str],
+) -> tuple[dict[int, set[str]], set[int]]:
+    """Map braced for-loop bodies to their lexical timer-alias bindings."""
+    if not aliases:
+        return {}, set()
+
+    alias_pattern = "|".join(
+        re.escape(alias)
+        for alias in sorted(aliases, key=len, reverse=True)
+    )
+    declaration_pattern = re.compile(
+        rf"\b(?:let|const)\s+(?P<declared>{alias_pattern})(?![$\w])"
+    )
+    bindings: dict[int, set[str]] = {}
+    declaration_offsets: set[int] = set()
+    for loop in re.finditer(r"\bfor\s*(?:await\s*)?\(", text):
+        opening = loop.end() - 1
+        closing = _swift_matching_parenthesis(text, opening)
+        if closing is None:
+            continue
+        body_opening = closing + 1
+        while body_opening < len(text) and text[body_opening].isspace():
+            body_opening += 1
+        if body_opening >= len(text) or text[body_opening] != "{":
+            continue
+        header = text[opening + 1 : closing]
+        for declaration in declaration_pattern.finditer(header):
+            bindings.setdefault(body_opening, set()).add(
+                declaration.group("declared")
+            )
+            declaration_offsets.add(opening + 1 + declaration.start())
+    return bindings, declaration_offsets
+
+
 def _javascript_timer_alias_positions(
     text: str,
     aliases: set[str],
@@ -1053,7 +1093,13 @@ def _javascript_timer_alias_positions(
             )
         }
 
-    declarations: dict[Optional[int], set[str]] = {None: set()}
+    for_loop_declarations, for_loop_declaration_offsets = (
+        _javascript_for_loop_declarations(text, aliases)
+    )
+    declarations: dict[Optional[int], set[str]] = {
+        None: set(),
+        **for_loop_declarations,
+    }
     scope_openings: list[Optional[int]] = [None]
     for event in event_pattern.finditer(text):
         if event.group("open_brace") is not None:
@@ -1063,9 +1109,10 @@ def _javascript_timer_alias_positions(
             if len(scope_openings) > 1:
                 scope_openings.pop()
         elif event.group("declaration") is not None:
-            declarations.setdefault(scope_openings[-1], set()).add(
-                event.group("declared")
-            )
+            if event.start() not in for_loop_declaration_offsets:
+                declarations.setdefault(scope_openings[-1], set()).add(
+                    event.group("declared")
+                )
         elif event.group("destructuring") is not None:
             declarations.setdefault(scope_openings[-1], set()).update(
                 destructured_aliases(event.group("binding_pattern"))
@@ -1101,7 +1148,8 @@ def _javascript_timer_alias_positions(
                 scopes.pop()
             continue
         if event.group("declaration") is not None:
-            scopes[-1][event.group("declared")] = False
+            if event.start() not in for_loop_declaration_offsets:
+                scopes[-1][event.group("declared")] = False
             continue
         if event.group("destructuring") is not None:
             for alias in destructured_aliases(
