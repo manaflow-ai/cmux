@@ -253,6 +253,9 @@ struct RemoteTmuxNotificationLifecycleTests {
         }
         #expect(selectCommands.last?.contains("-t @2.%4") == true)
         harness.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 3, lines: [], isError: false)
+        )
+        harness.connection.handleMessageForTesting(
             .windowPaneChanged(windowId: 2, paneId: 4)
         )
         #expect(mirror.activePaneId == 4)
@@ -271,6 +274,69 @@ struct RemoteTmuxNotificationLifecycleTests {
             appDelegate.recoverableMainWindowRoute(windowId: harness.windowID)?.tabManager
                 === harness.manager
         )
+    }
+
+    @Test
+    func rejectedProjectedNotificationFocusRollsBackAndStaysUnread() throws {
+        TerminalNotificationStore.shared.clearAll()
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        try harness.publishSinglePane()
+        harness.splitMakingPaneFiveActive()
+
+        let sessionMirror = try #require(harness.workspace.remoteTmuxSessionMirror)
+        let containerPanelID = try #require(sessionMirror.panelIdByWindow[2])
+        let mirror = try #require(
+            harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID)
+        )
+        let paneFour = try #require(mirror.panel(forPane: 4))
+        #expect(mirror.activePaneId == 5)
+
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: harness.workspace.id,
+            surfaceID: paneFour.id,
+            paneID: nil
+        )
+        let result = TerminalController.shared.controlNotificationCreateForSurface(
+            routing: routing,
+            surfaceID: paneFour.id,
+            title: "Rejected focus",
+            subtitle: "",
+            body: "Body"
+        )
+        guard case .delivered = result else {
+            Issue.record("Expected projected notification delivery, got \(result)")
+            return
+        }
+        let notification = try #require(
+            TerminalNotificationStore.shared.notifications.first(where: {
+                $0.tabId == harness.workspace.id && $0.surfaceId == paneFour.id
+            })
+        )
+
+        let openResult = TerminalController.shared.controlNotificationOpen(id: notification.id)
+        guard case .opened = openResult else {
+            Issue.record("Expected projected notification open, got \(openResult)")
+            return
+        }
+        #expect(mirror.activePaneId == 4, "The accepted request should route input optimistically")
+        #expect(TerminalNotificationStore.shared.notifications
+            .first(where: { $0.id == notification.id })?.isRead == false)
+
+        harness.connection.handleMessageForTesting(
+            .commandResult(
+                commandNumber: 3,
+                lines: ["can't find pane: %4"],
+                isError: true
+            )
+        )
+
+        #expect(mirror.activePaneId == 5, "A rejected request must restore the previous pane")
+        #expect(TerminalNotificationStore.shared.notifications
+            .first(where: { $0.id == notification.id })?.isRead == false)
     }
 
     @Test
