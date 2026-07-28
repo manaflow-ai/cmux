@@ -19,11 +19,39 @@ private func rendererRealizedCallValue(_ index: UInt32) -> Bool
 @_silgen_name("cmux_test_ghostty_renderer_realized_set_result")
 private func setRendererRealizedResult(_ result: Bool)
 
+@_silgen_name("cmux_test_ghostty_renderer_rebuild_call_count")
+private func rendererRebuildCallCount() -> UInt32
+
 @_silgen_name("cmux_test_ghostty_renderer_release_was_occluded")
 private func rendererReleaseWasOccluded() -> Bool
 
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererPresentationTests {
+    @Test func windowlessFirstPresentationUsesAtomicRendererRebuild() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        beginRendererRealizedTracking(runtimeSurface)
+        surface.setRendererPortalVisible(true, presentationReady: false)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: false)
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetRendererRealizedTracking()
+        }
+
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 0)
+
+        surface.ensureRendererPresented(presentationReady: true)
+
+        #expect(surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
+    }
+
     @Test func visibleRuntimeWaitsForUsableDrawableGeometry() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)

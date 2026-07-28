@@ -22,6 +22,7 @@ static void* cmux_test_renderer_realized_target = NULL;
 static bool cmux_test_renderer_realized_calls[16];
 static uint32_t cmux_test_renderer_realized_call_count = 0;
 static bool cmux_test_renderer_realized_result = true;
+static uint32_t cmux_test_renderer_rebuild_call_count = 0;
 static bool cmux_test_renderer_occlusion_visible = true;
 static bool cmux_test_renderer_release_was_occluded = false;
 
@@ -35,6 +36,7 @@ void cmux_test_ghostty_renderer_realized_begin(void* surface) {
     cmux_test_renderer_realized_target = surface;
     cmux_test_renderer_realized_call_count = 0;
     cmux_test_renderer_realized_result = true;
+    cmux_test_renderer_rebuild_call_count = 0;
     cmux_test_renderer_occlusion_visible = true;
     cmux_test_renderer_release_was_occluded = false;
 }
@@ -43,6 +45,7 @@ void cmux_test_ghostty_renderer_realized_reset(void) {
     cmux_test_renderer_realized_target = NULL;
     cmux_test_renderer_realized_call_count = 0;
     cmux_test_renderer_realized_result = true;
+    cmux_test_renderer_rebuild_call_count = 0;
     cmux_test_renderer_occlusion_visible = true;
     cmux_test_renderer_release_was_occluded = false;
 }
@@ -64,6 +67,10 @@ bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index) {
 
 void cmux_test_ghostty_renderer_realized_set_result(bool result) {
     cmux_test_renderer_realized_result = result;
+}
+
+uint32_t cmux_test_ghostty_renderer_rebuild_call_count(void) {
+    return cmux_test_renderer_rebuild_call_count;
 }
 
 bool cmux_test_ghostty_renderer_release_was_occluded(void) {
@@ -199,6 +206,11 @@ bool ghostty_surface_set_renderer_realized(void *surface, bool realized) {
         cmux_test_renderer_realized_calls[cmux_test_renderer_realized_call_count] = realized;
         cmux_test_renderer_realized_call_count++;
     }
+    return cmux_test_renderer_realized_result;
+}
+bool ghostty_surface_rebuild_renderer(void *surface) {
+    if (surface != cmux_test_renderer_realized_target) return true;
+    cmux_test_renderer_rebuild_call_count++;
     return cmux_test_renderer_realized_result;
 }
 void ghostty_surface_set_size(void) {}
