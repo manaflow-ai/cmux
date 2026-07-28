@@ -447,6 +447,32 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(data == .object(["type": .string("markdown")]))
     }
 
+    @Test func paneCreateApplicationReturnsInvalidParams() throws {
+        let context = FakeSurfaceControlCommandContext()
+        context.paneCreateResolution = .applicationRejected(
+            typeRawValue: "application",
+            message: "Application surfaces are only supported by surface.create."
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "pane.create",
+            params: [
+                "direction": .string("right"),
+                "type": .string("application"),
+            ]
+        ))
+
+        guard case .err(let code, let message, let data) = result else {
+            Issue.record("expected invalid_params error")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(message == "Application surfaces are only supported by surface.create.")
+        #expect(data == .object(["type": .string("application")]))
+    }
+
     private func makeCoordinator() -> (ControlCommandCoordinator, FakeSurfaceControlCommandContext) {
         let context = FakeSurfaceControlCommandContext()
         return (ControlCommandCoordinator(context: context), context)

@@ -10,7 +10,7 @@ import Testing
 @MainActor
 @Suite("Application surfaces", .serialized)
 struct ApplicationSurfaceTests {
-    @Test func focusIntentWaitsForCaptureViewWindow() {
+    @Test func focusIntentWaitsForCaptureViewWindow() async {
         let runtime = FakeApplicationSurfaceRuntime()
         let panel = ApplicationPanel(
             workspaceId: UUID(),
@@ -49,8 +49,54 @@ struct ApplicationSurfaceTests {
         window.contentView = view
 
         #expect(window.firstResponder === view)
+        #expect(!view.isReleasingForwardedInput)
         panel.unfocus()
         #expect(window.firstResponder !== view)
+        #expect(view.isReleasingForwardedInput)
+        await view.waitUntilForwardedInputReleased()
+        #expect(!view.isReleasingForwardedInput)
+    }
+
+    @Test func captureRequiresBothPaneIntentAndVisibleHostWindow() {
+        #expect(ApplicationCaptureView.shouldCapture(
+            captureDesired: true,
+            hostWindowVisible: true
+        ))
+        #expect(!ApplicationCaptureView.shouldCapture(
+            captureDesired: true,
+            hostWindowVisible: false
+        ))
+        #expect(!ApplicationCaptureView.shouldCapture(
+            captureDesired: false,
+            hostWindowVisible: true
+        ))
+    }
+
+    @Test func captureLivenessDistinguishesFirstFrameAndStreamStalls() {
+        var state = ApplicationCaptureLivenessState(startedAt: 10)
+
+        #expect(state.failure(
+            at: 17.9,
+            firstFrameTimeout: 8,
+            frameStallTimeout: 5
+        ) == nil)
+        #expect(state.failure(
+            at: 18,
+            firstFrameTimeout: 8,
+            frameStallTimeout: 5
+        ) == .firstFrameTimedOut)
+
+        state.recordFrame(at: 20)
+        #expect(state.failure(
+            at: 24.9,
+            firstFrameTimeout: 8,
+            frameStallTimeout: 5
+        ) == nil)
+        #expect(state.failure(
+            at: 25,
+            firstFrameTimeout: 8,
+            frameStallTimeout: 5
+        ) == .frameStalled)
     }
 
     @Test func letterboxMarginsDoNotMapToNativeWindowEdges() {
