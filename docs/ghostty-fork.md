@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `2f6ee7b3d`, the current
+The submodule pinned by this branch is `982a723ff`, the current
 `manaflow-ai/ghostty` `main` head. It adds ordered-write backpressure recovery
 on top of the `os/open` stderr drain fix from `8f31fb57c`, the keyboard
 copy-mode selection, cursor geometry, bounded rich clipboard, and plain-text
@@ -25,6 +25,8 @@ landed on the fork's `main`.
 - Commits:
   - `99335171e` (test: retain queued writes through backpressure)
   - `2f6ee7b3d` (fix: preserve queued writes through backpressure)
+  - `d74e17608` (test: compile queued writes without WouldBlock)
+  - `982a723ff` (fix: accept backend-specific write errors)
 - Files:
   - `vendor/libxev/src/watcher/stream.zig`
   - `vendor/libxev/VENDORED.md`
@@ -38,10 +40,15 @@ landed on the fork's `main`.
   - Adds a deterministic fake-backend regression test with two queued writes.
     It injects `WouldBlock` into the head request and verifies that neither a
     client completion nor scheduling of the later request can occur.
+  - Instantiates the ordered-write path with a backend whose write error set
+    does not contain `WouldBlock`, preserving compilation and terminal-error
+    behavior for non-kqueue backends.
   - Conflict note: future ordered-stream changes must retain the head request
     across both short successful writes and transient `WouldBlock` results.
     Only a complete write or terminal error may pop it and schedule its
-    successor.
+    successor. Keep the error discriminator widened to `anyerror` so the
+    `WouldBlock` branch remains valid for backend-specific error sets that
+    cannot produce that error.
 
 ### `os/open` stderr drain spin and zombie leak
 
