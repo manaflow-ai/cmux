@@ -457,7 +457,7 @@ extension AppDelegate {
 
     func contextContainingTabId(_ tabId: UUID) -> MainWindowContext? {
         for context in mainWindowContexts.values {
-            if context.tabManager.tabs.contains(where: { $0.id == tabId }) {
+            if context.tabManager.workspacesById[tabId] != nil {
                 return context
             }
         }
@@ -493,10 +493,14 @@ extension AppDelegate {
         if let manager = contextContainingTabId(tabId)?.tabManager {
             return manager
         }
-        return recoverableMainWindowRoutes()
+        if let manager = recoverableMainWindowRoutes()
             .compactMap(\.tabManager)
-            .first { manager in
-                manager.tabs.contains(where: { $0.id == tabId })
-            }
+            .first(where: { $0.workspacesById[tabId] != nil }) {
+            return manager
+        }
+        guard let tabManager, tabManager.workspacesById[tabId] != nil else {
+            return nil
+        }
+        return tabManager
     }
 }
