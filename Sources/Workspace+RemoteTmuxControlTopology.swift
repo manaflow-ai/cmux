@@ -243,6 +243,30 @@ extension Workspace {
         return (projection.surfaceID, panel)
     }
 
+    /// Resolves notification identity without conflating a projected tmux pane
+    /// with the stable workspace panel that contains its window.
+    func notificationSurfaceTarget(
+        for surfaceOrPanelID: UUID
+    ) -> (surfaceID: UUID, containerPanelID: UUID, panel: any Panel)? {
+        if panels[surfaceOrPanelID] != nil {
+            if isRemoteTmuxControlContainer(surfaceOrPanelID) {
+                guard let target = terminalInputTarget(forPanelID: surfaceOrPanelID) else {
+                    return nil
+                }
+                return (target.surfaceID, surfaceOrPanelID, target.panel)
+            }
+            guard let panel = panels[surfaceOrPanelID],
+                  surfaceIdFromPanelId(surfaceOrPanelID) != nil else { return nil }
+            return (surfaceOrPanelID, surfaceOrPanelID, panel)
+        }
+        if let remote = remoteTmuxControlPane(surfaceID: surfaceOrPanelID) {
+            return (remote.pane.panel.id, remote.containerPanelID, remote.pane.panel)
+        }
+        guard let panelID = panelIdFromSurfaceId(TabID(uuid: surfaceOrPanelID)),
+              let panel = panels[panelID] else { return nil }
+        return (panelID, panelID, panel)
+    }
+
     private func liveRemoteTmuxContainerFallback(_ panelID: UUID) -> TerminalPanel? {
         guard isRemoteTmuxControlContainer(panelID),
               GhosttyApp.terminalSurfaceRegistry.surface(id: panelID) != nil else { return nil }

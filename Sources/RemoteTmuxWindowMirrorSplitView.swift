@@ -9,6 +9,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onOuterFocus: () -> Void
+    var unreadSurfaceIDs: Set<UUID> = []
     @Environment(\.displayScale) private var displayScale
     @State private var containerSize: CGSize = .zero
 
@@ -76,7 +77,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                     portalPriority: portalPriority,
                     isSplit: true,
                     appearance: appearance,
-                    hasUnreadNotification: false,
+                    hasUnreadNotification: unreadSurfaceIDs.contains(panel.id),
                     terminalAgentContext: "",
                     onFocus: {
                         onOuterFocus()

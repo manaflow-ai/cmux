@@ -94,6 +94,11 @@ struct RemoteTmuxNotificationLifecycleTests {
             harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID)
         )
         let panePanel = try #require(mirror.panel(forPane: 4))
+        #expect(harness.manager.focusedSurfaceId(for: harness.workspace.id) == panePanel.id)
+        #expect(AppDelegate.shared?.agentNotificationDeliveryTarget(
+            claimedTabId: harness.workspace.id,
+            surfaceId: containerPanelID
+        )?.surfaceId == panePanel.id)
         let routing = ControlRoutingSelectors(
             hasWindowIDParam: false,
             windowID: nil,

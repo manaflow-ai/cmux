@@ -20,14 +20,14 @@ extension AppDelegate {
         var panelId = panelId
         var scrollPosition = scrollPosition
         if let liveSurfaceId = panelId ?? surfaceId,
-           let owner = workspaceContainingPanel(panelId: liveSurfaceId, preferredWorkspaceId: tabId),
-           owner.workspace.id != tabId {
-            if retargetsToLiveSurfaceOwner {
-                tabId = owner.workspace.id
-            } else {
+           let owner = notificationSurfaceOwner(surfaceID: liveSurfaceId, preferredTabID: tabId) {
+            if owner.tabID != tabId, !retargetsToLiveSurfaceOwner {
                 surfaceId = nil
                 panelId = nil
                 scrollPosition = nil
+            } else {
+                tabId = owner.tabID
+                surfaceId = owner.surfaceID
             }
         }
 #if DEBUG
@@ -105,7 +105,7 @@ extension AppDelegate {
 
         context.sidebarSelectionState.selection = .tabs
         bringToFront(window)
-        let focusSurfaceId = panelId ?? surfaceId
+        let focusSurfaceId = surfaceId ?? panelId
         guard context.tabManager.focusTabFromNotification(tabId, surfaceId: focusSurfaceId) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
@@ -188,7 +188,7 @@ extension AppDelegate {
 
         sidebarSelectionState?.selection = .tabs
         bringToFront(window)
-        let focusSurfaceId = panelId ?? surfaceId
+        let focusSurfaceId = surfaceId ?? panelId
         guard tabManager.focusTabFromNotification(tabId, surfaceId: focusSurfaceId) else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {

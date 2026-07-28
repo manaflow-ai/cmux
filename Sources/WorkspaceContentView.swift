@@ -272,7 +272,17 @@ struct WorkspaceContentView: View {
                         isOuterFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
-                        onOuterFocus: { workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId) }
+                        onOuterFocus: { workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId) },
+                        unreadSurfaceIDs: Set(
+                            workspace.terminalPanels(projectedFromPanelID: panel.id).lazy
+                                .map(\.id)
+                                .filter {
+                                    notificationStore.hasVisibleNotificationIndicator(
+                                        forTabId: workspace.id,
+                                        surfaceId: $0
+                                    )
+                                }
+                        )
                     )
                     .onTapGesture {
                         workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)

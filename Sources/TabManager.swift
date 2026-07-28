@@ -597,7 +597,11 @@ class TabManager: ObservableObject {
                         focusHistoryNavigation.recordImplicitFocusInHistory(workspaceId: tabId, panelId: panelId)
                     }
                 }
-                dismissPanelNotificationOnFocus(tabId: tabId, panelId: panelId, explicitFocusIntent: explicitFocusIntent)
+                dismissPanelNotificationOnFocus(
+                    tabId: tabId,
+                    panelId: surfaceId,
+                    explicitFocusIntent: explicitFocusIntent
+                )
                 focusedSurfaceTitleDidChange(tabId: tabId)
             }
         })
@@ -3094,9 +3098,12 @@ class TabManager: ObservableObject {
         return true
     }
 
-    /// Backwards compatibility: returns the focused surface ID
+    /// Returns the exact focused surface, projecting a remote-tmux container
+    /// through its authoritative active pane.
     func focusedSurfaceId(for tabId: UUID) -> UUID? {
-        focusedPanelId(for: tabId)
+        guard let workspace = workspacesById[tabId],
+              let focusedPanelID = workspace.focusedPanelId else { return nil }
+        return workspace.notificationSurfaceTarget(for: focusedPanelID)?.surfaceID
     }
 
     func rememberFocusedSurface(tabId: UUID, surfaceId: UUID) {
@@ -3392,7 +3399,9 @@ class TabManager: ObservableObject {
         )
 
         if let surfaceId {
-            let focusPanelId = targetPanelId ?? surfaceId
+            let focusPanelId = tab.notificationSurfaceTarget(for: surfaceId)?.surfaceID
+                ?? targetPanelId
+                ?? surfaceId
             if !suppressFlash {
                 focusSurface(tabId: tabId, surfaceId: focusPanelId, focusTransactionId: focusTransactionId)
             } else {
@@ -3433,12 +3442,14 @@ class TabManager: ObservableObject {
         // state active around it.
         tab.clearSplitZoom()
         notificationDismissal.setSuppressesFocusFlash(true)
-        focusTab(tabId, surfaceId: desiredPanelId, suppressFlash: true)
+        focusTab(tabId, surfaceId: surfaceId ?? desiredPanelId, suppressFlash: true)
         notificationDismissal.setSuppressesFocusFlash(false)
 
-        if let targetPanelId = desiredPanelId ?? tab.focusedPanelId,
-           tab.panels[targetPanelId] != nil {
-            _ = dismissNotificationOnDirectInteraction(tabId: tabId, surfaceId: targetPanelId)
+        if let dismissalSurfaceID = surfaceId ?? desiredPanelId ?? tab.focusedPanelId {
+            _ = dismissNotificationOnDirectInteraction(
+                tabId: tabId,
+                surfaceId: dismissalSurfaceID
+            )
         }
         return true
     }
@@ -3446,16 +3457,13 @@ class TabManager: ObservableObject {
     func focusSurface(tabId: UUID, surfaceId: UUID, focusTransactionId: UUID? = nil) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.focusPanel(
-            panelId(forSurfaceOrPanelId: surfaceId, in: tab) ?? surfaceId,
+            tab.notificationSurfaceTarget(for: surfaceId)?.surfaceID ?? surfaceId,
             focusTransactionId: focusTransactionId
         )
     }
 
     func panelId(forSurfaceOrPanelId surfaceOrPanelId: UUID, in workspace: Workspace) -> UUID? {
-        if workspace.panels[surfaceOrPanelId] != nil {
-            return surfaceOrPanelId
-        }
-        return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceOrPanelId))
+        workspace.notificationSurfaceTarget(for: surfaceOrPanelId)?.containerPanelID
     }
 
     func selectNextTab() {
@@ -3769,7 +3777,8 @@ class TabManager: ObservableObject {
     }
 
     private func panelIdForFocusHistorySurface(_ surfaceId: UUID, workspaceId: UUID) -> UUID {
-        tabs.first(where: { $0.id == workspaceId })?.panelIdFromSurfaceId(TabID(uuid: surfaceId)) ?? surfaceId
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return surfaceId }
+        return panelId(forSurfaceOrPanelId: surfaceId, in: workspace) ?? surfaceId
     }
 
     var currentFocusHistoryEntry: FocusHistoryEntry? {
