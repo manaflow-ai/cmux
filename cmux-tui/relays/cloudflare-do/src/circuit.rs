@@ -29,6 +29,22 @@ const RELEASE_RETRY_MS: u64 = 5_000;
 const CLOSE_POLICY: u16 = 1008;
 const CLOSE_UNSUPPORTED: u16 = 1003;
 
+fn refresh_attachments_before_forward<E>(
+    now_ms: u64,
+    sender: &mut CircuitAttachment,
+    peer: &mut CircuitAttachment,
+    persist_sender: impl FnOnce(&CircuitAttachment) -> std::result::Result<(), E>,
+    persist_peer: impl FnOnce(&CircuitAttachment) -> std::result::Result<(), E>,
+    forward: impl FnOnce() -> std::result::Result<(), E>,
+) -> std::result::Result<(), E> {
+    let idle_deadline_ms = now_ms.saturating_add(CIRCUIT_IDLE_TIMEOUT_MS);
+    sender.idle_deadline_ms = idle_deadline_ms;
+    peer.idle_deadline_ms = idle_deadline_ms;
+    persist_sender(sender)?;
+    persist_peer(peer)?;
+    forward()
+}
+
 #[durable_object]
 pub struct RelayCircuit {
     state: State,
@@ -415,17 +431,23 @@ impl RelayCircuit {
             close(socket, 1011, "circuit attachment is incomplete");
             return Ok(());
         };
-        let Some((peer, _peer_attachment)) = self.matching_peer(socket, &relay, true) else {
+        let Some((peer, mut peer_attachment)) = self.matching_peer(socket, &relay, true) else {
             close(socket, 1011, "circuit peer disconnected");
             return Ok(());
         };
 
-        let idle_deadline_ms = self.now_ms().saturating_add(CIRCUIT_IDLE_TIMEOUT_MS);
-        attachment.idle_deadline_ms = idle_deadline_ms;
-        socket.serialize_attachment(&attachment)?;
-        if peer.send_with_bytes(bytes).is_err() {
+        let result = refresh_attachments_before_forward(
+            self.now_ms(),
+            &mut attachment,
+            &mut peer_attachment,
+            |attachment| socket.serialize_attachment(attachment),
+            |attachment| peer.serialize_attachment(attachment),
+            || peer.send_with_bytes(bytes),
+        );
+        if let Err(error) = result {
             close(socket, 1011, "circuit peer unavailable");
             close(&peer, 1011, "circuit forwarding failed");
+            return Err(error);
         }
         Ok(())
     }
@@ -611,6 +633,8 @@ impl DurableObject for RelayCircuit {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::{Cell, RefCell};
+
     use super::*;
 
     #[test]
@@ -629,5 +653,90 @@ mod tests {
         assert!(decoded.releasing);
         assert_eq!(decoded.renew_at_ms, 500);
         assert_eq!(decoded.lease_expires_ms, 1_000);
+    }
+
+    #[test]
+    fn forwarded_activity_persists_both_deadlines_before_payload() {
+        let mut sender = CircuitAttachment::pending(CircuitId("sender".into()), 1);
+        let mut peer = CircuitAttachment::pending(CircuitId("peer".into()), 2);
+        let operations = RefCell::new(Vec::new());
+
+        refresh_attachments_before_forward(
+            10_000,
+            &mut sender,
+            &mut peer,
+            |_| {
+                operations.borrow_mut().push("sender");
+                Ok::<_, &'static str>(())
+            },
+            |_| {
+                operations.borrow_mut().push("peer");
+                Ok(())
+            },
+            || {
+                operations.borrow_mut().push("forward");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        let expected = 10_000 + CIRCUIT_IDLE_TIMEOUT_MS;
+        assert_eq!(sender.idle_deadline_ms, expected);
+        assert_eq!(peer.idle_deadline_ms, expected);
+        assert_eq!(&*operations.borrow(), &["sender", "peer", "forward"]);
+    }
+
+    #[test]
+    fn sender_attachment_failure_prevents_peer_write_and_payload() {
+        let mut sender = CircuitAttachment::pending(CircuitId("sender".into()), 1);
+        let mut peer = CircuitAttachment::pending(CircuitId("peer".into()), 2);
+        let peer_written = Cell::new(false);
+        let forwarded = Cell::new(false);
+
+        let result = refresh_attachments_before_forward(
+            10_000,
+            &mut sender,
+            &mut peer,
+            |_| Err("sender serialization failed"),
+            |_| {
+                peer_written.set(true);
+                Ok(())
+            },
+            || {
+                forwarded.set(true);
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("sender serialization failed"));
+        assert!(!peer_written.get());
+        assert!(!forwarded.get());
+    }
+
+    #[test]
+    fn peer_attachment_failure_prevents_payload() {
+        let mut sender = CircuitAttachment::pending(CircuitId("sender".into()), 1);
+        let mut peer = CircuitAttachment::pending(CircuitId("peer".into()), 2);
+        let sender_written = Cell::new(false);
+        let forwarded = Cell::new(false);
+
+        let result = refresh_attachments_before_forward(
+            10_000,
+            &mut sender,
+            &mut peer,
+            |_| {
+                sender_written.set(true);
+                Ok(())
+            },
+            |_| Err("peer serialization failed"),
+            || {
+                forwarded.set(true);
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("peer serialization failed"));
+        assert!(sender_written.get());
+        assert!(!forwarded.get());
     }
 }

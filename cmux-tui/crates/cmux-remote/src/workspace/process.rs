@@ -22,7 +22,6 @@ use sha2::{Digest, Sha256};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::ChildStdin;
-#[cfg(unix)]
 use tokio::sync::oneshot;
 use tokio::sync::{Mutex, Notify, RwLock, Semaphore, broadcast, watch};
 use tokio::task::JoinSet;
@@ -668,6 +667,39 @@ impl ProcessTarget {
     }
 }
 
+struct ProcessCompletion {
+    finished: AtomicBool,
+    notify: Notify,
+}
+
+impl ProcessCompletion {
+    fn new() -> Self {
+        Self { finished: AtomicBool::new(false), notify: Notify::new() }
+    }
+
+    fn is_finished(&self) -> bool {
+        self.finished.load(Ordering::Acquire)
+    }
+
+    fn mark_finished(&self) {
+        if !self.finished.swap(true, Ordering::AcqRel) {
+            self.notify.notify_waiters();
+        }
+    }
+
+    async fn wait(&self) {
+        loop {
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            let _ = notified.as_mut().enable();
+            if self.is_finished() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
 struct ProcessRecord {
     id: ProcessId,
     owner: ClientScope,
@@ -688,8 +720,9 @@ struct ProcessRecord {
     /// Set immediately after the direct child is reaped. PID and process-group
     /// IDs may be reused after this point, even while output is still draining.
     target: Arc<ProcessTarget>,
-    /// Set after bounded output drain and exit-event publication complete.
-    finished: Arc<AtomicBool>,
+    /// Signaled after bounded output drain, exit publication, and the catalog
+    /// transition to completed state all finish.
+    completion: Arc<ProcessCompletion>,
 }
 
 struct ProcessReservation {
@@ -738,9 +771,7 @@ impl ProcessStore {
         let finished = self
             .active
             .iter()
-            .filter_map(|(process, record)| {
-                record.finished.load(Ordering::Acquire).then_some(*process)
-            })
+            .filter_map(|(process, record)| record.completion.is_finished().then_some(*process))
             .collect::<Vec<_>>();
         for process in finished {
             self.complete(process);
@@ -869,7 +900,7 @@ impl std::fmt::Debug for ProcessRecord {
             .field("command_label", &self.catalog.command_label)
             .field("lifetime", &self.lifetime)
             .field("pid", &self.pid)
-            .field("finished", &self.finished.load(Ordering::Acquire))
+            .field("finished", &self.completion.is_finished())
             .finish_non_exhaustive()
     }
 }
@@ -1192,7 +1223,7 @@ impl ProcessManager {
             events: events.clone(),
             exit: exit_rx,
             target: Arc::new(ProcessTarget::new()),
-            finished: Arc::new(AtomicBool::new(false)),
+            completion: Arc::new(ProcessCompletion::new()),
         });
         #[cfg(unix)]
         pending.update_target(pid, record.target.clone());
@@ -1226,9 +1257,9 @@ impl ProcessManager {
                 status.map(exit_outcome).unwrap_or(ExitOutcome { code: None, signal: None });
             waiter_record.input.lock().await.writer = InputWriter::None;
             events.publish_exit(id, outcome);
-            waiter_record.finished.store(true, Ordering::Release);
             processes.write().await.complete(id);
             let _ = exit_tx.send(Some(outcome));
+            waiter_record.completion.mark_finished();
         });
         schedule_process_timeout(record, timeout_ms);
         pending.disarm();
@@ -1347,7 +1378,7 @@ impl ProcessManager {
             events: events.clone(),
             exit: exit_rx,
             target: Arc::new(ProcessTarget::new()),
-            finished: Arc::new(AtomicBool::new(false)),
+            completion: Arc::new(ProcessCompletion::new()),
         });
         #[cfg(unix)]
         pending.update_target(record_pid, record.target.clone());
@@ -1382,6 +1413,7 @@ impl ProcessManager {
                 target.mark_exited();
                 let _ = status_tx.send(outcome);
             });
+            self.processes.write().await.insert_active(id, record.clone());
             let waiter_record = record.clone();
             let processes = self.processes.clone();
             tokio::spawn(async move {
@@ -1403,9 +1435,9 @@ impl ProcessManager {
                 waiter_record.input.lock().await.writer = InputWriter::None;
                 close_record_master(&waiter_record);
                 events.publish_exit(id, outcome);
-                waiter_record.finished.store(true, Ordering::Release);
                 processes.write().await.complete(id);
                 let _ = exit_tx.send(Some(outcome));
+                waiter_record.completion.mark_finished();
             });
         }
         #[cfg(not(unix))]
@@ -1423,32 +1455,34 @@ impl ProcessManager {
                     }
                 })
                 .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
-            let waiter_record = record.clone();
+            let (status_tx, status_rx) = oneshot::channel();
+            let thread_record = record.clone();
             std::thread::Builder::new()
                 .name(format!("cmux-remote-pty-wait-{id}"))
                 .spawn(move || {
                     let _pty_slot = pty_slot;
                     let mut child = pending_child.take();
                     let status = child.wait();
-                    waiter_record.target.mark_exited();
+                    thread_record.target.mark_exited();
                     let _ = reader_thread.join();
                     let outcome = status
                         .map(portable_pty_exit_outcome)
                         .unwrap_or(ExitOutcome { code: None, signal: None });
-                    waiter_record.input.blocking_lock().writer = InputWriter::None;
-                    close_record_master(&waiter_record);
+                    thread_record.input.blocking_lock().writer = InputWriter::None;
+                    close_record_master(&thread_record);
                     events.publish_exit(id, outcome);
-                    let _ = exit_tx.send(Some(outcome));
-                    waiter_record.finished.store(true, Ordering::Release);
+                    let _ = status_tx.send(outcome);
                 })
                 .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
-        }
-        {
-            let mut processes = self.processes.write().await;
-            processes.insert_active(id, record.clone());
-            if record.finished.load(Ordering::Acquire) {
-                processes.complete(id);
-            }
+            self.processes.write().await.insert_active(id, record.clone());
+            let waiter_record = record.clone();
+            let processes = self.processes.clone();
+            tokio::spawn(async move {
+                let outcome = status_rx.await.unwrap_or(ExitOutcome { code: None, signal: None });
+                processes.write().await.complete(id);
+                let _ = exit_tx.send(Some(outcome));
+                waiter_record.completion.mark_finished();
+            });
         }
         schedule_process_timeout(record, timeout_ms);
         pending.disarm();
@@ -1587,7 +1621,7 @@ impl ProcessManager {
                 };
                 input = record.input.lock().await;
                 let (writer, result) = write;
-                if !eof && !record.finished.load(Ordering::Acquire) {
+                if !eof && !record.completion.is_finished() {
                     input.writer = InputWriter::Pty(writer);
                 }
                 result.map_err(|error| RpcError::new("process-write-failed", error.to_string()))?;
@@ -1662,7 +1696,7 @@ impl ProcessManager {
         after_sequence: u64,
     ) -> Result<ProcessSubscription, RpcError> {
         let record = self.get(process).await?;
-        record.events.subscribe(after_sequence, record.finished.load(Ordering::Acquire))
+        record.events.subscribe(after_sequence, record.completion.is_finished())
     }
 
     pub(crate) async fn subscribe_or_reserve(
@@ -1726,7 +1760,7 @@ impl ProcessManager {
         limit: u32,
     ) -> Result<WorkspaceResponse, RpcError> {
         let record = self.get(process).await?;
-        record.events.read(process, after_sequence, limit, record.finished.load(Ordering::Acquire))
+        record.events.read(process, after_sequence, limit, record.completion.is_finished())
     }
 
     pub(crate) async fn list(&self) -> WorkspaceResponse {
@@ -1750,8 +1784,7 @@ impl ProcessManager {
 
     pub(crate) async fn finish_operation(&self, process: ProcessId) -> Result<(), RpcError> {
         let record = self.get(process).await?;
-        if record.lifetime == ProcessLifetime::Operation && !record.finished.load(Ordering::Acquire)
-        {
+        if record.lifetime == ProcessLifetime::Operation && !record.completion.is_finished() {
             terminate_with_escalation(record)?;
         }
         Ok(())
@@ -1772,7 +1805,7 @@ impl ProcessManager {
                 record.lifetime == ProcessLifetime::Operation
                     && &record.owner == owner
                     && record.operation.as_ref() == Some(&operation)
-                    && !record.finished.load(Ordering::Acquire)
+                    && !record.completion.is_finished()
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -1795,7 +1828,7 @@ impl ProcessManager {
                 &record.workspace == workspace
                     && &record.owner == owner
                     && record.lifetime != ProcessLifetime::Detached
-                    && !record.finished.load(Ordering::Acquire)
+                    && !record.completion.is_finished()
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -1815,7 +1848,7 @@ impl ProcessManager {
             .filter(|record| {
                 &record.owner == owner
                     && record.lifetime != ProcessLifetime::Detached
-                    && !record.finished.load(Ordering::Acquire)
+                    && !record.completion.is_finished()
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -1832,7 +1865,7 @@ impl ProcessManager {
             .await
             .active
             .values()
-            .filter(|record| !record.finished.load(Ordering::Acquire))
+            .filter(|record| !record.completion.is_finished())
             .cloned()
             .collect::<Vec<_>>();
         for record in &records {
@@ -1842,7 +1875,7 @@ impl ProcessManager {
             return;
         }
         for record in &records {
-            if !record.finished.load(Ordering::Acquire) {
+            if !record.completion.is_finished() {
                 let _ = signal_record(record, ProcessSignal::Kill);
             }
         }
@@ -1950,11 +1983,18 @@ impl ProcessManager {
 }
 
 async fn wait_for_processes(records: &[Arc<ProcessRecord>], timeout: std::time::Duration) -> bool {
-    tokio::time::timeout(timeout, async {
-        while records.iter().any(|record| !record.finished.load(Ordering::Acquire)) {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
+    let completions = records.iter().map(|record| record.completion.clone()).collect::<Vec<_>>();
+    wait_for_process_completions(&completions, timeout).await
+}
+
+async fn wait_for_process_completions(
+    completions: &[Arc<ProcessCompletion>],
+    timeout: std::time::Duration,
+) -> bool {
+    tokio::time::timeout(
+        timeout,
+        futures_util::future::join_all(completions.iter().map(|completion| completion.wait())),
+    )
     .await
     .is_ok()
 }
@@ -2373,7 +2413,7 @@ fn schedule_process_timeout(record: Arc<ProcessRecord>, timeout_ms: Option<u64>)
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms)) => {
                 if let Some(record) = record.upgrade()
-                    && !record.finished.load(Ordering::Acquire)
+                    && !record.completion.is_finished()
                 {
                     let _ = terminate_with_escalation(record);
                 }
@@ -2387,7 +2427,7 @@ fn terminate_with_escalation(record: Arc<ProcessRecord>) -> Result<(), RpcError>
     signal_record(&record, ProcessSignal::Terminate)?;
     tokio::spawn(async move {
         tokio::time::sleep(TERMINATION_GRACE).await;
-        if !record.finished.load(Ordering::Acquire) {
+        if !record.completion.is_finished() {
             let _ = signal_record(&record, ProcessSignal::Kill);
         }
     });
@@ -2432,7 +2472,7 @@ fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), Rp
         Ok(())
     } else {
         let error = std::io::Error::last_os_error();
-        if error.raw_os_error() == Some(libc::ESRCH) && record.finished.load(Ordering::Acquire) {
+        if error.raw_os_error() == Some(libc::ESRCH) && record.completion.is_finished() {
             Ok(())
         } else {
             Err(RpcError::new("process-signal-failed", error.to_string()))
@@ -2506,6 +2546,41 @@ mod tests {
         ) -> Poll<std::io::Result<()>> {
             Poll::Ready(Err(std::io::Error::other("synthetic read failure")))
         }
+    }
+
+    #[tokio::test]
+    async fn process_completion_wait_handles_notification_before_registration() {
+        let completion = Arc::new(ProcessCompletion::new());
+        completion.mark_finished();
+
+        assert!(
+            wait_for_process_completions(&[completion], std::time::Duration::from_millis(50)).await
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn process_completion_wakes_without_advancing_a_polling_clock() {
+        let completion = Arc::new(ProcessCompletion::new());
+        let waiting = completion.clone();
+        let waiter = tokio::spawn(async move {
+            wait_for_process_completions(&[waiting], std::time::Duration::from_secs(1)).await
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+
+        completion.mark_finished();
+        tokio::task::yield_now().await;
+
+        assert!(waiter.is_finished(), "completion still depended on a polling timer");
+        assert!(waiter.await.unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn process_completion_wait_preserves_timeout() {
+        let completion = Arc::new(ProcessCompletion::new());
+        assert!(
+            !wait_for_process_completions(&[completion], std::time::Duration::from_secs(1)).await
+        );
     }
 
     async fn root() -> (tempfile::TempDir, Arc<WorkspaceRoot>) {
