@@ -3,6 +3,7 @@ import CmuxCommandPalette
 import CmuxControlSocket
 import CmuxSettings
 import CmuxUpdater
+import CmuxWorkspaces
 import Darwin
 import Dispatch
 import Foundation
@@ -1102,6 +1103,71 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         )
     }
 
+    @Test
+    func configuredWorkspaceActionUsesDirectoryInheritedByBrowserCatalog() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-palette-browser-catalog-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let project = root.appendingPathComponent("project", isDirectory: true)
+        let configURL = project.appendingPathComponent(".cmux/cmux.json")
+        try FileManager.default.createDirectory(
+            at: configURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        {
+          "actions": {
+            "project-workspace": {
+              "type": "workspace",
+              "title": "Project Workspace",
+              "workspace": {
+                "name": "Project Workspace",
+                "cwd": "."
+              }
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("global.json").path,
+            localConfigPath: configURL.path
+        )
+        store.loadAll()
+        let catalog = store.currentActionCatalog()
+        let fixture = try makeFixture(
+            targetWorkingDirectory: project.path,
+            targetInitialSurface: .browser
+        )
+        defer { fixture.cleanup() }
+
+        #expect(fixture.targetWorkspace.panels[fixture.targetPanelID] is BrowserPanel)
+        #expect(
+            fixture.targetWorkspace.configurationTrackingDirectory(
+                panelID: fixture.targetPanelID
+            ) == project.path
+        )
+        #expect(
+            fixture.targetWorkspace.resolvedWorkingDirectory(
+                panelID: fixture.targetPanelID
+            ) == nil
+        )
+
+        #expect(fixture.contentView.executeConfiguredPaletteAction(
+            id: "project-workspace",
+            context: fixture.context,
+            configCatalog: catalog,
+            focus: false,
+            invocationSource: .automation
+        ) == .completed)
+        let createdWorkspace = try #require(
+            fixture.tabManager.tabs.first { $0.customTitle == "Project Workspace" }
+        )
+        #expect(createdWorkspace.currentDirectory == project.path)
+    }
+
     @Test func proHandlersReportInjectedPresentationFailure() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
@@ -1496,12 +1562,17 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         Issue.record("Timed out waiting for the expected async state")
     }
 
-    private func makeFixture() throws -> CommandPaletteTypedViewAndIdentifierFixture {
+    private func makeFixture(
+        targetWorkingDirectory: String? = nil,
+        targetInitialSurface: NewWorkspaceInitialSurface = .terminal
+    ) throws -> CommandPaletteTypedViewAndIdentifierFixture {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let selectedWorkspace = try #require(tabManager.tabs.first)
         let targetWorkspace = tabManager.addWorkspace(
+            workingDirectory: targetWorkingDirectory,
+            initialSurface: targetInitialSurface,
             select: false,
             autoWelcomeIfNeeded: false
         )

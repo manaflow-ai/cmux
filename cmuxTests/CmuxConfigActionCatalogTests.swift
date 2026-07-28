@@ -129,6 +129,94 @@ struct CmuxConfigActionCatalogTests {
         ))
     }
 
+    @Test
+    func actionCatalogReadIssuesAreLocalizedAndDistinguishUnreadableFiles() async throws {
+        func localizedValue(
+            key: String,
+            localization: String
+        ) throws -> String {
+            let localizationURL = try #require(Bundle.main.url(
+                forResource: localization,
+                withExtension: "lproj"
+            ))
+            let localizationBundle = try #require(Bundle(url: localizationURL))
+            return localizationBundle.localizedString(
+                forKey: key,
+                value: nil,
+                table: nil
+            )
+        }
+
+        #expect(try localizedValue(
+            key: "config.actionCatalog.error.unreadable",
+            localization: "en"
+        ) == "cmux.json could not be read")
+        #expect(try localizedValue(
+            key: "config.actionCatalog.error.unreadable",
+            localization: "ja"
+        ) == "cmux.json を読み込めませんでした")
+        #expect(try localizedValue(
+            key: "config.actionCatalog.error.empty",
+            localization: "en"
+        ) == "cmux.json is empty")
+        #expect(try localizedValue(
+            key: "config.actionCatalog.error.empty",
+            localization: "ja"
+        ) == "cmux.json は空です")
+        #expect(try localizedValue(
+            key: "config.actionCatalog.error.jsoncPreprocessing",
+            localization: "en"
+        ) == "JSONC preprocessing failed: %@")
+        #expect(try localizedValue(
+            key: "config.actionCatalog.error.jsoncPreprocessing",
+            localization: "ja"
+        ) == "JSONC の前処理に失敗しました: %@")
+
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let globalURL = root.appendingPathComponent("global.json")
+        let maximumBytes = CmuxConfigActionCatalogProcessReader.defaultMaximumConfigBytes
+
+        func issue(
+            status: CmuxConfigActionCatalogRawFileStatus,
+            data: Data = Data()
+        ) async throws -> CmuxConfigIssue? {
+            let frameURL = root.appendingPathComponent("\(UUID().uuidString).frame")
+            let frame = try #require(codec.encode(
+                .init(
+                    localPath: nil,
+                    local: nil,
+                    global: .init(status: status, data: data)
+                ),
+                maximumConfigBytes: maximumBytes
+            ))
+            try frame.write(to: frameURL)
+            let reader = CmuxConfigActionCatalogProcessReader { _ in
+                .init(
+                    executablePath: "/bin/cat",
+                    arguments: ["/bin/cat", frameURL.path],
+                    environment: ["PATH": "/usr/bin:/bin"]
+                )
+            }
+            let source = try #require(await CmuxConfigStore.loadActionCatalogSource(
+                startingFrom: nil,
+                globalConfigPath: globalURL.path,
+                workspaceColorPalette: [:],
+                rawReader: reader
+            ))
+            return source.global.issue
+        }
+
+        #expect(try await issue(status: .unreadable)?.message
+            == "cmux.json could not be read")
+        #expect(try await issue(status: .data)?.message
+            == "cmux.json is empty")
+        #expect(try await issue(
+            status: .data,
+            data: Data("/*".utf8)
+        )?.message == "JSONC preprocessing failed: unterminated block comment")
+    }
+
     @Test(.timeLimit(.minutes(1))) @MainActor
     func perDirectoryCatalogsStayImmutableAndRevalidateSharedInputs() async throws {
         let root = try temporaryDirectory()

@@ -1422,7 +1422,7 @@ struct TerminalPanelPendingAttachmentTests {
     }
 
     @Test
-    func workspaceRemoteWithoutCapturedControllerFailsClosedBeforePreparation() async {
+    func workspaceRemoteWithoutCapturedControllerReturnsFailureBeforePreparation() async {
         let panel = TerminalPanel(workspaceId: UUID())
         let callRecorder = TextBoxAttachmentPreparationCallRecorder()
         let budget = TextBoxAttachmentPreparationBudget(limits: .init(
@@ -1448,7 +1448,7 @@ struct TerminalPanelPendingAttachmentTests {
             target: .remote(.workspaceRemote),
             budget: budget,
             completion: { completionValues.append($0) }
-        ) == .queued)
+        ) == .insertionFailed)
 
         #expect(completionValues == [false])
         #expect(await callRecorder.callCount == 0)
