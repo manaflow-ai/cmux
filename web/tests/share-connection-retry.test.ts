@@ -881,6 +881,47 @@ describe("ShareClient terminal-only session behavior", () => {
     expect(actual).toEqual(expected);
   });
 
+  test("coalesces rapid xterm callbacks into one ordered PTY byte frame", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot("editor"));
+    socket.receive({ t: "ack-request", nonce: "editor-snapshot" });
+    const binaryBefore = socket.sent.filter(
+      (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+    ).length;
+    const fragments = ["e", "c", "h", "o", " ", "λ", "\r"];
+
+    for (const fragment of fragments) {
+      expect(
+        client.sendTerminalData(
+          "workspace:1",
+          "surface:terminal",
+          fragment,
+        ),
+      ).toBe(true);
+    }
+
+    expect(
+      socket.sent.filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      ),
+    ).toHaveLength(binaryBefore);
+    expect(scheduledTimers.size).toBe(1);
+
+    await runOnlyTimer();
+
+    const frames = socket.sent
+      .filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      )
+      .slice(binaryBefore)
+      .map((message) => decodeTerminalFrame(new Uint8Array(message)));
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.kind).toBe(TERMINAL_KIND_INPUT);
+    expect(frames[0]?.payload).toEqual(
+      new TextEncoder().encode(fragments.join("")),
+    );
+  });
+
   test("drops a queued xterm paste immediately on role downgrade", async () => {
     let now = 20_000;
     Date.now = () => now;

@@ -92,6 +92,11 @@ struct WorkspaceShareHostPresentationTests {
                 )
             }
         )
+        let session = URLSession(configuration: .ephemeral)
+        let task = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/connect"))
+        )
+        await socket.installWebSocketTaskForTesting(task, connection: 1)
         controller.installActiveSocketForTesting(socket, connection: 1)
         let presenter = ShareChatWindowController(
             controller: controller,
@@ -102,6 +107,7 @@ struct WorkspaceShareHostPresentationTests {
         defer {
             presenter.close()
             owner.orderOut(nil)
+            session.invalidateAndCancel()
         }
 
         await controller.handleServerTextForTesting(
@@ -132,6 +138,92 @@ struct WorkspaceShareHostPresentationTests {
             )
         )
 
+        await socket.stop()
+    }
+
+    @Test("A pending disconnect removes its actionable approval row")
+    func pendingDisconnectRemovesApprovalRow() async throws {
+        let controller = ShareSessionController { nil }
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/connect"))
+        )
+        await socket.installWebSocketTaskForTesting(task, connection: 1)
+        controller.installActiveSocketForTesting(socket, connection: 1)
+
+        await controller.handleServerTextForTesting(
+            #"{"t":"access-request","user":"guest-1","email":"guest@example.com"}"#,
+            connection: 1,
+            sequence: 0
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"ack-request","nonce":"request-accepted"}"#,
+            connection: 1,
+            sequence: 1
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"access-request-cancelled","user":"guest-1"}"#,
+            connection: 1,
+            sequence: 2
+        )
+
+        #expect(!controller.feed.contains(\.isPendingAccessRequest))
+        await socket.stop()
+    }
+
+    @Test("An authoritative snapshot drops locally stale approval rows")
+    func authoritativeSnapshotDropsStaleApprovalRows() async throws {
+        let controller = ShareSessionController { nil }
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/connect"))
+        )
+        await socket.installWebSocketTaskForTesting(task, connection: 1)
+        controller.installActiveSocketForTesting(socket, connection: 1)
+
+        await controller.handleServerTextForTesting(
+            #"{"t":"access-request","user":"guest-1","email":"guest@example.com"}"#,
+            connection: 1,
+            sequence: 0
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"ack-request","nonce":"request-accepted"}"#,
+            connection: 1,
+            sequence: 1
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"session-state","proto":2,"shared":[],"layouts":[],"participants":[{"user":"host","email":"host@example.com","role":"editor","color":0,"focusWs":null,"connected":true,"isHost":true}],"chat":[],"you":{"user":"host","role":"editor","color":0,"isHost":true}}"#,
+            connection: 1,
+            sequence: 2
+        )
+
+        #expect(!controller.feed.contains(\.isPendingAccessRequest))
         await socket.stop()
     }
 
@@ -364,6 +456,36 @@ struct WorkspaceShareHostPresentationTests {
             await Task.yield()
         }
         #expect(controller.status == .idle)
+    }
+
+    @Test("Reconnect accepts a compatible token from a newer relay deployment")
+    func reconnectAcceptsCompatibleNewDeployment() throws {
+        let created = ShareSessionCreateResult(
+            code: "share-code",
+            token: "initial-token",
+            expiresAt: 1,
+            wsUrl: "wss://relay.example/initial",
+            shareUrl: "https://cmux.example/share/share-code",
+            protocolVersion: 2,
+            terminalTransportVersion: 1,
+            deploymentId: "deployment-a"
+        )
+        let refreshed = ShareTokenResult(
+            token: "refreshed-token",
+            expiresAt: 2,
+            wsUrl: "wss://relay.example/refreshed",
+            protocolVersion: 2,
+            terminalTransportVersion: 1,
+            deploymentId: "deployment-b"
+        )
+
+        let endpoint = try ShareSessionController.reconnectEndpoint(
+            created: created,
+            refreshed: refreshed
+        )
+
+        #expect(endpoint.wsUrl == refreshed.wsUrl)
+        #expect(endpoint.token == refreshed.token)
     }
 
     @Test("A rejected host chat send retains its draft")

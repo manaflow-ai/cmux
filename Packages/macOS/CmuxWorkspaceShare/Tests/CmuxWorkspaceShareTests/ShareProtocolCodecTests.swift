@@ -44,6 +44,23 @@ struct ShareProtocolCodecTests {
     }
 
     @Test
+    func `Pending access cancellation decodes with its authenticated user`() throws {
+        let message = Data(
+            #"{"t":"access-request-cancelled","user":"u1"}"#.utf8
+        )
+
+        #expect(
+            try JSONDecoder().decode(ShareServerMessage.self, from: message)
+                == .accessRequestCancelled(user: "u1")
+        )
+        #expect(
+            WorkspaceShareInboundMessageValidator().acceptsPayload(
+                .accessRequestCancelled(user: "u1")
+            )
+        )
+    }
+
+    @Test
     func `Guest terminal resync decodes and validates its authenticated route`() throws {
         let validator = WorkspaceShareInboundMessageValidator()
         let valid = try JSONDecoder().decode(

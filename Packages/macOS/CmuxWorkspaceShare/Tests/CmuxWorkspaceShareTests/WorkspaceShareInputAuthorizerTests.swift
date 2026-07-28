@@ -11,23 +11,9 @@ struct WorkspaceShareInputAuthorizerTests {
     private let stalePaneID = UUID(uuidString: "A8319FD0-0881-45E9-AB76-02D34D4BD1DE")!
 
     @Test
-    func `Editor input reaches a current terminal pane in a shared workspace`() {
+    func `Relay-authorized input reaches a current shared terminal before presence catches up`() {
         #expect(
-            authorizer.allowsTerminalInput(
-                from: .editor,
-                workspaceID: sharedWorkspaceID,
-                paneID: currentTerminalPaneID,
-                sharedWorkspaceIDs: [sharedWorkspaceID],
-                currentTerminalPaneIDs: [currentTerminalPaneID]
-            )
-        )
-    }
-
-    @Test
-    func `Viewer input is denied`() {
-        #expect(
-            !authorizer.allowsTerminalInput(
-                from: .viewer,
+            authorizer.allowsForwardedTerminalInput(
                 workspaceID: sharedWorkspaceID,
                 paneID: currentTerminalPaneID,
                 sharedWorkspaceIDs: [sharedWorkspaceID],
@@ -39,8 +25,7 @@ struct WorkspaceShareInputAuthorizerTests {
     @Test
     func `Input to an unshared workspace is denied`() {
         #expect(
-            !authorizer.allowsTerminalInput(
-                from: .editor,
+            !authorizer.allowsForwardedTerminalInput(
                 workspaceID: unsharedWorkspaceID,
                 paneID: currentTerminalPaneID,
                 sharedWorkspaceIDs: [sharedWorkspaceID],
@@ -52,8 +37,7 @@ struct WorkspaceShareInputAuthorizerTests {
     @Test
     func `Input to a stale or nonterminal pane is denied`() {
         #expect(
-            !authorizer.allowsTerminalInput(
-                from: .editor,
+            !authorizer.allowsForwardedTerminalInput(
                 workspaceID: sharedWorkspaceID,
                 paneID: stalePaneID,
                 sharedWorkspaceIDs: [sharedWorkspaceID],

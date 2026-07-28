@@ -224,6 +224,36 @@ describe("join and approval flow", () => {
     ]);
   });
 
+  it("pending disconnect removes the host's actionable access request", () => {
+    const core = bootedCore();
+    core.connect("c-alice", ALICE, T0);
+
+    const effects = core.disconnect("c-alice", T0 + 1);
+
+    expect(sends(effects, "c-host")).toContainEqual({
+      t: "access-request-cancelled",
+      user: ALICE.user,
+    });
+  });
+
+  it("keeps a user's access request while another pending socket remains", () => {
+    const core = bootedCore();
+    core.connect("c-alice-1", ALICE, T0);
+    core.connect("c-alice-2", ALICE, T0 + 1);
+
+    const firstDisconnect = core.disconnect("c-alice-1", T0 + 2);
+    expect(sends(firstDisconnect, "c-host")).not.toContainEqual({
+      t: "access-request-cancelled",
+      user: ALICE.user,
+    });
+
+    const finalDisconnect = core.disconnect("c-alice-2", T0 + 3);
+    expect(sends(finalDisconnect, "c-host")).toContainEqual({
+      t: "access-request-cancelled",
+      user: ALICE.user,
+    });
+  });
+
   it("approve activates the pending connection with a snapshot and color", () => {
     const core = bootedCore();
     core.connect("c-alice", ALICE, T0);
