@@ -228,7 +228,10 @@ extension TextBoxInputTextView {
             reservation -> TextBoxPendingPasteEditRestoration? in
             guard let markerRange = pendingAttachmentUploadPlaceholderRange(
                 id: id
-            ), NSIntersectionRange(markerRange, affectedRange).length > 0 else {
+            ), Self.pasteReservationRangesIntersect(
+                affectedRange,
+                markerRange
+            ) else {
                 return nil
             }
             return TextBoxPendingPasteEditRestoration(

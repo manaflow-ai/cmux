@@ -20,14 +20,23 @@ extension TerminalPasteboardService: TerminalClipboardReading {
         let hasImagePayload = hasImageData(in: pasteboard)
         let hasRTFDAttachmentPayload = types.contains(.rtfd)
         let plainText = plainTextContents(from: pasteboard)
-        if hasImagePayload,
-           let html = pasteboard.string(forType: .html) {
-            let htmlOutcome = HTMLPlainTextParser().outcome(from: html)
-            if htmlOutcome.confirmsNoVisibleText {
-                return nil
+        if hasImagePayload {
+            let parser = HTMLPlainTextParser()
+            let htmlOutcome: HTMLPlainTextParseOutcome?
+            if let html = pasteboard.string(forType: .html) {
+                htmlOutcome = parser.outcome(from: html)
+            } else if let htmlData = pasteboard.data(forType: .html) {
+                htmlOutcome = parser.outcome(from: htmlData)
+            } else {
+                htmlOutcome = nil
             }
-            if htmlOutcome == .rejected {
-                return plainText
+            if let htmlOutcome {
+                if htmlOutcome.confirmsNoVisibleText {
+                    return nil
+                }
+                if htmlOutcome == .rejected {
+                    return plainText
+                }
             }
         }
 

@@ -131,7 +131,8 @@ extension TextBoxInputContainer {
     }
 
     private func publishComposerContent(from textView: TextBoxInputTextView) {
-        attachments = textView.inlineAttachments()
-        text = textView.plainText()
+        let content = textView.bindingContentForPreservation()
+        attachments = content.attachments
+        text = content.text
     }
 }
