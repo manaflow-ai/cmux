@@ -1825,19 +1825,20 @@ def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> 
     expect(child_node_options == "__UNSET__", f"stale mktemp literal: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
-def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
+def test_missing_socket_still_injects_hooks(failures: list[str]) -> None:
     code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
         socket_state="missing",
         argv=["hello"],
     )
     expect(code == 0, f"missing socket: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["hello"], f"missing socket: expected passthrough args, got {real_argv}", failures)
+    expect("--settings" in real_argv, f"missing socket: expected hook settings, got {real_argv}", failures)
+    expect("notifications_disabled" in " ".join(real_argv), f"missing socket: expected native notification suppression, got {real_argv}", failures)
     expect(cmux_log == [], f"missing socket: expected no cmux calls, got {cmux_log}", failures)
     expect(claudecode == "__UNSET__", f"missing socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
-    expect(node_options == "__UNSET__", f"missing socket: expected NODE_OPTIONS passthrough, got {node_options!r}", failures)
+    expect(node_options.startswith("--require="), f"missing socket: expected NODE_OPTIONS guard injection, got {node_options!r}", failures)
     expect(runtime_node_options == "__UNSET__", f"missing socket: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"missing socket: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
-    expect(hook_cmux_bin == "__UNSET__", f"missing socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
+    expect(hook_cmux_bin != "__UNSET__", f"missing socket: expected pinned hook cmux, got {hook_cmux_bin!r}", failures)
 
 
 def test_disabled_integration_skips_hook_injection(failures: list[str]) -> None:
@@ -1858,24 +1859,20 @@ def test_disabled_integration_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"disabled integration: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
-def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
+def test_stale_socket_still_injects_hooks(failures: list[str]) -> None:
     code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
         socket_state="stale",
         argv=["hello"],
     )
     expect(code == 0, f"stale socket: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["hello"], f"stale socket: expected passthrough args, got {real_argv}", failures)
-    expect(any(" ping" in line for line in cmux_log), f"stale socket: expected cmux ping probe, got {cmux_log}", failures)
-    expect(
-        any("timeout=0.75" in line for line in cmux_log),
-        f"stale socket: expected bounded ping timeout, got {cmux_log}",
-        failures,
-    )
+    expect("--settings" in real_argv, f"stale socket: expected hook settings, got {real_argv}", failures)
+    expect("notifications_disabled" in " ".join(real_argv), f"stale socket: expected native notification suppression, got {real_argv}", failures)
+    expect(cmux_log == [], f"stale socket: transient socket health must not decide session instrumentation: {cmux_log}", failures)
     expect(claudecode == "__UNSET__", f"stale socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
-    expect(node_options == "__UNSET__", f"stale socket: expected NODE_OPTIONS passthrough, got {node_options!r}", failures)
+    expect(node_options.startswith("--require="), f"stale socket: expected NODE_OPTIONS guard injection, got {node_options!r}", failures)
     expect(runtime_node_options == "__UNSET__", f"stale socket: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"stale socket: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
-    expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
+    expect(hook_cmux_bin != "__UNSET__", f"stale socket: expected pinned hook cmux, got {hook_cmux_bin!r}", failures)
 
 
 def main() -> int:
@@ -1922,9 +1919,9 @@ def main() -> int:
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
-    test_missing_socket_skips_hook_injection(failures)
+    test_missing_socket_still_injects_hooks(failures)
     test_disabled_integration_skips_hook_injection(failures)
-    test_stale_socket_skips_hook_injection(failures)
+    test_stale_socket_still_injects_hooks(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")
