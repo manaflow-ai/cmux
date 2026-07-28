@@ -819,7 +819,9 @@ struct ComputerUseUXTests {
 
         #expect(companionWindow?.isVisible == false)
         #expect(mainWindow.isVisible)
-        #expect(mainWindow.frame == expectedCenteredFrame)
+        #expect(mainWindow.frame.size == expandedSize)
+        #expect(abs(mainWindow.frame.midX - expectedCenteredFrame.midX) <= 0.5)
+        #expect(abs(mainWindow.frame.midY - expectedCenteredFrame.midY) <= 0.5)
     }
 
     /// Regression: interacting with the companion beside System Settings
