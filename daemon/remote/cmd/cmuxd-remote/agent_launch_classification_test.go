@@ -12,6 +12,7 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 		{"claude management", claudeTeamsLaunchIsNonLaunch, []string{"--verbose", "auth"}, true},
 		{"claude tmux management", claudeTeamsLaunchIsNonLaunch, []string{"--tmux", "classic", "doctor"}, true},
 		{"claude informational after prompt", claudeTeamsLaunchIsNonLaunch, []string{"prompt", "--version"}, true},
+		{"claude uppercase V is a launch", claudeTeamsLaunchIsNonLaunch, []string{"-V"}, false},
 		{"claude command-shaped value", claudeTeamsLaunchIsNonLaunch, []string{"--model", "doctor"}, false},
 		{"claude ambiguous optional value", claudeTeamsLaunchIsNonLaunch, []string{"--debug", "doctor"}, false},
 		{"claude session routing", claudeTeamsLaunchIsNonLaunch, []string{"--resume", "doctor"}, false},

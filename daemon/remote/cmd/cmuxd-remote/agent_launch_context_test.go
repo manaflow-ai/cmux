@@ -45,6 +45,45 @@ func TestInheritedAgentLaunchContextUsesCallerSurfaceWithoutGlobalFocus(t *testi
 	}
 }
 
+func TestInheritedAgentLaunchContextRelocatesMovedSurfaceByStableId(t *testing.T) {
+	socketPath, recordedRequests := startMovedAgentLaunchContextSocket(t)
+	t.Setenv("CMUX_WORKSPACE_ID", agentLaunchTestWorkspaceId)
+	t.Setenv("CMUX_SURFACE_ID", agentLaunchTestSurfaceId)
+
+	context := inheritedAgentLaunchContextWithTimeout(
+		&rpcContext{socketPath: socketPath},
+		time.Second,
+	)
+	if context == nil {
+		t.Fatal("inheritedAgentLaunchContextWithTimeout returned nil")
+	}
+	const movedWorkspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	if context.workspaceId != movedWorkspaceId {
+		t.Fatalf("workspaceId = %q, want moved workspace %q", context.workspaceId, movedWorkspaceId)
+	}
+	if context.surfaceId != agentLaunchTestSurfaceId {
+		t.Fatalf("surfaceId = %q", context.surfaceId)
+	}
+
+	requests := recordedRequests()
+	foundRelocationLookup := false
+	for _, request := range requests {
+		if request["method"] == "system.identify" {
+			t.Fatalf("moved-surface relocation consulted global focus: %v", requests)
+		}
+		if request["method"] != "surface.list" {
+			continue
+		}
+		params, _ := request["params"].(map[string]any)
+		if stringFromAnyGo(params["surface_id"]) == agentLaunchTestSurfaceId {
+			foundRelocationLookup = true
+		}
+	}
+	if !foundRelocationLookup {
+		t.Fatalf("moved surface was not relocated through surface.list(surface_id:): %v", requests)
+	}
+}
+
 func TestAgentLaunchContextFailsClosedForMissingOrStaleIdentity(t *testing.T) {
 	t.Run("missing pair does not open socket", func(t *testing.T) {
 		socketPath, recordedMethods := startAgentLaunchContextSocket(t, true)
@@ -201,4 +240,80 @@ func startAgentLaunchContextSocket(t *testing.T, surfaceExists bool) (string, fu
 	}()
 
 	return socketPath, recordedMethods
+}
+
+func startMovedAgentLaunchContextSocket(t *testing.T) (string, func() []map[string]any) {
+	t.Helper()
+	const movedWorkspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	socketPath := makeShortUnixSocketPath(t)
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	var mutex sync.Mutex
+	requests := []map[string]any{}
+	recordedRequests := func() []map[string]any {
+		mutex.Lock()
+		defer mutex.Unlock()
+		return append([]map[string]any(nil), requests...)
+	}
+
+	go func() {
+		for {
+			connection, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(connection net.Conn) {
+				defer connection.Close()
+				line, err := bufio.NewReader(connection).ReadBytes('\n')
+				if err != nil {
+					return
+				}
+				var request map[string]any
+				if err := json.Unmarshal(line, &request); err != nil {
+					return
+				}
+				mutex.Lock()
+				requests = append(requests, request)
+				mutex.Unlock()
+
+				method, _ := request["method"].(string)
+				params, _ := request["params"].(map[string]any)
+				response := map[string]any{"id": request["id"], "ok": true}
+				switch method {
+				case "surface.list":
+					if stringFromAnyGo(params["surface_id"]) == agentLaunchTestSurfaceId {
+						response["result"] = map[string]any{
+							"workspace_id": movedWorkspaceId,
+							"window_id":    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+							"surfaces": []map[string]any{{
+								"id":       agentLaunchTestSurfaceId,
+								"pane_id":  agentLaunchTestPaneId,
+								"pane_ref": "pane:1",
+							}},
+						}
+					} else {
+						response["result"] = map[string]any{
+							"workspace_id": agentLaunchTestWorkspaceId,
+							"surfaces":     []map[string]any{},
+						}
+					}
+				case "pane.list":
+					response["result"] = map[string]any{"panes": []map[string]any{{
+						"id": agentLaunchTestPaneId, "ref": "pane:1", "index": 1,
+					}}}
+				default:
+					response["ok"] = false
+					response["error"] = map[string]any{"code": "unexpected", "message": method}
+				}
+				payload, _ := json.Marshal(response)
+				_, _ = connection.Write(append(payload, '\n'))
+			}(connection)
+		}
+	}()
+
+	return socketPath, recordedRequests
 }

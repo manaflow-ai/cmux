@@ -280,6 +280,35 @@ exit 86
             print("FAIL: managed wrapper root for a different surface was accepted")
             return 1
 
+        redirected_root_parent = tmp / "redirected" / "cmux-cli-shims"
+        redirected_target = tmp / "redirected-target"
+        redirected_root_parent.mkdir(parents=True)
+        redirected_target.mkdir()
+        make_executable(
+            redirected_target / "claude",
+            "#!/usr/bin/env bash\necho managed-claude-shim-must-not-run >&2\nexit 42\n",
+        )
+        redirected_root = redirected_root_parent / FOCUSED_SURFACE_ID
+        redirected_root.symlink_to(redirected_target, target_is_directory=True)
+        redirected_tmux = redirected_target / "tmux"
+        redirected_env = live_env.copy()
+        redirected_env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(redirected_root / "claude")
+        redirected_env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(redirected_root)
+        claude_log.unlink(missing_ok=True)
+        with focused_cmux_server(tmp / "redirected-cmux.sock") as (socket_path, _):
+            redirected_env["CMUX_SOCKET_PATH"] = socket_path
+            redirected = subprocess.run(
+                [cli_path, "claude-teams", "start a team"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=redirected_env,
+                timeout=30,
+            )
+        if redirected.returncode == 0 or claude_log.exists() or redirected_tmux.exists():
+            print("FAIL: symlinked managed wrapper root redirected the tmux shim write")
+            return 1
+
     print("PASS: provider fallback survives while real Teams launches require managed routing")
     return 0
 
