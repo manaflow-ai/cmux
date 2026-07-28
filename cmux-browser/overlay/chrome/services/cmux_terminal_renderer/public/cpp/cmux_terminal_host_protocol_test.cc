@@ -20,7 +20,7 @@ int checks = 0;
 int failures = 0;
 
 constexpr uint16_t kRustTerminalHostProtocolVersion = 3;
-constexpr size_t kRustTerminalHostMaxReplay = 15'692'630;
+constexpr size_t kRustTerminalHostMaxReplay = 15'692'632;
 constexpr size_t kRustTerminalHostMaxKittyImageAliases = 4'096;
 constexpr size_t kRustTerminalHostKittyReplayStateLength = 52;
 
@@ -1086,7 +1086,7 @@ void TestProtocolV3KittyReplayState() {
   using Error = cmux::TerminalHostProtocolError;
   cmux::TerminalHostSnapshot snapshot;
   snapshot.replay = {'x'};
-  snapshot.kitty_state.limits = {10'000'000, 13'595'478, 4'096, 16'384};
+  snapshot.kitty_state.limits = {10'000'000, 13'595'480, 4'096, 16'384};
   snapshot.kitty_state.replay_cursor_offset = 1;
   snapshot.kitty_state.replay_next_image_ids = {41, 43};
   snapshot.kitty_state.next_image_ids = {42, 44};
