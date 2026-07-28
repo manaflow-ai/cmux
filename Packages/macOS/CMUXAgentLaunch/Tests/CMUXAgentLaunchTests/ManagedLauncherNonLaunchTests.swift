@@ -59,6 +59,7 @@ struct ManagedLauncherNonLaunchTests {
         }
         #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["--help"]))
         #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["--version"]))
+        #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["team", "api", "claim-task"]))
         #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["team", "status", "demo"]))
         #expect(AgentLaunchSanitizer.omcLaunchIsNonLaunch(args: ["team", "shutdown", "demo"]))
     }

@@ -97,7 +97,7 @@ extension AgentLaunchSanitizer {
                 "version",
             ],
             managementSubcommands: [
-                "team": ["shutdown", "status"],
+                "team": ["api", "shutdown", "status"],
             ],
             booleanOptions: [],
             valueOptions: []

@@ -21397,6 +21397,29 @@ struct CMUXCLI {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
 
+        if codexTeamsIsInformationalInvocation(commandArgs: commandArgs) {
+            guard let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"]) else {
+                throw CLIError(message: missingProviderExecutableMessage(
+                    displayName: "Codex",
+                    executableName: "codex"
+                ))
+            }
+            launcherEnvironment["PATH"] = providerExecutableSearchPath(
+                searchPath: launcherEnvironment["PATH"],
+                includingExecutableAt: codexExecutablePath
+            )
+            let informationalProcess = try startCodexTeamsProcess(
+                executablePath: codexExecutablePath,
+                arguments: commandArgs,
+                environment: launcherEnvironment,
+                standardInput: FileHandle.standardInput,
+                standardOutput: FileHandle.standardOutput,
+                standardError: FileHandle.standardError
+            )
+            informationalProcess.waitUntilExit()
+            exit(informationalProcess.terminationStatus)
+        }
+
         guard let launchContext = try tmuxCompatLaunchContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword

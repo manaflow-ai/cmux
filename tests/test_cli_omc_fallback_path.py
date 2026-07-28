@@ -98,6 +98,7 @@ omc-node-helper "$@"
             ("setup",),
             ("teleport", "list"),
             ("test-prompt", "ultrawork fix bugs"),
+            ("team", "api", "claim-task", "--input", "{}", "--json"),
             ("team", "shutdown", "demo"),
             ("team", "status", "demo"),
             ("update",),

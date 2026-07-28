@@ -73,6 +73,10 @@ claude-node-helper
             fallback_bin / "codex",
             """#!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  printf 'codex fake 1.0\\n'
+  exit 0
+fi
 printf 'ran\n' > "$FAKE_CODEX_LOG"
 exit 86
 """,
@@ -127,6 +131,21 @@ exit 86
             print("FAIL: unmanaged informational invocation should retain compatibility fallback")
             return 1
         claude_log.unlink()
+
+        codex_version = subprocess.run(
+            [cli_path, "codex-teams", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=unmanaged_env,
+            timeout=30,
+        )
+        if codex_version.returncode != 0 or codex_version.stdout.strip() != "codex fake 1.0":
+            print("FAIL: unmanaged Codex Teams version invocation required a live surface")
+            return 1
+        if codex_log.exists():
+            print("FAIL: Codex Teams version invocation started a real team")
+            return 1
 
         for command in (
             "auth",

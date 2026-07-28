@@ -132,7 +132,7 @@ func omcLaunchIsNonLaunch(args []string) bool {
 	return conservativeAgentNonLaunchInvocation(
 		args,
 		omcManagementCommands,
-		map[string]map[string]bool{"team": {"shutdown": true, "status": true}},
+		map[string]map[string]bool{"team": {"api": true, "shutdown": true, "status": true}},
 		nil,
 		nil,
 	)

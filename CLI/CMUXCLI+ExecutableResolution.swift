@@ -170,6 +170,11 @@ extension CMUXCLI {
             || AgentLaunchSanitizer.claudeTeamsLaunchIsManagementCommand(args: commandArgs)
     }
 
+    func codexTeamsIsInformationalInvocation(commandArgs: [String]) -> Bool {
+        guard commandArgs.count == 1, let option = commandArgs.first else { return false }
+        return ["--help", "-h", "--version", "-V"].contains(option)
+    }
+
     func omoIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
         AgentLaunchSanitizer.omoLaunchIsNonLaunch(args: commandArgs)
     }
