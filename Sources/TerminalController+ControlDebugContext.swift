@@ -4,6 +4,7 @@ import CmuxControlSocket
 import CmuxSettings
 import Foundation
 import CmuxTerminal
+import CmuxWorkspaceShare
 
 /// The debug-domain witnesses are the byte-faithful bodies of the former
 /// `v2Debug*` dispatchers `processV2Command` routed (DEBUG builds only), minus
@@ -82,6 +83,93 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugShowProWelcomeChecklist() {
         ProWelcomeChecklistPresenter.present()
+    }
+
+    // MARK: - debug.share.*
+
+    func controlDebugShareState() -> JSONValue {
+        guard let controller = AppDelegate.shared?.shareSessionController else {
+            return .object([
+                "status": .string("idle"),
+                "is_sharing": .bool(false),
+                "pending_access_requests": .array([]),
+                "participants": .array([]),
+            ])
+        }
+        let status: String
+        switch controller.status {
+        case .idle: status = "idle"
+        case .starting: status = "starting"
+        case .active: status = "active"
+        case .reconnecting: status = "reconnecting"
+        }
+        let pendingAccessRequests: [JSONValue] = controller.feed.compactMap { item in
+            guard case .accessRequest(let user, let email, .none) = item.kind else {
+                return nil
+            }
+            return .object([
+                "user": .string(user),
+                "email": .string(email),
+            ])
+        }
+        let participants: [JSONValue] = controller.participants.map { participant in
+            .object([
+                "user": .string(participant.user),
+                "email": .string(participant.email),
+                "role": .string(participant.role.rawValue),
+                "connected": .bool(participant.connected),
+                "is_host": .bool(participant.isHost),
+                "focus_workspace": participant.focusWs.map(JSONValue.string) ?? .null,
+            ])
+        }
+        return .object([
+            "status": .string(status),
+            "is_sharing": .bool(controller.isSharing),
+            "code": controller.code.map(JSONValue.string) ?? .null,
+            "share_url": controller.shareUrl.map(JSONValue.string) ?? .null,
+            "deployment_id": controller.shareDeploymentID.map(JSONValue.string) ?? .null,
+            "protocol_version": controller.shareProtocolVersion.map { .int(Int64($0)) } ?? .null,
+            "terminal_transport_version": controller.terminalTransportVersion.map { .int(Int64($0)) } ?? .null,
+            "last_error": controller.lastErrorText.map(JSONValue.string) ?? .null,
+            "pending_access_requests": .array(pendingAccessRequests),
+            "participants": .array(participants),
+        ])
+    }
+
+    func controlDebugShareApprove(user: String, role: String) -> Bool {
+        guard let controller = AppDelegate.shared?.shareSessionController,
+              let shareRole = ShareRole(rawValue: role),
+              controller.feed.contains(where: { item in
+                  if case .accessRequest(let requestUser, _, .none) = item.kind {
+                      return requestUser == user
+                  }
+                  return false
+              }) else {
+            return false
+        }
+        controller.approve(user: user, role: shareRole)
+        return true
+    }
+
+    func controlDebugShareSetRole(user: String, role: String) -> Bool {
+        guard let controller = AppDelegate.shared?.shareSessionController,
+              let shareRole = ShareRole(rawValue: role),
+              controller.participants.contains(where: {
+                  $0.user == user && !$0.isHost
+              }) else {
+            return false
+        }
+        controller.setRole(user: user, role: shareRole)
+        return true
+    }
+
+    func controlDebugShareStop() -> Bool {
+        guard let controller = AppDelegate.shared?.shareSessionController,
+              controller.isSharing else {
+            return false
+        }
+        controller.stopSharing()
+        return true
     }
 
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
@@ -250,17 +338,32 @@ extension TerminalController: ControlDebugContext {
             targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
         }
         let name: Notification.Name
+        let userInfo: [AnyHashable: Any]?
         switch event {
         case .toggle:
             name = .commandPaletteToggleRequested
+            userInfo = nil
         case .renameTabOpen:
             name = .commandPaletteRenameTabRequested
+            userInfo = nil
         case .renameInputInteraction:
             name = .commandPaletteRenameInputInteractionRequested
+            userInfo = nil
         case .renameInputDeleteBackward:
             name = .commandPaletteRenameInputDeleteBackwardRequested
+            userInfo = nil
+        case .submit:
+            name = .commandPaletteSubmitRequested
+            userInfo = nil
+        case .moveSelection(let delta):
+            name = .commandPaletteMoveSelection
+            userInfo = ["delta": delta]
         }
-        NotificationCenter.default.post(name: name, object: targetWindow)
+        NotificationCenter.default.post(
+            name: name,
+            object: targetWindow,
+            userInfo: userInfo
+        )
         return true
     }
 

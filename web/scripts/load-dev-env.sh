@@ -120,6 +120,12 @@ if [[ "${CMUX_DEV_USE_EXTERNAL_VM_API_BASE_URL:-0}" != "1" ]]; then
   export CMUX_VM_API_BASE_URL="http://localhost:${CMUX_PORT}"
 fi
 
+# Keep share links on the same isolated tagged origin as the native API.
+# An explicit external page origin remains available for preview testing.
+if [[ "${CMUX_DEV_USE_EXTERNAL_SHARE_PAGE_BASE_URL:-0}" != "1" ]]; then
+  export CMUX_SHARE_PAGE_BASE_URL="http://localhost:${CMUX_PORT}"
+fi
+
 # Local dev should not require a checked-in or per-worktree .env.local just to pass
 # startup validation for routes the developer is not exercising.
 export RESEND_API_KEY="${RESEND_API_KEY:-cmux-local-dev}"

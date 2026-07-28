@@ -18,6 +18,7 @@ struct FileDropOverlayViewTests {
         _ = NSApplication.shared
 
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: windowId)
+            .environment(ShareSessionController { nil })
             .environmentObject(TabManager())
             .environmentObject(TerminalNotificationStore.shared)
             // ContentView reads SidebarUnreadModel from the environment. A missing

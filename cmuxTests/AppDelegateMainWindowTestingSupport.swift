@@ -96,7 +96,10 @@ extension AppDelegate {
         let previousActiveBelongsToRemovedWindow = previousActive.map { active in
             mainWindowContexts.values.contains { $0.windowId == windowId && $0.tabManager === active }
         } ?? false
-        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach { discardOrphanedMainWindowContext($0, allowWindowlessFallback: true) }
+        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach {
+            stopWorkspaceShareIfOwned(by: $0.tabManager)
+            discardOrphanedMainWindowContext($0, allowWindowlessFallback: true)
+        }
         if !previousActiveBelongsToRemovedWindow {
             TerminalController.shared.setActiveTabManager(previousActive)
         }

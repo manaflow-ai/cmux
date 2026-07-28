@@ -39,6 +39,14 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
+/// cmux accepts file and folder URLs through ``NSApplicationDelegate`` but
+/// does not use AppKit's document model. Returning zero keeps
+/// `NSDocumentController` from constructing an unused Open Recent menu and
+/// synchronously resolving its bookmarks during accessibility inspection.
+private final class CmuxDocumentController: NSDocumentController {
+    override var maximumRecentDocumentCount: Int { 0 }
+}
+
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -722,6 +730,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
+    /// The process-wide workspace-share coordinator, composed once and
+    /// injected into every main-window `ContentView`.
+    lazy var shareSessionController = ShareSessionController { [weak self] in
+        self?.auth?.coordinator
+    }
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
@@ -1007,6 +1020,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// touched from the main-actor AX swizzle path (callers hold it on main),
     /// matching the other non-Sendable composition-root members (`shared`).
     nonisolated(unsafe) let accessibilityWindowCache: any AccessibilityWindowCaching = AccessibilityWindowCache()
+    /// AppKit retains the first `NSDocumentController` constructed during
+    /// launch as its shared controller. cmux owns one solely to disable the
+    /// document-only Open Recent state that its URL-opening path never uses.
+    private var documentController: NSDocumentController?
     /// First-responder bypass guard (CmuxBrowserPanel); composition-root owned.
     /// The `NSWindow.makeFirstResponder` swizzle reads `isActive` and
     /// `BrowserPanel` wraps responder-churning devtools work in `withBypass(_:)`.
@@ -1255,6 +1272,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = ensureInitialMainWindowIfNeeded()
         }
         return true
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        documentController = CmuxDocumentController()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -1839,7 +1860,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func deferTerminateForOwnedCleanup(reason: String) -> Bool {
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
-        guard !markedForKill.isEmpty || !simulatorCleanupTasks.isEmpty else { return false }
+        let hasActiveShare = shareSessionController.isSharing
+        let hasPendingShareStop = shareSessionController.hasPendingStop
+        guard !markedForKill.isEmpty ||
+                !simulatorCleanupTasks.isEmpty ||
+                hasActiveShare ||
+                hasPendingShareStop else {
+            return false
+        }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             StartupBreadcrumbLog.append(
@@ -1847,11 +1875,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fields: [
                     "windows": String(markedForKill.count),
                     "simulatorPanels": String(simulatorCleanupTasks.count),
+                    "activeShare": hasActiveShare ? "1" : "0",
+                    "pendingShareStop": hasPendingShareStop ? "1" : "0",
                     "reason": reason,
                 ]
             )
             let cleanupTask = Task { @MainActor [weak self] in
                 guard let self else { return }
+                if hasActiveShare || hasPendingShareStop {
+                    await self.shareSessionController.stopSharingAndWait()
+                }
+                guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
                 }
@@ -2074,6 +2108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         MobileHostService.shared.stop()
+        shareSessionController.stopSharing()
         TerminalController.shared.stop()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
@@ -8791,6 +8826,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
+            .environment(shareSessionController)
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(notificationStore.sidebarUnread)
@@ -15126,6 +15162,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    /// Routes a synthetic shortcut through the same production handler while
+    /// supplying the window already resolved by the socket command. Headless
+    /// automation cannot rely on AppKit establishing `keyWindow`.
+    func debugHandleCustomShortcut(event: NSEvent, preferredWindow: NSWindow?) -> Bool {
+        let previousWindow = debugShortcutRoutingFocusedWindowOverrideForTesting.window
+        debugSetShortcutRoutingFocusedWindowForTesting(preferredWindow)
+        defer { debugSetShortcutRoutingFocusedWindowForTesting(previousWindow) }
+        return handleCustomShortcut(event: event)
+    }
+
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
         if event.type == .systemDefined {
@@ -16372,6 +16418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowVisibilityController.discardClosedWindow(window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        stopWorkspaceShareIfOwned(by: removed.tabManager)
         windowConfigFrames.removeValue(forKey: removed.windowId)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteWindowStore.removeWindow(removed.windowId)
@@ -16407,6 +16454,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 preserveManualRestoreBackupOnMissingPrimary: closingWindowIsCrashDiagnostic
             )
         }
+    }
+
+    /// Keeps process-wide sharing alive when an unrelated main window closes,
+    /// and tears it down when the exact owner window is retired.
+    func stopWorkspaceShareIfOwned(by tabManager: TabManager) {
+        shareSessionController.stopSharing(ifOwnedBy: tabManager)
     }
 
     private func closeWindowSnapshotPruningCrashDiagnostics(

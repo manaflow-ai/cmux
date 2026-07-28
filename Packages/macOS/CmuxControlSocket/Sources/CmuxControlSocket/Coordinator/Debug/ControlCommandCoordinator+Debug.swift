@@ -38,8 +38,20 @@ extension ControlCommandCoordinator {
             return debugWorkspaceTodoChecklistAddField()
         case "debug.pro_welcome_checklist.show":
             return debugShowProWelcomeChecklist()
+        case "debug.share.state":
+            return debugShareState()
+        case "debug.share.approve":
+            return debugShareApprove(request.params)
+        case "debug.share.set_role":
+            return debugShareSetRole(request.params)
+        case "debug.share.stop":
+            return debugShareStop()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
+        case "debug.command_palette.submit":
+            return debugCommandPaletteEvent(.submit, request.params)
+        case "debug.command_palette.move":
+            return debugCommandPaletteMove(request.params)
         case "debug.command_palette.rename_tab.open":
             return debugCommandPaletteEvent(.renameTabOpen, request.params)
         case "debug.command_palette.visible":
@@ -224,6 +236,50 @@ extension ControlCommandCoordinator {
         return .ok(.object(["shown": .bool(true)]))
     }
 
+    // MARK: - debug.share.*
+
+    func debugShareState() -> ControlCallResult {
+        guard let debugContext else {
+            return .err(code: "unavailable", message: "Control context unavailable", data: nil)
+        }
+        return .ok(debugContext.controlDebugShareState())
+    }
+
+    func debugShareApprove(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let user = string(params, "user"),
+              let role = string(params, "role") else {
+            return .err(code: "invalid_params", message: "Missing user/role", data: nil)
+        }
+        guard role == "editor" || role == "viewer" else {
+            return .err(code: "invalid_params", message: "role must be editor or viewer", data: nil)
+        }
+        guard debugContext?.controlDebugShareApprove(user: user, role: role) == true else {
+            return .err(code: "not_found", message: "Pending access request not found", data: nil)
+        }
+        return .ok(.object(["approved": .bool(true)]))
+    }
+
+    func debugShareSetRole(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let user = string(params, "user"),
+              let role = string(params, "role") else {
+            return .err(code: "invalid_params", message: "Missing user/role", data: nil)
+        }
+        guard role == "editor" || role == "viewer" else {
+            return .err(code: "invalid_params", message: "role must be editor or viewer", data: nil)
+        }
+        guard debugContext?.controlDebugShareSetRole(user: user, role: role) == true else {
+            return .err(code: "not_found", message: "Participant not found", data: nil)
+        }
+        return .ok(.object(["updated": .bool(true)]))
+    }
+
+    func debugShareStop() -> ControlCallResult {
+        guard debugContext?.controlDebugShareStop() == true else {
+            return .err(code: "not_found", message: "No active share session", data: nil)
+        }
+        return .ok(.object(["stopped": .bool(true)]))
+    }
+
     // MARK: - debug.textbox.*
 
     /// `debug.textbox.inline_fixture` — install the inline text-box fixture.
@@ -333,6 +389,19 @@ extension ControlCommandCoordinator {
             ]))
         }
         return .ok(.object([:]))
+    }
+
+    /// `debug.command_palette.move` posts the same selection notification as
+    /// an Up/Down key event, without depending on an AppKit field editor.
+    func debugCommandPaletteMove(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let delta = int(params, "delta"), delta != 0 else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid non-zero delta",
+                data: nil
+            )
+        }
+        return debugCommandPaletteEvent(.moveSelection(delta: delta), params)
     }
 
     // MARK: - debug.command_palette.* (reads)

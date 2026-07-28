@@ -178,6 +178,49 @@ extension TerminalSurface {
         return .sent
     }
 
+    /// Sends opaque input bytes to the PTY without Unicode decoding or key remapping.
+    ///
+    /// This is the byte-preserving input path for terminal protocol clients such
+    /// as xterm.js. A cold surface queues the same bytes as one ordered input
+    /// item and flushes them after runtime creation.
+    ///
+    /// - Parameter data: Exact bytes produced by the terminal client.
+    /// - Returns: Whether the bytes were delivered, queued, or rejected.
+    @MainActor
+    @discardableResult
+    public func sendInputBytesResult(_ data: Data) -> InputSendResult {
+        guard !data.isEmpty else { return .sent }
+        didReceiveExplicitInput()
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else {
+                return .surfaceUnavailable
+            }
+            guard enqueuePendingSocketInput(.inputText(data)) else {
+                return .inputQueueFull
+            }
+            hibernationRecorder.recordTerminalInput(
+                workspaceId: tabId,
+                panelId: id
+            )
+            requestInputDemandSurfaceStartIfNeeded()
+            return .queued
+        }
+        guard let liveSurface = liveSurfaceForSocketWrite(
+            reason: "socket.sendInputBytes"
+        ) else {
+            return .surfaceUnavailable
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else {
+            return .processExited
+        }
+        hibernationRecorder.recordTerminalInput(
+            workspaceId: tabId,
+            panelId: id
+        )
+        writeInputTextData(data, to: liveSurface)
+        return .sent
+    }
+
     @MainActor
     private func sendInput(_ text: String, to surface: ghostty_surface_t) {
         for event in Self.parsedSocketInputEvents(for: text) {

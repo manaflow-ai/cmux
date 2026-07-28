@@ -1,0 +1,1900 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import {
+  normalizeOutboundCursor,
+  ShareClient,
+  type ShareTerminalAdapter,
+} from "../app/[locale]/share/[code]/share-connection";
+import {
+  MAX_BINARY_MESSAGE_BYTES,
+  MAX_CHAT_HISTORY,
+  MAX_CURSORS,
+  MAX_PARTICIPANTS,
+  MAX_SERVER_MESSAGE_BYTES,
+  MAX_TERMINAL_INPUT_BYTES,
+  utf8ByteLength,
+  wireEmail,
+  wireId,
+} from "../app/[locale]/share/[code]/share-protocol";
+import {
+  decodeTerminalFrame,
+  TERMINAL_HEADER_BYTES,
+  TERMINAL_KIND_BASELINE,
+  TERMINAL_KIND_INPUT,
+  TERMINAL_KIND_OUTPUT,
+  TERMINAL_TRANSPORT_VERSION,
+} from "../app/[locale]/share/[code]/terminal-wire";
+
+const originalFetch = globalThis.fetch;
+const originalWebSocket = globalThis.WebSocket;
+const originalSetTimeout = globalThis.setTimeout;
+const originalClearTimeout = globalThis.clearTimeout;
+const originalDateNow = Date.now;
+
+type ScheduledTimer = {
+  readonly callback: (...args: unknown[]) => void;
+  readonly delay: number;
+  readonly args: readonly unknown[];
+};
+
+const scheduledTimers = new Map<number, ScheduledTimer>();
+const clients = new Set<ShareClient>();
+let nextTimerId = 1;
+
+class FakeWebSocket {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+  static instances: FakeWebSocket[] = [];
+
+  readonly url: string;
+  readyState = FakeWebSocket.CONNECTING;
+  binaryType: BinaryType = "blob";
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onSend: ((data: string) => void) | null = null;
+  sent: Array<string | ArrayBuffer> = [];
+  closeCalls = 0;
+  closedWith: { code: number; reason: string } | null = null;
+
+  constructor(url: string | URL) {
+    this.url = String(url);
+    FakeWebSocket.instances.push(this);
+  }
+
+  send(data: string | ArrayBuffer): void {
+    this.sent.push(data);
+    if (typeof data === "string") this.onSend?.(data);
+  }
+
+  open(): void {
+    this.readyState = FakeWebSocket.OPEN;
+    this.onopen?.({} as Event);
+  }
+
+  close(code = 1000, reason = ""): void {
+    if (this.readyState === FakeWebSocket.CLOSED) return;
+    this.closeCalls += 1;
+    this.closedWith = { code, reason };
+    this.readyState = FakeWebSocket.CLOSED;
+    this.onclose?.({ code, reason } as CloseEvent);
+  }
+
+  receive(message: unknown): void {
+    this.receiveRaw(JSON.stringify(message));
+  }
+
+  receiveRaw(data: string): void {
+    this.onmessage?.({ data } as MessageEvent);
+  }
+
+  receiveBinary(data: unknown): void {
+    this.onmessage?.({ data } as MessageEvent);
+  }
+
+  serverClose(code: number, reason = "server-close"): void {
+    this.close(code, reason);
+  }
+
+  messages(): Array<Record<string, unknown>> {
+    return this.sent
+      .filter((message): message is string => typeof message === "string")
+      .map((message) => JSON.parse(message) as Record<string, unknown>);
+  }
+}
+
+beforeEach(() => {
+  scheduledTimers.clear();
+  clients.clear();
+  nextTimerId = 1;
+  FakeWebSocket.instances = [];
+  globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+  globalThis.setTimeout = ((
+    callback: (...args: unknown[]) => void,
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    const id = nextTimerId;
+    nextTimerId += 1;
+    scheduledTimers.set(id, {
+      callback,
+      delay: Number(delay ?? 0),
+      args,
+    });
+    return id as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout;
+  globalThis.clearTimeout = ((id: ReturnType<typeof setTimeout> | undefined) => {
+    scheduledTimers.delete(id as unknown as number);
+  }) as typeof clearTimeout;
+});
+
+afterEach(() => {
+  for (const client of clients) client.stop();
+  clients.clear();
+  globalThis.fetch = originalFetch;
+  globalThis.WebSocket = originalWebSocket;
+  globalThis.setTimeout = originalSetTimeout;
+  globalThis.clearTimeout = originalClearTimeout;
+  Date.now = originalDateNow;
+});
+
+function trackedClient(): ShareClient {
+  const client = new ShareClient("code12345678");
+  clients.add(client);
+  return client;
+}
+
+function clientWithActiveSession(): ShareClient {
+  const client = trackedClient();
+  client.session.update({ status: "active", reconnecting: false });
+  return client;
+}
+
+function tokenError(
+  status: number,
+  error: string,
+  headers: HeadersInit = {},
+): Response {
+  return new Response(JSON.stringify({ error }), {
+    status,
+    headers: {
+      "content-type": "application/json",
+      ...headers,
+    },
+  });
+}
+
+function tokenSuccess(
+  wsUrl = "wss://share.cmux.test/v2/share/sessions/code12345678/ws",
+  token = "guest-token",
+): Response {
+  return new Response(
+    JSON.stringify({
+      token,
+      wsUrl,
+      protocolVersion: 2,
+      terminalTransportVersion: 1,
+      deploymentId: "deployment-test",
+    }),
+    {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    },
+  );
+}
+
+function snapshot(role: "editor" | "viewer" = "editor") {
+  return {
+    t: "session-state",
+    proto: 2,
+    shared: [{ id: "workspace:1", title: "Chosen" }],
+    layouts: [
+      {
+        ws: "workspace:1",
+        tree: {
+          kind: "split",
+          axis: "h",
+          ratio: 0.4,
+          a: { kind: "pane", pane: "surface:terminal", content: "terminal" },
+          b: {
+            kind: "split",
+            axis: "v",
+            ratio: 0.6,
+            a: { kind: "pane", pane: "surface:browser", content: "browser" },
+            b: { kind: "pane", pane: "surface:agent", content: "agent" },
+          },
+        },
+      },
+    ],
+    participants: [
+      {
+        user: "host",
+        email: "host@example.com",
+        role: "editor",
+        color: 0,
+        focusWs: "workspace:1",
+        connected: true,
+        isHost: true,
+      },
+      {
+        user: "guest",
+        email: "guest@example.com",
+        role,
+        color: 1,
+        focusWs: "workspace:1",
+        connected: true,
+        isHost: false,
+      },
+    ],
+    chat: [
+      {
+        id: "chat:1",
+        user: "host",
+        text: "hello",
+        ts: 1,
+      },
+    ],
+    you: { user: "guest", role, color: 1, isHost: false },
+  };
+}
+
+function exactJsonBytes(value: Record<string, unknown>, targetBytes: number): string {
+  const empty = JSON.stringify({ ...value, padding: "" });
+  const paddingBytes = targetBytes - utf8ByteLength(empty);
+  expect(paddingBytes).toBeGreaterThanOrEqual(0);
+  const encoded = JSON.stringify({ ...value, padding: "x".repeat(paddingBytes) });
+  expect(utf8ByteLength(encoded)).toBe(targetBytes);
+  return encoded;
+}
+
+function terminalFrame(options: {
+  readonly kind?: number;
+  readonly payload?: Uint8Array;
+  readonly sequenceStart?: number;
+  readonly sequenceEnd?: number;
+  readonly rows?: number;
+  readonly columns?: number;
+} = {}): Uint8Array {
+  const encoder = new TextEncoder();
+  const ws = encoder.encode("workspace:1");
+  const pane = encoder.encode("surface:terminal");
+  const payload = options.payload ?? new TextEncoder().encode("accepted\r\n");
+  const kind = options.kind ?? TERMINAL_KIND_BASELINE;
+  const sequenceStart = options.sequenceStart ?? 1;
+  const sequenceEnd =
+    options.sequenceEnd ??
+    (kind === TERMINAL_KIND_OUTPUT
+      ? sequenceStart + payload.byteLength
+      : sequenceStart);
+  const rows = options.rows ?? (kind === TERMINAL_KIND_BASELINE ? 2 : 0);
+  const columns =
+    options.columns ?? (kind === TERMINAL_KIND_BASELINE ? 10 : 0);
+  const frame = new Uint8Array(
+    TERMINAL_HEADER_BYTES + ws.length + pane.length + payload.length,
+  );
+  const view = new DataView(frame.buffer);
+  frame.set(new TextEncoder().encode("CMXS"), 0);
+  view.setUint8(4, TERMINAL_TRANSPORT_VERSION);
+  view.setUint8(5, kind);
+  // A stable nonzero UUID.
+  frame.set(
+    new Uint8Array([
+      0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x45, 0x67,
+      0x89, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78,
+    ]),
+    8,
+  );
+  view.setBigUint64(24, BigInt(sequenceStart), false);
+  view.setBigUint64(32, BigInt(sequenceEnd), false);
+  view.setUint16(40, rows, false);
+  view.setUint16(42, columns, false);
+  view.setUint16(44, ws.length, false);
+  view.setUint16(46, pane.length, false);
+  view.setUint32(52, payload.length, false);
+  let offset = TERMINAL_HEADER_BYTES;
+  frame.set(ws, offset);
+  offset += ws.length;
+  frame.set(pane, offset);
+  offset += pane.length;
+  frame.set(payload, offset);
+  return frame;
+}
+
+function exactTerminalFrame(targetBytes: number): Uint8Array {
+  const empty = terminalFrame({ payload: new Uint8Array() });
+  const paddingBytes = targetBytes - empty.byteLength;
+  expect(paddingBytes).toBeGreaterThanOrEqual(0);
+  const frame = terminalFrame({
+    payload: new Uint8Array(paddingBytes).fill(0x61),
+  });
+  expect(frame.byteLength).toBe(targetBytes);
+  return frame;
+}
+
+function recordingTerminal(): {
+  readonly adapter: ShareTerminalAdapter;
+  readonly writes: Uint8Array[];
+  readonly completions: Array<() => void>;
+  readonly sizes: Array<{ columns: number; rows: number }>;
+} {
+  const writes: Uint8Array[] = [];
+  const completions: Array<() => void> = [];
+  const sizes: Array<{ columns: number; rows: number }> = [];
+  return {
+    writes,
+    completions,
+    sizes,
+    adapter: {
+      resize(columns, rows) {
+        sizes.push({ columns, rows });
+      },
+      write(data, onConsumed) {
+        writes.push(data.slice());
+        completions.push(onConsumed);
+      },
+    },
+  };
+}
+
+function ackMessages(socket: FakeWebSocket): Array<Record<string, unknown>> {
+  return socket.messages().filter((message) => message.t === "ack");
+}
+
+function retryDelays(): number[] {
+  return [...scheduledTimers.values()].map((timer) => timer.delay);
+}
+
+async function settle(): Promise<void> {
+  for (let turn = 0; turn < 10; turn += 1) {
+    await Promise.resolve();
+  }
+}
+
+async function runOnlyTimer(): Promise<void> {
+  const entries = [...scheduledTimers.entries()];
+  expect(entries).toHaveLength(1);
+  const [id, timer] = entries[0] as [number, ScheduledTimer];
+  scheduledTimers.delete(id);
+  timer.callback(...timer.args);
+  await settle();
+}
+
+function pendingResponse(): Promise<Response> {
+  return new Promise<Response>(() => {});
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function connectedClient(): Promise<{
+  client: ShareClient;
+  socket: FakeWebSocket;
+}> {
+  globalThis.fetch = (async () => tokenSuccess()) as typeof fetch;
+  const client = trackedClient();
+  client.start();
+  await settle();
+  const socket = FakeWebSocket.instances[0];
+  expect(socket).toBeDefined();
+  socket?.open();
+  return { client, socket: socket as FakeWebSocket };
+}
+
+describe("ShareClient token refresh failures", () => {
+  test("retries a transient network error without discarding the active session", async () => {
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      if (fetchCalls === 1) throw new TypeError("network unavailable");
+      return pendingResponse();
+    }) as typeof fetch;
+    const client = clientWithActiveSession();
+
+    client.start();
+    await settle();
+
+    expect(client.session.get().status).toBe("active");
+    expect(client.session.get().reconnecting).toBe(true);
+    expect(retryDelays()).toEqual([800]);
+
+    await runOnlyTimer();
+    expect(fetchCalls).toBe(2);
+  });
+
+  for (const retry of [
+    { header: "0", delay: 1_000, name: "the one-second minimum" },
+    { header: "4", delay: 4_000, name: "the server delay" },
+    { header: "7200", delay: 3_600_000, name: "the one-hour maximum" },
+  ]) {
+    test(`clamps HTTP 429 Retry-After to ${retry.name}`, async () => {
+      globalThis.fetch = (async () =>
+        tokenError(429, "rate_limited", { "retry-after": retry.header })) as typeof fetch;
+      const client = clientWithActiveSession();
+
+      client.start();
+      await settle();
+
+      expect(client.session.get().status).toBe("active");
+      expect(client.session.get().reconnecting).toBe(true);
+      expect(retryDelays()).toEqual([retry.delay]);
+    });
+  }
+
+  test("uses exponential backoff for an invalid Retry-After", async () => {
+    globalThis.fetch = (async () =>
+      tokenError(429, "rate_limited", { "retry-after": "later-ish" })) as typeof fetch;
+    const client = clientWithActiveSession();
+
+    client.start();
+    await settle();
+
+    expect(client.session.get().status).toBe("active");
+    expect(retryDelays()).toEqual([800]);
+  });
+
+  for (const status of [500, 502, 503, 504]) {
+    test(`retries HTTP ${status} without replacing the active session`, async () => {
+      globalThis.fetch = (async () =>
+        tokenError(status, "temporary_upstream_failure")) as typeof fetch;
+      const client = clientWithActiveSession();
+
+      client.start();
+      await settle();
+
+      expect(client.session.get().status).toBe("active");
+      expect(client.session.get().reconnecting).toBe(true);
+      expect(retryDelays()).toEqual([800]);
+    });
+  }
+
+  for (const response of [
+    new Response("<html>temporary gateway failure</html>", {
+      status: 503,
+      headers: { "content-type": "text/html" },
+    }),
+    new Response("{broken", {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    }),
+  ]) {
+    test(`retries malformed HTTP ${response.status} bodies`, async () => {
+      globalThis.fetch = (async () => response.clone()) as typeof fetch;
+      const client = clientWithActiveSession();
+
+      client.start();
+      await settle();
+
+      expect(client.session.get().status).toBe("active");
+      expect(client.session.get().reconnecting).toBe(true);
+      expect(retryDelays()).toEqual([800]);
+    });
+  }
+
+  for (const failure of [
+    { name: "invalid code", status: 400, error: "invalid_code" },
+    { name: "unauthorized auth", status: 401, error: "unauthorized" },
+    { name: "forbidden auth", status: 403, error: "forbidden" },
+    { name: "missing session", status: 404, error: "not_found" },
+    {
+      name: "missing share configuration",
+      status: 503,
+      error: "share_not_configured",
+    },
+  ]) {
+    test(`keeps ${failure.name} failures terminal`, async () => {
+      let fetchCalls = 0;
+      globalThis.fetch = (async () => {
+        fetchCalls += 1;
+        return tokenError(failure.status, failure.error);
+      }) as typeof fetch;
+      const client = clientWithActiveSession();
+
+      client.start();
+      await settle();
+
+      expect(fetchCalls).toBe(1);
+      expect(client.session.get().status).toBe("unavailable");
+      expect(client.session.get().reconnecting).toBe(false);
+      expect(retryDelays()).toEqual([]);
+    });
+  }
+
+  test("keeps exactly one reconnect timer", async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError("offline");
+    }) as typeof fetch;
+    const client = clientWithActiveSession();
+
+    client.start();
+    client.start();
+    await settle();
+
+    expect(retryDelays()).toEqual([800]);
+  });
+
+  test("stops retrying a WebSocket endpoint that never completes an upgrade", async () => {
+    globalThis.fetch = (async () => tokenSuccess()) as typeof fetch;
+    const client = trackedClient();
+
+    client.start();
+    await settle();
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const socket = FakeWebSocket.instances[attempt];
+      expect(socket).toBeDefined();
+      socket?.serverClose(1006, "upgrade failed");
+      if (attempt < 4) {
+        await runOnlyTimer();
+      }
+    }
+
+    expect(client.session.get().status).toBe("unavailable");
+    expect(client.session.get().reconnecting).toBe(false);
+    expect(retryDelays()).toEqual([]);
+  });
+
+  test("stop cancels reconnect timers and ignores a late token response", async () => {
+    const first = deferred<Response>();
+    const second = deferred<Response>();
+    let fetchCalls = 0;
+    globalThis.fetch = (() => {
+      fetchCalls += 1;
+      return fetchCalls === 1 ? first.promise : second.promise;
+    }) as typeof fetch;
+    const client = trackedClient();
+
+    client.start();
+    await settle();
+    client.stop();
+    client.start();
+    await settle();
+    first.resolve(tokenSuccess());
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(0);
+
+    second.resolve(tokenSuccess());
+    await settle();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    client.stop();
+    expect(scheduledTimers.size).toBe(0);
+  });
+
+  test("rejects a remote cleartext WebSocket before exposing the bearer token", async () => {
+    globalThis.fetch = (async () =>
+      tokenSuccess("ws://evil.example/v2/share/sessions/code12345678/ws")) as typeof fetch;
+    const client = trackedClient();
+
+    client.start();
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(retryDelays()).toEqual([800]);
+    client.stop();
+    expect(scheduledTimers.size).toBe(0);
+  });
+
+  for (const wsUrl of [
+    "ws://localhost:8787/v2/share/sessions/code12345678/ws",
+    "ws://127.42.0.9:8787/v2/share/sessions/code12345678/ws",
+    "ws://[::1]:8787/v2/share/sessions/code12345678/ws",
+  ]) {
+    test(`accepts the cleartext loopback WebSocket ${wsUrl}`, async () => {
+      globalThis.fetch = (async () => tokenSuccess(wsUrl)) as typeof fetch;
+      const client = trackedClient();
+
+      client.start();
+      await settle();
+
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      const connectedUrl = new URL(FakeWebSocket.instances[0]?.url ?? "");
+      expect(connectedUrl.searchParams.get("token")).toBe("guest-token");
+      expect(scheduledTimers.size).toBe(0);
+    });
+  }
+
+  test("accepts an exact 8 KiB bearer token", async () => {
+    const token = "x".repeat(8 * 1024);
+    globalThis.fetch = (async () =>
+      tokenSuccess(
+        "wss://share.cmux.test/v2/share/sessions/code12345678/ws",
+        token,
+      )) as typeof fetch;
+    const client = trackedClient();
+
+    client.start();
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    const connectedUrl = new URL(FakeWebSocket.instances[0]?.url ?? "");
+    expect(connectedUrl.searchParams.get("token")).toHaveLength(8 * 1024);
+    expect(scheduledTimers.size).toBe(0);
+  });
+
+  test("rejects a bearer token over 8 KiB before opening a socket", async () => {
+    globalThis.fetch = (async () =>
+      tokenSuccess(
+        "wss://share.cmux.test/v2/share/sessions/code12345678/ws",
+        "x".repeat(8 * 1024 + 1),
+      )) as typeof fetch;
+    const client = trackedClient();
+
+    client.start();
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(retryDelays()).toEqual([800]);
+    client.stop();
+    expect(scheduledTimers.size).toBe(0);
+  });
+});
+
+describe("ShareClient terminal-only session behavior", () => {
+  test("reconnecting rejects chat and terminal input without pretending delivery", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "active-before-reconnect" });
+    const sentBeforeClose = socket.sent.length;
+
+    socket.serverClose(1006);
+
+    expect(client.session.get().reconnecting).toBe(true);
+    expect(client.sendChat("retain this draft")).toBe(false);
+    expect(
+      client.sendInput("workspace:1", "surface:terminal", "do not drop silently"),
+    ).toBe(false);
+    expect(socket.sent).toHaveLength(sentBeforeClose);
+  });
+
+  test("cursor geometry is resolved only once for the latest throttled sample", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "cursor-sample-snapshot" });
+    let firstResolutions = 0;
+    let latestResolutions = 0;
+
+    client.sendCursorSample(() => {
+      firstResolutions += 1;
+      return {
+        ws: "workspace:1",
+        pane: "surface:terminal",
+        x: 0.1,
+        y: 0.2,
+      };
+    });
+    client.sendCursorSample(() => {
+      latestResolutions += 1;
+      return {
+        ws: "workspace:1",
+        pane: "surface:terminal",
+        x: 0.8,
+        y: 0.9,
+      };
+    });
+
+    expect(firstResolutions).toBe(0);
+    expect(latestResolutions).toBe(0);
+    await runOnlyTimer();
+    expect(firstResolutions).toBe(0);
+    expect(latestResolutions).toBe(1);
+    expect(socket.messages().at(-1)).toEqual({
+      t: "cursor",
+      pos: {
+        ws: "workspace:1",
+        pane: "surface:terminal",
+        x: 0.8,
+        y: 0.9,
+      },
+    });
+  });
+
+  test("a newer bubble keeps the earliest outstanding expiry deadline", async () => {
+    let now = 1_000;
+    Date.now = () => now;
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "bubble-snapshot" });
+
+    socket.receive({
+      t: "chat",
+      msg: {
+        id: "bubble-one",
+        user: "guest",
+        text: "first",
+        ts: 1,
+        bubble: {
+          ws: "workspace:1",
+          pane: "surface:terminal",
+          x: 0.2,
+          y: 0.3,
+        },
+      },
+    });
+    socket.receive({ t: "ack-request", nonce: "bubble-one" });
+
+    now = 2_000;
+    socket.receive({
+      t: "chat",
+      msg: {
+        id: "bubble-two",
+        user: "host",
+        text: "second",
+        ts: 2,
+        bubble: {
+          ws: "workspace:1",
+          pane: "surface:terminal",
+          x: 0.7,
+          y: 0.8,
+        },
+      },
+    });
+    socket.receive({ t: "ack-request", nonce: "bubble-two" });
+
+    expect([...scheduledTimers.values()].map((timer) => timer.delay)).toEqual([
+      4_050,
+    ]);
+
+    now = 6_050;
+    await runOnlyTimer();
+    expect(client.cursors.get().get("guest")?.bubble).toBeUndefined();
+    expect(client.cursors.get().get("host")?.bubble?.text).toBe("second");
+    expect([...scheduledTimers.values()].map((timer) => timer.delay)).toEqual([
+      1_000,
+    ]);
+  });
+
+  test("uses only the server-selected workspace and subscribes only terminal leaves", async () => {
+    const { client, socket } = await connectedClient();
+    const sentBeforeSnapshot = socket.sent.length;
+    expect(socket.messages()[0]).toEqual({ t: "hello", proto: 2 });
+
+    socket.receive(snapshot());
+
+    expect(client.session.get().shared).toEqual([{ id: "workspace:1", title: "Chosen" }]);
+    expect(client.session.get().activeWs).toBe("workspace:1");
+    expect(Object.keys(client.session.get().layouts)).toEqual(["workspace:1"]);
+    expect(socket.sent).toHaveLength(sentBeforeSnapshot);
+
+    socket.receive({ t: "ack-request", nonce: "snapshot-order" });
+
+    const messages = socket.messages().slice(sentBeforeSnapshot);
+    expect(messages[0]).toEqual({ t: "ack", nonce: "snapshot-order" });
+    expect(messages).toContainEqual({ t: "focus", ws: "workspace:1" });
+    expect(messages).toContainEqual({
+      t: "sub",
+      ws: "workspace:1",
+      pane: "surface:terminal",
+    });
+    expect(messages.some((message) => message.t === "sub" && message.pane !== "surface:terminal"))
+      .toBe(false);
+    expect(messages.some((message) => message.ws === "workspace:2")).toBe(false);
+  });
+
+  test("surfaces a session protocol mismatch instead of leaving a blank workspace", async () => {
+    const { client, socket } = await connectedClient();
+    const mismatched = snapshot("viewer");
+    mismatched.proto = 1;
+
+    socket.receive(mismatched);
+
+    const session = client.session.get() as ReturnType<
+      typeof client.session.get
+    > & {
+      terminalError?: {
+        code: string;
+        message: string;
+      };
+    };
+    expect(session.status).toBe("unavailable");
+    expect(session.shared).toEqual([]);
+    expect(session.layouts).toEqual({});
+    expect(session.terminalError).toMatchObject({
+      code: "protocol_version_mismatch",
+    });
+    expect(session.terminalError?.message.trim().length).toBeGreaterThan(0);
+  });
+
+  test("blocks viewer input and applies role downgrade before React can rerender", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot("editor"));
+    socket.receive({ t: "ack-request", nonce: "editor-snapshot" });
+
+    client.sendInput("workspace:1", "surface:terminal", "first");
+    client.sendInput("workspace:1", "surface:browser", "browser input");
+    socket.receive({ t: "role-changed", role: "viewer" });
+    client.sendInput("workspace:1", "surface:terminal", "blocked immediately");
+
+    const inputMessages = socket.messages().filter((message) => message.t === "input");
+    expect(inputMessages).toEqual([
+      {
+        t: "input",
+        ws: "workspace:1",
+        pane: "surface:terminal",
+        data: "first",
+      },
+    ]);
+    expect(client.session.get().you?.role).toBe("viewer");
+  });
+
+  test("bounds terminal input payloads", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot("editor"));
+    socket.receive({ t: "ack-request", nonce: "editor-snapshot" });
+
+    client.sendInput(
+      "workspace:1",
+      "surface:terminal",
+      "x".repeat(MAX_TERMINAL_INPUT_BYTES + 1_000),
+    );
+
+    const input = socket.messages().find((message) => message.t === "input");
+    expect((input?.data as string).length).toBe(MAX_TERMINAL_INPUT_BYTES);
+  });
+
+  test("paces a large xterm paste without losing or transcoding bytes", async () => {
+    let now = 10_000;
+    Date.now = () => now;
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot("editor"));
+    socket.receive({ t: "ack-request", nonce: "editor-snapshot" });
+    const binaryBefore = socket.sent.filter(
+      (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+    ).length;
+    const paste =
+      `${"a".repeat(24 * MAX_TERMINAL_INPUT_BYTES - 1)}😀tail`;
+    const expected = new TextEncoder().encode(paste);
+
+    expect(
+      client.sendTerminalData("workspace:1", "surface:terminal", paste),
+    ).toBe(true);
+
+    let frames = socket.sent
+      .filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      )
+      .slice(binaryBefore)
+      .map((message) => decodeTerminalFrame(new Uint8Array(message)));
+    expect(frames).toHaveLength(15);
+    expect(scheduledTimers.size).toBe(1);
+
+    now += 1_000;
+    await runOnlyTimer();
+
+    frames = socket.sent
+      .filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      )
+      .slice(binaryBefore)
+      .map((message) => decodeTerminalFrame(new Uint8Array(message)));
+    expect(frames).toHaveLength(25);
+    expect(frames.every((frame) => frame?.kind === TERMINAL_KIND_INPUT)).toBe(
+      true,
+    );
+    expect(
+      frames.every(
+        (frame) =>
+          frame?.ws === "workspace:1" &&
+          frame.pane === "surface:terminal" &&
+          frame.user === "" &&
+          frame.payload.byteLength <= MAX_TERMINAL_INPUT_BYTES,
+      ),
+    ).toBe(true);
+    const actual = new Uint8Array(
+      frames.reduce((sum, frame) => sum + (frame?.payload.byteLength ?? 0), 0),
+    );
+    let offset = 0;
+    for (const frame of frames) {
+      if (!frame) continue;
+      actual.set(frame.payload, offset);
+      offset += frame.payload.byteLength;
+    }
+    expect(actual).toEqual(expected);
+  });
+
+  test("coalesces rapid xterm callbacks into one ordered PTY byte frame", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot("editor"));
+    socket.receive({ t: "ack-request", nonce: "editor-snapshot" });
+    const binaryBefore = socket.sent.filter(
+      (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+    ).length;
+    const fragments = ["e", "c", "h", "o", " ", "λ", "\r"];
+
+    for (const fragment of fragments) {
+      expect(
+        client.sendTerminalData(
+          "workspace:1",
+          "surface:terminal",
+          fragment,
+        ),
+      ).toBe(true);
+    }
+
+    expect(
+      socket.sent.filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      ),
+    ).toHaveLength(binaryBefore);
+    expect(scheduledTimers.size).toBe(1);
+
+    await runOnlyTimer();
+
+    const frames = socket.sent
+      .filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      )
+      .slice(binaryBefore)
+      .map((message) => decodeTerminalFrame(new Uint8Array(message)));
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.kind).toBe(TERMINAL_KIND_INPUT);
+    expect(frames[0]?.payload).toEqual(
+      new TextEncoder().encode(fragments.join("")),
+    );
+  });
+
+  test("drops a queued xterm paste immediately on role downgrade", async () => {
+    let now = 20_000;
+    Date.now = () => now;
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot("editor"));
+    socket.receive({ t: "ack-request", nonce: "editor-snapshot" });
+    const binaryBefore = socket.sent.filter(
+      (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+    ).length;
+
+    expect(
+      client.sendTerminalData(
+        "workspace:1",
+        "surface:terminal",
+        "x".repeat(25 * MAX_TERMINAL_INPUT_BYTES),
+      ),
+    ).toBe(true);
+    expect(scheduledTimers.size).toBe(1);
+
+    socket.receive({ t: "role-changed", role: "viewer" });
+    expect(scheduledTimers.size).toBe(0);
+    now += 1_000;
+
+    const frames = socket.sent
+      .filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      )
+      .slice(binaryBefore)
+      .map((message) => decodeTerminalFrame(new Uint8Array(message)));
+    expect(frames).toHaveLength(15);
+    expect(client.session.get().you?.role).toBe("viewer");
+    expect(
+      client.sendTerminalData("workspace:1", "surface:terminal", "blocked"),
+    ).toBe(false);
+  });
+
+  test("pending state retains no prior session data", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({
+      t: "cursor",
+      user: "host",
+      pos: { ws: "workspace:1", pane: "surface:terminal", x: 0.5, y: 0.5 },
+    });
+
+    socket.receive({ t: "access-pending" });
+
+    expect(client.session.get()).toMatchObject({
+      status: "pending",
+      shared: [],
+      layouts: {},
+      participants: [],
+      chat: [],
+      you: null,
+      activeWs: null,
+    });
+    expect(client.cursors.get().size).toBe(0);
+  });
+
+  test("rejects Unicode controls in wire ids, identity emails, and outbound panes", async () => {
+    expect(wireId("surface:\u0085terminal")).toBe(false);
+    expect(wireEmail("guest\u0085@example.com")).toBeNull();
+    expect(
+      normalizeOutboundCursor(
+        {
+          ws: "workspace:1",
+          pane: "surface:\u0085terminal",
+          x: 0.5,
+          y: 0.5,
+        },
+        "workspace:1",
+      ),
+    ).toBeNull();
+
+    const { socket } = await connectedClient();
+    const sentBeforeInvalidPayloads = socket.sent.length;
+    socket.receive({
+      t: "cursor",
+      user: "guest\u0085",
+      pos: null,
+    });
+    socket.receive({ t: "ack-request", nonce: "bad-id" });
+    socket.receive({
+      t: "access-request",
+      user: "guest",
+      email: "guest\u0085@example.com",
+    });
+    socket.receive({ t: "ack-request", nonce: "bad-email" });
+
+    expect(socket.sent).toHaveLength(sentBeforeInvalidPayloads);
+  });
+
+  test("retains the host and all 256 permitted guest grants in a snapshot", async () => {
+    const { client, socket } = await connectedClient();
+    const maximumParticipants = snapshot();
+    maximumParticipants.participants = Array.from(
+      { length: MAX_PARTICIPANTS },
+      (_, index) => ({
+        user: index === 0 ? "host" : `guest:${index}`,
+        email: index === 0 ? "host@example.com" : `guest${index}@example.com`,
+        role: index === 0 ? ("editor" as const) : ("viewer" as const),
+        color: index,
+        focusWs: "workspace:1",
+        connected: index < 32,
+        isHost: index === 0,
+      }),
+    );
+
+    socket.receive(maximumParticipants);
+
+    expect(client.session.get().participants).toHaveLength(MAX_PARTICIPANTS);
+    expect(client.session.get().participants.at(-1)?.user).toBe("guest:256");
+  });
+
+  test("rejects malformed or oversized authoritative snapshots without ACK", async () => {
+    const { client, socket } = await connectedClient();
+    const baseline = client.session.get();
+    const sentBeforeSnapshots = socket.sent.length;
+
+    const tooManyShared = snapshot();
+    tooManyShared.shared.push({ id: "workspace:2", title: "extra" });
+    const tooManyLayouts = snapshot();
+    const firstLayout = tooManyLayouts.layouts[0];
+    if (firstLayout) tooManyLayouts.layouts.push(firstLayout);
+    const tooManyParticipants = snapshot();
+    tooManyParticipants.participants = Array.from(
+      { length: MAX_PARTICIPANTS + 1 },
+      (_, index) => ({
+        user: `user:${index}`,
+        email: `user${index}@example.com`,
+        role: "viewer" as const,
+        color: index,
+        focusWs: "workspace:1",
+        connected: true,
+        isHost: index === 0,
+      }),
+    );
+    const duplicateParticipants = snapshot();
+    const duplicateGuest = duplicateParticipants.participants[1];
+    if (duplicateGuest) duplicateParticipants.participants.push({ ...duplicateGuest });
+    const invalidFocus = snapshot();
+    const focusedGuest = invalidFocus.participants[1];
+    if (focusedGuest) focusedGuest.focusWs = "workspace\u0085";
+    const invalidEmail = snapshot();
+    const emailedGuest = invalidEmail.participants[1];
+    if (emailedGuest) emailedGuest.email = "guest\u0085@example.com";
+    const tooManyMessages = snapshot();
+    tooManyMessages.chat = Array.from({ length: MAX_CHAT_HISTORY + 1 }, (_, index) => ({
+      id: `chat:${index}`,
+      user: "host",
+      text: `message ${index}`,
+      ts: index,
+    }));
+    const duplicateMessages = snapshot();
+    const firstMessage = duplicateMessages.chat[0];
+    if (firstMessage) duplicateMessages.chat.push({ ...firstMessage });
+    const invalidBubble = snapshot();
+    const bubbleMessage = invalidBubble.chat[0] as Record<string, unknown> | undefined;
+    if (bubbleMessage) {
+      bubbleMessage.bubble = {
+        ws: "workspace:1",
+        pane: "surface\u0085",
+        x: 0.5,
+        y: 0.5,
+      };
+    }
+    const hostBrowser = snapshot();
+    hostBrowser.you.isHost = true;
+    const mismatchedLayout = snapshot();
+    const mismatched = mismatchedLayout.layouts[0];
+    if (mismatched) mismatched.ws = "workspace:other";
+
+    for (const [index, malicious] of [
+      tooManyShared,
+      tooManyLayouts,
+      tooManyParticipants,
+      duplicateParticipants,
+      invalidFocus,
+      invalidEmail,
+      tooManyMessages,
+      duplicateMessages,
+      invalidBubble,
+      hostBrowser,
+      mismatchedLayout,
+    ].entries()) {
+      socket.receive(malicious);
+      socket.receive({ t: "ack-request", nonce: `rejected-${index}` });
+    }
+
+    expect(client.session.get()).toBe(baseline);
+    expect(socket.sent).toHaveLength(sentBeforeSnapshots);
+  });
+
+  test("bounds cursor collections", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "cursor-snapshot" });
+    for (let index = 0; index < MAX_CURSORS + 50; index += 1) {
+      socket.receive({
+        t: "cursor",
+        user: `cursor:${index}`,
+        pos: { ws: "workspace:1", pane: "surface:terminal", x: 0.5, y: 0.5 },
+      });
+    }
+
+    expect(client.cursors.get().size).toBe(MAX_CURSORS);
+  });
+
+  test("ignores malformed JSON and binary frames without throwing", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    const before = client.session.get();
+
+    expect(() => socket.receiveRaw("{broken")).not.toThrow();
+    expect(() =>
+      socket.receive({ t: "presence", participants: "wrong" }),
+    ).not.toThrow();
+    expect(() => socket.receiveBinary(new ArrayBuffer(1))).not.toThrow();
+    expect(() => socket.receiveBinary(new Uint8Array([1, 1, 0xff, 0]))).not.toThrow();
+    expect(() => socket.receiveBinary({ arbitrary: true })).not.toThrow();
+    expect(client.session.get()).toEqual(before);
+  });
+
+  test("stop cancels cursor timers and closes the socket", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    client.sendCursor({
+      ws: "workspace:1",
+      pane: "surface:terminal",
+      x: 0.5,
+      y: 0.5,
+    });
+    expect(scheduledTimers.size).toBe(1);
+
+    client.stop();
+
+    expect(scheduledTimers.size).toBe(0);
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+    expect(socket.closeCalls).toBe(1);
+  });
+});
+
+describe("ShareClient delivery credit acknowledgements", () => {
+  test("accepts a 1 MiB minus one session snapshot before acknowledging it", async () => {
+    const { client, socket } = await connectedClient();
+    const nearLimit = snapshot();
+    nearLimit.chat = Array.from({ length: MAX_CHAT_HISTORY }, (_, index) => ({
+      id: `chat:${index}`,
+      user: "host",
+      text: `message ${index} ${"x".repeat(1_700)}`,
+      ts: index,
+    }));
+    const encoded = exactJsonBytes(
+      nearLimit as unknown as Record<string, unknown>,
+      MAX_SERVER_MESSAGE_BYTES - 1,
+    );
+    let chatCountAtAck = -1;
+    socket.onSend = (data) => {
+      const message = JSON.parse(data) as Record<string, unknown>;
+      if (message.t === "ack" && message.nonce === "near-limit") {
+        chatCountAtAck = client.session.get().chat.length;
+      }
+    };
+
+    socket.receiveRaw(encoded);
+
+    expect(client.session.get().chat).toHaveLength(MAX_CHAT_HISTORY);
+    expect(client.session.get().chat.at(-1)?.text).toContain("message 499");
+    expect(ackMessages(socket)).toEqual([]);
+
+    socket.receive({ t: "ack-request", nonce: "near-limit" });
+
+    expect(chatCountAtAck).toBe(MAX_CHAT_HISTORY);
+    expect(ackMessages(socket)).toContainEqual({
+      t: "ack",
+      nonce: "near-limit",
+    });
+  });
+
+  test("closes with 1009 at the 1 MiB server JSON boundary", async () => {
+    const { client, socket } = await connectedClient();
+    const encoded = exactJsonBytes(
+      { t: "resync" },
+      MAX_SERVER_MESSAGE_BYTES,
+    );
+    const sentBefore = socket.sent.length;
+
+    socket.receiveRaw(encoded);
+
+    expect(socket.closedWith).toEqual({
+      code: 1009,
+      reason: "message too large",
+    });
+    expect(socket.sent).toHaveLength(sentBefore);
+    expect(client.session.get().status).toBe("unavailable");
+    expect(scheduledTimers.size).toBe(0);
+  });
+
+  test("acknowledges a terminal baseline only after xterm consumes it", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+
+    socket.receiveBinary(terminalFrame());
+    socket.receive({ t: "ack-request", nonce: "terminal-frame" });
+    await settle();
+
+    expect(terminal.sizes).toEqual([{ columns: 10, rows: 2 }]);
+    expect(new TextDecoder().decode(terminal.writes[0])).toBe("accepted\r\n");
+    expect(ackMessages(socket)).toEqual([]);
+
+    terminal.completions[0]?.();
+    await settle();
+
+    expect(ackMessages(socket)).toContainEqual({
+      t: "ack",
+      nonce: "terminal-frame",
+    });
+  });
+
+  test("keeps paced terminal input bounded behind a stalled xterm ACK", async () => {
+    let now = 40_000;
+    Date.now = () => now;
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "snapshot" });
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    socket.receiveBinary(terminalFrame());
+    socket.receive({ t: "ack-request", nonce: "stalled-terminal" });
+    await settle();
+    const binaryBefore = socket.sent.filter(
+      (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+    ).length;
+
+    expect(
+      client.sendTerminalData(
+        "workspace:1",
+        "surface:terminal",
+        "x".repeat(25 * MAX_TERMINAL_INPUT_BYTES),
+      ),
+    ).toBe(true);
+
+    expect(
+      socket.sent.filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      ),
+    ).toHaveLength(binaryBefore);
+    expect(scheduledTimers.size).toBe(0);
+
+    terminal.completions[0]?.();
+    await settle();
+
+    expect(ackMessages(socket).at(-1)).toEqual({
+      t: "ack",
+      nonce: "stalled-terminal",
+    });
+    expect(
+      socket.sent.filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      ),
+    ).toHaveLength(binaryBefore + 15);
+    expect(scheduledTimers.size).toBe(1);
+
+    now += 1_000;
+    await runOnlyTimer();
+    expect(
+      socket.sent.filter(
+        (message): message is ArrayBuffer => message instanceof ArrayBuffer,
+      ),
+    ).toHaveLength(binaryBefore + 25);
+  });
+
+  test("reconnects instead of growing deferred control traffic without bound", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "snapshot" });
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    socket.receiveBinary(terminalFrame());
+    socket.receive({ t: "ack-request", nonce: "stalled-terminal" });
+    await settle();
+
+    let accepted = 0;
+    while (client.sendChat(`queued-${accepted}`)) {
+      accepted += 1;
+    }
+
+    expect(accepted).toBe(80);
+    expect(socket.closedWith).toEqual({
+      code: 1013,
+      reason: "outbound backpressure",
+    });
+    expect(client.session.get().reconnecting).toBe(true);
+    expect(retryDelays()).toEqual([800]);
+  });
+
+  test("reserves relay byte headroom for a full terminal-input window", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "snapshot" });
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    socket.receiveBinary(terminalFrame());
+    socket.receive({ t: "ack-request", nonce: "stalled-terminal" });
+    await settle();
+
+    let accepted = 0;
+    while (client.sendChat("x".repeat(4_000))) {
+      accepted += 1;
+    }
+
+    expect(accepted).toBe(16);
+    expect(socket.closedWith).toEqual({
+      code: 1013,
+      reason: "outbound backpressure",
+    });
+  });
+
+  test("shares one bounded send budget across successive ACK barriers", async () => {
+    let now = 50_000;
+    Date.now = () => now;
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "snapshot" });
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    now += 1_000;
+    const sentBefore = socket.sent.length;
+
+    socket.receiveBinary(
+      terminalFrame({
+        payload: new TextEncoder().encode("baseline"),
+        sequenceStart: 0,
+        sequenceEnd: 0,
+      }),
+    );
+    socket.receive({ t: "ack-request", nonce: "first-terminal" });
+    await settle();
+    for (let index = 0; index < 60; index += 1) {
+      expect(client.sendChat(`first-${index}`)).toBe(true);
+    }
+    terminal.completions[0]?.();
+    await settle();
+
+    socket.receiveBinary(
+      terminalFrame({
+        kind: TERMINAL_KIND_OUTPUT,
+        payload: new Uint8Array([0x78]),
+        sequenceStart: 0,
+        sequenceEnd: 1,
+      }),
+    );
+    socket.receive({ t: "ack-request", nonce: "second-terminal" });
+    await settle();
+    let acceptedSecond = 0;
+    while (
+      acceptedSecond < 40 &&
+      client.sendChat(`second-${acceptedSecond}`)
+    ) {
+      acceptedSecond += 1;
+    }
+    expect(acceptedSecond).toBe(40);
+    expect(
+      client.sendTerminalData(
+        "workspace:1",
+        "surface:terminal",
+        "x".repeat(24 * MAX_TERMINAL_INPUT_BYTES),
+      ),
+    ).toBe(true);
+    terminal.completions[1]?.();
+    await settle();
+
+    const applicationMessages = (
+      messages: Array<string | ArrayBuffer>,
+    ): Array<string | ArrayBuffer> =>
+      messages.filter((message) => {
+        if (message instanceof ArrayBuffer) return true;
+        return (JSON.parse(message) as { t?: unknown }).t !== "ack";
+      });
+    const applicationBytes = (
+      messages: Array<string | ArrayBuffer>,
+    ): number =>
+      messages.reduce(
+        (total, message) =>
+          total +
+          (message instanceof ArrayBuffer
+            ? message.byteLength
+            : utf8ByteLength(message)),
+        0,
+      );
+    let window = applicationMessages(socket.sent.slice(sentBefore));
+    expect(window).toHaveLength(60);
+    expect(applicationBytes(window)).toBeLessThanOrEqual(256 * 1024);
+    expect(scheduledTimers.size).toBe(1);
+
+    now += 1_000;
+    const sentAfterFirstWindow = socket.sent.length;
+    await runOnlyTimer();
+    window = applicationMessages(socket.sent.slice(sentAfterFirstWindow));
+    expect(window.length).toBeLessThanOrEqual(60);
+    expect(applicationBytes(window)).toBeLessThanOrEqual(256 * 1024);
+    expect(scheduledTimers.size).toBe(1);
+
+    now += 1_000;
+    const sentAfterSecondWindow = socket.sent.length;
+    await runOnlyTimer();
+    window = applicationMessages(socket.sent.slice(sentAfterSecondWindow));
+    expect(window.length).toBeLessThanOrEqual(60);
+    expect(applicationBytes(window)).toBeLessThanOrEqual(256 * 1024);
+    expect(scheduledTimers.size).toBe(0);
+
+    expect(
+      applicationMessages(socket.sent.slice(sentBefore)),
+    ).toHaveLength(124);
+  });
+
+  test("retains all 128 delivery credits while xterm serially consumes frames", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "snapshot" });
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    const expectedNonces: string[] = [];
+
+    for (let index = 0; index < 128; index += 1) {
+      const nonce = `terminal-${index}`;
+      expectedNonces.push(nonce);
+      socket.receiveBinary(
+        index === 0
+          ? terminalFrame({
+              payload: new TextEncoder().encode("baseline"),
+              sequenceStart: 0,
+              sequenceEnd: 0,
+            })
+          : terminalFrame({
+              kind: TERMINAL_KIND_OUTPUT,
+              payload: new Uint8Array([0x61 + index % 26]),
+              sequenceStart: index - 1,
+              sequenceEnd: index,
+            }),
+      );
+      socket.receive({ t: "ack-request", nonce });
+    }
+    client.sendInput(
+      "workspace:1",
+      "surface:terminal",
+      "typed after the burst",
+    );
+    await settle();
+
+    expect(terminal.writes).toHaveLength(1);
+    expect(ackMessages(socket).map((message) => message.nonce)).toEqual([
+      "snapshot",
+    ]);
+
+    for (let index = 0; index < 128; index += 1) {
+      terminal.completions[index]?.();
+      await settle();
+      if (index < 127) expect(terminal.writes).toHaveLength(index + 2);
+    }
+
+    expect(
+      ackMessages(socket).slice(1).map((message) => message.nonce),
+    ).toEqual(expectedNonces);
+    expect(socket.messages().at(-1)).toEqual({
+      t: "input",
+      ws: "workspace:1",
+      pane: "surface:terminal",
+      data: "typed after the burst",
+    });
+  });
+
+  test("sends the resync ACK before deferred replay and FIFO user traffic", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "initial-snapshot" });
+    const sentBeforeResync = socket.sent.length;
+
+    socket.receive({ t: "resync" });
+    client.sendInput("workspace:1", "surface:terminal", "typed-before-ack");
+    client.sendChat("chat before ack");
+
+    expect(socket.sent).toHaveLength(sentBeforeResync);
+
+    socket.receive({ t: "ack-request", nonce: "resync-order" });
+
+    expect(socket.messages().slice(sentBeforeResync)).toEqual([
+      { t: "ack", nonce: "resync-order" },
+      { t: "focus", ws: "workspace:1" },
+      { t: "sub", ws: "workspace:1", pane: "surface:terminal" },
+      {
+        t: "input",
+        ws: "workspace:1",
+        pane: "surface:terminal",
+        data: "typed-before-ack",
+      },
+      { t: "chat", text: "chat before ack" },
+    ]);
+  });
+
+  test("invalid and orphan ACK markers flush no deferred messages", async () => {
+    const { socket } = await connectedClient();
+    const sentBeforeMarkers = socket.sent.length;
+
+    socket.receive({ t: "ack-request", nonce: "orphan" });
+    expect(socket.sent).toHaveLength(sentBeforeMarkers);
+
+    socket.receive(snapshot());
+    expect(socket.sent).toHaveLength(sentBeforeMarkers);
+
+    socket.receive({ t: "ack-request", nonce: "" });
+    socket.receive({ t: "ack-request", nonce: "after-invalid" });
+
+    expect(socket.sent).toHaveLength(sentBeforeMarkers);
+  });
+
+  test("a displaced payload drops the older payload's deferred messages", async () => {
+    const { client, socket } = await connectedClient();
+    const sentBeforeSnapshot = socket.sent.length;
+    socket.receive(snapshot());
+    client.sendInput("workspace:1", "surface:terminal", "drop this input");
+    client.sendChat("drop this chat");
+
+    socket.receive({
+      t: "presence",
+      participants: snapshot().participants,
+    });
+    socket.receive({ t: "ack-request", nonce: "newer-payload" });
+
+    expect(socket.messages().slice(sentBeforeSnapshot)).toEqual([
+      { t: "ack", nonce: "newer-payload" },
+    ]);
+  });
+
+  test("connection close discards deferred payload work", async () => {
+    const { client, socket } = await connectedClient();
+    const sentBeforeSnapshot = socket.sent.length;
+    socket.receive(snapshot());
+
+    socket.serverClose(1006);
+    socket.receive({ t: "ack-request", nonce: "after-close" });
+
+    expect(socket.sent).toHaveLength(sentBeforeSnapshot);
+    expect(retryDelays()).toEqual([800]);
+    client.stop();
+    expect(scheduledTimers.size).toBe(0);
+  });
+
+  test("stop discards deferred payload work before closing the socket", async () => {
+    const { client, socket } = await connectedClient();
+    const sentBeforeSnapshot = socket.sent.length;
+    socket.receive(snapshot());
+
+    client.stop();
+    socket.receive({ t: "ack-request", nonce: "after-stop" });
+
+    expect(socket.sent).toHaveLength(sentBeforeSnapshot);
+    expect(socket.closedWith).toEqual({ code: 1000, reason: "leaving" });
+    expect(scheduledTimers.size).toBe(0);
+  });
+
+  test("applies and acknowledges a terminal frame one byte below the 1 MiB limit", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    const frame = exactTerminalFrame(MAX_BINARY_MESSAGE_BYTES - 1);
+
+    socket.receiveBinary(frame);
+    socket.receive({ t: "ack-request", nonce: "near-limit-terminal" });
+    await settle();
+
+    expect(socket.closedWith).toBeNull();
+    expect(terminal.writes).toHaveLength(1);
+    expect(ackMessages(socket)).toEqual([]);
+
+    terminal.completions[0]?.();
+    await settle();
+
+    expect(ackMessages(socket)).toContainEqual({
+      t: "ack",
+      nonce: "near-limit-terminal",
+    });
+  });
+
+  test("closes with 1009 at the exact 1 MiB binary boundary", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+
+    socket.receiveBinary(new Uint8Array(MAX_BINARY_MESSAGE_BYTES));
+
+    expect(socket.closedWith).toEqual({
+      code: 1009,
+      reason: "binary message too large",
+    });
+    expect(ackMessages(socket)).toEqual([]);
+    expect(client.session.get().status).toBe("unavailable");
+    expect(scheduledTimers.size).toBe(0);
+  });
+
+  test("closes with 1009 above the 1 MiB binary boundary", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+
+    socket.receiveBinary(new Uint8Array(MAX_BINARY_MESSAGE_BYTES + 1).buffer);
+
+    expect(socket.closedWith).toEqual({
+      code: 1009,
+      reason: "binary message too large",
+    });
+    expect(ackMessages(socket)).toEqual([]);
+    expect(client.session.get().status).toBe("unavailable");
+    expect(scheduledTimers.size).toBe(0);
+  });
+
+  test("rejects malformed terminal headers, UTF-8 ids, and frame kinds without ACKs", async () => {
+    const { socket } = await connectedClient();
+    socket.receive(snapshot());
+    const malformedHeader = new Uint8Array([0x43, 0x4d, 0x58]);
+    const malformedUtf8 = terminalFrame();
+    malformedUtf8[TERMINAL_HEADER_BYTES] = 0xff;
+    const unknownKind = terminalFrame();
+    unknownKind[5] = 0x7f;
+
+    for (const [nonce, frame] of [
+      ["bad-header", malformedHeader],
+      ["bad-utf8", malformedUtf8],
+      ["bad-kind", unknownKind],
+    ] as const) {
+      socket.receiveBinary(frame);
+      socket.receive({ t: "ack-request", nonce });
+    }
+
+    expect(socket.closedWith).toBeNull();
+    expect(ackMessages(socket)).toEqual([]);
+  });
+
+  test("reconnect sends only hello until snapshot ACK precedes rebuilt focus and subs", async () => {
+    const { socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "initial" });
+    socket.serverClose(1006);
+    await runOnlyTimer();
+    const reconnected = FakeWebSocket.instances[1];
+    expect(reconnected).toBeDefined();
+    reconnected?.open();
+
+    expect(reconnected?.messages()).toEqual([{ t: "hello", proto: 2 }]);
+    reconnected?.receive({ t: "ack-request", nonce: "orphaned" });
+    expect(reconnected?.messages()).toEqual([{ t: "hello", proto: 2 }]);
+
+    reconnected?.receive(snapshot());
+    expect(reconnected?.messages()).toEqual([{ t: "hello", proto: 2 }]);
+    reconnected?.receive({ t: "ack-request", nonce: "after-snapshot" });
+
+    expect(reconnected?.messages()).toEqual([
+      { t: "hello", proto: 2 },
+      { t: "ack", nonce: "after-snapshot" },
+      { t: "sub", ws: "workspace:1", pane: "surface:terminal" },
+      { t: "focus", ws: "workspace:1" },
+    ]);
+  });
+
+  test("rejects malformed bounded nonces", async () => {
+    const { socket } = await connectedClient();
+    socket.receive(snapshot());
+    for (const nonce of [
+      "",
+      "x".repeat(65),
+      "bad\u0085nonce",
+      "🙂".repeat(17),
+      42,
+    ]) {
+      socket.receive({ t: "resync" });
+      socket.receive({ t: "ack-request", nonce });
+    }
+
+    expect(ackMessages(socket)).toEqual([]);
+  });
+
+  test("does not acknowledge rejected or unknown payloads", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    const before = client.session.get();
+
+    socket.receiveBinary(new Uint8Array([0x43, 0x4d, 0x58]));
+    socket.receive({ t: "ack-request", nonce: "bad-terminal" });
+    expect(ackMessages(socket)).toEqual([]);
+
+    socket.receive({ t: "role-changed", role: "owner" });
+    socket.receive({ t: "ack-request", nonce: "bad-json" });
+    expect(client.session.get()).toBe(before);
+    expect(ackMessages(socket)).toEqual([]);
+
+    socket.receive({ t: "future-control", value: true });
+    socket.receive({ t: "ack-request", nonce: "unknown-control" });
+    expect(ackMessages(socket)).toEqual([]);
+  });
+});
+
+describe("ShareClient WebSocket close handling", () => {
+  for (const code of [4400, 1002, 1008, 1009]) {
+    test(`treats protocol close ${code} as terminal unavailable`, async () => {
+      const { client, socket } = await connectedClient();
+      socket.receive(snapshot());
+
+      socket.serverClose(code);
+
+      expect(client.session.get().status).toBe("unavailable");
+      expect(scheduledTimers.size).toBe(0);
+      client.stop();
+      expect(scheduledTimers.size).toBe(0);
+      expect(socket.closeCalls).toBe(1);
+    });
+  }
+
+  for (const reason of ["delivery_failed", "server_message_too_large"]) {
+    test(`treats the ${reason} invariant close as terminal unavailable`, async () => {
+      const { client, socket } = await connectedClient();
+      socket.receive(snapshot());
+
+      socket.serverClose(1011, reason);
+
+      expect(client.session.get().status).toBe("unavailable");
+      expect(scheduledTimers.size).toBe(0);
+    });
+  }
+
+  test("does not trust an unauthenticated close reason as an auth decision", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+
+    socket.serverClose(1011, "denied");
+
+    expect(client.session.get().status).toBe("active");
+    expect(client.session.get().reconnecting).toBe(true);
+    expect(retryDelays()).toEqual([800]);
+    client.stop();
+    expect(scheduledTimers.size).toBe(0);
+  });
+
+  test("escalates and caps retries across immediate slow-client and capacity closes", async () => {
+    const { client, socket: firstSocket } = await connectedClient();
+    let socket = firstSocket;
+    const closes = [
+      { code: 4008, reason: "slow_client", delay: 800 },
+      { code: 4429, reason: "session_full", delay: 1_600 },
+      { code: 4008, reason: "rate_limited", delay: 3_200 },
+      { code: 4429, reason: "pending_full", delay: 6_400 },
+      { code: 4008, reason: "slow_client", delay: 10_000 },
+      { code: 4429, reason: "session_full", delay: 10_000 },
+    ];
+
+    for (let index = 0; index < closes.length; index += 1) {
+      const close = closes[index] as (typeof closes)[number];
+      socket.serverClose(close.code, close.reason);
+      expect(retryDelays()).toEqual([close.delay]);
+      if (index < closes.length - 1) {
+        await runOnlyTimer();
+        const reconnected = FakeWebSocket.instances[index + 1];
+        expect(reconnected).toBeDefined();
+        socket = reconnected as FakeWebSocket;
+        socket.open();
+      }
+    }
+
+    client.stop();
+    expect(scheduledTimers.size).toBe(0);
+    expect(FakeWebSocket.instances).toHaveLength(closes.length);
+  });
+
+  test("resets close backoff only after an accepted active snapshot", async () => {
+    const { client, socket: firstSocket } = await connectedClient();
+    firstSocket.serverClose(4008, "slow_client");
+    expect(retryDelays()).toEqual([800]);
+
+    await runOnlyTimer();
+    const secondSocket = FakeWebSocket.instances[1] as FakeWebSocket;
+    secondSocket.open();
+    secondSocket.serverClose(4008, "slow_client");
+    expect(retryDelays()).toEqual([1_600]);
+
+    await runOnlyTimer();
+    const stableSocket = FakeWebSocket.instances[2] as FakeWebSocket;
+    stableSocket.open();
+    stableSocket.receive(snapshot());
+    stableSocket.serverClose(4008, "slow_client");
+
+    expect(retryDelays()).toEqual([800]);
+    client.stop();
+    expect(scheduledTimers.size).toBe(0);
+  });
+});
+
+describe("ShareClient terminal server states", () => {
+  for (const terminal of [
+    {
+      name: "denial",
+      message: { t: "access-denied" },
+      status: "denied",
+    },
+    {
+      name: "kick",
+      message: { t: "kicked" },
+      status: "kicked",
+    },
+    {
+      name: "session end",
+      message: { t: "session-ended", reason: "host-stopped" },
+      status: "ended",
+    },
+  ] as const) {
+    test(`does not reconnect after ${terminal.name}`, async () => {
+      const { client, socket } = await connectedClient();
+      socket.receive(snapshot());
+
+      socket.receive(terminal.message);
+      socket.serverClose(1006);
+
+      expect(client.session.get().status).toBe(terminal.status);
+      expect(client.session.get().reconnecting).toBe(false);
+      expect(retryDelays()).toEqual([]);
+    });
+  }
+});

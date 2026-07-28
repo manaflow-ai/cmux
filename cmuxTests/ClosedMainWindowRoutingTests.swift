@@ -161,6 +161,41 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.focusMainWindow(windowId: windowCId))
     }
+
+    @Test("Closing the owner window stops only its share session")
+    func closingOwnerWindowStopsOnlyItsShareSession() {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let ownerWindowID = UUID()
+        let otherWindowID = UUID()
+        let ownerManager = TabManager()
+        let otherManager = TabManager()
+
+        app.registerMainWindowContextForTesting(
+            windowId: ownerWindowID,
+            tabManager: ownerManager
+        )
+        app.registerMainWindowContextForTesting(
+            windowId: otherWindowID,
+            tabManager: otherManager
+        )
+        app.shareSessionController.bindOwnerForWindowLifecycleTesting(
+            ownerManager
+        )
+
+        #expect(app.shareSessionController.isSharing)
+        app.unregisterMainWindowContextForTesting(windowId: otherWindowID)
+        #expect(app.shareSessionController.isSharing)
+
+        app.unregisterMainWindowContextForTesting(windowId: ownerWindowID)
+        #expect(!app.shareSessionController.isSharing)
+    }
 }
 
 @MainActor

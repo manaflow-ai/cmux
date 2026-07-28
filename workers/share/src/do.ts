@@ -1,0 +1,601 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// ShareSession Durable Object: one instance per share code.
+//
+// Thin wiring only — all protocol decisions live in the pure core
+// (src/session.ts). This class owns WebSockets (hibernation API), storage,
+// and the alarm, and executes the core's effects. Authorization happened in
+// the worker (src/index.ts): by the time a request reaches this object, the
+// share token was verified and the caller's identity arrives in x-share-*
+// headers. The DO id is derived from the verified code claim, so a token for
+// one session can never reach another session's object.
+
+import { DurableObject } from "cloudflare:workers";
+
+import {
+  decodeClientJson,
+  isIdentityEmail,
+  isProtocolId,
+  MAX_JSON_FRAME_BYTES,
+  parseAckMessage,
+  parseGuestMessage,
+  parseHostMessage,
+  utf8ByteLength,
+} from "./protocol";
+import {
+  createSocketAttachment,
+  DELIVERY_FAILURE_CLOSE_CODE,
+  DELIVERY_FAILURE_CLOSE_REASON,
+  dispatchEffects,
+  hasPersistedSocketSubscription,
+  MAX_SOCKET_BUFFERED_BYTES,
+  parseSocketAttachment,
+  persistSocketSubscription,
+  releaseDeliveryCredit,
+  serializeSocketAttachment,
+  type ShareSocketAttachment,
+} from "./outbound";
+import { ApplicationIngressLimiter, validateBinaryIngress } from "./ingress";
+import type { Effect } from "./session";
+import {
+  RATE_LIMIT_CLOSE_CODE,
+  RATE_LIMIT_CLOSE_REASON,
+  restorePersistedSession,
+  ShareSessionCore,
+} from "./session";
+
+export { MAX_SOCKET_BUFFERED_BYTES };
+
+const SESSION_KEY = "session";
+
+export interface ShareWorkerEnv {
+  SHARE_SESSION: DurableObjectNamespace<ShareSession>;
+  /** SPKI PEM for the web API's Ed25519 share-token signing key. */
+  SHARE_JWT_PUBLIC_KEY?: string;
+  WORKER_VERSION_METADATA: {
+    id: string;
+    tag: string;
+    timestamp: string;
+  };
+}
+
+export class ShareSession extends DurableObject<ShareWorkerEnv> {
+  private core: ShareSessionCore | null = null;
+  private sockets = new Map<string, WebSocket>();
+  private attachments = new Map<string, ShareSocketAttachment>();
+  private readonly ingress = new ApplicationIngressLimiter();
+  private restored = false;
+
+  constructor(ctx: DurableObjectState, env: ShareWorkerEnv) {
+    super(ctx, env);
+    // Storage and hibernating socket reconstruction must complete under the
+    // input gate. Otherwise two events can both observe an empty in-memory
+    // core across the first storage await and overwrite each other's restore.
+    ctx.blockConcurrencyWhile(async () => {
+      await this.restoreCore();
+    });
+  }
+
+  override async fetch(request: Request): Promise<Response> {
+    const user = request.headers.get("x-share-user");
+    const email = request.headers.get("x-share-email") ?? "";
+    const isHost = request.headers.get("x-share-host") === "1";
+    const isCreate = request.headers.get("x-share-create") === "1";
+    const code = request.headers.get("x-share-code");
+    if (!isProtocolId(user) || !isIdentityEmail(email) || !isProtocolId(code)) {
+      return new Response("bad gateway headers", { status: 400 });
+    }
+
+    let core = await this.ensureCore();
+    if (request.method === "DELETE") {
+      if (!isHost) return new Response("host required", { status: 403 });
+      if (!core) return new Response("no such session", { status: 404 });
+      if (core.persisted.host.user !== user) {
+        return new Response("not the session host", { status: 403 });
+      }
+      await this.apply(core.endByHost(user, Date.now()));
+      return new Response(null, { status: 204 });
+    }
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      return new Response("expected websocket", { status: 426 });
+    }
+    if (!core) {
+      // Only a create-endpoint token materializes a session: a host-claim
+      // refresh token reconnects to an existing session but can never squat
+      // a code its holder did not mint.
+      if (!isHost || !isCreate) return new Response("no such session", { status: 404 });
+      const persisted = ShareSessionCore.create(code, { user, email }, Date.now());
+      await this.ctx.storage.put(SESSION_KEY, persisted);
+      core = new ShareSessionCore(persisted);
+      this.core = core;
+    }
+    if (isHost && core.persisted.host.user !== user) {
+      // A host-claim token for a code that already belongs to someone else.
+      // Codes are minted server-side with ~125 bits of entropy, so this is
+      // token misuse, not a collision.
+      return new Response("not the session host", { status: 403 });
+    }
+
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    const attachment = createSocketAttachment({
+      connId: crypto.randomUUID(),
+      user,
+      email,
+      host: isHost,
+    });
+    this.ctx.acceptWebSocket(server);
+    try {
+      server.serializeAttachment(serializeSocketAttachment(attachment));
+    } catch {
+      try {
+        server.close(DELIVERY_FAILURE_CLOSE_CODE, DELIVERY_FAILURE_CLOSE_REASON);
+      } catch {
+        // Already closed.
+      }
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    this.sockets.set(attachment.connId, server);
+    this.attachments.set(attachment.connId, attachment);
+    const connectEffects = core.connect(
+      attachment.connId,
+      { user, email, hostToken: isHost },
+      Date.now(),
+    );
+    this.logLifecycle("socket_connect", {
+      host: isHost ? 1 : 0,
+      socketCount: this.sockets.size,
+      attachmentCount: this.attachments.size,
+      outboundPayloadCount: connectEffects.filter(
+        (effect) => effect.kind === "send" || effect.kind === "sendBinary",
+      ).length,
+      hostPayloadCount: connectEffects.filter((effect) => {
+        if (effect.kind !== "send" && effect.kind !== "sendBinary") return false;
+        return this.attachments.get(effect.to)?.host === true;
+      }).length,
+    });
+    await this.apply(connectEffects);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    const core = await this.ensureCore();
+    const attachment = this.attachment(ws);
+    if (!core || !attachment) {
+      ws.close(1011, "session unavailable");
+      return;
+    }
+    const isHost = attachment.host && core.persisted.host.user === attachment.user;
+    if (typeof message !== "string") {
+      if (!this.sockets.has(attachment.connId)) return;
+      const bytes = new Uint8Array(message);
+      const receivedAt = Date.now();
+      if (
+        !isHost &&
+        !this.ingress.consume(attachment.connId, bytes.byteLength, receivedAt)
+      ) {
+        await this.closeProtocolSocket(
+          ws,
+          attachment,
+          core,
+          RATE_LIMIT_CLOSE_CODE,
+          RATE_LIMIT_CLOSE_REASON,
+        );
+        return;
+      }
+      const decision = validateBinaryIngress(isHost, bytes);
+      if (!decision.ok) {
+        await this.closeProtocolSocket(
+          ws,
+          attachment,
+          core,
+          decision.code,
+          decision.reason,
+        );
+        return;
+      }
+      if (
+        !isHost &&
+        !core.hasSubscription(
+          attachment.connId,
+          decision.header.ws,
+          decision.header.pane,
+        )
+      ) {
+        // SHA-256 is non-storage async work. Hold the DO input gate only for
+        // this rare wake path so a later unsub/input event cannot overtake the
+        // attachment check or the restored subscription.
+        await this.ctx.blockConcurrencyWhile(async () => {
+          try {
+            if (this.sockets.get(attachment.connId) !== ws) return;
+            if (
+              !core.hasSubscription(
+                attachment.connId,
+                decision.header.ws,
+                decision.header.pane,
+              ) &&
+              await hasPersistedSocketSubscription(
+                attachment,
+                decision.header.ws,
+                decision.header.pane,
+              )
+            ) {
+              await this.apply(
+                core.restoreSubscription(
+                  attachment.connId,
+                  decision.header.ws,
+                  decision.header.pane,
+                  receivedAt,
+                ),
+              );
+            }
+            await this.apply(
+              core.routeBinary(
+                attachment.connId,
+                decision.header.ws,
+                decision.header.pane,
+                bytes,
+                decision.header.kind,
+                receivedAt,
+              ),
+            );
+          } catch {
+            this.logInvariant("wake_subscription_restore_failed", {});
+          }
+        });
+        return;
+      }
+      await this.apply(
+        core.routeBinary(
+          attachment.connId,
+          decision.header.ws,
+          decision.header.pane,
+          bytes,
+          decision.header.kind,
+          receivedAt,
+        ),
+      );
+      return;
+    }
+    const receivedAt = Date.now();
+    const messageBytes = utf8ByteLength(message);
+    const ingressAccepted =
+      isHost || this.ingress.consume(attachment.connId, messageBytes, receivedAt);
+    if (message.length >= MAX_JSON_FRAME_BYTES || messageBytes >= MAX_JSON_FRAME_BYTES) {
+      if (!this.sockets.has(attachment.connId)) return;
+      await this.closeProtocolSocket(ws, attachment, core, 1009, "JSON message too large");
+      return;
+    }
+    const decoded = decodeClientJson(message);
+    if (decoded === null) {
+      if (!this.sockets.has(attachment.connId)) return;
+      if (!ingressAccepted) {
+        await this.closeProtocolSocket(
+          ws,
+          attachment,
+          core,
+          RATE_LIMIT_CLOSE_CODE,
+          RATE_LIMIT_CLOSE_REASON,
+        );
+        return;
+      }
+      await this.closeProtocolSocket(ws, attachment, core, 4400, "invalid protocol message");
+      return;
+    }
+    const ack = parseAckMessage(decoded);
+    if (ack) {
+      const result = releaseDeliveryCredit(ws, attachment, ack.nonce);
+      if (result === "released" && !isHost && ingressAccepted) {
+        this.ingress.refund(attachment.connId, messageBytes, receivedAt);
+      }
+      if (result === "serialization-failed") {
+        this.logInvariant("delivery_ack_serialize_failed", {});
+        await this.closeProtocolSocket(
+          ws,
+          attachment,
+          core,
+          DELIVERY_FAILURE_CLOSE_CODE,
+          DELIVERY_FAILURE_CLOSE_REASON,
+        );
+      }
+      if (result === "ignored" && !ingressAccepted && this.sockets.has(attachment.connId)) {
+        await this.closeProtocolSocket(
+          ws,
+          attachment,
+          core,
+          RATE_LIMIT_CLOSE_CODE,
+          RATE_LIMIT_CLOSE_REASON,
+        );
+      }
+      return;
+    }
+    if (!this.sockets.has(attachment.connId)) return;
+    if (!ingressAccepted) {
+      await this.closeProtocolSocket(
+        ws,
+        attachment,
+        core,
+        RATE_LIMIT_CLOSE_CODE,
+        RATE_LIMIT_CLOSE_REASON,
+      );
+      return;
+    }
+    const rejectInvalid = async (): Promise<void> => {
+      await this.apply([
+        {
+          kind: "send",
+          to: attachment.connId,
+          msg: {
+            t: "error",
+            code: "invalid_message",
+            message: "invalid protocol message",
+          },
+        },
+      ]);
+      // A backpressured error send already closed the socket as slow_client.
+      if (!this.sockets.has(attachment.connId)) return;
+      await this.closeProtocolSocket(ws, attachment, core, 4400, "invalid protocol message");
+    };
+    if (isHost) {
+      const parsed = parseHostMessage(decoded);
+      if (!parsed) {
+        await rejectInvalid();
+        return;
+      }
+      await this.apply(core.handleHost(attachment.connId, parsed));
+    } else {
+      const parsed = parseGuestMessage(decoded);
+      if (!parsed) {
+        await rejectInvalid();
+        return;
+      }
+      if (
+        parsed.t === "sub" ||
+        parsed.t === "unsub"
+      ) {
+        // Preserve same-socket message order across Web Crypto. This gate is
+        // held only for rare sub mutations, never the steady-state terminal
+        // data path.
+        await this.ctx.blockConcurrencyWhile(async () => {
+          try {
+            if (this.sockets.get(attachment.connId) !== ws) return;
+            await this.apply(core.handleGuest(attachment.connId, parsed));
+            if (this.sockets.get(attachment.connId) !== ws) return;
+            const result = await persistSocketSubscription(
+              ws,
+              attachment,
+              parsed.ws,
+              parsed.pane,
+              core.hasSubscription(
+                attachment.connId,
+                parsed.ws,
+                parsed.pane,
+              ),
+            );
+            if (
+              result === "serialization-failed" ||
+              result === "limit" ||
+              result === "invalid"
+            ) {
+              this.logInvariant("subscription_attachment_update_failed", {
+                result,
+              });
+              await this.closeProtocolSocket(
+                ws,
+                attachment,
+                core,
+                DELIVERY_FAILURE_CLOSE_CODE,
+                DELIVERY_FAILURE_CLOSE_REASON,
+              );
+            }
+          } catch {
+            this.logInvariant("subscription_update_failed", {});
+            if (this.sockets.get(attachment.connId) === ws) {
+              try {
+                await this.closeProtocolSocket(
+                  ws,
+                  attachment,
+                  core,
+                  DELIVERY_FAILURE_CLOSE_CODE,
+                  DELIVERY_FAILURE_CLOSE_REASON,
+                );
+              } catch {
+                try {
+                  ws.close(
+                    DELIVERY_FAILURE_CLOSE_CODE,
+                    DELIVERY_FAILURE_CLOSE_REASON,
+                  );
+                } catch {
+                  // Already closed.
+                }
+              }
+            }
+          }
+        });
+      } else {
+        await this.apply(core.handleGuest(attachment.connId, parsed));
+      }
+    }
+  }
+
+  override async webSocketClose(ws: WebSocket): Promise<void> {
+    const core = await this.ensureCore();
+    const attachment = this.attachment(ws);
+    if (!core || !attachment) return;
+    if (!this.sockets.has(attachment.connId)) return;
+    this.sockets.delete(attachment.connId);
+    this.attachments.delete(attachment.connId);
+    this.ingress.remove(attachment.connId);
+    this.logLifecycle("socket_disconnect", {
+      host: attachment.host ? 1 : 0,
+      socketCount: this.sockets.size,
+      attachmentCount: this.attachments.size,
+    });
+    await this.apply(core.disconnect(attachment.connId, Date.now()));
+  }
+
+  override async webSocketError(ws: WebSocket): Promise<void> {
+    await this.webSocketClose(ws);
+  }
+
+  override async alarm(): Promise<void> {
+    const core = await this.ensureCore();
+    if (!core) return;
+    await this.apply(core.alarm(Date.now()));
+  }
+
+  /**
+   * Load the core from storage, re-registering any sockets that survived
+   * hibernation/eviction. Clients are asked to `resync` volatile state.
+   */
+  private async ensureCore(): Promise<ShareSessionCore | null> {
+    if (!this.restored) {
+      await this.ctx.blockConcurrencyWhile(async () => {
+        if (!this.restored) await this.restoreCore();
+      });
+    }
+    return this.core;
+  }
+
+  /** Rebuilds durable and per-socket state while the DO input gate is closed. */
+  private async restoreCore(): Promise<void> {
+    if (this.restored) return;
+    if (!this.core) {
+      const stored = await this.ctx.storage.get<unknown>(SESSION_KEY);
+      if (stored !== undefined) {
+        const persisted = restorePersistedSession(stored);
+        if (!persisted) throw new Error("invalid persisted share session");
+        this.core = new ShareSessionCore(persisted);
+      }
+    }
+    this.restored = true;
+    const survivors: Array<{ id: string; user: string; email: string; hostToken: boolean }> =
+      [];
+    let restoredOutstandingAckEntries = 0;
+    const seen = new Set<string>();
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = this.attachment(ws);
+      if (!attachment || seen.has(attachment.connId)) {
+        ws.close(1011, "lost attachment");
+        continue;
+      }
+      seen.add(attachment.connId);
+      // Sockets accepted in this instance's lifetime are already registered.
+      if (this.sockets.has(attachment.connId)) continue;
+      try {
+        // Canonicalize legacy attachments and prove the full credit window
+        // remains serializable before restoring the socket into the core.
+        ws.serializeAttachment(serializeSocketAttachment(attachment));
+      } catch {
+        ws.close(DELIVERY_FAILURE_CLOSE_CODE, DELIVERY_FAILURE_CLOSE_REASON);
+        continue;
+      }
+      this.sockets.set(attachment.connId, ws);
+      this.attachments.set(attachment.connId, attachment);
+      restoredOutstandingAckEntries += attachment.outstanding.length;
+      survivors.push({
+        id: attachment.connId,
+        user: attachment.user,
+        email: attachment.email,
+        hostToken: attachment.host,
+      });
+    }
+    if (survivors.length > 0) {
+      this.logLifecycle("hibernation_restore", {
+        survivorSocketCount: survivors.length,
+        outstandingAckEntryCount: restoredOutstandingAckEntries,
+      });
+    }
+    if (this.core && (survivors.length > 0 || this.core.ended)) {
+      // Restore traffic uses the same serialized, attachment-backed credit
+      // window as every other delivery. Existing credit remains charged. A
+      // saturated survivor is closed independently and reconnects for a fresh
+      // snapshot instead of accumulating volatile work in the Durable Object.
+      await this.apply(this.core.restore(survivors, Date.now()));
+    } else if (!this.core && survivors.length > 0) {
+      for (const survivor of survivors) {
+        const ws = this.sockets.get(survivor.id);
+        try {
+          ws?.close(1011, "session unavailable");
+        } catch {
+          // Already closed.
+        }
+        this.sockets.delete(survivor.id);
+        this.attachments.delete(survivor.id);
+        this.ingress.remove(survivor.id);
+      }
+    }
+  }
+
+  private attachment(ws: WebSocket): ShareSocketAttachment | null {
+    try {
+      const parsed = parseSocketAttachment(ws.deserializeAttachment());
+      return parsed ? (this.attachments.get(parsed.connId) ?? parsed) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async closeProtocolSocket(
+    ws: WebSocket,
+    attachment: ShareSocketAttachment,
+    core: ShareSessionCore,
+    code: number,
+    reason: string,
+  ): Promise<void> {
+    this.sockets.delete(attachment.connId);
+    this.attachments.delete(attachment.connId);
+    this.ingress.remove(attachment.connId);
+    await this.apply(core.disconnect(attachment.connId, Date.now()));
+    try {
+      ws.close(code, reason);
+    } catch {
+      // Already closed.
+    }
+  }
+
+  private async apply(effects: Effect[]): Promise<void> {
+    await dispatchEffects(effects, {
+      core: this.core,
+      sockets: this.sockets,
+      attachments: this.attachments,
+      now: () => Date.now(),
+      randomUUID: () => crypto.randomUUID(),
+      persist: async (session) => this.ctx.storage.put(SESSION_KEY, session),
+      setAlarm: async (at) => this.ctx.storage.setAlarm(at),
+      clearAlarm: async () => this.ctx.storage.deleteAlarm(),
+      deleteAllStorage: async () => {
+        await this.ctx.storage.deleteAll();
+        for (const id of new Set([
+          ...this.sockets.keys(),
+          ...this.attachments.keys(),
+        ])) {
+          this.ingress.remove(id);
+        }
+        this.sockets.clear();
+        this.attachments.clear();
+        this.core = null;
+        this.restored = false;
+      },
+      removeSocketState: (id) => this.ingress.remove(id),
+      logInvariant: (event, details) => this.logInvariant(event, details),
+    });
+  }
+
+  private logInvariant(
+    event: string,
+    details: Readonly<Record<string, number | string>>,
+  ): void {
+    // Deliberately omit payloads, share codes, connection ids, and identities.
+    console.error(JSON.stringify({ scope: "share_delivery", event, ...details }));
+  }
+
+  private logLifecycle(
+    event: string,
+    details: Readonly<Record<string, number>>,
+  ): void {
+    // Only bounded aggregate counts are permitted here. Session codes,
+    // connection ids, identities, routing ids, and payloads are excluded.
+    console.info(JSON.stringify({ scope: "share_lifecycle", event, ...details }));
+  }
+}

@@ -57,8 +57,21 @@ final class MobileTerminalByteTee {
     private var laneContinuationsBySurfaceID: [
         UUID: [UUID: AsyncStream<OutputChunk>.Continuation]
     ] = [:]
+    private struct RawOutputBarrierState: Sendable {
+        var subscriberCount = 0
+        var pendingPublications = 0
+        var awaitsPostParseTick = false
+    }
+
     nonisolated private let laneSubscriberCount = OSAllocatedUnfairLock(initialState: 0)
     nonisolated private let laneDemand = AtomicBooleanGate(false)
+    /// The PTY callback increments `pendingPublications` synchronously before
+    /// Ghostty parses the bytes. Baseline capture can therefore prove that all
+    /// pre-snapshot bytes reached the main actor and that a later Ghostty tick
+    /// completed before assigning the snapshot's byte cursor.
+    nonisolated private let rawOutputBarriers = OSAllocatedUnfairLock(
+        initialState: [UUID: RawOutputBarrierState]()
+    )
     private let replayBudget: Int = 256 * 1024
     /// Serial queue so fan-out preserves byte order even though the
     /// upstream callback runs off the main thread.
@@ -96,9 +109,22 @@ final class MobileTerminalByteTee {
         }
         guard let base = bytes.baseAddress, bytes.count > 0 else { return }
         let copy = Data(bytes: base, count: bytes.count)
+        let tracksRawOutputBarrier = rawOutputBarriers.withLock { barriers in
+            guard var barrier = barriers[surfaceID],
+                  barrier.subscriberCount > 0 else {
+                return false
+            }
+            barrier.pendingPublications += 1
+            barriers[surfaceID] = barrier
+            return true
+        }
         publishQueue.async { [weak self] in
             Task { @MainActor [weak self] in
-                self?.publishFromMain(surfaceID: surfaceID, data: copy)
+                self?.publishFromMain(
+                    surfaceID: surfaceID,
+                    data: copy,
+                    tracksRawOutputBarrier: tracksRawOutputBarrier
+                )
             }
         }
     }
@@ -143,11 +169,48 @@ final class MobileTerminalByteTee {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingOldest(64)) { continuation in
             laneContinuationsBySurfaceID[surfaceID, default: [:]][id] = continuation
+            rawOutputBarriers.withLock { barriers in
+                var barrier = barriers[surfaceID] ?? RawOutputBarrierState()
+                barrier.subscriberCount += 1
+                barriers[surfaceID] = barrier
+            }
             laneSubscriberCount.withLock { $0 += 1 }
             laneDemand.storeRelease(true)
             continuation.onTermination = { @Sendable [weak self] _ in
                 Task { @MainActor in
                     self?.removeLaneContinuation(id: id, surfaceID: surfaceID)
+                }
+            }
+        }
+    }
+
+    /// Returns the byte cursor only after every PTY callback captured before
+    /// this point has reached the main actor and a subsequent Ghostty tick has
+    /// run. Call again after snapshot export to close the callback race.
+    func rawOutputBaselineSequenceIfReady(surfaceID: UUID) -> UInt64? {
+        let ready = rawOutputBarriers.withLock { barriers in
+            guard let barrier = barriers[surfaceID] else { return false }
+            return barrier.subscriberCount > 0
+                && barrier.pendingPublications == 0
+                && !barrier.awaitsPostParseTick
+        }
+        guard ready else { return nil }
+        return statesBySurfaceID[surfaceID]?.seq ?? 0
+    }
+
+    /// `ghosttyDidTick` is posted after `ghostty_app_tick` returns. Clearing
+    /// this bit there proves that output already published on the main actor
+    /// has crossed the parser barrier before a baseline snapshots the grid.
+    func noteRawOutputPostParseTick() {
+        rawOutputBarriers.withLock { barriers in
+            for surfaceID in Array(barriers.keys) {
+                guard var barrier = barriers[surfaceID] else { continue }
+                barrier.awaitsPostParseTick = false
+                if barrier.subscriberCount == 0,
+                   barrier.pendingPublications == 0 {
+                    barriers.removeValue(forKey: surfaceID)
+                } else {
+                    barriers[surfaceID] = barrier
                 }
             }
         }
@@ -168,9 +231,16 @@ final class MobileTerminalByteTee {
                 continuation.finish()
             }
         }
+        rawOutputBarriers.withLock { barriers in
+            barriers.removeValue(forKey: surfaceID)
+        }
     }
 
-    private func publishFromMain(surfaceID: UUID, data: Data) {
+    private func publishFromMain(
+        surfaceID: UUID,
+        data: Data,
+        tracksRawOutputBarrier: Bool
+    ) {
         var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
         let chunkSeq = state.seq
         state.seq &+= UInt64(data.count)
@@ -193,6 +263,21 @@ final class MobileTerminalByteTee {
             for id in droppedIDs {
                 removeLaneContinuation(id: id, surfaceID: surfaceID)
             }
+        }
+
+        if tracksRawOutputBarrier {
+            rawOutputBarriers.withLock { barriers in
+                guard var barrier = barriers[surfaceID] else { return }
+                barrier.pendingPublications = max(
+                    0,
+                    barrier.pendingPublications - 1
+                )
+                barrier.awaitsPostParseTick = true
+                barriers[surfaceID] = barrier
+            }
+            // The tee callback runs before Ghostty parses these bytes. The
+            // notification after this tick is the baseline parser barrier.
+            GhosttyApp.shared.scheduleTick()
         }
 
         // The render-grid path (the primary mobile path) only needs the seq
@@ -226,6 +311,17 @@ final class MobileTerminalByteTee {
         let remainingCount = laneSubscriberCount.withLock { count in
             count = max(0, count - 1)
             return count
+        }
+        rawOutputBarriers.withLock { barriers in
+            guard var barrier = barriers[surfaceID] else { return }
+            barrier.subscriberCount = max(0, barrier.subscriberCount - 1)
+            if barrier.subscriberCount == 0,
+               barrier.pendingPublications == 0,
+               !barrier.awaitsPostParseTick {
+                barriers.removeValue(forKey: surfaceID)
+            } else {
+                barriers[surfaceID] = barrier
+            }
         }
         laneDemand.storeRelease(remainingCount > 0)
     }

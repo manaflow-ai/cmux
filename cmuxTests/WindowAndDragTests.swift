@@ -3958,4 +3958,15 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         )
     }
 }
+
+@MainActor
+final class DocumentControllerLaunchPolicyTests: XCTestCase {
+    func testSharedDocumentControllerDoesNotPublishRecentDocuments() {
+        XCTAssertEqual(
+            NSDocumentController.shared.maximumRecentDocumentCount,
+            0,
+            "cmux owns file and folder opening, so AppKit must not build an unused Open Recent menu"
+        )
+    }
+}
 #endif

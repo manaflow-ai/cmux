@@ -1,0 +1,26 @@
+@import "@xterm/xterm/css/xterm.css";
+
+.cmux-share-xterm-host {
+  background: #0a0a0a;
+  contain: strict;
+  overflow: hidden;
+}
+
+.cmux-share-xterm-surface {
+  height: 100%;
+  left: 0;
+  position: absolute;
+  top: 0;
+  transform-origin: top left;
+  width: 100%;
+}
+
+.cmux-share-xterm-surface .xterm,
+.cmux-share-xterm-surface .xterm-screen {
+  height: 100%;
+}
+
+.cmux-share-xterm-surface .xterm-viewport {
+  scrollbar-color: #404040 transparent;
+  scrollbar-width: thin;
+}

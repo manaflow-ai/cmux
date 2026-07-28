@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun", "@cloudflare/workers-types/experimental"]
+  },
+  "include": [
+    "test/**/*.ts",
+    "scripts/**/*.ts",
+    "src/protocol.ts",
+    "src/session.ts",
+    "src/jwt.ts"
+  ]
+}

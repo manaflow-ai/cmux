@@ -59,6 +59,11 @@ final class CmuxFeatureFlags {
     private static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
+    #if DEBUG
+    private static let multiplayerShareUIDefault = true
+    #else
+    private static let multiplayerShareUIDefault = false
+    #endif
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -106,6 +111,24 @@ final class CmuxFeatureFlags {
             defaultValue: "Serves workspace diffs to paired phones: the iOS changes chip, toolbar button, and Changes sheet."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.mobileWorkspaceChangesDefault
+    )
+
+    // FLAG(key: multiplayer-share-ui-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    // Shows the Share Workspace and Stop Sharing command-palette entrypoints.
+    // Release builds keep multiplayer sharing hidden until the remote flag
+    // enables it; DEBUG keeps it visible for dogfood.
+    static let multiplayerShareUIFlag = CmuxFeatureFlagDefinition(
+        key: "multiplayer-share-ui-enabled-release",
+        title: String(
+            localized: "featureFlags.multiplayerShare.title",
+            defaultValue: "Multiplayer workspace sharing"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.multiplayerShare.description",
+            defaultValue: "Shows command palette actions for sharing the focused workspace."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.multiplayerShareUIDefault
     )
 
     // Order is load-bearing for the positional typed accessors below. Flags
@@ -232,6 +255,8 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.appKitSidebarListFlag,
 
             CmuxFeatureFlags.mobileWorkspaceChangesFlag,
+
+            CmuxFeatureFlags.multiplayerShareUIFlag,
         ]
     }()
 
@@ -269,6 +294,10 @@ final class CmuxFeatureFlags {
 
     var isMobileWorkspaceChangesEnabled: Bool {
         effectiveValue(for: Self.mobileWorkspaceChangesFlag)
+    }
+
+    var isMultiplayerShareUIEnabled: Bool {
+        effectiveValue(for: Self.multiplayerShareUIFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host
