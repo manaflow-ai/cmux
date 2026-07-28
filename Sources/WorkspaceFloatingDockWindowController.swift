@@ -333,6 +333,11 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         animated: Bool
     ) {
         guard let panel = window else { return }
+        // A screen migration or stack relayout supersedes any hover/stash
+        // animation already targeting this panel. Its completion must not put
+        // the window back on the previous display or in an older stack slot.
+        presentationGeneration &+= 1
+        isAnimatingPresentation = false
         panel.title = dock.title
         let wasKeyWindow = panel.isKeyWindow
         let targetFrame: CGRect
