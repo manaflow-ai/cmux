@@ -186,6 +186,26 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func restrictedHTMLPopupContextPreservesFileOnlyReadAccess() throws {
+        _ = NSApplication.shared
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: sourcePanelId))
+        let browser = try #require(workspace.newBrowserSurface(
+            inPane: paneId,
+            focus: true,
+            localFileReadAccessPolicy: .fileOnly
+        ))
+
+        let popupPolicy = Mirror(reflecting: browser.popupBrowserContext).children
+            .first(where: { $0.label == "localFileReadAccessPolicy" })
+            .map { String(describing: $0.value) }
+        #expect(popupPolicy == "fileOnly")
+    }
+
+    @Test
     func provisionalNavigationPreventsStaleHTMLBrowserReuse() throws {
         _ = NSApplication.shared
 
