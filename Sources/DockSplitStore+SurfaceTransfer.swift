@@ -61,6 +61,28 @@ extension DockSplitStore {
         return dockAgentPIDProbeIndicatesExited(result: result, errnoCode: errno)
     }
 
+    func markRemoteTerminalSessionConnected(panelId: UUID, relayPort: Int?) -> Bool {
+        guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
+              transfer.isRemoteTerminal,
+              relayPort.map({ $0 == transfer.remoteRelayPort }) ?? true else {
+            return false
+        }
+        transfer.remoteTerminalSessionPhase = .connected
+        detachedSurfaceTransfersByPanelId[panelId] = transfer
+        return true
+    }
+
+    func markRemoteTerminalSessionEnded(panelId: UUID, relayPort: Int?) -> Bool {
+        guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
+              transfer.isRemoteTerminal,
+              relayPort.map({ $0 == transfer.remoteRelayPort }) ?? true else {
+            return false
+        }
+        transfer.remoteTerminalSessionPhase = .ended
+        detachedSurfaceTransfersByPanelId[panelId] = transfer
+        return true
+    }
+
     /// Detaches a live panel from this Dock *without closing it*, packaging it
     /// into a `Workspace.DetachedSurfaceTransfer` for re-attachment elsewhere.
     ///

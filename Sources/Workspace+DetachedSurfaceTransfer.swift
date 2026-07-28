@@ -47,7 +47,7 @@ extension Workspace {
         let resumeBinding: SurfaceResumeBindingSnapshot?
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
-        let remoteTerminalSessionPhase: WorkspaceRemoteTerminalSessionPhase? = nil
+        var remoteTerminalSessionPhase: WorkspaceRemoteTerminalSessionPhase? = nil
         let remoteRelayPort: Int?
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?

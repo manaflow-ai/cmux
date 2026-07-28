@@ -164,6 +164,32 @@ struct SSHStartupManualReconnectTests {
     }
 
     @MainActor
+    @Test func reconnectingConfirmedSurfaceStartsANewLivenessGeneration() throws {
+        let workspace = Workspace()
+        let configuration = Self.makeRemoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let panelId = try #require(workspace.focusedTerminalPanel?.id)
+        #expect(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panelId,
+                relayPort: configuration.relayPort
+            )
+        )
+        #expect(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+
+        #expect(workspace.reconnectRemoteConnection(surfaceId: panelId))
+
+        #expect(workspace.remoteTerminalSessionPhasesBySurfaceId[panelId] == .launching)
+        #expect(!workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Auxiliary daemon reconnecting",
+            target: configuration.displayTarget
+        )
+        #expect(workspace.remoteConnectionState == .reconnecting)
+    }
+
+    @MainActor
     @Test func reconnectDefersToInFlightReconnectForEndedPaneRetry() {
         let workspace = Workspace()
         let configuration = Self.makeRemoteConfiguration()

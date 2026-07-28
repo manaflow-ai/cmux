@@ -693,12 +693,30 @@ extension TerminalController: ControlWorkspaceContext {
         surfaceID surfaceId: UUID,
         relayPort: Int?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
-        let located = AppDelegate.shared?.workspaceContainingPanel(
+        let app = AppDelegate.shared
+        let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
+        let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
+        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
+           dock.markRemoteTerminalSessionConnected(panelId: surfaceId, relayPort: relayPort) {
+            _ = fallbackWorkspace?.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: relayPort,
+                allowUntracked: true
+            )
+            let owner = app?.dockReferenceTabManager(for: dock) ?? fallbackOwner
+            let windowId = owner.flatMap { app?.windowId(for: $0) }
+            return .resolved(
+                windowID: windowId,
+                workspaceID: fallbackWorkspace?.id ?? workspaceId,
+                remoteStatus: fallbackWorkspace.flatMap {
+                    JSONValue(foundationObject: $0.remoteStatusPayload())
+                } ?? .object([:])
+            )
+        }
+        let located = app?.workspaceContainingPanel(
             panelId: surfaceId,
             preferredWorkspaceId: workspaceId
         )
-        let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
-        let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
         guard let owner = located?.tabManager ?? fallbackOwner,
               let workspace = located?.workspace ?? fallbackWorkspace,
               workspace.markRemoteTerminalSessionConnected(
@@ -729,12 +747,33 @@ extension TerminalController: ControlWorkspaceContext {
         case (nil, nil): true
         default: false
         }
-        let located = AppDelegate.shared?.workspaceContainingPanel(
+        let app = AppDelegate.shared
+        let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
+        let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
+        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
+           lifecycleOnly || !generationIsCurrent ||
+            dock.markRemoteTerminalSessionEnded(panelId: surfaceId, relayPort: relayPort) {
+            if !lifecycleOnly, generationIsCurrent {
+                fallbackWorkspace?.markRemoteTerminalSessionEnded(
+                    surfaceId: surfaceId,
+                    relayPort: relayPort,
+                    allowUntracked: true
+                )
+            }
+            let owner = app?.dockReferenceTabManager(for: dock) ?? fallbackOwner
+            let windowId = owner.flatMap { app?.windowId(for: $0) }
+            return .resolved(
+                windowID: windowId,
+                workspaceID: fallbackWorkspace?.id ?? workspaceId,
+                remoteStatus: fallbackWorkspace.flatMap {
+                    JSONValue(foundationObject: $0.remoteStatusPayload())
+                } ?? .object([:])
+            )
+        }
+        let located = app?.workspaceContainingPanel(
             panelId: surfaceId,
             preferredWorkspaceId: workspaceId
         )
-        let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
-        let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
         guard let owner = located?.tabManager ?? fallbackOwner,
               let workspace = located?.workspace ?? fallbackWorkspace else {
             return .notFound

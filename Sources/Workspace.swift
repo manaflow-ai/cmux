@@ -2388,6 +2388,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     var activeRemoteTerminalSurfaceIds: Set<UUID> = []
     var remoteTerminalSessionPhasesBySurfaceId: [UUID: WorkspaceRemoteTerminalSessionPhase] = [:]
+    var pendingRemoteTerminalConnectionsBySurfaceId: [UUID: PendingWorkspaceRemoteTerminalConnection] = [:]
     private(set) var remoteDirectoryTrustRequiredPanelIds: Set<UUID> = []
     private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
     var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
@@ -5435,6 +5436,7 @@ final class Workspace: Identifiable, ObservableObject {
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
+        defer { applyPendingRemoteTerminalConnections() }
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
         remoteDirectoryTrustRequiredPanelIds = Set(remoteDirectoryTrustRequiredPanelIds.filter {
@@ -5541,6 +5543,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()
         remoteTerminalSessionPhasesBySurfaceId.removeAll()
+        pendingRemoteTerminalConnectionsBySurfaceId.removeAll()
         let remoteDirectoryPanelIdsToClear = clearConfiguration ? remoteDirectoryTrustRequiredPanelIds.union(remoteDirectoryReportPanelIds) : []
         let clearedRemoteDirectoryTrust = !remoteDirectoryReportPanelIds.isEmpty ||
             (clearConfiguration && !remoteDirectoryTrustRequiredPanelIds.isEmpty)
@@ -7682,6 +7685,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: panelId,
             reason: "terminalRespawn"
         )
+        markRemoteTerminalSessionLaunching(surfaceId: panelId)
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
         return replacementPanel
@@ -9131,7 +9135,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func shouldAdoptDetachedWorkspaceRemoteTracking(_ detached: DetachedSurfaceTransfer) -> Bool {
-        guard detached.isRemoteTerminal else { return false }
+        guard detached.isRemoteTerminal, detached.remoteTerminalSessionPhase != .ended else { return false }
         if detached.sourceWorkspaceId == id { return true }
         guard let detachedRelayPort = detached.remoteRelayPort,
               detachedRelayPort > 0,

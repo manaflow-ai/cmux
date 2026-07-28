@@ -1781,6 +1781,65 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testDockOwnedRemoteTerminalLifecycleSurvivesConnectedAndEndedRoundTrips() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64016,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let dock = DockSplitStore(
+            workspaceId: workspace.id,
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+
+        let launchingTransfer = try XCTUnwrap(workspace.detachSurface(panelId: panelID))
+        XCTAssertNotNil(dock.attachDetachedSurface(launchingTransfer, inPane: dockPane, focus: false))
+        XCTAssertTrue(dock.markRemoteTerminalSessionConnected(panelId: panelID, relayPort: config.relayPort))
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panelID,
+                relayPort: config.relayPort,
+                allowUntracked: true
+            )
+        )
+
+        let connectedTransfer = try XCTUnwrap(dock.detachSurface(panelId: panelID))
+        XCTAssertEqual(connectedTransfer.remoteTerminalSessionPhase, .connected)
+        XCTAssertNotNil(workspace.attachDetachedSurface(connectedTransfer, inPane: workspacePane, focus: false))
+        XCTAssertTrue(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        let redetachedTransfer = try XCTUnwrap(workspace.detachSurface(panelId: panelID))
+        XCTAssertNotNil(dock.attachDetachedSurface(redetachedTransfer, inPane: dockPane, focus: false))
+        XCTAssertTrue(dock.markRemoteTerminalSessionEnded(panelId: panelID, relayPort: config.relayPort))
+        workspace.markRemoteTerminalSessionEnded(
+            surfaceId: panelID,
+            relayPort: config.relayPort,
+            allowUntracked: true
+        )
+
+        let endedTransfer = try XCTUnwrap(dock.detachSurface(panelId: panelID))
+        XCTAssertEqual(endedTransfer.remoteTerminalSessionPhase, .ended)
+        XCTAssertNotNil(workspace.attachDetachedSurface(endedTransfer, inPane: workspacePane, focus: false))
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(panelID))
+        XCTAssertFalse(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+    }
+
+    @MainActor
     func testClosingSourceWorkspaceAfterDetachingRemoteSurfaceSkipsControlMasterCleanup() throws {
         let cleanup = NativeSSHCleanupRecorder()
         let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)

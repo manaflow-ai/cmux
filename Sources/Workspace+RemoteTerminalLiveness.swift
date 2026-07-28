@@ -4,6 +4,11 @@ import Foundation
 enum WorkspaceRemoteTerminalSessionPhase: Equatable {
     case launching
     case connected
+    case ended
+}
+
+struct PendingWorkspaceRemoteTerminalConnection: Equatable {
+    let relayPort: Int?
 }
 
 @MainActor
@@ -20,20 +25,47 @@ extension Workspace {
     }
 
     @discardableResult
-    func markRemoteTerminalSessionConnected(surfaceId: UUID, relayPort: Int?) -> Bool {
-        guard let configuration = remoteConfiguration,
-              activeRemoteTerminalSurfaceIds.contains(surfaceId),
+    func markRemoteTerminalSessionConnected(
+        surfaceId: UUID,
+        relayPort: Int?,
+        allowUntracked: Bool = false
+    ) -> Bool {
+        guard let configuration = remoteConfiguration else {
+            guard panels[surfaceId] is TerminalPanel else { return false }
+            pendingRemoteTerminalConnectionsBySurfaceId[surfaceId] =
+                PendingWorkspaceRemoteTerminalConnection(relayPort: relayPort)
+            return true
+        }
+        let isTracked = activeRemoteTerminalSurfaceIds.contains(surfaceId)
+        guard isTracked || allowUntracked,
               relayPort.map({ $0 == configuration.relayPort }) ?? true else {
             return false
         }
 
-        remoteTerminalSessionPhasesBySurfaceId[surfaceId] = .connected
+        if isTracked {
+            remoteTerminalSessionPhasesBySurfaceId[surfaceId] = .connected
+        }
+        applyRemoteTerminalConnectedPresentation()
+        return true
+    }
+
+    private func applyRemoteTerminalConnectedPresentation() {
         remoteConnectionState = .connected
         remoteConnectionDetail = nil
         clearProxyOnlyRemoteSidebarArtifacts()
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
-        return true
+    }
+
+    func applyPendingRemoteTerminalConnections() {
+        let pendingConnections = pendingRemoteTerminalConnectionsBySurfaceId
+        pendingRemoteTerminalConnectionsBySurfaceId.removeAll()
+        for (surfaceId, connection) in pendingConnections {
+            _ = markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: connection.relayPort
+            )
+        }
     }
 
     func clearRemoteTerminalSessionPhase(surfaceId: UUID) {
@@ -46,5 +78,8 @@ extension Workspace {
     ) {
         guard let phase, activeRemoteTerminalSurfaceIds.contains(surfaceId) else { return }
         remoteTerminalSessionPhasesBySurfaceId[surfaceId] = phase
+        if phase == .connected {
+            applyRemoteTerminalConnectedPresentation()
+        }
     }
 }

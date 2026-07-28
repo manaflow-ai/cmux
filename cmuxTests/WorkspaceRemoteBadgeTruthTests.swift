@@ -98,6 +98,49 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalConnectedBeforeRemoteConfigurationIsAppliedAfterSeeding() throws {
+        let workspace = Workspace()
+        let surfaceId = try seededTerminalSurfaceID(in: workspace)
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: 64007
+            )
+        )
+        XCTAssertFalse(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+
+        workspace.configureRemoteConnection(
+            remoteConfiguration(preserveAfterTerminalExit: false),
+            autoConnect: false
+        )
+
+        XCTAssertTrue(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+    }
+
+    @MainActor
+    func testTerminalConnectedBeforeRemoteConfigurationRejectsStaleRelay() throws {
+        let workspace = Workspace()
+        let surfaceId = try seededTerminalSurfaceID(in: workspace)
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: 64008
+            )
+        )
+
+        workspace.configureRemoteConnection(
+            remoteConfiguration(preserveAfterTerminalExit: false),
+            autoConnect: false
+        )
+
+        XCTAssertFalse(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+    }
+
+    @MainActor
     func testLegacySSHProxyOnlyErrorDowngradesAfterLastTerminalSessionEnds() throws {
         let workspace = Workspace()
         let config = remoteConfiguration(preserveAfterTerminalExit: false)
