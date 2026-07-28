@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DefaultColors, MuxEvent, MuxEventBroadcaster, MuxEventReceiver, NotificationEvent,
@@ -28,7 +29,9 @@ use serde_json::{Value, json};
 use zeroize::Zeroize;
 
 use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
-use super::tree::{TreeView, parse_tree};
+#[cfg(test)]
+use super::tree::parse_tree;
+use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
@@ -95,7 +98,7 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(io::Error),
     Timeout,
-    Rejected { error: String, delivery: Option<ClearHistoryDelivery> },
+    Rejected { error: String, code: Option<String>, delivery: Option<ClearHistoryDelivery> },
     Shutdown,
 }
 
@@ -106,6 +109,20 @@ impl RemoteRequestError {
 
     pub(crate) fn is_timeout(&self) -> bool {
         matches!(self, Self::Timeout)
+    }
+
+    pub(crate) fn rejection_code(&self) -> Option<&str> {
+        match self {
+            Self::Rejected { code, .. } => code.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn rejection_message(&self) -> Option<&str> {
+        match self {
+            Self::Rejected { error, .. } => Some(error),
+            _ => None,
+        }
     }
 }
 
@@ -124,7 +141,7 @@ impl std::fmt::Display for RemoteRequestError {
 impl std::error::Error for RemoteRequestError {}
 #[derive(Clone)]
 struct RemoteBrowserFrame {
-    frame: BrowserFrame,
+    frame: Arc<BrowserFrame>,
 }
 
 #[derive(Clone)]
@@ -371,13 +388,18 @@ impl RemoteSurface {
         *self.reported_size.lock().unwrap() = None;
     }
 
-    pub fn browser_frame(&self) -> Option<BrowserFrame> {
+    pub fn browser_frame(&self) -> Option<Arc<BrowserFrame>> {
         let browser = self.browser.lock().unwrap();
         if matches!(browser.status, BrowserStatus::Failed(_)) {
             None
         } else {
             browser.frame.as_ref().map(|frame| frame.frame.clone())
         }
+    }
+
+    pub fn has_browser_frame(&self) -> bool {
+        let browser = self.browser.lock().unwrap();
+        !matches!(browser.status, BrowserStatus::Failed(_)) && browser.frame.is_some()
     }
 
     pub fn browser_url(&self) -> Option<String> {
@@ -1241,12 +1263,13 @@ impl RemoteSession {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
         } else {
             let error = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
+            let code = response.get("error_code").and_then(Value::as_str).map(ToString::to_string);
             let delivery = match response.get("error_delivery").and_then(Value::as_str) {
                 Some("known-not-delivered") => Some(ClearHistoryDelivery::KnownNotDelivered),
                 Some("ambiguous") => Some(ClearHistoryDelivery::Ambiguous),
                 _ => None,
             };
-            Err(RemoteRequestError::Rejected { error: error.to_string(), delivery }.into())
+            Err(RemoteRequestError::Rejected { error: error.to_string(), code, delivery }.into())
         }
     }
 
@@ -1567,7 +1590,15 @@ impl RemoteSession {
                 return Err(e);
             }
         };
-        let tree = parse_tree(&data);
+        let capabilities = self.capabilities.lock().unwrap();
+        let tree = parse_tree_with_capabilities(
+            &data,
+            TreeCapabilities {
+                viewport_splits: capabilities.contains(VIEWPORT_SPLITS_CAPABILITY),
+                viewport_column_resize: capabilities.contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
+            },
+        );
+        drop(capabilities);
         self.exited_surfaces.lock().unwrap().retain(|surface_id| {
             tree.workspaces
                 .iter()
@@ -1787,16 +1818,38 @@ fn hex_color(color: Rgb) -> String {
 fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
     let data_b64 = value.get("data")?.as_str()?.to_string();
     let seq = value.get("seq")?.as_u64()?;
-    let width = value.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-    let height = value.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let width = value
+        .get("width")
+        .and_then(Value::as_u64)
+        .and_then(|width| u32::try_from(width).ok())
+        .unwrap_or(0);
+    let height = value
+        .get("height")
+        .and_then(Value::as_u64)
+        .and_then(|height| u32::try_from(height).ok())
+        .unwrap_or(0);
+    let image_width = value
+        .get("image_width")
+        .and_then(Value::as_u64)
+        .and_then(|width| u32::try_from(width).ok())
+        .filter(|width| *width > 0)
+        .unwrap_or(width);
+    let image_height = value
+        .get("image_height")
+        .and_then(Value::as_u64)
+        .and_then(|height| u32::try_from(height).ok())
+        .filter(|height| *height > 0)
+        .unwrap_or(height);
     Some(RemoteBrowserFrame {
-        frame: BrowserFrame {
+        frame: Arc::new(BrowserFrame {
             session_id: String::new(),
             data_b64,
             css_width: width,
             css_height: height,
+            image_width,
+            image_height,
             seq,
-        },
+        }),
     })
 }
 
@@ -1964,6 +2017,32 @@ mod tests {
     #[test]
     fn protocol_10_identity_is_accepted() {
         validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    }
+
+    #[test]
+    fn browser_frame_parses_image_dimensions_with_legacy_fallback() {
+        let frame = parse_browser_frame(&json!({
+            "seq": 1,
+            "width": 800,
+            "height": 600,
+            "image_width": 400,
+            "image_height": 300,
+            "data": "frame",
+        }))
+        .unwrap()
+        .frame;
+        assert_eq!((frame.css_width, frame.css_height), (800, 600));
+        assert_eq!((frame.image_width, frame.image_height), (400, 300));
+
+        let legacy = parse_browser_frame(&json!({
+            "seq": 2,
+            "width": 320,
+            "height": 200,
+            "data": "legacy",
+        }))
+        .unwrap()
+        .frame;
+        assert_eq!((legacy.image_width, legacy.image_height), (320, 200));
     }
 
     #[test]
@@ -3576,6 +3655,7 @@ mod tests {
     fn subscription_recovery_retries_only_explicit_rejection() {
         let rejected = anyhow::Error::new(RemoteRequestError::Rejected {
             error: "no capacity".to_string(),
+            code: None,
             delivery: None,
         });
         let timeout = anyhow::Error::new(RemoteRequestError::Timeout);

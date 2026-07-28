@@ -1,5 +1,7 @@
+use std::borrow::Cow;
+
 use cmux_tui_core::{Rect, SurfaceRenderFrame};
-use ghostty_vt::{Cell as VtCell, ColorSpec, Rgb};
+use ghostty_vt::{Cell as VtCell, CellWidth, ColorSpec, Rgb};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
@@ -16,29 +18,70 @@ pub fn draw_render_frame(
     chrome: &ChromeTheme,
     selected: impl Fn(u16, u16) -> bool,
 ) -> Option<(u16, u16)> {
-    draw_render_frame_with_catalog(frame, rect, render, theme, chrome, catalog(), selected)
+    draw_render_frame_with_catalog(
+        frame,
+        HorizontalViewport { rect, source_x: 0 },
+        render,
+        theme,
+        chrome,
+        catalog(),
+        selected,
+    )
 }
 
-pub(crate) fn rendered_viewport_rect(
+pub fn draw_render_frame_cropped(
+    frame: &mut Frame,
+    rect: Rect,
+    source_x: u16,
+    render: &SurfaceRenderFrame,
+    theme: &Theme,
+    chrome: &ChromeTheme,
+    selected: impl Fn(u16, u16) -> bool,
+) -> Option<(u16, u16)> {
+    draw_render_frame_with_catalog(
+        frame,
+        HorizontalViewport { rect, source_x },
+        render,
+        theme,
+        chrome,
+        catalog(),
+        selected,
+    )
+}
+
+pub(crate) fn rendered_viewport_rect_cropped(
     rect: Rect,
     screen: RatatuiRect,
     render: &SurfaceRenderFrame,
+    source_x: u16,
 ) -> Rect {
     let max_cols = rect.width.min(screen.width.saturating_sub(rect.x));
     let max_rows = rect.height.min(screen.height.saturating_sub(rect.y));
     let (snap_cols, snap_rows) = render.frame.size;
-    Rect { x: rect.x, y: rect.y, width: snap_cols.min(max_cols), height: snap_rows.min(max_rows) }
+    Rect {
+        x: rect.x,
+        y: rect.y,
+        width: snap_cols.saturating_sub(source_x).min(max_cols),
+        height: snap_rows.min(max_rows),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HorizontalViewport {
+    rect: Rect,
+    source_x: u16,
 }
 
 fn draw_render_frame_with_catalog(
     frame: &mut Frame,
-    rect: Rect,
+    viewport: HorizontalViewport,
     render: &SurfaceRenderFrame,
     theme: &Theme,
     chrome: &ChromeTheme,
     catalog: &Catalog,
     selected: impl Fn(u16, u16) -> bool,
 ) -> Option<(u16, u16)> {
+    let HorizontalViewport { rect, source_x } = viewport;
     if rect.width == 0 || rect.height == 0 {
         return None;
     }
@@ -46,7 +89,7 @@ fn draw_render_frame_with_catalog(
     let max_cols = rect.width.min(screen.width.saturating_sub(rect.x)) as usize;
     let max_rows = rect.height.min(screen.height.saturating_sub(rect.y)) as usize;
     let (snap_cols, snap_rows) = render.frame.size;
-    let live = rendered_viewport_rect(rect, screen, render);
+    let live = rendered_viewport_rect_cropped(rect, screen, render, source_x);
     let live_cols = usize::from(live.width);
     let live_rows = usize::from(live.height);
     let colors = PaletteResolver::from_frame(render);
@@ -58,15 +101,20 @@ fn draw_render_frame_with_catalog(
             break;
         }
         let y = rect.y + row as u16;
-        for (col, cell) in cells.iter().enumerate() {
-            if col >= live_cols {
-                break;
-            }
+        let source_x = usize::from(source_x);
+        let available = cells.len().saturating_sub(source_x).min(live_cols);
+        let source_end = source_x.saturating_add(available);
+        for col in 0..available {
+            let source_col = source_x + col;
             let x = rect.x + col as u16;
-            let selected = selected(col as u16, row as u16);
+            let selected = selected(source_col as u16, row as u16);
+            let cell = &cells[source_col];
             apply_cell(&mut buf[(x, y)], cell, &colors, selected.then_some(theme));
+            if partial_wide_cell(cells, source_x, source_end, source_col) {
+                buf[(x, y)].set_symbol(" ");
+            }
         }
-        for col in cells.len()..live_cols {
+        for col in available..live_cols {
             let x = rect.x + col as u16;
             buf[(x, y)].set_symbol(" ").set_style(blank_style);
         }
@@ -82,8 +130,33 @@ fn draw_render_frame_with_catalog(
     render
         .frame
         .cursor
-        .filter(|cursor| (cursor.x as usize) < live_cols && (cursor.y as usize) < live_rows)
-        .map(|cursor| (rect.x + cursor.x, rect.y + cursor.y))
+        .filter(|cursor| {
+            cursor.x >= source_x
+                && usize::from(cursor.x - source_x) < live_cols
+                && (cursor.y as usize) < live_rows
+        })
+        .map(|cursor| (rect.x + cursor.x - source_x, rect.y + cursor.y))
+}
+
+fn partial_wide_cell(
+    cells: &[VtCell],
+    source_start: usize,
+    source_end: usize,
+    source_col: usize,
+) -> bool {
+    match cells[source_col].width {
+        CellWidth::Wide => cells
+            .get(source_col.saturating_add(1))
+            .filter(|_| source_col.saturating_add(1) < source_end)
+            .is_none_or(|next| next.width != CellWidth::SpacerTail),
+        CellWidth::SpacerTail => {
+            source_col == source_start
+                || cells
+                    .get(source_col.saturating_sub(1))
+                    .is_none_or(|previous| previous.width != CellWidth::Wide)
+        }
+        CellWidth::Narrow | CellWidth::SpacerHead => false,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -284,11 +357,7 @@ fn apply_cell(
     selected: Option<&Theme>,
 ) {
     target.reset();
-    if cell.text.is_empty() || cell.text.chars().any(char::is_control) {
-        target.set_symbol(" ");
-    } else {
-        target.set_symbol(&cell.text);
-    }
+    target.set_symbol(&renderable_cell_text(&cell.text));
 
     let mut style = Style::default();
     style = style.fg(colors.resolve_fg(cell.fg));
@@ -329,12 +398,30 @@ fn apply_cell(
     target.set_style(style);
 }
 
+fn renderable_cell_text(text: &str) -> Cow<'_, str> {
+    if text.is_empty() {
+        return Cow::Borrowed(" ");
+    }
+    if !text.chars().any(char::is_control) {
+        return Cow::Borrowed(text);
+    }
+    let sanitized = text.chars().filter(|character| !character.is_control()).collect::<String>();
+    if sanitized.is_empty() { Cow::Borrowed(" ") } else { Cow::Owned(sanitized) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ghostty_vt::{Callbacks, RenderState, Terminal};
     use ratatui::Terminal as RatatuiTerminal;
     use ratatui::backend::TestBackend;
+
+    #[test]
+    fn terminal_cells_drop_control_characters_before_ratatui_diffing() {
+        assert_eq!(renderable_cell_text("\r").as_ref(), " ");
+        assert_eq!(renderable_cell_text("a\x1bb").as_ref(), "ab");
+        assert_eq!(renderable_cell_text("plain").as_ref(), "plain");
+    }
 
     fn render_frame(cols: u16, rows: u16) -> SurfaceRenderFrame {
         let mut terminal = Terminal::new(cols, rows, 0, Callbacks::default()).unwrap();
@@ -362,7 +449,7 @@ mod tests {
             .draw(|frame| {
                 draw_render_frame_with_catalog(
                     frame,
-                    rect,
+                    HorizontalViewport { rect, source_x: 0 },
                     render,
                     &Theme::default(),
                     &chrome,
@@ -372,6 +459,83 @@ mod tests {
             })
             .unwrap();
         terminal
+    }
+
+    #[test]
+    fn cropped_grid_starts_at_the_requested_source_column() {
+        let mut terminal = Terminal::new(8, 1, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"abcdefgh");
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            scrollback_rows: 0,
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let mut output = RatatuiTerminal::new(TestBackend::new(3, 1)).unwrap();
+        output
+            .draw(|frame| {
+                draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 3, height: 1 },
+                        source_x: 3,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |_, _| false,
+                );
+            })
+            .unwrap();
+
+        assert_eq!(row_text(output.backend().buffer(), 0, 0, 3), "def");
+    }
+
+    #[test]
+    fn cropped_grid_blanks_partial_wide_glyphs_at_both_edges() {
+        let mut terminal = Terminal::new(6, 1, 0, Callbacks::default()).unwrap();
+        terminal.vt_write("a界bc".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            scrollback_rows: 0,
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let draw_crop = |source_x| {
+            let mut output = RatatuiTerminal::new(TestBackend::new(2, 1)).unwrap();
+            output
+                .draw(|frame| {
+                    draw_render_frame_with_catalog(
+                        frame,
+                        HorizontalViewport {
+                            rect: Rect { x: 0, y: 0, width: 2, height: 1 },
+                            source_x,
+                        },
+                        &render,
+                        &Theme::default(),
+                        &ChromeTheme::dark(),
+                        crate::localization::catalog_for_locale("en_US.UTF-8"),
+                        |_, _| false,
+                    );
+                })
+                .unwrap();
+            output
+        };
+
+        let clipped_lead = draw_crop(0);
+        assert_eq!(row_text(clipped_lead.backend().buffer(), 0, 0, 2), "a ");
+
+        let complete_glyph = draw_crop(1);
+        assert_eq!(complete_glyph.backend().buffer()[(0, 0)].symbol(), "界");
+        assert_eq!(complete_glyph.backend().buffer()[(1, 0)].symbol(), " ");
+
+        let clipped_tail = draw_crop(2);
+        assert_eq!(row_text(clipped_tail.backend().buffer(), 0, 0, 2), " b");
     }
 
     fn row_text(buffer: &Buffer, y: u16, x: u16, width: u16) -> String {

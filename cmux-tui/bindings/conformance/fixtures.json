@@ -184,6 +184,65 @@
       ]
     },
     {
+      "name": "layout-undo-preview-and-confirm",
+      "requires": { "commands": ["new-pane", "undo-layout"] },
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-undo", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "ids", "kind": "pane" },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial",
+          "bind": { "pane0": "data.ids[-1].id" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "new-pane", "pane": "$pane0" },
+          "expect": { "id": 3, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "ids", "kind": "pane" },
+          "expect": { "id": 4, "ok": true },
+          "match": "partial",
+          "bind": { "pane1": "data.ids[-1].id" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 5, "cmd": "undo-layout", "pane": "$pane1" },
+          "expect": {
+            "id": 5,
+            "ok": true,
+            "data": {
+              "undone": false,
+              "confirmation_required": true,
+              "closes_panes": ["$pane1"]
+            }
+          },
+          "match": "partial",
+          "bind": { "undo_revision": "data.revision" }
+        },
+        {
+          "type": "command",
+          "request": {
+            "id": 6,
+            "cmd": "undo-layout",
+            "pane": "$pane1",
+            "revision": "$undo_revision",
+            "confirm_close": true
+          },
+          "expect": { "id": 6, "ok": true, "data": { "undone": true } },
+          "match": "partial"
+        }
+      ]
+    },
+    {
       "name": "subscribe-tree-changed",
       "steps": [
         {
