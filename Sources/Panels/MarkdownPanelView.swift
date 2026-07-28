@@ -102,6 +102,14 @@ struct MarkdownPanelView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+
+            if panel.displayMode == .preview {
+                MarkdownSearchOverlay(
+                    controller: panel.findController,
+                    onClose: { _ = panel.hideFind() }
+                )
+                .zIndex(1)
+            }
         }
     }
 

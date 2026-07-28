@@ -7440,7 +7440,6 @@ extension Notification.Name {
     static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
     static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
     static let ghosttySurfaceThemeDidChange = Notification.Name("ghosttySurfaceThemeDidChange")
-    static let browserSearchFocus = Notification.Name("browserSearchFocus")
     static let workspaceRemoteConnectionPresentationDidChange = Notification.Name(
         "cmux.workspaceRemoteConnectionPresentationDidChange"
     )

@@ -142,9 +142,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
+        var onRenderCompleted: (@MainActor () -> Void)?
         private var pendingMarkdown: String = ""
         private var pendingTheme: MarkdownWebTheme = .resolve(backgroundColor: GhosttyBackgroundTheme.currentColor())
         private var lastMarkdown: String? = nil
+        private var lastSuccessfullyRenderedMarkdown: String? = nil
         private var lastTheme: MarkdownWebTheme? = nil
         private var lastFontFamily: String = ""
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
@@ -263,8 +265,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.onReenterWindow = nil
             }
             self.webView = nil
+            onRenderCompleted = nil
             isLoaded = false
             isShellLoading = false
+            lastSuccessfullyRenderedMarkdown = nil
             webContentProcessRecoveryAttempts = 0
             shellWasHealthyWhenDetached = false
             cancelImageLoads()
@@ -278,6 +282,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             requestedLibs.removeAll()
             isLoaded = false
             isShellLoading = true
+            lastSuccessfullyRenderedMarkdown = nil
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
 #if DEBUG
@@ -327,7 +332,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         func renderedHTML(markdown: String? = nil) async -> String? {
             guard isLoaded else { return nil }
-            if let markdown {
+            if let markdown, markdown != lastSuccessfullyRenderedMarkdown {
                 guard await renderMarkdownForExport(markdown) else { return nil }
             }
             // We export an explicit "rendered HTML" getter from JS so callers
@@ -383,12 +388,16 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
             guard let js = Self.renderMarkdownScript(markdown) else { return }
-            webView.evaluateJavaScript(js) { _, error in
+            webView.evaluateJavaScript(js) { [weak self] _, error in
 #if DEBUG
                 if let error {
                     NSLog("MarkdownPanel: pushMarkdown evaluateJavaScript failed: \(error)")
                 }
 #endif
+                if error == nil {
+                    self?.lastSuccessfullyRenderedMarkdown = markdown
+                    self?.onRenderCompleted?()
+                }
             }
         }
 
@@ -399,6 +408,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 _ = try await webView.evaluateJavaScript(js)
                 lastMarkdown = markdown
                 pendingMarkdown = markdown
+                lastSuccessfullyRenderedMarkdown = markdown
+                onRenderCompleted?()
                 return true
             } catch {
 #if DEBUG
