@@ -88,6 +88,7 @@ struct WorkspaceExplicitDetachedSourceTests {
         let panel = WorkspaceExplicitDetachedSourceTestPanel()
         return Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceID,
+            sessionRestoreSourceWorkspaceId: nil,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
