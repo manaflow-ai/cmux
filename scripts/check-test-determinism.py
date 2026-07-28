@@ -687,11 +687,15 @@ def _swift_callable_parameter_scopes(text: str) -> dict[int, dict[str, bool]]:
     return result
 
 
-def _swift_type_scopes(text: str) -> set[int]:
-    """Return opening braces for concrete Swift type and extension bodies."""
-    result: set[int] = set()
+def _swift_type_scope_identities(
+    text: str,
+) -> dict[int, tuple[str, bool]]:
+    """Map concrete/extension body braces to normalized type identities."""
+    result: dict[int, tuple[str, bool]] = {}
     declaration_pattern = re.compile(
-        r"(?<![.$\w])(?:class|struct|actor|enum|extension)\b"
+        rf"(?<![.$\w])(?P<kind>class|struct|actor|enum|extension)\s+"
+        rf"(?P<identity>{_SWIFT_IDENTIFIER_PATTERN}"
+        rf"(?:\s*\.\s*{_SWIFT_IDENTIFIER_PATTERN})*)"
     )
     for declaration in declaration_pattern.finditer(text):
         body_opening = text.find("{", declaration.end())
@@ -704,8 +708,17 @@ def _swift_type_scopes(text: str) -> set[int]:
             or declaration_pattern.search(suffix)
         ):
             continue
-        result.add(body_opening)
+        identity = re.sub(r"\s+", "", declaration.group("identity"))
+        result[body_opening] = (
+            identity,
+            declaration.group("kind") == "extension",
+        )
     return result
+
+
+def _swift_type_scopes(text: str) -> set[int]:
+    """Return opening braces for concrete Swift type and extension bodies."""
+    return set(_swift_type_scope_identities(text))
 
 
 def _swift_secondary_binding_events(
@@ -832,6 +845,25 @@ def _swift_type_member_bindings(
             result[current][name] = True
         elif event.group("simple_binding") is not None:
             result[current][event.group("binding_name")] = False
+    return result
+
+
+def _swift_standard_clock_members_by_type(
+    texts: Iterable[str],
+) -> dict[str, dict[str, bool]]:
+    """Index known standard-clock stored members by declared type identity."""
+    result: dict[str, dict[str, bool]] = {}
+    for text in texts:
+        if "ContinuousClock" not in text and "SuspendingClock" not in text:
+            continue
+        identities = _swift_type_scope_identities(text)
+        members = _swift_type_member_bindings(text, set(identities))
+        for opening, (identity, is_extension) in identities.items():
+            if is_extension:
+                continue
+            for name, is_clock in members.get(opening, {}).items():
+                if is_clock:
+                    result.setdefault(identity, {})[name] = True
     return result
 
 
@@ -1083,11 +1115,23 @@ def _swift_switch_case_scopes(
     return switch_openings, case_bindings
 
 
-def _swift_named_clock_sleep_positions(text: str) -> set[int]:
+def _swift_named_clock_sleep_positions(
+    text: str,
+    indexed_type_members: Optional[dict[str, dict[str, bool]]] = None,
+) -> set[int]:
     """Resolve immutable standard-clock bindings through lexical Swift scopes."""
     callable_parameters = _swift_callable_parameter_scopes(text)
-    type_scopes = _swift_type_scopes(text)
+    type_identities = _swift_type_scope_identities(text)
+    type_scopes = set(type_identities)
     type_members = _swift_type_member_bindings(text, type_scopes)
+    known_type_members = _swift_standard_clock_members_by_type([text])
+    if indexed_type_members is not None:
+        for identity, members in indexed_type_members.items():
+            known_type_members.setdefault(identity, {}).update(members)
+    for opening, (identity, _) in type_identities.items():
+        seeded_members = known_type_members.get(identity, {}).copy()
+        seeded_members.update(type_members.get(opening, {}))
+        type_members[opening] = seeded_members
     conditional_bindings, conditional_declaration_offsets = (
         _swift_conditional_bindings(text)
     )
@@ -1193,6 +1237,7 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
 
 def _swift_real_sleep_positions(
     masked_lines: list[str],
+    indexed_type_members: Optional[dict[str, dict[str, bool]]] = None,
 ) -> dict[int, set[int]]:
     """Return line/column sites for trusted Swift sleeps, including multiline."""
     text = "\n".join(masked_lines)
@@ -1207,8 +1252,22 @@ def _swift_real_sleep_positions(
         sleep_offset = match.start() + match.group().rfind("sleep")
         record(sleep_offset)
 
-    if "ContinuousClock" in text or "SuspendingClock" in text:
-        for sleep_offset in _swift_named_clock_sleep_positions(text):
+    has_indexed_type = bool(
+        indexed_type_members
+        and any(
+            identity in indexed_type_members
+            for identity, _ in _swift_type_scope_identities(text).values()
+        )
+    )
+    if (
+        "ContinuousClock" in text
+        or "SuspendingClock" in text
+        or has_indexed_type
+    ):
+        for sleep_offset in _swift_named_clock_sleep_positions(
+            text,
+            indexed_type_members,
+        ):
             record(sleep_offset)
 
     for task in re.finditer(r"(?<![.$\w])Task\b", text):
@@ -2332,6 +2391,17 @@ def _python_merge_binding_variants(
     return result
 
 
+def _python_collapse_binding_variants(
+    variants: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Deduplicate equivalent call snapshots without hiding disagreement."""
+    unique = {
+        tuple(sorted(variant.items())): variant
+        for variant in variants
+    }
+    return list(unique.values())
+
+
 def _python_literal_boolean(node: ast.AST) -> Optional[bool]:
     """Return a statically certain boolean literal, if this is one."""
     if isinstance(node, ast.Constant) and isinstance(node.value, bool):
@@ -3167,8 +3237,10 @@ class _PythonSleepVisitor(ast.NodeVisitor):
                 (snapshot_scope, snapshot_scope.bindings.copy())
             )
             snapshot_scope = snapshot_scope.parent
-        binding_variants: list[Optional[dict[str, str]]] = list(
-            self.direct_call_bindings.get(id(node), [])
+        binding_variants: list[Optional[dict[str, str]]] = (
+            _python_collapse_binding_variants(
+                self.direct_call_bindings.get(id(node), [])
+            )
         )
         if not binding_variants:
             binding_variants = [None]
@@ -4526,6 +4598,106 @@ def _shell_subshell_scope_events(
     return events, arithmetic_depth
 
 
+@dataclass
+class _ShellConditionalBindingFrame:
+    """Possible ``sleep`` bindings while scanning one shell conditional."""
+
+    entry_binding: bool
+    outcomes: list[bool] = field(default_factory=list)
+    remaining_reachable: bool = True
+    branch_reachable: bool = True
+    in_branch: bool = False
+    saw_then: bool = False
+
+
+def _shell_control_keyword_offsets(text: str) -> list[tuple[int, int, str]]:
+    """Return shell control keywords that occur in command position."""
+    token_pattern = re.compile(
+        r"[A-Za-z_][A-Za-z0-9_]*|;;&|;&|;;|[;&|(){}\n]"
+    )
+    control_keywords = {"if", "then", "elif", "else", "fi"}
+    command_prefix_keywords = {
+        "if",
+        "then",
+        "elif",
+        "else",
+        "while",
+        "until",
+        "do",
+    }
+    command_position = True
+    result: list[tuple[int, int, str]] = []
+    for token_match in token_pattern.finditer(text):
+        token = token_match.group()
+        if token[0].isalpha() or token[0] == "_":
+            if command_position:
+                if token in control_keywords:
+                    result.append(
+                        (token_match.start(), token_match.end(), token)
+                    )
+                command_position = token in command_prefix_keywords
+            continue
+
+        if token == "\n" and token_match.start() > 0:
+            if text[token_match.start() - 1] == "\\":
+                continue
+        command_position = True
+    return result
+
+
+def _shell_conditional_binding_events(
+    masked_lines: list[str],
+) -> dict[int, dict[int, list[tuple[str, Optional[bool]]]]]:
+    """Map shell conditional boundaries to reachability-aware events."""
+    text = "\n".join(masked_lines)
+    line_starts = [0]
+    line_starts.extend(
+        index + 1 for index, character in enumerate(text) if character == "\n"
+    )
+    controls = _shell_control_keyword_offsets(text)
+    pending_conditions: list[Optional[int]] = []
+    absolute_events: list[tuple[int, str, Optional[bool]]] = []
+    for start, end, keyword in controls:
+        if keyword == "if":
+            pending_conditions.append(end)
+            absolute_events.append((start, "if", None))
+            continue
+        if not pending_conditions:
+            continue
+        if keyword == "then":
+            condition_start = pending_conditions[-1]
+            if condition_start is None:
+                continue
+            condition = text[condition_start:start].strip().rstrip(";").strip()
+            literal = (
+                True
+                if condition == "true"
+                else False
+                if condition == "false"
+                else None
+            )
+            pending_conditions[-1] = None
+            absolute_events.append((start, "then", literal))
+        elif keyword == "elif":
+            pending_conditions[-1] = end
+            absolute_events.append((start, "elif", None))
+        elif keyword == "else":
+            pending_conditions[-1] = None
+            absolute_events.append((start, "else", None))
+        elif keyword == "fi":
+            pending_conditions.pop()
+            absolute_events.append((start, "fi", None))
+
+    result: dict[int, dict[int, list[tuple[str, Optional[bool]]]]] = {}
+    for absolute_offset, keyword, literal in absolute_events:
+        line_index = bisect_right(line_starts, absolute_offset) - 1
+        column = absolute_offset - line_starts[line_index]
+        result.setdefault(line_index, {}).setdefault(column, []).append(
+            (keyword, literal)
+        )
+    return result
+
+
 def _shell_function_scope_events(
     masked_lines: list[str],
 ) -> tuple[
@@ -4555,26 +4727,6 @@ def _shell_function_scope_events(
         rf"\s*\(\s*\))\s*"
         rf"(?P<opening>\{{)"
     )
-    false_branch_ranges: list[tuple[int, int]] = []
-    false_if = re.compile(r"\bif\s+false\s*(?:;|\n)\s*then\b")
-    branch_keyword = re.compile(r"\b(?:if|elif|else|fi)\b")
-    for conditional in false_if.finditer(text):
-        depth = 1
-        branch_end = len(text)
-        for keyword in branch_keyword.finditer(text, conditional.end()):
-            token = keyword.group()
-            if token == "if":
-                depth += 1
-            elif token == "fi":
-                depth -= 1
-                if depth == 0:
-                    branch_end = keyword.start()
-                    break
-            elif token in ("elif", "else") and depth == 1:
-                branch_end = keyword.start()
-                break
-        false_branch_ranges.append((conditional.end(), branch_end))
-
     absolute_events: dict[int, list[bool]] = {}
     absolute_sleep_bindings: dict[int, Optional[bool]] = {}
     for function in declaration.finditer(text):
@@ -4593,12 +4745,6 @@ def _shell_function_scope_events(
             if function.group("function_name") is not None
             else function.start("posix_name")
         )
-        if any(
-            start <= binding_offset < end
-            for start, end in false_branch_ranges
-        ):
-            absolute_sleep_bindings[binding_offset] = None
-            continue
         body = text[opening + 1 : closing]
         wraps_real_sleep = bool(
             re.search(r"/(?:usr/)?bin/sleep(?=\s|$)", body)
@@ -4637,6 +4783,10 @@ def _shell_real_sleep_positions(
     sleep_function_scopes = [False]
     subshell_frames: list[str] = []
     arithmetic_depth = 0
+    conditional_binding_frames: list[_ShellConditionalBindingFrame] = []
+    conditional_binding_events = _shell_conditional_binding_events(
+        masked_lines
+    )
     function_scope_events, function_sleep_bindings = (
         _shell_function_scope_events(masked_lines)
     )
@@ -4660,6 +4810,10 @@ def _shell_real_sleep_positions(
             {},
         ).items():
             scope_events_by_offset.setdefault(offset, []).extend(transitions)
+        conditional_events_by_offset = conditional_binding_events.get(
+            line_index,
+            {},
+        )
         for match in _SHELL_BARE_SLEEP.finditer(masked_line):
             sleep_position = match.start() + match.group().rfind("sleep")
             if _shell_function_declaration_at(
@@ -4718,7 +4872,54 @@ def _shell_real_sleep_positions(
             | explicit_external
             | binding_events.keys()
             | scope_events_by_offset.keys()
+            | conditional_events_by_offset.keys()
         ):
+            for keyword, literal in conditional_events_by_offset.get(
+                offset,
+                [],
+            ):
+                if keyword == "if":
+                    conditional_binding_frames.append(
+                        _ShellConditionalBindingFrame(
+                            sleep_function_scopes[-1]
+                        )
+                    )
+                    continue
+                if not conditional_binding_frames:
+                    continue
+                frame = conditional_binding_frames[-1]
+                if keyword == "then":
+                    if not frame.saw_then:
+                        frame.entry_binding = sleep_function_scopes[-1]
+                        frame.saw_then = True
+                    sleep_function_scopes[-1] = frame.entry_binding
+                    frame.branch_reachable = (
+                        frame.remaining_reachable and literal is not False
+                    )
+                    frame.in_branch = True
+                    if frame.remaining_reachable and literal is True:
+                        frame.remaining_reachable = False
+                    continue
+                if frame.in_branch and frame.branch_reachable:
+                    frame.outcomes.append(sleep_function_scopes[-1])
+                sleep_function_scopes[-1] = frame.entry_binding
+                frame.in_branch = False
+                if keyword == "elif":
+                    continue
+                if keyword == "else":
+                    frame.branch_reachable = frame.remaining_reachable
+                    frame.remaining_reachable = False
+                    frame.in_branch = True
+                    continue
+                if keyword == "fi":
+                    if frame.remaining_reachable:
+                        frame.outcomes.append(frame.entry_binding)
+                    sleep_function_scopes[-1] = (
+                        all(frame.outcomes)
+                        if frame.outcomes
+                        else frame.entry_binding
+                    )
+                    conditional_binding_frames.pop()
             for entering in scope_events_by_offset.get(offset, []):
                 if entering:
                     sleep_function_scopes.append(
@@ -4728,8 +4929,16 @@ def _shell_real_sleep_positions(
                     sleep_function_scopes.pop()
             if offset in binding_events:
                 sleep_function_scopes[-1] = binding_events[offset]
-            if offset in explicit_external or (
-                offset in candidates and not sleep_function_scopes[-1]
+            execution_reachable = all(
+                not frame.in_branch or frame.branch_reachable
+                for frame in conditional_binding_frames
+            )
+            if execution_reachable and (
+                offset in explicit_external
+                or (
+                    offset in candidates
+                    and not sleep_function_scopes[-1]
+                )
             ):
                 positions.setdefault(line_index, set()).add(offset)
         case_state = _shell_case_state_after_prefix(
@@ -5885,7 +6094,26 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
     return True
 
 
-def scan_text(rel_posix: str, text: str) -> list[Finding]:
+def _swift_candidate_module(rel_posix: str) -> str:
+    """Return a stable test-target-like scope for cross-file Swift members."""
+    parts = pathlib.PurePosixPath(rel_posix).parts
+    if not parts:
+        return ""
+    if "Tests" in parts:
+        tests_index = parts.index("Tests")
+        target_end = min(tests_index + 2, len(parts) - 1)
+        return "/".join(parts[:target_end])
+    for index, part in enumerate(parts[:-1]):
+        if part.endswith(("Tests", "UITests")):
+            return "/".join(parts[: index + 1])
+    return "/".join(parts[:-1])
+
+
+def scan_text(
+    rel_posix: str,
+    text: str,
+    swift_type_members: Optional[dict[str, dict[str, bool]]] = None,
+) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(line, suffix) for line in raw_lines]
@@ -5922,7 +6150,10 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             known_assertion_lines,
         )
     elif suffix == ".swift" and has_sleep_candidate:
-        known_sleep_positions = _swift_real_sleep_positions(masked_lines)
+        known_sleep_positions = _swift_real_sleep_positions(
+            masked_lines,
+            swift_type_members,
+        )
         known_sleep_lines = set(known_sleep_positions)
     elif suffix in _JS_SUFFIXES and has_sleep_candidate:
         known_sleep_positions = _javascript_real_sleep_positions(
@@ -6004,6 +6235,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
 
 def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
     findings: list[Finding] = []
+    sources: list[tuple[str, str]] = []
     for root in roots:
         root_path = repo_root / root
         if not root_path.exists():
@@ -6025,7 +6257,36 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            findings.extend(scan_text(rel_posix, text))
+            sources.append((rel_posix, text))
+
+    swift_sources_by_module: dict[str, list[str]] = {}
+    for rel_posix, text in sources:
+        if (
+            pathlib.PurePosixPath(rel_posix).suffix != ".swift"
+            or (
+                "ContinuousClock" not in text
+                and "SuspendingClock" not in text
+            )
+        ):
+            continue
+        swift_sources_by_module.setdefault(
+            _swift_candidate_module(rel_posix),
+            [],
+        ).append("\n".join(_mask_noncode(text.splitlines(), ".swift")))
+    swift_type_members_by_module = {
+        module: _swift_standard_clock_members_by_type(texts)
+        for module, texts in swift_sources_by_module.items()
+    }
+    for rel_posix, text in sources:
+        findings.extend(
+            scan_text(
+                rel_posix,
+                text,
+                swift_type_members_by_module.get(
+                    _swift_candidate_module(rel_posix),
+                ),
+            )
+        )
     findings.sort(key=lambda f: (f.path, f.line, f.rule))
     return findings
 
