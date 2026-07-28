@@ -19,6 +19,12 @@ extension Workspace {
             return false
         }
         let sourceIsRemote = isRemoteTerminalSurface(panelId)
+        guard request.targetHarness.supportsFork(
+            from: snapshot.kind,
+            isRemoteSource: sourceIsRemote
+        ) else {
+            return false
+        }
         let sourceSnapshotFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(
             snapshot,
             isRemoteTerminal: sourceIsRemote

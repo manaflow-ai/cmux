@@ -56,7 +56,7 @@ extension GhosttyNSView {
         )
         harnessItem.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
         let harnessMenu = NSMenu()
-        for harness in AgentConversationForkRequest.TargetHarness.allCases where harness != .current {
+        for harness in availableForkTargetHarnesses() {
             let targetItem = NSMenuItem(title: harness.title, action: nil, keyEquivalent: "")
             targetItem.submenu = makeForkDestinationSubmenu { destination in
                 AgentConversationForkRequest(
@@ -66,8 +66,10 @@ extension GhosttyNSView {
             }
             harnessMenu.addItem(targetItem)
         }
-        harnessItem.submenu = harnessMenu
-        menu.addItem(harnessItem)
+        if !harnessMenu.items.isEmpty {
+            harnessItem.submenu = harnessMenu
+            menu.addItem(harnessItem)
+        }
 
         return true
     }
@@ -89,6 +91,23 @@ extension GhosttyNSView {
             menu.addItem(item)
         }
         return menu
+    }
+
+    private func availableForkTargetHarnesses() -> [AgentConversationForkRequest.TargetHarness] {
+        guard let panelId = terminalSurface?.id,
+              let workspace = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId)?.workspace,
+              let snapshot = workspace.forkAgentConversationContextMenuOpenSelection(
+                  forPanelId: panelId
+              ).snapshot else {
+            return []
+        }
+        let isRemoteSource = workspace.isRemoteTerminalSurface(panelId)
+        return AgentConversationForkRequest.TargetHarness.allCases.filter {
+            $0 != .current && $0.supportsFork(
+                from: snapshot.kind,
+                isRemoteSource: isRemoteSource
+            )
+        }
     }
 
     private func currentAgentConversationForkAvailability() -> WorkspaceForkAgentConversationAvailability {

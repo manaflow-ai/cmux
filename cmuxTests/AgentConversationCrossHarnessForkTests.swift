@@ -260,6 +260,30 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func crossHarnessForkRejectsRemoteSourceBeforeReadingLocalTranscript() async throws {
+        let snapshot = SessionRestorableAgentSnapshot(kind: .codex, sessionId: "remote-session")
+        let sourceAdapter = ReadRecordingSourceAdapter()
+        let exportService = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [sourceAdapter])
+        )
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
+        workspace.trackRemoteTerminalSurface(sourcePanelId)
+
+        let didFork = await workspace.forkAgentConversation(
+            fromPanelId: sourcePanelId,
+            snapshot: snapshot,
+            request: .init(targetHarness: .claude, destination: .right),
+            exportService: exportService
+        )
+
+        #expect(!didFork)
+        #expect(await sourceAdapter.readCount == 0)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+    }
+
+    @Test
     func transferRetentionKeepsOpeningRequestAndLatestTurns() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
@@ -437,6 +461,17 @@ private actor SuspendingTranscriptGate {
             SessionTranscriptTurn(id: 0, role: .user, text: "Continue the original work"),
         ])
         readContinuation = nil
+    }
+}
+
+private actor ReadRecordingSourceAdapter: AgentConversationSourceAdapter {
+    private(set) var readCount = 0
+
+    nonisolated func supports(_ source: AgentConversationSource) -> Bool { true }
+
+    func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
+        readCount += 1
+        return []
     }
 }
 

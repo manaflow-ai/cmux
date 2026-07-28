@@ -65,6 +65,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelHasPane = CommandPaletteContextKeys(rawValue: "panel.hasPane")
     /// Whether the focused panel hosts a forkable agent.
     public static let panelHasForkableAgent = CommandPaletteContextKeys(rawValue: "panel.hasForkableAgent")
+    /// Whether the focused panel can export a transcript to a different agent harness.
+    public static let panelSupportsCrossHarnessFork = CommandPaletteContextKeys(rawValue: "panel.supportsCrossHarnessFork")
     /// Whether the focused panel has a custom name.
     public static let panelHasCustomName = CommandPaletteContextKeys(rawValue: "panel.hasCustomName")
     /// Whether the focused panel should offer pinning.

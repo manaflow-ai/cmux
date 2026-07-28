@@ -26,6 +26,10 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Identifiable, Sen
         self == .current || self == Self(sourceKind: sourceKind)
     }
 
+    func supportsFork(from sourceKind: RestorableAgentKind, isRemoteSource: Bool) -> Bool {
+        !isRemoteSource || usesNativeFork(for: sourceKind)
+    }
+
     private init?(sourceKind: RestorableAgentKind) {
         switch sourceKind {
         case .claude:

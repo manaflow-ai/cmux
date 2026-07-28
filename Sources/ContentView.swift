@@ -6687,6 +6687,10 @@ struct ContentView: View {
                     allowsAgentContinuation: allowsAgentContinuation
                 )
             )
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelSupportsCrossHarnessFork,
+                panelIsTerminal && !panelIsRemoteTerminal
+            )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
@@ -7760,7 +7764,8 @@ struct ContentView: View {
                 choiceArguments: AgentConversationForkRequest.commandPaletteChoiceArguments,
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent) &&
+                    $0.bool(CommandPaletteContextKeys.panelSupportsCrossHarnessFork)
                 }
             )
         )
