@@ -138,7 +138,7 @@ export function LayoutView({
     );
   }
   if (node.kind === "split") {
-    const ratio = Math.min(0.95, Math.max(0.05, node.ratio));
+    const ratio = node.ratio;
     return (
       <div className={`flex h-full w-full ${node.axis === "h" ? "flex-row" : "flex-col"}`}>
         <div style={{ flexBasis: `${ratio * 100}%` }} className="min-h-0 min-w-0">

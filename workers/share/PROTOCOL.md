@@ -294,11 +294,16 @@ cannot permanently starve another.
 
 The WebSocket hibernation API serializes validated identity and the compact
 delivery-credit window. On wake, attachments are validated before use.
-Membership is rebuilt, but snapshot/resync effects remain pending until a
-waking ACK has first released its old persisted entry. Volatile focus, rate
-windows, cursors, and subscriptions are rebuilt. Approved clients receive a
-fresh `session-state` and `resync`, then re-send `focus`, `sub`, and cursor
-state. The host re-sends `hello` and baselines for active subscriptions.
+Membership is rebuilt, but all deliveries to each survivor remain pending
+until that socket has acknowledged every delivery-credit entry persisted
+before the wake. Durable alarm and storage effects, new connections, and other
+sockets continue independently, so message, fetch, and alarm wakes preserve
+the same ordering. Unknown, duplicate, replayed, and cross-socket ACKs release
+nothing. Volatile focus, rate windows, cursors, and subscriptions are rebuilt.
+Approved clients receive a fresh `session-state` and `resync`, then re-send
+`focus`, `sub`, and cursor state. Editor input still authorizes against the
+current shared terminal during this resync window, so the wake-triggering input
+is not lost. The host re-sends `hello` and baselines for active subscriptions.
 Snapshots include all 256 grants plus the host; if combined valid state reaches
 the 1 MiB server ceiling, oldest chat is omitted from that snapshot only until
 it fits. An ended tombstone also re-arms its fixed cleanup deadline on wake,

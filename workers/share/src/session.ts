@@ -307,6 +307,9 @@ interface Conn {
   isHost: boolean;
   /** Guests start pending until the host approves them. */
   active: boolean;
+  /** A surviving socket can have input already in flight while it rebuilds
+   * volatile subscriptions after a Durable Object wake. */
+  restored: boolean;
   focusWs: string | null;
   subs: Set<string>;
   cursorWindowStartedAt: number;
@@ -477,6 +480,7 @@ export class ShareSessionCore {
     isHost: boolean,
     active: boolean,
     now: number,
+    restored = false,
   ): Conn {
     return {
       id,
@@ -484,6 +488,7 @@ export class ShareSessionCore {
       email,
       isHost,
       active,
+      restored,
       focusWs: null,
       subs: new Set(),
       cursorWindowStartedAt: now,
@@ -523,6 +528,7 @@ export class ShareSessionCore {
       email: who.email,
       isHost: true,
       active: true,
+      restored: false,
       focusWs: null,
       subs: new Set(),
       cursorWindowStartedAt: now,
@@ -581,6 +587,7 @@ export class ShareSessionCore {
       email: who.email,
       isHost: false,
       active: selfHost || grant !== null,
+      restored: false,
       focusWs: null,
       subs: new Set(),
       cursorWindowStartedAt: now,
@@ -682,6 +689,7 @@ export class ShareSessionCore {
             true,
             true,
             now,
+            true,
           ),
         );
         continue;
@@ -720,6 +728,7 @@ export class ShareSessionCore {
           false,
           active,
           now,
+          true,
         ),
       );
     }
@@ -1109,7 +1118,7 @@ export class ShareSessionCore {
       kind !== BINARY_KIND_INPUT ||
       this.roleOf(conn.user) !== "editor" ||
       !this.isCurrentTerminalPane(ws, pane) ||
-      !conn.subs.has(subKey(ws, pane))
+      (!conn.restored && !conn.subs.has(subKey(ws, pane)))
     ) {
       return [];
     }

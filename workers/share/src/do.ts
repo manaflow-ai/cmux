@@ -40,6 +40,7 @@ import {
   restorePersistedSession,
   ShareSessionCore,
 } from "./session";
+import { HibernationRestoreGate } from "./restore-gate";
 
 export { MAX_SOCKET_BUFFERED_BYTES };
 
@@ -61,7 +62,7 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
   private sockets = new Map<string, WebSocket>();
   private attachments = new Map<string, ShareSocketAttachment>();
   private readonly ingress = new ApplicationIngressLimiter();
-  private pendingRestoreEffects: Effect[] = [];
+  private readonly restoreGate = new HibernationRestoreGate();
   private restored = false;
 
   constructor(ctx: DurableObjectState, env: ShareWorkerEnv) {
@@ -97,8 +98,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
       await this.ctx.storage.put(SESSION_KEY, persisted);
       core = new ShareSessionCore(persisted);
       this.core = core;
-    } else {
-      await this.flushRestoreEffects();
     }
     if (isHost && core.persisted.host.user !== user) {
       // A host-claim token for a code that already belongs to someone else.
@@ -159,7 +158,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     }
     const isHost = attachment.host && core.persisted.host.user === attachment.user;
     if (typeof message !== "string") {
-      await this.flushRestoreEffects();
       if (!this.sockets.has(attachment.connId)) return;
       const bytes = new Uint8Array(message);
       const receivedAt = Date.now();
@@ -204,14 +202,12 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     const ingressAccepted =
       isHost || this.ingress.consume(attachment.connId, messageBytes, receivedAt);
     if (message.length >= MAX_JSON_FRAME_BYTES || messageBytes >= MAX_JSON_FRAME_BYTES) {
-      await this.flushRestoreEffects();
       if (!this.sockets.has(attachment.connId)) return;
       await this.closeProtocolSocket(ws, attachment, core, 1009, "JSON message too large");
       return;
     }
     const decoded = decodeClientJson(message);
     if (decoded === null) {
-      await this.flushRestoreEffects();
       if (!this.sockets.has(attachment.connId)) return;
       if (!ingressAccepted) {
         await this.closeProtocolSocket(
@@ -242,9 +238,13 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
           DELIVERY_FAILURE_CLOSE_REASON,
         );
       }
-      // A waking ACK releases old persisted credit before snapshots/resync
-      // reserve new entries. Unknown/replayed ACKs release nothing.
-      await this.flushRestoreEffects();
+      if (result === "released") {
+        // Every pre-wake entry for this exact socket must clear before its
+        // snapshot/resync and any later room traffic reserve fresh credit.
+        await this.apply(
+          this.restoreGate.release(attachment.connId, ack.nonce),
+        );
+      }
       if (result === "ignored" && !ingressAccepted && this.sockets.has(attachment.connId)) {
         await this.closeProtocolSocket(
           ws,
@@ -256,7 +256,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
       }
       return;
     }
-    await this.flushRestoreEffects();
     if (!this.sockets.has(attachment.connId)) return;
     if (!ingressAccepted) {
       await this.closeProtocolSocket(
@@ -305,8 +304,8 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     const core = await this.ensureCore();
     const attachment = this.attachment(ws);
     if (!core || !attachment) return;
-    await this.flushRestoreEffects();
     if (!this.sockets.has(attachment.connId)) return;
+    this.restoreGate.discard(attachment.connId);
     this.sockets.delete(attachment.connId);
     this.attachments.delete(attachment.connId);
     this.ingress.remove(attachment.connId);
@@ -325,7 +324,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
   override async alarm(): Promise<void> {
     const core = await this.ensureCore();
     if (!core) return;
-    await this.flushRestoreEffects();
     await this.apply(core.alarm(Date.now()));
   }
 
@@ -377,6 +375,10 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
       }
       this.sockets.set(attachment.connId, ws);
       this.attachments.set(attachment.connId, attachment);
+      this.restoreGate.register(
+        attachment.connId,
+        attachment.outstanding.map(({ nonce }) => nonce),
+      );
       restoredOutstandingAckEntries += attachment.outstanding.length;
       survivors.push({
         id: attachment.connId,
@@ -392,14 +394,11 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
       });
     }
     if (this.core && (survivors.length > 0 || this.core.ended)) {
-      // Rebuild membership immediately, but defer outbound restore effects.
-      // webSocketMessage may be the ACK that woke this instance and must
-      // release its persisted entry before new snapshot/resync reservations.
-      // Ended state also restores with no sockets so legacy tombstones repair
-      // their cleanup alarm on the next wake.
-      this.pendingRestoreEffects.push(
-        ...this.core.restore(survivors, Date.now()),
-      );
+      // Rebuild membership immediately. apply() executes durable alarm/storage
+      // work now, while the per-socket gate holds every delivery to a survivor
+      // until all of that socket's serialized pre-wake credit is released.
+      // This ordering is identical whether a message, fetch, or alarm woke us.
+      await this.apply(this.core.restore(survivors, Date.now()));
     } else if (!this.core && survivors.length > 0) {
       for (const survivor of survivors) {
         const ws = this.sockets.get(survivor.id);
@@ -431,6 +430,7 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     code: number,
     reason: string,
   ): Promise<void> {
+    this.restoreGate.discard(attachment.connId);
     this.sockets.delete(attachment.connId);
     this.attachments.delete(attachment.connId);
     this.ingress.remove(attachment.connId);
@@ -443,7 +443,9 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
   }
 
   private async apply(effects: Effect[]): Promise<void> {
-    await dispatchEffects(effects, {
+    const immediate = this.restoreGate.route(effects);
+    if (immediate.length === 0) return;
+    await dispatchEffects(immediate, {
       core: this.core,
       sockets: this.sockets,
       attachments: this.attachments,
@@ -462,20 +464,13 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
         }
         this.sockets.clear();
         this.attachments.clear();
-        this.pendingRestoreEffects = [];
+        this.restoreGate.clear();
         this.core = null;
         this.restored = false;
       },
       removeSocketState: (id) => this.ingress.remove(id),
       logInvariant: (event, details) => this.logInvariant(event, details),
     });
-  }
-
-  private async flushRestoreEffects(): Promise<void> {
-    if (this.pendingRestoreEffects.length === 0) return;
-    const effects = this.pendingRestoreEffects;
-    this.pendingRestoreEffects = [];
-    await this.apply(effects);
   }
 
   private logInvariant(
