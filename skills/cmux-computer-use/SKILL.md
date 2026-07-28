@@ -152,12 +152,12 @@ The agent's pointer shows as the cmux logo gradient (`#12c7f5 → #2d8cff →
 #6c5cff`) with a `cmux` label, so it is visually distinct from the user's
 cursor. It is configured by env the wrapper injects
 (`CUA_DRIVER_CURSOR_GRADIENT` / `_BLOOM` / `_LABEL`) and is auto-active while
-the helper daemon is driving. cmux disables the upstream 20-second idle hide
-and the helper periodically reasserts the static panel directly above the
-driven target, so the cursor remains visible while a session is active even
-between tool calls. If no cursor appears, confirm the MCP config uses the
-helper socket, has a stable `CUA_DRIVER_DEFAULT_SESSION`, and uses the pinned
-driver build.
+the helper daemon is driving. The landing remains visible briefly, then a
+short idle timeout removes the overlay after the driving action ends, including
+when a client fails to close its session cleanly. Each later action reasserts
+the cursor directly above the driven target. If no cursor appears during an
+action, confirm the MCP config uses the helper socket, has a stable
+`CUA_DRIVER_DEFAULT_SESSION`, and uses the pinned driver build.
 
 ## Finding and focusing the driving session
 
