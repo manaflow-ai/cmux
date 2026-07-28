@@ -1548,6 +1548,13 @@ struct GhostMainWindowContextLifecycleTests {
                 focus: false
             )?.id
         }
+        try expectRetiredWorkspaceRejectsPanelCreation(named: "newSimulatorSurface") { workspace, paneId in
+            workspace.newSimulatorSurface(
+                inPane: paneId,
+                focus: false,
+                restoringSession: true
+            )?.id
+        }
         try expectRetiredWorkspaceRejectsPanelCreation(named: "openFileSurfaces") { workspace, paneId in
             workspace.openFileSurfaces(
                 inPane: paneId,

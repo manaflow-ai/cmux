@@ -141,6 +141,52 @@ import Testing
         #expect(retryManager.tabs.count == baselineCount + 1)
     }
 
+    @Test func windowFinalizationDuringMobileReservationDoesNotConsumeOperationID() async {
+        let persistence = BlockingFirstSavePersistence()
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 16,
+            persistence: persistence
+        )
+        let manager = TabManager()
+        let retryManager = TabManager()
+        let operationID = UUID()
+        defer {
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            if !retryManager.isFinalizedForWindowClose {
+                retryManager.finalizeAllWorkspacesForWindowClose()
+            }
+        }
+
+        let initialTask = Task { @MainActor in
+            await TerminalController.shared.v2MobileWorkspaceCreate(
+                params: ["operation_id": operationID.uuidString],
+                tabManager: manager,
+                idempotencyCache: cache
+            )
+        }
+
+        await persistence.waitForFirstSaveToStart()
+        manager.finalizeAllWorkspacesForWindowClose()
+        persistence.releaseFirstSave()
+        let initial = await initialTask.value
+
+        #expect(Self.errorCode(initial) == "internal_error")
+        #expect(cache.containsCompletedOperation(operationID) == false)
+        #expect(persistence.savedOperationIDs.isEmpty)
+
+        let baselineCount = retryManager.tabs.count
+        let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["operation_id": operationID.uuidString],
+            tabManager: retryManager,
+            idempotencyCache: cache
+        )
+
+        #expect(Self.errorCode(retry) == nil)
+        #expect(retryManager.tabs.count == baselineCount + 1)
+    }
+
     private static func errorCode(_ result: TerminalController.V2CallResult) -> String? {
         guard case let .err(code, _, _) = result else { return nil }
         return code

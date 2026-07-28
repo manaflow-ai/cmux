@@ -88,7 +88,7 @@ private enum TransientLoadFailure: Error {
     case injected
 }
 
-private final class BlockingFirstSavePersistence:
+final class BlockingFirstSavePersistence:
     TerminalController.WorkspaceCreateIdempotencyPersisting, @unchecked Sendable
 {
     private let firstSaveStarted = DispatchSemaphore(value: 0)
