@@ -14,8 +14,15 @@ type HookExtra = Record<string, unknown>;
 
 interface PendingCompletion {
   lastAssistantMessage?: string;
-  notificationType: string;
+  stopReason: string;
+  errorMessage?: string;
   turnId: string;
+}
+
+interface AssistantOutcome {
+  message?: string;
+  stopReason: string;
+  errorMessage?: string;
 }
 
 interface SessionState {
@@ -237,18 +244,29 @@ function textFromContent(content: unknown): string | null {
   return parts.join("\n") || null;
 }
 
-function lastAssistantMessage(event: unknown): string | undefined {
+function lastAssistantOutcome(event: unknown): AssistantOutcome {
+  const eventStopReason = firstString(objectValue(event, ["stopReason", "reason", "terminationReason"]));
   const messagesValue = objectValue(event, ["messages"]);
   const messages = Array.isArray(messagesValue) ? messagesValue : [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message || typeof message !== "object") continue;
-    const typed = message as { role?: unknown; content?: unknown };
+    const typed = message as {
+      role?: unknown;
+      content?: unknown;
+      stopReason?: unknown;
+      stop_reason?: unknown;
+      errorMessage?: unknown;
+      error_message?: unknown;
+    };
     if (typed.role !== "assistant") continue;
-    const text = firstString(textFromContent(typed.content));
-    if (text) return text;
+    return {
+      message: firstString(textFromContent(typed.content)) || undefined,
+      stopReason: firstString(typed.stopReason, typed.stop_reason, eventStopReason) || "stop",
+      errorMessage: firstString(typed.errorMessage, typed.error_message) || undefined,
+    };
   }
-  return undefined;
+  return { stopReason: eventStopReason || "stop" };
 }
 
 function sessionIdFrom(ctx: ExtensionContext): string | null {

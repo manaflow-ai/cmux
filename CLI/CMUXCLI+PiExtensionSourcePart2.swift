@@ -227,15 +227,40 @@ function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext
 function publishPendingCompletion(ctx: ExtensionContext, sessionId: string): void {
   const completion = settleTurn(sessionId);
   if (!completion) return;
+
+  const stopPayload: HookExtra = {
+    last_assistant_message: completion.lastAssistantMessage,
+    terminationReason: completion.stopReason,
+    turn_id: completion.turnId,
+  };
+
+  if (completion.stopReason === "aborted") {
+    // User cancellation is idle, not a successful completion worth notifying about.
+    stopPayload.cmux_notification_routed = true;
+    sendHook("stop", ctx, stopPayload);
+    return;
+  }
+
+  if (completion.stopReason === "length" || completion.stopReason === "error") {
+    // Stop first so the error notification remains the final visible lifecycle state.
+    // Always suppress the generic Stop fallback, which would misreport this as completed.
+    stopPayload.cmux_notification_routed = true;
+    sendHook("stop", ctx, stopPayload);
+    sendHook("notification", ctx, {
+      message: completion.stopReason === "length"
+        ? "Model stopped because it reached the maximum output token limit. The response may be incomplete."
+        : completion.errorMessage || "Pi stopped with an error before completing the task.",
+      turn_id: completion.turnId,
+      notification: { type: "error" },
+    });
+    return;
+  }
+
   const notificationRouted = sendHook("notification", ctx, {
     message: completion.lastAssistantMessage || "Task completed",
     turn_id: completion.turnId,
-    notification: { type: completion.notificationType },
+    notification: { type: "completed" },
   });
-  const stopPayload: HookExtra = {
-    last_assistant_message: completion.lastAssistantMessage,
-    turn_id: completion.turnId,
-  };
   if (notificationRouted) stopPayload.cmux_notification_routed = true;
   sendHook("stop", ctx, stopPayload);
 }
@@ -274,11 +299,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const sessionId = sessionIdFrom(ctx);
     if (!sessionId) return;
     const state = stateFor(sessionId);
-    const message = lastAssistantMessage(event);
+    const outcome = lastAssistantOutcome(event);
     // Preserve the latest low-level result until Pi confirms no automatic work remains.
     state.pendingCompletion = {
-      lastAssistantMessage: message || state.pendingCompletion?.lastAssistantMessage,
-      notificationType: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
+      lastAssistantMessage: outcome.message || state.pendingCompletion?.lastAssistantMessage,
+      stopReason: outcome.stopReason,
+      errorMessage: outcome.errorMessage,
       turnId: currentTurnId(sessionId, event),
     };
     // Older Pi versions do not emit agent_settled, so retain their established completion behavior.
