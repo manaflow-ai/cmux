@@ -1688,6 +1688,20 @@ mod tests {
     }
 
     #[test]
+    fn relabel_finds_inserted_image_in_compositing_order_across_surfaces() {
+        let inserted = GraphicImageKey { namespace: 9, surface: 9, image_id: 1 };
+        let existing = GraphicImageKey { namespace: 0, surface: 1, image_id: 2 };
+        let mut state = GraphicsState::default();
+        state.image_ids.insert(existing, 1);
+        state.used_image_ids.insert(1);
+        let mut batches = Vec::new();
+
+        state.prepare_image_ids(&[inserted, existing], &mut batches);
+
+        assert!(state.image_ids[&inserted] < state.image_ids[&existing]);
+    }
+
+    #[test]
     fn reconnect_namespace_prevents_surface_and_generation_reuse_from_aliasing() {
         let rect = Rect { x: 0, y: 0, width: 2, height: 2 };
         let first = GraphicPlacement::browser(10, 7, rect, 1, 20, 20, "AAAA".to_string());

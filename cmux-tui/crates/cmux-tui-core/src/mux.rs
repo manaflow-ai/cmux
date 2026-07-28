@@ -11213,6 +11213,42 @@ mod tests {
     }
 
     #[test]
+    fn cell_pixel_deadline_retries_stop_and_report_terminal_failure() {
+        let mux = test_mux();
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        *mux.cell_pixel_fanout_timeout.lock().unwrap() = Some(Duration::from_millis(10));
+        *mux.cell_pixel_operation.lock().unwrap() = Some(Arc::new({
+            let attempts = attempts.clone();
+            move |_, _, _| {
+                attempts.fetch_add(1, Ordering::AcqRel);
+                Err(crate::terminal_host_runtime::CellPixelRequestDeadlineElapsed.into())
+            }
+        }));
+        let events = mux.subscribe();
+
+        let update = mux.set_cell_pixel_size(9, 18);
+
+        assert_eq!(update.failures.len(), 1);
+        assert!(update.failures[0].deferred);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while mux.cell_pixel_retries.lock().unwrap().worker_running && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !mux.cell_pixel_retries.lock().unwrap().worker_running,
+            "deadline retries did not stop after {} attempts",
+            attempts.load(Ordering::Acquire)
+        );
+        assert!(attempts.load(Ordering::Acquire) <= 8);
+        assert_eq!(mux.cell_pixel_creation_size(), (8, 16));
+        assert!(events.try_iter().any(|event| {
+            matches!(event, MuxEvent::Status(message)
+                if message.contains("cell pixel update stopped after"))
+        }));
+    }
+
+    #[test]
     fn late_cell_pixel_ack_publishes_the_pending_creation_metric() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
