@@ -18,14 +18,17 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
     /// Classifies whether an existing inner preview is safe to reuse.
     static func staleReason(
         didDetachFromWindow: Bool,
-        containerHasWindow: Bool,
-        previewHasWindow: Bool
+        isChildOfContainer: Bool,
+        sharesContainerWindow: Bool
     ) -> String? {
         if didDetachFromWindow {
             return "detached-from-window"
         }
-        if containerHasWindow, !previewHasWindow {
-            return "missing-from-mounted-container"
+        if !isChildOfContainer {
+            return "missing-from-container"
+        }
+        if !sharesContainerWindow {
+            return "window-mismatch"
         }
         return nil
     }
@@ -33,13 +36,13 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
     /// Returns whether the inner preview must be replaced before assignment.
     static func shouldRetire(
         didDetachFromWindow: Bool,
-        containerHasWindow: Bool,
-        previewHasWindow: Bool
+        isChildOfContainer: Bool,
+        sharesContainerWindow: Bool
     ) -> Bool {
         staleReason(
             didDetachFromWindow: didDetachFromWindow,
-            containerHasWindow: containerHasWindow,
-            previewHasWindow: previewHasWindow
+            isChildOfContainer: isChildOfContainer,
+            sharesContainerWindow: sharesContainerWindow
         ) != nil
     }
 
@@ -86,8 +89,8 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
         if let previewView {
             let staleReason = Self.staleReason(
                 didDetachFromWindow: previewView.didDetachFromWindow,
-                containerHasWindow: window != nil,
-                previewHasWindow: previewView.window != nil
+                isChildOfContainer: previewView.superview === self,
+                sharesContainerWindow: previewView.window === window
             )
             if let staleReason {
                 sentryBreadcrumb(
