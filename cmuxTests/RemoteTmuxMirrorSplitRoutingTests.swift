@@ -81,6 +81,23 @@ import Testing
         )
     }
 
+    @Test func projectedForkSplitPreservesBeforePlacementAndRemoteLaunchContext() throws {
+        let command = try #require(
+            RemoteTmuxSplitFocusIntent.focusCreatedPane.agentForkCommand(
+                vertical: true,
+                windowID: 2,
+                paneID: 4,
+                insertBefore: true,
+                shellCommand: "claude --fork-session abc",
+                workingDirectory: "/tmp/remote fork"
+            )
+        )
+
+        #expect(command.hasPrefix("split-window -P -F '#{pane_id}' -v -b -t @2.%4"))
+        #expect(command.contains("-c '/tmp/remote fork'"))
+        #expect(command.hasSuffix("'claude --fork-session abc'"))
+    }
+
     /// `new-split --focus false` must ask tmux to create the pane detached.
     /// Without `-d`, tmux selects the new pane and its authoritative active-pane
     /// publication also changes the mirror's internal focus (#7733).

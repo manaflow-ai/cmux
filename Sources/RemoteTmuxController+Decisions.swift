@@ -174,6 +174,27 @@ extension RemoteTmuxController {
         return command
     }
 
+    nonisolated static func agentForkNewWindowCommand(
+        afterWindowId: Int?,
+        workingDirectory: String?,
+        shellCommand: String
+    ) -> String? {
+        guard RemoteTmuxHost.controlModeLineSafeName(shellCommand) != nil else {
+            return nil
+        }
+        var command = newWindowCommand(
+            afterWindowId: afterWindowId,
+            workingDirectory: workingDirectory,
+            focus: true
+        )
+        if let workingDirectory,
+           RemoteTmuxHost.controlModeLineSafeName(workingDirectory) == nil {
+            return nil
+        }
+        command += " \(RemoteTmuxHost.shellSingleQuoted(shellCommand))"
+        return command
+    }
+
     /// Builds the commands that selection-sort `current` into `desired` using
     /// stable tmux window ids and detached swaps.
     nonisolated static func mirrorWindowReorderCommands(

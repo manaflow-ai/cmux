@@ -48,11 +48,15 @@ extension RemoteTmuxWindowMirror {
     func seedActivePaneIfNeeded() {
         let live = renderedLayout.paneIDsInOrder
         let remoteActive = connection?.activePaneByWindow[windowId]
-        let seed = remoteActive.flatMap { live.contains($0) ? $0 : nil } ?? live.first
-        if activePaneId.map({ live.contains($0) }) != true, let seed {
+        if let remoteActive, live.contains(remoteActive) {
+            setActivePane(remoteActive, fromTmux: true)
+        } else if activePaneId.map({ live.contains($0) }) != true,
+                  let seed = live.first {
             setActivePane(seed, fromTmux: true)
         } else if let activePaneId {
-            setActivePane(activePaneId, fromTmux: true)
+            // Reconciliation may re-impose local Bonsplit focus, but it cannot
+            // promote a locally projected pane into authoritative tmux truth.
+            projectActivePane(activePaneId)
         }
     }
 

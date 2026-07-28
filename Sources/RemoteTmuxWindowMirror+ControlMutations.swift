@@ -161,13 +161,32 @@ extension RemoteTmuxWindowMirror {
     func requestSplit(
         fromPane tmuxPaneID: Int,
         vertical: Bool,
-        focusIntent: RemoteTmuxSplitFocusIntent
+        focusIntent: RemoteTmuxSplitFocusIntent,
+        insertBefore: Bool,
+        shellCommand: String?,
+        workingDirectory: String?
     ) -> Bool {
-        let command = focusIntent.command(
-            vertical: vertical,
-            windowID: windowId,
-            paneID: tmuxPaneID
-        )
+        let command: String
+        if let shellCommand {
+            guard let forkCommand = focusIntent.agentForkCommand(
+                vertical: vertical,
+                windowID: windowId,
+                paneID: tmuxPaneID,
+                insertBefore: insertBefore,
+                shellCommand: shellCommand,
+                workingDirectory: workingDirectory
+            ) else {
+                return false
+            }
+            command = forkCommand
+        } else {
+            command = focusIntent.command(
+                vertical: vertical,
+                windowID: windowId,
+                paneID: tmuxPaneID,
+                insertBefore: insertBefore
+            )
+        }
         guard focusIntent == .focusCreatedPane else {
             return sendControlCommand(command)
         }

@@ -30,6 +30,33 @@ struct RemoteTmuxControlPaneLocation {
         )
     }
 
+    func requestAgentForkSplit(
+        vertical: Bool,
+        insertBefore: Bool,
+        shellCommand: String,
+        workingDirectory: String?
+    ) -> Bool {
+        owner.requestSplit(
+            fromPane: pane.tmuxPaneID,
+            vertical: vertical,
+            focusIntent: .focusCreatedPane,
+            insertBefore: insertBefore,
+            shellCommand: shellCommand,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    func requestAgentForkNewWindow(
+        shellCommand: String,
+        workingDirectory: String?
+    ) -> Bool {
+        owner.requestAgentForkNewWindow(
+            afterPane: pane.tmuxPaneID,
+            shellCommand: shellCommand,
+            workingDirectory: workingDirectory
+        )
+    }
+
     func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool {
         owner.requestResizePane(tmuxPaneID, direction: direction, amountCells: amountCells)
     }

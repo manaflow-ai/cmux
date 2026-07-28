@@ -50,47 +50,47 @@ import Testing
     }
 
     @Test func reconnectRejectsOptimisticFocusBeforeReconciliation() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        workspace.isRemoteTmuxMirror = true
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@host"),
             sessionName: "work"
         )
-        let pipe = Pipe()
-        let writer = RemoteTmuxControlPipeWriter(
-            handle: pipe.fileHandleForWriting,
-            label: "remote-tmux-focus-reconnect-test",
-            maxPendingBytes: 1 << 16,
-            onFailure: {}
-        )
-        defer {
-            writer.close()
-            try? pipe.fileHandleForReading.close()
-        }
-        connection.installStdinWriterForTesting(writer)
-        connection.handleMessageForTesting(.enter)
-        connection.handleMessageForTesting(
-            .commandResult(commandNumber: 0, lines: [], isError: false)
-        )
-        connection.activePaneByWindow[1] = 4
         let layout = Self.twoPaneLayout(left: 4, right: 5)
-        let workspace = Workspace()
-        let mirror = RemoteTmuxWindowMirror(
-            windowId: 1,
-            panelId: UUID(),
-            connection: connection,
-            layout: layout,
-            appearance: .default,
-            makePanel: { _ in
-                workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
-            }
+        connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            name: "main",
+            width: layout.width,
+            height: layout.height,
+            layout: layout
         )
-        defer { mirror.teardown() }
+        connection.windowOrder = [1]
+        connection.activePaneByWindow[1] = 4
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: connection.host,
+            sessionName: "work",
+            connection: connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        let mirror = try #require(
+            workspace.panels.keys.lazy.compactMap {
+                workspace.remoteTmuxWindowMirror(forPanelId: $0)
+            }.first
+        )
         var focusResult: Bool?
 
-        #expect(mirror.controlFocus(pane: 5) { focusResult = $0 })
+        #expect(mirror.requestControlFocus(
+            pane: 5,
+            sendTracked: { _, completion in
+                completion(true)
+                return true
+            },
+            completion: { focusResult = $0 }
+        ))
         #expect(mirror.activePaneId == 5)
-        connection.handleMessageForTesting(
-            .commandResult(commandNumber: 1, lines: [], isError: false)
-        )
 
         connection.observers.notifyStateChanged(.reconnecting)
         mirror.reconcile(layout: layout)

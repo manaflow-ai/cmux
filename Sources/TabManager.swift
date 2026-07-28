@@ -3422,11 +3422,16 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func focusTabFromNotification(_ tabId: UUID, surfaceId: UUID? = nil) -> Bool {
+    func focusTabFromNotification(
+        _ tabId: UUID,
+        surfaceId: UUID? = nil,
+        completion: ((Bool) -> Void)? = nil
+    ) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else {
 #if DEBUG
             cmuxDebugLog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) reason=missingTab")
 #endif
+            completion?(false)
             return false
         }
         let requestedPanelId = surfaceId.flatMap { panelId(forSurfaceOrPanelId: $0, in: tab) }
@@ -3434,6 +3439,7 @@ class TabManager: ObservableObject {
 #if DEBUG
             cmuxDebugLog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) reason=missingPanel")
 #endif
+            completion?(false)
             return false
         }
         let desiredPanelId = requestedPanelId ?? tab.focusedPanelId
@@ -3451,7 +3457,10 @@ class TabManager: ObservableObject {
                 guard let self else { return }
                 guard self.pendingProjectedNotificationFocusRequestID == requestID else { return }
                 self.pendingProjectedNotificationFocusRequestID = nil
-                guard confirmed else { return }
+                guard confirmed else {
+                    completion?(false)
+                    return
+                }
 
                 // Present and dismiss only after tmux publishes the requested
                 // pane as authoritative. Until then, the mirror's optimistic
@@ -3469,6 +3478,7 @@ class TabManager: ObservableObject {
                     tabId: tabId,
                     surfaceId: surfaceId
                 )
+                completion?(true)
             }
             if !accepted {
                 if pendingProjectedNotificationFocusRequestID == requestID {
@@ -3491,6 +3501,7 @@ class TabManager: ObservableObject {
                 surfaceId: dismissalSurfaceID
             )
         }
+        completion?(true)
         return true
     }
 

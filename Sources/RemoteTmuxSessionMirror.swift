@@ -215,6 +215,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 if state != .connected {
                     self?.titleFilters.removeAll()
                     self?.clearPendingPaneSeedDeliveries()
+                    self?.windowMirrorByWindowId.values.forEach {
+                        $0.cancelPendingControlPaneFocus()
+                    }
                 }
             }
         )

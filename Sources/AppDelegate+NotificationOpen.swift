@@ -110,7 +110,19 @@ extension AppDelegate {
         context.sidebarSelectionState.selection = .tabs
         bringToFront(window)
         let focusSurfaceId = surfaceId ?? panelId
-        guard context.tabManager.focusTabFromNotification(tabId, surfaceId: focusSurfaceId) else {
+        let completion = notificationOpenCompletion(
+            tabManager: context.tabManager,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollPosition: scrollPosition
+        )
+        guard context.tabManager.focusTabFromNotification(
+            tabId,
+            surfaceId: focusSurfaceId,
+            completion: completion
+        ) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
                 tabId: tabId,
@@ -132,17 +144,6 @@ extension AppDelegate {
             expectedSurfaceId: focusSurfaceId
         )
 #endif
-
-        if let notificationId, let store = notificationStore {
-            store.markRead(id: notificationId)
-        }
-        restoreNotificationScrollPosition(
-            scrollPosition,
-            tabId: tabId,
-            surfaceId: surfaceId,
-            panelId: panelId,
-            workspace: context.tabManager.tabs.first(where: { $0.id == tabId })
-        )
 
 #if DEBUG
         recordMultiWindowNotificationFocusIfNeeded(
@@ -193,7 +194,19 @@ extension AppDelegate {
         sidebarSelectionState?.selection = .tabs
         bringToFront(window)
         let focusSurfaceId = surfaceId ?? panelId
-        guard tabManager.focusTabFromNotification(tabId, surfaceId: focusSurfaceId) else {
+        let completion = notificationOpenCompletion(
+            tabManager: tabManager,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollPosition: scrollPosition
+        )
+        guard tabManager.focusTabFromNotification(
+            tabId,
+            surfaceId: focusSurfaceId,
+            completion: completion
+        ) else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
                 writeJumpUnreadTestData([
@@ -213,21 +226,34 @@ extension AppDelegate {
         )
 #endif
 
-        if let notificationId, let store = notificationStore {
-            store.markRead(id: notificationId)
-        }
-        restoreNotificationScrollPosition(
-            scrollPosition,
-            tabId: tabId,
-            surfaceId: surfaceId,
-            panelId: panelId,
-            workspace: tabManager.tabs.first(where: { $0.id == tabId })
-        )
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData(["jumpUnreadOpenInFallback": "1", "jumpUnreadOpenResult": "1"])
         }
 #endif
         return true
+    }
+
+    private func notificationOpenCompletion(
+        tabManager: TabManager,
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollPosition: TerminalNotificationScrollPosition?
+    ) -> (Bool) -> Void {
+        { [weak self, weak tabManager] confirmed in
+            guard confirmed, let self, let tabManager else { return }
+            if let notificationId, let store = self.notificationStore {
+                store.markRead(id: notificationId)
+            }
+            self.restoreNotificationScrollPosition(
+                scrollPosition,
+                tabId: tabId,
+                surfaceId: surfaceId,
+                panelId: panelId,
+                workspace: tabManager.tabs.first(where: { $0.id == tabId })
+            )
+        }
     }
 }

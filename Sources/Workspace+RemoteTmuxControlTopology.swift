@@ -150,6 +150,20 @@ extension Workspace {
         }
     }
 
+    /// Agent discovery and launch policy must classify the live projected
+    /// surface, not only the workspace-owned container that lays it out.
+    func isRemoteTerminalContext(_ surfaceOrPanelID: UUID) -> Bool {
+        let surfaceID = surfaceOwnershipTarget(for: surfaceOrPanelID)?.surfaceID
+            ?? surfaceOrPanelID
+        if isRemoteTerminalSurface(surfaceID) {
+            return true
+        }
+        if case .pane = remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+            return true
+        }
+        return false
+    }
+
     /// Maps a control-plane surface identity to the workspace-owned tab that
     /// participates in reorder. Projected tmux pane surfaces reorder their
     /// window container; hidden mirror wrappers remain unresolved.

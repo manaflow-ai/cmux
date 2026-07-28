@@ -15,8 +15,11 @@ extension Workspace: TerminalLinkOpenContainer {
     }
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
-        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
-        return isRemoteTerminalSurface(target.surfaceID)
+        let surfaceID = surfaceOwnershipTarget(for: sourcePanelId)?.surfaceID
+            ?? sourcePanelId
+        return !canResolveTerminalPathsAgainstLocalFilesystem(
+            surfaceID: surfaceID
+        )
     }
 
     func deferTerminalFileLinkOpen(

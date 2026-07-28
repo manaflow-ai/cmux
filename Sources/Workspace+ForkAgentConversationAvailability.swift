@@ -36,7 +36,7 @@ extension Workspace {
         }
         switch ContentView.commandPaletteSnapshotForkAvailability(
             snapshot,
-            isRemoteTerminal: isRemoteTerminalSurface(panelId)
+            isRemoteTerminal: isRemoteTerminalContext(panelId)
         ) {
         case .supportedWithoutProbe:
             return .available
@@ -113,7 +113,7 @@ extension Workspace {
         await liveAgentIndex.refreshForkAvailabilityNow(
             workspaceId: id,
             panelId: panelId,
-            isRemoteContext: isRemoteTerminalSurface(panelId),
+            isRemoteContext: isRemoteTerminalContext(panelId),
             fallbackSnapshot: selection.validationFallbackSnapshot
         )
     }
@@ -143,7 +143,7 @@ extension Workspace {
             return (.notTerminalPanel, nil, nil)
         }
 
-        let isRemoteContext = isRemoteTerminalSurface(panelId)
+        let isRemoteContext = isRemoteTerminalContext(panelId)
         if !allowsAgentContinuation(forPanelId: panelId) {
             if let observation = liveAgentIndex.index?.entry(workspaceId: id, panelId: panelId) {
                 reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
@@ -248,19 +248,19 @@ extension Workspace {
         guard liveAgentIndex.prepareForkAvailabilityProbe(
             workspaceId: id,
             panelId: panelId,
-            isRemoteContext: isRemoteTerminalSurface(panelId)
+            isRemoteContext: isRemoteTerminalContext(panelId)
         ) else {
             return (.agentIndexRefreshing, nil, nil)
         }
         guard let verifiedSnapshot = liveAgentIndex.snapshotForForkAvailability(
             workspaceId: id,
             panelId: panelId,
-            isRemoteContext: isRemoteTerminalSurface(panelId)
+            isRemoteContext: isRemoteTerminalContext(panelId)
         ) else {
             if liveAgentIndex.forkSupportProbeRejected(
                 workspaceId: id,
                 panelId: panelId,
-                isRemoteContext: isRemoteTerminalSurface(panelId)
+                isRemoteContext: isRemoteTerminalContext(panelId)
             ) {
                 return (.unsupported, nil, nil)
             }
@@ -275,7 +275,7 @@ extension Workspace {
 
         switch ContentView.commandPaletteSnapshotForkAvailability(
             verifiedSnapshot,
-            isRemoteTerminal: isRemoteTerminalSurface(panelId)
+            isRemoteTerminal: isRemoteTerminalContext(panelId)
         ) {
         case .supportedWithoutProbe, .requiresProbe:
             return (.available, verifiedSnapshot, nil)

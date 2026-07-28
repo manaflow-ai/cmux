@@ -187,14 +187,20 @@ extension RemoteTmuxSessionMirror {
     func requestSplit(
         fromPane tmuxPaneID: Int,
         vertical: Bool,
-        focusIntent: RemoteTmuxSplitFocusIntent
+        focusIntent: RemoteTmuxSplitFocusIntent,
+        insertBefore: Bool,
+        shellCommand: String?,
+        workingDirectory: String?
     ) -> Bool {
         guard let windowID = windowIdByPane[tmuxPaneID] else { return false }
         return sendSplit(
             vertical: vertical,
             windowID: windowID,
             paneID: tmuxPaneID,
-            focusIntent: focusIntent
+            focusIntent: focusIntent,
+            insertBefore: insertBefore,
+            shellCommand: shellCommand,
+            workingDirectory: workingDirectory
         )
     }
 
@@ -215,7 +221,10 @@ extension RemoteTmuxSessionMirror {
             vertical: vertical,
             windowID: windowID,
             paneID: targetPane,
-            focusIntent: focusIntent
+            focusIntent: focusIntent,
+            insertBefore: false,
+            shellCommand: nil,
+            workingDirectory: nil
         )
     }
 
@@ -223,13 +232,32 @@ extension RemoteTmuxSessionMirror {
         vertical: Bool,
         windowID: Int,
         paneID: Int,
-        focusIntent: RemoteTmuxSplitFocusIntent
+        focusIntent: RemoteTmuxSplitFocusIntent,
+        insertBefore: Bool,
+        shellCommand: String?,
+        workingDirectory: String?
     ) -> Bool {
-        let command = focusIntent.command(
-            vertical: vertical,
-            windowID: windowID,
-            paneID: paneID
-        )
+        let command: String
+        if let shellCommand {
+            guard let forkCommand = focusIntent.agentForkCommand(
+                vertical: vertical,
+                windowID: windowID,
+                paneID: paneID,
+                insertBefore: insertBefore,
+                shellCommand: shellCommand,
+                workingDirectory: workingDirectory
+            ) else {
+                return false
+            }
+            command = forkCommand
+        } else {
+            command = focusIntent.command(
+                vertical: vertical,
+                windowID: windowID,
+                paneID: paneID,
+                insertBefore: insertBefore
+            )
+        }
         guard focusIntent == .focusCreatedPane,
               let windowMirror = windowMirrorByWindowId[windowID] else {
             return connection.send(command)
@@ -245,6 +273,26 @@ extension RemoteTmuxSessionMirror {
             windowMirror.noteCreatedPaneFocusRequestAccepted(requestID: requestID)
         }
         return accepted
+    }
+
+    func requestAgentForkNewWindow(
+        afterPane tmuxPaneID: Int,
+        shellCommand: String,
+        workingDirectory: String?
+    ) -> Bool {
+        guard connection.connectionState == .connected,
+              let afterWindowID = windowIdByPane[tmuxPaneID],
+              let command = RemoteTmuxController.agentForkNewWindowCommand(
+                afterWindowId: afterWindowID,
+                workingDirectory: workingDirectory,
+                shellCommand: shellCommand
+              ) else {
+            return false
+        }
+        return connection.sendNewWindow(command) { [weak self] windowID in
+            guard let windowID else { return }
+            self?.focusWindowWhenAvailable(windowID)
+        }
     }
 
     func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool {
