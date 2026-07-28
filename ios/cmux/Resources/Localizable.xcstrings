@@ -16276,13 +16276,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in on both devices. cmux connects your Mac automatically."
+            "value": "Use the same cmux account on both devices. Your Mac connects automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方の端末でサインインすると、Macに自動で接続されます。"
+            "value": "両方の端末で同じcmuxアカウントにサインインすると、Macに自動で接続されます。"
           }
         }
       }

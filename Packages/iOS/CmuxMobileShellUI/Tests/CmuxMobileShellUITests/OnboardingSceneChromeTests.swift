@@ -134,7 +134,7 @@ import UIKit
         let label = OnboardingBalancedText.makeLabel()
         OnboardingBalancedText.configure(
             label,
-            text: "Sign in on both devices. cmux connects your Mac automatically.",
+            text: "Use the same cmux account on both devices. Your Mac connects automatically.",
             role: .body,
             alignment: .center,
             maximumNumberOfLines: 2

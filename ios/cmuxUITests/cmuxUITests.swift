@@ -167,7 +167,7 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(connectScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         XCTAssertTrue(app.staticTexts[
-            "Sign in on both devices. cmux connects your Mac automatically."
+            "Use the same cmux account on both devices. Your Mac connects automatically."
         ].exists)
         XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
         XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
