@@ -5,7 +5,6 @@ import CmuxSimulatorUI
 @MainActor
 final class ApplicationCaptureView: NSView {
     private static let firstFrameTimeout: TimeInterval = 8
-    private static let frameStallTimeout: TimeInterval = 8
 
     private static let namedKeyCodes: [String: CGKeyCode] = [
         "a": CGKeyCode(kVK_ANSI_A), "b": CGKeyCode(kVK_ANSI_B),
@@ -674,20 +673,48 @@ final class ApplicationCaptureView: NSView {
                 else {
                     return
                 }
-                guard let failure = self.livenessState?.failure(
+                if let failure = self.livenessState?.failure(
                     at: ProcessInfo.processInfo.systemUptime,
-                    firstFrameTimeout: Self.firstFrameTimeout,
-                    frameStallTimeout: Self.frameStallTimeout
-                ) else {
+                    firstFrameTimeout: Self.firstFrameTimeout
+                ) {
+                    cmuxDebugLog(
+                        "applicationSurface.frames.failed"
+                            + " window=\(self.sourceWindowID)"
+                            + " reason=\(String(describing: failure))"
+                    )
+                    self.handleRuntimeFailure(.failed)
+                    return
+                }
+                guard
+                    self.livenessState?.hasPresentedFrame == true,
+                    let lease = self.lease,
+                    let sessionID = self.session?.sessionID
+                else {
                     continue
                 }
-                cmuxDebugLog(
-                    "applicationSurface.frames.failed"
-                        + " window=\(self.sourceWindowID)"
-                        + " reason=\(String(describing: failure))"
-                )
-                self.handleRuntimeFailure(.failed)
-                return
+                do {
+                    try await self.runtime.checkApplicationSurfaceHealth(
+                        lease: lease,
+                        sessionID: sessionID
+                    )
+                } catch ApplicationSurfaceRuntimeError.windowUnavailable {
+                    guard self.captureGeneration == generation else { return }
+                    self.handleRuntimeFailure(.windowUnavailable)
+                    return
+                } catch ApplicationSurfaceRuntimeError.permissionRequired {
+                    guard self.captureGeneration == generation else { return }
+                    self.handleRuntimeFailure(.permissionRequired)
+                    return
+                } catch {
+                    guard self.captureGeneration == generation else { return }
+                    cmuxDebugLog(
+                        "applicationSurface.health.failed"
+                            + " window=\(self.sourceWindowID)"
+                            + " error=\(error.localizedDescription)"
+                    )
+                    self.handleRuntimeFailure(.failed)
+                    return
+                }
             }
         }
     }

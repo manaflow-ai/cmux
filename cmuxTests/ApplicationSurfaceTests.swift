@@ -85,20 +85,17 @@ struct ApplicationSurfaceTests {
 
         #expect(state.failure(
             at: 17.9,
-            firstFrameTimeout: 8,
-            frameStallTimeout: 5
+            firstFrameTimeout: 8
         ) == nil)
         #expect(state.failure(
             at: 18,
-            firstFrameTimeout: 8,
-            frameStallTimeout: 5
+            firstFrameTimeout: 8
         ) == .firstFrameTimedOut)
 
         state.recordFrame(at: 20)
         #expect(state.failure(
             at: 120,
-            firstFrameTimeout: 8,
-            frameStallTimeout: 5
+            firstFrameTimeout: 8
         ) == nil)
     }
 
@@ -597,6 +594,11 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String
     ) async {}
+
+    func checkApplicationSurfaceHealth(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) async throws {}
 
     func sendApplicationSurfaceEvent(
         lease: ApplicationSurfaceRuntimeLease,

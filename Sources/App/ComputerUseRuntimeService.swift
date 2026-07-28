@@ -452,6 +452,36 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
     }
 
+    func checkApplicationSurfaceHealth(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) async throws {
+        let identity = try validatedApplicationSurfaceIdentity(lease: lease)
+        guard
+            !sessionID.isEmpty,
+            applicationSurfaceSessionIDsByLease[lease.identifier]?.contains(sessionID) == true
+        else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        guard let response = await Self.sendDaemonRequest(
+            [
+                "method": "application_surface_event",
+                "args": [
+                    "session": sessionID,
+                    "kind": "health",
+                ],
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 3,
+            expectedPeerIdentity: identity,
+            socketURL: paths.daemonSocketURL
+        ) else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        try Self.throwApplicationSurfaceResponseError(response)
+    }
+
     func sendApplicationSurfaceEvent(
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String,

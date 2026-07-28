@@ -14,6 +14,10 @@ protocol ApplicationSurfaceRuntime: AnyObject {
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String
     ) async
+    func checkApplicationSurfaceHealth(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) async throws
     func sendApplicationSurfaceEvent(
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String,

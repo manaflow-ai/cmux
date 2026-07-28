@@ -2,22 +2,21 @@ import Foundation
 
 struct ApplicationCaptureLivenessState {
     let startedAt: TimeInterval
-    private(set) var lastFrameAt: TimeInterval?
+    private(set) var firstFrameAt: TimeInterval?
 
     mutating func recordFrame(at timestamp: TimeInterval) {
-        lastFrameAt = timestamp
+        if firstFrameAt == nil {
+            firstFrameAt = timestamp
+        }
     }
+
+    var hasPresentedFrame: Bool { firstFrameAt != nil }
 
     func failure(
         at timestamp: TimeInterval,
-        firstFrameTimeout: TimeInterval,
-        frameStallTimeout: TimeInterval
+        firstFrameTimeout: TimeInterval
     ) -> ApplicationCaptureLivenessFailure? {
-        if let lastFrameAt {
-            return timestamp - lastFrameAt >= frameStallTimeout
-                ? .frameStalled
-                : nil
-        }
+        guard firstFrameAt == nil else { return nil }
         return timestamp - startedAt >= firstFrameTimeout
             ? .firstFrameTimedOut
             : nil
