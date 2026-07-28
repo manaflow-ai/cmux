@@ -204,6 +204,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    }\n"
                 "}\n"
             ),
+            "continuous-clock-after-catch-shadow.swift": (
+                "func verify(clock: ContinuousClock) async throws {\n"
+                "    do { try work() } catch let clock { inspect(clock) }\n"
+                "    try await clock.sleep(until: deadline)\n"
+                "    #expect(finished)\n"
+                "}\n"
+            ),
             "posix.swift": "sleep(1)\n#expect(finished)\n",
             "darwin.swift": "Darwin.sleep(1)\n#expect(finished)\n",
             "glibc.swift": "Glibc.sleep(1)\n#expect(finished)\n",
@@ -250,6 +257,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "timer-alias-after-unbraced-for-shadow.ts": (
                 'import { setTimeout as delay } from "timers/promises"\n'
                 "for (const delay of fakeDelays) await delay(1)\n"
+                "await delay(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
+            "timer-alias-after-destructured-for-shadow.ts": (
+                'import { setTimeout as delay } from "timers/promises"\n'
+                "for (const [delay] of fakeDelays) { await delay(1) }\n"
                 "await delay(1)\n"
                 "expect(finished).toBe(true)\n"
             ),
@@ -515,6 +528,15 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "time.sleep(0.01)\n"
                 "assert finished\n"
             ),
+            "returning-branch-shadow.py": (
+                "def verify(flag):\n"
+                "    import time\n"
+                "    if flag:\n"
+                "        time = fake_clock\n"
+                "        return\n"
+                "    time.sleep(0.01)\n"
+                "    assert finished\n"
+            ),
             "shell-assert-arithmetic-substitution.sh": (
                 'assert "$(echo $((1 + 2)); sleep 1)"\n'
             ),
@@ -670,6 +692,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 if relative_path
                 in (
                     "deferred-nonlocal-write.py",
+                    "returning-branch-shadow.py",
                     "timer-alias-after-for-shadow.ts",
                     "continuous-clock-after-if-let-shadow.swift",
                     "timer-alias-after-default-parameter-shadow.ts",
@@ -704,11 +727,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 in (
                     "later-self-qualified-clock-member.swift",
                     "later-unqualified-clock-member.swift",
+                    "continuous-clock-after-catch-shadow.swift",
                     "shorthand-clock-capture.swift",
                     "swift-multiline-interpolation.swift",
                     "swift-raw-multiline-interpolation.swift",
                     "timer-alias-after-unrelated-import.ts",
                     "timer-alias-after-unbraced-for-shadow.ts",
+                    "timer-alias-after-destructured-for-shadow.ts",
                     "shell-assert-multiline-substitution.sh",
                     "class-name-visible-during-body.py",
                     "case-esac-argument.sh",
