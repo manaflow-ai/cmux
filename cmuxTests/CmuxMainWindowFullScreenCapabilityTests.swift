@@ -43,6 +43,10 @@ struct CmuxMainWindowFullScreenCapabilityTests {
             !window.collectionBehavior.contains(.fullScreenNone),
             "Main window must never carry .fullScreenNone, which suppresses native fullscreen"
         )
+        #expect(
+            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "Main window must disallow Full Screen Tile so native fullscreen does not trap Space navigation"
+        )
     }
 
     // The capability decision is a pure, screen-agnostic transform so it runs
@@ -51,20 +55,19 @@ struct CmuxMainWindowFullScreenCapabilityTests {
     @Test func canonicalBehaviorAddsFullScreenPrimaryToEmptyBehavior() {
         let result = CmuxMainWindow.canonicalCollectionBehavior([])
         #expect(result.contains(.fullScreenPrimary))
+        #expect(result.contains(.fullScreenDisallowsTiling))
         #expect(!result.contains(.fullScreenNone))
     }
 
     @Test func canonicalBehaviorDropsStaleFullScreenNone() {
         let result = CmuxMainWindow.canonicalCollectionBehavior([.fullScreenNone])
         #expect(result.contains(.fullScreenPrimary))
+        #expect(result.contains(.fullScreenDisallowsTiling))
         #expect(!result.contains(.fullScreenNone))
     }
 
     @Test func canonicalBehaviorPreservesUnrelatedBehaviorBits() {
-        // The window factory may layer `.fullScreenDisallowsTiling` on top when
-        // spawning out of an existing fullscreen Space; canonicalization must
-        // not clobber that (or any other unrelated bit).
-        let base: NSWindow.CollectionBehavior = [.fullScreenDisallowsTiling, .moveToActiveSpace]
+        let base: NSWindow.CollectionBehavior = [.moveToActiveSpace]
         let result = CmuxMainWindow.canonicalCollectionBehavior(base)
         #expect(result.contains(.fullScreenPrimary))
         #expect(result.contains(.fullScreenDisallowsTiling))
