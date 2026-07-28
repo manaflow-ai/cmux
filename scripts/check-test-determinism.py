@@ -51,7 +51,7 @@ import pathlib
 import re
 import sys
 from dataclasses import dataclass, field
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -794,11 +794,44 @@ def _swift_closure_bindings(text: str, opening: int) -> dict[str, bool]:
     return result
 
 
+def _swift_conditional_bindings(
+    text: str,
+) -> tuple[dict[int, dict[str, bool]], set[int]]:
+    """Map if/while body braces to bindings declared in their headers."""
+    bindings: dict[int, dict[str, bool]] = {}
+    declaration_offsets: set[int] = set()
+    for conditional in re.finditer(
+        r"\b(?:if|while)\b(?P<header>[^{}]*)(?P<body>\{)",
+        text,
+    ):
+        header = conditional.group("header")
+        body_opening = conditional.start("body")
+        for event in _SWIFT_CLOCK_EVENT.finditer(header):
+            if (
+                event.group("typed_let") is not None
+                or event.group("inferred_let") is not None
+            ):
+                name = event.group("typed_name") or event.group("inferred_name")
+                bindings.setdefault(body_opening, {})[name] = True
+            elif event.group("simple_binding") is not None:
+                name = event.group("binding_name")
+                bindings.setdefault(body_opening, {})[name] = False
+            else:
+                continue
+            declaration_offsets.add(
+                conditional.start("header") + event.start()
+            )
+    return bindings, declaration_offsets
+
+
 def _swift_named_clock_sleep_positions(text: str) -> set[int]:
     """Resolve immutable standard-clock bindings through lexical Swift scopes."""
     callable_parameters = _swift_callable_parameter_scopes(text)
     type_scopes = _swift_type_scopes(text)
     type_members = _swift_type_member_bindings(text, type_scopes)
+    conditional_bindings, conditional_declaration_offsets = (
+        _swift_conditional_bindings(text)
+    )
     scopes: list[tuple[str, dict[str, bool]]] = [("file", {})]
     result: set[int] = set()
 
@@ -813,6 +846,7 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
             )
             bindings = type_members.get(event.start(), {}).copy()
             bindings.update(callable_parameters.get(event.start(), {}))
+            bindings.update(conditional_bindings.get(event.start(), {}))
             bindings.update(
                 _swift_closure_bindings(text, event.start())
             )
@@ -826,10 +860,14 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
             event.group("typed_let") is not None
             or event.group("inferred_let") is not None
         ):
+            if event.start() in conditional_declaration_offsets:
+                continue
             name = event.group("typed_name") or event.group("inferred_name")
             scopes[-1][1][name] = True
             continue
         if event.group("simple_binding") is not None:
+            if event.start() in conditional_declaration_offsets:
+                continue
             scopes[-1][1][event.group("binding_name")] = False
             continue
         if event.group("named_call") is None:
@@ -911,7 +949,7 @@ _JAVASCRIPT_IDENTIFIER_PATTERN = r"[$A-Za-z_][$A-Za-z0-9_]*"
 _JAVASCRIPT_TIMER_IMPORT = re.compile(
     r"""(?msx)
     ^[ \t]*import\s*\{
-    (?P<imports>.*?)
+    (?P<imports>[^{}]*)
     \}\s*from\s*
     (?P<quote>["'])
     (?P<module>(?:node:)?timers/promises)
@@ -964,51 +1002,96 @@ def _javascript_timer_namespaces(
     }
 
 
-def _javascript_parameter_aliases(
+def _javascript_matching_opening_parenthesis(
+    text: str,
+    closing: int,
+) -> Optional[int]:
+    """Return the opening parenthesis matching one JavaScript close token."""
+    depth = 0
+    for index in range(closing, -1, -1):
+        character = text[index]
+        if character == ")":
+            depth += 1
+        elif character == "(":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _javascript_callable_parameter_scope(
     text: str,
     opening: int,
     aliases: set[str],
-) -> set[str]:
-    """Return trusted alias names shadowed by one function-like scope."""
-    prefix = text[max(0, opening - 2048) : opening]
-    patterns = (
-        r"\bfunction(?:\s+[$\w]+)?\s*\((?P<parameters>[^()]*)\)\s*$",
-        r"(?:\basync\s*)?\((?P<parameters>[^()]*)\)\s*=>\s*$",
-        rf"(?:\basync\s+)?(?P<parameters>{_JAVASCRIPT_IDENTIFIER_PATTERN})"
-        r"\s*=>\s*$",
-        r"\bcatch\s*\((?P<parameters>[^()]*)\)\s*$",
-        rf"(?:(?:public|private|protected|static|async|get|set|override|"
-        rf"abstract|readonly)\s+)*(?P<method>{_JAVASCRIPT_IDENTIFIER_PATTERN})"
-        r"(?:\s*<[^\{\}()]*>)?\s*"
-        r"\((?P<parameters>[^()]*)\)\s*(?::\s*[^\{\}]+)?$",
+) -> tuple[set[str], Optional[tuple[int, int]]]:
+    """Return aliases and source range for one function-like parameter list."""
+    prefix_start = max(0, opening - 4096)
+    prefix = text[prefix_start:opening]
+    alias_pattern = "|".join(
+        re.escape(alias)
+        for alias in sorted(aliases, key=len, reverse=True)
     )
-    parameters: Optional[str] = None
-    for pattern in patterns:
-        signature = re.search(pattern, prefix)
-        if signature is not None:
-            method_name = signature.groupdict().get("method")
-            if method_name in (
-                "if",
-                "for",
-                "while",
-                "switch",
-                "catch",
-                "function",
-            ):
-                continue
-            parameters = signature.group("parameters")
-            break
-    if parameters is None:
-        return set()
+    simple_arrow = re.search(
+        rf"(?<![$\w])(?P<parameter>{alias_pattern})(?![$\w])\s*=>\s*$",
+        prefix,
+    )
+    if simple_arrow is not None:
+        start = prefix_start + simple_arrow.start("parameter")
+        end = prefix_start + simple_arrow.end("parameter")
+        return {simple_arrow.group("parameter")}, (start, end)
 
-    return {
-        alias
-        for alias in aliases
-        if re.search(
-            rf"(?<![$\w]){re.escape(alias)}(?![$\w])",
-            parameters,
-        )
+    control_keywords = {
+        "if",
+        "for",
+        "while",
+        "switch",
+        "with",
     }
+    closing = prefix.rfind(")")
+    while closing >= 0:
+        parameter_opening = _javascript_matching_opening_parenthesis(
+            prefix,
+            closing,
+        )
+        if parameter_opening is None:
+            break
+        before = prefix[:parameter_opening].rstrip()
+        after = prefix[closing + 1 :].strip()
+        arrow_signature = re.fullmatch(r"(?s)(?::.*?)?=>", after)
+        normal_signature = re.fullmatch(r"(?s)(?::.*?)?", after)
+        callable_signature = arrow_signature is not None
+        if normal_signature is not None:
+            if re.search(
+                rf"\bfunction(?:\s+{_JAVASCRIPT_IDENTIFIER_PATTERN})?\s*$",
+                before,
+            ):
+                callable_signature = True
+            else:
+                method = re.search(
+                    rf"(?P<name>{_JAVASCRIPT_IDENTIFIER_PATTERN})"
+                    r"(?:\s*<[^{}()]*>)?\s*$",
+                    before,
+                )
+                callable_signature = (
+                    method is not None
+                    and method.group("name") not in control_keywords
+                )
+        if callable_signature:
+            parameters = prefix[parameter_opening + 1 : closing]
+            shadowed = {
+                alias
+                for alias in aliases
+                if re.search(
+                    rf"(?<![$\w]){re.escape(alias)}(?![$\w])",
+                    parameters,
+                )
+            }
+            return shadowed, (
+                prefix_start + parameter_opening + 1,
+                prefix_start + closing,
+            )
+        closing = prefix.rfind(")", 0, parameter_opening)
+    return set(), None
 
 
 def _javascript_for_loop_declarations(
@@ -1093,6 +1176,25 @@ def _javascript_timer_alias_positions(
             )
         }
 
+    callable_parameter_bindings: dict[int, set[str]] = {}
+    callable_parameter_ranges: list[tuple[int, int]] = []
+    for body_opening in re.finditer(r"\{", text):
+        shadowed, parameter_range = _javascript_callable_parameter_scope(
+            text,
+            body_opening.start(),
+            aliases,
+        )
+        if parameter_range is None:
+            continue
+        callable_parameter_bindings[body_opening.start()] = shadowed
+        callable_parameter_ranges.append(parameter_range)
+
+    def in_callable_parameters(offset: int) -> bool:
+        return any(
+            start <= offset < end
+            for start, end in callable_parameter_ranges
+        )
+
     for_loop_declarations, for_loop_declaration_offsets = (
         _javascript_for_loop_declarations(text, aliases)
     )
@@ -1109,14 +1211,18 @@ def _javascript_timer_alias_positions(
             if len(scope_openings) > 1:
                 scope_openings.pop()
         elif event.group("declaration") is not None:
-            if event.start() not in for_loop_declaration_offsets:
+            if (
+                event.start() not in for_loop_declaration_offsets
+                and not in_callable_parameters(event.start())
+            ):
                 declarations.setdefault(scope_openings[-1], set()).add(
                     event.group("declared")
                 )
         elif event.group("destructuring") is not None:
-            declarations.setdefault(scope_openings[-1], set()).update(
-                destructured_aliases(event.group("binding_pattern"))
-            )
+            if not in_callable_parameters(event.start()):
+                declarations.setdefault(scope_openings[-1], set()).update(
+                    destructured_aliases(event.group("binding_pattern"))
+                )
 
     scopes: list[dict[str, bool]] = [
         {
@@ -1134,10 +1240,9 @@ def _javascript_timer_alias_positions(
             bindings.update(
                 {
                     alias: False
-                    for alias in _javascript_parameter_aliases(
-                        text,
+                    for alias in callable_parameter_bindings.get(
                         event.start(),
-                        aliases,
+                        set(),
                     )
                 }
             )
@@ -1148,17 +1253,22 @@ def _javascript_timer_alias_positions(
                 scopes.pop()
             continue
         if event.group("declaration") is not None:
-            if event.start() not in for_loop_declaration_offsets:
+            if (
+                event.start() not in for_loop_declaration_offsets
+                and not in_callable_parameters(event.start())
+            ):
                 scopes[-1][event.group("declared")] = False
             continue
         if event.group("destructuring") is not None:
-            for alias in destructured_aliases(
-                event.group("binding_pattern")
-            ):
-                scopes[-1][alias] = False
+            if not in_callable_parameters(event.start()):
+                for alias in destructured_aliases(
+                    event.group("binding_pattern")
+                ):
+                    scopes[-1][alias] = False
             continue
         if event.group("assignment") is not None:
-            scopes[-1][event.group("assigned")] = False
+            if not in_callable_parameters(event.start()):
+                scopes[-1][event.group("assigned")] = False
             continue
         if event.group("call") is None:
             continue
@@ -1321,6 +1431,66 @@ def _javascript_timeout_callback_has_assertion(
 _PYTHON_MODULE_BINDING = "module"
 _PYTHON_FUNCTION_BINDING = "function"
 _PYTHON_SHADOWED_BINDING = "shadowed"
+
+
+def _python_assignment_value_binding(
+    value: ast.expr,
+    resolve: Callable[[str], Optional[str]],
+) -> str:
+    """Resolve trusted module/function identity through a simple RHS."""
+    binding: Optional[str] = None
+    if isinstance(value, ast.Name):
+        binding = resolve(value.id)
+    elif (
+        isinstance(value, ast.Attribute)
+        and value.attr == "sleep"
+        and isinstance(value.value, ast.Name)
+        and resolve(value.value.id) == _PYTHON_MODULE_BINDING
+    ):
+        binding = _PYTHON_FUNCTION_BINDING
+    if binding in (_PYTHON_MODULE_BINDING, _PYTHON_FUNCTION_BINDING):
+        return binding
+    return _PYTHON_SHADOWED_BINDING
+
+
+def _python_mapped_assignment_value_binding(
+    value: ast.expr,
+    bindings: dict[str, str],
+) -> str:
+    """Resolve an assignment RHS against a conservative binding map."""
+    def resolve(name: str) -> Optional[str]:
+        if name in bindings:
+            return bindings[name]
+        if name in _PYTHON_SLEEP_MODULES:
+            return _PYTHON_MODULE_BINDING
+        return None
+
+    return _python_assignment_value_binding(value, resolve)
+
+
+def _python_target_binding_updates(
+    target: ast.expr,
+    binding: str,
+) -> dict[str, str]:
+    """Return name bindings written by one assignment target."""
+    if isinstance(target, ast.Name):
+        return {target.id: binding}
+    if isinstance(target, (ast.List, ast.Tuple)):
+        result: dict[str, str] = {}
+        for element in target.elts:
+            result.update(
+                _python_target_binding_updates(
+                    element,
+                    _PYTHON_SHADOWED_BINDING,
+                )
+            )
+        return result
+    if isinstance(target, ast.Starred):
+        return _python_target_binding_updates(
+            target.value,
+            _PYTHON_SHADOWED_BINDING,
+        )
+    return {}
 
 
 class _PythonLocalBindingCollector(ast.NodeVisitor):
@@ -1599,6 +1769,27 @@ def _python_bindings_after_statement(
     bindings: dict[str, str],
 ) -> dict[str, str]:
     """Merge bindings across every path that can continue past a statement."""
+    if isinstance(statement, ast.Assign):
+        result = bindings.copy()
+        result.update(_python_binding_updates(statement.value))
+        binding = _python_mapped_assignment_value_binding(
+            statement.value,
+            result,
+        )
+        for target in statement.targets:
+            result.update(_python_target_binding_updates(target, binding))
+        return result
+
+    if isinstance(statement, ast.AnnAssign) and statement.value is not None:
+        result = bindings.copy()
+        result.update(_python_binding_updates(statement.value))
+        binding = _python_mapped_assignment_value_binding(
+            statement.value,
+            result,
+        )
+        result.update(_python_target_binding_updates(statement.target, binding))
+        return result
+
     if isinstance(statement, ast.If):
         condition_bindings = bindings.copy()
         condition_bindings.update(_python_binding_updates(statement.test))
@@ -2029,9 +2220,13 @@ class _PythonSleepVisitor(ast.NodeVisitor):
     def _bind(self, name: str, binding: str = _PYTHON_SHADOWED_BINDING) -> None:
         self._bind_in_scope(self.scope, name, binding)
 
-    def _bind_target(self, target: ast.expr) -> None:
+    def _bind_target(
+        self,
+        target: ast.expr,
+        binding: str = _PYTHON_SHADOWED_BINDING,
+    ) -> None:
         if isinstance(target, ast.Name):
-            self._bind(target.id)
+            self._bind(target.id, binding)
         elif isinstance(target, (ast.List, ast.Tuple)):
             for element in target.elts:
                 self._bind_target(element)
@@ -2313,16 +2508,24 @@ class _PythonSleepVisitor(ast.NodeVisitor):
 
     def visit_Assign(self, node: ast.Assign) -> None:
         self.visit(node.value)
+        binding = _python_assignment_value_binding(
+            node.value,
+            self._resolve,
+        )
         for target in node.targets:
             self._visit_target_expressions(target)
-            self._bind_target(target)
+            self._bind_target(target, binding)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value is not None:
             self.visit(node.value)
         self._visit_target_expressions(node.target)
         if node.value is not None:
-            self._bind_target(node.target)
+            binding = _python_assignment_value_binding(
+                node.value,
+                self._resolve,
+            )
+            self._bind_target(node.target, binding)
         if (
             not self.postponed_annotations
             and self.scope.kind in ("module", "class")
@@ -2336,13 +2539,17 @@ class _PythonSleepVisitor(ast.NodeVisitor):
 
     def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
         self.visit(node.value)
+        binding = _python_assignment_value_binding(
+            node.value,
+            self._resolve,
+        )
         previous_scope = self.scope
         while (
             self.scope.kind == "comprehension"
             and self.scope.parent is not None
         ):
             self.scope = self.scope.parent
-        self._bind_target(node.target)
+        self._bind_target(node.target, binding)
         self.scope = previous_scope
 
     def visit_Delete(self, node: ast.Delete) -> None:
