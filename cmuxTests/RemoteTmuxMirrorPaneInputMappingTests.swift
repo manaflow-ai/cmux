@@ -283,5 +283,43 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
 
         #expect(!containerPanel.hostedView.debugPortalActive)
         #expect(activePanePanel.hostedView.debugPortalActive)
+
+        // A real nested edge may continue into the outer workspace tree, but a
+        // stale nested identity must fail closed instead of looking like that
+        // edge. Otherwise a transient pane-map mismatch can move focus into an
+        // unrelated outer split.
+        let outerNeighbor = try #require(
+            harness.workspace.splitPaneWithNewTerminal(
+                targetPane: containerPaneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil
+            )
+        )
+        let outerNeighborPaneId = try #require(
+            harness.workspace.paneId(forPanelId: outerNeighbor.id)
+        )
+
+        mirror.setActivePane(5, fromTmux: true)
+        harness.workspace.focusPanel(containerPanelId)
+        harness.workspace.moveFocus(direction: .right)
+
+        #expect(
+            harness.workspace.bonsplitController.focusedPaneId == outerNeighborPaneId,
+            "A valid edge in the nested tree must continue into the outer workspace tree"
+        )
+
+        mirror.setActivePane(5, fromTmux: true)
+        harness.workspace.focusPanel(containerPanelId)
+        let staleFocusedPane = try #require(mirror.bonsplitController.focusedPaneId)
+        mirror.paneIdByBonsplitPane[staleFocusedPane] = nil
+
+        harness.workspace.moveFocus(direction: .right)
+
+        #expect(
+            harness.workspace.bonsplitController.focusedPaneId == containerPaneId,
+            "An invalid nested focus identity must not escape into an outer workspace pane"
+        )
     }
 }
