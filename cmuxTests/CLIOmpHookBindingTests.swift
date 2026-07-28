@@ -153,6 +153,37 @@ struct CLIOmpHookBindingTests {
     }
 
     @Test
+    func unacknowledgedPIDPolicyDoesNotTrustOlderAppResponse() throws {
+        let context = try Harness.makeContext(name: "omp-old-app")
+        defer { context.cleanup() }
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.leakedWorkspaceId: [Self.leakedSurfaceId]],
+            pidTarget: (workspaceId: Self.leakedWorkspaceId, surfaceId: Self.leakedSurfaceId),
+            acknowledgesPIDResolution: false
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_WORKSPACE_ID"] = Self.leakedWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.leakedSurfaceId
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "omp", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"omp-old-app-session","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let requests = context.state.snapshot().compactMap(Self.jsonObject)
+        #expect(requests.contains { $0["method"] as? String == "agent.resolve_delivery_target" })
+        #expect(!requests.contains { $0["method"] as? String == "surface.resume.set" })
+    }
+
+    @Test
     func numericPIDWithoutGenerationDoesNotSupersedePriorSession() throws {
         let context = try Harness.makeContext(name: "omp-pid-generation")
         defer { context.cleanup() }

@@ -88,6 +88,7 @@ function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
 interface HookInvocation {
   cmux: string;
   cwd: string;
+  sessionId: string;
   payload: string;
   env: NodeJS.ProcessEnv;
 }
@@ -129,6 +130,11 @@ function lastAssistantMessage(event: AgentEndEvent): string | undefined {
   return undefined;
 }
 
+function boundedHookText(value: string | undefined): string | undefined {
+  if (value === undefined || value.length <= 32768) return value;
+  return value.slice(0, 32768);
+}
+
 function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): HookInvocation | null {
   if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return null;
   if (!process.env.CMUX_SURFACE_ID) return null;
@@ -148,6 +154,7 @@ function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record
   return {
     cmux,
     cwd,
+    sessionId,
     payload: JSON.stringify(payload),
     env: hookEnvironment(cwd),
   };
@@ -179,12 +186,51 @@ function runHook(invocation: HookInvocation, subcommand: string): Promise<void> 
   });
 }
 
-let hookQueue: Promise<void> = Promise.resolve();
+interface QueuedHook {
+  invocation: HookInvocation;
+  subcommand: string;
+}
+
+const maxQueuedHooks = 16;
+const hookQueue: QueuedHook[] = [];
+let hookWorkerRunning = false;
+
+async function drainHookQueue(): Promise<void> {
+  if (hookWorkerRunning) return;
+  hookWorkerRunning = true;
+  try {
+    while (hookQueue.length > 0) {
+      const next = hookQueue.shift();
+      if (next) await runHook(next.invocation, next.subcommand);
+    }
+  } finally {
+    hookWorkerRunning = false;
+  }
+}
+
+function enqueueHook(invocation: HookInvocation, subcommand: string): void {
+  const duplicate = hookQueue.findIndex(
+    (queued) => queued.invocation.sessionId === invocation.sessionId && queued.subcommand === subcommand
+  );
+  if (duplicate >= 0) {
+    hookQueue.splice(duplicate, 1);
+    hookQueue.push({ invocation, subcommand });
+  } else {
+    if (hookQueue.length >= maxQueuedHooks) {
+      const evictable = hookQueue.findIndex((queued) => queued.subcommand !== "session-start");
+      if (evictable >= 0) hookQueue.splice(evictable, 1);
+      else if (subcommand === "session-start") hookQueue.shift();
+      else return;
+    }
+    hookQueue.push({ invocation, subcommand });
+  }
+  void drainHookQueue();
+}
 
 function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
   const invocation = hookInvocation(subcommand, ctx, extra);
   if (!invocation) return Promise.resolve();
-  hookQueue = hookQueue.then(() => runHook(invocation, subcommand)).catch(() => {});
+  enqueueHook(invocation, subcommand);
   return Promise.resolve();
 }
 
@@ -194,11 +240,11 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
   });
 
   api.on("before_agent_start", async (event, ctx) => {
-    await sendHook("prompt-submit", ctx, { prompt: event.prompt });
+    await sendHook("prompt-submit", ctx, { prompt: boundedHookText(event.prompt) });
   });
 
   api.on("agent_end", async (event, ctx) => {
-    await sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
+    await sendHook("stop", ctx, { last_assistant_message: boundedHookText(lastAssistantMessage(event)) });
   });
 }
 """#

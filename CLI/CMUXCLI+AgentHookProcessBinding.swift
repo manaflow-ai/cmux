@@ -39,6 +39,7 @@ extension CMUXCLI {
         }
 
         guard (payload["source"] as? String) == "pid",
+              (payload["pid_resolution"] as? String) == AgentProcessBindingResolution.controllingTTY.rawValue,
               let workspaceId = normalizedHandleValue(payload["workspace_id"] as? String),
               isUUID(workspaceId),
               let surfaceId = normalizedHandleValue(payload["surface_id"] as? String),

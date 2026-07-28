@@ -85,7 +85,8 @@ enum ClaudeHookLiveDeliveryHarness {
         pidTarget: (workspaceId: String, surfaceId: String)?,
         surfaceTargets: [String: String] = [:],
         ttyRows: [(tty: String, workspaceId: String, surfaceId: String)] = [],
-        resolverMethodAvailable: Bool = true
+        resolverMethodAvailable: Bool = true,
+        acknowledgesPIDResolution: Bool = true
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
@@ -103,11 +104,15 @@ enum ClaudeHookLiveDeliveryHarness {
                     guard let pidTarget else {
                         return v2Response(id: id, ok: false, error: ["code": "not_found", "message": "pid not owned by a live surface"])
                     }
-                    return v2Response(id: id, ok: true, result: [
+                    var result: [String: Any] = [
                         "workspace_id": pidTarget.workspaceId,
                         "surface_id": pidTarget.surfaceId,
                         "source": "pid",
-                    ])
+                    ]
+                    if acknowledgesPIDResolution {
+                        result["pid_resolution"] = params["pid_resolution"] as? String ?? "corroborated"
+                    }
+                    return v2Response(id: id, ok: true, result: result)
                 }
                 if let surfaceId = params["surface_id"] as? String,
                    let workspaceId = surfaceTargets[surfaceId] {

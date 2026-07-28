@@ -269,6 +269,7 @@ extension TerminalController {
                     "workspace_id": target.workspaceId.uuidString,
                     "surface_id": target.surfaceId.uuidString,
                     "source": "pid",
+                    "pid_resolution": pidResolution.rawValue,
                 ])
             }
             return .err(

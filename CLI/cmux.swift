@@ -1479,10 +1479,10 @@ final class ClaudeHookSessionStore {
                 && $0.pidStartSeconds == startSeconds
                 && $0.pidStartMicroseconds == startMicroseconds
         }
-        for record in superseded {
-            state.sessions.removeValue(forKey: record.sessionId)
-            clearActiveSessionIfMatching(&state, removed: record, turnId: nil)
-        }
+        let supersededIDs = Set(superseded.map(\.sessionId))
+        for record in superseded { state.sessions.removeValue(forKey: record.sessionId) }
+        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { !supersededIDs.contains($0.value.sessionId) }
+        state.activeSessionsBySurface = state.activeSessionsBySurface.filter { !supersededIDs.contains($0.value.sessionId) }
         return superseded
     }
 

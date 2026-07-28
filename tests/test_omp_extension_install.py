@@ -420,7 +420,9 @@ const ctx = {
 };
 const start = Date.now();
 await handlers.get("session_start")({}, ctx);
-await handlers.get("before_agent_start")({ prompt: "hello omp" }, ctx);
+for (let index = 0; index < 40; index += 1) {
+  await handlers.get("before_agent_start")({ prompt: `hello omp ${index}` }, ctx);
+}
 await handlers.get("agent_end")({
   messages: [
     { role: "user", content: "hello omp" },
@@ -468,7 +470,7 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
         if '"hook_event_name":"Stop"' not in stdin_log:
             print(f"FAIL: stop hook payload was missing: {stdin_log!r}")
             return 1
-        if '"prompt":"hello omp"' not in stdin_log or '"last_assistant_message":"done"' not in stdin_log:
+        if '"prompt":"hello omp 39"' not in stdin_log or '"last_assistant_message":"done"' not in stdin_log:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {stdin_log!r}")
             return 1
         if "kind=omp" not in env_log or "cwd=/tmp/omp-project" not in env_log or "argv=" not in env_log:
