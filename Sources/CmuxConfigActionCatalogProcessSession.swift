@@ -19,6 +19,10 @@ final class CmuxConfigActionCatalogProcessSession:
     private let quarantineAdmissionDelivery: @Sendable () async -> Void
     private let quarantineAdmissionCompletion: @Sendable () -> Void
     private let queue = DispatchQueue(label: "com.cmux.action-catalog-reader")
+    private let reapQueue = DispatchQueue(
+        label: "com.cmux.action-catalog-reader.reap",
+        qos: .utility
+    )
 
     private var continuation: CheckedContinuation<Result, Never>?
     private var processIdentifier: pid_t?
@@ -28,15 +32,19 @@ final class CmuxConfigActionCatalogProcessSession:
     private var timeoutTask: Task<Void, Never>?
     private var killTask: Task<Void, Never>?
     private var handoffTask: Task<Void, Never>?
-    private var reapRetryTask: Task<Void, Never>?
+    private var reapState = CmuxConfigActionCatalogProcessReapState.pending
     private var output = Data()
     private var outputOverflow = false
     private var pipeFailed = false
     private var cancellationRequested = false
     private var terminationReason: TerminationReason?
-    private var reaped = false
     private var handedOff = false
     private var quarantineAdmissionPending = false
+
+    private var reapConfirmed: Bool {
+        if case .confirmed = reapState { return true }
+        return false
+    }
 
     init(
         launch: CmuxConfigActionCatalogProcessReader.LaunchSpecification,
@@ -285,7 +293,7 @@ final class CmuxConfigActionCatalogProcessSession:
 
     private func requestTermination(_ reason: TerminationReason) {
         if terminationReason == nil { terminationReason = reason }
-        guard let processIdentifier, !reaped else {
+        guard let processIdentifier, !reapConfirmed else {
             if self.processIdentifier == nil { finish(returning: nil) }
             return
         }
@@ -308,7 +316,7 @@ final class CmuxConfigActionCatalogProcessSession:
         queue.async { [weak self] in
             guard let self,
                   let processIdentifier = self.processIdentifier,
-                  !self.reaped else {
+                  !self.reapConfirmed else {
                 return
             }
             self.signalProcessGroup(processIdentifier, signal: SIGKILL)
@@ -338,7 +346,7 @@ final class CmuxConfigActionCatalogProcessSession:
     }
 
     private func handoffToQuarantineIfNeeded() {
-        guard !reaped, !handedOff, continuation != nil,
+        guard !reapConfirmed, !handedOff, continuation != nil,
               !quarantineAdmissionPending else { return }
         quarantineAdmissionPending = true
         let quarantine = quarantine
@@ -366,10 +374,12 @@ final class CmuxConfigActionCatalogProcessSession:
         guard accepted else {
             // Every spawned process reserved this slot before launch. Fail
             // closed if ownership was corrupted rather than dropping a child.
-            if !reaped { assertionFailure("action catalog quarantine lease was lost") }
+            if !reapConfirmed {
+                assertionFailure("action catalog quarantine lease was lost")
+            }
             return
         }
-        guard !reaped, !handedOff, let continuation else {
+        guard !reapConfirmed, !handedOff, let continuation else {
             // A reaped non-handoff session completes with `.completed`; the
             // reader owns that reservation release exactly once. An existing
             // handoff is released only by its late-reap path below.
@@ -387,34 +397,76 @@ final class CmuxConfigActionCatalogProcessSession:
     }
 
     private func processDidExit() {
-        guard let processIdentifier, !reaped else { return }
+        guard let processIdentifier, !reapConfirmed else { return }
         // The leader is still an unreaped zombie, which pins the process-group
         // identity while descendants are terminated.
         signalProcessGroup(processIdentifier, signal: SIGTERM)
         signalProcessGroup(processIdentifier, signal: SIGKILL)
+        guard case .pending = reapState else { return }
 
-        var rawStatus: Int32 = 0
-        let waitResult = Darwin.waitpid(processIdentifier, &rawStatus, WNOHANG)
-        if waitResult == 0 {
-            scheduleReapRetry()
+        let waitResult = processOperations.wait(processIdentifier, WNOHANG)
+        if waitResult.processIdentifier == processIdentifier
+            || (waitResult.processIdentifier == -1 && waitResult.errorNumber == ECHILD) {
+            finishConfirmedReap(
+                processIdentifier: processIdentifier,
+                waitResult: waitResult
+            )
             return
         }
-        if waitResult == -1 && errno == EINTR {
-            queue.async { [weak self] in self?.processDidExit() }
-            return
+
+        startBlockingReap(processIdentifier: processIdentifier)
+    }
+
+    private func startBlockingReap(processIdentifier: pid_t) {
+        guard !reapConfirmed, case .pending = reapState else { return }
+        reapState = .blocking
+        let wait = processOperations.wait
+        reapQueue.async { [self] in
+            var waitResult = wait(processIdentifier, 0)
+            while waitResult.processIdentifier == -1,
+                  waitResult.errorNumber == EINTR {
+                waitResult = wait(processIdentifier, 0)
+            }
+            let completedWaitResult = waitResult
+            queue.async { [self] in
+                blockingReapDidFinish(
+                    processIdentifier: processIdentifier,
+                    waitResult: completedWaitResult
+                )
+            }
         }
-        let wasReapedByUs = waitResult == processIdentifier
-        guard wasReapedByUs || (waitResult == -1 && errno == ECHILD) else {
+    }
+
+    private func blockingReapDidFinish(
+        processIdentifier: pid_t,
+        waitResult: CmuxConfigActionCatalogProcessWaitResult
+    ) {
+        guard !reapConfirmed, self.processIdentifier == processIdentifier else { return }
+        guard waitResult.processIdentifier == processIdentifier
+                || (
+                    waitResult.processIdentifier == -1
+                        && waitResult.errorNumber == ECHILD
+                ) else {
+            // A result other than PID or ECHILD cannot prove that this child
+            // was reaped. Keep its lease in the capacity-bounded quarantine.
+            reapState = .unconfirmedFailure(waitResult)
             terminationReason = terminationReason ?? .pipeFailure
-            reaped = true
-            self.processIdentifier = nil
-            processSource?.cancel()
-            processSource = nil
-            closeStdout()
-            finishAfterReap(returning: nil)
+            handoffToQuarantineIfNeeded()
             return
         }
-        reaped = true
+        finishConfirmedReap(
+            processIdentifier: processIdentifier,
+            waitResult: waitResult
+        )
+    }
+
+    private func finishConfirmedReap(
+        processIdentifier: pid_t,
+        waitResult: CmuxConfigActionCatalogProcessWaitResult
+    ) {
+        guard !reapConfirmed, self.processIdentifier == processIdentifier else { return }
+        let wasReapedByUs = waitResult.processIdentifier == processIdentifier
+        reapState = .confirmed
         self.processIdentifier = nil
         processSource?.cancel()
         processSource = nil
@@ -422,8 +474,8 @@ final class CmuxConfigActionCatalogProcessSession:
         closeStdout()
 
         let exitedSuccessfully = wasReapedByUs
-            && rawStatus & 0x7f == 0
-            && ((rawStatus >> 8) & 0xff) == 0
+            && waitResult.status & 0x7f == 0
+            && ((waitResult.status >> 8) & 0xff) == 0
         let result = terminationReason == nil
             && exitedSuccessfully
             && !outputOverflow
@@ -431,29 +483,8 @@ final class CmuxConfigActionCatalogProcessSession:
         finishAfterReap(returning: result)
     }
 
-    private func scheduleReapRetry() {
-        guard reapRetryTask == nil else { return }
-        let timing = timing
-        reapRetryTask = Task { [weak self] in
-            do {
-                try await timing.sleep(.milliseconds(1))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            self?.enqueueReapRetry()
-        }
-    }
-
-    private nonisolated func enqueueReapRetry() {
-        queue.async { [weak self] in
-            self?.reapRetryTask = nil
-            self?.processDidExit()
-        }
-    }
-
     private func signalProcessGroup(_ processIdentifier: pid_t, signal: Int32) {
-        guard !reaped else { return }
+        guard !reapConfirmed else { return }
         processOperations.sendSignal(processIdentifier, signal, true)
     }
 
@@ -477,8 +508,6 @@ final class CmuxConfigActionCatalogProcessSession:
         killTask = nil
         handoffTask?.cancel()
         handoffTask = nil
-        reapRetryTask?.cancel()
-        reapRetryTask = nil
         processSource?.cancel()
         processSource = nil
         closeStdout()
@@ -493,8 +522,6 @@ final class CmuxConfigActionCatalogProcessSession:
             killTask = nil
             handoffTask?.cancel()
             handoffTask = nil
-            reapRetryTask?.cancel()
-            reapRetryTask = nil
             processSource?.cancel()
             processSource = nil
             closeStdout()

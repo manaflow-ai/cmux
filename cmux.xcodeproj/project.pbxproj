@@ -611,9 +611,11 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0ACCB70000000000000000D /* CmuxConfigActionCatalogProcessReader+ProcessOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCB70000000000000000E /* CmuxConfigActionCatalogProcessReader+ProcessOperations.swift */; };
 		C0ACCB70000000000000000B /* CmuxConfigActionCatalogProcessReader+Timing.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCB70000000000000000C /* CmuxConfigActionCatalogProcessReader+Timing.swift */; };
 		C0ACCA700000000000000001 /* CmuxConfigActionCatalogProcessReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCA700000000000000002 /* CmuxConfigActionCatalogProcessReader.swift */; };
+		C0ACCD700000000000000003 /* CmuxConfigActionCatalogProcessReapState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCD700000000000000004 /* CmuxConfigActionCatalogProcessReapState.swift */; };
 		C0ACCB70000000000000000F /* CmuxConfigActionCatalogProcessSession+Result.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCB700000000000000010 /* CmuxConfigActionCatalogProcessSession+Result.swift */; };
 		C0ACCB700000000000000011 /* CmuxConfigActionCatalogProcessSession+TerminationReason.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCB700000000000000012 /* CmuxConfigActionCatalogProcessSession+TerminationReason.swift */; };
 		C0ACCA700000000000000007 /* CmuxConfigActionCatalogProcessSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCA700000000000000008 /* CmuxConfigActionCatalogProcessSession.swift */; };
+		C0ACCD700000000000000001 /* CmuxConfigActionCatalogProcessWaitResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCD700000000000000002 /* CmuxConfigActionCatalogProcessWaitResult.swift */; };
 		C0ACCA70000000000000001E /* CmuxConfigActionCatalogQuarantinedProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCA70000000000000001F /* CmuxConfigActionCatalogQuarantinedProcess.swift */; };
 		C0ACCB700000000000000015 /* CmuxConfigActionCatalogRawFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCB700000000000000016 /* CmuxConfigActionCatalogRawFile.swift */; };
 		C0ACCB700000000000000013 /* CmuxConfigActionCatalogRawFileStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ACCB700000000000000014 /* CmuxConfigActionCatalogRawFileStatus.swift */; };
@@ -1340,6 +1342,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
 		A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
 		B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */; };
+		D8639B000000000000000001 /* PreparedCommandPaletteArgumentsResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8639B000000000000000002 /* PreparedCommandPaletteArgumentsResolution.swift */; };
 		D8639A000000000000000021 /* PreparedCommandPaletteTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8639A000000000000000022 /* PreparedCommandPaletteTargetResolution.swift */; };
 		D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */; };
 		DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */; };
@@ -2023,6 +2026,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
 		E8B3D5F71A2C49608B7D5E31 /* TerminalPanelCreationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A6C8E40D5B17293C8F6A42 /* TerminalPanelCreationOutcome.swift */; };
 		D8639A000000000000000049 /* TerminalPanelPendingAttachmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8639A00000000000000004A /* TerminalPanelPendingAttachmentTests.swift */; };
+		C0DE8A070000000000000001 /* TerminalPanelPendingTextBoxAttachmentEnqueueResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8A070000000000000002 /* TerminalPanelPendingTextBoxAttachmentEnqueueResult.swift */; };
+		C0DE8A0A0000000000000001 /* TerminalPanelPendingTextBoxAttachmentRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8A0A0000000000000002 /* TerminalPanelPendingTextBoxAttachmentRequest.swift */; };
+		C0DE8A080000000000000001 /* TerminalPanelPreparedTextBoxAttachmentPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8A080000000000000002 /* TerminalPanelPreparedTextBoxAttachmentPhase.swift */; };
+		C0DE8A090000000000000001 /* TerminalPanelPreparedTextBoxAttachmentRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8A090000000000000002 /* TerminalPanelPreparedTextBoxAttachmentRequest.swift */; };
 		C0DE5A410000000000000001 /* TerminalPanelShellActivityModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */; };
 		C0DE6B420000000000000001 /* TerminalPanelTextBoxState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
@@ -2057,6 +2064,12 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B7758A030000000000000001 /* TerminationWatchdogAtomic.c in Sources */ = {isa = PBXBuildFile; fileRef = B7758A030000000000000002 /* TerminationWatchdogAtomic.c */; };
 		B7758A020000000000000001 /* TerminationWatchdogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7758A020000000000000002 /* TerminationWatchdogTests.swift */; };
 		C0DE7B330000000000000001 /* TextBoxAgentDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B330000000000000002 /* TextBoxAgentDetection.swift */; };
+		C0DE8A010000000000000001 /* TextBoxAttachmentPreparationBudget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8A010000000000000002 /* TextBoxAttachmentPreparationBudget.swift */; };
+		C0DE8A050000000000000001 /* TextBoxAttachmentPreparationBudgetComposerUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8A050000000000000002 /* TextBoxAttachmentPreparationBudgetComposerUsage.swift */; };
+		C0DE8A020000000000000001 /* TextBoxAttachmentPreparationBudgetLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8A020000000000000002 /* TextBoxAttachmentPreparationBudgetLimits.swift */; };
+		C0DE8A030000000000000001 /* TextBoxAttachmentPreparationBudgetPermit.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8A030000000000000002 /* TextBoxAttachmentPreparationBudgetPermit.swift */; };
+		C0DE8A040000000000000001 /* TextBoxAttachmentPreparationBudgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8A040000000000000002 /* TextBoxAttachmentPreparationBudgetSnapshot.swift */; };
+		C0DE8A060000000000000001 /* TextBoxAttachmentPreparationBudgetWaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8A060000000000000002 /* TextBoxAttachmentPreparationBudgetWaiter.swift */; };
 		7898A0020000000000000001 /* TextBoxGitIgnoreProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7898A0020000000000000002 /* TextBoxGitIgnoreProbe.swift */; };
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
 		C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */; };
@@ -2074,6 +2087,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE7B210000000000000001 /* TextBoxMentionQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B210000000000000002 /* TextBoxMentionQuery.swift */; };
 		C0DE7B220000000000000001 /* TextBoxMentionSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B220000000000000002 /* TextBoxMentionSuggestion.swift */; };
 		C0DE7B420000000000000001 /* TextBoxPreparedFileAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B420000000000000002 /* TextBoxPreparedFileAttachment.swift */; };
+		C0DE7B430000000000000001 /* TextBoxPreparedLocalFileIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B430000000000000002 /* TextBoxPreparedLocalFileIdentity.swift */; };
 		C0DE7B290000000000000001 /* TextBoxProcessTerminationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */; };
 		C0DE7B370000000000000001 /* TextBoxSubmitAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B370000000000000002 /* TextBoxSubmitAction.swift */; };
 		C0DE7B400000000000000001 /* TextBoxSubmitActionCycling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B400000000000000002 /* TextBoxSubmitActionCycling.swift */; };
@@ -2214,6 +2228,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE00000000000000000D38 /* WorkspaceCreateIdempotencyTombstoneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000D37 /* WorkspaceCreateIdempotencyTombstoneTests.swift */; };
 		D1A70000000000000000000A /* WorkspaceCreateReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A700000000000000000009 /* WorkspaceCreateReviewRegressionTests.swift */; };
 		C0DE00000000000000000D3A /* WorkspaceCreateWorkingDirectoryAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000D39 /* WorkspaceCreateWorkingDirectoryAliasTests.swift */; };
+		D8639B000000000000000003 /* WorkspaceCreateWorkingDirectoryCanonicalProbeResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8639B000000000000000004 /* WorkspaceCreateWorkingDirectoryCanonicalProbeResult.swift */; };
+		D8639B000000000000000005 /* WorkspaceCreateWorkingDirectoryProbeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8639B000000000000000006 /* WorkspaceCreateWorkingDirectoryProbeKey.swift */; };
 		C0DE71450000000000000001 /* WorkspaceCreateWorkingDirectoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71450000000000000002 /* WorkspaceCreateWorkingDirectoryTests.swift */; };
 		C0DE00000000000000000D34 /* WorkspaceCreateWorkingDirectoryValidationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000D33 /* WorkspaceCreateWorkingDirectoryValidationServiceTests.swift */; };
 		281F3AEA52379AF45C5C1189 /* WorkspaceCustomSidebarPullRequestContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */; };
@@ -2945,9 +2961,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0ACCB70000000000000000E /* CmuxConfigActionCatalogProcessReader+ProcessOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigActionCatalogProcessReader+ProcessOperations.swift"; sourceTree = "<group>"; };
 		C0ACCB70000000000000000C /* CmuxConfigActionCatalogProcessReader+Timing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigActionCatalogProcessReader+Timing.swift"; sourceTree = "<group>"; };
 		C0ACCA700000000000000002 /* CmuxConfigActionCatalogProcessReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogProcessReader.swift; sourceTree = "<group>"; };
+		C0ACCD700000000000000004 /* CmuxConfigActionCatalogProcessReapState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogProcessReapState.swift; sourceTree = "<group>"; };
 		C0ACCB700000000000000010 /* CmuxConfigActionCatalogProcessSession+Result.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigActionCatalogProcessSession+Result.swift"; sourceTree = "<group>"; };
 		C0ACCB700000000000000012 /* CmuxConfigActionCatalogProcessSession+TerminationReason.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigActionCatalogProcessSession+TerminationReason.swift"; sourceTree = "<group>"; };
 		C0ACCA700000000000000008 /* CmuxConfigActionCatalogProcessSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogProcessSession.swift; sourceTree = "<group>"; };
+		C0ACCD700000000000000002 /* CmuxConfigActionCatalogProcessWaitResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogProcessWaitResult.swift; sourceTree = "<group>"; };
 		C0ACCA70000000000000001F /* CmuxConfigActionCatalogQuarantinedProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogQuarantinedProcess.swift; sourceTree = "<group>"; };
 		C0ACCB700000000000000016 /* CmuxConfigActionCatalogRawFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogRawFile.swift; sourceTree = "<group>"; };
 		C0ACCB700000000000000014 /* CmuxConfigActionCatalogRawFileStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionCatalogRawFileStatus.swift; sourceTree = "<group>"; };
@@ -3622,6 +3640,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B79500060000000000000002 /* PortScanPublicationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanPublicationState.swift; sourceTree = "<group>"; };
 		A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
 		B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalyticsPropertiesTests.swift; sourceTree = "<group>"; };
+		D8639B000000000000000002 /* PreparedCommandPaletteArgumentsResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedCommandPaletteArgumentsResolution.swift; sourceTree = "<group>"; };
 		D8639A000000000000000022 /* PreparedCommandPaletteTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedCommandPaletteTargetResolution.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClient.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClientTests.swift; sourceTree = "<group>"; };
@@ -4290,6 +4309,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
 		F2A6C8E40D5B17293C8F6A42 /* TerminalPanelCreationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanelCreationOutcome.swift; sourceTree = "<group>"; };
 		D8639A00000000000000004A /* TerminalPanelPendingAttachmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanelPendingAttachmentTests.swift; sourceTree = "<group>"; };
+		C0DE8A070000000000000002 /* TerminalPanelPendingTextBoxAttachmentEnqueueResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelPendingTextBoxAttachmentEnqueueResult.swift; sourceTree = "<group>"; };
+		C0DE8A0A0000000000000002 /* TerminalPanelPendingTextBoxAttachmentRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelPendingTextBoxAttachmentRequest.swift; sourceTree = "<group>"; };
+		C0DE8A080000000000000002 /* TerminalPanelPreparedTextBoxAttachmentPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelPreparedTextBoxAttachmentPhase.swift; sourceTree = "<group>"; };
+		C0DE8A090000000000000002 /* TerminalPanelPreparedTextBoxAttachmentRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelPreparedTextBoxAttachmentRequest.swift; sourceTree = "<group>"; };
 		C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelShellActivityModel.swift; sourceTree = "<group>"; };
 		C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelTextBoxState.swift; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
@@ -4324,6 +4347,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B7758A040000000000000002 /* TerminationWatchdogAtomic.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TerminationWatchdogAtomic.h; sourceTree = "<group>"; };
 		B7758A020000000000000002 /* TerminationWatchdogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationWatchdogTests.swift; sourceTree = "<group>"; };
 		C0DE7B330000000000000002 /* TextBoxAgentDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxAgentDetection.swift; sourceTree = "<group>"; };
+		C0DE8A010000000000000002 /* TextBoxAttachmentPreparationBudget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TextBoxAttachmentPreparationBudget.swift; sourceTree = "<group>"; };
+		C0DE8A050000000000000002 /* TextBoxAttachmentPreparationBudgetComposerUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TextBoxAttachmentPreparationBudgetComposerUsage.swift; sourceTree = "<group>"; };
+		C0DE8A020000000000000002 /* TextBoxAttachmentPreparationBudgetLimits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TextBoxAttachmentPreparationBudgetLimits.swift; sourceTree = "<group>"; };
+		C0DE8A030000000000000002 /* TextBoxAttachmentPreparationBudgetPermit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TextBoxAttachmentPreparationBudgetPermit.swift; sourceTree = "<group>"; };
+		C0DE8A040000000000000002 /* TextBoxAttachmentPreparationBudgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TextBoxAttachmentPreparationBudgetSnapshot.swift; sourceTree = "<group>"; };
+		C0DE8A060000000000000002 /* TextBoxAttachmentPreparationBudgetWaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TextBoxAttachmentPreparationBudgetWaiter.swift; sourceTree = "<group>"; };
 		7898A0020000000000000002 /* TextBoxGitIgnoreProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxGitIgnoreProbe.swift; sourceTree = "<group>"; };
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
 		C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/TextBoxInputTextViewDebug.swift; sourceTree = "<group>"; };
@@ -4341,6 +4370,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE7B210000000000000002 /* TextBoxMentionQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionQuery.swift; sourceTree = "<group>"; };
 		C0DE7B220000000000000002 /* TextBoxMentionSuggestion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionSuggestion.swift; sourceTree = "<group>"; };
 		C0DE7B420000000000000002 /* TextBoxPreparedFileAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPreparedFileAttachment.swift; sourceTree = "<group>"; };
+		C0DE7B430000000000000002 /* TextBoxPreparedLocalFileIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPreparedLocalFileIdentity.swift; sourceTree = "<group>"; };
 		C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxProcessTerminationStatus.swift; sourceTree = "<group>"; };
 		C0DE7B370000000000000002 /* TextBoxSubmitAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TextBoxSubmitAction.swift; sourceTree = "<group>"; };
 		C0DE7B400000000000000002 /* TextBoxSubmitActionCycling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionCycling.swift; sourceTree = "<group>"; };
@@ -4481,6 +4511,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE00000000000000000D37 /* WorkspaceCreateIdempotencyTombstoneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateIdempotencyTombstoneTests.swift; sourceTree = "<group>"; };
 		D1A700000000000000000009 /* WorkspaceCreateReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateReviewRegressionTests.swift; sourceTree = "<group>"; };
 		C0DE00000000000000000D39 /* WorkspaceCreateWorkingDirectoryAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateWorkingDirectoryAliasTests.swift; sourceTree = "<group>"; };
+		D8639B000000000000000004 /* WorkspaceCreateWorkingDirectoryCanonicalProbeResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateWorkingDirectoryCanonicalProbeResult.swift; sourceTree = "<group>"; };
+		D8639B000000000000000006 /* WorkspaceCreateWorkingDirectoryProbeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateWorkingDirectoryProbeKey.swift; sourceTree = "<group>"; };
 		C0DE71450000000000000002 /* WorkspaceCreateWorkingDirectoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateWorkingDirectoryTests.swift; sourceTree = "<group>"; };
 		C0DE00000000000000000D33 /* WorkspaceCreateWorkingDirectoryValidationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCreateWorkingDirectoryValidationServiceTests.swift; sourceTree = "<group>"; };
 		CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCustomSidebarPullRequestContextTests.swift; sourceTree = "<group>"; };
@@ -4950,6 +4982,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D8639A00000000000000001C /* PanelPinMutationOutcome.swift */,
 				D8639A00000000000000001E /* ReactGrabStateConfirmation.swift */,
 				D8639A000000000000000020 /* TerminalPanel+TextBoxInputRequestResult.swift */,
+				D8639B000000000000000002 /* PreparedCommandPaletteArgumentsResolution.swift */,
 				D8639A000000000000000022 /* PreparedCommandPaletteTargetResolution.swift */,
 				D8639A000000000000000024 /* WorkspaceTodoChecklistAddRequest.swift */,
 				C0DEB0A10000000000000002 /* CommandPaletteControlRequest.swift */,
@@ -5234,6 +5267,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */,
 				C0DE7B100000000000000002 /* TextBoxInput.swift */,
 				C0DE7B420000000000000002 /* TextBoxPreparedFileAttachment.swift */,
+				C0DE7B430000000000000002 /* TextBoxPreparedLocalFileIdentity.swift */,
 				D79030000000000000000002 /* TextBoxSubmitSurfaceControlling.swift */,
 				C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */,
 				C0DE7B370000000000000002 /* TextBoxSubmitAction.swift */,
@@ -5521,6 +5555,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE00000000000000000EA0 /* TerminalController+WorkspaceCreateIdempotencyPersisting.swift */,
 				C0DE00000000000000000D31 /* TerminalController+WorkspaceCreateWorkingDirectory.swift */,
 				C0DE00000000000000000E92 /* TerminalController+WorkspaceCreateWorkingDirectoryValidationService.swift */,
+				D8639B000000000000000004 /* WorkspaceCreateWorkingDirectoryCanonicalProbeResult.swift */,
+				D8639B000000000000000006 /* WorkspaceCreateWorkingDirectoryProbeKey.swift */,
 				C0DE00000000000000000D35 /* TerminalController+WorkspaceCreatePreparation.swift */,
 				C0DE00000000000000000C8A /* TerminalController+WorkspaceGroupAction.swift */,
 				C0DE00000000000000000C88 /* TerminalController+WorkspaceMove.swift */,
@@ -5736,6 +5772,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B110000000000000002 /* TerminalPanel+TextBoxAttachmentRequestResult.swift */,
 				C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */,
 				C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */,
+				C0DE8A070000000000000002 /* TerminalPanelPendingTextBoxAttachmentEnqueueResult.swift */,
+				C0DE8A0A0000000000000002 /* TerminalPanelPendingTextBoxAttachmentRequest.swift */,
+				C0DE8A080000000000000002 /* TerminalPanelPreparedTextBoxAttachmentPhase.swift */,
+				C0DE8A090000000000000002 /* TerminalPanelPreparedTextBoxAttachmentRequest.swift */,
+				C0DE8A010000000000000002 /* TextBoxAttachmentPreparationBudget.swift */,
+				C0DE8A050000000000000002 /* TextBoxAttachmentPreparationBudgetComposerUsage.swift */,
+				C0DE8A020000000000000002 /* TextBoxAttachmentPreparationBudgetLimits.swift */,
+				C0DE8A030000000000000002 /* TextBoxAttachmentPreparationBudgetPermit.swift */,
+				C0DE8A040000000000000002 /* TextBoxAttachmentPreparationBudgetSnapshot.swift */,
+				C0DE8A060000000000000002 /* TextBoxAttachmentPreparationBudgetWaiter.swift */,
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				B75040010000000000000002 /* BrowserDiscardRestoreHeal.swift */,
@@ -6092,6 +6138,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0ACCB70000000000000000A /* CmuxConfigActionCatalogProcessReader+LaunchSpecification.swift */,
 				C0ACCB70000000000000000E /* CmuxConfigActionCatalogProcessReader+ProcessOperations.swift */,
 				C0ACCB70000000000000000C /* CmuxConfigActionCatalogProcessReader+Timing.swift */,
+				C0ACCD700000000000000004 /* CmuxConfigActionCatalogProcessReapState.swift */,
 				C0ACCA700000000000000004 /* CmuxConfigActionCatalogFrameCodec.swift */,
 				C0ACCB700000000000000008 /* CmuxConfigActionCatalogFrameCodec+Field.swift */,
 				C0ACCA700000000000000012 /* CmuxConfigActionCatalogFreshWaiter.swift */,
@@ -6104,6 +6151,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0ACCA700000000000000008 /* CmuxConfigActionCatalogProcessSession.swift */,
 				C0ACCB700000000000000010 /* CmuxConfigActionCatalogProcessSession+Result.swift */,
 				C0ACCB700000000000000012 /* CmuxConfigActionCatalogProcessSession+TerminationReason.swift */,
+				C0ACCD700000000000000002 /* CmuxConfigActionCatalogProcessWaitResult.swift */,
 				C0ACCA700000000000000006 /* CmuxConfigActionCatalogRawReader.swift */,
 				C0ACCB700000000000000016 /* CmuxConfigActionCatalogRawFile.swift */,
 				C0ACCB700000000000000014 /* CmuxConfigActionCatalogRawFileStatus.swift */,
@@ -7756,9 +7804,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0ACCB70000000000000000D /* CmuxConfigActionCatalogProcessReader+ProcessOperations.swift in Sources */,
 				C0ACCB70000000000000000B /* CmuxConfigActionCatalogProcessReader+Timing.swift in Sources */,
 				C0ACCA700000000000000001 /* CmuxConfigActionCatalogProcessReader.swift in Sources */,
+				C0ACCD700000000000000003 /* CmuxConfigActionCatalogProcessReapState.swift in Sources */,
 				C0ACCB70000000000000000F /* CmuxConfigActionCatalogProcessSession+Result.swift in Sources */,
 				C0ACCB700000000000000011 /* CmuxConfigActionCatalogProcessSession+TerminationReason.swift in Sources */,
 				C0ACCA700000000000000007 /* CmuxConfigActionCatalogProcessSession.swift in Sources */,
+				C0ACCD700000000000000001 /* CmuxConfigActionCatalogProcessWaitResult.swift in Sources */,
 				C0ACCA70000000000000001E /* CmuxConfigActionCatalogQuarantinedProcess.swift in Sources */,
 				C0ACCB700000000000000015 /* CmuxConfigActionCatalogRawFile.swift in Sources */,
 				C0ACCB700000000000000013 /* CmuxConfigActionCatalogRawFileStatus.swift in Sources */,
@@ -8207,6 +8257,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B79500080000000000000001 /* PortScanPublicationBuffer.swift in Sources */,
 				B79500060000000000000001 /* PortScanPublicationState.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
+				D8639B000000000000000001 /* PreparedCommandPaletteArgumentsResolution.swift in Sources */,
 				D8639A000000000000000021 /* PreparedCommandPaletteTargetResolution.swift in Sources */,
 				D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */,
 				D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */,
@@ -8677,6 +8728,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D8639A00000000000000001F /* TerminalPanel+TextBoxInputRequestResult.swift in Sources */,
 				A5001401 /* TerminalPanel.swift in Sources */,
 				E8B3D5F71A2C49608B7D5E31 /* TerminalPanelCreationOutcome.swift in Sources */,
+				C0DE8A070000000000000001 /* TerminalPanelPendingTextBoxAttachmentEnqueueResult.swift in Sources */,
+				C0DE8A0A0000000000000001 /* TerminalPanelPendingTextBoxAttachmentRequest.swift in Sources */,
+				C0DE8A080000000000000001 /* TerminalPanelPreparedTextBoxAttachmentPhase.swift in Sources */,
+				C0DE8A090000000000000001 /* TerminalPanelPreparedTextBoxAttachmentRequest.swift in Sources */,
 				C0DE5A410000000000000001 /* TerminalPanelShellActivityModel.swift in Sources */,
 				C0DE6B420000000000000001 /* TerminalPanelTextBoxState.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
@@ -8699,6 +8754,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B7758A010000000000000001 /* TerminationWatchdog.swift in Sources */,
 				B7758A030000000000000001 /* TerminationWatchdogAtomic.c in Sources */,
 				C0DE7B330000000000000001 /* TextBoxAgentDetection.swift in Sources */,
+				C0DE8A010000000000000001 /* TextBoxAttachmentPreparationBudget.swift in Sources */,
+				C0DE8A050000000000000001 /* TextBoxAttachmentPreparationBudgetComposerUsage.swift in Sources */,
+				C0DE8A020000000000000001 /* TextBoxAttachmentPreparationBudgetLimits.swift in Sources */,
+				C0DE8A030000000000000001 /* TextBoxAttachmentPreparationBudgetPermit.swift in Sources */,
+				C0DE8A040000000000000001 /* TextBoxAttachmentPreparationBudgetSnapshot.swift in Sources */,
+				C0DE8A060000000000000001 /* TextBoxAttachmentPreparationBudgetWaiter.swift in Sources */,
 				7898A0020000000000000001 /* TextBoxGitIgnoreProbe.swift in Sources */,
 				C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */,
 				C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */,
@@ -8714,6 +8775,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B210000000000000001 /* TextBoxMentionQuery.swift in Sources */,
 				C0DE7B220000000000000001 /* TextBoxMentionSuggestion.swift in Sources */,
 				C0DE7B420000000000000001 /* TextBoxPreparedFileAttachment.swift in Sources */,
+				C0DE7B430000000000000001 /* TextBoxPreparedLocalFileIdentity.swift in Sources */,
 				C0DE7B290000000000000001 /* TextBoxProcessTerminationStatus.swift in Sources */,
 				C0DE7B370000000000000001 /* TextBoxSubmitAction.swift in Sources */,
 				C0DE7B400000000000000001 /* TextBoxSubmitActionCycling.swift in Sources */,
@@ -8823,6 +8885,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E8639D00000000000000000B /* WorkspaceConfigTrackingEventChannel.swift in Sources */,
 					5732A0045732A0045732A004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift in Sources */,
 				A5001407 /* WorkspaceContentView.swift in Sources */,
+				D8639B000000000000000003 /* WorkspaceCreateWorkingDirectoryCanonicalProbeResult.swift in Sources */,
+				D8639B000000000000000005 /* WorkspaceCreateWorkingDirectoryProbeKey.swift in Sources */,
 				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
 				F0ACC0DE000000000000000B /* WorkspaceForkAgentConversationAvailability.swift in Sources */,
 				C9A57203C9A57203C9A57203 /* WorkspaceGroupMenuSnapshot.swift in Sources */,

@@ -9,10 +9,11 @@ extension ControlCommandCoordinator {
     /// the main actor. The synchronous control wire therefore returns an
     /// explicit `queued` status after the request is accepted; it does not
     /// claim the browser pane has finished opening.
-    nonisolated func inlineVSCodeOpen(
+    func inlineVSCodeOpen(
         _ params: [String: JSONValue],
-        context: (any ControlCommandContext)?
-    ) -> ControlCallResult? {
+        context: (any ControlCommandContext)?,
+        deadline: Date?
+    ) async -> ControlCallResult? {
         guard let context else { return nil }
         let strings = context.controlInlineVSCodeStrings()
         guard case .string(let rawPath)? = params["path"],
@@ -24,50 +25,66 @@ extension ControlCommandCoordinator {
         // can be part of a valid file name; trimming is only used for the
         // empty-input check above.
         let expanded = (rawPath as NSString).expandingTildeInPath
-        let resolved = expanded.hasPrefix("/")
-            ? expanded
-            : (inlineVSCodeFileSystem.currentDirectoryPath() as NSString).appendingPathComponent(expanded)
-        let inspection = inlineVSCodeFileSystem.inspectPath(resolved)
-        guard inspection.exists else {
+        let resolved: String
+        if NSString(string: expanded).isAbsolutePath {
+            resolved = expanded
+        } else {
+            let callerDirectory: String
+            switch params["cwd"] {
+            case nil, .some(.null):
+                callerDirectory = inlineVSCodeFileSystem.currentDirectoryPath()
+            case .some(.string(let value)):
+                guard NSString(string: value).isAbsolutePath else {
+                    return .err(
+                        code: "invalid_params",
+                        message: strings.cwdMustBeAbsolute,
+                        data: nil
+                    )
+                }
+                callerDirectory = value
+            default:
+                return .err(
+                    code: "invalid_params",
+                    message: strings.cwdMustBeAbsolute,
+                    data: nil
+                )
+            }
+            resolved = NSString(string: callerDirectory).appendingPathComponent(expanded)
+        }
+        guard !hasInvalidSurfaceAliases(params) else {
+            return .err(code: "not_found", message: strings.workspaceNotFound, data: nil)
+        }
+        let routing = routingSelectors(params)
+        // Every explicit selector must resolve. Otherwise the app cannot
+        // distinguish a bad target from an intentionally omitted one and
+        // could fall through to the selected workspace.
+        if (routing.hasWindowIDParam && routing.windowID == nil)
+            || (routing.hasGroupIDParam && routing.groupID == nil)
+            || (routing.hasWorkspaceIDParam && routing.workspaceID == nil)
+            || (routing.hasSurfaceIDParam && routing.surfaceID == nil)
+            || (routing.hasPaneIDParam && routing.paneID == nil) {
+            return .err(code: "not_found", message: strings.workspaceNotFound, data: nil)
+        }
+        let openResult = await context.controlInlineVSCodeOpen(
+            routing: routing,
+            directoryPath: resolved,
+            deadline: deadline
+        )
+        switch openResult.resolution {
+        case .directoryNotFound:
             return .err(
                 code: "not_found",
                 message: strings.directoryNotFound,
-                data: .object(["path": .string(resolved)])
+                data: .object(["path": .string(openResult.path)])
             )
-        }
-        guard inspection.isDirectory else {
+        case .notDirectory:
             return .err(
                 code: "invalid_params",
                 message: strings.notDirectory,
-                data: .object(["path": .string(resolved)])
+                data: .object(["path": .string(openResult.path)])
             )
-        }
-        let mainResult: ControlInlineVSCodeMainResult = context.controlResolveOnMain { seam in
-            let routing = self.routingSelectors(params)
-            // Every explicit selector must resolve. Otherwise the app cannot
-            // distinguish a bad target from an intentionally omitted one and
-            // could fall through to the selected workspace.
-            if (routing.hasWindowIDParam && routing.windowID == nil)
-                || (routing.hasGroupIDParam && routing.groupID == nil)
-                || (routing.hasWorkspaceIDParam && routing.workspaceID == nil)
-                || (routing.hasSurfaceIDParam && routing.surfaceID == nil)
-                || (routing.hasPaneIDParam && routing.paneID == nil) {
-                return ControlInlineVSCodeMainResult(resolution: .workspaceNotFound)
-            }
-            let resolution = seam.controlInlineVSCodeOpen(
-                routing: routing,
-                directoryPath: resolved
-            )
-            guard case .accepted(let windowID, let workspaceID) = resolution else {
-                return ControlInlineVSCodeMainResult(resolution: resolution)
-            }
-            return ControlInlineVSCodeMainResult(
-                resolution: resolution,
-                windowRef: self.ref(.window, windowID),
-                workspaceRef: self.ref(.workspace, workspaceID)
-            )
-        }
-        switch mainResult.resolution {
+        case .validationUnavailable:
+            return .err(code: "unavailable", message: strings.openFailed, data: nil)
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: strings.tabManagerUnavailable, data: nil)
         case .workspaceNotFound:
@@ -77,13 +94,15 @@ extension ControlCommandCoordinator {
         case .openFailed:
             return .err(code: "internal_error", message: strings.openFailed, data: nil)
         case .accepted(let windowID, let workspaceID):
+            let windowRef = windowID.map { ref(.window, $0) }
+            let workspaceRef = ref(.workspace, workspaceID)
             let windowValue = windowID.map { JSONValue.string($0.uuidString) } ?? .null
             let payload: [String: JSONValue] = [
                 "window_id": windowValue,
-                "window_ref": mainResult.windowRef ?? .null,
+                "window_ref": windowRef ?? .null,
                 "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": mainResult.workspaceRef ?? .null,
-                "path": .string(resolved),
+                "workspace_ref": workspaceRef,
+                "path": .string(openResult.path),
                 "accepted": .bool(true),
                 "status": .string("queued"),
             ]
@@ -91,20 +110,4 @@ extension ControlCommandCoordinator {
         }
     }
 
-}
-
-private struct ControlInlineVSCodeMainResult: Sendable {
-    let resolution: ControlInlineVSCodeOpenResolution
-    let windowRef: JSONValue?
-    let workspaceRef: JSONValue?
-
-    init(
-        resolution: ControlInlineVSCodeOpenResolution,
-        windowRef: JSONValue? = nil,
-        workspaceRef: JSONValue? = nil
-    ) {
-        self.resolution = resolution
-        self.windowRef = windowRef
-        self.workspaceRef = workspaceRef
-    }
 }

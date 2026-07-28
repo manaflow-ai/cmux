@@ -1055,37 +1055,6 @@ class TabManager: ObservableObject {
             .attachFilesToTextBoxInput(fileURLs)
     }
 
-    func reservePreparedTerminalTextBoxAttachment(
-        workspaceID: UUID,
-        panelID: UUID
-    ) -> UUID? {
-        terminalPanel(tabId: workspaceID, panelId: panelID)?
-            .reservePreparedTextBoxAttachment()
-    }
-
-    func fulfillPreparedTerminalTextBoxAttachment(
-        workspaceID: UUID,
-        panelID: UUID,
-        reservationID: UUID,
-        preparedFile: TextBoxPreparedFileAttachment
-    ) -> TerminalPanel.TextBoxAttachmentRequestResult? {
-        terminalPanel(tabId: workspaceID, panelId: panelID)?
-            .fulfillPreparedTextBoxAttachment(
-                reservationID: reservationID,
-                preparedFile: preparedFile
-            )
-    }
-
-    @discardableResult
-    func cancelPreparedTerminalTextBoxAttachment(
-        workspaceID: UUID,
-        panelID: UUID,
-        reservationID: UUID
-    ) -> Bool {
-        terminalPanel(tabId: workspaceID, panelId: panelID)?
-            .cancelPreparedTextBoxAttachment(reservationID: reservationID) ?? false
-    }
-
     @discardableResult
     func consumeFocusedTerminalTextBoxHideEscapeIfArmed(in window: NSWindow?) -> Bool {
         guard let focusedPanel = selectedTerminalPanel else {
@@ -6150,6 +6119,15 @@ extension TabManager {
         hasher.combine(snapshot.submissionPath)
         hashOptionalString(snapshot.localPath, into: &hasher)
         hasher.combine(snapshot.cleanupLocalPathWhenDisposed)
+        if let identity = snapshot.cleanupPathEntryIdentity {
+            hasher.combine(true)
+            hasher.combine(identity.device)
+            hasher.combine(identity.inode)
+            hasher.combine(identity.generation)
+            hasher.combine(identity.fileType)
+        } else {
+            hasher.combine(false)
+        }
     }
 
     nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {

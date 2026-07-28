@@ -993,7 +993,9 @@ class TerminalController {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
                 return v2Result(id: request.id, workspaceParamError)
             }
-            if request.method == "palette.list" || request.method == "palette.run" {
+            if request.method == "palette.list"
+                || request.method == "palette.run"
+                || request.method == "vscode.open" {
                 // Finish before SocketClient's 15-second default receive
                 // deadline so callers receive the structured timeout error.
                 let dispatchDeadline = Date(timeIntervalSinceNow: 10)

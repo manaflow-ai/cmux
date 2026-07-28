@@ -115,6 +115,13 @@ extension ControlCommandCoordinator {
         let target: ControlCommandPaletteTarget?
         switch commandPaletteTargetRouting(params) {
         case .legacy:
+            guard !hasInvalidSurfaceAliases(params) else {
+                return .err(
+                    code: "invalid_params",
+                    message: strings.invalidTarget,
+                    data: nil
+                )
+            }
             target = nil
         case .target(let exactTarget):
             target = exactTarget
@@ -351,6 +358,7 @@ extension ControlCommandCoordinator {
             "type": .string(argument.type),
             "required": .bool(argument.required),
             "allows_empty": .bool(argument.allowsEmpty),
+            "existing_path_kind": argument.existingPathKind.map(JSONValue.string) ?? .null,
         ])
     }
 }

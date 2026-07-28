@@ -1,7 +1,73 @@
 import AppKit
 import CmuxCommandPalette
 import CmuxControlSocket
+import Darwin
 import Foundation
+
+extension TerminalController {
+    nonisolated static let commandPaletteExistingPathValidationService =
+        WorkspaceCreateWorkingDirectoryValidationService(
+            timeout: .seconds(3),
+            localCapacity: 1,
+            externalCapacity: 3,
+            classificationCapacity: 3,
+            maximumPendingWaiters: 12,
+            pathResolver: { path in
+                guard path.utf8.count <= 4_096,
+                      !path.utf8.contains(0),
+                      NSString(string: path).isAbsolutePath else {
+                    return nil
+                }
+                return path
+            },
+            laneClassifier: { @Sendable path in
+                await Task.detached(priority: .utility) {
+                    TerminalController.v2WorkingDirectoryProbeLane(path)
+                }.value
+            },
+            blockingCanonicalProbe: { path, _, probeVariant in
+                commandPaletteCanonicalExistingPath(
+                    path,
+                    probeVariant: probeVariant
+                )
+            },
+            sleepUntilDeadline: { timeout in
+                try? await ContinuousClock().sleep(for: timeout)
+            }
+        )
+
+    /// Resolves the whole path with `realpath(3)` before checking its final
+    /// kind. This preserves kernel traversal through symbolic links and dot
+    /// components while producing one canonical value for the UI mutation.
+    nonisolated static func commandPaletteCanonicalExistingPath(
+        _ path: String,
+        probeVariant: String?
+    ) -> WorkspaceCreateWorkingDirectoryCanonicalProbeResult {
+        guard !path.utf8.contains(0),
+              let canonicalPointer = path.withCString({ realpath($0, nil) }) else {
+            return .invalid
+        }
+        defer { free(canonicalPointer) }
+        let canonicalPath = String(cString: canonicalPointer)
+        var fileStatus = stat()
+        guard canonicalPath.withCString({
+            Darwin.lstat($0, &fileStatus)
+        }) == 0 else {
+            return .invalid
+        }
+
+        let fileType = fileStatus.st_mode & S_IFMT
+        switch probeVariant {
+        case CmuxActionExistingPathKind.directory.rawValue:
+            guard fileType == S_IFDIR else { return .wrongFileType }
+        case CmuxActionExistingPathKind.regularFile.rawValue:
+            guard fileType == S_IFREG else { return .wrongFileType }
+        default:
+            return .invalid
+        }
+        return .valid(canonicalPath)
+    }
+}
 
 /// App-target witnesses for live command-palette dispatch and parameterized
 /// inline VS Code opening.
@@ -59,9 +125,10 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         routing: ControlRoutingSelectors,
         deadline: Date?
     ) async -> ControlCommandPaletteListResolution {
-        guard let (context, target, handler) = controlCommandPaletteTarget(routing: routing) else {
+        guard let (context, target) = controlCommandPaletteTarget(routing: routing) else {
             return .windowNotFound
         }
+        let preparedConfigStore = context.cmuxConfigStore
         switch await prepareCommandPaletteTarget(
             context: context,
             target: target,
@@ -76,6 +143,18 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         }
         guard commandPaletteDeadlineAllowsDispatch(deadline) else {
             return .configurationPending
+        }
+        guard let currentContext = revalidatedCommandPaletteContext(
+            context,
+            target: target
+        ) else {
+            return .windowNotFound
+        }
+        guard currentContext.cmuxConfigStore === preparedConfigStore else {
+            return .configurationPending
+        }
+        guard let handler = currentContext.commandPaletteControlHandler else {
+            return .windowNotFound
         }
         let request = CommandPaletteControlRequest(target: target, operation: .list)
         return withSocketCommandPolicy(commandKey: "palette.list", isV2: true) {
@@ -109,13 +188,12 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         workingDirectory: String?,
         deadline: Date?
     ) async -> ControlCommandPaletteRunResolution {
-        guard let (context, target, handler) = controlCommandPaletteTarget(routing: routing) else {
+        guard let (context, target) = controlCommandPaletteTarget(routing: routing) else {
             return .windowNotFound
         }
         return await controlCommandPaletteRun(
             context: context,
             target: target,
-            handler: handler,
             commandID: commandID,
             arguments: arguments,
             workingDirectory: workingDirectory,
@@ -135,11 +213,10 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             return .windowNotFound
         case .targetUnavailable:
             return .targetUnavailable
-        case .resolved(let context, let actionTarget, let handler):
+        case .resolved(let context, let actionTarget, _):
             return await controlCommandPaletteRun(
                 context: context,
                 target: actionTarget,
-                handler: handler,
                 commandID: commandID,
                 arguments: arguments,
                 workingDirectory: workingDirectory,
@@ -153,6 +230,10 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             missingPath: String(
                 localized: "socket.vscode.error.missingPath",
                 defaultValue: "Missing 'path' parameter"
+            ),
+            cwdMustBeAbsolute: String(
+                localized: "socket.vscode.error.cwdMustBeAbsolute",
+                defaultValue: "'cwd' must be an absolute path"
             ),
             directoryNotFound: String(
                 localized: "socket.vscode.error.directoryNotFound",
@@ -183,25 +264,33 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
 
     func controlInlineVSCodeOpen(
         routing: ControlRoutingSelectors,
-        directoryPath: String
-    ) -> ControlInlineVSCodeOpenResolution {
+        directoryPath: String,
+        deadline: Date?
+    ) async -> ControlInlineVSCodeOpenResult {
+        func result(
+            _ resolution: ControlInlineVSCodeOpenResolution,
+            path: String = directoryPath
+        ) -> ControlInlineVSCodeOpenResult {
+            ControlInlineVSCodeOpenResult(resolution: resolution, path: path)
+        }
+
         guard let tabManager = resolveTabManager(routing: routing) else {
             let hasExplicitTarget = routing.hasWindowIDParam
                 || routing.hasGroupIDParam
                 || routing.hasWorkspaceIDParam
                 || routing.hasSurfaceIDParam
                 || routing.hasPaneIDParam
-            return hasExplicitTarget ? .workspaceNotFound : .tabManagerUnavailable
+            return result(hasExplicitTarget ? .workspaceNotFound : .tabManagerUnavailable)
         }
         guard controlPaletteSelectorsBelongToTarget(routing, tabManager: tabManager) else {
-            return .workspaceNotFound
+            return result(.workspaceNotFound)
         }
         guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
-            return .vscodeUnavailable
+            return result(.vscodeUnavailable)
         }
         guard let appDelegate = AppDelegate.shared,
               let context = appDelegate.mainWindowContext(for: tabManager) else {
-            return .tabManagerUnavailable
+            return result(.tabManagerUnavailable)
         }
         let windowID = context.windowId
         guard let actionTarget = controlCommandPaletteActionTarget(
@@ -209,26 +298,55 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
             tabManager: tabManager,
             windowID: windowID
         ) else {
-            return .workspaceNotFound
+            return result(.workspaceNotFound)
         }
-        // Resolve without creating. The AppDelegate launch path creates a
-        // fallback workspace only after every synchronous prerequisite passes.
-        let workspace = controlInlineVSCodeWorkspace(
-            routing: routing,
-            tabManager: tabManager
+
+        let validation = await Self.commandPaletteExistingPathValidationService.validate(
+            rawValue: directoryPath,
+            isProvided: true,
+            timeoutOverride: commandPaletteRemainingDuration(until: deadline),
+            probeVariant: CmuxActionExistingPathKind.directory.rawValue
         )
+        let canonicalPath: String
+        switch validation {
+        case .valid(let path):
+            canonicalPath = path
+        case .invalid:
+            return result(.directoryNotFound)
+        case .wrongFileType:
+            return result(.notDirectory)
+        case .busy, .timedOut, .cancelled:
+            return result(.validationUnavailable)
+        case .notProvided:
+            return result(.directoryNotFound)
+        }
+        guard commandPaletteDeadlineAllowsDispatch(deadline) else {
+            return result(.validationUnavailable, path: canonicalPath)
+        }
+
+        // Validation suspended off-main. Do not let focus, selector, window,
+        // workspace, or panel churn retarget the eventual UI mutation.
+        guard resolveTabManager(routing: routing) === tabManager,
+              controlPaletteSelectorsBelongToTarget(routing, tabManager: tabManager),
+              AppDelegate.shared === appDelegate,
+              revalidatedCommandPaletteContext(context, target: actionTarget) === context else {
+            return result(.workspaceNotFound, path: canonicalPath)
+        }
         guard let queuedWorkspaceID = appDelegate.openDirectoryInInlineVSCodeWorkspaceID(
-            URL(fileURLWithPath: directoryPath, isDirectory: true),
+            URL(fileURLWithPath: canonicalPath, isDirectory: true),
             tabManager: tabManager,
             windowID: windowID,
-            workspaceID: workspace?.id,
+            workspaceID: actionTarget.workspaceID,
             panelID: actionTarget.panelID
         ) else {
-            return .openFailed
+            return result(.openFailed, path: canonicalPath)
         }
-        return .accepted(
-            windowID: windowID,
-            workspaceID: queuedWorkspaceID
+        return result(
+            .accepted(
+                windowID: windowID,
+                workspaceID: queuedWorkspaceID
+            ),
+            path: canonicalPath
         )
     }
 
@@ -236,8 +354,7 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         routing: ControlRoutingSelectors
     ) -> (
         context: AppDelegate.MainWindowContext,
-        target: CommandPaletteActionTarget,
-        handler: (CommandPaletteControlRequest) -> Void
+        target: CommandPaletteActionTarget
     )? {
         guard let tabManager = resolveTabManager(routing: routing),
               controlPaletteSelectorsBelongToTarget(routing, tabManager: tabManager),
@@ -248,10 +365,10 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
                 tabManager: tabManager,
                 windowID: context.windowId
               ),
-              let handler = context.commandPaletteControlHandler else {
+              context.commandPaletteControlHandler != nil else {
             return nil
         }
-        return (context, target, handler)
+        return (context, target)
     }
 
     /// Resolves a list-time identity without consulting current focus. Every
@@ -307,12 +424,12 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
     private func controlCommandPaletteRun(
         context: AppDelegate.MainWindowContext,
         target: CommandPaletteActionTarget,
-        handler: (CommandPaletteControlRequest) -> Void,
         commandID: String,
         arguments: [String: String],
         workingDirectory: String?,
         deadline: Date?
     ) async -> ControlCommandPaletteRunResolution {
+        let preparedConfigStore = context.cmuxConfigStore
         switch await prepareCommandPaletteTarget(
             context: context,
             target: target,
@@ -328,21 +445,165 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         guard commandPaletteDeadlineAllowsDispatch(deadline) else {
             return .configurationPending
         }
-        let request = CommandPaletteControlRequest(
+        guard let currentContext = revalidatedCommandPaletteContext(
+            context,
+            target: target
+        ) else {
+            return .targetUnavailable
+        }
+        guard currentContext.cmuxConfigStore === preparedConfigStore else {
+            return .configurationChanged
+        }
+        guard let handler = currentContext.commandPaletteControlHandler else {
+            return .targetUnavailable
+        }
+
+        // Ask the live registry for the static argument contract without
+        // running the action. Path preflight must use the same context and
+        // config snapshot that the final handler will later revalidate.
+        let definitionRequest = CommandPaletteControlRequest(
             target: target,
+            operation: .list
+        )
+        handler(definitionRequest)
+        let command: CommandPaletteControlRequest.Item
+        let versionedTarget: CommandPaletteActionTarget
+        switch definitionRequest.result {
+        case .listed(let listedTarget, let commands):
+            guard listedTarget.windowID == target.windowID,
+                  listedTarget.workspaceID == target.workspaceID,
+                  listedTarget.panelID == target.panelID else {
+                return .targetUnavailable
+            }
+            if preparedConfigStore != nil,
+               listedTarget.configSnapshotID == nil {
+                return .configurationPending
+            }
+            guard let listedCommand = commands.first(where: { $0.id == commandID }) else {
+                return .commandNotFound
+            }
+            command = listedCommand
+            versionedTarget = listedTarget
+        case .configurationPending:
+            return .configurationPending
+        case .configurationChanged:
+            return .configurationChanged
+        case .targetUnavailable:
+            return .targetUnavailable
+        case .commandNotFound:
+            return .commandNotFound
+        case .ran, .none:
+            return .windowNotFound
+        }
+
+        let preparedArguments: [String: String]
+        switch await prepareCommandPaletteArguments(
+            CmuxActionInvocation(
+                source: .automation,
+                arguments: arguments,
+                workingDirectory: workingDirectory
+            ),
+            definitions: command.arguments,
+            deadline: deadline
+        ) {
+        case .prepared(let arguments):
+            preparedArguments = arguments
+        case .invalid(let names):
+            return .invalidArgumentValues(
+                windowID: currentContext.windowId,
+                command: controlCommandPaletteItem(command),
+                names: names
+            )
+        case .unavailable:
+            return .configurationPending
+        }
+
+        // Filesystem preflight suspended. Reclaim every UI-owned identity and
+        // fetch the handler again before any action can mutate app state.
+        guard commandPaletteDeadlineAllowsDispatch(deadline) else {
+            return .configurationPending
+        }
+        guard let dispatchContext = revalidatedCommandPaletteContext(
+            context,
+            target: versionedTarget
+        ) else {
+            return .targetUnavailable
+        }
+        guard dispatchContext.cmuxConfigStore === preparedConfigStore else {
+            return .configurationChanged
+        }
+        guard let dispatchHandler = dispatchContext.commandPaletteControlHandler else {
+            return .targetUnavailable
+        }
+        let request = CommandPaletteControlRequest(
+            target: versionedTarget,
             operation: .run(
                 commandID: commandID,
-                arguments: arguments,
+                arguments: preparedArguments,
                 workingDirectory: workingDirectory
             )
         )
         return withSocketCommandPolicy(commandKey: "palette.run", isV2: true) {
-            handler(request)
+            dispatchHandler(request)
             return controlCommandPaletteRunResolution(
                 request.result,
-                windowID: context.windowId
+                windowID: dispatchContext.windowId
             )
         }
+    }
+
+    private func prepareCommandPaletteArguments(
+        _ invocation: CmuxActionInvocation,
+        definitions: [CmuxActionArgumentDefinition],
+        deadline: Date?
+    ) async -> PreparedCommandPaletteArgumentsResolution {
+        var preparedArguments = invocation.arguments
+        var invalidNames: [String] = []
+
+        for definition in definitions {
+            guard definition.valueType == .path,
+                  let existingPathKind = definition.existingPathKind,
+                  let rawPath = invocation.arguments[definition.name],
+                  !rawPath.isEmpty else {
+                continue
+            }
+            guard commandPaletteDeadlineAllowsDispatch(deadline) else {
+                return .unavailable
+            }
+            let resolvedPath = invocation.resolvePath(rawPath)
+            let validation = await Self.commandPaletteExistingPathValidationService.validate(
+                rawValue: resolvedPath,
+                isProvided: true,
+                timeoutOverride: commandPaletteRemainingDuration(until: deadline),
+                probeVariant: existingPathKind.rawValue
+            )
+            switch validation {
+            case .valid(let canonicalPath):
+                preparedArguments[definition.name] = canonicalPath
+            case .invalid, .wrongFileType:
+                invalidNames.append(definition.name)
+            case .busy, .timedOut, .cancelled:
+                return .unavailable
+            case .notProvided:
+                invalidNames.append(definition.name)
+            }
+        }
+
+        guard invalidNames.isEmpty else {
+            return .invalid(Array(Set(invalidNames)).sorted())
+        }
+        return .prepared(preparedArguments)
+    }
+
+    private func commandPaletteRemainingDuration(until deadline: Date?) -> Duration? {
+        guard let deadline else { return nil }
+        let remainingSeconds = deadline.timeIntervalSinceNow
+        guard remainingSeconds > 0 else { return .zero }
+        let nanoseconds = max(
+            Int64(1),
+            Int64((remainingSeconds * 1_000_000_000).rounded(.down))
+        )
+        return .nanoseconds(nanoseconds)
     }
 
     private func prepareCommandPaletteTarget(
@@ -422,6 +683,23 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
         return OptionalDirectory(
             value: workspace.configurationTrackingDirectory(panelID: target.panelID)
         )
+    }
+
+    /// Reclaims the registered context after config discovery suspended so a
+    /// detached window context can never dispatch its retained handler.
+    private func revalidatedCommandPaletteContext(
+        _ context: AppDelegate.MainWindowContext,
+        target: CommandPaletteActionTarget
+    ) -> AppDelegate.MainWindowContext? {
+        guard let currentContext = AppDelegate.shared?.mainWindowContext(
+            for: context.tabManager
+        ),
+              currentContext === context,
+              currentContext.windowId == target.windowID,
+              commandPaletteConfigDirectory(context: currentContext, target: target) != nil else {
+            return nil
+        }
+        return currentContext
     }
 
     private func controlCommandPaletteRunResolution(
@@ -612,11 +890,12 @@ extension TerminalController: ControlCommandPaletteContext, ControlInlineVSCodeC
     private func controlCommandPaletteArgument(
         _ argument: CmuxActionArgumentDefinition
     ) -> ControlCommandPaletteArgument {
-        ControlCommandPaletteArgument(
+        return ControlCommandPaletteArgument(
             name: argument.name,
             type: argument.valueType.rawValue,
             required: argument.required,
-            allowsEmpty: argument.allowsEmpty
+            allowsEmpty: argument.allowsEmpty,
+            existingPathKind: argument.existingPathKind?.rawValue
         )
     }
 

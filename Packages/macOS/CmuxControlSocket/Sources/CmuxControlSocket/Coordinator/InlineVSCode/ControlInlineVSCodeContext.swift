@@ -1,3 +1,5 @@
+public import Foundation
+
 /// The inline-VS-Code-domain slice of the control-command seam.
 @MainActor
 public protocol ControlInlineVSCodeContext: AnyObject {
@@ -14,6 +16,7 @@ public protocol ControlInlineVSCodeContext: AnyObject {
     /// opening.
     func controlInlineVSCodeOpen(
         routing: ControlRoutingSelectors,
-        directoryPath: String
-    ) -> ControlInlineVSCodeOpenResolution
+        directoryPath: String,
+        deadline: Date?
+    ) async -> ControlInlineVSCodeOpenResult
 }

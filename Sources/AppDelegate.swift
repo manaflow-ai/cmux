@@ -902,7 +902,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // TODO(de-singletonize): move SidebarDragStateRegistry off AppDelegate.shared when AppDelegate is decomposed.
     let sidebarDragStateRegistry = SidebarDragStateRegistry()
     var debugFocusedTerminalKeyRepairObserverForTesting: ((NSWindow, NSEvent, NSResponder?) -> Void)?
-    var debugSocketListenerActivationOverrideForTesting: ((TabManager, String) -> Void)?
     #endif
     private lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
@@ -4537,21 +4536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mobileWorkspaceListObservers.removeValue(forKey: ObjectIdentifier(tabManager))
     }
 
-    private func activateSocketListener(
-        for tabManager: TabManager,
-        source: String,
-        action: (TabManager, String) -> Void
-    ) {
-#if DEBUG
-        if let override = debugSocketListenerActivationOverrideForTesting {
-            override(tabManager, source)
-            return
-        }
-#endif
-        action(tabManager, source)
-    }
-
-    private func isCommandPaletteControlReady(_ context: MainWindowContext?) -> Bool {
+    func isCommandPaletteControlReady(_ context: MainWindowContext?) -> Bool {
         guard let context else { return false }
         return context.commandPaletteControlHandler != nil
             && context.cmuxConfigStore != nil
@@ -4665,12 +4650,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let commandPaletteContext = mainWindowContext(for: tabManager)
         let commandPaletteControlIsReady = isCommandPaletteControlReady(commandPaletteContext)
         if commandPaletteControlIsReady {
-            activateSocketListener(
-                for: tabManager,
+            ensureSocketListenerIfEnabled(
+                tabManager: tabManager,
                 source: "mainWindow.register"
-            ) { manager, source in
-                ensureSocketListenerIfEnabled(tabManager: manager, source: source)
-            }
+            )
         }
         ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
@@ -7338,15 +7321,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? preferredRegisteredMainWindowContext()?.tabManager
             ?? mainWindowContexts.values.first?.tabManager {
             if isCommandPaletteControlReady(initialContext) {
-                activateSocketListener(
-                    for: manager,
+                startSocketListenerIfEnabled(
+                    tabManager: manager,
                     source: "bootstrapInitialMainWindow.\(debugSource)"
-                ) { manager, source in
-                    startSocketListenerIfEnabled(
-                        tabManager: manager,
-                        source: source
-                    )
-                }
+                )
             }
             MobileHostService.shared.start()
         }

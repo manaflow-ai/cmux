@@ -7508,7 +7508,13 @@ struct ContentView: View {
                 title: constant(String(localized: "command.openFolder.title", defaultValue: "Open Folder…")),
                 subtitle: constant(String(localized: "command.openFolder.subtitle", defaultValue: "Workspace")),
                 keywords: ["open", "folder", "repository", "project", "directory"],
-                arguments: [CmuxActionArgumentDefinition(name: "path", valueType: .path)]
+                arguments: [
+                    CmuxActionArgumentDefinition(
+                        name: "path",
+                        valueType: .path,
+                        existingPathKind: .directory
+                    )
+                ]
                     + Self.commandPaletteOptionalFocusArguments
             )
         )
@@ -7528,7 +7534,13 @@ struct ContentView: View {
                     )
                 ),
                 keywords: ["open", "folder", "directory", "project", "vs", "code", "inline", "editor", "browser"],
-                arguments: [CmuxActionArgumentDefinition(name: "path", valueType: .path)],
+                arguments: [
+                    CmuxActionArgumentDefinition(
+                        name: "path",
+                        valueType: .path,
+                        existingPathKind: .directory
+                    )
+                ],
                 when: { _ in TerminalDirectoryOpenTarget.vscodeInline.isAvailable() }
             )
         )
@@ -8410,7 +8422,13 @@ struct ContentView: View {
                 title: constant(String(localized: "command.terminalAttachTextBoxFile.title", defaultValue: "Attach File to TextBox Input")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "textbox", "text", "box", "rich", "input", "attach", "file", "image"],
-                arguments: [CmuxActionArgumentDefinition(name: "path", valueType: .path)],
+                arguments: [
+                    CmuxActionArgumentDefinition(
+                        name: "path",
+                        valueType: .path,
+                        existingPathKind: .regularFile
+                    )
+                ],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
@@ -8801,11 +8819,62 @@ struct ContentView: View {
         _ registry: inout CommandPaletteHandlerRegistry,
         context: CommandPaletteActionContext,
         configCatalog: CmuxConfigActionCatalog,
+        terminalAttachmentBudget: TextBoxAttachmentPreparationBudget = .shared,
+        terminalAttachmentDeadlineWaiter:
+            @escaping TerminalPanel.TextBoxAttachmentDeadlineWaiter =
+                TerminalPanel.defaultTextBoxAttachmentDeadlineWaiter,
+        terminalAttachmentDidFinish: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        registerCommandPaletteHandlersImpl(
+            &registry,
+            context: context,
+            configCatalog: configCatalog,
+            terminalAttachmentPreparer: nil,
+            terminalAttachmentBudget: terminalAttachmentBudget,
+            terminalAttachmentDeadlineWaiter: terminalAttachmentDeadlineWaiter,
+            terminalAttachmentDidFinish: terminalAttachmentDidFinish
+        )
+    }
+
+    #if DEBUG
+    func registerCommandPaletteHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext,
+        configCatalog: CmuxConfigActionCatalog,
         terminalAttachmentPreparer: @escaping @Sendable (
-            URL
-        ) async -> TextBoxPreparedFileAttachment? = { fileURL in
-            await TextBoxPreparedFileAttachment.prepare(fileURL: fileURL)
-        },
+            URL,
+            TerminalImageTransferTarget
+        ) async -> TextBoxPreparedFileAttachment?,
+        terminalAttachmentBudget: TextBoxAttachmentPreparationBudget = .shared,
+        terminalAttachmentDeadlineWaiter:
+            @escaping TerminalPanel.TextBoxAttachmentDeadlineWaiter =
+                TerminalPanel.defaultTextBoxAttachmentDeadlineWaiter,
+        terminalAttachmentDidFinish: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        registerCommandPaletteHandlersImpl(
+            &registry,
+            context: context,
+            configCatalog: configCatalog,
+            terminalAttachmentPreparer: terminalAttachmentPreparer,
+            terminalAttachmentBudget: terminalAttachmentBudget,
+            terminalAttachmentDeadlineWaiter: terminalAttachmentDeadlineWaiter,
+            terminalAttachmentDidFinish: terminalAttachmentDidFinish
+        )
+    }
+    #endif
+
+    private func registerCommandPaletteHandlersImpl(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        context: CommandPaletteActionContext,
+        configCatalog: CmuxConfigActionCatalog,
+        terminalAttachmentPreparer: (@Sendable (
+            URL,
+            TerminalImageTransferTarget
+        ) async -> TextBoxPreparedFileAttachment?)? = nil,
+        terminalAttachmentBudget: TextBoxAttachmentPreparationBudget = .shared,
+        terminalAttachmentDeadlineWaiter:
+            @escaping TerminalPanel.TextBoxAttachmentDeadlineWaiter =
+                TerminalPanel.defaultTextBoxAttachmentDeadlineWaiter,
         terminalAttachmentDidFinish: @escaping @MainActor (Bool) -> Void = { _ in }
     ) {
         let target = context.target
@@ -8854,10 +8923,10 @@ struct ContentView: View {
         registry.register(commandId: "palette.openFolder") { invocation in
             let focus = Self.commandPaletteShouldFocus(invocation, interactiveDefault: true)
             if let path = invocation.string("path") {
-                guard let directoryURL = commandPaletteDirectoryURL(path) else {
+                guard let directoryURL = commandPalettePreparedDirectoryURL(path) else {
                     return commandPaletteDirectoryUnavailableResult()
                 }
-                if target.workspaceID != nil, context.workspace() == nil {
+                guard commandPaletteTargetIsLive(context) else {
                     return commandPaletteTargetUnavailableResult()
                 }
                 tabManager.addWorkspace(
@@ -8867,59 +8936,62 @@ struct ContentView: View {
                 )
                 return .completed
             }
-            // Defer so the command palette dismisses before the modal sheet appears.
-            Task { @MainActor in
-                guard let presentingWindow = commandPaletteWindow(for: context) else {
-                    NSSound.beep()
-                    return
-                }
-                let panel = NSOpenPanel()
-                panel.canChooseFiles = false
-                panel.canChooseDirectories = true
-                panel.allowsMultipleSelection = false
-                panel.title = String(localized: "panel.openFolder.title", defaultValue: "Open Folder")
-                panel.prompt = String(localized: "panel.openFolder.prompt", defaultValue: "Open")
-                panel.beginSheetModal(for: presentingWindow) { response in
-                    guard response == .OK, let url = panel.url else { return }
-                    Task { @MainActor in
-                        guard commandPaletteWindow(for: context) === presentingWindow,
-                              target.workspaceID == nil || context.workspace() != nil else {
-                            NSSound.beep()
-                            return
-                        }
-                        tabManager.addWorkspace(
-                            workingDirectory: url.path,
-                            select: focus,
-                            sourceWorkspaceID: context.workspace()?.id
-                        )
+            guard let presentingWindow = commandPaletteWindow(for: context),
+                  commandPaletteTargetIsLive(context) else {
+                return commandPaletteTargetUnavailableResult()
+            }
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.title = String(localized: "panel.openFolder.title", defaultValue: "Open Folder")
+            panel.prompt = String(localized: "panel.openFolder.prompt", defaultValue: "Open")
+            panel.beginSheetModal(for: presentingWindow) { response in
+                guard response == .OK, let url = panel.url else { return }
+                Task { @MainActor in
+                    guard commandPaletteWindow(for: context) === presentingWindow,
+                          commandPaletteTargetIsLive(context) else {
+                        NSSound.beep()
+                        return
                     }
+                    tabManager.addWorkspace(
+                        workingDirectory: url.path,
+                        select: focus,
+                        sourceWorkspaceID: context.workspace()?.id
+                    )
                 }
             }
             return .presented
         }
         registry.register(commandId: "palette.openFolderInVSCodeInline") { invocation in
             if let path = invocation.string("path") {
-                guard let directoryURL = commandPaletteDirectoryURL(path) else {
+                guard let directoryURL = commandPalettePreparedDirectoryURL(path) else {
                     return commandPaletteDirectoryUnavailableResult()
                 }
-                let didQueue = AppDelegate.shared?.openDirectoryInInlineVSCode(
+                guard commandPaletteTargetIsLive(context),
+                      let appDelegate = AppDelegate.shared else {
+                    return commandPaletteTargetUnavailableResult()
+                }
+                let didQueue = appDelegate.openDirectoryInInlineVSCode(
                     directoryURL,
                     tabManager: tabManager,
                     windowID: target.windowID,
                     workspaceID: target.workspaceID,
                     panelID: target.panelID
-                ) == true
+                )
                 return Self.commandPaletteInlineVSCodeOpenResult(didQueue: didQueue)
             }
-            Task { @MainActor in
-                AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(
-                    tabManager: tabManager,
-                    windowID: target.windowID,
-                    workspaceID: target.workspaceID,
-                    panelID: target.panelID
-                )
+            guard commandPaletteTargetIsLive(context),
+                  let appDelegate = AppDelegate.shared else {
+                return commandPaletteTargetUnavailableResult()
             }
-            return .queued
+            appDelegate.showOpenFolderInInlineVSCodePanel(
+                tabManager: tabManager,
+                windowID: target.windowID,
+                workspaceID: target.workspaceID,
+                panelID: target.panelID
+            )
+            return .presented
         }
         registry.register(commandId: "palette.reopenPreviousSession") { _ in
             guard let appDelegate = AppDelegate.shared else {
@@ -10152,68 +10224,51 @@ struct ContentView: View {
             )
         }
         registry.register(commandId: "palette.terminalAttachTextBoxFile") { invocation in
-            guard let workspaceID = context.target.workspaceID,
-                  let panelID = context.target.panelID else {
+            guard let terminalPanel = context.terminalPanel else {
                 return commandPaletteTargetUnavailableResult()
             }
             if let path = invocation.string("path") {
                 guard let fileURL = commandPaletteFileURL(path) else {
                     return commandPaletteFileUnavailableResult()
                 }
-                guard tabManager.terminalPanel(tabId: workspaceID, panelId: panelID) != nil else {
-                    return commandPaletteTargetUnavailableResult()
-                }
-                guard let reservationID = tabManager.reservePreparedTerminalTextBoxAttachment(
-                    workspaceID: workspaceID,
-                    panelID: panelID
-                ) else {
-                    guard tabManager.terminalPanel(
-                        tabId: workspaceID,
-                        panelId: panelID
-                    ) != nil else {
-                        return commandPaletteTargetUnavailableResult()
-                    }
-                    return commandPaletteTerminalAttachmentResult(.queueFull)
-                }
-                Task { @MainActor in
-                    let preparedFile = await Self.prepareCommandPaletteTerminalAttachment(
-                        fileURL: fileURL,
-                        using: terminalAttachmentPreparer
-                    )
-                    guard let preparedFile else {
-                        _ = tabManager.cancelPreparedTerminalTextBoxAttachment(
-                            workspaceID: workspaceID,
-                            panelID: panelID,
-                            reservationID: reservationID
-                        )
-                        terminalAttachmentDidFinish(false)
-                        if invocation.source == .commandPalette {
-                            NSSound.beep()
-                        }
-                        return
-                    }
-                    guard let result = tabManager.fulfillPreparedTerminalTextBoxAttachment(
-                        workspaceID: workspaceID,
-                        panelID: panelID,
-                        reservationID: reservationID,
-                        preparedFile: preparedFile
-                    ) else {
-                        terminalAttachmentDidFinish(false)
-                        return
-                    }
-                    let didAttach: Bool
-                    switch result {
-                    case .completed, .queued:
-                        didAttach = true
-                    case .queueFull, .invalidFiles, .insertionFailed:
-                        didAttach = false
-                    }
+                let completion: @MainActor (Bool) -> Void = { didAttach in
                     terminalAttachmentDidFinish(didAttach)
                     if !didAttach, invocation.source == .commandPalette {
                         NSSound.beep()
                     }
                 }
-                return .queued
+                let result: TerminalPanel.TextBoxAttachmentRequestResult
+                #if DEBUG
+                if let terminalAttachmentPreparer {
+                    result = terminalPanel
+                        .prepareAndAttachFileToTextBoxInputForTesting(
+                            fileURL,
+                            using: terminalAttachmentPreparer,
+                            budget: terminalAttachmentBudget,
+                            deadlineWaiter: terminalAttachmentDeadlineWaiter,
+                            completion: completion
+                        )
+                } else {
+                    result = terminalPanel.prepareAndAttachFileToTextBoxInput(
+                        fileURL,
+                        budget: terminalAttachmentBudget,
+                        deadlineWaiter: terminalAttachmentDeadlineWaiter,
+                        completion: completion
+                    )
+                }
+                #else
+                result = terminalPanel.prepareAndAttachFileToTextBoxInput(
+                    fileURL,
+                    budget: terminalAttachmentBudget,
+                    deadlineWaiter: terminalAttachmentDeadlineWaiter,
+                    completion: completion
+                )
+                #endif
+                return commandPaletteTerminalAttachmentResult(result)
+            }
+            guard let workspaceID = context.target.workspaceID,
+                  let panelID = context.target.panelID else {
+                return commandPaletteTargetUnavailableResult()
             }
             guard tabManager.attachFileToTerminalTextBoxInput(
                 workspaceID: workspaceID,
@@ -11076,6 +11131,8 @@ struct ContentView: View {
     static func commandPaletteShouldDismissBeforeRun(forCommandId commandId: String) -> Bool {
         switch commandId {
         case "palette.newBrowserWorkspace",
+             "palette.openFolder",
+             "palette.openFolderInVSCodeInline",
              "palette.forkAgentConversationRight",
              "palette.forkAgentConversationLeft",
              "palette.forkAgentConversationTop",
@@ -11668,15 +11725,15 @@ struct ContentView: View {
         return trimmedName.isEmpty ? nil : trimmedName
     }
 
-    private func commandPaletteDirectoryURL(_ path: String) -> URL? {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        let directoryURL = URL(fileURLWithPath: expandedPath, isDirectory: true).standardizedFileURL
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
+    private func commandPalettePreparedDirectoryURL(_ path: String) -> URL? {
+        guard !path.isEmpty,
+              !path.utf8.contains(0),
+              NSString(string: path).isAbsolutePath else {
             return nil
         }
-        return directoryURL
+        // Automation paths are validated and kernel-canonicalized by the
+        // socket preflight before the action returns to the main actor.
+        return URL(fileURLWithPath: path, isDirectory: true)
     }
 
     private func commandPaletteFileURL(_ path: String) -> URL? {
@@ -11686,24 +11743,6 @@ struct ContentView: View {
         // special files. The automation handler prepares this lexical candidate
         // on a background executor before it reaches any UI-owned attachment API.
         return URL(fileURLWithPath: expandedPath)
-    }
-
-    #if compiler(>=6.2)
-    @concurrent
-    #endif
-    nonisolated static func prepareCommandPaletteTerminalAttachment(
-        fileURL: URL,
-        using preparer: @escaping @Sendable (
-            URL
-        ) async -> TextBoxPreparedFileAttachment?
-    ) async -> TextBoxPreparedFileAttachment? {
-        #if compiler(>=6.2)
-        await preparer(fileURL)
-        #else
-        await Task.detached(priority: .userInitiated) {
-            await preparer(fileURL)
-        }.value
-        #endif
     }
 
     static func commandPaletteInlineVSCodeOpenResult(
@@ -12268,7 +12307,7 @@ struct ContentView: View {
         // This path can live on a network mount, FUSE volume, or file-provider
         // domain. Keep command-palette snapshot construction lexical so opening
         // the palette never blocks on the focused directory's availability.
-        return URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL
+        return URL(fileURLWithPath: trimmed, isDirectory: true)
     }
 
 #if DEBUG

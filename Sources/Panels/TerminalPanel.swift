@@ -3,6 +3,7 @@ import CmuxTerminalCore
 import Combine
 import AppKit
 import Bonsplit
+import CmuxRemoteSession
 import CmuxTerminal
 import CmuxWorkspaces
 
@@ -38,6 +39,31 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Bounds files retained while SwiftUI has not mounted the text-box view.
     /// Duplicate standardized URLs share one queue entry.
     static let maximumPendingTextBoxAttachmentCount = 64
+    static let preparedTextBoxAttachmentReservedBytes = 32 * 1024 * 1024
+
+    typealias TextBoxAttachmentPreparer = @Sendable (
+        URL,
+        TerminalImageTransferTarget
+    ) async -> TextBoxPreparedFileAttachment?
+    typealias TextBoxAttachmentDeadlineWaiter = @Sendable () async throws -> Void
+    typealias TextBoxAttachmentRemoteUploader = (
+        URL,
+        TerminalImageTransferOperation,
+        @escaping @Sendable (Result<[String], Error>) -> Void
+    ) -> Void
+
+    nonisolated static let defaultTextBoxAttachmentDeadlineWaiter: TextBoxAttachmentDeadlineWaiter = {
+        try await ContinuousClock().sleep(for: .seconds(60))
+    }
+
+    private typealias PendingTextBoxAttachmentEnqueueResult =
+        TerminalPanelPendingTextBoxAttachmentEnqueueResult
+    private typealias PendingTextBoxAttachmentRequest =
+        TerminalPanelPendingTextBoxAttachmentRequest
+    private typealias PreparedTextBoxAttachmentPhase =
+        TerminalPanelPreparedTextBoxAttachmentPhase
+    private typealias PreparedTextBoxAttachmentRequest =
+        TerminalPanelPreparedTextBoxAttachmentRequest
 
     private enum TextBoxInputFocusIntent: Equatable {
         case hidden
@@ -79,11 +105,17 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var textBoxContent: String = ""
     @Published var textBoxAttachments: [TextBoxAttachment] = []
     weak var textBoxInputView: TextBoxInputTextView?
+    private weak var mountedTextBoxInputView: TextBoxInputTextView?
     private var shouldFocusTextBoxWhenAvailable = false
     private var shouldOpenTextBoxFilePickerWhenAvailable = false
-    private var pendingTextBoxAttachmentURLs: [URL] = []
-    private var pendingPreparedTextBoxAttachmentSlots:
-        [(reservationID: UUID, preparedFile: TextBoxPreparedFileAttachment?)] = []
+    private var pendingTextBoxAttachmentRequests:
+        [PendingTextBoxAttachmentRequest] = []
+    private var preparedTextBoxAttachmentRequestOrder: [UUID] = []
+    private var preparedTextBoxAttachmentRequests:
+        [UUID: PreparedTextBoxAttachmentRequest] = [:]
+    private var preparedTextBoxAttachmentMaintenanceTasks:
+        [UUID: Task<Void, Never>] = [:]
+    private var isMutatingPreparedTextBoxAttachmentPlaceholders = false
     private var shouldHideTextBoxOnNextEscape = false
     private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
     private var preservedTextBoxAttributedContent: NSAttributedString?
@@ -303,30 +335,63 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func registerTextBoxInputView(_ view: TextBoxInputTextView) {
         textBoxInputView = view
-        // Registration runs from NSViewRepresentable.makeNSView; restoring drafts here must not
-        // write SwiftUI/Combine bindings while SwiftUI is constructing the subtree.
-        if let restoredTextBoxDraft {
+        mountedTextBoxInputView = nil
+        // Registration runs from NSViewRepresentable.makeNSView. Defer all
+        // restored content and prepared-placeholder mutations until AppKit
+        // confirms that this exact view entered a window.
+        view.onPendingAttachmentUploadPlaceholdersChanged = { [weak self, weak view] ids in
+            guard let self, let view else { return }
+            preparedTextBoxAttachmentPlaceholderIDsDidChange(ids, in: view)
+        }
+        if preparedTextBoxAttachmentRequestOrder.isEmpty {
+            // Drafts without live prepared markers are safe to restore
+            // silently during construction and preserve the existing direct
+            // registration contract.
+            if let restoredTextBoxDraft {
+                self.restoredTextBoxDraft = nil
+                view.installSessionDraft(restoredTextBoxDraft, notifyingTextChange: false)
+            } else if let preservedTextBoxAttributedContent {
+                self.preservedTextBoxAttributedContent = nil
+                view.installPreservedContent(
+                    preservedTextBoxAttributedContent,
+                    notifyingTextChange: false
+                )
+            }
+        } else if let restoredTextBoxDraft {
             self.restoredTextBoxDraft = nil
             view.installSessionDraft(restoredTextBoxDraft, notifyingTextChange: false)
         } else if let preservedTextBoxAttributedContent {
-            self.preservedTextBoxAttributedContent = nil
-            view.installPreservedContent(preservedTextBoxAttributedContent, notifyingTextChange: false)
+            // Keep the marker-bearing original for the confirmed mount, but
+            // seed ordinary text and attachments now so an aborted
+            // construction still preserves and cleans them correctly.
+            let constructionContent =
+                TextBoxInputTextView.attributedContentForPreservation(
+                    from: preservedTextBoxAttributedContent
+                )
+            view.installPreservedContent(
+                constructionContent,
+                notifyingTextChange: false
+            )
         }
-        focusTextBoxIfNeeded()
-        _ = flushPendingTextBoxAttachmentsIfPossible(in: view)
-#if DEBUG
-        applyPendingDebugTextBoxInlineFixtureIfNeeded()
-#endif
     }
 
     func textBoxInputViewDidMoveToWindow(_ view: TextBoxInputTextView) {
-        guard textBoxInputView === view else { return }
+        guard textBoxInputView === view, view.window != nil else { return }
+        mountedTextBoxInputView = view
+        if let restoredTextBoxDraft {
+            self.restoredTextBoxDraft = nil
+            view.installSessionDraft(restoredTextBoxDraft)
+        } else if let preservedTextBoxAttributedContent {
+            self.preservedTextBoxAttributedContent = nil
+            view.installPreservedContent(preservedTextBoxAttributedContent)
+        }
+        installPendingPreparedTextBoxAttachmentPlaceholders(in: view)
         focusTextBoxIfNeeded()
         if !flushPendingTextBoxAttachmentsIfPossible(in: view),
-           !pendingTextBoxAttachmentURLs.isEmpty
-            || hasFlushablePreparedTextBoxAttachments {
+           !pendingTextBoxAttachmentRequests.isEmpty {
             NSSound.beep()
         }
+        drainPreparedTextBoxAttachmentRequests()
 #if DEBUG
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
@@ -384,7 +449,14 @@ final class TerminalPanel: Panel, ObservableObject {
             .filter(\.isFileURL)
             .map(\.standardizedFileURL)
         guard !standardizedURLs.isEmpty else { return .invalidFiles }
-        guard enqueuePendingTextBoxAttachments(standardizedURLs) else { return .queueFull }
+        switch enqueuePendingTextBoxAttachments(standardizedURLs) {
+        case .queueFull:
+            return .queueFull
+        case .coalesced:
+            return .queued
+        case .added:
+            break
+        }
 
         _ = preferTextBoxInputWhenActivated()
         if let textBoxInputView, textBoxInputView.window != nil {
@@ -395,108 +467,683 @@ final class TerminalPanel: Panel, ObservableObject {
         return .queued
     }
 
-    /// Reserves one bounded queue slot while automation validates and prepares a
-    /// caller-supplied file off the main actor.
-    func reservePreparedTextBoxAttachment() -> UUID? {
-        guard pendingTextBoxAttachmentCount < Self.maximumPendingTextBoxAttachmentCount else {
-            return nil
-        }
-        let reservationID = UUID()
-        pendingPreparedTextBoxAttachmentSlots.append((
-            reservationID: reservationID,
-            preparedFile: nil
-        ))
-        return reservationID
-    }
-
-    /// Replaces a reservation with immutable, background-prepared attachment
-    /// data. No filesystem access or image decoding occurs on this path.
-    func fulfillPreparedTextBoxAttachment(
-        reservationID: UUID,
-        preparedFile: TextBoxPreparedFileAttachment
-    ) -> TextBoxAttachmentRequestResult? {
-        guard let reservationIndex = pendingPreparedTextBoxAttachmentSlots.firstIndex(where: {
-            $0.reservationID == reservationID
-        }) else {
-            return nil
-        }
-
-        let preparedURL = preparedFile.fileURL
-        let isAlreadyPending = pendingTextBoxAttachmentURLs.contains(preparedURL)
-            || pendingPreparedTextBoxAttachmentSlots.contains {
-                $0.preparedFile?.fileURL == preparedURL
-            }
-        if isAlreadyPending {
-            pendingPreparedTextBoxAttachmentSlots.remove(at: reservationIndex)
-        } else {
-            pendingPreparedTextBoxAttachmentSlots[reservationIndex].preparedFile = preparedFile
-        }
-
-        _ = preferTextBoxInputWhenActivated()
-        if let textBoxInputView, textBoxInputView.window != nil {
-            if isAlreadyPending {
-                let didFlush = flushPendingTextBoxAttachmentsIfPossible(in: textBoxInputView)
-                let duplicateRemainsPending =
-                    pendingTextBoxAttachmentURLs.contains(preparedURL)
-                    || pendingPreparedTextBoxAttachmentSlots.contains {
-                        $0.preparedFile?.fileURL == preparedURL
-                    }
-                if !duplicateRemainsPending {
-                    return didFlush ? .completed : .insertionFailed
-                }
-                return !pendingTextBoxAttachmentURLs.isEmpty
-                        || hasFlushablePreparedTextBoxAttachments
-                    ? .insertionFailed
-                    : .queued
-            }
-            if let currentIndex = pendingPreparedTextBoxAttachmentSlots.firstIndex(where: {
-                $0.reservationID == reservationID
-            }),
-               pendingPreparedTextBoxAttachmentSlots[..<currentIndex].contains(where: {
-                   $0.preparedFile == nil
-               }) {
-                return .queued
-            }
-            return flushPendingTextBoxAttachmentsIfPossible(in: textBoxInputView)
-                ? .completed
-                : .insertionFailed
-        }
-        return .queued
-    }
-
-    /// Releases a reservation after background validation rejects the file.
+    /// Starts a panel-owned attachment request. The panel keeps the task,
+    /// deadline, placeholder, route snapshot, upload operation, and completion
+    /// together so moves and view reattachment cannot retarget the result.
     @discardableResult
-    func cancelPreparedTextBoxAttachment(reservationID: UUID) -> Bool {
-        guard let reservationIndex = pendingPreparedTextBoxAttachmentSlots.firstIndex(where: {
-            $0.reservationID == reservationID
-        }) else {
+    func prepareAndAttachFileToTextBoxInput(
+        _ fileURL: URL,
+        budget: TextBoxAttachmentPreparationBudget = .shared,
+        deadlineWaiter: @escaping TextBoxAttachmentDeadlineWaiter =
+            TerminalPanel.defaultTextBoxAttachmentDeadlineWaiter,
+        completion: @escaping @MainActor (Bool) -> Void
+    ) -> TextBoxAttachmentRequestResult {
+        enqueuePreparedTextBoxAttachment(
+            fileURL,
+            using: { fileURL, target in
+                await TextBoxPreparedFileAttachment.prepareForTextBoxRequest(
+                    fileURL: fileURL,
+                    uploadTarget: target
+                )
+            },
+            budget: budget,
+            deadlineWaiter: deadlineWaiter,
+            completion: completion
+        )
+    }
+
+    #if DEBUG
+    /// Dependency-injection seam for deterministic preparation and upload
+    /// tests. Release builds expose only the killable helper-backed entrypoint.
+    @discardableResult
+    func prepareAndAttachFileToTextBoxInputForTesting(
+        _ fileURL: URL,
+        using preparer: @escaping TextBoxAttachmentPreparer,
+        target targetOverride: TerminalImageTransferTarget? = nil,
+        remoteUploader: TextBoxAttachmentRemoteUploader? = nil,
+        budget: TextBoxAttachmentPreparationBudget = .shared,
+        deadlineWaiter: @escaping TextBoxAttachmentDeadlineWaiter =
+            TerminalPanel.defaultTextBoxAttachmentDeadlineWaiter,
+        completion: @escaping @MainActor (Bool) -> Void
+    ) -> TextBoxAttachmentRequestResult {
+        enqueuePreparedTextBoxAttachment(
+            fileURL,
+            using: preparer,
+            target: targetOverride,
+            remoteUploader: remoteUploader,
+            budget: budget,
+            deadlineWaiter: deadlineWaiter,
+            completion: completion
+        )
+    }
+    #endif
+
+    private func enqueuePreparedTextBoxAttachment(
+        _ fileURL: URL,
+        using preparer: @escaping TextBoxAttachmentPreparer,
+        target targetOverride: TerminalImageTransferTarget? = nil,
+        remoteUploader: TextBoxAttachmentRemoteUploader? = nil,
+        budget: TextBoxAttachmentPreparationBudget,
+        deadlineWaiter: @escaping TextBoxAttachmentDeadlineWaiter,
+        completion: @escaping @MainActor (Bool) -> Void
+    ) -> TextBoxAttachmentRequestResult {
+        guard fileURL.isFileURL else { return .invalidFiles }
+        let standardizedURL = fileURL.standardizedFileURL
+
+        guard pendingTextBoxAttachmentCount < Self.maximumPendingTextBoxAttachmentCount else {
+            return .queueFull
+        }
+        let workspaceRemoteController = surface.owningWorkspace()?
+            .remotePTYSessionControllerForSocketCommand()
+        let capturedTarget =
+            targetOverride ?? surface.managedImageTransferTargetSnapshot()
+        let resolvedTarget: TerminalImageTransferTarget?
+        switch capturedTarget {
+        case .remote(.workspaceRemote)
+            where workspaceRemoteController == nil && remoteUploader == nil:
+            // A remote-workspace marker without its captured coordinator is
+            // not an immutable upload route. Do not fall back to a live
+            // workspace lookup after preparation.
+            resolvedTarget = nil
+        default:
+            resolvedTarget = capturedTarget
+        }
+        if let resolvedTarget,
+           let duplicateID = preparedTextBoxAttachmentRequestOrder.first(where: {
+               guard let request = preparedTextBoxAttachmentRequests[$0]
+               else {
+                   return false
+               }
+               return preparedTextBoxAttachmentRequest(
+                   request,
+                   matchesFileURL: standardizedURL,
+                   target: resolvedTarget,
+                   workspaceRemoteController: workspaceRemoteController,
+                   remoteUploader: remoteUploader
+               )
+           }) {
+            preparedTextBoxAttachmentRequests[duplicateID]?
+                .completions.append(completion)
+            return .queued
+        }
+
+        let requestID = UUID()
+        let composerID = id
+        preparedTextBoxAttachmentRequestOrder.append(requestID)
+        preparedTextBoxAttachmentRequests[requestID] = PreparedTextBoxAttachmentRequest(
+            id: requestID,
+            fileURL: standardizedURL,
+            workspaceRemoteController: workspaceRemoteController,
+            remoteUploader: remoteUploader,
+            budget: budget,
+            resolvedTarget: resolvedTarget,
+            phase: resolvedTarget == nil ? .failed(nil) : .preparing,
+            preparationPermit: nil,
+            preparationTask: nil,
+            deadlineTask: nil,
+            placeholderWasInserted: false,
+            completions: [completion]
+        )
+
+        _ = preferTextBoxInputWhenActivated()
+        insertPreparedTextBoxAttachmentPlaceholderIfPossible(requestID: requestID)
+
+        guard let resolvedTarget else {
+            drainPreparedTextBoxAttachmentRequests()
+            return .queued
+        }
+
+        let preparationTask = Task { [weak self] in
+            guard let permit = await budget.acquire(
+                composerID: composerID,
+                reservedBytes: Self.preparedTextBoxAttachmentReservedBytes
+            ) else {
+                self?.failPreparedTextBoxAttachmentRequest(requestID: requestID)
+                self?.drainPreparedTextBoxAttachmentRequests()
+                return
+            }
+            guard self?.recordPreparedTextBoxAttachmentPreparationPermit(
+                permit,
+                requestID: requestID
+            ) == true else {
+                await budget.release(permit)
+                return
+            }
+            let preparedFile = await Self.prepareTextBoxAttachmentOffMainActor(
+                fileURL: standardizedURL,
+                target: resolvedTarget,
+                using: preparer
+            )
+            guard let self else {
+                await preparedFile?.disposeOwnedLocalFileIfNeededOffMainActor()
+                await budget.release(permit)
+                return
+            }
+            let disposition = preparedTextBoxAttachmentPreparationDidFinish(
+                requestID: requestID,
+                preparedFile: preparedFile,
+                permit: permit
+            )
+            if !disposition.retainedPermit {
+                if let preparedFileToDispose = disposition.preparedFileToDispose {
+                    await preparedFileToDispose.disposeOwnedLocalFileIfNeededOffMainActor()
+                }
+                await budget.release(permit)
+            }
+        }
+        let deadlineTask = Task { [weak self] in
+            do {
+                try await deadlineWaiter()
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.preparedTextBoxAttachmentDeadlineDidExpire(requestID: requestID)
+        }
+        preparedTextBoxAttachmentRequests[requestID]?.preparationTask = preparationTask
+        preparedTextBoxAttachmentRequests[requestID]?.deadlineTask = deadlineTask
+        return .queued
+    }
+
+    private func preparedTextBoxAttachmentRequest(
+        _ request: PreparedTextBoxAttachmentRequest,
+        matchesFileURL fileURL: URL,
+        target: TerminalImageTransferTarget,
+        workspaceRemoteController: RemoteSessionCoordinator?,
+        remoteUploader: TextBoxAttachmentRemoteUploader?
+    ) -> Bool {
+        guard request.fileURL == fileURL,
+              request.resolvedTarget == target,
+              request.remoteUploader == nil,
+              remoteUploader == nil else {
             return false
         }
-        pendingPreparedTextBoxAttachmentSlots.remove(at: reservationIndex)
-        if let textBoxInputView, textBoxInputView.window != nil {
-            _ = flushPendingTextBoxAttachmentsIfPossible(in: textBoxInputView)
+        if case .remote(.workspaceRemote) = target {
+            return request.workspaceRemoteController
+                === workspaceRemoteController
         }
         return true
     }
 
-    private var pendingTextBoxAttachmentCount: Int {
-        pendingTextBoxAttachmentURLs.count
-            + pendingPreparedTextBoxAttachmentSlots.count
+    private func recordPreparedTextBoxAttachmentPreparationPermit(
+        _ permit: TextBoxAttachmentPreparationBudget.Permit,
+        requestID: UUID
+    ) -> Bool {
+        guard var request = preparedTextBoxAttachmentRequests[requestID],
+              case .preparing = request.phase,
+              request.resolvedTarget != nil,
+              request.preparationPermit == nil else {
+            return false
+        }
+        request.preparationPermit = permit
+        preparedTextBoxAttachmentRequests[requestID] = request
+        return true
     }
 
-    private var hasFlushablePreparedTextBoxAttachments: Bool {
-        pendingPreparedTextBoxAttachmentSlots.first?.preparedFile != nil
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    nonisolated private static func prepareTextBoxAttachmentOffMainActor(
+        fileURL: URL,
+        target: TerminalImageTransferTarget,
+        using preparer: @escaping TextBoxAttachmentPreparer
+    ) async -> TextBoxPreparedFileAttachment? {
+        await preparer(fileURL, target)
+    }
+
+    private func preparedTextBoxAttachmentPreparationDidFinish(
+        requestID: UUID,
+        preparedFile: TextBoxPreparedFileAttachment?,
+        permit: TextBoxAttachmentPreparationBudget.Permit
+    ) -> (
+        retainedPermit: Bool,
+        preparedFileToDispose: TextBoxPreparedFileAttachment?
+    ) {
+        guard var request = preparedTextBoxAttachmentRequests[requestID],
+              case .preparing = request.phase,
+              let resolvedTarget = request.resolvedTarget,
+              request.preparationPermit == permit else {
+            return (false, preparedFile)
+        }
+
+        let retainsPreparedBytes = preparedFile != nil
+        request.preparationPermit = retainsPreparedBytes ? permit : nil
+        switch preparedFile {
+        case .some(let preparedFile):
+            request.phase = .prepared(preparedFile, resolvedTarget)
+        case .none:
+            request.phase = .failed(nil)
+        }
+        preparedTextBoxAttachmentRequests[requestID] = request
+        if case .prepared = request.phase {
+            _ = preferTextBoxInputWhenActivated()
+            insertPreparedTextBoxAttachmentPlaceholderIfPossible(requestID: requestID)
+        }
+        drainPreparedTextBoxAttachmentRequests()
+        return (retainsPreparedBytes, nil)
+    }
+
+    private func preparedTextBoxAttachmentDeadlineDidExpire(requestID: UUID) {
+        failPreparedTextBoxAttachmentRequest(requestID: requestID)
+        drainPreparedTextBoxAttachmentRequests()
+    }
+
+    private func failPreparedTextBoxAttachmentRequest(requestID: UUID) {
+        guard var request = preparedTextBoxAttachmentRequests[requestID] else { return }
+        request.preparationTask?.cancel()
+        request.deadlineTask?.cancel()
+        switch request.phase {
+        case .preparing:
+            // The local preparation task owns this permit until its worker
+            // actually returns. Cancellation and deadline expiry only finish
+            // the ordered UI request.
+            request.preparationPermit = nil
+            request.phase = .failed(nil)
+        case .prepared(let preparedFile, _),
+             .uploaded(let preparedFile, _):
+            request.phase = .failed(preparedFile)
+        case .uploading(let preparedFile, let operation):
+            _ = operation.cancel()
+            surface.hostedView.endImageTransferIndicator(for: operation)
+            request.phase = .failed(preparedFile)
+        case .failed:
+            break
+        }
+        preparedTextBoxAttachmentRequests[requestID] = request
+    }
+
+    private func insertPreparedTextBoxAttachmentPlaceholderIfPossible(requestID: UUID) {
+        guard var request = preparedTextBoxAttachmentRequests[requestID],
+              !request.placeholderWasInserted,
+              let textBoxInputView,
+              mountedTextBoxInputView === textBoxInputView,
+              textBoxInputView.window != nil else {
+            return
+        }
+        mutatePreparedTextBoxAttachmentPlaceholders {
+            textBoxInputView.insertPendingAttachmentUploadPlaceholder(id: requestID)
+        }
+        request.placeholderWasInserted =
+            textBoxInputView.pendingAttachmentUploadPlaceholderIDs().contains(requestID)
+        preparedTextBoxAttachmentRequests[requestID] = request
+    }
+
+    private func installPendingPreparedTextBoxAttachmentPlaceholders(
+        in textBoxInputView: TextBoxInputTextView
+    ) {
+        guard self.textBoxInputView === textBoxInputView,
+              mountedTextBoxInputView === textBoxInputView,
+              textBoxInputView.window != nil else {
+            return
+        }
+        for requestID in preparedTextBoxAttachmentRequestOrder {
+            insertPreparedTextBoxAttachmentPlaceholderIfPossible(requestID: requestID)
+        }
+    }
+
+    private func mutatePreparedTextBoxAttachmentPlaceholders(
+        _ mutation: () -> Void
+    ) {
+        let wasMutating = isMutatingPreparedTextBoxAttachmentPlaceholders
+        isMutatingPreparedTextBoxAttachmentPlaceholders = true
+        mutation()
+        isMutatingPreparedTextBoxAttachmentPlaceholders = wasMutating
+    }
+
+    private func preparedTextBoxAttachmentPlaceholderIDsDidChange(
+        _ reportedVisibleIDs: Set<UUID>,
+        in textBoxInputView: TextBoxInputTextView
+    ) {
+        guard self.textBoxInputView === textBoxInputView,
+              !isMutatingPreparedTextBoxAttachmentPlaceholders else {
+            return
+        }
+        let liveRequestIDs = Set(preparedTextBoxAttachmentRequestOrder.filter {
+            preparedTextBoxAttachmentRequests[$0]?.placeholderWasInserted == true
+        })
+        guard !liveRequestIDs.isEmpty || !reportedVisibleIDs.isEmpty else {
+            return
+        }
+        var visibleIDs = Set<UUID>()
+        mutatePreparedTextBoxAttachmentPlaceholders {
+            visibleIDs = textBoxInputView.reconcilePendingAttachmentUploadPlaceholders(
+                keeping: liveRequestIDs
+            )
+        }
+        let deletedRequestIDs = preparedTextBoxAttachmentRequestOrder.filter { requestID in
+            preparedTextBoxAttachmentRequests[requestID]?.placeholderWasInserted == true
+                && !visibleIDs.contains(requestID)
+        }
+        guard !deletedRequestIDs.isEmpty else { return }
+        for requestID in deletedRequestIDs {
+            failPreparedTextBoxAttachmentRequest(requestID: requestID)
+        }
+        drainPreparedTextBoxAttachmentRequests()
+    }
+
+    private func drainPreparedTextBoxAttachmentRequests() {
+        guard !isClosingPanel else { return }
+        while let requestID = preparedTextBoxAttachmentRequestOrder.first,
+              let request = preparedTextBoxAttachmentRequests[requestID] {
+            switch request.phase {
+            case .preparing, .uploading:
+                return
+            case .failed:
+                finishPreparedTextBoxAttachmentRequest(
+                    requestID: requestID,
+                    didAttach: false,
+                    removePlaceholder: true
+                )
+            case .prepared(let preparedFile, let target):
+                guard let textBoxInputView,
+                      mountedTextBoxInputView === textBoxInputView,
+                      textBoxInputView.window != nil else {
+                    return
+                }
+                switch target {
+                case .local:
+                    guard commitPreparedTextBoxAttachment(
+                        requestID: requestID,
+                        preparedFile: preparedFile,
+                        submissionPath: preparedFile.fileURL.path
+                    ) else {
+                        return
+                    }
+                case .remote(let remoteTarget):
+                    startPreparedTextBoxAttachmentUpload(
+                        requestID: requestID,
+                        preparedFile: preparedFile,
+                        remoteTarget: remoteTarget
+                    )
+                    return
+                }
+            case .uploaded(let preparedFile, let remotePath):
+                guard let textBoxInputView,
+                      mountedTextBoxInputView === textBoxInputView,
+                      textBoxInputView.window != nil else {
+                    return
+                }
+                guard commitPreparedTextBoxAttachment(
+                    requestID: requestID,
+                    preparedFile: preparedFile,
+                    submissionPath: remotePath
+                ) else {
+                    return
+                }
+            }
+        }
+    }
+
+    private func commitPreparedTextBoxAttachment(
+        requestID: UUID,
+        preparedFile: TextBoxPreparedFileAttachment,
+        submissionPath: String
+    ) -> Bool {
+        guard let request = preparedTextBoxAttachmentRequests[requestID],
+              request.placeholderWasInserted,
+              let textBoxInputView,
+              mountedTextBoxInputView === textBoxInputView,
+              textBoxInputView.window != nil else {
+            return false
+        }
+        let attachment = TextBoxAttachment(
+            preparedFile: preparedFile,
+            submissionText: TextBoxAttachment.submissionText(forPath: submissionPath),
+            submissionPath: submissionPath
+        )
+        var didReplace = false
+        mutatePreparedTextBoxAttachmentPlaceholders {
+            didReplace = textBoxInputView.replacePendingAttachmentUploadPlaceholder(
+                id: requestID,
+                with: [attachment]
+            )
+        }
+        finishPreparedTextBoxAttachmentRequest(
+            requestID: requestID,
+            didAttach: didReplace,
+            removePlaceholder: !didReplace
+        )
+        return true
+    }
+
+    private func startPreparedTextBoxAttachmentUpload(
+        requestID: UUID,
+        preparedFile: TextBoxPreparedFileAttachment,
+        remoteTarget: TerminalRemoteUploadTarget
+    ) {
+        guard var request = preparedTextBoxAttachmentRequests[requestID] else {
+            schedulePreparedTextBoxAttachmentMaintenance(
+                preparedFileToDispose: preparedFile
+            )
+            return
+        }
+        let operation = TerminalImageTransferOperation()
+        request.phase = .uploading(preparedFile, operation)
+        preparedTextBoxAttachmentRequests[requestID] = request
+        surface.hostedView.beginImageTransferIndicator(
+            for: operation,
+            onCancel: { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.failPreparedTextBoxAttachmentRequest(requestID: requestID)
+                    self?.drainPreparedTextBoxAttachmentRequests()
+                }
+            }
+        )
+
+        let finish: @Sendable (Result<[String], Error>) -> Void = { [weak self] result in
+            Task { @MainActor in
+                guard let self else {
+                    await preparedFile.disposeOwnedLocalFileIfNeededOffMainActor()
+                    return
+                }
+                self.preparedTextBoxAttachmentUploadDidFinish(
+                    requestID: requestID,
+                    preparedFile: preparedFile,
+                    operation: operation,
+                    result: result
+                )
+            }
+        }
+
+        if let remoteUploader = request.remoteUploader {
+            remoteUploader(preparedFile.fileURL, operation, finish)
+            return
+        }
+
+        switch remoteTarget {
+        case .workspaceRemote:
+            guard let controller = request.workspaceRemoteController else {
+                surface.hostedView.endImageTransferIndicator(for: operation)
+                _ = operation.finish()
+                request.phase = .failed(preparedFile)
+                preparedTextBoxAttachmentRequests[requestID] = request
+                drainPreparedTextBoxAttachmentRequests()
+                return
+            }
+            controller.uploadDroppedFiles(
+                [preparedFile.fileURL],
+                operation: operation,
+                completion: finish
+            )
+        case .detectedSSH(let session):
+            session.uploadDroppedFiles(
+                [preparedFile.fileURL],
+                operation: operation,
+                completion: finish
+            )
+        }
+    }
+
+    private func preparedTextBoxAttachmentUploadDidFinish(
+        requestID: UUID,
+        preparedFile: TextBoxPreparedFileAttachment,
+        operation: TerminalImageTransferOperation,
+        result: Result<[String], Error>
+    ) {
+        surface.hostedView.endImageTransferIndicator(for: operation)
+        guard operation.finish() else {
+            if preparedTextBoxAttachmentRequests[requestID] == nil {
+                schedulePreparedTextBoxAttachmentMaintenance(
+                    preparedFileToDispose: preparedFile
+                )
+            }
+            return
+        }
+        guard var request = preparedTextBoxAttachmentRequests[requestID],
+              case .uploading(_, let currentOperation) = request.phase,
+              currentOperation === operation else {
+            schedulePreparedTextBoxAttachmentMaintenance(
+                preparedFileToDispose: preparedFile
+            )
+            return
+        }
+
+        switch result {
+        case .success(let remotePaths):
+            if let remotePath = remotePaths.first,
+               !remotePath.isEmpty {
+                request.phase = .uploaded(preparedFile, remotePath: remotePath)
+            } else {
+                request.phase = .failed(preparedFile)
+            }
+        case .failure:
+            request.phase = .failed(preparedFile)
+        }
+        preparedTextBoxAttachmentRequests[requestID] = request
+        drainPreparedTextBoxAttachmentRequests()
+    }
+
+    private func finishPreparedTextBoxAttachmentRequest(
+        requestID: UUID,
+        didAttach: Bool,
+        removePlaceholder: Bool
+    ) {
+        guard let request = preparedTextBoxAttachmentRequests.removeValue(
+            forKey: requestID
+        ) else {
+            return
+        }
+        preparedTextBoxAttachmentRequestOrder.removeAll { $0 == requestID }
+        request.preparationTask?.cancel()
+        request.deadlineTask?.cancel()
+
+        var preparedFileToDispose: TextBoxPreparedFileAttachment?
+        let permitToRelease: TextBoxAttachmentPreparationBudget.Permit?
+        if case .preparing = request.phase {
+            // The task may be inside cancellation-ignoring synchronous work.
+            // Its local permit remains authoritative until that work returns.
+            permitToRelease = nil
+        } else {
+            permitToRelease = request.preparationPermit
+        }
+        if !didAttach {
+            switch request.phase {
+            case .preparing:
+                break
+            case .prepared(let preparedFile, _),
+                 .uploaded(let preparedFile, _),
+                 .failed(.some(let preparedFile)):
+                preparedFileToDispose = preparedFile
+            case .uploading(let preparedFile, let operation):
+                _ = operation.cancel()
+                surface.hostedView.endImageTransferIndicator(for: operation)
+                preparedFileToDispose = preparedFile
+            case .failed(.none):
+                break
+            }
+        }
+        schedulePreparedTextBoxAttachmentMaintenance(
+            preparedFileToDispose: preparedFileToDispose,
+            budget: request.budget,
+            permit: permitToRelease
+        )
+
+        if removePlaceholder {
+            removePreparedTextBoxAttachmentPlaceholder(requestID: requestID)
+        }
+        for completion in request.completions {
+            completion(didAttach)
+        }
+    }
+
+    private func schedulePreparedTextBoxAttachmentMaintenance(
+        preparedFileToDispose: TextBoxPreparedFileAttachment? = nil,
+        budget: TextBoxAttachmentPreparationBudget? = nil,
+        permit: TextBoxAttachmentPreparationBudget.Permit? = nil
+    ) {
+        guard preparedFileToDispose != nil || (budget != nil && permit != nil) else {
+            return
+        }
+        let maintenanceID = UUID()
+        let task = Task { [weak self] in
+            if let preparedFileToDispose {
+                await preparedFileToDispose.disposeOwnedLocalFileIfNeededOffMainActor()
+            }
+            if let budget, let permit {
+                await budget.release(permit)
+            }
+            self?.preparedTextBoxAttachmentMaintenanceTasks.removeValue(
+                forKey: maintenanceID
+            )
+        }
+        preparedTextBoxAttachmentMaintenanceTasks[maintenanceID] = task
+    }
+
+    private func removePreparedTextBoxAttachmentPlaceholder(requestID: UUID) {
+        if let textBoxInputView,
+           mountedTextBoxInputView === textBoxInputView {
+            mutatePreparedTextBoxAttachmentPlaceholders {
+                _ = textBoxInputView.removePendingAttachmentUploadPlaceholder(
+                    id: requestID
+                )
+            }
+        }
+        if let preservedTextBoxAttributedContent {
+            self.preservedTextBoxAttributedContent =
+                TextBoxInputTextView.attributedContentForPreservation(
+                    from: preservedTextBoxAttributedContent,
+                    preservingPendingAttachmentUploadPlaceholderIDs:
+                        Set(preparedTextBoxAttachmentRequestOrder)
+                )
+        }
+    }
+
+    private func cancelAllPreparedTextBoxAttachmentRequests() {
+        let requestIDs = preparedTextBoxAttachmentRequestOrder
+        for requestID in requestIDs {
+            finishPreparedTextBoxAttachmentRequest(
+                requestID: requestID,
+                didAttach: false,
+                removePlaceholder: true
+            )
+        }
+        preparedTextBoxAttachmentRequestOrder.removeAll(keepingCapacity: false)
+        preparedTextBoxAttachmentRequests.removeAll(keepingCapacity: false)
+    }
+
+    private func cancelAllPendingTextBoxAttachmentRequests() {
+        let completions = pendingTextBoxAttachmentRequests.flatMap(\.completions)
+        pendingTextBoxAttachmentRequests.removeAll(keepingCapacity: false)
+        for completion in completions {
+            completion(false)
+        }
+    }
+
+    private var pendingTextBoxAttachmentCount: Int {
+        pendingTextBoxAttachmentRequests.reduce(into: 0) {
+            $0 += 1 + $1.completions.count
+        }
+            + preparedTextBoxAttachmentRequests.values.reduce(into: 0) {
+                $0 += $1.completions.count
+            }
     }
 
     /// Adds a request atomically so a request that would cross the bound cannot
     /// leave a partially queued set of files behind.
-    private func enqueuePendingTextBoxAttachments(_ standardizedURLs: [URL]) -> Bool {
-        var seenURLs = Set(pendingTextBoxAttachmentURLs)
-        seenURLs.formUnion(
-            pendingPreparedTextBoxAttachmentSlots.compactMap {
-                $0.preparedFile?.fileURL
-            }
-        )
+    private func enqueuePendingTextBoxAttachments(
+        _ standardizedURLs: [URL]
+    ) -> PendingTextBoxAttachmentEnqueueResult {
+        var seenURLs = Set(pendingTextBoxAttachmentRequests.map(\.fileURL))
         var newURLs: [URL] = []
         newURLs.reserveCapacity(min(
             standardizedURLs.count,
@@ -506,13 +1153,16 @@ final class TerminalPanel: Panel, ObservableObject {
         for url in standardizedURLs where seenURLs.insert(url).inserted {
             guard pendingTextBoxAttachmentCount + newURLs.count
                     < Self.maximumPendingTextBoxAttachmentCount else {
-                return false
+                return .queueFull
             }
             newURLs.append(url)
         }
 
-        pendingTextBoxAttachmentURLs.append(contentsOf: newURLs)
-        return true
+        guard !newURLs.isEmpty else { return .coalesced }
+        pendingTextBoxAttachmentRequests.append(contentsOf: newURLs.map {
+            PendingTextBoxAttachmentRequest(fileURL: $0, completions: [])
+        })
+        return .added
     }
 
     @discardableResult
@@ -521,28 +1171,33 @@ final class TerminalPanel: Panel, ObservableObject {
     ) -> Bool {
         guard textBoxInputView === view,
               view.window != nil,
-              !pendingTextBoxAttachmentURLs.isEmpty
-                || hasFlushablePreparedTextBoxAttachments else {
+              !pendingTextBoxAttachmentRequests.isEmpty else {
             return false
         }
-        var didFlushAttachments = false
-        if !pendingTextBoxAttachmentURLs.isEmpty {
-            let fileURLs = pendingTextBoxAttachmentURLs
-            guard view.onInsertFileURLs(fileURLs, view) else { return false }
-            pendingTextBoxAttachmentURLs.removeAll(keepingCapacity: false)
-            didFlushAttachments = true
-        }
-        let preparedFiles = pendingPreparedTextBoxAttachmentSlots
-            .prefix { $0.preparedFile != nil }
-            .compactMap(\.preparedFile)
-        if !preparedFiles.isEmpty {
-            guard view.onInsertPreparedFileAttachments(preparedFiles, view) else {
-                return false
+        let pendingRequests = pendingTextBoxAttachmentRequests
+        let attemptedURLs = Set(pendingRequests.map(\.fileURL))
+        let didInsert = view.onInsertFileURLs(
+            pendingRequests.map(\.fileURL),
+            view
+        )
+        let completions = pendingTextBoxAttachmentRequests
+            .filter { attemptedURLs.contains($0.fileURL) }
+            .flatMap(\.completions)
+        if didInsert {
+            pendingTextBoxAttachmentRequests.removeAll {
+                attemptedURLs.contains($0.fileURL)
             }
-            pendingPreparedTextBoxAttachmentSlots.removeFirst(preparedFiles.count)
-            didFlushAttachments = true
+        } else {
+            for index in pendingTextBoxAttachmentRequests.indices
+            where attemptedURLs.contains(pendingTextBoxAttachmentRequests[index].fileURL) {
+                pendingTextBoxAttachmentRequests[index]
+                    .completions.removeAll(keepingCapacity: false)
+            }
         }
-        return didFlushAttachments
+        for completion in completions {
+            completion(didInsert)
+        }
+        return didInsert
     }
 
     func textBoxDidBecomeFocused() {
@@ -594,6 +1249,7 @@ final class TerminalPanel: Panel, ObservableObject {
         textBoxInputFocusIntent = .hidden
         preserveTextBoxContentFromView()
         isTextBoxActive = false
+        mountedTextBoxInputView = nil
         textBoxInputView = nil
         focusTerminalSurface(respectForeignFirstResponder: false)
     }
@@ -614,7 +1270,17 @@ final class TerminalPanel: Panel, ObservableObject {
             recordTextBoxViewUnmounted(textBoxInputView)
             return
         }
-        let preservedContent = textBoxInputView.attributedContentForPreservation()
+        if mountedTextBoxInputView !== textBoxInputView,
+           preservedTextBoxAttributedContent != nil {
+            // Construction was dismantled before the marker-bearing content
+            // could be installed. Retain the original anchor-bearing value.
+            recordTextBoxViewUnmounted(textBoxInputView)
+            return
+        }
+        let preservedContent = textBoxInputView.attributedContentForPreservation(
+            preservingPendingAttachmentUploadPlaceholderIDs:
+                Set(preparedTextBoxAttachmentRequestOrder)
+        )
         textBoxInputView.invalidatePendingAttachmentUploads()
         preservedTextBoxAttributedContent = NSAttributedString(
             attributedString: preservedContent
@@ -624,11 +1290,15 @@ final class TerminalPanel: Panel, ObservableObject {
 
     private func recordTextBoxViewUnmounted(_ textBoxInputView: TextBoxInputTextView) {
         guard self.textBoxInputView === textBoxInputView else { return }
+        textBoxInputView.onPendingAttachmentUploadPlaceholdersChanged = { _ in }
+        mountedTextBoxInputView = nil
         self.textBoxInputView = nil
     }
 
     private func discardTextBoxContentForClose(from textBoxInputView: TextBoxInputTextView? = nil) {
         didDiscardTextBoxContentForClose = true
+        cancelAllPendingTextBoxAttachmentRequests()
+        cancelAllPreparedTextBoxAttachmentRequests()
         let currentTextView = textBoxInputView ?? self.textBoxInputView
         let attachmentsToCleanup = currentTextView?.inlineAttachments() ?? textBoxAttachments
         if let currentTextView {
@@ -643,8 +1313,6 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         restoredTextBoxDraft = nil
         preservedTextBoxAttributedContent = nil
-        pendingTextBoxAttachmentURLs.removeAll(keepingCapacity: false)
-        pendingPreparedTextBoxAttachmentSlots.removeAll(keepingCapacity: false)
         textBoxContent = ""
         textBoxAttachments = []
         isTextBoxActive = false
@@ -668,7 +1336,9 @@ final class TerminalPanel: Panel, ObservableObject {
 
         if let preservedTextBoxAttributedContent {
             return TextBoxInputTextView.sessionDraftSnapshot(
-                from: preservedTextBoxAttributedContent,
+                from: TextBoxInputTextView.attributedContentForPreservation(
+                    from: preservedTextBoxAttributedContent
+                ),
                 isActive: isTextBoxActive
             )
         }

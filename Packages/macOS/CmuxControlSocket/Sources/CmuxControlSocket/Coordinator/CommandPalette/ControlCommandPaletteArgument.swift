@@ -8,12 +8,21 @@ public struct ControlCommandPaletteArgument: Sendable, Equatable {
     public let required: Bool
     /// Whether an explicitly supplied empty string is valid.
     public let allowsEmpty: Bool
+    /// Required existing path kind, or `nil` when the path is not preflighted.
+    public let existingPathKind: String?
 
     /// Creates an action argument description.
-    public init(name: String, type: String, required: Bool, allowsEmpty: Bool) {
+    public init(
+        name: String,
+        type: String,
+        required: Bool,
+        allowsEmpty: Bool,
+        existingPathKind: String? = nil
+    ) {
         self.name = name
         self.type = type
         self.required = required
         self.allowsEmpty = allowsEmpty
+        self.existingPathKind = existingPathKind
     }
 }

@@ -5,6 +5,8 @@
 public struct ControlInlineVSCodeStrings: Sendable, Equatable {
     /// The request omitted its directory path.
     public let missingPath: String
+    /// The caller supplied a relative or non-string working directory.
+    public let cwdMustBeAbsolute: String
     /// The requested path does not exist.
     public let directoryNotFound: String
     /// The requested path exists but is not a directory.
@@ -21,6 +23,7 @@ public struct ControlInlineVSCodeStrings: Sendable, Equatable {
     /// Creates the app-resolved inline VS Code message set.
     public init(
         missingPath: String,
+        cwdMustBeAbsolute: String,
         directoryNotFound: String,
         notDirectory: String,
         tabManagerUnavailable: String,
@@ -29,6 +32,7 @@ public struct ControlInlineVSCodeStrings: Sendable, Equatable {
         openFailed: String
     ) {
         self.missingPath = missingPath
+        self.cwdMustBeAbsolute = cwdMustBeAbsolute
         self.directoryNotFound = directoryNotFound
         self.notDirectory = notDirectory
         self.tabManagerUnavailable = tabManagerUnavailable

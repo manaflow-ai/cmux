@@ -30,6 +30,27 @@ public struct CmuxActionInvocation: Sendable, Equatable {
         arguments[name]
     }
 
+    /// Expands a leading tilde and makes a relative path caller-relative.
+    ///
+    /// The result intentionally retains `.` and `..` components. Collapsing
+    /// them before filesystem resolution changes kernel behavior when an
+    /// earlier component is a symbolic link.
+    ///
+    /// - Parameter rawPath: The path value supplied by the adapter.
+    /// - Returns: The expanded absolute or caller-relative path.
+    public func resolvePath(_ rawPath: String) -> String {
+        let expandedPath = NSString(string: rawPath).expandingTildeInPath
+        guard !NSString(string: expandedPath).isAbsolutePath,
+              let workingDirectory else {
+            return expandedPath
+        }
+        let expandedWorkingDirectory = NSString(
+            string: workingDirectory
+        ).expandingTildeInPath
+        return NSString(string: expandedWorkingDirectory)
+            .appendingPathComponent(expandedPath)
+    }
+
     /// Returns one named boolean argument after wire-string coercion.
     public func bool(_ name: String) -> Bool? {
         guard let value = arguments[name]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {

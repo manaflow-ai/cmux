@@ -132,13 +132,17 @@ extension CMUXCLI {
             ))
         }
 
-        let absolutePath = lexicallyStandardizedAbsolutePath(
-            resolvePath(pathTokens.first ?? ".")
-        )
+        // Keep dot components until the worker resolves the path against the
+        // filesystem. `link/../project` is not equivalent to `project` when
+        // `link` is a symbolic link.
+        let absolutePath = resolvePath(pathTokens.first ?? ".")
         let windowRaw = windowOption ?? windowOverride
         try rejectBlankExplicitOption(windowRaw, name: "--window")
         try rejectBlankExplicitOption(workspaceOption, name: "--workspace")
-        var params: [String: Any] = ["path": absolutePath]
+        var params: [String: Any] = [
+            "path": absolutePath,
+            "cwd": FileManager.default.currentDirectoryPath,
+        ]
         if workspaceOption == nil, windowRaw == nil {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
         } else {
@@ -283,25 +287,6 @@ extension CMUXCLI {
         }
     }
 
-    private func lexicallyStandardizedAbsolutePath(_ path: String) -> String {
-        guard path.hasPrefix("/") else { return path }
-
-        var components: [Substring] = []
-        for component in path.split(separator: "/", omittingEmptySubsequences: true) {
-            switch component {
-            case ".":
-                continue
-            case "..":
-                if !components.isEmpty {
-                    components.removeLast()
-                }
-            default:
-                components.append(component)
-            }
-        }
-        return components.isEmpty ? "/" : "/" + components.joined(separator: "/")
-    }
-
     private func validatedPaletteCommands(in payload: [String: Any]) throws -> [[String: Any]] {
         guard let commands = payload["commands"] as? [[String: Any]],
               commands.allSatisfy({ $0["id"] is String && $0["title"] is String }) else {
@@ -349,8 +334,12 @@ extension CMUXCLI {
             guard let name = argument["name"] as? String else { return nil }
             let required = argument["required"] as? Bool ?? false
             let valueType = argument["type"] as? String ?? "string"
+            let valueDescription = argument["existing_path_kind"] as? String
+                ?? valueType
             let allowsEmpty = argument["allows_empty"] as? Bool ?? false
-            let valueSyntax = allowsEmpty ? "<\(valueType)|empty>" : "<\(valueType)>"
+            let valueSyntax = allowsEmpty
+                ? "<\(valueDescription)|empty>"
+                : "<\(valueDescription)>"
             let option = "--arg \(name)=\(valueSyntax)"
             return required ? " \(option)" : " [\(option)]"
         }.joined()

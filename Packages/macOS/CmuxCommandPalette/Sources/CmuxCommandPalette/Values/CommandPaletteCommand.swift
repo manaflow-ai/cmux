@@ -88,22 +88,7 @@ public struct CommandPaletteCommand: Identifiable {
         var normalizedArguments = invocation.arguments
         for argument in arguments where argument.valueType == .path {
             guard let rawPath = normalizedArguments[argument.name], !rawPath.isEmpty else { continue }
-            let expandedPath = NSString(string: rawPath).expandingTildeInPath
-            let resolvedPath: String
-            if NSString(string: expandedPath).isAbsolutePath {
-                resolvedPath = expandedPath
-            } else if let workingDirectory = invocation.workingDirectory {
-                resolvedPath = URL(
-                    fileURLWithPath: expandedPath,
-                    relativeTo: URL(fileURLWithPath: workingDirectory, isDirectory: true)
-                ).path
-            } else {
-                resolvedPath = expandedPath
-            }
-            normalizedArguments[argument.name] = URL(
-                fileURLWithPath: resolvedPath,
-                isDirectory: true
-            ).standardizedFileURL.path
+            normalizedArguments[argument.name] = invocation.resolvePath(rawPath)
         }
 
         return handler(CmuxActionInvocation(

@@ -105,6 +105,13 @@ public final class ControlCommandCoordinator {
         deadline: Date? = nil
     ) async -> ControlCallResult? {
         if let result = await handleCommandPalette(request, deadline: deadline) { return result }
+        if request.method == "vscode.open" {
+            return await inlineVSCodeOpen(
+                request.params,
+                context: context,
+                deadline: deadline
+            )
+        }
         return nil
     }
 
@@ -160,8 +167,6 @@ public final class ControlCommandCoordinator {
             return surfaceSendText(request.params, context: context)
         case "surface.send_key":
             return surfaceSendKey(request.params, context: context)
-        case "vscode.open":
-            return inlineVSCodeOpen(request.params, context: context)
         default:
             return nil
         }
@@ -242,6 +247,36 @@ public final class ControlCommandCoordinator {
         guard let value = params[key] else { return false }
         if case .null = value { return false }
         return true
+    }
+
+    /// Whether any supplied surface alias is unresolved or resolves to a
+    /// different target than another supplied alias.
+    ///
+    /// A nil-coalescing precedence walk is unsafe for strict command targets:
+    /// an unresolved alias could fall through to a later valid alias, while a
+    /// valid first alias could hide a malformed or contradictory later alias.
+    /// Strict endpoints call this before building their otherwise
+    /// precedence-preserving routing selectors.
+    func hasInvalidSurfaceAliases(
+        _ params: [String: JSONValue]
+    ) -> Bool {
+        var selected: UUID?
+        var sawUnresolvedAlias = false
+        var sawConflict = false
+
+        for key in ["surface_id", "terminal_id", "tab_id"] where hasNonNull(params, key) {
+            guard let candidate = uuid(params, key) else {
+                sawUnresolvedAlias = true
+                continue
+            }
+            if let selected, selected != candidate {
+                sawConflict = true
+            } else if selected == nil {
+                selected = candidate
+            }
+        }
+
+        return sawUnresolvedAlias || sawConflict
     }
 
     /// Builds the routing selectors for `window.current`, resolving each

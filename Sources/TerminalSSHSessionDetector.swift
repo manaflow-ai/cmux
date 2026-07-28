@@ -3,7 +3,7 @@ import CmuxRemoteSession
 import Foundation
 import Darwin
 
-struct DetectedSSHSession: Equatable {
+nonisolated struct DetectedSSHSession: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
@@ -385,8 +385,8 @@ struct DetectedSSHSession: Equatable {
 #endif
 }
 
-enum TerminalSSHSessionDetector {
-    struct ProcessSnapshot: Equatable {
+nonisolated enum TerminalSSHSessionDetector {
+    struct ProcessSnapshot: Equatable, Sendable {
         let pid: Int32
         let pgid: Int32
         let tpgid: Int32

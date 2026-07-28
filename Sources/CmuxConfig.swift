@@ -2191,15 +2191,13 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     nonisolated static func actionCatalogTooLargeMessage(
-        maximumBytes: Int,
-        locale: Locale = .current
+        maximumBytes: Int
     ) -> String {
         let format = String(
             localized: "config.actionCatalog.error.tooLarge",
             defaultValue: "cmux.json exceeds the %lld-byte action catalog limit",
             table: nil,
             bundle: .main,
-            locale: locale,
             comment: "Config error when cmux.json exceeds the action catalog byte limit"
         )
         return String(format: format, Int64(maximumBytes))

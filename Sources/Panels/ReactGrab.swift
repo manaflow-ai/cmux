@@ -377,17 +377,7 @@ extension BrowserPanel {
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.start generation=\(requestGeneration)")
         #endif
-        let scriptSource: String?
-#if DEBUG
-        if let reactGrabTestingScriptSourceOverride {
-            scriptSource = reactGrabTestingScriptSourceOverride
-        } else {
-            scriptSource = await ReactGrabScriptLoader.fetch()
-        }
-#else
-        scriptSource = await ReactGrabScriptLoader.fetch()
-#endif
-        guard let scriptSource else {
+        guard let scriptSource = await ReactGrabScriptLoader.fetch() else {
             #if DEBUG
             cmuxDebugLog("reactGrab.inject.fetchFailed")
             #endif
@@ -397,7 +387,19 @@ extension BrowserPanel {
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.fetched len=\(scriptSource.count)")
         #endif
+        return await evaluateReactGrabInjection(
+            scriptSource: scriptSource,
+            requestGeneration: requestGeneration
+        )
+    }
 
+    /// Evaluates one already-loaded React Grab source through the production
+    /// bridge installer and verifies the requested activation state.
+    func evaluateReactGrabInjection(
+        scriptSource: String,
+        requestGeneration: UInt64
+    ) async -> Bool {
+        guard !Task.isCancelled, !isClosingWebViewLifecycle else { return false }
         let handlerName = reactGrabMessageHandlerName
         let sessionTokenLiteral = reactGrabSessionTokenLiteral()
         let activationUpdaterName = reactGrabBridgeActivationUpdaterName

@@ -64,7 +64,8 @@ public final class TerminalPasteboardService: Sendable {
     // SAFETY: guarded by `temporaryImageOwnershipLock`; mutated from
     // synchronous callers on arbitrary threads (paste paths, upload
     // completions, app termination cleanup).
-    nonisolated(unsafe) private var ownedTemporaryImagePaths: Set<String> = []
+    nonisolated(unsafe) private var ownedTemporaryImageFiles:
+        [String: TerminalPasteboardTemporaryImageFileIdentity] = [:]
 
     private let standardClipboardWriteCaptureLock = NSLock()
     // SAFETY: guarded by `standardClipboardWriteCaptureLock`; armed on the
@@ -146,9 +147,18 @@ extension TerminalPasteboardService {
 
     /// Whether the file was materialized by this service and is still owned.
     public func isOwnedTemporaryImageFile(_ fileURL: URL) -> Bool {
-        let normalizedPath = fileURL.standardizedFileURL.path
+        guard fileURL.isFileURL else { return false }
+        let normalizedURL = fileURL.standardizedFileURL
+        let normalizedPath = normalizedURL.path
         temporaryImageOwnershipLock.lock()
-        let isOwned = ownedTemporaryImagePaths.contains(normalizedPath)
+        guard let ownedIdentity = ownedTemporaryImageFiles[normalizedPath] else {
+            temporaryImageOwnershipLock.unlock()
+            return false
+        }
+        let isOwned = ownedIdentity.stillNamesEntry(at: normalizedURL)
+        if !isOwned {
+            ownedTemporaryImageFiles.removeValue(forKey: normalizedPath)
+        }
         temporaryImageOwnershipLock.unlock()
         return isOwned
     }
@@ -159,38 +169,57 @@ extension TerminalPasteboardService {
         for fileURL in fileURLs {
             let normalizedURL = fileURL.standardizedFileURL
             guard normalizedURL.isFileURL,
-                  consumeOwnedTemporaryImageFile(normalizedURL) else {
+                  let ownedIdentity = consumeOwnedTemporaryImageFile(normalizedURL) else {
                 continue
             }
-            try? FileManager.default.removeItem(at: normalizedURL)
+            ownedIdentity.unlinkIfStillNamesEntry(at: normalizedURL)
         }
+    }
+
+    /// Gives up ownership of a temporary image path without deleting the
+    /// current directory entry. Callers use this after proving the path no
+    /// longer names the file cmux originally created.
+    public func relinquishTemporaryImageFileOwnership(_ fileURL: URL) {
+        guard fileURL.isFileURL else { return }
+        _ = consumeOwnedTemporaryImageFile(fileURL.standardizedFileURL)
     }
 
     /// Deletes every temporary image file this service still owns.
     public func cleanupAllOwnedTemporaryImageFiles() {
         temporaryImageOwnershipLock.lock()
-        let paths = ownedTemporaryImagePaths
-        ownedTemporaryImagePaths.removeAll()
+        let ownedFiles = ownedTemporaryImageFiles
+        ownedTemporaryImageFiles.removeAll()
         temporaryImageOwnershipLock.unlock()
 
-        for path in paths {
-            try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
+        for (path, ownedIdentity) in ownedFiles {
+            let fileURL = URL(fileURLWithPath: path)
+            ownedIdentity.unlinkIfStillNamesEntry(at: fileURL)
         }
     }
 
-    func registerOwnedTemporaryImageFile(_ fileURL: URL) {
-        let normalizedPath = fileURL.standardizedFileURL.path
+    @discardableResult
+    func registerOwnedTemporaryImageFile(_ fileURL: URL) -> Bool {
+        guard fileURL.isFileURL else { return false }
+        let normalizedURL = fileURL.standardizedFileURL
+        guard let ownedIdentity = TerminalPasteboardTemporaryImageFileIdentity(
+            capturing: normalizedURL
+        ) else {
+            return false
+        }
         temporaryImageOwnershipLock.lock()
-        ownedTemporaryImagePaths.insert(normalizedPath)
+        ownedTemporaryImageFiles[normalizedURL.path] = ownedIdentity
         temporaryImageOwnershipLock.unlock()
+        return true
     }
 
-    private func consumeOwnedTemporaryImageFile(_ fileURL: URL) -> Bool {
+    private func consumeOwnedTemporaryImageFile(
+        _ fileURL: URL
+    ) -> TerminalPasteboardTemporaryImageFileIdentity? {
         let normalizedPath = fileURL.standardizedFileURL.path
         temporaryImageOwnershipLock.lock()
-        let didOwnFile = ownedTemporaryImagePaths.remove(normalizedPath) != nil
+        let ownedIdentity = ownedTemporaryImageFiles.removeValue(forKey: normalizedPath)
         temporaryImageOwnershipLock.unlock()
-        return didOwnFile
+        return ownedIdentity
     }
 
 #if DEBUG

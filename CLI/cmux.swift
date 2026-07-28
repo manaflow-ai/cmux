@@ -35392,6 +35392,11 @@ struct CMUXTermMain {
         ) {
             exit(exitCode)
         }
+        if let exitCode = CMUXTextBoxAttachmentSnapshotHelper().runIfRequested(
+            arguments: CommandLine.arguments
+        ) {
+            exit(exitCode)
+        }
         let cli = CMUXCLI(
             args: CommandLine.arguments,
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload

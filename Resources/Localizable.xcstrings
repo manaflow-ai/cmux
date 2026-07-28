@@ -212293,6 +212293,23 @@
         }
       }
     },
+    "socket.vscode.error.cwdMustBeAbsolute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'cwd' must be an absolute path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'cwd' は絶対パスで指定してください"
+          }
+        }
+      }
+    },
     "socket.vscode.error.directoryNotFound": {
       "extractionState": "manual",
       "localizations": {

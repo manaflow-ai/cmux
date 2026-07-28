@@ -8016,7 +8016,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let sourcePanelID, panels[sourcePanelID] == nil { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = sourcePanelID ?? effectiveSelectedPanelId(inPane: paneId)
-        let previousFocusedPanelId = sourcePanelID ?? focusedPanelId
+        let previousFocusedPanelId = focusedPanelId
         let previousHostedView = previousFocusedPanelId.flatMap { terminalPanel(for: $0)?.hostedView }
 
         let browserPanel = BrowserPanel(

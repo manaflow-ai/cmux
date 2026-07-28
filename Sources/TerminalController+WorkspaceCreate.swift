@@ -295,7 +295,7 @@ extension TerminalController {
             workingDirectory = nil
         case let .valid(path):
             workingDirectory = path
-        case .invalid:
+        case .invalid, .wrongFileType:
             return Self.v2InvalidWorkingDirectoryResult
         case .busy:
             return .err(

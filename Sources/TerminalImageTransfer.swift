@@ -9,12 +9,12 @@ enum TerminalImageTransferMode {
     case drop
 }
 
-enum TerminalRemoteUploadTarget: Equatable {
+nonisolated enum TerminalRemoteUploadTarget: Equatable, Sendable {
     case workspaceRemote
     case detectedSSH(DetectedSSHSession)
 }
 
-enum TerminalImageTransferTarget: Equatable {
+nonisolated enum TerminalImageTransferTarget: Equatable, Sendable {
     case local
     case remote(TerminalRemoteUploadTarget)
 }
@@ -494,23 +494,28 @@ enum TerminalImageTransferPlanner {
 }
 
 extension TerminalSurface {
+    /// Captures the host that owns this terminal from cmux-managed state.
+    ///
+    /// File transfers must not infer an upload destination from the foreground
+    /// process command line. A manually started `ssh` process does not transfer
+    /// ownership of caller-supplied files to that host.
     @MainActor
-    func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
-        guard let workspace = owningWorkspace() else { return .local }
+    func managedImageTransferTargetSnapshot() -> TerminalImageTransferTarget {
+        guard let workspace = owningWorkspace() else {
+            return .local
+        }
         if workspace.isRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }
-        // Remote tmux mirror surfaces have no local TTY/process, so the SSH
-        // detector below can't see them. Upload pasted images to the tmux host
-        // over SSH (where claude runs can read them) instead of inserting a
-        // macOS-local path the remote host has no access to.
-        if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
-            return .remote(target)
-        }
-        if let ttyName = workspace.surfaceTTYNames[id],
-           let session = TerminalSSHSessionDetector.detect(forTTY: ttyName) {
-            return .remote(.detectedSSH(session))
+        if let remoteTmuxTarget = AppDelegate.shared?.remoteTmuxController
+            .remoteUploadTarget(forSurfaceId: id) {
+            return .remote(remoteTmuxTarget)
         }
         return .local
+    }
+
+    @MainActor
+    func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
+        managedImageTransferTargetSnapshot()
     }
 }
