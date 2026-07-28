@@ -306,6 +306,105 @@ struct VaultAgentProcessCandidateSelectorTests {
     }
 
     @Test
+    func productionFilterPreservesInterpreterWrappedCustomClaudeForkFallback() throws {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let parentSessionID = "cccccccc-3333-4333-8333-cccccccccccc"
+        let process = processInfo(
+            pid: 45_003,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            name: "python3",
+            path: "/usr/bin/python3"
+        )
+        let bytes = kernProcArgs(
+            arguments: [
+                "/usr/bin/python3",
+                "/opt/tools/claude-custom",
+                "--resume",
+                parentSessionID,
+                "--fork-session",
+            ],
+            environmentEntries: [
+                "CMUX_AGENT_LAUNCH_KIND=claude",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE=/opt/tools/claude-custom",
+                "PWD=/tmp/project",
+            ]
+        )
+        var fullDecodeCount = 0
+
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: processSnapshot([process]),
+            capturedAt: 42,
+            processArgumentBytesProvider: { _ in bytes },
+            processArgumentsDecoder: { bytes in
+                fullDecodeCount += 1
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: bytes)
+            }
+        )
+
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let entry = try #require(detected[key])
+        #expect(entry.snapshot.kind == .claude)
+        #expect(entry.snapshot.sessionId == parentSessionID)
+        #expect(fullDecodeCount == 1)
+    }
+
+    @Test
+    func productionFilterPreservesInterpreterWrappedCustomCodexForkFallback() throws {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let parentSessionID = "dddddddd-4444-4444-8444-dddddddddddd"
+        let process = processInfo(
+            pid: 45_004,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            name: "python3",
+            path: "/usr/bin/python3"
+        )
+        let bytes = kernProcArgs(
+            arguments: [
+                "/usr/bin/python3",
+                "/opt/tools/codex-custom",
+                "fork",
+                parentSessionID,
+            ],
+            environmentEntries: [
+                "CMUX_AGENT_LAUNCH_KIND=codex",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE=/opt/tools/codex-custom",
+                "PWD=/tmp/project",
+            ]
+        )
+        var fullDecodeCount = 0
+
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: processSnapshot([process]),
+            capturedAt: 42,
+            processArgumentBytesProvider: { _ in bytes },
+            processArgumentsDecoder: { bytes in
+                fullDecodeCount += 1
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: bytes)
+            }
+        )
+
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let entry = try #require(detected[key])
+        #expect(entry.snapshot.kind == .codex)
+        #expect(entry.snapshot.sessionId == parentSessionID)
+        #expect(fullDecodeCount == 1)
+    }
+
+    @Test
     func productionFilterRejectsInheritedCustomAgentEnvironment() {
         let process = processInfo(
             pid: 45_002,
