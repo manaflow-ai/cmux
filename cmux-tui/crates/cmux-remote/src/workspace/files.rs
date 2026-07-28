@@ -657,11 +657,17 @@ pub(crate) async fn search(
     Ok(WorkspaceResponse::Search { matches, truncated, next_cursor })
 }
 
-pub(crate) async fn read_full_file(
+#[derive(Clone, Debug)]
+pub(crate) struct WorkspaceFileSnapshot {
+    pub(crate) contents: Vec<u8>,
+    pub(crate) mode: Option<u32>,
+}
+
+pub(crate) async fn read_file_snapshot(
     root: &WorkspaceRoot,
     path: &str,
     maximum: usize,
-) -> Result<Vec<u8>, RpcError> {
+) -> Result<WorkspaceFileSnapshot, RpcError> {
     validate_relative(path)?;
     #[cfg(unix)]
     {
@@ -670,9 +676,13 @@ pub(crate) async fn read_full_file(
         tokio::task::spawn_blocking(move || {
             let target = root.resolve_target(&path, false)?;
             let mut file = open_regular_entry(&target, "read")?;
-            let bytes = read_file_bounded_sync(&mut file, target.display(), maximum)?;
+            let (contents, metadata) =
+                read_file_bounded_sync(&mut file, target.display(), maximum)?;
             target.verify_parent_identity()?;
-            Ok(bytes)
+            Ok(WorkspaceFileSnapshot {
+                contents,
+                mode: Some(metadata.permissions().mode() & 0o7777),
+            })
         })
         .await
         .map_err(blocking_task_error)?
@@ -680,7 +690,8 @@ pub(crate) async fn read_full_file(
     #[cfg(not(unix))]
     {
         let resolved = root.resolve_existing(path).await?;
-        read_path_bounded(&resolved, maximum).await
+        let contents = read_path_bounded(&resolved, maximum).await?;
+        Ok(WorkspaceFileSnapshot { contents, mode: None })
     }
 }
 
@@ -753,6 +764,18 @@ pub(crate) async fn write_bytes_locked_with_outcome(
     precondition: &FilePrecondition,
     create_parents: bool,
 ) -> Result<String, MutationFailure> {
+    write_bytes_locked_with_mode_and_outcome(root, path, bytes, precondition, create_parents, None)
+        .await
+}
+
+pub(crate) async fn write_bytes_locked_with_mode_and_outcome(
+    root: &WorkspaceRoot,
+    path: &str,
+    bytes: &[u8],
+    precondition: &FilePrecondition,
+    create_parents: bool,
+    mode: Option<u32>,
+) -> Result<String, MutationFailure> {
     if bytes.len() > MAX_WRITE_BYTES {
         return Err(MutationFailure::unchanged(RpcError::new(
             "resource-exhausted",
@@ -765,7 +788,13 @@ pub(crate) async fn write_bytes_locked_with_outcome(
         let prepared_path = path.to_owned();
         let prepared_precondition = precondition.clone();
         let prepared = tokio::task::spawn_blocking(move || {
-            prepare_unix_write(root_handle, prepared_path, prepared_precondition, create_parents)
+            prepare_unix_write(
+                root_handle,
+                prepared_path,
+                prepared_precondition,
+                create_parents,
+                mode,
+            )
         })
         .await
         .map_err(|error| MutationFailure::unchanged(blocking_task_error(error)))?
@@ -784,6 +813,12 @@ pub(crate) async fn write_bytes_locked_with_outcome(
     }
     #[cfg(not(unix))]
     {
+        if mode.is_some() {
+            return Err(MutationFailure::unchanged(RpcError::new(
+                "unsupported-platform",
+                "workspace file modes require Unix descriptor-relative file operations",
+            )));
+        }
         if !matches!(precondition, FilePrecondition::Any) {
             return Err(MutationFailure::unchanged(RpcError::new(
                 "unsupported-platform",
@@ -1060,7 +1095,8 @@ fn raw_stat_timestamps(_status: &libc::stat) -> ((i64, i64), (i64, i64)) {
 struct PreparedUnixWrite {
     target: UnixWorkspaceTarget,
     precondition: FilePrecondition,
-    initial_mode: Option<u32>,
+    staged_mode: u32,
+    mode_override: Option<u32>,
     pinned: Option<File>,
 }
 
@@ -1070,6 +1106,7 @@ fn prepare_unix_write(
     path: String,
     precondition: FilePrecondition,
     create_parents: bool,
+    mode_override: Option<u32>,
 ) -> Result<PreparedUnixWrite, RpcError> {
     let target = root.resolve_target(&path, create_parents)?;
     let existing = stat_entry(&target, "stat-before-write")?;
@@ -1108,7 +1145,11 @@ fn prepare_unix_write(
     Ok(PreparedUnixWrite {
         target,
         precondition,
-        initial_mode: existing.map(|entry| entry.mode & 0o7777),
+        staged_mode: mode_override
+            .or_else(|| existing.map(|entry| entry.mode & 0o7777))
+            .unwrap_or(0o600)
+            & 0o7777,
+        mode_override: mode_override.map(|mode| mode & 0o7777),
         pinned,
     })
 }
@@ -1121,7 +1162,8 @@ fn commit_unix_write(
 ) -> Result<String, RpcError> {
     use std::io::Write as _;
 
-    let PreparedUnixWrite { target, precondition, initial_mode, mut pinned } = prepared;
+    let PreparedUnixWrite { target, precondition, staged_mode, mode_override, mut pinned } =
+        prepared;
     target.verify_parent_identity()?;
     let (temporary_name, mut temporary) = create_temporary(&target, "write")?;
     progress.retain(&target, &temporary_name);
@@ -1136,11 +1178,10 @@ fn commit_unix_write(
             .write_all(bytes)
             .map_err(|error| io_error("write-temporary", &temporary_path, error))?;
         temporary.flush().map_err(|error| io_error("flush-temporary", &temporary_path, error))?;
-        if let Some(mode) = initial_mode {
-            temporary
-                .set_permissions(std::fs::Permissions::from_mode(mode))
-                .map_err(|error| io_error("set-permissions", &temporary_path, error))?;
-        }
+        temporary.sync_all().map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
+        temporary
+            .set_permissions(std::fs::Permissions::from_mode(staged_mode))
+            .map_err(|error| io_error("set-permissions", &temporary_path, error))?;
         temporary.sync_all().map_err(|error| io_error("sync-temporary", &temporary_path, error))?;
         let temporary_metadata = temporary
             .metadata()
@@ -1208,6 +1249,7 @@ fn commit_unix_write(
                     pinned_file: pinned,
                     expected_hash: expected,
                     requested_hash: &content_hash,
+                    mode_override,
                 },
                 progress,
             )?;
@@ -1295,6 +1337,7 @@ struct ContentHashWrite<'a> {
     pinned_file: &'a mut File,
     expected_hash: &'a str,
     requested_hash: &'a str,
+    mode_override: Option<u32>,
 }
 
 #[cfg(unix)]
@@ -1345,10 +1388,11 @@ fn commit_content_hash_write(
         ));
     }
     let temporary_path = temporary_display(target, temporary_name);
+    let final_mode = write.mode_override.unwrap_or(pinned_identity.mode & 0o7777);
     let refreshed_temporary = (|| {
         write
             .staged_file
-            .set_permissions(std::fs::Permissions::from_mode(pinned_identity.mode & 0o7777))
+            .set_permissions(std::fs::Permissions::from_mode(final_mode))
             .map_err(|error| io_error("set-permissions", &temporary_path, error))?;
         write
             .staged_file
@@ -2013,7 +2057,7 @@ fn create_temporary(
                 target.parent_fd(),
                 name.as_ptr(),
                 libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-                0o666,
+                0o600,
             )
         };
         if fd >= 0 {
@@ -2044,7 +2088,7 @@ fn read_file_bounded_sync(
     file: &mut File,
     display: &Path,
     maximum: usize,
-) -> Result<Vec<u8>, RpcError> {
+) -> Result<(Vec<u8>, std::fs::Metadata), RpcError> {
     use std::io::{Read as _, Seek as _};
 
     let metadata = file.metadata().map_err(|error| io_error("read", display, error))?;
@@ -2067,7 +2111,7 @@ fn read_file_bounded_sync(
     {
         return Err(RpcError::new("file-changed", "file changed while it was being read"));
     }
-    Ok(bytes)
+    Ok((bytes, metadata_after))
 }
 
 #[cfg(unix)]
@@ -2476,6 +2520,7 @@ fn metadata_stable(before: &std::fs::Metadata, after: &std::fs::Metadata) -> boo
     use std::os::unix::fs::MetadataExt as _;
     before.dev() == after.dev()
         && before.ino() == after.ino()
+        && before.mode() == after.mode()
         && before.len() == after.len()
         && before.mtime() == after.mtime()
         && before.mtime_nsec() == after.mtime_nsec()
@@ -2887,6 +2932,35 @@ mod tests {
         after_create.resume();
 
         writer.await.unwrap().unwrap();
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"new-bytes");
+        assert_eq!(
+            tokio::fs::metadata(&target).await.unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn new_workspace_files_default_to_owner_only_mode() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let (_directory, root) = root().await;
+        write_file(
+            &root,
+            "new.txt",
+            &ByteString::from_bytes(b"contents"),
+            &FilePrecondition::Missing,
+            false,
+        )
+        .await
+        .unwrap();
+
+        let target = root.canonical_root().join("new.txt");
+        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"contents");
+        assert_eq!(
+            tokio::fs::metadata(&target).await.unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]

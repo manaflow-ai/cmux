@@ -196,6 +196,7 @@ async fn run_git(
 ) -> Result<Vec<u8>, RpcError> {
     let mut command = tokio::process::Command::new("git");
     command
+        .args(["-c", "core.fsmonitor=false"])
         .arg("-C")
         .arg(root)
         .args(arguments)

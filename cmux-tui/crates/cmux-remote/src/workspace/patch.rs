@@ -6,14 +6,17 @@ use cmux_remote_protocol::{
 };
 
 use super::files::{
-    MAX_WRITE_BYTES, MutationFailure, MutationOutcome, hash_bytes, read_full_file,
-    remove_file_precondition_locked_with_outcome, write_bytes_locked_with_outcome,
+    MAX_WRITE_BYTES, MutationFailure, MutationOutcome, WorkspaceFileSnapshot, hash_bytes,
+    read_file_snapshot, remove_file_precondition_locked_with_outcome,
+    write_bytes_locked_with_mode_and_outcome, write_bytes_locked_with_outcome,
 };
 use super::path::{WorkspaceRoot, normalize_protocol_path};
 
 const MAX_PATCH_BYTES: usize = 4 * 1024 * 1024;
 const MAX_PATCH_FILES: usize = 1_024;
 const MAX_PATCH_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+
+type FileSnapshots = BTreeMap<String, Option<WorkspaceFileSnapshot>>;
 
 #[derive(Debug)]
 struct PreparedChange {
@@ -166,9 +169,13 @@ pub(crate) async fn apply_patch(
         }
         let source_path = old_path.as_deref().or(new_path.as_deref()).unwrap_or_default();
         let original = if let Some(old) = &old_path {
-            snapshots.get(old).and_then(Option::as_ref).cloned().ok_or_else(|| {
-                RpcError::new("patch-conflict", format!("patch source does not exist: {old}"))
-            })?
+            snapshots
+                .get(old)
+                .and_then(Option::as_ref)
+                .map(|snapshot| snapshot.contents.clone())
+                .ok_or_else(|| {
+                    RpcError::new("patch-conflict", format!("patch source does not exist: {old}"))
+                })?
         } else {
             Vec::new()
         };
@@ -267,7 +274,7 @@ pub(crate) async fn apply_patch(
 }
 
 fn enforce_requested_preconditions(
-    snapshots: &BTreeMap<String, Option<Vec<u8>>>,
+    snapshots: &FileSnapshots,
     changed_paths: &[String],
     requested: &BTreeMap<String, FilePrecondition>,
 ) -> Result<(), RpcError> {
@@ -299,20 +306,20 @@ fn enforce_requested_preconditions(
                     format!("patch precondition expected {path} to be missing"),
                 ));
             }
-            (FilePrecondition::ContentHash(expected), Some(contents))
-                if hash_bytes(contents).eq_ignore_ascii_case(&expected) => {}
+            (FilePrecondition::ContentHash(expected), Some(snapshot))
+                if hash_bytes(&snapshot.contents).eq_ignore_ascii_case(&expected) => {}
             (FilePrecondition::ContentHash(_), None) => {
                 return Err(RpcError::new(
                     "conflict",
                     format!("patch precondition expected {path} to exist"),
                 ));
             }
-            (FilePrecondition::ContentHash(expected), Some(contents)) => {
+            (FilePrecondition::ContentHash(expected), Some(snapshot)) => {
                 return Err(RpcError::new(
                     "conflict",
                     format!(
                         "patch precondition for {path} changed: expected {expected}, found {}",
-                        hash_bytes(contents)
+                        hash_bytes(&snapshot.contents)
                     ),
                 ));
             }
@@ -321,10 +328,7 @@ fn enforce_requested_preconditions(
     Ok(())
 }
 
-fn patch_results(
-    changes: &[PreparedChange],
-    snapshots: &BTreeMap<String, Option<Vec<u8>>>,
-) -> Vec<PatchFileResult> {
+fn patch_results(changes: &[PreparedChange], snapshots: &FileSnapshots) -> Vec<PatchFileResult> {
     changes
         .iter()
         .map(|change| match (&change.old_path, &change.new_path, &change.new_contents) {
@@ -361,26 +365,26 @@ fn patch_results(
         .collect()
 }
 
-fn snapshot_hash(snapshots: &BTreeMap<String, Option<Vec<u8>>>, path: &str) -> Option<String> {
-    snapshots.get(path).and_then(Option::as_ref).map(|contents| hash_bytes(contents))
+fn snapshot_hash(snapshots: &FileSnapshots, path: &str) -> Option<String> {
+    snapshots.get(path).and_then(Option::as_ref).map(|snapshot| hash_bytes(&snapshot.contents))
 }
 
 async fn snapshot_path(
     root: &WorkspaceRoot,
     path: &str,
-    snapshots: &mut BTreeMap<String, Option<Vec<u8>>>,
+    snapshots: &mut FileSnapshots,
     total_bytes: &mut usize,
 ) -> Result<(), RpcError> {
     if snapshots.contains_key(path) {
         return Ok(());
     }
-    let contents = match read_full_file(root, path, MAX_WRITE_BYTES).await {
-        Ok(contents) => Some(contents),
+    let snapshot = match read_file_snapshot(root, path, MAX_WRITE_BYTES).await {
+        Ok(snapshot) => Some(snapshot),
         Err(error) if error.code == "not-found" => None,
         Err(error) => return Err(error),
     };
-    if let Some(contents) = &contents {
-        *total_bytes = total_bytes.saturating_add(contents.len());
+    if let Some(snapshot) = &snapshot {
+        *total_bytes = total_bytes.saturating_add(snapshot.contents.len());
         if *total_bytes > MAX_PATCH_TOTAL_BYTES {
             return Err(RpcError::new(
                 "resource-exhausted",
@@ -388,7 +392,7 @@ async fn snapshot_path(
             ));
         }
     }
-    snapshots.insert(path.to_string(), contents);
+    snapshots.insert(path.to_string(), snapshot);
     Ok(())
 }
 
@@ -434,7 +438,7 @@ fn normalize_patch_path(path: &str) -> Result<Option<String>, RpcError> {
 async fn commit_changes(
     root: &WorkspaceRoot,
     changes: &[PreparedChange],
-    snapshots: &BTreeMap<String, Option<Vec<u8>>>,
+    snapshots: &FileSnapshots,
 ) -> Result<(), CommitFailure> {
     let mut tracker = CommitTracker::default();
     macro_rules! commit_try {
@@ -450,7 +454,16 @@ async fn commit_changes(
             (Some(old), Some(new), Some(contents)) if old != new => {
                 let destination = commit_try!(snapshot_precondition(snapshots, new));
                 let source = commit_try!(snapshot_precondition(snapshots, old));
-                match write_bytes_locked_with_outcome(root, new, contents, &destination, true).await
+                let source_mode = commit_try!(snapshot_mode(snapshots, old));
+                match write_bytes_locked_with_mode_and_outcome(
+                    root,
+                    new,
+                    contents,
+                    &destination,
+                    true,
+                    source_mode,
+                )
+                .await
                 {
                     Ok(hash) => tracker.applied(new, AppliedState::Present(hash)),
                     Err(failure) => {
@@ -504,42 +517,55 @@ async fn commit_changes(
 }
 
 fn snapshot_precondition(
-    snapshots: &BTreeMap<String, Option<Vec<u8>>>,
+    snapshots: &FileSnapshots,
     path: &str,
 ) -> Result<FilePrecondition, RpcError> {
     match snapshots.get(path) {
-        Some(Some(contents)) => Ok(FilePrecondition::ContentHash(hash_bytes(contents))),
+        Some(Some(snapshot)) => Ok(FilePrecondition::ContentHash(hash_bytes(&snapshot.contents))),
         Some(None) => Ok(FilePrecondition::Missing),
+        None => Err(RpcError::new("internal", format!("patch snapshot is missing {path}"))),
+    }
+}
+
+fn snapshot_mode(snapshots: &FileSnapshots, path: &str) -> Result<Option<u32>, RpcError> {
+    match snapshots.get(path) {
+        Some(Some(snapshot)) => Ok(snapshot.mode),
+        Some(None) => Err(RpcError::new(
+            "internal",
+            format!("patch snapshot contents are missing for {path}"),
+        )),
         None => Err(RpcError::new("internal", format!("patch snapshot is missing {path}"))),
     }
 }
 
 async fn rollback(
     root: &WorkspaceRoot,
-    snapshots: &BTreeMap<String, Option<Vec<u8>>>,
+    snapshots: &FileSnapshots,
     applied: &[AppliedMutation],
 ) -> RollbackReport {
     let mut report = RollbackReport::default();
     for AppliedMutation { path, state } in applied.iter().rev() {
         let snapshot = snapshots.get(path).and_then(Option::as_ref);
         let result = match (snapshot, state) {
-            (Some(contents), AppliedState::Present(current_hash)) => {
-                write_bytes_locked_with_outcome(
+            (Some(snapshot), AppliedState::Present(current_hash)) => {
+                write_bytes_locked_with_mode_and_outcome(
                     root,
                     path,
-                    contents,
+                    &snapshot.contents,
                     &FilePrecondition::ContentHash(current_hash.clone()),
                     true,
+                    snapshot.mode,
                 )
                 .await
                 .map(|_| ())
             }
-            (Some(contents), AppliedState::Missing) => write_bytes_locked_with_outcome(
+            (Some(snapshot), AppliedState::Missing) => write_bytes_locked_with_mode_and_outcome(
                 root,
                 path,
-                contents,
+                &snapshot.contents,
                 &FilePrecondition::Missing,
                 true,
+                snapshot.mode,
             )
             .await
             .map(|_| ()),
@@ -734,10 +760,16 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn rollback_uses_digest_compare_and_swap() {
+        use std::os::unix::fs::PermissionsExt as _;
+
         let (_directory, root) = root().await;
         let path = root.canonical_root().join("value.txt");
         tokio::fs::write(&path, b"written-by-patch").await.unwrap();
-        let snapshots = BTreeMap::from([("value.txt".into(), Some(b"original".to_vec()))]);
+        let mode = tokio::fs::metadata(&path).await.unwrap().permissions().mode() & 0o7777;
+        let snapshots = BTreeMap::from([(
+            "value.txt".into(),
+            Some(WorkspaceFileSnapshot { contents: b"original".to_vec(), mode: Some(mode) }),
+        )]);
         let applied = vec![AppliedMutation {
             path: "value.txt".into(),
             state: AppliedState::Present(hash_bytes(b"written-by-patch")),
