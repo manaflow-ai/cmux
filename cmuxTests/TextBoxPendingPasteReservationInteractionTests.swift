@@ -177,6 +177,27 @@ struct TextBoxPendingPasteReservationInteractionTests {
         #expect(textView.pendingPasteReservations[secondPasteID] != nil)
     }
 
+    @Test("pending state publishes on reservation and silent rollback")
+    func pendingStatePublishesOnReservationAndSilentRollback() {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        var publishedStates: [Bool] = []
+        textView.onPendingAttachmentUploadStateChanged = {
+            publishedStates.append($0)
+        }
+
+        let pasteID = UUID()
+        #expect(textView.beginPendingPasteReservation(id: pasteID))
+        #expect(
+            textView.rollbackPendingPasteReservation(
+                id: pasteID,
+                notifyingTextChange: false
+            )
+        )
+
+        #expect(publishedStates == [true, false])
+    }
+
     private func makeTextView() -> (NSWindow, TextBoxInputTextView) {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 30)

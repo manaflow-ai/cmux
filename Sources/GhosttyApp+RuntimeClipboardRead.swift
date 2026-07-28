@@ -9,19 +9,27 @@ extension GhosttyApp {
         _ location: ghostty_clipboard_e,
         _ state: UnsafeMutableRawPointer?
     ) -> Bool {
-        guard let callbackContext = Self.callbackContext(from: userdata),
-              let terminalSurface = callbackContext.terminalSurface,
-              let requestSurface = terminalSurface.surface else { return false }
-        let requestSurfaceIdentity = TerminalClipboardRequestSurfaceIdentity(
-            surfaceAddress: UInt(bitPattern: requestSurface),
-            generation: terminalSurface.runtimeSurfaceGeneration
-        )
+        guard let callbackContext = Self.callbackContext(from: userdata) else {
+            return false
+        }
         let clipboardRequestID = UInt(bitPattern: state)
         let requestSurfaceView = callbackContext.surfaceView
         requestSurfaceView?.reserveClipboardReadAdmission()
 
         Task { @MainActor [weak requestSurfaceView] in
             requestSurfaceView?.beginReservedClipboardRead(clipboardRequestID)
+            guard let requestSurfaceIdentity = TerminalClipboardRequestSurfaceIdentity(
+                terminalSurface: callbackContext.terminalSurface
+            ),
+                  let requestSurface = callbackContext.terminalSurface?.surface,
+                  let preparationService = requestSurfaceView?
+                    .imageTransferPreparation else {
+                requestSurfaceView?.completeClipboardRead(
+                    clipboardRequestID,
+                    confirmed: false
+                )
+                return
+            }
             func completeClipboardRequest(with text: String) {
                 Task { @MainActor in
                     defer {
@@ -63,7 +71,8 @@ extension GhosttyApp {
 
             let preparedContent = await TerminalImageTransferPlanner.prepare(
                 pasteboard: pasteboard,
-                mode: .paste
+                mode: .paste,
+                using: preparationService
             )
 
             guard requestSurfaceIdentity.matches(callbackContext.terminalSurface) else {

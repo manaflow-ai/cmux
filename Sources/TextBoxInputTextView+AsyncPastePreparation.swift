@@ -13,6 +13,7 @@ extension TextBoxInputTextView {
     @discardableResult
     func beginPreparingPaste(
         from pasteboard: NSPasteboard,
+        using preparationService: TerminalImageTransferPreparationService,
         onPrepared: @escaping PreparedPasteHandler
     ) -> Bool {
         let request = TerminalPasteboardReadRequest(pasteboard: pasteboard)
@@ -23,8 +24,7 @@ extension TextBoxInputTextView {
         let validationToken = pendingAttachmentUploadValidationToken()
 
         let task = Task { @MainActor [weak self] in
-            let preparedContent = await GhosttyApp
-                .terminalImageTransferPreparation
+            let preparedContent = await preparationService
                 .prepareComposer(request: request)
             guard let self else {
                 preparedContent.cleanupTransferredTemporaryFiles()

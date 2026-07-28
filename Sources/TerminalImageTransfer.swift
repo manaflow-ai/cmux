@@ -205,10 +205,11 @@ enum TerminalImageTransferPlanner {
     @MainActor
     static func prepare(
         pasteboard: NSPasteboard,
-        mode: TerminalImageTransferMode
+        mode: TerminalImageTransferMode,
+        using preparationService: TerminalImageTransferPreparationService
     ) async -> TerminalImageTransferPreparedContent {
         let request = TerminalPasteboardReadRequest(pasteboard: pasteboard)
-        return await GhosttyApp.terminalImageTransferPreparation.prepare(
+        return await preparationService.prepare(
             request: request,
             mode: mode
         )

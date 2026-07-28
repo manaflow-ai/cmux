@@ -371,8 +371,6 @@ class GhosttyApp {
     /// The process-wide pasteboard service (was the `GhosttyPasteboardHelper`
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
-    /// The bounded FIFO shared by terminal and composer paste preparation.
-    static let terminalImageTransferPreparation = TerminalImageTransferPreparationService()
     /// The process-wide serialized native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
@@ -396,7 +394,21 @@ class GhosttyApp {
     static let terminalSurfaceRuntimeDependencies = TerminalSurfaceRuntimeDependencies(
         registry: GhosttyApp.terminalSurfaceRegistry,
         engine: GhosttyApp.shared,
-        viewProvider: TerminalSurfaceViewFactory(),
+        viewProvider: {
+            let pasteboardService = GhosttyApp.terminalPasteboard
+            let preparationService = TerminalImageTransferPreparationService(
+                operation: { request in
+                    let client = TerminalPastePreparationWorkerClient
+                        .reexecingCurrentBinary(
+                            pasteboardService: pasteboardService
+                        )
+                    return try await client.prepare(request)
+                }
+            )
+            return TerminalSurfaceViewFactory(
+                imageTransferPreparation: preparationService
+            )
+        }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
         byteTee: TerminalOutputByteTeeBridge(),
         rendererRealization: RendererRealizationController.shared,
@@ -3248,6 +3260,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
     private var hasPendingLeftMouseRelease = false
+    let imageTransferPreparation: TerminalImageTransferPreparationService?
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -3282,11 +3295,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override init(frame frameRect: NSRect) {
+        imageTransferPreparation = nil
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    init(
+        frame frameRect: NSRect,
+        imageTransferPreparation: TerminalImageTransferPreparationService
+    ) {
+        self.imageTransferPreparation = imageTransferPreparation
         super.init(frame: frameRect)
         setup()
     }
 
     required init?(coder: NSCoder) {
+        imageTransferPreparation = nil
         super.init(coder: coder)
         setup()
     }
@@ -5835,6 +5859,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
@@ -5864,6 +5889,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     func forwardPendingLeftMouseDrag(with event: NSEvent) -> Bool {
+        if routeInputDuringClipboardRead(event) { return true }
         guard hasPendingLeftMouseRelease, let surface else { return false }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
@@ -5873,6 +5899,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
+        if routeInputDuringClipboardRead(event) { return true }
         guard hasPendingLeftMouseRelease else { return false }
         hasPendingLeftMouseRelease = false
         guard let surface else { return false }
@@ -6514,6 +6541,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         terminalSurface?.didReceiveExplicitInput()
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
@@ -6530,6 +6558,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func rightMouseUp(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             super.rightMouseUp(with: event)
@@ -6544,6 +6573,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.otherMouseDown(with: event)
             return
         }
+        if routeInputDuringClipboardRead(event) { return }
         terminalSurface?.didReceiveExplicitInput()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
@@ -6558,6 +6588,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.otherMouseUp(with: event)
             return
         }
+        if routeInputDuringClipboardRead(event) { return }
         guard let surface = surface else { return }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
     }
@@ -6721,6 +6752,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = terminalSurface?.performExplicitInputBindingAction("reset")
     }
     override func mouseMoved(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
@@ -6743,6 +6775,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         super.mouseEntered(with: event)
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
@@ -6783,6 +6816,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseExited(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         if wordPathHoverActive {
             wordPathHoverActive = false
             NSCursor.pop()
@@ -6795,6 +6829,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
@@ -6831,6 +6866,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func scrollWheel(with event: NSEvent) {
+        if routeInputDuringClipboardRead(event) { return }
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
         guard let surface = surface else { return }
         lastScrollEventTime = CACurrentMediaTime()

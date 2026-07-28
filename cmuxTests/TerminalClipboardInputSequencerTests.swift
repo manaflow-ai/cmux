@@ -204,6 +204,30 @@ struct TerminalClipboardInputSequencerTests {
         #expect(window.firstResponder === terminalView)
     }
 
+    @Test("surface factory injects one shared paste preparation service")
+    func surfaceFactoryInjectsSharedPastePreparationService() throws {
+        let preparationService = TerminalImageTransferPreparationService(
+            operation: { _ in throw CancellationError() },
+            failureSignal: { _ in }
+        )
+        let factory = TerminalSurfaceViewFactory(
+            imageTransferPreparation: preparationService
+        )
+        let firstView = try #require(
+            factory.makeSurfaceViews(initialFrame: .zero).surfaceView
+                as? GhosttyNSView
+        )
+        let secondView = try #require(
+            factory.makeSurfaceViews(initialFrame: .zero).surfaceView
+                as? GhosttyNSView
+        )
+        let firstService = try #require(firstView.imageTransferPreparation)
+        let secondService = try #require(secondView.imageTransferPreparation)
+
+        #expect(firstService === preparationService)
+        #expect(secondService === preparationService)
+    }
+
     @Test("bounded input queue flushes instead of dropping overflow")
     func boundedInputQueueFlushesOverflow() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(

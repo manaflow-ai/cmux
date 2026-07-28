@@ -46,8 +46,34 @@ extension GhosttyNSView {
             keyUp(with: event)
         case .flagsChanged:
             flagsChanged(with: event)
+        case .leftMouseDown:
+            mouseDown(with: event)
+        case .leftMouseUp:
+            mouseUp(with: event)
+        case .rightMouseDown:
+            rightMouseDown(with: event)
+        case .rightMouseUp:
+            rightMouseUp(with: event)
+        case .otherMouseDown:
+            otherMouseDown(with: event)
+        case .otherMouseUp:
+            otherMouseUp(with: event)
+        case .mouseMoved:
+            mouseMoved(with: event)
+        case .mouseEntered:
+            mouseEntered(with: event)
+        case .mouseExited:
+            mouseExited(with: event)
+        case .leftMouseDragged:
+            mouseDragged(with: event)
+        case .rightMouseDragged:
+            rightMouseDragged(with: event)
+        case .otherMouseDragged:
+            otherMouseDragged(with: event)
+        case .scrollWheel:
+            scrollWheel(with: event)
         default:
-            assertionFailure("Only keyboard events enter clipboard sequencing")
+            assertionFailure("Unsupported clipboard-sequenced input event")
         }
     }
 }

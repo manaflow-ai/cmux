@@ -36,7 +36,8 @@ struct TerminalImageTransferConcurrencyTests {
 
         let preparedContent = await TerminalImageTransferPlanner.prepare(
             pasteboard: pasteboard,
-            mode: .paste
+            mode: .paste,
+            using: makeLivePreparationService()
         )
         guard case .fileURLs(let fileURLs) = preparedContent,
               let materializedURL = fileURLs.first else {
@@ -76,7 +77,8 @@ struct TerminalImageTransferConcurrencyTests {
 
         let preparedContent = await TerminalImageTransferPlanner.prepare(
             pasteboard: pasteboard,
-            mode: .paste
+            mode: .paste,
+            using: makeLivePreparationService()
         )
 
         #expect(
@@ -104,7 +106,8 @@ struct TerminalImageTransferConcurrencyTests {
 
         let preparedContent = await TerminalImageTransferPlanner.prepare(
             pasteboard: pasteboard,
-            mode: .paste
+            mode: .paste,
+            using: makeLivePreparationService()
         )
 
         guard case .insertText(let preparedText) = preparedContent else {
@@ -133,7 +136,8 @@ struct TerminalImageTransferConcurrencyTests {
 
         let preparedContent = await TerminalImageTransferPlanner.prepare(
             pasteboard: pasteboard,
-            mode: .paste
+            mode: .paste,
+            using: makeLivePreparationService()
         )
 
         #expect(preparedContent == .reject)
@@ -435,6 +439,21 @@ struct TerminalImageTransferConcurrencyTests {
         #expect(
             await operation.snapshot().startedNames
                 == [firstRequest.pasteboardName]
+        )
+    }
+
+    @MainActor
+    private func makeLivePreparationService()
+        -> TerminalImageTransferPreparationService {
+        let pasteboardService = GhosttyApp.terminalPasteboard
+        return TerminalImageTransferPreparationService(
+            operation: { request in
+                let client = TerminalPastePreparationWorkerClient
+                    .reexecingCurrentBinary(
+                        pasteboardService: pasteboardService
+                    )
+                return try await client.prepare(request)
+            }
         )
     }
 

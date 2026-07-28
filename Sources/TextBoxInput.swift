@@ -3055,6 +3055,7 @@ struct TextBoxInputView: NSViewRepresentable {
         coordinator.parent.onTextViewDismantled(textView)
         textView.onMoveToWindow = { _ in }
         textView.onLayoutCompleted = { _, _ in }
+        textView.onPendingAttachmentUploadStateChanged = { _ in }
         textView.invalidatePendingAttachmentUploads()
         textView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
@@ -3096,6 +3097,11 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.onChooseFiles = onChooseFiles
         textView.onMarkedTextStateChanged = { [weak coordinator, weak textView] hasMarkedText in
             coordinator?.noteMarkedTextStateChanged(hasMarkedText, from: textView)
+        }
+        textView.onPendingAttachmentUploadStateChanged = { [weak coordinator] hasPendingUpload in
+            coordinator?.notePendingAttachmentUploadStateChanged(
+                hasPendingUpload
+            )
         }
         textView.refreshInlineAttachmentCells(font: font, foregroundColor: foregroundColor)
         textView.recenterSingleLineTextContainer()
@@ -3170,6 +3176,17 @@ struct TextBoxInputView: NSViewRepresentable {
                 parent.onMarkedTextStateChanged(hasMarkedText)
             }
             deliveredMarkedTextState = hasMarkedText
+        }
+
+        func notePendingAttachmentUploadStateChanged(
+            _ hasPendingUpload: Bool
+        ) {
+            pendingAttachmentUploadStateForNextLayout = nil
+            guard parent.hasPendingAttachmentUpload != hasPendingUpload else {
+                return
+            }
+            parent.hasPendingAttachmentUpload = hasPendingUpload
+            parent.onContentChanged()
         }
 
         private func publishTextViewContent(_ textView: TextBoxInputTextView) {
@@ -3281,6 +3298,7 @@ final class TextBoxInputTextView: NSTextView {
     var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
     var onLayoutCompleted: (TextBoxInputTextView, Int) -> Void = { _, _ in }
     var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
+    var onPendingAttachmentUploadStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
     static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
@@ -3308,7 +3326,14 @@ final class TextBoxInputTextView: NSTextView {
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
     var nextPendingPasteReservationSequence: UInt64 = 0
     var activePastePreparationTasks: [UUID: Task<Void, Never>] = [:]
-    var pendingPasteReservations: [UUID: TextBoxPendingPasteReservation] = [:]
+    var pendingPasteReservations: [UUID: TextBoxPendingPasteReservation] = [:] {
+        didSet {
+            let hadPendingPaste = !oldValue.isEmpty
+            let hasPendingPaste = !pendingPasteReservations.isEmpty
+            guard hadPendingPaste != hasPendingPaste else { return }
+            onPendingAttachmentUploadStateChanged(hasPendingPaste)
+        }
+    }
     private var mentionCompletionPanel: TextBoxMentionCompletionPanel?
     private var mentionCompletionPanelHost: NSHostingView<TextBoxMentionCompletionPopoverView>?
     private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?

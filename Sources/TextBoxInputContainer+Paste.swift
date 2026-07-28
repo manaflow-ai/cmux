@@ -5,7 +5,14 @@ extension TextBoxInputContainer {
         _ pasteboard: NSPasteboard,
         into textView: TextBoxInputTextView
     ) -> Bool {
-        textView.beginPreparingPaste(from: pasteboard) {
+        guard let preparationService = surface.hostedView
+            .surfaceView.imageTransferPreparation else {
+            return false
+        }
+        return textView.beginPreparingPaste(
+            from: pasteboard,
+            using: preparationService
+        ) {
             textView,
             placeholderID,
             validationToken,

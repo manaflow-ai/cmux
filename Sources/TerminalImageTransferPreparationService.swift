@@ -35,7 +35,7 @@ actor TerminalImageTransferPreparationService {
             // Genuine request deadline; cancellation tears down the sleeper.
             try await ContinuousClock().sleep(for: duration)
         },
-        operation: Operation? = nil,
+        operation: @escaping Operation,
         cleanup: @escaping Cleanup = { result in
             result.cleanupTransferredTemporaryFiles()
         },
@@ -44,13 +44,7 @@ actor TerminalImageTransferPreparationService {
         self.deadline = deadline
         self.maximumQueuedJobs = max(0, maximumQueuedJobs)
         self.deadlineSleep = deadlineSleep
-        self.operation = operation ?? { request in
-            let client = TerminalPastePreparationWorkerClient
-                .reexecingCurrentBinary(
-                    pasteboardService: GhosttyApp.terminalPasteboard
-                )
-            return try await client.prepare(request)
-        }
+        self.operation = operation
         self.cleanup = cleanup
         self.failureSignal = failureSignal
     }
