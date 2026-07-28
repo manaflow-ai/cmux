@@ -30,7 +30,7 @@ extension TerminalController: ControlNotificationContext {
             }
             return .workspaceNotFound
         }
-        if let explicitSurfaceID, ws.panels[explicitSurfaceID] == nil {
+        if let explicitSurfaceID, !notificationWorkspace(ws, contains: explicitSurfaceID) {
             if let rehomed = controlNotificationRehomedDelivery(
                 surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body
             ) {
@@ -76,7 +76,7 @@ extension TerminalController: ControlNotificationContext {
             }
             return .workspaceNotFound(workspaceID: nil)
         }
-        guard ws.panels[surfaceID] != nil else {
+        guard notificationWorkspace(ws, contains: surfaceID) else {
             if let rehomed = controlNotificationRehomedDelivery(
                 surfaceID: surfaceID, title: title, subtitle: subtitle, body: body
             ) {
@@ -109,15 +109,28 @@ extension TerminalController: ControlNotificationContext {
         subtitle: String,
         body: String
     ) -> (workspaceID: UUID, windowID: UUID?)? {
-        guard let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: surfaceID) else { return nil }
+        if let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: surfaceID) {
+            deliverNotificationSynchronously(
+                tabId: owner.workspace.id,
+                surfaceId: surfaceID,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+            return (owner.workspace.id, AppDelegate.shared?.windowId(for: owner.tabManager))
+        }
+        guard let located = locateRemoteTmuxControlSurface(surfaceID),
+              let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
+            return nil
+        }
         deliverNotificationSynchronously(
-            tabId: owner.workspace.id,
+            tabId: workspace.id,
             surfaceId: surfaceID,
             title: title,
             subtitle: subtitle,
             body: body
         )
-        return (owner.workspace.id, AppDelegate.shared?.windowId(for: owner.tabManager))
+        return (workspace.id, located.windowId)
     }
 
     func controlNotificationCreateForTarget(
@@ -144,7 +157,7 @@ extension TerminalController: ControlNotificationContext {
         guard let ws = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return .workspaceNotFound(workspaceID: workspaceID)
         }
-        guard ws.panels[surfaceID] != nil else {
+        guard notificationWorkspace(ws, contains: surfaceID) else {
             return .surfaceNotFound(surfaceID)
         }
         deliverNotificationSynchronously(
@@ -292,7 +305,7 @@ extension TerminalController: ControlNotificationContext {
             return tabManager.tabs.first(where: { $0.id == wsId })
         }
         if let surfaceId = routing.surfaceID {
-            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+            return tabManager.tabs.first(where: { notificationWorkspace($0, contains: surfaceId) })
         }
         if let paneId = routing.paneID, let located = v2LocatePane(paneId) {
             guard located.tabManager === tabManager else { return nil }
@@ -300,6 +313,11 @@ extension TerminalController: ControlNotificationContext {
         }
         guard let wsId = tabManager.selectedTabId else { return nil }
         return tabManager.tabs.first(where: { $0.id == wsId })
+    }
+
+    private func notificationWorkspace(_ workspace: Workspace, contains surfaceID: UUID) -> Bool {
+        workspace.panels[surfaceID] != nil
+            || workspace.remoteTmuxControlPane(surfaceID: surfaceID) != nil
     }
 
     /// The marked-read delta the legacy bodies computed: notifications that were

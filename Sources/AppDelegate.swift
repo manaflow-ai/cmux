@@ -5739,15 +5739,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
         var seenManagers: Set<ObjectIdentifier> = []
+        var seenTerminalIDs: Set<UUID> = []
 
         func visitManager(_ manager: TabManager?) {
             guard let manager else { return }
             let managerId = ObjectIdentifier(manager)
             guard seenManagers.insert(managerId).inserted else { return }
             for workspace in manager.tabs {
-                for panel in workspace.panels.values {
-                    guard let terminalPanel = panel as? TerminalPanel else { continue }
-                    body(terminalPanel)
+                for panelID in workspace.panels.keys {
+                    for terminalPanel in workspace.terminalPanels(projectedFromPanelID: panelID)
+                    where seenTerminalIDs.insert(terminalPanel.id).inserted {
+                        body(terminalPanel)
+                    }
                 }
             }
         }

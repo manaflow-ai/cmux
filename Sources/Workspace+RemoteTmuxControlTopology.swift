@@ -213,7 +213,11 @@ extension Workspace {
     /// mirror-owned panes in layout order and never exposes its closed wrapper.
     func terminalPanels(projectedFromPanelID panelID: UUID) -> [TerminalPanel] {
         if isRemoteTmuxControlContainer(panelID) {
-            return remoteTmuxControlPanes(containerPanelID: panelID).map(\.pane.panel)
+            let panes = remoteTmuxControlPanes(containerPanelID: panelID).map(\.pane.panel)
+            if panes.isEmpty {
+                return liveRemoteTmuxContainerFallback(panelID).map { [$0] } ?? []
+            }
+            return panes
         }
         return (panels[panelID] as? TerminalPanel).map { [$0] } ?? []
     }
@@ -231,8 +235,18 @@ extension Workspace {
             projection = controlSurfaceTarget(for: panelID)
         }
         guard let projection,
-              let panel = projection.panel as? TerminalPanel else { return nil }
+              let panel = projection.panel as? TerminalPanel else {
+            return liveRemoteTmuxContainerFallback(panelID).map {
+                (surfaceID: panelID, panel: $0)
+            }
+        }
         return (projection.surfaceID, panel)
+    }
+
+    private func liveRemoteTmuxContainerFallback(_ panelID: UUID) -> TerminalPanel? {
+        guard isRemoteTmuxControlContainer(panelID),
+              GhosttyApp.terminalSurfaceRegistry.surface(id: panelID) != nil else { return nil }
+        return panels[panelID] as? TerminalPanel
     }
 
     /// Projects a workspace-owned panel into the identity exposed by the

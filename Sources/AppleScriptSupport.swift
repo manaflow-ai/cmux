@@ -579,17 +579,12 @@ final class ScriptTerminal: NSObject {
             return nil
         }
 
-        if let remotePane = workspace.remoteTmuxControlPane(surfaceID: terminalId) {
-            guard remotePane.requestSplit(
-                vertical: direction.orientation == .vertical,
-                focusIntent: .focusCreatedPane
-            ) else {
-                command.scriptErrorNumber = errAEEventFailed
-                command.scriptErrorString = AppleScriptStrings.failedToCreateSplit
-                return nil
-            }
-            // tmux publishes the new pane identity asynchronously, so there is
-            // no truthful ScriptTerminal object to return yet.
+        if workspace.remoteTmuxControlPane(surfaceID: terminalId) != nil {
+            // The scripting contract returns the newly created terminal, but
+            // tmux publishes that identity asynchronously. Fail before sending
+            // the split instead of returning a false or missing result.
+            command.scriptErrorNumber = errAEEventFailed
+            command.scriptErrorString = AppleScriptStrings.failedToCreateSplit
             return nil
         }
 
