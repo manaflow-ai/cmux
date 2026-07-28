@@ -58,6 +58,7 @@ const CELL_PIXEL_RETRY_MAX: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
 const KITTY_IMAGE_BUDGET_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const KITTY_IMAGE_BUDGET_RETRY_MAX: Duration = Duration::from_secs(1);
+const KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS: u32 = 4;
 pub(crate) const RENDER_ATTACHMENT_LIMIT: usize = 64;
 const KITTY_IMAGE_PROCESS_BUDGET_BYTES: u64 = 128 * 1024 * 1024;
 // libghostty owns independent primary and alternate screen stores. cmux also
@@ -150,6 +151,7 @@ struct KittyImageBudgetEntry {
 #[derive(Default)]
 struct KittyImageBudgetState {
     entries: HashMap<SurfaceId, KittyImageBudgetEntry>,
+    blocked_surfaces: HashSet<SurfaceId>,
     capacity: usize,
     worker_running: bool,
     expansion_in_flight: bool,
@@ -4510,6 +4512,11 @@ impl Mux {
             let mut budget = self.kitty_image_budget.lock().unwrap();
             Self::prune_dead_kitty_image_surfaces(&mut budget);
             anyhow::ensure!(
+                budget.blocked_surfaces.is_empty(),
+                "Kitty image quota updates are blocked after a terminal rejected the previous \
+                 limit update"
+            );
+            anyhow::ensure!(
                 !budget.entries.contains_key(&surface),
                 "Kitty image budget already reserved for surface {surface}"
             );
@@ -4532,6 +4539,14 @@ impl Mux {
         let deadline = Instant::now() + crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
         let initial_limits = loop {
             let mut budget = self.kitty_image_budget.lock().unwrap();
+            if !budget.blocked_surfaces.is_empty() {
+                drop(budget);
+                self.cancel_kitty_image_surface_reservation(surface);
+                anyhow::bail!(
+                    "Kitty image quota updates are blocked after a terminal rejected the \
+                     previous limit update"
+                );
+            }
             let owns_quota = budget
                 .entries
                 .get(&surface)
@@ -4624,6 +4639,7 @@ impl Mux {
             if let Some(entry) = budget.entries.get_mut(&surface.id) {
                 entry.removing = true;
             }
+            budget.blocked_surfaces.remove(&surface.id);
         }
         self.start_kitty_image_budget_worker();
         Ok(())
@@ -4633,6 +4649,8 @@ impl Mux {
         budget.entries.retain(|_, entry| {
             entry.surface.as_ref().is_none_or(|surface| surface.strong_count() > 0)
         });
+        let live_ids = budget.entries.keys().copied().collect::<HashSet<_>>();
+        budget.blocked_surfaces.retain(|id| live_ids.contains(id));
         Self::rebalance_kitty_image_budget_owners(budget);
     }
 
@@ -4682,7 +4700,7 @@ impl Mux {
                             target
                         }
             });
-            if budget.worker_running || !has_work {
+            if budget.worker_running || !budget.blocked_surfaces.is_empty() || !has_work {
                 false
             } else {
                 budget.worker_running = true;
@@ -4718,6 +4736,7 @@ impl Mux {
 
             let mut failures = Vec::new();
             let mut failed_operations = HashSet::new();
+            let mut failed_surface_ids = HashSet::new();
             let mut retained_pending = Vec::new();
             let mut pending_completed = false;
             {
@@ -4745,6 +4764,7 @@ impl Mux {
                         }
                         Err(error) => {
                             failed_operations.insert(pending.surface_id);
+                            failed_surface_ids.insert(pending.surface_id);
                             failures.push(format!("surface {}: {error}", pending.surface_id));
                         }
                     }
@@ -4856,6 +4876,7 @@ impl Mux {
                             }
                         }
                         DeadlineMapResult::Complete(Err(error)) => {
+                            failed_surface_ids.insert(*id);
                             failures.push(format!("surface {id}: {error}"));
                         }
                         DeadlineMapResult::Pending(result) => {
@@ -4875,6 +4896,14 @@ impl Mux {
                 budget.expansion_in_flight =
                     pending_operations.iter().any(|pending| pending.expanding);
             }
+            for pending in &pending_operations {
+                if failed_surface_ids.insert(pending.surface_id) {
+                    failures.push(format!(
+                        "surface {}: update did not complete before its deadline",
+                        pending.surface_id
+                    ));
+                }
+            }
             mux.kitty_image_budget_changed.notify_all();
             if failures.is_empty() {
                 failure_streak = 0;
@@ -4885,15 +4914,31 @@ impl Mux {
             }
 
             failure_streak = failure_streak.saturating_add(1);
-            if failure_streak == 1 || failure_streak.is_power_of_two() {
+            let retry_exhausted = failure_streak >= KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS;
+            if failure_streak == 1 || failure_streak.is_power_of_two() || retry_exhausted {
                 let omitted = failures.len().saturating_sub(8);
                 let mut summary = failures.into_iter().take(8).collect::<Vec<_>>().join("; ");
                 if omitted > 0 {
                     summary.push_str(&format!("; {omitted} more"));
                 }
+                let action =
+                    if retry_exhausted { "stopped after exhausting retries" } else { "retrying" };
                 mux.emit(MuxEvent::Status(format!(
-                    "Kitty image budget update failed, retrying: {summary}"
+                    "Kitty image budget update failed, {action}: {summary}"
                 )));
+            }
+            if retry_exhausted {
+                let mut budget = mux.kitty_image_budget.lock().unwrap();
+                let blocked = failed_surface_ids
+                    .into_iter()
+                    .filter(|id| budget.entries.contains_key(id))
+                    .collect::<Vec<_>>();
+                budget.blocked_surfaces.extend(blocked);
+                budget.expansion_in_flight = false;
+                budget.worker_running = false;
+                drop(budget);
+                mux.kitty_image_budget_changed.notify_all();
+                return;
             }
             let multiplier =
                 1_u32.checked_shl(failure_streak.saturating_sub(1).min(16)).unwrap_or(u32::MAX);
@@ -11081,9 +11126,7 @@ mod tests {
 
         assert!(mux.close_surface(second.id).unwrap());
         let deadline = Instant::now() + Duration::from_secs(2);
-        while mux.kitty_image_budget.lock().unwrap().worker_running
-            && Instant::now() < deadline
-        {
+        while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
 
@@ -11105,6 +11148,45 @@ mod tests {
             started.elapsed() < Duration::from_millis(250),
             "a blocked Kitty quota transition waited for the control timeout: {error}"
         );
+    }
+
+    #[test]
+    fn kitty_quota_worker_stops_waiting_for_an_operation_that_ignores_its_deadline() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let gate = gate.clone();
+            move |_surface, _limits, _deadline| {
+                let _ = started_sender.try_send(());
+                let (released, changed) = &*gate;
+                let mut released = released.lock().unwrap();
+                while !*released {
+                    released = changed.wait(released).unwrap();
+                }
+                anyhow::bail!("released persistent Kitty quota operation")
+            }
+        }));
+
+        assert!(mux.close_surface(second.id).unwrap());
+        started_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let stopped = !mux.kitty_image_budget.lock().unwrap().worker_running;
+        {
+            let (released, changed) = &*gate;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+
+        assert!(stopped, "Kitty quota worker waited forever for an operation past its deadline");
     }
 
     #[test]

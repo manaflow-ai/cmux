@@ -12,6 +12,7 @@ import type {
 export const RENDER_GRAPHICS_DECODE_WORKER_CAP = 2;
 const RENDER_GRAPHICS_DECODE_OWNER_CAP = 512;
 const RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES = 256 * 1024;
+const RENDER_GRAPHICS_DECODE_WORKER_MAX_FAILURES = 3;
 
 interface DecodeJob {
   canceled: boolean;
@@ -19,6 +20,7 @@ interface DecodeJob {
   images: RenderGraphicImage[];
   owner: symbol;
   requestId: number;
+  workerFailures: number;
 }
 
 interface DecodeWorkerSlot {
@@ -26,24 +28,41 @@ interface DecodeWorkerSlot {
   worker: Worker;
 }
 
+interface FallbackDecodeResult {
+  deferred: RenderGraphicImage[];
+  results: RenderGraphicsDecodeResult[];
+}
+
 function decodeWithoutWorker(
   images: readonly RenderGraphicImage[],
-): RenderGraphicsDecodeResult[] {
+): FallbackDecodeResult {
   let remainingDecodedBytes =
     RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES;
-  return images.map((image) => {
+  const deferred: RenderGraphicImage[] = [];
+  const results: RenderGraphicsDecodeResult[] = [];
+  for (const image of images) {
     // A failed or unavailable worker must not turn a multi-megabyte validation
     // scan and decode into one long task on the browser thread.
     const byteLength = renderGraphicDecodedByteLength(image);
-    const admitted = byteLength !== null && byteLength <= remainingDecodedBytes;
-    if (admitted) remainingDecodedBytes -= byteLength;
-    const decoded = admitted ? decodeRenderGraphicImage(image) : null;
-    return {
+    if (byteLength !== null && byteLength > remainingDecodedBytes) {
+      deferred.push(image);
+      continue;
+    }
+    if (byteLength !== null) remainingDecodedBytes -= byteLength;
+    const decoded = decodeRenderGraphicImage(image);
+    results.push({
       id: image.id,
       generation: image.generation,
       pixels: decoded?.pixels.buffer ?? null,
-    };
-  });
+    });
+  }
+  return { deferred, results };
+}
+
+function canDecodeWithoutWorker(image: RenderGraphicImage): boolean {
+  const byteLength = renderGraphicDecodedByteLength(image);
+  return byteLength !== null
+    && byteLength <= RENDER_GRAPHIC_MAIN_THREAD_FALLBACK_MAX_DECODED_BYTES;
 }
 
 /**
@@ -82,6 +101,7 @@ export class RenderGraphicsDecodeScheduler {
       images: [...images],
       owner,
       requestId,
+      workerFailures: 0,
     };
     if (this.jobsByOwner.size >= RENDER_GRAPHICS_DECODE_OWNER_CAP) {
       job.canceled = true;
@@ -143,8 +163,10 @@ export class RenderGraphicsDecodeScheduler {
       const job = this.takeRunnableJob();
       if (job === null) return;
       let slot = this.slots.find((candidate) => candidate.job === null);
-      if (slot === undefined && this.slots.length < RENDER_GRAPHICS_DECODE_WORKER_CAP) {
+      if (slot === undefined && !this.creationStopped
+        && this.slots.length < RENDER_GRAPHICS_DECODE_WORKER_CAP) {
         slot = this.createSlot();
+        if (slot === undefined) job.workerFailures += 1;
       }
       if (slot === undefined) {
         this.queue.unshift(job);
@@ -235,6 +257,7 @@ export class RenderGraphicsDecodeScheduler {
     const job = slot.job;
     slot.job = null;
     if (job !== null) {
+      job.workerFailures += 1;
       this.activeOwners.delete(job.owner);
       if (!job.canceled && this.jobsByOwner.get(job.owner) === job) {
         this.queue.unshift(job);
@@ -253,9 +276,42 @@ export class RenderGraphicsDecodeScheduler {
       this.fallbackTimer = null;
       this.fallbackJob = null;
       this.activeOwners.delete(job.owner);
-      this.finishJob(job, decodeWithoutWorker(job.images));
-      this.pump();
+      if (job.canceled || this.disposed || this.jobsByOwner.get(job.owner) !== job) {
+        this.pump();
+        return;
+      }
+      const { deferred, results } = decodeWithoutWorker(job.images);
+      job.images = deferred;
+      if (deferred.length === 0) {
+        this.finishJob(job, results);
+        this.pump();
+        return;
+      }
+      this.publishJobResults(job, results);
+      if (job.canceled || this.disposed || this.jobsByOwner.get(job.owner) !== job) {
+        this.pump();
+        return;
+      }
+      if (deferred.some(canDecodeWithoutWorker)) {
+        this.queue.unshift(job);
+        this.pump();
+        return;
+      }
+      if (job.workerFailures < RENDER_GRAPHICS_DECODE_WORKER_MAX_FAILURES) {
+        this.creationStopped = false;
+        this.queue.unshift(job);
+        this.pump();
+      }
     }, 0);
+  }
+
+  private publishJobResults(
+    job: DecodeJob,
+    results: RenderGraphicsDecodeResult[],
+  ): void {
+    if (results.length === 0 || job.canceled || this.disposed
+      || this.jobsByOwner.get(job.owner) !== job) return;
+    job.complete(results);
   }
 
   private finishJob(job: DecodeJob, results: RenderGraphicsDecodeResult[]): void {
