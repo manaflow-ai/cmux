@@ -14,6 +14,13 @@ struct DynamicNotchAppearanceTests {
         }
     }
 
+    @Test("Pointer reveal defaults to direct notch hover")
+    func pointerRevealDefaultsToExactHitRegion() {
+        let appearance = DynamicNotchAppearance()
+
+        #expect(appearance[.pointerRevealDistance] == .number(0))
+    }
+
     @Test("Partial JSON merges over defaults and normalizes colors")
     func partialJSONMergesAndNormalizes() {
         let appearance = DynamicNotchAppearance.decodeFromJSON([

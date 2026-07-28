@@ -268,7 +268,7 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
         case .arrivalRevealDuration:
             .number(3)
         case .pointerRevealDistance:
-            .number(96)
+            .number(0)
         case .shellBackgroundOpacity,
              .rowBackgroundOpacity,
              .compactBackgroundOpacity,

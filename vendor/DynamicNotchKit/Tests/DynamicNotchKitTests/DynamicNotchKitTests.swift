@@ -83,6 +83,28 @@ struct DynamicNotchScreenGeometryTests {
             distance: 96
         ))
     }
+
+    @Test("Zero reveal distance requires direct notch hover")
+    func zeroRevealDistanceUsesExactNotchFrame() {
+        let geometry = DynamicNotchScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 3_840, height: 2_160),
+            visibleFrame: CGRect(x: 0, y: 0, width: 3_840, height: 2_136),
+            safeAreaTop: 0,
+            auxiliaryTopLeftWidth: nil,
+            auxiliaryTopRightWidth: nil,
+            statusBarThickness: 24,
+            syntheticNotchWidth: 164
+        )
+
+        #expect(geometry.isNearNotch(
+            CGPoint(x: geometry.notchFrame.midX, y: geometry.notchFrame.midY),
+            distance: 0
+        ))
+        #expect(!geometry.isNearNotch(
+            CGPoint(x: geometry.notchFrame.midX, y: geometry.notchFrame.minY - 1),
+            distance: 0
+        ))
+    }
 }
 
 /// Hey there! Looks like you found DynamicNotchKit's tests.

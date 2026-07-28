@@ -1238,7 +1238,7 @@
               ]
             },
             "pointerRevealDistance": {
-              "default": 96,
+              "default": 0,
               "maximum": 400,
               "minimum": 0,
               "type": "number"
