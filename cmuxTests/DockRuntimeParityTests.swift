@@ -386,18 +386,15 @@ struct DockRuntimeParityTests {
 @MainActor
 @Suite("Dock notification attention", .serialized)
 struct DockNotificationAttentionTests {
-    @Test("Single-pane Dock attention bypasses workspace split gating")
-    func singlePaneDockAttentionBypassesWorkspaceSplitGating() throws {
+    @Test("Single-pane Dock attention routes without a workspace split gate")
+    func singlePaneDockAttentionRoutesWithoutWorkspaceSplitGate() throws {
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
         let panel = DockRuntimeParityPanel(title: "Dock")
         try dock.seedRuntimeParityPanel(panel)
 
-        let appDelegate = try #require(AppDelegate.shared, "Expected app-host AppDelegate")
-        let routed = appDelegate.routeNotificationAttentionFlash(
-            workspaceID: dock.workspaceId,
+        let routed = DockSplitStore.routeAttentionFlash(
             panelID: panel.id,
-            reason: .notificationArrival,
-            requiresSplit: true
+            reason: .notificationArrival
         )
 
         #expect(routed)

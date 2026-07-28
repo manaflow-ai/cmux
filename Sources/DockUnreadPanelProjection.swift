@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 import Observation
-import SwiftUI
 
 /// Narrows the app-wide unread model to this Dock before updating its Bonsplit
 /// subtree. Hidden Docks clear once, then ignore unrelated notification churn.
@@ -73,22 +72,5 @@ final class DockUnreadPanelProjection {
         }
         guard unreadPanelIDs != nextUnreadPanelIDs else { return }
         unreadPanelIDs = nextUnreadPanelIDs
-    }
-}
-
-struct DockUnreadProjectionContextBridge: View {
-    let projection: DockUnreadPanelProjection
-    let panelIDs: Set<UUID>
-    let isActive: Bool
-
-    var body: some View {
-        Color.clear
-            .onAppear { projection.updateContext(panelIDs: panelIDs, isActive: isActive) }
-            .onChange(of: panelIDs) { _, panelIDs in
-                projection.updateContext(panelIDs: panelIDs, isActive: isActive)
-            }
-            .onChange(of: isActive) { _, isActive in
-                projection.updateContext(panelIDs: panelIDs, isActive: isActive)
-            }
     }
 }
