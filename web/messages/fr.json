@@ -867,8 +867,6 @@
       "concepts": "Concepts",
       "anchorTitle": "Espace de travail d'ancrage",
       "anchorDesc": "Chaque groupe est détenu par exactement un espace de travail appelé l'ancrage. L'en-tête du groupe dans la barre latérale est la représentation de l'ancrage — il n'y a pas de ligne distincte pour celui-ci. Cliquer sur la zone du nom de l'en-tête met le focus sur les panneaux de l'ancrage ; cliquer sur le chevron bascule le repliement.",
-      "anchorNew": "Les ancrages sont toujours flambant neufs lorsqu'un groupe est créé. Ils ne sont jamais promus à partir d'un espace de travail existant. Le répertoire de travail de l'ancrage est hérité du premier espace de travail sélectionné lors du regroupement d'une sélection, ou de l'espace de travail actif lors de la création via le CLI sans --cwd.",
-      "anchorClose": "Fermer l'espace de travail d'ancrage dissout le groupe : tous les autres membres deviennent des espaces de travail dégroupés et restent dans la liste des onglets. Rien n'est fermé hormis l'ancrage lui-même. L'application affiche une boîte de dialogue de confirmation avec une bascule « Ne plus demander » avant que cela ne se produise.",
       "identityTitle": "Identité du groupe",
       "identityDesc": "Un groupe possède un nom, une icône (un SF Symbol, par défaut folder.fill) et une couleur personnalisée facultative. Ceux-ci sont indépendants des personnalisations propres à l'espace de travail d'ancrage. La couleur et l'icône de l'ancrage sont initialisées à partir du groupe lors de la création, mais elles peuvent ensuite diverger.",
       "pinningTitle": "Épinglage",

@@ -30,7 +30,10 @@ struct OnboardingSceneChrome: Equatable {
             secondaryTitle = nil
         case .connect:
             guard isAuthenticated else {
-                primaryTitle = nil
+                primaryTitle = L10n.string(
+                    "mobile.onboarding.continue",
+                    defaultValue: "Continue"
+                )
                 secondaryTitle = nil
                 return
             }

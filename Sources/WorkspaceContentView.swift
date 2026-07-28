@@ -301,7 +301,11 @@ struct WorkspaceContentView: View {
                             // indicator and where keyboard input/flash-focus actually lands.
                             guard isWorkspaceInputActive else { return }
                             guard workspace.panels[panel.id] != nil else { return }
-                            workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
+                            workspace.focusPanel(
+                                panel.id,
+                                trigger: .terminalFirstResponder,
+                                focusTransactionId: workspace.activeFocusTransactionId
+                            )
                         },
                         onRequestPanelFocus: {
                             guard isWorkspaceInputActive else { return }
@@ -758,7 +762,7 @@ extension WorkspaceContentView {
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     private struct ShortcutHint: View {
         let text: String

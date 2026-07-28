@@ -364,6 +364,26 @@ fn machine_agent_argument_failures_are_stable_and_localized() {
     assert!(!stderr.contains("machine-agent を開始または続行できませんでした"));
 }
 
+#[test]
+fn ratio_commands_localize_nonfinite_values() {
+    for args in [
+        ["set-ratio", "--pane", "1", "--dir", "right", "--ratio", "NaN"].as_slice(),
+        ["set-split-ratio", "--split", "1", "--ratio", "NaN"].as_slice(),
+    ] {
+        let output = Command::new(bin())
+            .env("LC_ALL", "ja_JP.UTF-8")
+            .env("LC_MESSAGES", "ja_JP.UTF-8")
+            .env("LANG", "ja_JP.UTF-8")
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("--ratio には有限の数値を指定してください"), "{stderr}");
+        assert!(!stderr.contains("--ratio must be a finite number"), "{stderr}");
+    }
+}
+
 #[cfg(unix)]
 struct PtyChild {
     child: Child,
@@ -419,6 +439,60 @@ impl Drop for PtyChild {
         if let Some(output_drain) = self.output_drain.take() {
             let _ = output_drain.join();
         }
+    }
+}
+
+#[cfg(unix)]
+struct DisconnectablePtyChild {
+    child: Child,
+    master: Option<File>,
+}
+
+#[cfg(unix)]
+impl DisconnectablePtyChild {
+    fn start(args: &[&str]) -> Self {
+        let mut master = -1;
+        let mut slave = -1;
+        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+        let opened = unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &raw mut size,
+            )
+        };
+        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
+        let flags = unsafe { libc::fcntl(master, libc::F_GETFD) };
+        assert_ne!(flags, -1, "fcntl(F_GETFD) failed: {}", std::io::Error::last_os_error());
+        let cloexec = unsafe { libc::fcntl(master, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
+        assert_ne!(cloexec, -1, "fcntl(F_SETFD) failed: {}", std::io::Error::last_os_error());
+
+        let master = unsafe { File::from_raw_fd(master) };
+        let slave = unsafe { File::from_raw_fd(slave) };
+        let child = Command::new(bin())
+            .args(args)
+            .env_remove("CMUX_TUI_SOCKET")
+            .stdin(Stdio::from(slave.try_clone().unwrap()))
+            .stdout(Stdio::from(slave.try_clone().unwrap()))
+            .stderr(Stdio::from(slave))
+            .spawn()
+            .unwrap();
+        Self { child, master: Some(master) }
+    }
+
+    fn disconnect_host_terminal(&mut self) {
+        self.master.take();
+    }
+}
+
+#[cfg(unix)]
+impl Drop for DisconnectablePtyChild {
+    fn drop(&mut self) {
+        self.master.take();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -494,6 +568,53 @@ fn plain_launch_attaches_to_existing_local_session() {
     }
 
     panic!("plain launch never attached as a TUI client");
+}
+
+#[cfg(unix)]
+#[test]
+fn host_terminal_disconnect_exits_frontend_without_stopping_server() {
+    let server = HeadlessServer::start("host-terminal-disconnect");
+    let mut tui = DisconnectablePtyChild::start(&["--socket", server.socket.to_str().unwrap()]);
+    let attach_deadline = Instant::now() + Duration::from_secs(10);
+    let mut attached = false;
+
+    while Instant::now() < attach_deadline {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            panic!("plain launch exited before host disconnect: {status}");
+        }
+        let clients = cli(&server, &["--json", "list-clients"]);
+        if clients.status.success() {
+            let clients: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+            if clients
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|client| client["kind"].as_str() == Some("tui"))
+            {
+                attached = true;
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(attached, "plain launch never attached before host disconnect");
+
+    tui.disconnect_host_terminal();
+    let exit_deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < exit_deadline,
+            "frontend remained alive after its host terminal disconnected"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    assert!(!status.success(), "host terminal disconnect unexpectedly reported success");
+
+    let ping = cli(&server, &["--json", "ping"]);
+    assert_success(&ping);
 }
 
 #[cfg(unix)]
@@ -784,6 +905,14 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let tree = cli(&server, &["--json", "list-workspaces"]);
     assert_success(&tree);
     let tree_json: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    assert!(
+        tree_json["workspaces"][0]["screens"][0].get("viewport_base_width").is_none(),
+        "ordinary layouts must preserve the default screen JSON shape"
+    );
+    assert!(
+        tree_json["workspaces"][0]["screens"][0].get("viewport_splits").is_none(),
+        "ordinary layouts must omit viewport-only split metadata"
+    );
     let pane0 = tree_json["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
 
     let split = cli(&server, &["split", "--pane", &pane0.to_string(), "--dir", "right"]);
@@ -801,6 +930,14 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let exported_json: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
     assert_eq!(exported_json["layout"]["type"].as_str(), Some("split"));
     assert_eq!(exported_json["panes"].as_array().unwrap().len(), 3);
+    assert!(
+        exported_json.get("viewport_base_width").is_none(),
+        "ordinary layout exports must omit viewport-only state"
+    );
+    assert!(
+        exported_json.get("viewport_splits").is_none(),
+        "ordinary layout exports must omit viewport-only split metadata"
+    );
     let split_id = exported_json["layout"]["split"].as_u64().unwrap();
 
     let exact_ratio =
@@ -840,6 +977,38 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(zoom_json["zoomed"].as_bool(), Some(true));
     assert_eq!(zoom_json["zoomed_pane"].as_u64(), Some(pane1));
 
+    let viewport_pane = cli(
+        &server,
+        &["new-pane-right", "--pane", &pane1.to_string(), "--cols", "51", "--rows", "22"],
+    );
+    assert_success(&viewport_pane);
+    let viewport_surface =
+        String::from_utf8(viewport_pane.stdout).unwrap().trim().parse::<u64>().unwrap();
+    assert!(viewport_surface > 0);
+    let tree = cli(&server, &["--json", "list-workspaces"]);
+    assert_success(&tree);
+    let tree: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    let viewport_splits =
+        tree["workspaces"][0]["screens"][0]["viewport_splits"].as_array().unwrap();
+    assert_eq!(viewport_splits.len(), 1);
+    let width = viewport_splits[0]["width"].as_f64().unwrap();
+    assert!((width - 2.0 / 3.0).abs() < 0.0001);
+    let viewport_pane = tree["workspaces"][0]["screens"][0]["active_pane"].as_u64().unwrap();
+    let resize_viewport = cli(
+        &server,
+        &["set-viewport-pane-width", "--pane", &viewport_pane.to_string(), "--width", "0.5"],
+    );
+    assert_success(&resize_viewport);
+    let resize_base =
+        cli(&server, &["set-viewport-pane-width", "--pane", &pane0.to_string(), "--width", "0.75"]);
+    assert_success(&resize_base);
+    let tree = cli(&server, &["--json", "list-workspaces"]);
+    assert_success(&tree);
+    let tree: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    let screen = &tree["workspaces"][0]["screens"][0];
+    assert_eq!(screen["viewport_base_width"].as_f64(), Some(0.75));
+    assert_eq!(screen["viewport_splits"][0]["width"].as_f64(), Some(0.5));
+
     let marker = format!("cmux_cli_marker_{}", std::process::id());
     let send = cli(
         &server,
@@ -858,6 +1027,36 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let copied = cli(&server, &["copy", "--surface", &surface.to_string(), "--mode", "screen"]);
     assert_success(&copied);
     assert!(String::from_utf8_lossy(&copied.stdout).contains(&marker));
+
+    let pending = format!("echo prompt_kept_{}", std::process::id());
+    let type_pending =
+        cli(&server, &["send", "--surface", &surface.to_string(), "--text", &pending]);
+    assert_success(&type_pending);
+    wait_for_screen(&server, surface, &pending);
+
+    let cleared = cli(&server, &["clear-history", "--surface", &surface.to_string()]);
+    assert_success(&cleared);
+    assert!(cleared.stdout.is_empty(), "clear-history should be quiet on success");
+    let output = cli(&server, &["read-screen", "--surface", &surface.to_string()]);
+    assert_success(&output);
+    let cleared_screen = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        cleared_screen.contains(&marker),
+        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
+    );
+    assert!(
+        cleared_screen.contains(&pending),
+        "clear-history removed the active prompt without prompt metadata: {cleared_screen:?}"
+    );
+    let cleared_scrollback = cli(
+        &server,
+        &["read-scrollback", "--surface", &surface.to_string(), "--start", "0", "--count", "200"],
+    );
+    assert_success(&cleared_scrollback);
+    assert!(
+        !String::from_utf8_lossy(&cleared_scrollback.stdout).contains(&marker),
+        "clear-history retained prior output in scrollback"
+    );
 
     let notify = cli(&server, &["notify", "--title", "Build", "--body", "ok"]);
     assert_success(&notify);
@@ -1041,6 +1240,7 @@ fn help_lists_plugin_verbs() {
     assert!(stdout.contains("--ws <addr>"));
     assert!(stdout.contains("--ws-token <token>"));
     assert!(stdout.contains("--ws-insecure-bind"));
+    assert!(stdout.contains("new-pane-right"));
 }
 
 #[cfg(unix)]

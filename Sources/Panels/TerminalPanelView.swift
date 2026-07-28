@@ -348,6 +348,21 @@ struct PanelAppearance {
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
     let usesClearContentBackground: Bool
+    init(
+        backgroundColor: NSColor,
+        foregroundColor: NSColor,
+        dividerColor: Color,
+        unfocusedOverlayNSColor: NSColor,
+        unfocusedOverlayOpacity: Double,
+        usesClearContentBackground: Bool
+    ) {
+        self.backgroundColor = backgroundColor
+        self.foregroundColor = foregroundColor
+        self.dividerColor = dividerColor
+        self.unfocusedOverlayNSColor = unfocusedOverlayNSColor
+        self.unfocusedOverlayOpacity = unfocusedOverlayOpacity
+        self.usesClearContentBackground = usesClearContentBackground
+    }
 
     var contentBackgroundColor: NSColor {
         usesClearContentBackground ? .clear : backgroundColor
