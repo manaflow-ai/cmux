@@ -56,10 +56,12 @@ Stack Auth establishes identity, not permission. The Durable Object derives a
 participant from the verified socket token, never from a client-supplied user
 id. It withholds streams until host approval and rejects viewer input early.
 
-The host Mac remains the input authority. Before applying each relayed input,
-it checks the participant's current role, the session's sole shared workspace,
-the current pane tree, and that the target is a terminal. Durable Object checks
-are defense in depth and are not the host's authorization source.
+The Durable Object is the identity and role authority. It emits a
+`forwarded-input` frame only for a currently approved editor and injects the
+verified socket identity. The host trusts only that relay-authenticated frame,
+then validates state only the Mac owns: the session's sole shared workspace,
+the current terminal pane, and PTY input availability. It does not recheck a
+lagging participant snapshot that could drop leading input after approval.
 
 Browser WebSockets carry their short-lived token in the query string because
 the browser API cannot set an `Authorization` header. The Mac sends its token
