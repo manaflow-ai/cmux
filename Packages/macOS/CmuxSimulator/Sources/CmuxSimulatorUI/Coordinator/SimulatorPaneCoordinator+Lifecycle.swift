@@ -271,6 +271,10 @@ extension SimulatorPaneCoordinator {
 
     private func selectDeviceForCurrentRequest(id: String) {
         guard !closed, devices.contains(where: { $0.id == id }) else { return }
+        if selectedDeviceID == id,
+           status == .streaming || (status == .connecting && activationTask != nil) {
+            return
+        }
         requiresExplicitDeviceSelection = false
         let previousActivation = activationTask
         previousActivation?.cancel()
@@ -376,12 +380,21 @@ extension SimulatorPaneCoordinator {
                 isRecoverable: false
             )
         }
+        if selectedDeviceID == id, status == .streaming { return }
+        let joinsExistingActivation = selectedDeviceID == id
+            && status == .connecting
+            && activationTask != nil
         selectDeviceForCurrentRequest(id: id)
         let selectionTask = activationTask
         let generation = selectionGeneration
         if let selectionTask {
             do {
-                try await awaitActivationTask(selectionTask, generation: generation)
+                if joinsExistingActivation {
+                    await waitForPaneOwnedTask(selectionTask)
+                    try Task.checkCancellation()
+                } else {
+                    try await awaitActivationTask(selectionTask, generation: generation)
+                }
             } catch is CancellationError {
                 if selectedDeviceID == id, status == .streaming { return }
                 restoreSelectionAfterCancellation(
