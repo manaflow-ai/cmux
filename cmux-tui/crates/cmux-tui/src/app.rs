@@ -19981,6 +19981,48 @@ mod tests {
     }
 
     #[test]
+    fn resize_of_surface_closed_before_worker_runs_is_not_a_sync_failure() {
+        let mux = Mux::new("surface-closed-during-resize-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("block resize lane", false, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let handle = app.session.surface(surface.id).unwrap();
+        let claim = match app.session.surface_resize_decision(surface.id, (78, 22), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("resize must queue"),
+        };
+        assert!(app.session.resize_surface(surface.id, handle, 78, 22, false, claim));
+        mux.close_surface(surface.id).unwrap();
+        app.retire_surface_state(surface.id);
+        release_tx.send(()).unwrap();
+
+        let settled = (0..8)
+            .find_map(|_| {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                matches!(event, AppEvent::SessionMutationSettled { .. }).then_some(event)
+            })
+            .expect("resize must settle");
+        assert!(matches!(
+            &settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::Success { tree: None },
+                ..
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.is_none());
+        assert!(!app.session.surface_resize_failures.lock().unwrap().contains_key(&surface.id));
+    }
+
+    #[test]
     fn retiring_surface_during_queued_attach_is_not_a_sync_failure() {
         let mux = Mux::new("surface-retired-during-attach-test", SurfaceOptions::default());
         let surface = 77;
@@ -21255,7 +21297,7 @@ mod tests {
     }
 
     #[test]
-    fn pointer_motion_is_discarded_while_a_mutation_can_change_its_target() {
+    fn passive_pointer_events_are_silently_discarded_while_layout_changes() {
         let mux = Mux::new("deferred-motion-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -21267,19 +21309,30 @@ mod tests {
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
+        for kind in [MouseEventKind::Moved, MouseEventKind::Up(MouseButton::Left)] {
+            app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind,
+                column: 9,
+                row: 3,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+            assert!(app.deferred_input.is_empty());
+            assert!(app.status_message.is_none());
+        }
+
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Moved,
+            kind: MouseEventKind::Down(MouseButton::Left),
             column: 9,
             row: 3,
             modifiers: KeyModifiers::NONE,
         })))
         .unwrap();
-
-        assert!(app.deferred_input.is_empty());
         assert_eq!(
             app.status_message.as_deref(),
             Some("Pointer input was discarded while the layout changed")
         );
+
         release_tx.send(()).unwrap();
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         app.handle(settled).unwrap();
