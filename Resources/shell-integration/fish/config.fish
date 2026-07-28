@@ -36,6 +36,7 @@ if test "$_cmux_integration_enabled" != 0
         CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD \
         CMUX_SHELL_INTEGRATION \
         CMUX_SHELL_INTEGRATION_DIR \
+        CMUX_SOCKET_CAPABILITY \
         CMUX_SOCKET_ENABLE \
         CMUX_SOCKET_MODE \
         CMUX_SOCKET_PATH \
@@ -177,16 +178,32 @@ if test "$_cmux_integration_enabled" != 0
         test -n "$relay_cli"
     end
 
+    function _cmux_write_socket_payload --argument-names payload
+        if set -q CMUX_SOCKET_CAPABILITY
+            and test -n "$CMUX_SOCKET_CAPABILITY"
+            and not string match -qr '[[:space:]]' -- "$CMUX_SOCKET_CAPABILITY"
+            printf '_cmux_capability_v1 %s %s\n' "$CMUX_SOCKET_CAPABILITY" "$payload"
+        else
+            printf '%s\n' "$payload"
+        end
+    end
+
     function _cmux_send --argument-names payload
         test -n "$payload"; or return 0
         test -n "$CMUX_SOCKET_PATH"; or return 0
+        if test -x /usr/bin/nc
+            # Apple's -N takes a value, so use the bounded response-waiting form.
+            _cmux_write_socket_payload "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; or true
+            return 0
+        end
         switch "$_CMUX_SEND_TOOL"
             case ncat
-                printf '%s\n' "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only >/dev/null 2>&1
+                _cmux_write_socket_payload "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only >/dev/null 2>&1
             case socat
-                printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
+                _cmux_write_socket_payload "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
             case nc
-                printf '%s\n' "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; or printf '%s\n' "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1
+                _cmux_write_socket_payload "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; or \
+                    _cmux_write_socket_payload "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1
         end
     end
 

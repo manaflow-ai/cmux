@@ -1020,6 +1020,10 @@ jobs:
           python3 tests/test_issue_8953_zsh_prompt_wrap_guard.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
+          command -v fish >/dev/null 2>&1 || {
+            echo "fish is required for the issue #9075 shell socket regression" >&2
+            exit 1
+          }
           python3 tests/test_issue_9075_shell_socket_reports.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py

@@ -104,6 +104,8 @@ def shell_cases() -> list[tuple[str, Path, list[str]]]:
                 [str(fish), "-c"],
             )
         )
+    elif os.environ.get("GITHUB_ACTIONS") == "true":
+        raise RuntimeError("fish is required for the issue #9075 CI regression")
     return cases
 
 
@@ -240,14 +242,14 @@ def main() -> int:
         shadow_nc = shadow_directory / "nc"
         shadow_nc.write_text("#!/bin/sh\nexit 91\n", encoding="utf-8")
         shadow_nc.chmod(0o755)
-        bash_case = next(case for case in cases if case[0] == "bash")
-        assert_background_send_is_capability_authenticated(
-            bash_case[0],
-            bash_case[1],
-            bash_case[2],
-            directory,
-            path_prefix=shadow_directory,
-        )
+        for shell_name, integration, argv_prefix in cases:
+            assert_background_send_is_capability_authenticated(
+                shell_name,
+                integration,
+                argv_prefix,
+                directory,
+                path_prefix=shadow_directory,
+            )
 
     tested_shells = ", ".join(case[0] for case in shell_cases())
     print(
