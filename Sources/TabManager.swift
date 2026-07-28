@@ -3469,7 +3469,8 @@ class TabManager: ObservableObject {
         surfaceId: UUID? = nil,
         suppressFlash: Bool = false,
         focusIntent: PanelFocusIntent? = nil,
-        dismissRestoredUnreadOnResume: Bool? = nil
+        dismissRestoredUnreadOnResume: Bool? = nil,
+        focusTransactionId: UUID? = nil
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let targetPanelId = surfaceId.flatMap { panelId(forSurfaceOrPanelId: $0, in: tab) }
@@ -3498,9 +3499,9 @@ class TabManager: ObservableObject {
         if let surfaceId {
             let focusPanelId = targetPanelId ?? surfaceId
             if !suppressFlash {
-                focusSurface(tabId: tabId, surfaceId: focusPanelId)
+                focusSurface(tabId: tabId, surfaceId: focusPanelId, focusTransactionId: focusTransactionId)
             } else {
-                tab.focusPanel(focusPanelId, focusIntent: focusIntent)
+                tab.focusPanel(focusPanelId, focusIntent: focusIntent, focusTransactionId: focusTransactionId)
             }
             if let dismissalContext {
                 _ = notificationDismissal.dismissNotification(
@@ -3547,9 +3548,12 @@ class TabManager: ObservableObject {
         return true
     }
 
-    func focusSurface(tabId: UUID, surfaceId: UUID) {
+    func focusSurface(tabId: UUID, surfaceId: UUID, focusTransactionId: UUID? = nil) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.focusPanel(panelId(forSurfaceOrPanelId: surfaceId, in: tab) ?? surfaceId)
+        tab.focusPanel(
+            panelId(forSurfaceOrPanelId: surfaceId, in: tab) ?? surfaceId,
+            focusTransactionId: focusTransactionId
+        )
     }
 
     func panelId(forSurfaceOrPanelId surfaceOrPanelId: UUID, in workspace: Workspace) -> UUID? {
