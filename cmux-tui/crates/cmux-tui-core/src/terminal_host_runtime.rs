@@ -43,11 +43,16 @@ const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-const MAX_HOST_CLIENT_QUEUED_BYTES: usize = MAX_FRAME_PAYLOAD
+// Keep live PTY backpressure independent from the extra headroom needed by
+// one maximum Resized + Colors + targeted acknowledgement transition.
+const MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
+const MAX_HOST_CLIENT_STATE_QUEUED_BYTES: usize = MAX_FRAME_PAYLOAD
     + MAX_TERMINAL_COLORS_PAYLOAD
     + CELL_PIXEL_SIZE_ENCODED_LEN
     + KITTY_REPLAY_STATE_ENCODED_LEN
     + 3 * crate::terminal_host_protocol::HEADER_LEN;
+const MAX_HOST_CLIENT_QUEUED_BYTES: usize =
+    MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES + MAX_HOST_CLIENT_STATE_QUEUED_BYTES;
 const HOST_START_NONCE_LEN: usize = 32;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
@@ -1845,38 +1850,73 @@ mod unix {
     struct HostTap {
         sender: SyncSender<Frame>,
         queued_bytes: Arc<AtomicUsize>,
+        queued_output_bytes: Arc<AtomicUsize>,
         shutdown: Arc<UnixStream>,
         max_queued_bytes: usize,
     }
 
     impl HostTap {
-        fn try_send(&self, frame: Frame) -> bool {
-            let retained =
-                crate::terminal_host_protocol::HEADER_LEN.saturating_add(frame.payload.len());
-            let mut queued = self.queued_bytes.load(Ordering::Acquire);
+        fn new(
+            sender: SyncSender<Frame>,
+            shutdown: Arc<UnixStream>,
+            max_queued_bytes: usize,
+        ) -> Self {
+            Self {
+                sender,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown,
+                max_queued_bytes,
+            }
+        }
+
+        fn try_reserve(counter: &AtomicUsize, retained: usize, limit: usize) -> bool {
+            let mut queued = counter.load(Ordering::Acquire);
             loop {
                 let Some(next) = queued.checked_add(retained) else {
-                    self.close();
                     return false;
                 };
-                if next > self.max_queued_bytes {
-                    self.close();
+                if next > limit {
                     return false;
                 }
-                match self.queued_bytes.compare_exchange_weak(
+                match counter.compare_exchange_weak(
                     queued,
                     next,
                     Ordering::AcqRel,
                     Ordering::Acquire,
                 ) {
-                    Ok(_) => break,
+                    Ok(_) => return true,
                     Err(actual) => queued = actual,
                 }
+            }
+        }
+
+        fn try_send(&self, frame: Frame) -> bool {
+            let retained =
+                crate::terminal_host_protocol::HEADER_LEN.saturating_add(frame.payload.len());
+            if !Self::try_reserve(&self.queued_bytes, retained, self.max_queued_bytes) {
+                self.close();
+                return false;
+            }
+            let is_output = frame.kind == MessageKind::Output;
+            if is_output
+                && !Self::try_reserve(
+                    &self.queued_output_bytes,
+                    retained,
+                    MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES,
+                )
+            {
+                self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
+                self.close();
+                return false;
             }
             match self.sender.try_send(frame) {
                 Ok(()) => true,
                 Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                     self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
+                    if is_output {
+                        self.queued_output_bytes.fetch_sub(retained, Ordering::AcqRel);
+                    }
                     self.close();
                     false
                 }
@@ -1887,6 +1927,9 @@ mod unix {
             let retained =
                 crate::terminal_host_protocol::HEADER_LEN.saturating_add(frame.payload.len());
             self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
+            if frame.kind == MessageKind::Output {
+                self.queued_output_bytes.fetch_sub(retained, Ordering::AcqRel);
+            }
         }
 
         fn close(&self) {
@@ -3126,12 +3169,7 @@ mod unix {
 
         let client = host.next_client.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = sync_channel(256);
-        let tap = HostTap {
-            sender,
-            queued_bytes: Arc::new(AtomicUsize::new(0)),
-            shutdown: Arc::new(stream.try_clone()?),
-            max_queued_bytes: MAX_HOST_CLIENT_QUEUED_BYTES,
-        };
+        let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
         let command_sender = tap.clone();
         let (snapshot, colors, snapshot_sequence) = {
             // Match resize's viewer -> size -> cell metrics -> parser ->
@@ -4716,23 +4754,13 @@ mod unix {
             let host = test_host_shared();
             let (renderer_socket, _renderer_peer) = UnixStream::pair().unwrap();
             let (renderer_tx, renderer_rx) = sync_channel(4);
-            host.taps.lock().unwrap().insert(
-                1,
-                HostTap {
-                    sender: renderer_tx,
-                    queued_bytes: Arc::new(AtomicUsize::new(0)),
-                    shutdown: Arc::new(renderer_socket),
-                    max_queued_bytes: usize::MAX,
-                },
-            );
+            host.taps
+                .lock()
+                .unwrap()
+                .insert(1, HostTap::new(renderer_tx, Arc::new(renderer_socket), usize::MAX));
             let (target_socket, _target_peer) = UnixStream::pair().unwrap();
             let (target_tx, target_rx) = sync_channel(1);
-            let target = HostTap {
-                sender: target_tx,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(target_socket),
-                max_queued_bytes: usize::MAX,
-            };
+            let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
 
             assert!(host.set_cell_pixel_size(9, 18, 42, &target).unwrap());
 
@@ -4757,12 +4785,7 @@ mod unix {
                 .vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
             let (target_socket, _target_peer) = UnixStream::pair().unwrap();
             let (target_tx, target_rx) = sync_channel(3);
-            let target = HostTap {
-                sender: target_tx,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(target_socket),
-                max_queued_bytes: usize::MAX,
-            };
+            let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
             host.taps.lock().unwrap().insert(1, target.clone());
             let limits = KittyGraphicsLimits::disabled();
 
@@ -4901,12 +4924,7 @@ mod unix {
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
             let (sender, _receiver) = sync_channel(8);
             let one_frame = crate::terminal_host_protocol::HEADER_LEN + 4;
-            let tap = HostTap {
-                sender,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(host_socket),
-                max_queued_bytes: one_frame,
-            };
+            let tap = HostTap::new(sender, Arc::new(host_socket), one_frame);
 
             assert!(tap.try_send(Frame::new(MessageKind::Output, vec![1; 4])));
             assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2])));
@@ -4919,12 +4937,7 @@ mod unix {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
             let (sender, _receiver) = sync_channel(8);
-            let tap = HostTap {
-                sender,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(host_socket),
-                max_queued_bytes: MAX_HOST_CLIENT_QUEUED_BYTES,
-            };
+            let tap = HostTap::new(sender, Arc::new(host_socket), MAX_HOST_CLIENT_QUEUED_BYTES);
             let half_output_budget = 4 * 1024 * 1024;
 
             assert!(tap.try_send(Frame::new(MessageKind::Output, vec![1; half_output_budget],)));
@@ -4938,12 +4951,7 @@ mod unix {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
             let (sender, _receiver) = sync_channel(1);
-            let tap = HostTap {
-                sender,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(host_socket),
-                max_queued_bytes: usize::MAX,
-            };
+            let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
 
             assert!(tap.try_send(Frame::new(MessageKind::Output, vec![1])));
             assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2])));
@@ -5023,12 +5031,7 @@ mod unix {
             for child_first in [false, true] {
                 let (host_socket, _client_socket) = UnixStream::pair().unwrap();
                 let (sender, receiver) = sync_channel(8);
-                let tap = HostTap {
-                    sender,
-                    queued_bytes: Arc::new(AtomicUsize::new(0)),
-                    shutdown: Arc::new(host_socket),
-                    max_queued_bytes: usize::MAX,
-                };
+                let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
                 let broadcast_lock = Mutex::new(());
                 let sequence = AtomicU64::new(0);
                 let taps = Mutex::new(HashMap::from([(1, tap)]));
@@ -5135,12 +5138,7 @@ mod unix {
         fn coupled_color_frames_stay_adjacent_under_concurrent_exit_and_resize() {
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
             let (sender, receiver) = sync_channel(8);
-            let tap = HostTap {
-                sender,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(host_socket),
-                max_queued_bytes: usize::MAX,
-            };
+            let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
             let broadcast_lock = Mutex::new(());
             let sequence = AtomicU64::new(0);
             let taps = Mutex::new(HashMap::from([(1, tap)]));
@@ -5237,12 +5235,7 @@ mod unix {
         fn pwd_change_stays_contiguous_with_its_output_boundary() {
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
             let (sender, receiver) = sync_channel(8);
-            let tap = HostTap {
-                sender,
-                queued_bytes: Arc::new(AtomicUsize::new(0)),
-                shutdown: Arc::new(host_socket),
-                max_queued_bytes: usize::MAX,
-            };
+            let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
             let broadcast_lock = Mutex::new(());
             let sequence = AtomicU64::new(0);
             let taps = Mutex::new(HashMap::from([(1, tap)]));
