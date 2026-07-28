@@ -16,6 +16,15 @@ extension AgentLaunchCommandSnapshot {
            !path.isEmpty {
             selectedEnvironment["PATH"] = path
         }
+        if launcher == "opencode" {
+            // Storage identity is captured for transcript lookup; resume policy intentionally does not replay it.
+            for key in ["HOME", "XDG_DATA_HOME"] {
+                if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !value.isEmpty {
+                    selectedEnvironment[key] = value
+                }
+            }
+        }
         self.init(
             launcher: launcher,
             executablePath: executablePath,

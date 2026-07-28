@@ -8,7 +8,10 @@ nonisolated private let agentConversationExportLogger = Logger(
 )
 
 nonisolated private let agentConversationTransferRetention =
-    SessionTranscriptRetention.openingUserAndLatest(1_000)
+    SessionTranscriptRetention.transferOpeningUserAndLatest(
+        turnLimit: 1_000,
+        textByteLimit: 256 * 1_024
+    )
 
 /// Storage-independent identity for one source conversation.
 nonisolated struct AgentConversationSource: Sendable {
@@ -74,6 +77,12 @@ nonisolated struct AgentConversationSource: Sendable {
             fileURLWithPath: HermesAgentSessionResolver.stateDBPath(env: launchEnvironment),
             isDirectory: false
         )
+    }
+
+    var openCodeDatabasePath: String? {
+        guard kind == .opencode else { return nil }
+        return OpenCodeSessionResolver(defaultHomeDirectory: NSHomeDirectory())
+            .capturedDatabasePath(env: launchEnvironment)
     }
 
     var usesGrokTranscriptLayout: Bool {
@@ -146,7 +155,7 @@ nonisolated struct OpenCodeAgentConversationSourceAdapter: AgentConversationSour
             agent: .opencode,
             sessionId: source.sessionId,
             fileURL: nil,
-            openCodeDatabasePath: databasePath,
+            openCodeDatabasePath: databasePath ?? source.openCodeDatabasePath,
             retention: agentConversationTransferRetention
         ))
     }

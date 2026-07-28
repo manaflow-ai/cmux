@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxConversationTransfer
 
@@ -28,8 +29,8 @@ struct ConversationTransferServiceTests {
             ConversationTurn(id: 3, role: .assistant, text: "LATEST answer"),
         ]
         let policy = ConversationTransferPolicy(
-            maximumCharacters: 1_024,
-            initialUserCharacterLimit: 300
+            maximumBytes: 1_024,
+            initialUserByteLimit: 300
         )
 
         let message = try ConversationTransferService(policy: policy).message(
@@ -39,8 +40,30 @@ struct ConversationTransferServiceTests {
 
         #expect(message.contains("OPENING"))
         #expect(message.contains("LATEST answer"))
-        #expect(message.count <= policy.maximumCharacters)
+        #expect(message.utf8.count <= policy.maximumBytes)
         #expect(message.contains("Conversation compacted"))
+    }
+
+    @Test
+    func combiningMarksCannotExceedUTF8ByteBudget() throws {
+        let pathologicalOpening = "OPENING e" + String(repeating: "\u{0301}", count: 4_000)
+        let policy = ConversationTransferPolicy(
+            maximumBytes: 1_024,
+            initialUserByteLimit: 384
+        )
+
+        let message = try ConversationTransferService(policy: policy).message(
+            for: [
+                ConversationTurn(id: 0, role: .user, text: pathologicalOpening),
+                ConversationTurn(id: 1, role: .assistant, text: "LATEST answer"),
+            ],
+            sourceDisplayName: "Codex"
+        )
+
+        #expect(message.contains("OPENING"))
+        #expect(message.contains("LATEST answer"))
+        #expect(message.utf8.count <= policy.maximumBytes)
+        #expect(String(data: Data(message.utf8), encoding: .utf8) == message)
     }
 
     @Test

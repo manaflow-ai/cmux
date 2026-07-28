@@ -816,7 +816,8 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript,
-            allowOversizedInlineInput: allowOversizedInlineInput
+            allowOversizedInlineInput: allowOversizedInlineInput,
+            requireLauncherScript: true
         )
     }
 

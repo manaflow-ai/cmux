@@ -9,36 +9,42 @@ public struct RoleLabeledConversationFormatter: ConversationFormatting {
     /// - Parameters:
     ///   - compaction: Retained turns and compaction statistics.
     ///   - sourceDisplayName: User-facing name of the source harness.
-    ///   - maximumCharacters: Maximum number of Swift characters in the result.
+    ///   - maximumBytes: Maximum number of UTF-8 bytes in the result.
     /// - Returns: A harness-neutral handoff prompt.
     public func format(
         _ compaction: ConversationCompaction,
         sourceDisplayName: String,
-        maximumCharacters: Int
+        maximumBytes: Int
     ) -> String {
         let introductionFormat = String(
             localized: "forkConversation.handoff.introduction",
             defaultValue: "The following conversation was transferred from %@. Continue the latest unfinished request using this context."
         )
-        let safeSourceName = String(promptSafe(sourceDisplayName).prefix(80))
-        var sections = [String(format: introductionFormat, safeSourceName)]
+        var sourceNameBuilder = UTF8BoundedStringBuilder(maximumBytes: 80)
+        sourceNameBuilder.appendPromptSafe(sourceDisplayName)
+        var builder = UTF8BoundedStringBuilder(maximumBytes: maximumBytes)
+        builder.appendPromptSafe(String(format: introductionFormat, sourceNameBuilder.value))
 
         if compaction.omittedTurnCount > 0 || compaction.shortenedTurnCount > 0 {
             let compactionFormat = String(
                 localized: "forkConversation.handoff.compacted",
                 defaultValue: "Conversation compacted: %1$lld earlier turns omitted, %2$lld long turns shortened."
             )
-            sections.append(String(
+            builder.append("\n\n")
+            builder.appendPromptSafe(String(
                 format: compactionFormat,
                 Int64(compaction.omittedTurnCount),
                 Int64(compaction.shortenedTurnCount)
             ))
         }
 
-        sections.append(contentsOf: compaction.turns.map { turn in
-            "\(roleLabel(turn.role)):\n\(promptSafe(turn.text))"
-        })
-        return String(sections.joined(separator: "\n\n").prefix(maximumCharacters))
+        for turn in compaction.turns {
+            builder.append("\n\n")
+            builder.appendPromptSafe(roleLabel(turn.role))
+            builder.append(":\n")
+            builder.appendPromptSafe(turn.text)
+        }
+        return builder.value
     }
 
     private func roleLabel(_ role: ConversationRole) -> String {
@@ -54,13 +60,5 @@ public struct RoleLabeledConversationFormatter: ConversationFormatting {
         case .event:
             String(localized: "forkConversation.handoff.role.event", defaultValue: "Event")
         }
-    }
-
-    /// Removes terminal control bytes while preserving tabs, newlines, and Unicode text.
-    private func promptSafe(_ text: String) -> String {
-        let scalars = text.unicodeScalars.filter { scalar in
-            scalar.value == 9 || scalar.value == 10 || (scalar.value >= 32 && scalar.value != 127)
-        }
-        return String(String.UnicodeScalarView(scalars))
     }
 }

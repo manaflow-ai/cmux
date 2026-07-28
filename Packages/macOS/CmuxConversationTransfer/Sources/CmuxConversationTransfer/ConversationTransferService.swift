@@ -36,7 +36,7 @@ public struct ConversationTransferService: Sendable {
         return formatter.format(
             compaction,
             sourceDisplayName: sourceDisplayName,
-            maximumCharacters: policy.maximumCharacters
+            maximumBytes: policy.maximumBytes
         )
     }
 }

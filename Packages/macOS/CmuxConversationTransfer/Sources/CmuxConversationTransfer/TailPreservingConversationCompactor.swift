@@ -1,7 +1,8 @@
 /// Preserves the opening user request and the latest dialogue within a bounded prompt.
 public struct TailPreservingConversationCompactor: ConversationCompacting {
     private static let framingReserve = 512
-    private static let turnFramingCharacters = 16
+    private static let turnFramingBytes = 16
+    private let byteClipper = UTF8ByteClipper()
 
     /// Creates a tail-preserving compactor.
     public init() {}
@@ -24,8 +25,8 @@ public struct TailPreservingConversationCompactor: ConversationCompacting {
             )
         }
 
-        let bodyBudget = max(256, policy.maximumCharacters - Self.framingReserve)
-        if estimatedLength(of: eligible) <= bodyBudget {
+        let bodyBudget = max(256, policy.maximumBytes - Self.framingReserve)
+        if fits(eligible, within: bodyBudget) {
             return ConversationCompaction(
                 turns: renumbered(eligible),
                 omittedTurnCount: 0,
@@ -35,7 +36,7 @@ public struct TailPreservingConversationCompactor: ConversationCompacting {
 
         let firstUserIndex = eligible.firstIndex { $0.role == .user }
         let reservedHead = firstUserIndex.map { _ in
-            min(policy.initialUserCharacterLimit, max(256, bodyBudget / 4))
+            min(policy.initialUserByteLimit, max(256, bodyBudget / 4))
         } ?? 0
         let tailBudget = max(128, bodyBudget - reservedHead - 96)
 
@@ -44,16 +45,16 @@ public struct TailPreservingConversationCompactor: ConversationCompacting {
         var shortenedCount = 0
         for index in eligible.indices.reversed() where index != firstUserIndex {
             let turn = eligible[index]
-            let cost = estimatedLength(of: turn)
+            let cost = estimatedByteCount(of: turn)
             if cost <= remaining {
                 tail.append((index, turn))
                 remaining -= cost
                 continue
             }
-            if tail.isEmpty, remaining > Self.turnFramingCharacters {
+            if tail.isEmpty, remaining > Self.turnFramingBytes {
                 tail.append((
                     index,
-                    clipped(turn, characterLimit: remaining - Self.turnFramingCharacters)
+                    clipped(turn, byteLimit: remaining - Self.turnFramingBytes)
                 ))
                 shortenedCount += 1
             }
@@ -64,8 +65,8 @@ public struct TailPreservingConversationCompactor: ConversationCompacting {
         var kept: [(index: Int, turn: ConversationTurn)] = []
         if let firstUserIndex {
             let firstUser = eligible[firstUserIndex]
-            let limit = max(1, reservedHead - Self.turnFramingCharacters)
-            let clippedFirst = clipped(firstUser, characterLimit: limit)
+            let limit = max(1, reservedHead - Self.turnFramingBytes)
+            let clippedFirst = clipped(firstUser, byteLimit: limit)
             if clippedFirst.text != firstUser.text {
                 shortenedCount += 1
             }
@@ -77,7 +78,7 @@ public struct TailPreservingConversationCompactor: ConversationCompacting {
         if kept.isEmpty, let last = eligible.last {
             kept = [(
                 eligible.count - 1,
-                clipped(last, characterLimit: bodyBudget - Self.turnFramingCharacters)
+                clipped(last, byteLimit: bodyBudget - Self.turnFramingBytes)
             )]
             shortenedCount = 1
         }
@@ -90,26 +91,28 @@ public struct TailPreservingConversationCompactor: ConversationCompacting {
         )
     }
 
-    private func estimatedLength(of turns: [ConversationTurn]) -> Int {
-        turns.reduce(0) { $0 + estimatedLength(of: $1) }
+    private func fits(_ turns: [ConversationTurn], within byteLimit: Int) -> Bool {
+        var remaining = byteLimit
+        for turn in turns {
+            let cost = estimatedByteCount(of: turn)
+            guard cost <= remaining else { return false }
+            remaining -= cost
+        }
+        return true
     }
 
-    private func estimatedLength(of turn: ConversationTurn) -> Int {
-        turn.text.count + Self.turnFramingCharacters
+    private func estimatedByteCount(of turn: ConversationTurn) -> Int {
+        let (cost, overflow) = turn.text.utf8.count.addingReportingOverflow(Self.turnFramingBytes)
+        return overflow ? .max : cost
     }
 
-    private func clipped(_ turn: ConversationTurn, characterLimit: Int) -> ConversationTurn {
-        guard characterLimit > 0, turn.text.count > characterLimit else { return turn }
-        let marker = "\n…\n"
-        let available = max(1, characterLimit - marker.count)
-        let headCount = available / 2
-        let tailCount = available - headCount
-        let headEnd = turn.text.index(turn.text.startIndex, offsetBy: headCount)
-        let tailStart = turn.text.index(turn.text.endIndex, offsetBy: -tailCount)
+    private func clipped(_ turn: ConversationTurn, byteLimit: Int) -> ConversationTurn {
+        let clippedText = byteClipper.clipped(turn.text, maximumBytes: byteLimit)
+        guard clippedText != turn.text else { return turn }
         return ConversationTurn(
             id: turn.id,
             role: turn.role,
-            text: String(turn.text[..<headEnd]) + marker + String(turn.text[tailStart...])
+            text: clippedText
         )
     }
 

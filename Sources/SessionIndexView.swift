@@ -1259,14 +1259,14 @@ enum SessionTranscriptLoader {
                 let role = transcriptRole(from: turn.role) ?? .event
                 return SessionTranscriptTurn(id: index, role: role, text: truncatedText(turn.text, role: role))
             }
-            return coalesce(mapped)
+            return coalesce(mapped, retention: retention)
         }
 
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
         var turns: [SessionTranscriptTurn] = []
-        var latestTurns = SessionTranscriptLatestCollector(capacity: retention.limit)
+        var latestTurns = SessionTranscriptLatestCollector(retention: retention)
         var lineData = Data()
         lineData.reserveCapacity(64 * 1024)
         var lineIndex = 0
@@ -1364,13 +1364,13 @@ enum SessionTranscriptLoader {
             finishLine()
         }
         if retention.keepsLatestTurns {
-            return coalesce(latestTurns.turns)
+            return coalesce(latestTurns.turns, retention: retention)
         }
         if didHitTurnLimit {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
 
-        return coalesce(turns)
+        return coalesce(turns, retention: retention)
     }
 
     private static func loadAntigravityHistorySynchronously(
@@ -1430,7 +1430,7 @@ enum SessionTranscriptLoader {
            !turns.contains(where: { $0.role == openingUser.role && $0.text == openingUser.text }) {
             turns = [openingUser] + Array(turns.suffix(max(0, retention.limit - 1)))
         }
-        return coalesce(turns)
+        return coalesce(turns, retention: retention)
     }
 
     private static func antigravityHistoryTurn(
@@ -1509,7 +1509,7 @@ enum SessionTranscriptLoader {
         }
 
         var turns: [SessionTranscriptTurn] = []
-        var latestTurns = SessionTranscriptLatestCollector(capacity: retention.limit)
+        var latestTurns = SessionTranscriptLatestCollector(retention: retention)
         var turnId = 0
         var currentMessageId: String?
         var currentMessageRole: SessionTranscriptRole = .event
@@ -1545,13 +1545,13 @@ enum SessionTranscriptLoader {
         }
 
         if retention.keepsLatestTurns {
-            return coalesce(latestTurns.turns)
+            return coalesce(latestTurns.turns, retention: retention)
         }
         if didHitTurnLimit {
             appendTurnLimitMarker(to: &turns, id: turnId)
         }
 
-        return coalesce(turns)
+        return coalesce(turns, retention: retention)
     }
 
     private static func loadHermesAgentSynchronously(
@@ -1584,7 +1584,7 @@ enum SessionTranscriptLoader {
             if didHitTurnLimit {
                 appendTurnLimitMarker(to: &previewTurns, id: previewTurns.count)
             }
-            return coalesce(previewTurns)
+            return coalesce(previewTurns, retention: retention)
         } catch HermesAgentIndexError.missingDatabase {
             throw SessionTranscriptLoadError.missingFile
         } catch let HermesAgentIndexError.sqlite(message) {
@@ -1929,21 +1929,27 @@ enum SessionTranscriptLoader {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func coalesce(_ turns: [SessionTranscriptTurn]) -> [SessionTranscriptTurn] {
-        var output: [SessionTranscriptTurn] = []
-        for turn in turns {
-            if let last = output.last, last.role == turn.role {
-                output[output.count - 1] = SessionTranscriptTurn(
-                    id: last.id,
-                    role: last.role,
-                    text: last.text + "\n\n" + turn.text
-                )
+    private static func coalesce(
+        _ turns: [SessionTranscriptTurn],
+        retention: SessionTranscriptRetention
+    ) -> [SessionTranscriptTurn] {
+        let boundedTurns = retention.boundedTurnsPreservingOpeningAndLatest(turns)
+        var roles: [SessionTranscriptRole] = []
+        var textGroups: [[String]] = []
+        for turn in boundedTurns {
+            if roles.last == turn.role {
+                textGroups[textGroups.count - 1].append(turn.text)
             } else {
-                output.append(turn)
+                roles.append(turn.role)
+                textGroups.append([turn.text])
             }
         }
-        return output.enumerated().map { offset, turn in
-            SessionTranscriptTurn(id: offset, role: turn.role, text: turn.text)
+        return roles.indices.map { index in
+            SessionTranscriptTurn(
+                id: index,
+                role: roles[index],
+                text: textGroups[index].joined(separator: "\n\n")
+            )
         }
     }
 

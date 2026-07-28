@@ -46,6 +46,7 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Identifiable, Sen
     }
 
     func startupCommand(handoffMessage: String) -> String? {
+        // These interactive CLIs require their seed as argv; stdin would consume or detach their TTY.
         switch self {
         case .current:
             nil
