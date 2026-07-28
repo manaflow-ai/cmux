@@ -30,6 +30,31 @@ struct HTMLPlainTextParserTests {
         #expect(parser.plainText(from: html) == "Visible")
     }
 
+    @Test("omits descendants hidden by HTML and inline CSS")
+    func omitsAttributeAndInlineStyleHiddenDescendants() {
+        let parser = HTMLPlainTextParser()
+        let html = """
+        <span hidden>hidden attribute</span>
+        <span style="display: none">hidden display</span>
+        <span style="visibility : HIDDEN !important">hidden visibility</span>
+        <span>Visible</span>
+        """
+
+        #expect(parser.plainText(from: html) == "Visible")
+    }
+
+    @Test("does not hide text for CSS declaration substring matches")
+    func ignoresInlineStyleSubstringFalsePositives() {
+        let parser = HTMLPlainTextParser()
+        let html = """
+        <span data-hidden style="--display:none; display:none-block; visibility:hiddenish">
+        Visible
+        </span>
+        """
+
+        #expect(parser.plainText(from: html) == "Visible")
+    }
+
     @Test("omits nested template descendants from data input")
     func omitsNestedTemplatesFromData() {
         let parser = HTMLPlainTextParser()

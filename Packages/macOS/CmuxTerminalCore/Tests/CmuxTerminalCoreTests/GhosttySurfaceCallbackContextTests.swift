@@ -118,4 +118,71 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
 
         #expect(callbackCount.loadRelaxed() == 1)
     }
+
+    @Test @MainActor
+    func runtimeClipboardInvalidationCancelsOwnedTaskExactlyOnce() async {
+        let controller = FakeSurfaceController()
+        let host = FakeSurfaceHost()
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller
+        )
+        let invalidationCount = AtomicUInt64Generation()
+        let taskObservedCancellation = AtomicBooleanGate(false)
+        let task = Task {
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                taskObservedCancellation.storeRelease(true)
+            }
+        }
+
+        #expect(context.registerRuntimeClipboardRequest(
+            id: 17,
+            onInvalidation: { wasAdmitted, completesNativeRequest in
+                #expect(wasAdmitted)
+                #expect(completesNativeRequest)
+                _ = invalidationCount.advanceRelaxed()
+            }
+        ))
+        #expect(context.attachRuntimeClipboardTask(task, requestID: 17))
+        context.markRuntimeClipboardRequestAdmitted(17)
+
+        context.invalidateRuntimeClipboardRequests(
+            completingNativeRequests: true
+        )
+        await task.value
+        context.invalidateRuntimeClipboardRequests(
+            completingNativeRequests: true
+        )
+
+        #expect(taskObservedCancellation.loadAcquire())
+        #expect(invalidationCount.loadRelaxed() == 1)
+        #expect(!context.completeRuntimeClipboardRequest(17))
+    }
+
+    @Test @MainActor
+    func completedRuntimeClipboardRequestIsNotInvalidated() {
+        let controller = FakeSurfaceController()
+        let host = FakeSurfaceHost()
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller
+        )
+        let invalidationCount = AtomicUInt64Generation()
+
+        #expect(context.registerRuntimeClipboardRequest(
+            id: 23,
+            onInvalidation: { _, _ in
+                _ = invalidationCount.advanceRelaxed()
+            }
+        ))
+        #expect(context.completeRuntimeClipboardRequest(23))
+
+        context.invalidateRuntimeClipboardRequests(
+            completingNativeRequests: true
+        )
+
+        #expect(invalidationCount.loadRelaxed() == 0)
+    }
 }
