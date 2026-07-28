@@ -2866,8 +2866,10 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
+            let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
+                ?? tabManager.selectedWorkspace?.activeFocusTransactionId
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
-            attemptCommandPaletteFocusRestoreIfNeeded()
+            attemptCommandPaletteFocusRestoreIfNeeded(focusTransactionId: focusTransactionId)
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidBecomeFirstResponderWebView)) { notification in

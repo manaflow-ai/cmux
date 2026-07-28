@@ -3500,6 +3500,7 @@ final class Workspace: Identifiable, ObservableObject {
         get { surfaceRegistry.pendingTabSelection }
         set { surfaceRegistry.pendingTabSelection = newValue }
     }
+    private(set) var activeFocusTransactionId: UUID?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
 #if DEBUG
@@ -9238,13 +9239,15 @@ final class Workspace: Identifiable, ObservableObject {
         focusTransactionId: UUID? = nil
     ) {
         guard !remoteTmuxMirrorInterceptsFocusPanel(panelId, previousHostedView: previousHostedView, trigger: trigger, focusIntent: focusIntent) else { return }
+        let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         markExplicitFocusIntent(on: panelId)
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
         let triggerLabel = trigger == .terminalFirstResponder ? "firstResponder" : "standard"
-        cmuxDebugLog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane) trigger=\(triggerLabel)")
+        let transactionLabel = effectiveFocusTransactionId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        cmuxDebugLog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane) trigger=\(triggerLabel) tx=\(transactionLabel)")
         AppDelegate.shared?.focusLog.append(
-            "Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane) trigger=\(triggerLabel)"
+            "Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane) trigger=\(triggerLabel) transactionId=\(transactionLabel)"
         )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
@@ -9305,7 +9308,7 @@ final class Workspace: Identifiable, ObservableObject {
                     inPane: targetPaneId,
                     reassertAppKitFocus: false,
                     focusIntent: activationIntent,
-                    focusTransactionId: focusTransactionId,
+                    focusTransactionId: effectiveFocusTransactionId,
                     previousTerminalHostedView: previousTerminalHostedView
                 )
             }
@@ -9344,7 +9347,7 @@ final class Workspace: Identifiable, ObservableObject {
                 reassertAppKitFocus: !shouldSuppressReentrantRefocus,
                 focusIntent: activationIntent,
                 resumeHibernatedAgent: true,
-                focusTransactionId: focusTransactionId,
+                focusTransactionId: effectiveFocusTransactionId,
                 previousTerminalHostedView: previousTerminalHostedView
             )
         }
@@ -11107,13 +11110,14 @@ extension Workspace: BonsplitDelegate {
         previousTerminalHostedView: GhosttySurfaceScrollView? = nil
     ) {
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         pendingTabSelection = PendingTabSelectionRequest(
             tabId: tabId,
             pane: pane,
             reassertAppKitFocus: reassertAppKitFocus,
             focusIntent: focusIntent,
             resumeHibernatedAgent: resumeHibernatedAgent,
-            focusTransactionId: focusTransactionId,
+            focusTransactionId: effectiveFocusTransactionId,
             previousTerminalHostedView: previousTerminalHostedView
         )
         guard !isApplyingTabSelection else { return }
@@ -11160,6 +11164,12 @@ extension Workspace: BonsplitDelegate {
         focusTransactionId: UUID?,
         previousTerminalHostedView: GhosttySurfaceScrollView?
     ) {
+        let transactionId = focusTransactionId ?? UUID()
+        let previousActiveFocusTransactionId = activeFocusTransactionId
+        activeFocusTransactionId = transactionId
+        defer {
+            activeFocusTransactionId = previousActiveFocusTransactionId
+        }
         let previousFocusedPanelId = focusedPanelId
         let previousPresentedDirectory = presentedCurrentDirectory
         let previousCurrentDirectory = currentDirectory
@@ -11336,7 +11346,7 @@ extension Workspace: BonsplitDelegate {
                 workspaceId: self.id,
                 panelId: panelId,
                 explicitFocusIntent: explicitFocusIntent,
-                transactionId: focusTransactionId ?? UUID()
+                transactionId: transactionId
             )
         )
         publishCmuxFocusedSelection(paneId: focusedPane, surfaceId: panelId, origin: "bonsplit_selection")
