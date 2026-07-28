@@ -1089,10 +1089,6 @@ impl OrderedSession {
         self.inner.tree()
     }
 
-    fn refresh_tree(&self) -> anyhow::Result<TreeView> {
-        self.inner.refresh_tree()
-    }
-
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
         self.inner.respond_pairing(request, approve)
     }
@@ -2263,6 +2259,35 @@ impl OrderedSession {
 
     pub fn close_surface(&self, surface: SurfaceId) {
         self.enqueue_routing("close tab", move |session| session.close_surface(surface));
+    }
+
+    fn close_established_exited_surface(&self, surface: SurfaceId) {
+        self.enqueue_routing("close exited tab", move |session| {
+            let workspace = session.refresh_tree().ok().and_then(|tree| {
+                tree.workspaces.into_iter().find_map(|workspace| {
+                    let contains_surface = workspace
+                        .screens
+                        .iter()
+                        .flat_map(|screen| &screen.panes)
+                        .flat_map(|pane| &pane.tabs)
+                        .any(|tab| tab.surface == surface);
+                    if !contains_surface {
+                        return None;
+                    }
+                    let surface_count = workspace
+                        .screens
+                        .iter()
+                        .flat_map(|screen| &screen.panes)
+                        .map(|pane| pane.tabs.len())
+                        .sum::<usize>();
+                    Some((workspace.id, surface_count))
+                })
+            });
+            match workspace {
+                Some((workspace, 1)) => session.close_workspace(workspace),
+                _ => session.close_surface(surface),
+            }
+        });
     }
 
     pub fn clear_history(
@@ -6989,32 +7014,6 @@ impl App {
         }
         self.rebuild_tab_locations();
     }
-    fn close_established_exited_surface(&self, surface: SurfaceId) {
-        let workspace = self.session.refresh_tree().ok().and_then(|tree| {
-            tree.workspaces.into_iter().find_map(|workspace| {
-                let contains_surface = workspace
-                    .screens
-                    .iter()
-                    .flat_map(|screen| &screen.panes)
-                    .flat_map(|pane| &pane.tabs)
-                    .any(|tab| tab.surface == surface);
-                if !contains_surface {
-                    return None;
-                }
-                let surface_count = workspace
-                    .screens
-                    .iter()
-                    .flat_map(|screen| &screen.panes)
-                    .map(|pane| pane.tabs.len())
-                    .sum::<usize>();
-                Some((workspace.id, surface_count))
-            })
-        });
-        match workspace {
-            Some((workspace, 1)) => self.session.close_workspace(workspace),
-            _ => self.session.close_surface(surface),
-        };
-    }
 
     fn apply_session_completions_through(&mut self, authoritative_generation: u64) {
         while self
@@ -7851,7 +7850,7 @@ impl App {
                     if runtime_ms.is_some_and(|runtime_ms| {
                         runtime_ms > self.config.abnormal_command_exit_runtime_ms()
                     }) {
-                        self.close_established_exited_surface(surface);
+                        self.session.close_established_exited_surface(surface);
                     }
                     self.retire_surface_state(surface);
                     self.remove_surface_from_tree(surface);
@@ -7864,7 +7863,7 @@ impl App {
                     return Ok(RenderAction::Draw);
                 }
                 if runtime_ms.is_some() {
-                    self.close_established_exited_surface(surface);
+                    self.session.close_established_exited_surface(surface);
                 }
                 self.retire_surface_state(surface);
                 self.remove_surface_from_tree(surface);
