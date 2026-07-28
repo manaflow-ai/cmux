@@ -14627,9 +14627,9 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
-        ForwardMuxOutcome, GraphicsSceneCache, MachineActionWorker, MachineConnectRoute,
-        MenuAction, MenuItem, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneEdge, PaneFocusHistory,
+        ForwardMuxOutcome, GraphicSourceRect, GraphicsSceneCache, MachineActionWorker,
+        MachineConnectRoute, MenuAction, MenuItem, MuxTitleIngress, OmnibarHit, OmnibarState,
+        OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection, PaneEdge, PaneFocusHistory,
         PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
         RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
@@ -14667,8 +14667,9 @@ mod tests {
         MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
-        CursorShape, KeyEncoder, KeyInput, KittyGraphicsSnapshot, Mods, MouseAction,
-        MouseButton as GhosttyMouseButton, MouseInput, RenderState, Rgb,
+        CursorShape, KeyEncoder, KeyInput, KittyGraphicsSnapshot, KittyImage, KittyImageFormat,
+        KittyPlacement, KittyPlacementKey, Mods, MouseAction, MouseButton as GhosttyMouseButton,
+        MouseInput, RenderState, Rgb,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -20614,6 +20615,79 @@ mod tests {
         assert_eq!(app.graphics_scene_cache.projection_rebuilds.get(&first.id), Some(&2));
         assert_eq!(app.graphics_scene_cache.projection_rebuilds.get(&second.id), Some(&1));
         assert_eq!(app.graphics_scene_cache.rebuilds, 2);
+    }
+
+    #[test]
+    fn horizontal_viewport_keeps_visible_kitty_placement_aligned() {
+        let mux = Mux::new("viewport-kitty-placement-test", SurfaceOptions::default());
+        let created = mux.new_workspace(None, Some((10, 2))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.cell_pixels = (10, 20);
+        let area = PaneArea {
+            pane: 1,
+            surface: created.id,
+            rect: Rect { x: 0, y: 0, width: 7, height: 4 },
+            bar: Some(Rect { x: 0, y: 0, width: 7, height: 1 }),
+            omnibar: None,
+            content: Rect { x: 1, y: 1, width: 5, height: 2 },
+            track: None,
+            viewport: Some(PaneViewportClip {
+                rect_source_x: 5,
+                full_rect_width: 12,
+                omnibar_source_x: 0,
+                full_omnibar_width: 0,
+                content_source_x: 5,
+                full_content_width: 10,
+            }),
+        };
+        app.rendered_terminal_bounds.insert(created.id, area.content);
+        app.rendered_kitty_graphics.insert(
+            created.id,
+            Arc::new(KittyGraphicsSnapshot {
+                generation: 1,
+                images: vec![KittyImage {
+                    id: 41,
+                    number: 0,
+                    generation: 1,
+                    width: 20,
+                    height: 20,
+                    format: KittyImageFormat::Rgb,
+                    data: Arc::from(vec![0; 20 * 20 * 3]),
+                }],
+                placements: vec![KittyPlacement {
+                    key: KittyPlacementKey { image_id: 41, placement_id: 7, ordinal: 0 },
+                    image_id: 41,
+                    placement_id: 7,
+                    is_internal: false,
+                    x_offset: 0,
+                    y_offset: 0,
+                    source_x: 0,
+                    source_y: 0,
+                    source_width: 20,
+                    source_height: 20,
+                    columns: 2,
+                    rows: 1,
+                    grid_cols: 2,
+                    grid_rows: 1,
+                    pixel_width: 20,
+                    pixel_height: 20,
+                    viewport_col: 5,
+                    viewport_row: 0,
+                    viewport_visible: true,
+                    z: 0,
+                }],
+            }),
+        );
+        let surface = app.session.surface(created.id).unwrap();
+
+        let placements = app.graphic_placements_for_area(area, Some(&surface), &[]);
+
+        assert_eq!(placements.len(), 1);
+        assert_eq!(placements[0].rect, Rect { x: 1, y: 1, width: 2, height: 1 });
+        assert_eq!(
+            placements[0].source,
+            Some(GraphicSourceRect { x: 0, y: 0, width: 20, height: 20 })
+        );
     }
 
     #[test]
