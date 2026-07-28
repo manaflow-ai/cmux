@@ -7,16 +7,22 @@ final class AgentHibernationMemoryPressureResponder: MemoryPressureResponder {
     let memoryPressurePriority = 80
 
     private let controller: AgentHibernationController
+    private let isPressureCritical: @MainActor () -> Bool
 
-    init(controller: AgentHibernationController) {
+    init(
+        controller: AgentHibernationController,
+        isPressureCritical: @escaping @MainActor () -> Bool
+    ) {
         self.controller = controller
+        self.isPressureCritical = isPressureCritical
     }
 
     func shedMemory(for snapshot: MemoryPressureSnapshot) -> MemoryPressureShedResult {
         let responderID = memoryPressureResponderID
         let severity = snapshot.severity
         let didSchedule = controller.reclaimIdleAgentsForSystemMemoryPressure(
-            now: snapshot.sampledAt
+            now: snapshot.sampledAt,
+            isPressureStillCritical: isPressureCritical
         ) { hibernatedCount in
             guard hibernatedCount > 0 else { return }
             MemoryPressureResponderRegistry.logShedAction(

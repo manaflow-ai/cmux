@@ -49,6 +49,7 @@ extension AppDelegate {
                         panelId: panelId,
                         fallback: index.lifecycle(workspaceId: workspace.id, panelId: panelId)
                     )
+                    let processIDs = index.processIDs(workspaceId: workspace.id, panelId: panelId)
                     records.append(
                         AgentHibernationRecord(
                             key: key,
@@ -59,8 +60,11 @@ extension AppDelegate {
                             hasUnconfirmedTerminalInput: terminalInputAt > lifecycleChangeAt,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
-                            hasLiveProcess: index.hasLiveProcess(workspaceId: workspace.id, panelId: panelId),
-                            processIDs: index.processIDs(workspaceId: workspace.id, panelId: panelId)
+                            hasLiveProcess: !processIDs.isEmpty,
+                            processIDs: processIDs,
+                            processIdentities: AgentHibernationController.processIdentities(
+                                for: processIDs
+                            )
                         )
                     )
                 }

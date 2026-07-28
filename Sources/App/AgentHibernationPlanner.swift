@@ -6,6 +6,8 @@ enum AgentHibernationReclaimTrigger: Equatable, Sendable {
 }
 
 enum AgentHibernationPlanner {
+    private static let systemMemoryPressureBatchLimit = 2
+
     static func selectedPanelKeys(
         inputs: [AgentHibernationPlannerInput],
         settings: AgentHibernationSettings.Values,
@@ -19,7 +21,7 @@ enum AgentHibernationPlanner {
             guard settings.enabled else { return [] }
             excess = liveRestorable.count - settings.maxLiveTerminals
         case .systemMemoryPressure:
-            excess = liveRestorable.count
+            excess = min(liveRestorable.count, systemMemoryPressureBatchLimit)
         }
         guard excess > 0 else { return [] }
 

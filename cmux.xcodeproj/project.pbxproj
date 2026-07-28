@@ -56,6 +56,7 @@
 		F65760120000000000000001 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */; };
 		F65760260000000000000001 /* AgentHibernationController+PostTeardownRestoreCancellationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760260000000000000002 /* AgentHibernationController+PostTeardownRestoreCancellationState.swift */; };
 		F65760130000000000000001 /* AgentHibernationController+PostTeardownRestoreTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760130000000000000002 /* AgentHibernationController+PostTeardownRestoreTask.swift */; };
+		8997C0038997C0038997C003 /* AgentHibernationController+ProcessTermination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D0038997D0038997D003 /* AgentHibernationController+ProcessTermination.swift */; };
 		F65760030000000000000001 /* AgentHibernationController+Records.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760030000000000000002 /* AgentHibernationController+Records.swift */; };
 		F65760140000000000000001 /* AgentHibernationController+TailFingerprintSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */; };
 		F65760060000000000000001 /* AgentHibernationController+Teardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760060000000000000002 /* AgentHibernationController+Teardown.swift */; };
@@ -2517,6 +2518,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PostSnapshotValidationIndexTask.swift"; sourceTree = "<group>"; };
 		F65760260000000000000002 /* AgentHibernationController+PostTeardownRestoreCancellationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PostTeardownRestoreCancellationState.swift"; sourceTree = "<group>"; };
 		F65760130000000000000002 /* AgentHibernationController+PostTeardownRestoreTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PostTeardownRestoreTask.swift"; sourceTree = "<group>"; };
+		8997D0038997D0038997D003 /* AgentHibernationController+ProcessTermination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+ProcessTermination.swift"; sourceTree = "<group>"; };
 		F65760030000000000000002 /* AgentHibernationController+Records.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Records.swift"; sourceTree = "<group>"; };
 		F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+TailFingerprintSample.swift"; sourceTree = "<group>"; };
 		F65760060000000000000002 /* AgentHibernationController+Teardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Teardown.swift"; sourceTree = "<group>"; };
@@ -5243,6 +5245,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */,
 				F65760130000000000000002 /* AgentHibernationController+PostTeardownRestoreTask.swift */,
 				F65760260000000000000002 /* AgentHibernationController+PostTeardownRestoreCancellationState.swift */,
+				8997D0038997D0038997D003 /* AgentHibernationController+ProcessTermination.swift */,
 				F65760030000000000000002 /* AgentHibernationController+Records.swift */,
 				F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */,
 				F65760060000000000000002 /* AgentHibernationController+Teardown.swift */,
@@ -7795,6 +7798,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760120000000000000001 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift in Sources */,
 				F65760260000000000000001 /* AgentHibernationController+PostTeardownRestoreCancellationState.swift in Sources */,
 				F65760130000000000000001 /* AgentHibernationController+PostTeardownRestoreTask.swift in Sources */,
+				8997C0038997C0038997C003 /* AgentHibernationController+ProcessTermination.swift in Sources */,
 				F65760030000000000000001 /* AgentHibernationController+Records.swift in Sources */,
 				F65760140000000000000001 /* AgentHibernationController+TailFingerprintSample.swift in Sources */,
 				F65760060000000000000001 /* AgentHibernationController+Teardown.swift in Sources */,

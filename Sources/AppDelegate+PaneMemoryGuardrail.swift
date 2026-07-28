@@ -36,7 +36,10 @@ extension AppDelegate {
         )
         monitor.registry.register(
             AgentHibernationMemoryPressureResponder(
-                controller: AgentHibernationController.shared
+                controller: AgentHibernationController.shared,
+                isPressureCritical: { [weak monitor] in
+                    monitor?.currentSeverity == .critical
+                }
             )
         )
         if let notificationStore {

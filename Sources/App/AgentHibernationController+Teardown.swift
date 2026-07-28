@@ -27,6 +27,7 @@ extension AgentHibernationController {
     /// below covers disable/stop and anything else that changed during the brief I/O hop.
     func beginConfirmedTeardowns(
         _ requests: [ConfirmedTeardownRequest],
+        shouldProceed: (@MainActor () -> Bool)? = nil,
         onCompletion: (@MainActor (Int) -> Void)? = nil
     ) {
         guard !requests.isEmpty else { return }
@@ -107,7 +108,8 @@ extension AgentHibernationController {
                 // process-set or scrollback change, visibility/protection change,
                 // hibernation, or surface loss during the hop aborts; a later evaluation
                 // can re-arm it if it is still idle.
-                guard AgentHibernationTrackingGate.isEnabled(),
+                guard (shouldProceed?() ?? true),
+                      AgentHibernationTrackingGate.isEnabled(),
                       record.isStillOwnedByOriginalWorkspace,
                       (
                           request.trigger == .systemMemoryPressure ||
@@ -120,6 +122,7 @@ extension AgentHibernationController {
                           workspaceId: record.key.workspaceId,
                           panelId: record.key.panelId
                       ) == record.processIDs,
+                      Self.processIdentities(for: record.processIDs) == record.processIdentities,
                       TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
                           TabManager.restorableAgentSnapshotFingerprint(record.agent),
                       !record.terminalPanel.isAgentHibernated,
@@ -164,6 +167,14 @@ extension AgentHibernationController {
                     await cancelPostTeardownRestoreTaskForReplacement(
                         transcriptPath: snapshot.transcriptPath
                     )
+                    guard shouldProceed?() ?? true else {
+                        preserveSnapshotAfterAbortedTeardown(
+                            snapshot,
+                            record: record,
+                            restoreOwnedSnapshotPaths: &restoreOwnedSnapshotPaths
+                        )
+                        continue
+                    }
                     guard AgentHibernationTranscriptGuard.liveFileVersionStillMatches(snapshot) else {
                         self.unableToProtectByPanel[record.key] = UnableToProtectMarker(
                             fingerprint: request.confirmationFingerprint,
@@ -173,20 +184,23 @@ extension AgentHibernationController {
                         // The quiesce above disarmed the path's previous monitor, so
                         // forfeiting must re-arm protection with the fresh snapshot;
                         // its restore checks fail closed if the live file has turns.
-                        if self.armPostTeardownRestoreMonitor(
-                            snapshot: snapshot,
-                            processIDs: record.processIDs,
-                            snapshotDisposal: .retainForRecovery(sessionId: record.agent.sessionId)
-                        ) {
-                            restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
-                        } else {
-                            AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
-                                snapshot,
-                                sessionId: record.agent.sessionId
-                            )
-                        }
+                        preserveSnapshotAfterAbortedTeardown(
+                            snapshot,
+                            record: record,
+                            restoreOwnedSnapshotPaths: &restoreOwnedSnapshotPaths
+                        )
                         continue
                     }
+                }
+                if let shouldProceed, !shouldProceed() {
+                    if let snapshot {
+                        preserveSnapshotAfterAbortedTeardown(
+                            snapshot,
+                            record: record,
+                            restoreOwnedSnapshotPaths: &restoreOwnedSnapshotPaths
+                        )
+                    }
+                    continue
                 }
                 self.terminateScopedProcessesForHibernation(record: record)
                 record.workspace.enterAgentHibernation(
@@ -200,6 +214,25 @@ extension AgentHibernationController {
                     restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
                 }
             }
+        }
+    }
+
+    private func preserveSnapshotAfterAbortedTeardown(
+        _ snapshot: AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot,
+        record: AgentHibernationRecord,
+        restoreOwnedSnapshotPaths: inout Set<String>
+    ) {
+        if armPostTeardownRestoreMonitor(
+            snapshot: snapshot,
+            processIDs: record.processIDs,
+            snapshotDisposal: .retainForRecovery(sessionId: record.agent.sessionId)
+        ) {
+            restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
+        } else {
+            AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
+                snapshot,
+                sessionId: record.agent.sessionId
+            )
         }
     }
 

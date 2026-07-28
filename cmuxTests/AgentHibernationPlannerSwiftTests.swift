@@ -134,7 +134,8 @@ struct AgentHibernationPlannerSwiftTests {
             lastActivityAt: 0,
             isProtected: false,
             hasLiveProcess: false,
-            processIDs: []
+            processIDs: [],
+            processIdentities: [:]
         )
         #expect(record.isStillOwnedByOriginalWorkspace)
 
@@ -235,6 +236,7 @@ struct AgentHibernationPlannerSwiftTests {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
         let idle = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let secondIdle = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let visible = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let running = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let liveProcess = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
@@ -257,6 +259,15 @@ struct AgentHibernationPlannerSwiftTests {
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
                     lastActivityAt: now
+                ),
+                .init(
+                    key: secondIdle,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: 1
                 ),
                 .init(
                     key: visible,
@@ -311,7 +322,7 @@ struct AgentHibernationPlannerSwiftTests {
             trigger: .systemMemoryPressure
         )
 
-        #expect(selected == Set([idle, liveProcess]))
+        #expect(selected == Set([secondIdle, liveProcess]))
     }
 
     @MainActor
@@ -455,7 +466,8 @@ struct AgentHibernationPlannerSwiftTests {
             lastActivityAt: 100,
             isProtected: false,
             hasLiveProcess: false,
-            processIDs: []
+            processIDs: [],
+            processIdentities: [:]
         )
 
         #expect(controller.postSnapshotLifecycle(for: record, index: index) == .running)

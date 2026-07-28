@@ -1,5 +1,3 @@
-import AppKit
-import Darwin
 import Foundation
 
 struct AgentHibernationPanelKey: Hashable, Sendable {
@@ -19,6 +17,7 @@ struct AgentHibernationRecord {
     let isProtected: Bool
     let hasLiveProcess: Bool
     let processIDs: Set<Int>
+    let processIdentities: [Int: AgentPIDProcessIdentity]
 }
 
 @MainActor
@@ -161,6 +160,7 @@ final class AgentHibernationController {
         settings: AgentHibernationSettings.Values,
         now: Date,
         trigger: AgentHibernationReclaimTrigger = .scheduled,
+        teardownShouldProceed: (@MainActor () -> Bool)? = nil,
         onHibernationCompleted: (@MainActor (Int) -> Void)? = nil
     ) -> (hasCandidates: Bool, beganTeardowns: Bool) {
         guard trigger != .scheduled || settings.enabled else {
@@ -191,10 +191,14 @@ final class AgentHibernationController {
             let isLive = isLiveByKey[record.key] ?? false
             var effectiveLastActivityAt = record.lastActivityAt
             if record.hasLiveProcess {
-                bumpTeardownValidationEpoch(record.key)
                 tailFingerprintSamples.removeValue(forKey: record.key)
-                if trigger == .scheduled {
+                if confirmations[record.key]?.trigger == .scheduled {
                     confirmations.removeValue(forKey: record.key)
+                }
+                if teardownInFlightByPanel[record.key]?.trigger == .scheduled {
+                    bumpTeardownValidationEpoch(record.key)
+                }
+                if trigger == .scheduled {
                     unableToProtectByPanel.removeValue(forKey: record.key)
                 }
             }
@@ -251,6 +255,7 @@ final class AgentHibernationController {
         if !confirmedTeardowns.isEmpty {
             beginConfirmedTeardowns(
                 confirmedTeardowns,
+                shouldProceed: teardownShouldProceed,
                 onCompletion: onHibernationCompleted
             )
         }
@@ -268,6 +273,10 @@ final class AgentHibernationController {
               !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
               (trigger == .systemMemoryPressure || !record.hasLiveProcess),
+              (
+                  trigger != .systemMemoryPressure ||
+                      record.processIdentities.count == record.processIDs.count
+              ),
               record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)
@@ -289,7 +298,10 @@ final class AgentHibernationController {
                 return nil
             }
             let requestID = UUID()
-            teardownInFlightByPanel[record.key] = InFlightTeardown(requestID: requestID)
+            teardownInFlightByPanel[record.key] = InFlightTeardown(
+                requestID: requestID,
+                trigger: trigger
+            )
             confirmations.removeValue(forKey: record.key)
             return ConfirmedTeardownRequest(
                 record: record,
@@ -420,29 +432,6 @@ final class AgentHibernationController {
             terminalPanel: terminalPanel,
             lineLimit: 12
         )
-    }
-
-    func terminateScopedProcessesForHibernation(record: AgentHibernationRecord) {
-        guard !record.processIDs.isEmpty else { return }
-        let currentProcessID = getpid()
-        let currentProcessGroupID = getpgrp()
-        var signaledProcessGroups: Set<pid_t> = []
-        for rawPID in record.processIDs.sorted(by: >) {
-            guard rawPID > 0, rawPID <= Int(Int32.max) else { continue }
-            let pid = pid_t(rawPID)
-            guard pid != currentProcessID else { continue }
-            guard let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: rawPID),
-                  process.matchesCMUXScope(workspaceId: record.key.workspaceId, surfaceId: record.key.panelId) else {
-                continue
-            }
-            let processGroupID = getpgid(pid)
-            if processGroupID > 1,
-               processGroupID != currentProcessGroupID,
-               signaledProcessGroups.insert(processGroupID).inserted {
-                _ = kill(-processGroupID, SIGTERM)
-            }
-            _ = kill(pid, SIGTERM)
-        }
     }
 
     private func clearTrackingState() {

@@ -10,9 +10,13 @@ extension AgentHibernationController {
     @discardableResult
     func reclaimIdleAgentsForSystemMemoryPressure(
         now: Date,
+        isPressureStillCritical: @escaping @MainActor () -> Bool,
         onHibernationCompleted: @escaping @MainActor (Int) -> Void
     ) -> Bool {
-        guard memoryPressureEvaluation == nil else { return false }
+        guard memoryPressureEvaluation == nil,
+              isPressureStillCritical() else {
+            return false
+        }
 
         let requestID = UUID()
         AgentHibernationTrackingGate.setEnabled(true)
@@ -27,7 +31,10 @@ extension AgentHibernationController {
 
             let settings = AgentHibernationSettings.values()
             let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  isPressureStillCritical() else {
+                return
+            }
             let initialEvaluation = self.evaluate(
                 index: index,
                 settings: settings,
@@ -41,14 +48,19 @@ extension AgentHibernationController {
             } catch {
                 return
             }
+            guard isPressureStillCritical() else { return }
             let confirmationIndex = await RestorableAgentSessionIndex
                 .loadIncludingProcessDetectedSnapshots()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  isPressureStillCritical() else {
+                return
+            }
             let confirmationEvaluation = self.evaluate(
                 index: confirmationIndex,
                 settings: AgentHibernationSettings.values(),
                 now: .now,
                 trigger: .systemMemoryPressure,
+                teardownShouldProceed: isPressureStillCritical,
                 onHibernationCompleted: { [weak self] hibernatedCount in
                     self?.finishMemoryPressureEvaluation(requestID: requestID)
                     onHibernationCompleted(hibernatedCount)
