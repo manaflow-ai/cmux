@@ -822,6 +822,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 }
 
+                if self.isMainWindowCloseCommitted(window) {
+                    return .init(
+                        isAvailable: false,
+                        windowId: self.mainWindowId(from: window),
+                        workspaceId: nil,
+                        owner: "close-committed"
+                    )
+                }
+
                 if let context = self.mainWindowContexts[ObjectIdentifier(window)]
                     ?? self.mainWindowContexts.values.first(where: { $0.window === window }) {
                     return .init(
@@ -1004,6 +1013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
+    private let closeCommittedMainWindows = NSHashTable<NSWindow>.weakObjects()
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -4677,6 +4687,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
         let key = ObjectIdentifier(window)
+        clearMainWindowCloseCommitment(window)
         forgetRecoverableMainWindowRoute(windowId: windowId)
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
@@ -16380,6 +16391,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
+        // `windowWillClose` is the point of no return. Record it before
+        // teardown callbacks can attempt to focus this window.
+        markMainWindowCloseCommitted(window)
+
         // Reset cascade point so the next new window appears near the closing
         // window's position, matching upstream Ghostty behavior.
         let frame = window.frame
@@ -16596,6 +16611,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         reason: MainWindowVisibilityController.Reason = .focusMainWindow
     ) {
         _ = mainWindowVisibilityController.focus(window, reason: reason)
+    }
+
+    func markMainWindowCloseCommitted(_ window: NSWindow) {
+        closeCommittedMainWindows.add(window)
+    }
+
+    func clearMainWindowCloseCommitment(_ window: NSWindow) {
+        closeCommittedMainWindows.remove(window)
+    }
+
+    func isMainWindowCloseCommitted(_ window: NSWindow) -> Bool {
+        closeCommittedMainWindows.contains(window)
     }
 
 #if DEBUG

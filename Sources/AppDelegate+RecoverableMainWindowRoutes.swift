@@ -68,7 +68,8 @@ extension AppDelegate {
     private func liveRecoverableMainWindow(windowId: UUID, cachedWindow: NSWindow?) -> NSWindow? {
         let appKitWindows = NSApp.windows
         let isLiveOwner: (NSWindow) -> Bool = { window in
-            appKitWindows.contains(where: { $0 === window })
+            !self.isMainWindowCloseCommitted(window)
+                && appKitWindows.contains(where: { $0 === window })
                 && (window.isVisible || window.isMiniaturized)
                 && self.mainWindowId(from: window) == windowId
         }
