@@ -50,6 +50,7 @@ import json
 import pathlib
 import re
 import sys
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Optional
 
@@ -229,8 +230,6 @@ _SWIFT_CLOCK_EVENT = re.compile(
         (
             r"(?P<open_brace>\{)",
             r"(?P<close_brace>\})",
-            r"^(?P<case_label>[ \t]*(?:case\b[^\n]*|"
-            r"(?:@unknown\s+)?default)\s*:)",
             rf"(?P<typed_let>{_SWIFT_CLOCK_TYPED_LET})",
             rf"(?P<inferred_let>{_SWIFT_CLOCK_INFERRED_LET})",
             rf"(?P<simple_binding>{_SWIFT_SIMPLE_BINDING})",
@@ -901,21 +900,47 @@ def _swift_switch_case_scopes(
         for match in re.finditer(r"\bswitch\b[^{}]*\{", text)
     }
     case_bindings: dict[int, dict[str, bool]] = {}
-    case_pattern = re.compile(
-        r"(?m)^(?P<label>[ \t]*(?:case\b(?P<pattern>[^\n]*)|"
-        r"(?:@unknown\s+)?default)\s*:)"
+    case_start_pattern = re.compile(
+        r"(?m)^[ \t]*(?:(?P<case>case)\b|"
+        r"(?P<default>(?:@unknown\s+)?default)\b)"
     )
     for opening in switch_openings:
         closing = matching_braces.get(opening)
         if closing is None:
             continue
         switch_depth = depth_before[opening] + 1
-        for case in case_pattern.finditer(text, opening + 1, closing):
+        for case in case_start_pattern.finditer(text, opening + 1, closing):
             if depth_before[case.start()] != switch_depth:
                 continue
+
+            label_end: Optional[int] = None
+            parentheses = 0
+            brackets = 0
+            for index in range(case.end(), closing):
+                character = text[index]
+                if character == "(":
+                    parentheses += 1
+                elif character == ")" and parentheses:
+                    parentheses -= 1
+                elif character == "[":
+                    brackets += 1
+                elif character == "]" and brackets:
+                    brackets -= 1
+                elif (
+                    character == ":"
+                    and parentheses == 0
+                    and brackets == 0
+                ):
+                    label_end = index
+                    break
+                elif character in "{}" and parentheses == 0 and brackets == 0:
+                    break
+            if label_end is None:
+                continue
+
             bindings: dict[str, bool] = {}
-            pattern = case.group("pattern")
-            if pattern is not None:
+            if case.group("case") is not None:
+                pattern = text[case.end() : label_end]
                 bindings.update(
                     {name: False for name in pattern_binding_names(pattern)}
                 )
@@ -935,7 +960,26 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
     scopes: list[tuple[str, dict[str, bool]]] = [("file", {})]
     result: set[int] = set()
 
-    for event in _SWIFT_CLOCK_EVENT.finditer(text):
+    clock_events = [
+        (event.start(), "clock", event, None)
+        for event in _SWIFT_CLOCK_EVENT.finditer(text)
+    ]
+    case_events = [
+        (offset, "case", None, bindings)
+        for offset, bindings in switch_case_bindings.items()
+    ]
+    for _, event_kind, event, case_bindings in sorted(
+        clock_events + case_events,
+        key=lambda item: item[0],
+    ):
+        if event_kind == "case":
+            if len(scopes) > 1 and scopes[-1][0] == "case":
+                scopes.pop()
+            if len(scopes) > 1 and scopes[-1][0] == "switch":
+                scopes.append(("case", case_bindings.copy()))
+            continue
+
+        assert event is not None
         if event.group("open_brace") is not None:
             scope_kind = (
                 "function"
@@ -959,15 +1003,6 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
                 scopes.pop()
             if len(scopes) > 1:
                 scopes.pop()
-            continue
-        if event.group("case_label") is not None:
-            bindings = switch_case_bindings.get(event.start())
-            if bindings is None:
-                continue
-            if len(scopes) > 1 and scopes[-1][0] == "case":
-                scopes.pop()
-            if len(scopes) > 1 and scopes[-1][0] == "switch":
-                scopes.append(("case", bindings.copy()))
             continue
         if (
             event.group("typed_let") is not None
@@ -1206,6 +1241,86 @@ def _javascript_callable_parameter_scope(
     return set(), None
 
 
+def _javascript_expression_arrow_scopes(
+    text: str,
+    aliases: set[str],
+) -> tuple[list[tuple[int, int, set[str]]], list[tuple[int, int]]]:
+    """Return lexical bindings and parameter ranges for expression arrows."""
+    scopes: list[tuple[int, int, set[str]]] = []
+    parameter_ranges: list[tuple[int, int]] = []
+    for arrow in re.finditer(r"=>", text):
+        parameter_end = arrow.start()
+        while parameter_end > 0 and text[parameter_end - 1].isspace():
+            parameter_end -= 1
+
+        parameter_start: Optional[int] = None
+        parameters: Optional[str] = None
+        closing = text.rfind(")", 0, parameter_end)
+        while closing >= 0:
+            suffix = text[closing + 1 : parameter_end]
+            if re.fullmatch(r"(?s)\s*(?::[^;=]*?)?\s*", suffix):
+                opening = _javascript_matching_opening_parenthesis(
+                    text,
+                    closing,
+                )
+                if opening is not None:
+                    parameter_start = opening + 1
+                    parameter_end = closing
+                    parameters = text[parameter_start:parameter_end]
+                    break
+            closing = text.rfind(")", 0, closing)
+        if parameter_start is None:
+            simple_parameter = re.search(
+                rf"(?<![$\w])(?P<name>{_JAVASCRIPT_IDENTIFIER_PATTERN})"
+                rf"(?![$\w])$",
+                text[:parameter_end],
+            )
+            if simple_parameter is not None:
+                parameter_start = simple_parameter.start("name")
+                parameters = simple_parameter.group("name")
+        if parameter_start is None or parameters is None:
+            continue
+
+        body_start = arrow.end()
+        while body_start < len(text) and text[body_start].isspace():
+            body_start += 1
+        if body_start >= len(text) or text[body_start] == "{":
+            continue
+
+        delimiters: list[str] = []
+        closing_for = {"(": ")", "[": "]", "{": "}"}
+        body_end = len(text)
+        for index in range(body_start, len(text)):
+            character = text[index]
+            if character in closing_for:
+                delimiters.append(closing_for[character])
+                continue
+            if character in ")]}":
+                if not delimiters:
+                    body_end = index
+                    break
+                if character == delimiters[-1]:
+                    delimiters.pop()
+                continue
+            if not delimiters and (
+                character in ",;" or character in "\r\n"
+            ):
+                body_end = index
+                break
+
+        shadowed = {
+            alias
+            for alias in aliases
+            if re.search(
+                rf"(?<![$\w]){re.escape(alias)}(?![$\w])",
+                parameters,
+            )
+        }
+        scopes.append((body_start, body_end, shadowed))
+        parameter_ranges.append((parameter_start, parameter_end))
+    return scopes, parameter_ranges
+
+
 def _javascript_for_loop_declarations(
     text: str,
     aliases: set[str],
@@ -1317,6 +1432,11 @@ def _javascript_timer_alias_positions(
             continue
         callable_parameter_bindings[body_opening.start()] = shadowed
         callable_parameter_ranges.append(parameter_range)
+
+    expression_arrow_scopes, expression_parameter_ranges = (
+        _javascript_expression_arrow_scopes(text, aliases)
+    )
+    callable_parameter_ranges.extend(expression_parameter_ranges)
 
     def in_callable_parameters(offset: int) -> bool:
         return any(
@@ -1446,6 +1566,11 @@ def _javascript_timer_alias_positions(
             continue
 
         alias = event.group("called")
+        if any(
+            start <= event.start() < end and alias in shadowed
+            for start, end, shadowed in expression_arrow_scopes
+        ):
+            continue
         for _, scope in reversed(scopes):
             if alias not in scope:
                 continue
@@ -3841,6 +3966,47 @@ def _shell_subshell_scope_events(
     return events, arithmetic_depth
 
 
+def _shell_function_scope_events(
+    masked_lines: list[str],
+) -> dict[int, dict[int, list[bool]]]:
+    """Map function-body braces to deferred binding-scope enter/leave events."""
+    text = "\n".join(masked_lines)
+    line_starts = [0]
+    line_starts.extend(
+        index + 1 for index, character in enumerate(text) if character == "\n"
+    )
+
+    matching_braces: dict[int, int] = {}
+    brace_stack: list[int] = []
+    for index, character in enumerate(text):
+        if character == "{":
+            brace_stack.append(index)
+        elif character == "}" and brace_stack:
+            matching_braces[brace_stack.pop()] = index
+
+    identifier = r"[A-Za-z_][A-Za-z0-9_]*"
+    declaration = re.compile(
+        rf"(?:\bfunction\s+{identifier}\s*(?:\(\s*\))?"
+        rf"|(?<![A-Za-z0-9_]){identifier}\s*\(\s*\))\s*"
+        rf"(?P<opening>\{{)"
+    )
+    absolute_events: dict[int, list[bool]] = {}
+    for function in declaration.finditer(text):
+        opening = function.start("opening")
+        closing = matching_braces.get(opening)
+        if closing is None:
+            continue
+        absolute_events.setdefault(opening, []).append(True)
+        absolute_events.setdefault(closing, []).append(False)
+
+    events: dict[int, dict[int, list[bool]]] = {}
+    for absolute_offset, transitions in absolute_events.items():
+        line_index = bisect_right(line_starts, absolute_offset) - 1
+        column = absolute_offset - line_starts[line_index]
+        events.setdefault(line_index, {})[column] = transitions
+    return events
+
+
 def _shell_real_sleep_positions(
     raw_lines: list[str],
     masked_lines: list[str],
@@ -3850,6 +4016,7 @@ def _shell_real_sleep_positions(
     sleep_function_scopes = [False]
     subshell_frames: list[str] = []
     arithmetic_depth = 0
+    function_scope_events = _shell_function_scope_events(masked_lines)
     for line_index, (raw_line, masked_line) in enumerate(
         zip(raw_lines, masked_lines)
     ):
@@ -3865,6 +4032,11 @@ def _shell_real_sleep_positions(
         scope_events_by_offset: dict[int, list[bool]] = {}
         for offset, entering in scope_events:
             scope_events_by_offset.setdefault(offset, []).append(entering)
+        for offset, transitions in function_scope_events.get(
+            line_index,
+            {},
+        ).items():
+            scope_events_by_offset.setdefault(offset, []).extend(transitions)
         for match in _SHELL_BARE_SLEEP.finditer(masked_line):
             sleep_position = match.start() + match.group().rfind("sleep")
             if _shell_function_declaration_at(
