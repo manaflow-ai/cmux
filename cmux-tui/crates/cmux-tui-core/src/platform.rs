@@ -916,6 +916,60 @@ pub mod transport {
 
         #[cfg(target_os = "macos")]
         #[test]
+        fn deadline_connect_bounds_process_barrier_wait() {
+            use std::sync::mpsc;
+
+            let _serial = SOCKET_CREATED_TEST_LOCK.lock().unwrap();
+            let path = std::path::PathBuf::from("/tmp").join(format!(
+                "cmux-connect-barrier-{}-{}.sock",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+            let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+            let (result_sender, result_receiver) = mpsc::sync_channel(1);
+            let connector = std::thread::spawn({
+                let path = path.clone();
+                move || {
+                    let started = Instant::now();
+                    let result =
+                        connect_unix_until(&path, started + Duration::from_millis(40)).map(drop);
+                    result_sender.send((started.elapsed(), result)).unwrap();
+                }
+            });
+
+            let before_release = result_receiver.recv_timeout(Duration::from_millis(150));
+            drop(process_barrier);
+            let completed_before_release = before_release.is_ok();
+            let (elapsed, result) = before_release.unwrap_or_else(|_| {
+                result_receiver
+                    .recv_timeout(Duration::from_secs(2))
+                    .expect("connector did not finish after the process barrier was released")
+            });
+            connector.join().unwrap();
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
+
+            assert!(
+                completed_before_release,
+                "deadline connector waited for an unbounded process barrier"
+            );
+            assert_eq!(
+                result.unwrap_err().kind(),
+                io::ErrorKind::TimedOut,
+                "barrier deadline returned the wrong transport error"
+            );
+            assert!(
+                elapsed < Duration::from_millis(150),
+                "barrier deadline exceeded its wall-clock bound: {elapsed:?}"
+            );
+        }
+
+        #[cfg(target_os = "macos")]
+        #[test]
         fn transport_listener_creation_waits_for_the_process_barrier() {
             use std::sync::mpsc;
 
