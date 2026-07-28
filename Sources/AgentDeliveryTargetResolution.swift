@@ -30,13 +30,19 @@ struct AgentDeliveryTargetCandidate: Equatable {
     let surfaceId: UUID
 }
 
-/// Combines the two live pid signals. The start-time-keyed process environment
-/// covers nested PTYs whose controlling TTY differs from the cmux pane. When
-/// both signals resolve, disagreement still fails closed.
+/// Resolves live pid evidence under the requested trust policy.
+///
+/// The default combines controlling-TTY and start-time-keyed environment
+/// evidence, preserving the delivery-time behavior for nested PTYs. Hook
+/// persistence requests ``AgentProcessBindingResolution/controllingTTY``:
+/// inherited `CMUX_SURFACE_ID` is the claim being verified there, so it cannot
+/// also corroborate itself.
 nonisolated func agentDeliveryTargetCombining(
     ttyTarget: AgentDeliveryTargetCandidate?,
-    envTarget: AgentDeliveryTargetCandidate?
+    envTarget: AgentDeliveryTargetCandidate?,
+    resolution: AgentProcessBindingResolution = .corroborated
 ) -> AgentDeliveryTargetCandidate? {
+    if resolution == .controllingTTY { return ttyTarget }
     guard let ttyTarget else { return envTarget }
     if let envTarget, envTarget.surfaceId != ttyTarget.surfaceId { return nil }
     return ttyTarget
@@ -110,7 +116,10 @@ extension AppDelegate {
     /// `CMUX_SURFACE_ID` environment re-homed through
     /// `notificationSurfaceOwner` as a nested-PTY fallback. Disagreement fails
     /// closed.
-    func liveAgentDeliveryTarget(forAgentPID pid: pid_t) -> AgentDeliveryTargetCandidate? {
+    func liveAgentDeliveryTarget(
+        forAgentPID pid: pid_t,
+        resolution: AgentProcessBindingResolution = .corroborated
+    ) -> AgentDeliveryTargetCandidate? {
         guard let identity = agentLiveProcessIdentity(pid: pid) else { return nil }
 
         var ttyTarget: AgentDeliveryTargetCandidate?
@@ -127,6 +136,9 @@ extension AppDelegate {
                 }
             }
             ttyTarget = agentDeliveryTargetMatchingTTYDevice(ttyDevice, surfaceTTYDevices: bindings)
+        }
+        if resolution == .controllingTTY {
+            return ttyTarget
         }
 
         let processScope: CmuxTopProcessScope?
@@ -146,7 +158,11 @@ extension AppDelegate {
             envTarget = AgentDeliveryTargetCandidate(workspaceId: owner.tabID, surfaceId: envSurfaceId)
         }
 
-        return agentDeliveryTargetCombining(ttyTarget: ttyTarget, envTarget: envTarget)
+        return agentDeliveryTargetCombining(
+            ttyTarget: ttyTarget,
+            envTarget: envTarget,
+            resolution: resolution
+        )
     }
 
     /// Delivery-time target for an agent event addressed to
@@ -201,6 +217,23 @@ extension TerminalController {
     func v2AgentResolveDeliveryTarget(params: [String: Any]) -> V2CallResult {
         let claimedWorkspaceId = v2UUID(params, "workspace_id")
         let claimedSurfaceId = v2UUID(params, "surface_id")
+        let pidResolution: AgentProcessBindingResolution
+        if let rawPIDResolution = params["pid_resolution"] {
+            guard let rawPIDResolution = rawPIDResolution as? String,
+                  let parsed = AgentProcessBindingResolution(rawValue: rawPIDResolution) else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "agent.deliveryTarget.error.invalidPidResolution",
+                        defaultValue: "pid_resolution must be corroborated or controlling_tty"
+                    ),
+                    data: nil
+                )
+            }
+            pidResolution = parsed
+        } else {
+            pidResolution = .corroborated
+        }
         guard let appDelegate = AppDelegate.shared else {
             return .err(
                 code: "unavailable",
@@ -228,7 +261,10 @@ extension TerminalController {
                     data: nil
                 )
             }
-            if let target = appDelegate.liveAgentDeliveryTarget(forAgentPID: agentPid) {
+            if let target = appDelegate.liveAgentDeliveryTarget(
+                forAgentPID: agentPid,
+                resolution: pidResolution
+            ) {
                 return .ok([
                     "workspace_id": target.workspaceId.uuidString,
                     "surface_id": target.surfaceId.uuidString,

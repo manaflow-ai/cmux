@@ -205,41 +205,6 @@ private struct CodexMonitorLeaseRecord: Codable {
     var retiredAt: TimeInterval?
 }
 
-struct ClaudeHookSessionStoreFile: Codable {
-    var version: Int = 1
-    var sessions: [String: ClaudeHookSessionRecord] = [:]
-    var activeSessionsByWorkspace: [String: ClaudeHookActiveSessionRecord] = [:]
-    // The pane-scoped active boundary. The workspace slot only remembers ONE
-    // active session, so once another pane promotes (e.g. a forked conversation
-    // in a split), it can no longer prove that a late hook from a superseded
-    // session in this pane is stale. Keyed by surface id.
-    // https://github.com/manaflow-ai/cmux/issues/5908
-    var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
-
-    enum CodingKeys: String, CodingKey {
-        case version
-        case sessions
-        case activeSessionsByWorkspace
-        case activeSessionsBySurface
-    }
-
-    init() {}
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
-        sessions = try container.decodeIfPresent([String: ClaudeHookSessionRecord].self, forKey: .sessions) ?? [:]
-        activeSessionsByWorkspace = try container.decodeIfPresent(
-            [String: ClaudeHookActiveSessionRecord].self,
-            forKey: .activeSessionsByWorkspace
-        ) ?? [:]
-        activeSessionsBySurface = try container.decodeIfPresent(
-            [String: ClaudeHookActiveSessionRecord].self,
-            forKey: .activeSessionsBySurface
-        ) ?? [:]
-    }
-}
-
 final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
@@ -249,12 +214,14 @@ final class ClaudeHookSessionStore {
 
     private let statePath: String
     private let fileManager: FileManager
+    private let supersedesSameProcessSessionsOnUpsert: Bool
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        supersedesSameProcessSessionsOnUpsert: Bool = false
     ) {
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
@@ -268,6 +235,7 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.supersedesSameProcessSessionsOnUpsert = supersedesSameProcessSessionsOnUpsert
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -743,6 +711,13 @@ final class ClaudeHookSessionStore {
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
             )
+            if supersedesSameProcessSessionsOnUpsert {
+                supersedeSessionsOwnedBySameProcess(
+                    &state,
+                    keepingSessionId: normalized,
+                    pid: record.pid
+                )
+            }
             state.sessions[normalized] = record
             if markActive {
                 let activeRecord = ClaudeHookActiveSessionRecord(
@@ -1484,6 +1459,21 @@ final class ClaudeHookSessionStore {
         }
         for (surfaceId, active) in state.activeSessionsBySurface where matches(active) {
             state.activeSessionsBySurface.removeValue(forKey: surfaceId)
+        }
+    }
+
+    private func supersedeSessionsOwnedBySameProcess(
+        _ state: inout ClaudeHookSessionStoreFile,
+        keepingSessionId: String,
+        pid: Int?
+    ) {
+        guard let pid else { return }
+        let superseded = state.sessions.values.filter {
+            $0.sessionId != keepingSessionId && $0.pid == pid
+        }
+        for record in superseded {
+            state.sessions.removeValue(forKey: record.sessionId)
+            clearActiveSessionIfMatching(&state, removed: record, turnId: nil)
         }
     }
 
@@ -27558,6 +27548,7 @@ struct CMUXCLI {
         switch agentName {
         case "claude": envKey = "CMUX_CLAUDE_PID"
         case "codex": envKey = "CMUX_CODEX_PID"
+        case "omp": envKey = "CMUX_OMP_PID"
         case "cursor": envKey = "CMUX_CURSOR_PID"
         case "gemini": envKey = "CMUX_GEMINI_PID"
         case "antigravity": envKey = "CMUX_ANTIGRAVITY_PID"
@@ -30408,9 +30399,9 @@ export default CMUXSessionRestore;
             return
         }
 
-        // Workspace/surface resolution: prefer --workspace/--surface flags,
-        // then env, then the caller process. Grok strips CMUX_* from hook
-        // subprocesses, so PID attribution is the only reliable live binding.
+        // Explicit flags retain priority. Ambient env identities are claims:
+        // verify or correct them with the live process binding before persisting.
+        // Grok strips CMUX_* from hooks, so live PID attribution is required.
         let inferredPID = agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID()
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
@@ -30455,15 +30446,15 @@ export default CMUXSessionRestore;
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
-                // Always resolve the agent process's own terminal binding (TTY first, then PID), even
-                // when env supplies both ids. Historically this was suppressed whenever both env ids
-                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
-                // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
-                // resume binding persists it across reload. resolveAgentHookTarget now uses this
-                // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
-                // trusted) under remote/SSH where no local TTY maps to a surface.
-                processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
-                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+                switch liveAgentControllingTTYBinding(pid: inferredPID, client: client) {
+                case .resolved(let binding):
+                    processBindingCache = binding
+                case .unsupported:
+                    processBindingCache = uniqueCallerTerminalBindingByTTY(client: client)
+                        ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+                case .failed, .notAttempted:
+                    processBindingCache = uniqueCallerTerminalBindingByTTY(client: client)
+                }
             }
             return processBindingCache
         }
@@ -30496,7 +30487,8 @@ export default CMUXSessionRestore;
             processEnv: env.merging(
                 ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
                 uniquingKeysWith: { _, new in new }
-            )
+            ),
+            supersedesSameProcessSessionsOnUpsert: def.name == "omp"
         )
 
         let hookCwd = input.cwd
@@ -30684,39 +30676,32 @@ export default CMUXSessionRestore;
                 return (workspaceId, surfaceId)
             }
 
-            // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
-            // (CMUX_SURFACE_ID), which a launcher or an inherited subprocess can leak as the operator's
-            // FOCUSED pane rather than the agent's own pane. When the agent process's controlling TTY
-            // (or PID) is bound to a DIFFERENT, accessible surface inside this same workspace, that
-            // binding is ground truth — prefer it. Returns the env surface unchanged when there is no
-            // env surface to correct, when it came from an explicit --surface flag (operator intent),
-            // or when the TTY/PID binding is unavailable (remote/SSH) or already agrees. Stays within
-            // the env workspace so a flaky binding can never cross-route to a different workspace.
-            func correctedDirectSurfaceId(workspaceId: String) -> String? {
-                guard let envSurface = resolvedDirectSurfaceArg else { return nil }
-                guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return envSurface }
-                guard let binding = processBinding(),
-                      let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
-                      let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
-                      resolveAccessibleWorkspaceId(boundWorkspaceRaw) == workspaceId,
-                      let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId),
-                      boundSurface != envSurface else {
-                    return envSurface
-                }
+            // Without explicit flags, the unique kernel controlling-TTY binding
+            // is authoritative over both ambient IDs. This also follows a pane
+            // that moved to a different workspace after the env was captured.
+            if hookWsFlag == nil, explicitSurfaceFlag == nil,
+               let binding = processBinding(),
+               let workspaceId = resolveAccessibleWorkspaceId(binding.workspaceId),
+               let surfaceId = resolveAccessibleSurfaceId(
+                   binding.surfaceId,
+                   workspaceId: workspaceId
+               ) {
 #if DEBUG
                 agentHookDebugLog(
-                    "agentHook.surface.correct agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) env=\(agentHookDebugShort(envSurface)) tty=\(agentHookDebugShort(boundSurface))",
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
                     socketPath: client.socketPath,
                     env: env
                 )
 #endif
-                return boundSurface
+                return (workspaceId, surfaceId)
             }
 
             if let workspaceId = resolvedDirectWorkspaceArg {
-                let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
-                    ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
-                let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
+                let target = resolveTarget(
+                    workspaceId: workspaceId,
+                    preferredSurfaceId: resolvedDirectSurfaceArg,
+                    mapped: mapped
+                )
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=direct workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
@@ -30731,7 +30716,7 @@ export default CMUXSessionRestore;
             if let workspaceId = resolveAccessibleWorkspaceId(binding?.workspaceId),
                let target = resolveTarget(
                    workspaceId: workspaceId,
-                   preferredSurfaceId: binding?.surfaceId,
+                   preferredSurfaceId: resolvedDirectSurfaceArg ?? binding?.surfaceId,
                    mapped: mapped
                ) {
 #if DEBUG

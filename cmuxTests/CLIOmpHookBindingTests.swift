@@ -2,14 +2,42 @@ import Darwin
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 @Suite(.serialized)
 struct CLIOmpHookBindingTests {
     private typealias Harness = ClaudeHookLiveDeliveryHarness
 
-    private static let workspaceId = "11111111-1111-1111-1111-111111111111"
+    private static let leakedWorkspaceId = "11111111-1111-1111-1111-111111111111"
+    private static let liveWorkspaceId = "44444444-4444-4444-4444-444444444444"
     private static let leakedSurfaceId = "22222222-2222-2222-2222-222222222222"
     private static let liveSurfaceId = "33333333-3333-3333-3333-333333333333"
     private static let ompPID = 43_210
+
+    @Test
+    func controllingTTYPolicyDoesNotCorroborateWithInheritedEnvironment() {
+        let tty = AgentDeliveryTargetCandidate(workspaceId: UUID(), surfaceId: UUID())
+        let inherited = AgentDeliveryTargetCandidate(workspaceId: UUID(), surfaceId: UUID())
+
+        #expect(
+            agentDeliveryTargetCombining(
+                ttyTarget: tty,
+                envTarget: inherited,
+                resolution: .controllingTTY
+            ) == tty
+        )
+        #expect(
+            agentDeliveryTargetCombining(
+                ttyTarget: nil,
+                envTarget: inherited,
+                resolution: .controllingTTY
+            ) == nil
+        )
+    }
 
     @Test
     func resumedSessionUsesLivePIDTTYTargetAndSupersedesPriorProcessClaim() throws {
@@ -29,14 +57,15 @@ struct CLIOmpHookBindingTests {
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
             surfacesByWorkspace: [
-                Self.workspaceId: [Self.leakedSurfaceId, Self.liveSurfaceId],
+                Self.leakedWorkspaceId: [Self.leakedSurfaceId],
+                Self.liveWorkspaceId: [Self.liveSurfaceId],
             ],
-            pidTarget: (workspaceId: Self.workspaceId, surfaceId: Self.liveSurfaceId)
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
         )
 
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
-        environment["CMUX_WORKSPACE_ID"] = Self.workspaceId
+        environment["CMUX_WORKSPACE_ID"] = Self.leakedWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.leakedSurfaceId
         environment["CMUX_OMP_PID"] = String(Self.ompPID)
         environment["CMUX_AGENT_LAUNCH_KIND"] = "omp"
@@ -70,7 +99,7 @@ struct CLIOmpHookBindingTests {
             $0["method"] as? String == "surface.resume.set"
         })
         let resumeParams = try #require(resumeRequest["params"] as? [String: Any])
-        #expect(resumeParams["workspace_id"] as? String == Self.workspaceId)
+        #expect(resumeParams["workspace_id"] as? String == Self.liveWorkspaceId)
         #expect(resumeParams["surface_id"] as? String == Self.liveSurfaceId)
 
         let store = try #require(
@@ -79,7 +108,7 @@ struct CLIOmpHookBindingTests {
         let sessions = try #require(store["sessions"] as? [String: Any])
         #expect(sessions[previousSessionId] == nil, "A resumed session ID must supersede the prior claim from the same live process")
         let resumed = try #require(sessions[resumedSessionId] as? [String: Any])
-        #expect(resumed["workspaceId"] as? String == Self.workspaceId)
+        #expect(resumed["workspaceId"] as? String == Self.liveWorkspaceId)
         #expect(resumed["surfaceId"] as? String == Self.liveSurfaceId)
         #expect(resumed["pid"] as? Int == Self.ompPID)
         #expect(store["activeSessionsBySurface"] == nil)
@@ -100,7 +129,7 @@ struct CLIOmpHookBindingTests {
             "sessions": [
                 sessionId: [
                     "sessionId": sessionId,
-                    "workspaceId": workspaceId,
+                    "workspaceId": liveWorkspaceId,
                     "surfaceId": surfaceId,
                     "cwd": cwd,
                     "pid": ompPID,

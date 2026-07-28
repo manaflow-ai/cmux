@@ -3076,6 +3076,23 @@
         }
       }
     },
+    "agent.deliveryTarget.error.invalidPidResolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution must be corroborated or controlling_tty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution は corroborated または controlling_tty でなければなりません。"
+          }
+        }
+      }
+    },
     "agent.deliveryTarget.error.notFound": {
       "extractionState": "manual",
       "localizations": {
