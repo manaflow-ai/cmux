@@ -89,6 +89,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "try await clock.sleep(until: deadline)\n"
                 "#expect(finished)\n"
             ),
+            "typealiased-continuous-clock.swift": (
+                "typealias WallClock = ContinuousClock\n"
+                "let clock = WallClock()\n"
+                "try await clock.sleep(until: deadline)\n"
+                "#expect(finished)\n"
+            ),
             "nonleading-continuous-clock.swift": (
                 "let marker = false, clock = ContinuousClock()\n"
                 "try await clock.sleep(until: deadline)\n"
@@ -161,6 +167,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "func verify(clock: ContinuousClock) async throws {\n"
                 "    try await clock.sleep(until: deadline)\n"
                 "    #expect(finished)\n"
+                "}\n"
+            ),
+            "optional-continuous-clock-parameter.swift": (
+                "func verify(clock: ContinuousClock?) async throws {\n"
+                "    if let clock {\n"
+                "        try await clock.sleep(until: deadline)\n"
+                "        #expect(finished)\n"
+                "    }\n"
                 "}\n"
             ),
             "qualified-suspending-clock-parameter.swift": (
@@ -280,6 +294,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "}\n"
                 "await delay(1)\n"
                 "expect(finished).toBe(true)\n"
+            ),
+            "timer-alias-destructured-property.ts": (
+                'import { setTimeout as delay } from "node:timers/promises"\n'
+                "function verify({ delay: injectedDelay }) {\n"
+                "    await delay(1)\n"
+                "    expect(finished).toBe(true)\n"
+                "}\n"
             ),
             "timer-alias-after-var-shadow-function.ts": (
                 'import { setTimeout as delay } from "timers/promises"\n'
@@ -749,6 +770,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "later-unqualified-clock-member.swift",
                     "continuous-clock-after-catch-shadow.swift",
                     "shorthand-clock-capture.swift",
+                    "typealiased-continuous-clock.swift",
+                    "optional-continuous-clock-parameter.swift",
+                    "timer-alias-destructured-property.ts",
                     "swift-multiline-interpolation.swift",
                     "swift-raw-multiline-interpolation.swift",
                     "timer-alias-after-unrelated-import.ts",
@@ -827,6 +851,20 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "func verify(clock: TestRelayClock) async throws {\n"
                     "    try await clock.sleep(until: deadline)\n"
                     "    #expect(await completed)\n"
+                    "}\n"
+                ),
+                "typealiased-virtual-clock.swift": (
+                    "typealias VirtualClock = TestRelayClock\n"
+                    "let clock = VirtualClock()\n"
+                    "try await clock.sleep(until: deadline)\n"
+                    "#expect(await completed)\n"
+                ),
+                "optional-virtual-clock-parameter.swift": (
+                    "func verify(clock: TestRelayClock?) async throws {\n"
+                    "    if let clock {\n"
+                    "        try await clock.sleep(until: deadline)\n"
+                    "        #expect(await completed)\n"
+                    "    }\n"
                     "}\n"
                 ),
                 "inner-binding-shadow.swift": (
@@ -912,6 +950,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    await delay(1)\n"
                     "    expect(completed).toBe(true)\n"
                     "})\n"
+                ),
+                "timer-alias-renamed-destructuring-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "function verify({ timer: delay }) {\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "}\n"
                 ),
                 "timer-alias-rebound.ts": (
                     'import { setTimeout as delay } from "timers/promises"\n'
