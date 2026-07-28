@@ -199,6 +199,21 @@ extension Workspace {
         return (containerPanelID, paneId(forPanelId: containerPanelID)?.id, panel)
     }
 
+    /// The terminal that currently owns keyboard input for this workspace.
+    /// Workspace selection remains the stable outer identity, while a remote
+    /// tmux container projects to its authoritative active inner pane.
+    func focusedTerminalInputTarget() -> (surfaceID: UUID, panel: TerminalPanel)? {
+        guard let focusedPanelId,
+              let projection = controlSurfaceProjection(forContainerPanelID: focusedPanelId),
+              let panel = projection.panel as? TerminalPanel else { return nil }
+        return (projection.surfaceID, panel)
+    }
+
+    /// Whether `surfaceID` is the workspace's canonical keyboard-input target.
+    func isFocusedTerminalInputSurface(_ surfaceID: UUID) -> Bool {
+        focusedTerminalInputTarget()?.surfaceID == surfaceID
+    }
+
     /// Resolves the selected terminal target. A mirror container projects its
     /// active inner pane; a requested pane projects that pane's selected surface.
     func controlDefaultTerminalTarget(
@@ -218,10 +233,7 @@ extension Workspace {
             return nil
         }
 
-        guard let focusedPanelId,
-              let projection = controlSurfaceProjection(forContainerPanelID: focusedPanelId),
-              let panel = projection.panel as? TerminalPanel else { return nil }
-        return (projection.surfaceID, panel)
+        return focusedTerminalInputTarget()
     }
 
     /// Resolves explicit-or-default control-plane surface targeting. An
