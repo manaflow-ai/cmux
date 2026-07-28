@@ -10715,21 +10715,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        // Wait for a terminal surface to become first responder before signaling
-        // setup complete. Ghostty keybinds only fire when GhosttyNSView has focus.
+        // Signal setup only after the terminal reports real keyboard focus.
+        // Ghostty keybinds only fire when GhosttyNSView has focus.
         var observer: NSObjectProtocol?
         var resolved = false
-        let deadline = Date().addingTimeInterval(6.0)
 
-        func checkAndSignal(notification: Notification? = nil) {
+        func signalSetupComplete(notification: Notification) {
             guard !resolved else { return }
-            guard Date() < deadline else {
-                if let observer { NotificationCenter.default.removeObserver(observer) }
-                resolved = true
-                self.writeGotoSplitTestData(["setupError": "Timed out waiting for terminal focus"])
-                return
-            }
-            if let notifiedTabId = notification?.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+            if let notifiedTabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                notifiedTabId != tab.id {
                 return
             }
@@ -10738,7 +10731,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   let window = terminalPanel.hostedView.window,
                   let firstResponder = window.firstResponder,
                   terminalPanel.hostedView.responderMatchesPreferredKeyboardFocus(firstResponder) else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { checkAndSignal(notification: nil) }
                 return
             }
 
@@ -10762,10 +10754,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             forName: .ghosttyDidFocusSurface,
             object: nil,
             queue: .main
-        ) { notification in checkAndSignal(notification: notification) }
+        ) { notification in
+            MainActor.assumeIsolated {
+                signalSetupComplete(notification: notification)
+            }
+        }
 
-        // Also poll in case the notification already fired before we observed.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { checkAndSignal(notification: nil) }
+        // Register the observer before the final focus request so the setup gate
+        // is driven by the Ghostty focus notification rather than a timer.
+        tab.focusPanel(initialPanelId)
     }
 
     private func setupBonsplitTabDragUITestIfNeeded() {
