@@ -157,6 +157,24 @@ struct ClipboardWriteCaptureTests {
         #expect(board?.string(forType: .string) == marker)
         #expect(board?.string(forType: .html) == html)
     }
+
+    @Test func duplicateMIMETypesPreserveFirstMappedRepresentation() {
+        let service = TerminalPasteboardService()
+
+        service.writeRepresentations(
+            [
+                .init(mimeType: "text/plain; charset=utf-8", string: "preferred plain"),
+                .init(mimeType: "text/plain", string: "later plain"),
+                .init(mimeType: "text/html", string: "<b>preferred html</b>"),
+                .init(mimeType: "text/html; charset=utf-8", string: "<i>later html</i>"),
+            ],
+            to: GHOSTTY_CLIPBOARD_SELECTION
+        )
+
+        let board = service.pasteboard(for: GHOSTTY_CLIPBOARD_SELECTION)
+        #expect(board?.string(forType: .string) == "preferred plain")
+        #expect(board?.string(forType: .html) == "<b>preferred html</b>")
+    }
 }
 
 @Suite("Image materialization and temp-file ownership")

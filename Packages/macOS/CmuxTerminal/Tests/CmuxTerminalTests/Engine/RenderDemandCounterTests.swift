@@ -98,6 +98,7 @@ struct RenderDemandCounterTests {
 
         localRetention.release()
         cursorRetention.release()
+        #expect(coordinator.activeDeliveryReasons.isEmpty)
     }
 
     @Test @MainActor
@@ -114,5 +115,6 @@ struct RenderDemandCounterTests {
         #expect(!coordinator.requestFrame())
         #expect(!coordinator.requestFrame())
         retention.release()
+        #expect(!coordinator.requestFrame())
     }
 }
