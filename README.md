@@ -40,7 +40,7 @@ Panes get a blue ring and tabs light up when coding agents need your attention
 <tr>
 <td width="40%" valign="middle">
 <h3>Notification panel</h3>
-See all pending notifications in one place, jump to the most recent unread
+See all pending notifications in one place, and jump to the most recent unread
 </td>
 <td width="60%">
 <img src="./docs/assets/sidebar-notification-badge.png" alt="Sidebar notification badge" width="100%" />
@@ -242,7 +242,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 
 [Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
 
-cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
+cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. It is built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 
 Report nightly bugs on [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) or in [#nightly-bugs on Discord](https://discord.gg/xsgFEVrWCZ).
 
@@ -385,7 +385,7 @@ Yes, cmux is free to use. The source code is available on [GitHub](https://githu
 
 cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
 
-### I have a feature request or found a bug?
+### I have a feature request or a bug to report?
 
 We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) or [pull request](https://github.com/manaflow-ai/cmux/pulls) on GitHub, or [email us](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
 
