@@ -14,24 +14,6 @@ private typealias AppStoredShortcut = cmux.StoredShortcut
 @MainActor
 @Suite(.serialized)
 struct WorkspaceRecoveryTests {
-    private func makeCustomizationStore() throws -> (
-        store: WorkspaceDirectoryCustomizationStore,
-        defaults: UserDefaults,
-        suiteName: String
-    ) {
-        let suiteName = "WorkspaceDirectoryCustomizationStore.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        return (
-            WorkspaceDirectoryCustomizationStore(
-                defaults: defaults,
-                storageKey: "test.customizations"
-            ),
-            defaults,
-            suiteName
-        )
-    }
-
     @Test
     func closedHistoryPushesMostRecentFirstAndBoundsCapacity() throws {
         #expect(ClosedItemHistoryStore.defaultWorkspaceCapacity == 100)
@@ -214,12 +196,8 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
-    func closedRestoreDoesNotTurnAnAutomaticSnapshotTitleIntoStickyUserIdentity() throws {
+    func closedRestoreKeepsAutomaticTitleProvenance() throws {
         let directory = "/tmp/automatic-history-title"
-        let fixture = try makeCustomizationStore()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        fixture.store.setCustomTitle("Sticky Label", for: directory)
-
         let sourceManager = TabManager(
             initialWorkingDirectory: directory,
             autoWelcomeIfNeeded: false
@@ -237,33 +215,18 @@ struct WorkspaceRecoveryTests {
             snapshot: closedWorkspace.sessionSnapshot(includeScrollback: false)
         )
 
-        let destinationManager = TabManager(
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: fixture.store
-        )
+        let destinationManager = TabManager(autoWelcomeIfNeeded: false)
         let historyStore = ClosedItemHistoryStore(loadPersisted: false)
         historyStore.push(.workspace(entry))
 
         #expect(destinationManager.reopenMostRecentlyClosedWorkspace(from: historyStore))
-        #expect(destinationManager.selectedWorkspace?.customTitle == "Sticky Label")
-        #expect(fixture.store.customization(for: directory)?.customTitle == "Sticky Label")
-
-        let generated = destinationManager.addWorkspace(
-            title: "Generated Title",
-            titleSource: .auto,
-            workingDirectory: directory,
-            select: false
-        )
-        #expect(generated.customTitle == "Sticky Label")
-        #expect(fixture.store.customization(for: directory)?.customTitle == "Sticky Label")
+        let reopened = try #require(destinationManager.selectedWorkspace)
+        #expect(reopened.customTitle == "Automatic Snapshot Title")
+        #expect(reopened.effectiveCustomTitleSource == .auto)
     }
     @Test
-    func failedClosedRestoreDoesNotPersistSnapshotCustomization() throws {
+    func failedClosedRestoreLeavesNoWorkspaceBehind() throws {
         let directory = "/tmp/failed-history-restore"
-        let fixture = try makeCustomizationStore()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        fixture.store.setCustomTitle("Existing Label", for: directory)
-
         let sourceManager = TabManager(initialWorkingDirectory: directory, autoWelcomeIfNeeded: false)
         var snapshot = try #require(sourceManager.selectedWorkspace).sessionSnapshot(includeScrollback: false)
         snapshot.customTitle = "Failed Restore Label"
@@ -275,125 +238,26 @@ struct WorkspaceRecoveryTests {
             workspaceIndex: 0,
             snapshot: snapshot
         )
-        let destinationManager = TabManager(
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: fixture.store
-        )
+        let destinationManager = TabManager(autoWelcomeIfNeeded: false)
+        let tabsBeforeRestore = destinationManager.tabs.map(\.id)
 
         #expect(!destinationManager.restoreClosedWorkspace(entry))
-        #expect(fixture.store.customization(for: directory)?.customTitle == "Existing Label")
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        fixture.store.setCustomTitle("Home Label", for: home)
-        let rootlessManager = TabManager(autoWelcomeIfNeeded: false, workspaceDirectoryCustomizationStore: fixture.store)
-        let rootlessWorkspace = try #require(rootlessManager.selectedWorkspace)
-        #expect(rootlessWorkspace.customTitle == nil)
-        rootlessManager.setTabColor(tabId: rootlessWorkspace.id, color: "#123456")
-        #expect(fixture.store.customization(for: home) == WorkspaceDirectoryCustomization(customTitle: "Home Label", customColor: nil))
+        #expect(destinationManager.tabs.map(\.id) == tabsBeforeRestore)
     }
 
     @Test
-    func directoryCustomizationPersistsAndNormalizesEquivalentPaths() throws {
-        let suiteName = "WorkspaceDirectoryCustomizationStore.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let firstStore = WorkspaceDirectoryCustomizationStore(
-            defaults: defaults,
-            storageKey: "test.customizations"
-        )
-        firstStore.setCustomTitle("Project Alpha", for: "/tmp/project/../project")
-        firstStore.setCustomColor("#123456", for: "/tmp/project")
-
-        let reloadedStore = WorkspaceDirectoryCustomizationStore(
-            defaults: defaults,
-            storageKey: "test.customizations"
-        )
-        #expect(
-            reloadedStore.customization(for: "/tmp/project/") ==
-                WorkspaceDirectoryCustomization(
-                    customTitle: "Project Alpha",
-                    customColor: "#123456"
-                )
-        )
-    }
-
-    @Test
-    func createRenameAndColorChangesShareOneStickyDirectoryRecord() throws {
-        let directory = "/tmp/sticky-project"
-        let fixture = try makeCustomizationStore()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        let store = fixture.store
-        store.setCustomTitle("Original Label", for: directory)
-        store.setCustomColor("#112233", for: directory)
-
-        let firstManager = TabManager(
-            initialWorkingDirectory: "\(directory)/.",
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: store
-        )
-        let firstWorkspace = try #require(firstManager.selectedWorkspace)
-        #expect(firstWorkspace.customTitle == "Original Label")
-        #expect(firstWorkspace.customColor == "#112233")
-
-        firstWorkspace.currentDirectory = "/tmp/sticky-project/subdirectory"
-        #expect(firstManager.setCustomTitle(
-            tabId: firstWorkspace.id,
-            title: "Renamed Label"
-        ))
-        firstManager.setTabColor(tabId: firstWorkspace.id, color: "#AABBCC")
-
-        let secondManager = TabManager(
-            initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: store
-        )
-        let secondWorkspace = try #require(secondManager.selectedWorkspace)
-        #expect(secondWorkspace.customTitle == "Renamed Label")
-        #expect(secondWorkspace.customColor == "#AABBCC")
-        #expect(store.customization(for: firstWorkspace.currentDirectory) == nil)
-
-        secondManager.clearCustomTitle(tabId: secondWorkspace.id)
-        secondManager.setTabColor(tabId: secondWorkspace.id, color: nil)
-
-        let clearedManager = TabManager(
-            initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: store
-        )
-        let clearedWorkspace = try #require(clearedManager.selectedWorkspace)
-        #expect(clearedWorkspace.customTitle == nil)
-        #expect(clearedWorkspace.customColor == nil)
-
-        #expect(clearedManager.setCustomTitle(
-            tabId: clearedWorkspace.id,
-            title: "Automatic Title",
-            source: .auto
-        ))
-        let afterAutomaticRename = TabManager(
-            initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: store
-        )
-        #expect(afterAutomaticRename.selectedWorkspace?.customTitle == nil)
-    }
-
-    @Test
-    func batchColorChangesPersistForEveryWorkspaceRoot() throws {
-        let fixture = try makeCustomizationStore()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        let store = fixture.store
-        store.setCustomTitle("First", for: "/tmp/batch-first")
-        store.setCustomTitle("Second", for: "/tmp/batch-second")
-
+    func batchColorChangesApplyToEveryTargetWorkspace() throws {
         let manager = TabManager(
             initialWorkingDirectory: "/tmp/batch-first",
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: store
+            autoWelcomeIfNeeded: false
         )
         let first = try #require(manager.selectedWorkspace)
         let second = manager.addWorkspace(
             workingDirectory: "/tmp/batch-second",
+            select: false
+        )
+        let untouched = manager.addWorkspace(
+            workingDirectory: "/tmp/batch-third",
             select: false
         )
 
@@ -402,52 +266,15 @@ struct WorkspaceRecoveryTests {
             toWorkspaceIds: [first.id, second.id]
         )
 
-        #expect(store.customization(for: "/tmp/batch-first")?.customTitle == "First")
-        #expect(store.customization(for: "/tmp/batch-first")?.customColor == "#123456")
-        #expect(store.customization(for: "/tmp/batch-second")?.customTitle == "Second")
-        #expect(store.customization(for: "/tmp/batch-second")?.customColor == "#123456")
+        #expect(first.customColor == "#123456")
+        #expect(second.customColor == "#123456")
+        #expect(untouched.customColor == nil)
     }
 
     @Test
-    func sessionRestoreAppliesStickyCustomizationToTheWorkspaceRoot() throws {
-        let directory = "/tmp/session-sticky-project"
-        let sourceManager = TabManager(initialWorkingDirectory: directory, autoWelcomeIfNeeded: false)
-        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
-        #expect(sourceManager.setCustomTitle(tabId: sourceWorkspace.id, title: "Stale Snapshot Label"))
-        sourceManager.setTabColor(tabId: sourceWorkspace.id, color: "#111111")
-        let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
-        #expect(snapshot.workspaces.first?.customizationDirectory == directory)
-
-        let fixture = try makeCustomizationStore()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        let store = fixture.store
-        store.setCustomTitle("Sticky Session Label", for: directory)
-        store.setCustomColor("#778899", for: directory)
-        let restoredManager = TabManager(
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: store
-        )
-
-        restoredManager.restoreSessionSnapshot(snapshot)
-
-        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
-        #expect(restoredWorkspace.customTitle == "Sticky Session Label")
-        #expect(restoredWorkspace.customColor == "#778899")
-        #expect(restoredWorkspace.customizationDirectory == store.directoryKey(for: directory))
-    }
-
-    @Test
-    func explicitCreationTitleUpdatesStickyLabelAndPreservesStickyColor() throws {
+    func explicitCreationTitleBecomesCustomTitleWithoutInheritedColor() throws {
         let directory = "/tmp/explicit-project"
-        let fixture = try makeCustomizationStore()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        let store = fixture.store
-        store.setCustomTitle("Old Label", for: directory)
-        store.setCustomColor("#445566", for: directory)
-        let manager = TabManager(
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: store
-        )
+        let manager = TabManager(autoWelcomeIfNeeded: false)
 
         let explicitlyNamed = manager.addWorkspace(
             title: "CLI Label",
@@ -456,26 +283,16 @@ struct WorkspaceRecoveryTests {
             select: false
         )
         #expect(explicitlyNamed.customTitle == "CLI Label")
-        #expect(explicitlyNamed.customColor == "#445566")
-
-        let laterManager = TabManager(
-            initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: store
-        )
-        #expect(laterManager.selectedWorkspace?.customTitle == "CLI Label")
-        #expect(laterManager.selectedWorkspace?.customColor == "#445566")
+        #expect(explicitlyNamed.effectiveCustomTitleSource == .user)
+        #expect(explicitlyNamed.customColor == nil)
     }
 
     @Test
     func newWorkspaceDoesNotCloneRenamedSiblingIdentity() throws {
         let directory = "/tmp/identity-clone-project"
-        let fixture = try makeCustomizationStore()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let manager = TabManager(
             initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: fixture.store
+            autoWelcomeIfNeeded: false
         )
         let renamed = try #require(manager.selectedWorkspace)
         #expect(manager.setCustomTitle(tabId: renamed.id, title: "Renamed Task"))
@@ -500,12 +317,9 @@ struct WorkspaceRecoveryTests {
     @Test
     func sessionRestoreKeepsDistinctIdentitiesForSameDirectoryWorkspaces() throws {
         let directory = "/tmp/identity-restore-project"
-        let fixture = try makeCustomizationStore()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
         let manager = TabManager(
             initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: fixture.store
+            autoWelcomeIfNeeded: false
         )
         let first = try #require(manager.selectedWorkspace)
         #expect(manager.setCustomTitle(tabId: first.id, title: "Task One"))
@@ -519,10 +333,7 @@ struct WorkspaceRecoveryTests {
         manager.setTabColor(tabId: second.id, color: "#222222")
 
         let snapshot = manager.sessionSnapshot(includeScrollback: false)
-        let restoredManager = TabManager(
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: fixture.store
-        )
+        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
         restoredManager.restoreSessionSnapshot(snapshot)
 
         let restoredTitles = restoredManager.tabs.map(\.customTitle)
