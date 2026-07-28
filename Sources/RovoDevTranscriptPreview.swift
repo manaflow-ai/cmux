@@ -13,7 +13,12 @@ struct RovoDevTranscriptPreviewTurn: Equatable, Sendable {
 enum RovoDevTranscriptPreview {
     private static let maxJSONBytes = 8 * 1024 * 1024
 
-    static func load(from url: URL, limit: Int) throws -> [RovoDevTranscriptPreviewTurn]? {
+    static func load(
+        from url: URL,
+        limit: Int,
+        latest: Bool = false,
+        preservingOpeningUser: Bool = false
+    ) throws -> [RovoDevTranscriptPreviewTurn]? {
         guard limit > 0 else { return [] }
         if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
            fileSize > maxJSONBytes {
@@ -24,28 +29,47 @@ enum RovoDevTranscriptPreview {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        return parseContextObject(object, limit: limit)
+        return parseContextObject(
+            object,
+            limit: limit,
+            latest: latest,
+            preservingOpeningUser: preservingOpeningUser
+        )
     }
 
     private static func parseContextObject(
         _ object: [String: Any],
-        limit: Int
+        limit: Int,
+        latest: Bool,
+        preservingOpeningUser: Bool
     ) -> [RovoDevTranscriptPreviewTurn]? {
         for key in ["message_history", "messages", "conversation", "turns", "entries"] {
-            if let turns = parseMessages(object[key], limit: limit) {
+            if let turns = parseMessages(
+                object[key],
+                limit: limit,
+                latest: latest,
+                preservingOpeningUser: preservingOpeningUser
+            ) {
                 return turns
             }
         }
         return nil
     }
 
-    private static func parseMessages(_ value: Any?, limit: Int) -> [RovoDevTranscriptPreviewTurn]? {
+    private static func parseMessages(
+        _ value: Any?,
+        limit: Int,
+        latest: Bool,
+        preservingOpeningUser: Bool
+    ) -> [RovoDevTranscriptPreviewTurn]? {
         guard let messages = value as? [Any] else { return nil }
 
         var turns: [RovoDevTranscriptPreviewTurn] = []
+        var openingUser: RovoDevTranscriptPreviewTurn?
+        var replacementIndex = 0
         var didHitLimit = false
         for message in messages {
-            guard turns.count < limit else {
+            guard latest || turns.count < limit else {
                 didHitLimit = true
                 break
             }
@@ -54,12 +78,34 @@ enum RovoDevTranscriptPreview {
             }
             let messageTurns = parseMessageObject(object)
             for turn in messageTurns {
-                guard turns.count < limit else {
+                guard latest || turns.count < limit else {
                     didHitLimit = true
                     break
                 }
-                turns.append(turn)
+                if openingUser == nil, turn.role == "user" {
+                    openingUser = turn
+                }
+                if turns.count < limit {
+                    turns.append(turn)
+                } else {
+                    turns[replacementIndex] = turn
+                    replacementIndex = (replacementIndex + 1) % limit
+                }
             }
+        }
+        if latest {
+            let ordered: [RovoDevTranscriptPreviewTurn]
+            if turns.count < limit || replacementIndex == 0 {
+                ordered = turns
+            } else {
+                ordered = Array(turns[replacementIndex...]) + Array(turns[..<replacementIndex])
+            }
+            guard preservingOpeningUser,
+                  let openingUser,
+                  !ordered.contains(openingUser) else {
+                return ordered.isEmpty ? nil : ordered
+            }
+            return [openingUser] + Array(ordered.suffix(max(0, limit - 1)))
         }
         if didHitLimit {
             turns.append(RovoDevTranscriptPreviewTurn(

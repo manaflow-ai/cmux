@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -30,8 +31,9 @@ extension Workspace {
             )
         } catch {
             agentConversationForkRequestLogger.error(
-                "Conversation export failed kind=\(snapshot.kind.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                "Conversation export failed kind=\(snapshot.kind.rawValue, privacy: .public): \(error.localizedDescription, privacy: .private)"
             )
+            presentConversationTransferFailure()
             return false
         }
 
@@ -55,6 +57,7 @@ extension Workspace {
             )
         }
         if startupCommandOverride != nil, startupInputOverride == nil {
+            presentConversationTransferFailure()
             return false
         }
 
@@ -89,6 +92,23 @@ extension Workspace {
         case .right, .left, .top, .bottom:
             return false
         }
+    }
+
+    private func presentConversationTransferFailure() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "alert.forkConversation.failed.title",
+            defaultValue: "Couldn’t Fork Conversation"
+        )
+        alert.informativeText = String(
+            localized: "alert.forkConversation.failed.message",
+            defaultValue: "cmux couldn’t read and transfer the source conversation. The original conversation was not changed."
+        )
+        alert.addButton(withTitle: String(localized: "alert.ok", defaultValue: "OK"))
+        _ = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(id)
+        )
     }
 
     private func forkAgentConversationToNewWorkspace(

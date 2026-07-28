@@ -282,6 +282,53 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func rovoDevTransferRetentionKeepsOpeningRequestAndNewestSuffix() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("rovodev.json")
+        let messages = (0..<8).map { index in
+            let role = index.isMultiple(of: 2) ? "user" : "assistant"
+            return ["role": role, "content": "rovo-turn-\(index)"]
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["message_history": messages])
+        try data.write(to: transcript)
+
+        let turns = try await SessionTranscriptLoader.load(source: .init(
+            agent: .rovodev,
+            sessionId: "rovo-session",
+            fileURL: transcript,
+            retention: .openingUserAndLatest(3)
+        ))
+
+        #expect(turns.map(\.text) == ["rovo-turn-0", "rovo-turn-6", "rovo-turn-7"])
+    }
+
+    @Test
+    func antigravityTransferRetentionScansPastTailForOpeningRequest() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("antigravity.jsonl")
+        let sessionID = "antigravity-session"
+        let history = (0..<12).map { index in
+            #"{"conversationId":"\#(sessionID)","display":"antigravity-turn-\#(index)"}"#
+        }.joined(separator: "\n")
+        try history.write(to: transcript, atomically: true, encoding: .utf8)
+
+        let turns = try await SessionTranscriptLoader.load(source: .init(
+            agent: .registered(RegisteredSessionAgent(id: "antigravity")),
+            sessionId: sessionID,
+            fileURL: transcript,
+            retention: .openingUserAndLatest(3)
+        ))
+
+        let transferredText = turns.map(\.text).joined(separator: "\n")
+        #expect(transferredText.contains("antigravity-turn-0"))
+        #expect(transferredText.contains("antigravity-turn-10"))
+        #expect(transferredText.contains("antigravity-turn-11"))
+        #expect(!transferredText.contains("antigravity-turn-9"))
+    }
+
+    @Test
     func largeCrossHarnessCommandUsesPrivateSelfDeletingLauncher() throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }

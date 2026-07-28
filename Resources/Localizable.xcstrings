@@ -16232,6 +16232,40 @@
         }
       }
     },
+    "alert.forkConversation.failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn’t read and transfer the source conversation. The original conversation was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の会話を読み込んで転送できませんでした。元の会話は変更されていません。"
+          }
+        }
+      }
+    },
+    "alert.forkConversation.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Fork Conversation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話をフォークできませんでした"
+          }
+        }
+      }
+    },
     "alert.invalidColor.emptyMessage": {
       "extractionState": "manual",
       "localizations": {

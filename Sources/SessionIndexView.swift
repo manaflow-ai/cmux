@@ -1242,16 +1242,17 @@ enum SessionTranscriptLoader {
             throw SessionTranscriptLoadError.missingFile
         }
         if agent == .rovodev {
-            let loadLimit = retention.keepsLatestTurns ? Int.max : retention.limit
-            guard let preview = try RovoDevTranscriptPreview.load(from: url, limit: loadLimit) else { throw SessionTranscriptLoadError.missingFile }
+            guard let preview = try RovoDevTranscriptPreview.load(
+                from: url,
+                limit: retention.limit,
+                latest: retention.keepsLatestTurns,
+                preservingOpeningUser: retention.keepsLatestTurns
+            ) else {
+                throw SessionTranscriptLoadError.missingFile
+            }
             let mapped = preview.enumerated().map { index, turn in
                 let role = transcriptRole(from: turn.role) ?? .event
                 return SessionTranscriptTurn(id: index, role: role, text: truncatedText(turn.text, role: role))
-            }
-            if retention.keepsLatestTurns {
-                var collector = SessionTranscriptLatestCollector(capacity: retention.limit)
-                mapped.forEach { collector.append($0) }
-                return coalesce(collector.turns)
             }
             return coalesce(mapped)
         }
@@ -1377,6 +1378,7 @@ enum SessionTranscriptLoader {
         }
 
         var turns: [SessionTranscriptTurn] = []
+        var openingUser: SessionTranscriptTurn?
         var lineIndex = 0
         var didHitTurnLimit = false
         let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
@@ -1394,18 +1396,48 @@ enum SessionTranscriptLoader {
             guard antigravityHistorySessionID(in: object) == sessionId else {
                 return false
             }
-            let content = object["display"] ?? object["prompt"] ?? object["text"] ?? object["message"]
-            guard let text = normalizedText(from: content, role: .user, agent: agent) else {
+            guard let turn = antigravityHistoryTurn(
+                in: object,
+                id: lineIndex,
+                agent: agent
+            ) else {
                 return false
             }
-            turns.append(SessionTranscriptTurn(id: lineIndex, role: .user, text: text))
+            turns.append(turn)
             return false
         }
-        if didHitTurnLimit || !metrics.didReachStart {
+        if retention.keepsLatestTurns {
+            _ = SessionIndexJSONLReader().fromStart(
+                url: url
+            ) { object in
+                guard antigravityHistorySessionID(in: object) == sessionId,
+                      let turn = antigravityHistoryTurn(in: object, id: Int.min, agent: agent) else {
+                    return false
+                }
+                openingUser = turn
+                return true
+            }
+        } else if didHitTurnLimit || !metrics.didReachStart {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
         turns.reverse()
+        if let openingUser,
+           !turns.contains(where: { $0.role == openingUser.role && $0.text == openingUser.text }) {
+            turns = [openingUser] + Array(turns.suffix(max(0, retention.limit - 1)))
+        }
         return coalesce(turns)
+    }
+
+    private static func antigravityHistoryTurn(
+        in object: [String: Any],
+        id: Int,
+        agent: SessionAgent
+    ) -> SessionTranscriptTurn? {
+        let content = object["display"] ?? object["prompt"] ?? object["text"] ?? object["message"]
+        guard let text = normalizedText(from: content, role: .user, agent: agent) else {
+            return nil
+        }
+        return SessionTranscriptTurn(id: id, role: .user, text: text)
     }
 
     private static func antigravityHistorySessionID(in object: [String: Any]) -> String? {

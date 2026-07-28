@@ -23,7 +23,22 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Identifiable, Sen
     }
 
     func usesNativeFork(for sourceKind: RestorableAgentKind) -> Bool {
-        self == .current || rawValue == sourceKind.rawValue
+        self == .current || self == Self(sourceKind: sourceKind)
+    }
+
+    private init?(sourceKind: RestorableAgentKind) {
+        switch sourceKind {
+        case .claude:
+            self = .claude
+        case .codex:
+            self = .codex
+        case .opencode:
+            self = .opencode
+        case .grok, .pi, .amp, .cursor, .gemini, .kiro, .antigravity,
+             .rovodev, .hermesAgent, .copilot, .codebuddy, .factory, .qoder,
+             .kimi, .ollama, .custom:
+            return nil
+        }
     }
 
     func startupCommand(handoffMessage: String) -> String? {

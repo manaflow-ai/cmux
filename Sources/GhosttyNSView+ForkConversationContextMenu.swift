@@ -41,19 +41,9 @@ extension GhosttyNSView {
             keyEquivalent: ""
         )
         submenuItem.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
-        let submenu = NSMenu()
-        for destination in AgentConversationForkDestination.allCases {
-            let item = NSMenuItem(
-                title: destination.settingsTitle,
-                action: #selector(forkCurrentAgentConversation(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = destination.rawValue
-            item.state = destination == defaultDestination ? .on : .off
-            submenu.addItem(item)
+        submenuItem.submenu = makeForkDestinationSubmenu(selectedDestination: defaultDestination) {
+            $0.rawValue
         }
-        submenuItem.submenu = submenu
         menu.addItem(submenuItem)
 
         let harnessItem = NSMenuItem(
@@ -68,27 +58,37 @@ extension GhosttyNSView {
         let harnessMenu = NSMenu()
         for harness in AgentConversationForkRequest.TargetHarness.allCases where harness != .current {
             let targetItem = NSMenuItem(title: harness.title, action: nil, keyEquivalent: "")
-            let destinationMenu = NSMenu()
-            for destination in AgentConversationForkDestination.allCases {
-                let item = NSMenuItem(
-                    title: destination.settingsTitle,
-                    action: #selector(forkCurrentAgentConversation(_:)),
-                    keyEquivalent: ""
-                )
-                item.target = self
-                item.representedObject = AgentConversationForkRequest(
+            targetItem.submenu = makeForkDestinationSubmenu { destination in
+                AgentConversationForkRequest(
                     targetHarness: harness,
                     destination: destination
                 )
-                destinationMenu.addItem(item)
             }
-            targetItem.submenu = destinationMenu
             harnessMenu.addItem(targetItem)
         }
         harnessItem.submenu = harnessMenu
         menu.addItem(harnessItem)
 
         return true
+    }
+
+    private func makeForkDestinationSubmenu(
+        selectedDestination: AgentConversationForkDestination? = nil,
+        representedObject: (AgentConversationForkDestination) -> Any
+    ) -> NSMenu {
+        let menu = NSMenu()
+        for destination in AgentConversationForkDestination.allCases {
+            let item = NSMenuItem(
+                title: destination.settingsTitle,
+                action: #selector(forkCurrentAgentConversation(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = representedObject(destination)
+            item.state = destination == selectedDestination ? .on : .off
+            menu.addItem(item)
+        }
+        return menu
     }
 
     private func currentAgentConversationForkAvailability() -> WorkspaceForkAgentConversationAvailability {

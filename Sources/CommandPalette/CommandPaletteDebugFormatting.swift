@@ -24,24 +24,15 @@ func commandPaletteDiagnosticModifierFlagsSummary(_ flags: NSEvent.ModifierFlags
 }
 
 func commandPaletteDiagnosticKeyEventSummary(_ event: NSEvent) -> String {
-    let chars = event.characters.map(String.init(reflecting:)) ?? "nil"
-    let charsIgnoring = event.charactersIgnoringModifiers.map(String.init(reflecting:)) ?? "nil"
+    let chars = event.characters.map(commandPaletteDiagnosticTextMetadata) ?? "nil"
+    let charsIgnoring = event.charactersIgnoringModifiers.map(commandPaletteDiagnosticTextMetadata) ?? "nil"
     return
         "type=\(event.type) keyCode=\(event.keyCode) flags=\(commandPaletteDiagnosticModifierFlagsSummary(event.modifierFlags)) " +
         "chars=\(chars) charsIgnoring=\(charsIgnoring)"
 }
 
-func commandPaletteDiagnosticTextPreview(_ text: String, limit: Int = 120) -> String {
-    let escaped = text
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\n", with: "\\n")
-        .replacingOccurrences(of: "\r", with: "\\r")
-        .replacingOccurrences(of: "\t", with: "\\t")
-    if escaped.count <= limit {
-        return escaped
-    }
-    let prefix = escaped.prefix(limit)
-    return "\(prefix)..."
+func commandPaletteDiagnosticTextMetadata(_ text: String) -> String {
+    "present=\(text.isEmpty ? 0 : 1),utf8Bytes=\(text.utf8.count),utf16Units=\((text as NSString).length)"
 }
 
 func commandPaletteDiagnosticResponderSummary(_ responder: NSResponder?) -> String {
@@ -67,6 +58,6 @@ func commandPaletteDiagnosticResponderSummary(_ responder: NSResponder?) -> Stri
 let debugCommandPaletteWindowSummary = commandPaletteDiagnosticWindowSummary
 let debugCommandPaletteModifierFlagsSummary = commandPaletteDiagnosticModifierFlagsSummary
 let debugCommandPaletteKeyEventSummary = commandPaletteDiagnosticKeyEventSummary
-let debugCommandPaletteTextPreview: (String) -> String = { commandPaletteDiagnosticTextPreview($0) }
+let debugCommandPaletteTextMetadata = commandPaletteDiagnosticTextMetadata
 let debugCommandPaletteResponderSummary = commandPaletteDiagnosticResponderSummary
 #endif

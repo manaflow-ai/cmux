@@ -8,12 +8,31 @@ struct SessionIndexJSONLReader: Sendable {
         self.chunkSize = max(1, chunkSize)
     }
 
+    /// Streams records from the beginning until the callback stops or EOF is reached.
+    func fromStart(
+        url: URL,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLReadMetrics {
+        fromStart(url: url, maximumBytes: nil, body: body)
+    }
+
     func fromStart(
         url: URL,
         maxBytes: Int,
         body: ([String: Any]) -> Bool
     ) -> SessionIndexJSONLReadMetrics {
-        guard maxBytes > 0, let handle = try? FileHandle(forReadingFrom: url) else {
+        guard maxBytes > 0 else {
+            return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
+        }
+        return fromStart(url: url, maximumBytes: maxBytes, body: body)
+    }
+
+    private func fromStart(
+        url: URL,
+        maximumBytes: Int?,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLReadMetrics {
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
             return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
         }
         defer { try? handle.close() }
@@ -23,8 +42,8 @@ struct SessionIndexJSONLReader: Sendable {
         var bytesRead = 0
         var recordsVisited = 0
 
-        while bytesRead < maxBytes {
-            let readCount = min(chunkSize, maxBytes - bytesRead)
+        while maximumBytes.map({ bytesRead < $0 }) != false, !Task.isCancelled {
+            let readCount = maximumBytes.map { min(chunkSize, $0 - bytesRead) } ?? chunkSize
             let chunk = (try? handle.read(upToCount: readCount)) ?? Data()
             if chunk.isEmpty {
                 break

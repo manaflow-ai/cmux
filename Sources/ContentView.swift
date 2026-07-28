@@ -4446,7 +4446,7 @@ struct ContentView: View {
                         cmuxDebugLog(
                             "palette.wsDescription.editor.handleKeyEvent submitText " +
                             "len=\((currentText as NSString).length) " +
-                            "text=\"\(debugCommandPaletteTextPreview(currentText))\""
+                            "text={\(debugCommandPaletteTextMetadata(currentText))}"
                         )
 #endif
                         if parent.text != currentText {
@@ -9096,8 +9096,8 @@ struct ContentView: View {
             localized: "commandPalette.argument.instruction",
             defaultValue: "Choose %1$@ (%2$lld of %3$lld)"
         )
-        return String(
-            format: format,
+        return String.localizedStringWithFormat(
+            format,
             collection.currentArgument.title,
             Int64(collection.currentStep),
             Int64(collection.stepCount)
@@ -9914,7 +9914,7 @@ struct ContentView: View {
             "palette.wsDescription.apply.begin workspace=\(target.workspaceId.uuidString.prefix(8)) " +
             "proposedLen=\((proposedDescription as NSString).length) " +
             "newlines=\(newlineCount) " +
-            "text=\"\(debugCommandPaletteTextPreview(proposedDescription))\""
+            "text={\(debugCommandPaletteTextMetadata(proposedDescription))}"
         )
 #endif
         tabManager.setCustomDescription(tabId: target.workspaceId, description: proposedDescription)
@@ -9928,7 +9928,7 @@ struct ContentView: View {
                 "palette.wsDescription.apply.end workspace=\(target.workspaceId.uuidString.prefix(8)) " +
                 "persistedLen=\((persisted as NSString).length) " +
                 "persistedNewlines=\(persistedNewlineCount) " +
-                "text=\"\(debugCommandPaletteTextPreview(persisted))\""
+                "text={\(debugCommandPaletteTextMetadata(persisted))}"
             )
         }
 #endif
@@ -15970,7 +15970,7 @@ private struct SidebarWorkspaceDescriptionText: View {
                 "sidebar.description.render workspaceState=appear " +
                 "len=\((markdown as NSString).length) " +
                 "newlines=\(newlineCount) " +
-                "text=\"\(debugCommandPaletteTextPreview(markdown))\""
+                "text={\(debugCommandPaletteTextMetadata(markdown))}"
             )
 #endif
         }
@@ -15983,7 +15983,7 @@ private struct SidebarWorkspaceDescriptionText: View {
                 "sidebar.description.render workspaceState=change " +
                 "len=\((newValue as NSString).length) " +
                 "newlines=\(newlineCount) " +
-                "text=\"\(debugCommandPaletteTextPreview(newValue))\""
+                "text={\(debugCommandPaletteTextMetadata(newValue))}"
             )
 #endif
         }
