@@ -175,6 +175,37 @@ struct AgentProcessCandidateSelectorTests {
         }
     }
 
+    @Test func bundledCLIPathAdmitsRenamedWrapper() throws {
+        let bundledCLIPath = "/Applications/cmux.app/Contents/Resources/bin/cmux-bundled"
+        let selector = AgentProcessCandidateSelector(
+            processes: [],
+            policy: policy(),
+            launchExecutableMatcher: AgentLaunchExecutableMatcher()
+        )
+        let metadata = try #require(selector.rawMetadata(
+            fromKernProcArgs: kernProcArgs(
+                arguments: [
+                    bundledCLIPath,
+                    "codex-teams",
+                    "fork",
+                    "00000000-0000-0000-0000-000000000001",
+                ],
+                environmentEntries: [
+                    "CMUX_BUNDLED_CLI_PATH=\(bundledCLIPath)",
+                ]
+            )
+        ))
+
+        #expect(selector.rawMetadataMayRequireFullDecode(
+            metadata,
+            process: candidate(
+                processID: 31,
+                name: "cmux-bundled",
+                path: bundledCLIPath
+            )
+        ))
+    }
+
     private func candidate(
         processID: Int,
         name: String,
