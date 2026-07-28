@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="a9c68a4d06a150d0fba6942157ded5494df3afe7"
+CMUX_CUA_PINNED_SHA="2e9f43e1cd31a7e3482a9d68c89364b9a56e95af"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-driver-cache-v1 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
