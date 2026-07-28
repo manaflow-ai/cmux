@@ -170,6 +170,18 @@ extension CMUXCLI {
             || AgentLaunchInvocationClassifier().claudeTeamsLaunchIsManagementCommand(args: commandArgs)
     }
 
+    /// Whether cmux delegates the complete argument tail to a managed provider.
+    /// These commands own flags such as `--json` and nested `--help`; cmux must
+    /// not consume them as presentation options or generic subcommand help.
+    func managedProviderArgumentsPassThrough(command: String) -> Bool {
+        switch command {
+        case "claude-teams", "codex-teams", "omo", "omx", "omc":
+            return true
+        default:
+            return false
+        }
+    }
+
     func codexTeamsIsInformationalInvocation(commandArgs: [String]) -> Bool {
         guard commandArgs.count == 1, let option = commandArgs.first else { return false }
         return ["--help", "-h", "--version", "-V"].contains(option)

@@ -3425,10 +3425,9 @@ struct CMUXCLI {
 
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
+        let passesThroughProviderArguments = managedProviderArgumentsPassThrough(command: command)
         let presentationOptions: (jsonOutput: Bool, idFormat: String?, remaining: [String])
-        if command == "claude-teams" {
-            // This is a provider passthrough: every token after the command
-            // belongs to Claude, including flags such as `agents --json`.
+        if passesThroughProviderArguments {
             presentationOptions = (false, nil, rawCommandArgs)
         } else {
             presentationOptions = try parsePresentationOptions(rawCommandArgs)
@@ -3450,6 +3449,7 @@ struct CMUXCLI {
         // so help text is available even when cmux is not running.
         let preSeparatorArgs = commandArgs.firstIndex(of: "--").map { commandArgs[..<$0] } ?? commandArgs[...]
         if command != "__tmux-compat",
+           !passesThroughProviderArguments,
            preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return

@@ -211,9 +211,9 @@ fs.writeFileSync(
         if proc.returncode != 0:
             return proc, "", "", ""
 
-        if socket_requests != ["surface.list"]:
+        if socket_requests != ["auth", "surface.list"]:
             print(
-                "FAIL: managed launch identity must resolve directly without consulting "
+                "FAIL: managed launch identity must authenticate and resolve directly without consulting "
                 f"mutable global focus, got requests {socket_requests!r}"
             )
             raise SystemExit(1)
