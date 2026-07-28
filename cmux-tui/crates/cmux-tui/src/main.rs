@@ -67,7 +67,6 @@ const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORIT
 const SERVER_SHUTDOWN_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
 const SERVER_SHUTDOWN_RETRY_INITIAL: std::time::Duration = std::time::Duration::from_millis(100);
 const SERVER_SHUTDOWN_RETRY_MAX: std::time::Duration = std::time::Duration::from_secs(5);
-const EXISTING_SESSION_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 #[cfg(target_os = "linux")]
 unsafe extern "C" {
@@ -1281,10 +1280,9 @@ fn run_server(
 fn connect_existing_local_session(
     socket_path: &std::path::Path,
 ) -> anyhow::Result<Option<Arc<RemoteSession>>> {
-    let deadline = std::time::Instant::now() + EXISTING_SESSION_CONNECT_TIMEOUT;
-    let stream = match cmux_tui_core::platform::transport::connect_until(socket_path, deadline) {
-        Ok(stream) => stream,
-        Err(_) => return Ok(None),
+    let deadline = std::time::Instant::now() + cmux_tui_core::server::LOCAL_SOCKET_CONNECT_TIMEOUT;
+    let Some(stream) = cmux_tui_core::server::connect_existing_until(socket_path, deadline)? else {
+        return Ok(None);
     };
     RemoteSession::connect_local_stream(stream, socket_path).map(Some)
 }

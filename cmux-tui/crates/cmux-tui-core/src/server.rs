@@ -68,6 +68,8 @@ pub const SERVER_SHUTDOWN_INCOMPLETE_ERROR: &str = "shutdown_cleanup_incomplete"
 /// Maximum wall-clock time the server spends draining a shutdown request.
 /// Clients add their own transport margin to this server-owned bound.
 pub const SERVER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+/// Maximum time startup spends determining whether a local session socket is live.
+pub const LOCAL_SOCKET_CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
@@ -2623,6 +2625,26 @@ fn clamp_client_label(value: String) -> String {
     sanitize_window_title(&value).chars().take(64).collect()
 }
 
+/// Connect to a live local session, or return `None` only when its socket is
+/// absent or definitively refusing connections.
+pub fn connect_existing_until(
+    path: &Path,
+    deadline: Instant,
+) -> std::io::Result<Option<Box<dyn transport::Stream>>> {
+    match transport::connect_until(path, deadline) {
+        Ok(stream) => Ok(Some(stream)),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// Bind the socket and serve connections on background threads.
 pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
@@ -2632,12 +2654,17 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     }
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
-        match transport::connect(&path) {
-            Ok(_) => anyhow::bail!(
+        let deadline = Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT;
+        match connect_existing_until(&path, deadline)? {
+            Some(_) => anyhow::bail!(
                 "session socket {} is already in use (another instance running?)",
                 path.display()
             ),
-            Err(_) => std::fs::remove_file(&path)?,
+            None => match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            },
         }
     }
     let listener = transport::listen(&path)?;
