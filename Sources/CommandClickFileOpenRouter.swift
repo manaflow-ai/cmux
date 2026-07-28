@@ -24,6 +24,15 @@ enum CommandClickFileOpenRouter {
         guard store.shouldRouteSupportedFile(path: filePath) else {
             return false
         }
+
+        if TerminalHTMLFileBrowserAction().open(
+            fileURL: URL(fileURLWithPath: filePath),
+            sourcePanelId: sourcePanelId,
+            container: workspace
+        ) {
+            return true
+        }
+
         return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
     }
 
