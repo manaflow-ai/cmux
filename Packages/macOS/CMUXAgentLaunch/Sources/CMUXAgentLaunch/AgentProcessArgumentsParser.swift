@@ -49,6 +49,7 @@ public struct AgentProcessArgumentsParser: Sendable {
             guard index < bytes.count else { return nil }
             let start = index
             skipString(in: bytes, index: &index)
+            guard index < bytes.count, bytes[index] == 0 else { return nil }
             if let argument = String(bytes: bytes[start..<index], encoding: .utf8) {
                 arguments.append(argument)
             }
@@ -61,6 +62,7 @@ public struct AgentProcessArgumentsParser: Sendable {
             guard index < bytes.count else { break }
             let start = index
             skipString(in: bytes, index: &index)
+            guard index < bytes.count, bytes[index] == 0 else { return nil }
             guard start < index,
                   let entry = String(bytes: bytes[start..<index], encoding: .utf8),
                   let equals = entry.firstIndex(of: "=") else {
