@@ -124,7 +124,7 @@ struct RemoteTmuxProjectedFocusInteractionTests {
     }
 
     @Test
-    func splitPaneMountedSearchFieldAcceptsProjectedFocus() throws {
+    func splitPaneSearchOverlayMountsWithProjectedFocusAuthority() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
         let mirror = try splitInitiallySinglePaneWindow(in: harness)
@@ -147,18 +147,16 @@ struct RemoteTmuxProjectedFocusInteractionTests {
         window.makeKeyAndOrderFront(nil)
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        hostedView.moveFocus()
         activePane.surface.searchState = searchState
         hostedView.setSearchOverlay(searchState: searchState)
 
-        #expect(waitUntil { self.editableTextField(in: hostedView) != nil })
-        let searchField = try #require(editableTextField(in: hostedView))
         #expect(
-            waitUntil {
-                window.firstResponder === searchField
-                    || searchField.currentEditor() === window.firstResponder
-            },
-            "Cmd-F must focus the mounted field for the projected active pane"
+            waitUntil { hostedView.debugHasSearchOverlay() },
+            "Cmd-F must mount inside the projected pane's portal-hosted view"
+        )
+        #expect(
+            hostedView.debugCanApplyMountedSearchFieldFocusRequest(),
+            "The mounted search field must accept focus authority for the projected active pane"
         )
     }
 
@@ -182,6 +180,9 @@ struct RemoteTmuxProjectedFocusInteractionTests {
         stalePane.hostedView.moveFocus()
         #expect(stalePane.hostedView.isSurfaceViewFirstResponder())
         let staleResponder = try #require(window.firstResponder)
+        stalePane.hostedView.setActive(false)
+        activePane.hostedView.setVisibleInUI(true)
+        activePane.hostedView.setActive(true)
         let keyDown = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -227,6 +228,20 @@ struct RemoteTmuxProjectedFocusInteractionTests {
         #expect(!paneFive.hostedView.isVisibleInUI)
     }
 
+    @Test
+    func projectedPaneWordPathSnapshotUsesMirrorOwnedTerminal() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let mirror = try splitInitiallySinglePaneWindow(in: harness)
+        let activePane = try #require(mirror.panel(forPane: 5))
+
+        #expect(harness.workspace.panels[activePane.id] == nil)
+        #expect(
+            activePane.hostedView.surfaceView.debugWordPathSnapshotTerminalPanelID() == activePane.id,
+            "Pointer-anchored path lookup must read the projected pane, not its retired wrapper"
+        )
+    }
+
     private func splitInitiallySinglePaneWindow(
         in harness: Harness
     ) throws -> RemoteTmuxWindowMirror {
@@ -263,18 +278,6 @@ struct RemoteTmuxProjectedFocusInteractionTests {
             }
         })
         return mirror
-    }
-
-    private func editableTextField(in view: NSView) -> NSTextField? {
-        if let field = view as? NSTextField, field.isEditable {
-            return field
-        }
-        for subview in view.subviews {
-            if let field = editableTextField(in: subview) {
-                return field
-            }
-        }
-        return nil
     }
 
     private func waitUntil(

@@ -6234,6 +6234,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return convert(window.mouseLocationOutsideOfEventStream, from: nil)
     }
 
+    private func wordPathSnapshotTerminalPanel(
+        workspace: Workspace,
+        terminalSurface: TerminalSurface
+    ) -> TerminalPanel? {
+        workspace.terminalPanel(for: terminalSurface.id)
+    }
+
+#if DEBUG
+    func debugWordPathSnapshotTerminalPanelID() -> UUID? {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace() else {
+            return nil
+        }
+        return wordPathSnapshotTerminalPanel(
+            workspace: workspace,
+            terminalSurface: terminalSurface
+        )?.id
+    }
+#endif
+
     private func resolveVisibleWordPathFromViewportOffset(
         _ viewportOffsetStart: Int,
         cwd: String,
@@ -9642,6 +9662,10 @@ final class GhosttySurfaceScrollView: NSView {
     func debugHasSearchOverlay() -> Bool {
         guard let overlay = searchOverlayHostingView else { return false }
         return overlay.superview === self && !overlay.isHidden
+    }
+
+    func debugCanApplyMountedSearchFieldFocusRequest() -> Bool {
+        canApplyMountedSearchFieldFocusRequest()
     }
 
     func debugSearchOverlayHostingViewForTesting() -> NSView? {

@@ -311,4 +311,68 @@ struct RemoteTmuxNotificationLifecycleTests {
             surfaceId: removedPanel.id
         ))
     }
+
+    @Test
+    func projectedPaneNotificationFlashTargetsWorkspaceContainer() throws {
+        let defaults = UserDefaults.standard
+        let originalExperimentEnabled = defaults.object(
+            forKey: TmuxOverlayExperimentSettings.enabledKey
+        )
+        let originalExperimentTarget = defaults.object(
+            forKey: TmuxOverlayExperimentSettings.targetKey
+        )
+        let originalPaneFlashEnabled = defaults.object(
+            forKey: NotificationPaneFlashSettings.enabledKey
+        )
+        defer {
+            restoreDefault(
+                originalExperimentEnabled,
+                key: TmuxOverlayExperimentSettings.enabledKey
+            )
+            restoreDefault(
+                originalExperimentTarget,
+                key: TmuxOverlayExperimentSettings.targetKey
+            )
+            restoreDefault(
+                originalPaneFlashEnabled,
+                key: NotificationPaneFlashSettings.enabledKey
+            )
+        }
+        defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.set(
+            TmuxOverlayExperimentTarget.bonsplitPane.rawValue,
+            forKey: TmuxOverlayExperimentSettings.targetKey
+        )
+        defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
+
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        try harness.publishSinglePane()
+
+        let sessionMirror = try #require(harness.workspace.remoteTmuxSessionMirror)
+        let containerPanelID = try #require(sessionMirror.panelIdByWindow[2])
+        let mirror = try #require(
+            harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID)
+        )
+        let panePanel = try #require(mirror.panel(forPane: 4))
+        let appDelegate = try #require(AppDelegate.shared)
+        let previousToken = harness.workspace.tmuxWorkspaceFlashToken
+
+        #expect(appDelegate.routeNotificationAttentionFlash(
+            workspaceID: harness.workspace.id,
+            panelID: panePanel.id,
+            reason: .notificationArrival
+        ))
+        #expect(harness.workspace.tmuxWorkspaceFlashToken == previousToken + 1)
+        #expect(harness.workspace.tmuxWorkspaceFlashPanelId == containerPanelID)
+        #expect(harness.workspace.tmuxWorkspaceFlashReason == .notificationArrival)
+    }
+
+    private func restoreDefault(_ value: Any?, key: String) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
 }
