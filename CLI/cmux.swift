@@ -1798,11 +1798,12 @@ final class SocketClient {
     }
 
     private let path: String
-    private var socketFD: Int32 = -1
+    private(set) var socketFD: Int32 = -1
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
+    private static let receiveTimeoutReconfigurationToleranceSeconds: TimeInterval = 0.001
     private static let maxSocketTimeoutSeconds: TimeInterval = 9_007_199_254_740_991
     private static let connectRetryDeadline: TimeInterval = 0.35
     private static let connectRetryIntervalMicros: useconds_t = 25_000
@@ -1953,7 +1954,8 @@ final class SocketClient {
 
     func connectWithoutRetry(responseTimeout: TimeInterval? = nil) throws {
         if socketFD >= 0 { return }
-        try connectOnce(responseTimeout: responseTimeout)
+        let deadline = responseTimeout.map { Date.now.addingTimeInterval($0) }
+        try connectOnce(responseTimeout: responseTimeout, deadline: deadline)
     }
 
     func close() {
@@ -1969,12 +1971,11 @@ final class SocketClient {
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil
     ) throws -> String {
+        let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let relativeDeadline = Date.now.addingTimeInterval(requestedResponseTimeout)
+        let operationDeadline = deadline.map { min($0, relativeDeadline) } ?? relativeDeadline
         if relayEndpoint != nil, socketFD < 0 {
-            if let deadline {
-                try connect(deadline: deadline)
-            } else {
-                try connect()
-            }
+            try connect(deadline: operationDeadline)
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         let shouldCloseAfterSend = relayEndpoint != nil
@@ -1985,20 +1986,15 @@ final class SocketClient {
         }
 
         func boundedTimeout(_ timeout: TimeInterval) throws -> TimeInterval {
-            guard let deadline else { return timeout }
-            let remaining = deadline.timeIntervalSinceNow
+            let remaining = operationDeadline.timeIntervalSinceNow
             guard remaining > 0 else {
                 throw CLIError(message: "Command timed out")
             }
             return min(timeout, remaining)
         }
 
-        let initialResponseTimeout = try boundedTimeout(
-            responseTimeout ?? Self.responseTimeoutSeconds
-        )
-        if lastConfiguredReceiveTimeout != initialResponseTimeout {
-            try configureReceiveTimeout(initialResponseTimeout)
-        }
+        let initialResponseTimeout = try boundedTimeout(requestedResponseTimeout)
+        try configureResponseReceiveTimeout(initialResponseTimeout)
         _ = try? configureSocketWriteSafety(initialResponseTimeout)
         var operation = CLISocketOperationTelemetry.State(
             name: CLISocketOperationTelemetry.operationName(for: command),
@@ -2009,11 +2005,11 @@ final class SocketClient {
         recordOperation(operation)
 
         let payload = capabilityWrappedCommand(command) + "\n"
-        try writeAll(
+        try writeAllNonBlocking(
             Data(payload.utf8),
+            deadline: operationDeadline,
             timeoutMessage: "Command timed out",
-            failureMessage: "Failed to write to socket",
-            deadline: deadline
+            failureMessage: "Failed to write to socket"
         )
 
         var data = Data()
@@ -2027,9 +2023,7 @@ final class SocketClient {
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
             recordOperation(operation)
-            if lastConfiguredReceiveTimeout != currentTimeout {
-                try configureReceiveTimeout(currentTimeout)
-            }
+            try configureResponseReceiveTimeout(currentTimeout)
 
             var buffer = [UInt8](repeating: 0, count: 8192)
             let count = Darwin.read(socketFD, &buffer, buffer.count)
@@ -2103,7 +2097,7 @@ final class SocketClient {
         do {
             try writeAllNonBlocking(
                 Data((capabilityWrappedCommand(command) + "\n").utf8),
-                deadline: Date().addingTimeInterval(writeTimeout),
+                deadline: Date.now.addingTimeInterval(writeTimeout),
                 timeoutMessage: "Command timed out",
                 failureMessage: "Failed to write to socket"
             )
@@ -2277,10 +2271,12 @@ final class SocketClient {
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil
     ) throws {
+        let operationDeadline = deadline
+            ?? Date.now.addingTimeInterval(responseTimeout ?? Self.responseTimeoutSeconds)
         let credentials = try Self.relayCredentials(for: endpoint)
         let timeout = try remainingSocketTimeout(
             responseTimeout: responseTimeout,
-            deadline: deadline
+            deadline: operationDeadline
         )
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
@@ -2309,22 +2305,12 @@ final class SocketClient {
             throw CLIError(message: "Invalid relay endpoint \(endpoint.host):\(endpoint.port)")
         }
 
-        let connectErrno: Int32
-        if let deadline {
-            connectErrno = connectSocket(deadline: deadline) {
-                withUnsafePointer(to: &address) { pointer in
-                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                        Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
-                    }
-                }
-            }
-        } else {
-            let result = withUnsafePointer(to: &address) { pointer in
+        let connectErrno = connectSocket(deadline: operationDeadline) {
+            withUnsafePointer(to: &address) { pointer in
                 pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
                     Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
                 }
             }
-            connectErrno = result == 0 ? 0 : errno
         }
         if connectErrno != 0 {
             close()
@@ -2337,7 +2323,7 @@ final class SocketClient {
             try authenticateRelay(
                 credentials: credentials,
                 responseTimeout: timeout,
-                deadline: deadline
+                deadline: operationDeadline
             )
         } catch {
             close()
@@ -2392,7 +2378,7 @@ final class SocketClient {
     private func authenticateRelay(
         credentials: RelayCredentials,
         responseTimeout: TimeInterval,
-        deadline: Date? = nil
+        deadline: Date
     ) throws {
         let challengeLine = try readLine(
             responseTimeout: responseTimeout,
@@ -2420,11 +2406,11 @@ final class SocketClient {
             responseTimeout: responseTimeout,
             deadline: deadline
         ))
-        try writeAll(
+        try writeAllNonBlocking(
             authPayload + Data([0x0A]),
+            deadline: deadline,
             timeoutMessage: "Relay command timed out",
-            failureMessage: "Failed to write to relay socket",
-            deadline: deadline
+            failureMessage: "Failed to write to relay socket"
         )
 
         let authResponseLine = try readLine(
@@ -2572,7 +2558,7 @@ final class SocketClient {
         }
     }
 
-    private func configureSocketWriteSafety(_ timeout: TimeInterval) throws {
+    func configureSocketWriteSafety(_ timeout: TimeInterval) throws {
         var interval = Self.socketTimeval(for: timeout)
         let sendTimeoutResult = withUnsafePointer(to: &interval) { ptr in
             setsockopt(
@@ -2653,7 +2639,7 @@ final class SocketClient {
         return line.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func configureReceiveTimeout(_ timeout: TimeInterval) throws {
+    func configureReceiveTimeout(_ timeout: TimeInterval) throws {
         var interval = Self.socketTimeval(for: timeout)
         let result = withUnsafePointer(to: &interval) { ptr in
             setsockopt(
@@ -2670,6 +2656,22 @@ final class SocketClient {
             throw CLIError(message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))")
         }
         lastConfiguredReceiveTimeout = timeout
+    }
+
+    private func configureResponseReceiveTimeout(_ timeout: TimeInterval) throws {
+        if let lastConfiguredReceiveTimeout,
+           abs(lastConfiguredReceiveTimeout - timeout) <= Self.receiveTimeoutReconfigurationToleranceSeconds {
+            return
+        }
+        do {
+            try configureReceiveTimeout(timeout)
+        } catch {
+            close()
+            throw CLIError(message: String(localized:
+                "cli.socket.error.socketRead",
+                defaultValue: "Socket read error"
+            ))
+        }
     }
 
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
@@ -30413,6 +30415,9 @@ export default CMUXSessionRestore;
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
+        let strictPiTarget = def.name == "pi"
+            ? try resolveStrictPiHookTarget(commandArgs: hookArgs, client: client)
+            : nil
         let directSurfaceArg = explicitSurfaceFlag
             ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
         func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
@@ -30439,7 +30444,8 @@ export default CMUXSessionRestore;
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
             try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
         }
-        let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
+        let resolvedDirectWorkspaceArg = strictPiTarget?.workspaceId
+            ?? resolveAccessibleWorkspaceId(directWorkspaceArg)
         // Only an EXPLICIT --workspace flag that fails to resolve is a hard, hook-dropping error. A
         // stale/invalid AMBIENT CMUX_WORKSPACE_ID must not abort routing — treated as absent, it falls
         // through to the PID/TTY binding below, which is ground truth.
@@ -30468,6 +30474,7 @@ export default CMUXSessionRestore;
         }
 #endif
         let resolvedDirectSurfaceArg: String? = {
+            if let strictPiTarget { return strictPiTarget.surfaceId }
             guard let directSurfaceArg else { return nil }
             guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
             return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
@@ -30649,6 +30656,12 @@ export default CMUXSessionRestore;
                 )
 #endif
                 return nil
+            }
+            // Strict Pi resolution has already validated or app-authoritatively
+            // rehomed the target. Reusing it avoids a redundant workspace-wide
+            // surface snapshot and preserves the selected workspace boundary.
+            if let strictPiTarget {
+                return strictPiTarget
             }
             func resolveTarget(
                 workspaceId: String,
@@ -31985,7 +31998,7 @@ export default CMUXSessionRestore;
             break
         }
 
-        print("{}")
+        print(def.name == "pi" ? piHookResolvedTargetOutput(strictPiTarget) : "{}")
     }
 
     // MARK: - Feed telemetry helper
@@ -31994,7 +32007,7 @@ export default CMUXSessionRestore;
     /// so session-start / prompt-submit / stop events show up in Feed's
     /// "All" view even when no permission/plan/question event fires.
     /// Failures are swallowed.
-    private func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
+    func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
         let oneWayClient = SocketClient(path: socketPath)
         defer { oneWayClient.close() }
         do {
@@ -34002,16 +34015,18 @@ export default CMUXSessionRestore;
 
         let commandEvent = optionValue(commandArgs, name: "--event")
 
-        // Read stdin. Claude, Codex, and the other agents all pipe hook
-        // JSON through stdin; unknown inputs fall through to `{}`. Codex feed
-        // events are telemetry, and native lifecycle hooks can carry arbitrary
-        // transcript fragments or tool output, so cap every Codex feed
-        // invocation before JSON decoding without changing other agents'
-        // actionable hook reads.
+        // Read stdin. Claude, Codex, and the other agents all pipe hook JSON
+        // through stdin; unknown inputs fall through to `{}`. Codex lifecycle
+        // payloads and Pi's compacted terminal batches are bounded before JSON
+        // decoding without changing other agents' actionable hook reads.
         let stdinData: Data
-        let shouldBoundCodexFeedStdin = source == "codex"
-        if shouldBoundCodexFeedStdin {
-            guard let boundedData = Self.readBoundedFeedHookStdin() else {
+        let feedHookStdinLimit: Int? = switch source {
+        case "codex": Self.feedHookMaxStdinBytes
+        case "pi": Self.piFeedHookMaxStdinBytes
+        default: nil
+        }
+        if let feedHookStdinLimit {
+            guard let boundedData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
                 print("{}")
                 return
             }
@@ -34063,6 +34078,19 @@ export default CMUXSessionRestore;
         // Other agents fall back to getppid() which walks up one
         // level — close enough to catch most kill scenarios.
         let agentPid = agentPidForFeedSource(source, env: env)
+        if source == "pi",
+           let compactedFeedOutput = try routePiCompactedFeedEvents(
+                commandArgs: commandArgs,
+                rawObject: stdinObj,
+                agentPid: agentPid,
+                fallbackWorkspaceId: env["CMUX_WORKSPACE_ID"],
+                client: client,
+                socketPath: socketPath,
+                socketPassword: socketPassword
+           ) {
+            print(compactedFeedOutput)
+            return
+        }
         let sessionId = firstString(
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
@@ -34085,7 +34113,10 @@ export default CMUXSessionRestore;
         let shouldUseCodexPostToolUseResponse = source == "codex"
             && hookEventName == "PostToolUse"
             && postToolUseResponseInput != nil
-        let feedToolInput = shouldUseCodexPostToolUseResponse
+        let shouldUsePiPostToolUseResult = source == "pi"
+            && hookEventName == "PostToolUse"
+            && postToolUseResponseInput != nil
+        let feedToolInput = shouldUseCodexPostToolUseResponse || shouldUsePiPostToolUseResult
             ? postToolUseResponseInput
             : toolRequestInput
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
@@ -34094,11 +34125,18 @@ export default CMUXSessionRestore;
             eventDict["cwd"] = cwd
         }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
+        if let isError = stdinObj["is_error"] as? Bool ?? stdinObj["isError"] as? Bool {
+            eventDict["is_error"] = isError
+        }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
         if let feedToolInput {
-            eventDict["tool_input"] = shouldUseCodexPostToolUseResponse
-                ? Self.sanitizedPostToolUseFeedValue(feedToolInput)
-                : feedToolInput
+            if shouldUseCodexPostToolUseResponse {
+                eventDict["tool_input"] = Self.sanitizedPostToolUseFeedValue(feedToolInput)
+            } else if shouldUsePiPostToolUseResult {
+                eventDict["tool_input"] = Self.sanitizedPiPostToolUseFeedValue(feedToolInput)
+            } else {
+                eventDict["tool_input"] = feedToolInput
+            }
         }
         if let context = feedContextForEvent(
             source: source,
@@ -34131,6 +34169,7 @@ export default CMUXSessionRestore;
         // timeout, so a stalled daemon still returns neutral output before
         // the agent kills (and may deny) the hook subprocess.
         let waitTimeout = isActionable ? Self.feedHookDecisionWaitSeconds : 0
+        let shouldAwaitTelemetryIngestion = source == "pi"
         let params: [String: Any] = [
             "event": eventDict,
             "wait_timeout_seconds": waitTimeout,
@@ -34140,13 +34179,13 @@ export default CMUXSessionRestore;
             "method": "feed.push",
             "params": params,
         ]
-        if waitTimeout > 0 {
+        if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
             request["id"] = UUID().uuidString
         }
-        let payload = try JSONSerialization.data(withJSONObject: request)
-        let line = String(data: payload, encoding: .utf8) ?? "{}"
 
-        if waitTimeout == 0 {
+        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+            let payload = try JSONSerialization.data(withJSONObject: request)
+            let line = String(data: payload, encoding: .utf8) ?? "{}"
             if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
@@ -34162,7 +34201,9 @@ export default CMUXSessionRestore;
 
         var ownedClient: SocketClient?
         defer { ownedClient?.close() }
-        let clientDeadline = Date().addingTimeInterval(Self.feedHookClientDeadlineSeconds)
+        let clientDeadline = Date().addingTimeInterval(
+            shouldAwaitTelemetryIngestion ? 4 : Self.feedHookClientDeadlineSeconds
+        )
 
         func remainingResponseTime() throws -> TimeInterval {
             let remaining = clientDeadline.timeIntervalSinceNow
@@ -34188,6 +34229,9 @@ export default CMUXSessionRestore;
                 )
             } catch {
                 feedClient.close()
+                if source == "pi" {
+                    throw error
+                }
                 print("{}")
                 return
             }
@@ -34198,6 +34242,20 @@ export default CMUXSessionRestore;
             return
         }
 
+        if shouldAwaitTelemetryIngestion {
+            if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {
+                if let workspaceId = target.workspaceId {
+                    eventDict["workspace_id"] = workspaceId
+                }
+                eventDict["surface_id"] = target.surfaceId
+                request["params"] = [
+                    "event": eventDict,
+                    "wait_timeout_seconds": waitTimeout,
+                ]
+            }
+        }
+        let payload = try JSONSerialization.data(withJSONObject: request)
+        let line = String(data: payload, encoding: .utf8) ?? "{}"
         let response: String
         do {
             response = try activeClient.send(
@@ -34206,10 +34264,18 @@ export default CMUXSessionRestore;
                 deadline: clientDeadline
             )
         } catch {
+            if shouldAwaitTelemetryIngestion {
+                throw error
+            }
             print("{}")
             return
         }
 
+        if shouldAwaitTelemetryIngestion {
+            let acknowledgedTarget = try validatePiFeedAcknowledgment(response)
+            print(piHookResolvedTargetOutput(acknowledgedTarget))
+            return
+        }
         guard let respData = response.data(using: .utf8),
               let respObj = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
               let ok = respObj["ok"] as? Bool, ok,
@@ -34239,19 +34305,21 @@ export default CMUXSessionRestore;
     }
 
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
+    private static let piFeedHookMaxStdinBytes = 128 * 1024
 
     private static func readBoundedFeedHookStdin(
+        maxBytes: Int,
         handle: FileHandle = .standardInput
     ) -> Data? {
         var data = Data()
-        while data.count <= feedHookMaxStdinBytes {
-            let remainingBytes = feedHookMaxStdinBytes + 1 - data.count
+        while data.count <= maxBytes {
+            let remainingBytes = maxBytes + 1 - data.count
             let chunkSize = min(64 * 1024, remainingBytes)
             let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
             guard !chunk.isEmpty else { return data }
             data.append(chunk)
         }
-        guard data.count <= feedHookMaxStdinBytes else {
+        guard data.count <= maxBytes else {
             while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
             return nil
         }
