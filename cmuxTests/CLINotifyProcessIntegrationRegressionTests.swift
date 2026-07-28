@@ -9531,6 +9531,104 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stdout.contains("CMUX_TAB_ID=\(launchTab)"), result.stdout)
     }
 
+    func testTmuxCompatEnvFailsClosedForIncompleteInheritedLaunchIdentity() throws {
+        try assertTmuxCompatEnvFailsClosed(
+            environmentOverrides: [
+                "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+            ],
+            expectedMethods: []
+        )
+    }
+
+    func testTmuxCompatEnvFailsClosedForStaleInheritedLaunchIdentity() throws {
+        try assertTmuxCompatEnvFailsClosed(
+            environmentOverrides: [
+                "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+            ],
+            expectedMethods: ["surface.list"]
+        )
+    }
+
+    private func assertTmuxCompatEnvFailsClosed(
+        environmentOverrides: [String: String],
+        expectedMethods: [String]
+    ) throws {
+        let cliPath = try bundledCLIPath()
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-stale-spawn-id-e2e-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let socketPath = tmpDir.appendingPathComponent("sock").path
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer { Darwin.close(listenerFD); unlink(socketPath) }
+        let state = MockSocketServerState()
+
+        let focusedWorkspace = "11111111-1111-1111-1111-111111111111"
+        let focusedSurface = "22222222-2222-2222-2222-222222222222"
+        let focusedPane = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let focusedWindow = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        let handled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            if method == "system.identify" {
+                return self.v2Response(id: id, ok: true, result: [
+                    "focused": [
+                        "workspace_id": focusedWorkspace,
+                        "surface_id": focusedSurface,
+                        "pane_id": focusedPane,
+                        "window_id": focusedWindow,
+                    ],
+                ])
+            }
+            if method == "surface.list" {
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["workspace_id"] as? String == focusedWorkspace {
+                    return self.v2Response(id: id, ok: true, result: [
+                        "window_id": focusedWindow,
+                        "surfaces": [[
+                            "id": focusedSurface,
+                            "pane_id": focusedPane,
+                        ]],
+                    ])
+                }
+                return self.v2Response(id: id, ok: true, result: ["surfaces": []])
+            }
+            return self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": method])
+        }
+
+        var environment = [
+            "CMUX_SOCKET_PATH": socketPath,
+            "HOME": tmpDir.path,
+            "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+        ]
+        for (key, value) in environmentOverrides {
+            environment[key] = value
+        }
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__debug-tmux-compat-env"],
+            environment: environment,
+            timeout: 30
+        )
+        wait(for: [handled], timeout: 30)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            expectedMethods,
+            "invalid inherited identity must never fall back to mutable global focus"
+        )
+        XCTAssertTrue(result.stdout.contains("TMUX=/tmp/cmux-debug/default,0,0"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("TMUX_PANE=%1"), result.stdout)
+        XCTAssertFalse(result.stdout.contains(focusedWorkspace), result.stdout)
+        XCTAssertFalse(result.stdout.contains(focusedSurface), result.stdout)
+    }
+
     private func stableTmuxNumericId(_ raw: String) -> String {
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in raw.utf8 {

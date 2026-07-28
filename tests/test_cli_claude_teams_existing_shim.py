@@ -30,9 +30,11 @@ def main() -> int:
         tmp = Path(td)
         home = tmp / "home"
         cmux_shim_bin = tmp / "cmux-cli-shims" / "surface-1"
+        second_cmux_shim_bin = tmp / "cmux-cli-shims" / "surface-2"
         real_bin = tmp / "real-bin"
         home.mkdir(parents=True, exist_ok=True)
         cmux_shim_bin.mkdir(parents=True, exist_ok=True)
+        second_cmux_shim_bin.mkdir(parents=True, exist_ok=True)
         real_bin.mkdir(parents=True, exist_ok=True)
 
         shim_dir = home / ".cmuxterm" / "claude-teams-bin"
@@ -61,6 +63,12 @@ exit 42
 set -euo pipefail
 printf 'shim=%s\\n' "$(command -v tmux)"
 """,
+        )
+        make_executable(
+            real_bin / "tmux",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf 'real-tmux:%s\\n' \"$*\"\n",
         )
 
         env = os.environ.copy()
@@ -94,7 +102,38 @@ printf 'shim=%s\\n' "$(command -v tmux)"
             print(f"FAIL: expected managed shim path {expected!r}, got {actual!r}")
             return 1
 
-    print("PASS: cmux claude-teams installs tmux beside the managed command shims")
+        managed_shim = cmux_shim_bin / "tmux"
+        second_managed_shim = second_cmux_shim_bin / "tmux"
+        second_managed_shim.write_bytes(managed_shim.read_bytes())
+        second_managed_shim.chmod(0o755)
+
+        marker_free_env = env.copy()
+        marker_free_env.pop("CMUX_CLAUDE_TEAMS_CMUX_BIN", None)
+        marker_free_env["PATH"] = (
+            f"{cmux_shim_bin}:{second_cmux_shim_bin}:{real_bin}:/usr/bin:/bin"
+        )
+        delegated = subprocess.run(
+            ["tmux", "display-message", "marker-free"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=marker_free_env,
+            timeout=30,
+        )
+        if delegated.returncode != 0:
+            print("FAIL: persistent shim did not delegate marker-free tmux invocation")
+            print(f"exit={delegated.returncode}")
+            print(f"stdout={delegated.stdout.strip()}")
+            print(f"stderr={delegated.stderr.strip()}")
+            return 1
+        if delegated.stdout.strip() != "real-tmux:display-message marker-free":
+            print(
+                "FAIL: marker-free invocation did not reach the real tmux through "
+                f"multiple managed shims: {delegated.stdout.strip()!r}"
+            )
+            return 1
+
+    print("PASS: managed teams shim routes only marked launches and delegates ordinary tmux")
     return 0
 
 

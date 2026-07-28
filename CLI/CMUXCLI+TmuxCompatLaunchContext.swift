@@ -101,14 +101,17 @@ extension CMUXCLI {
             // A launcher running inside a cmux terminal inherits that surface's immutable
             // workspace/surface pair. Resolve and validate it before consulting global focus, so
             // switching or closing the operator's focused pane cannot retarget a running team.
-            if let ownWorkspace = normalizedTmuxTarget(processEnvironment["CMUX_WORKSPACE_ID"]),
-               let ownSurface = normalizedTmuxTarget(processEnvironment["CMUX_SURFACE_ID"]),
-               let ownContext = try? contextFromSurface(
-                   workspaceHandle: ownWorkspace,
-                   surfaceHandle: ownSurface,
-                   windowHandle: nil
-               ) {
-                return ownContext
+            // Once either component is present, the inherited pair is authoritative: an incomplete
+            // or stale pair fails closed instead of silently changing identity to the focused pane.
+            let ownWorkspace = normalizedTmuxTarget(processEnvironment["CMUX_WORKSPACE_ID"])
+            let ownSurface = normalizedTmuxTarget(processEnvironment["CMUX_SURFACE_ID"])
+            if ownWorkspace != nil || ownSurface != nil {
+                guard let ownWorkspace, let ownSurface else { return nil }
+                return try? contextFromSurface(
+                    workspaceHandle: ownWorkspace,
+                    surfaceHandle: ownSurface,
+                    windowHandle: nil
+                )
             }
 
             let payload = try client.sendV2(method: "system.identify")
@@ -175,7 +178,38 @@ extension CMUXCLI {
         let script = """
         #!/usr/bin/env bash
         set -euo pipefail
-        exec "${CMUX_CLAUDE_TEAMS_CMUX_BIN:-cmux}" __tmux-compat "$@"
+        if [[ -n "${CMUX_CLAUDE_TEAMS_CMUX_BIN:-}" ]]; then
+          exec "$CMUX_CLAUDE_TEAMS_CMUX_BIN" __tmux-compat "$@"
+        fi
+
+        # This shim lives in a persistent per-surface PATH directory. Outside the
+        # claude-teams launch it must behave transparently, even when several cmux
+        # shim directories are present. Remove every PATH spelling of this shim's
+        # directory before resolving tmux; the next shim repeats the narrowing.
+        shim_dir="$(cd -P -- "$(dirname -- "$0")" && pwd)"
+        IFS=: read -r -a path_entries <<< "${PATH-}"
+        filtered_path=""
+        has_filtered_entry=0
+        for path_entry in "${path_entries[@]}"; do
+          resolved_dir="$(cd -P -- "${path_entry:-.}" 2>/dev/null && pwd)" || resolved_dir=""
+          if [[ "$resolved_dir" == "$shim_dir" ]]; then
+            continue
+          fi
+          if (( has_filtered_entry )); then
+            filtered_path+=":$path_entry"
+          else
+            filtered_path="$path_entry"
+            has_filtered_entry=1
+          fi
+        done
+        PATH="$filtered_path"
+        export PATH
+        next_tmux="$(type -P tmux || true)"
+        if [[ -z "$next_tmux" ]]; then
+          echo "cmux tmux shim: no downstream tmux executable found on PATH" >&2
+          exit 127
+        fi
+        exec "$next_tmux" "$@"
         """
 
         // Claude Code can replace PATH with a shell snapshot after launch. Its snapshot keeps
