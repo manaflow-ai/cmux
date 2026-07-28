@@ -159,7 +159,7 @@ struct ForkParentFallbackResidualTests {
         #expect(snapshot.workingDirectory == fixture.cwd.path)
         #expect(
             snapshot.resumeStartupInput()?
-                .contains("CMUX_AGENT_RESTORE_LAUNCH='codex:\(sessionId)'") == true
+                .contains("/usr/bin/env 'CMUX_AGENT_RESTORE_LAUNCH=codex:\(sessionId)'") == true
         )
         #expect(snapshot.resumeCommand?.contains("cd -- '\(fixture.cwd.path)'") == true)
         #expect(snapshot.forkStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)

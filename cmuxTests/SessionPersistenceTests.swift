@@ -1914,7 +1914,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.resumeCommand,
             "cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ] && /bin/sh -c "
-                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'")
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'a22293b7-bcef-4707-8439-2f538c8517a4' '--model' 'sonnet' '--permission-mode' 'auto'")
         )
         // The captured real-binary path must not survive: it would bypass the wrapper.
         XCTAssertFalse(snapshot.resumeCommand?.contains("/opt/Claude Code/bin/claude") ?? true)
@@ -2118,8 +2118,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         // (csh/tcsh cannot parse that prefix with or without this fix, a pre-existing
         // limitation shared by every agent kind) so the assertion isolates the claude
         // executable token itself.
-        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: nil)
-        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        let snapshot = Self.makeClaudeRestorableSnapshot(
+            workingDirectory: nil,
+            sessionId: "a22293b7-bcef-4707-8439-2f538c8517a4"
+        )
+        let resumeCommand = try XCTUnwrap(snapshot.resumeStartupInput(allowLauncherScript: false))
 
         let recorded = try runClaudeResumeCommand(
             resumeCommand,
@@ -2297,10 +2300,13 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
-    private static func makeClaudeRestorableSnapshot(workingDirectory: String?) -> SessionRestorableAgentSnapshot {
+    private static func makeClaudeRestorableSnapshot(
+        workingDirectory: String?,
+        sessionId: String = "claude-session-123"
+    ) -> SessionRestorableAgentSnapshot {
         SessionRestorableAgentSnapshot(
             kind: .claude,
-            sessionId: "claude-session-123",
+            sessionId: sessionId,
             workingDirectory: workingDirectory,
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
@@ -2566,7 +2572,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
         XCTAssertTrue(
             startupInput.contains(
-                "CMUX_AGENT_RESTORE_LAUNCH='claude:\(sessionId)' /bin/sh -c"
+                "/usr/bin/env 'CMUX_AGENT_RESTORE_LAUNCH=claude:\(sessionId)' /bin/sh -c"
             ),
             startupInput
         )
@@ -2648,7 +2654,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
         XCTAssertTrue(
             scriptContents.contains(
-                "CMUX_AGENT_RESTORE_LAUNCH='codex:019dad34-d218-7943-b81a-eddac5c87951'"
+                "/usr/bin/env 'CMUX_AGENT_RESTORE_LAUNCH=codex:019dad34-d218-7943-b81a-eddac5c87951'"
             )
         )
         let command = try inlineResumeCommandResolvingLauncherScript(from: input)

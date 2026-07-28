@@ -777,12 +777,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         allowOversizedInlineInput: Bool = false,
         requireLauncherScript: Bool = false
     ) -> String? {
-        let restoreCommand = resumeCommand.map {
-            SurfaceResumeCommandCanonicalizer.insertingAppOwnedAgentRestoreLaunch(
-                in: $0,
-                kind: kind.rawValue,
-                sessionId: sessionId
-            )
+        let restoreCommand = resumeCommand.map { command in
+            AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
+                .applying(toStoredCommand: command) ?? command
         }
         return startupInput(
             command: restoreCommand,
