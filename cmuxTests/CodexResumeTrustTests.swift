@@ -94,7 +94,7 @@ struct CodexResumeTrustTests {
       ofItemAtPath: fakeCodex.path
     )
 
-    var environment = ProcessInfo.processInfo.environment
+    var environment = isolatedProcessEnvironment(home: root)
     environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
     environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
     environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = H.base64NULSeparated([
@@ -170,9 +170,7 @@ struct CodexResumeTrustTests {
       """
     )
 
-    var gitEnvironment = ProcessInfo.processInfo.environment
-    gitEnvironment.removeValue(forKey: "GIT_DIR")
-    gitEnvironment.removeValue(forKey: "GIT_WORK_TREE")
+    let gitEnvironment = isolatedProcessEnvironment(home: root)
     let separateGitDirectory = root.appendingPathComponent(
       "separate-git-metadata",
       isDirectory: true
@@ -326,9 +324,7 @@ struct CodexResumeTrustTests {
       ofItemAtPath: fakeCodex.path
     )
 
-    var gitEnvironment = ProcessInfo.processInfo.environment
-    gitEnvironment.removeValue(forKey: "GIT_DIR")
-    gitEnvironment.removeValue(forKey: "GIT_WORK_TREE")
+    let gitEnvironment = isolatedProcessEnvironment(home: root)
     let gitInit = H.runProcess(
       executablePath: "/usr/bin/git",
       arguments: ["init", root.path],
@@ -338,7 +334,7 @@ struct CodexResumeTrustTests {
     codexExpectFalse(gitInit.timedOut, gitInit.stderr)
     codexExpectEqual(gitInit.status, 0, gitInit.stderr)
 
-    var environment = ProcessInfo.processInfo.environment
+    var environment = isolatedProcessEnvironment(home: root)
     environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
     environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
     environment["CMUX_AGENT_LAUNCH_ARGV_B64"] =
@@ -426,7 +422,7 @@ struct CodexResumeTrustTests {
       ofItemAtPath: fakeCodex.path
     )
 
-    var environment = ProcessInfo.processInfo.environment
+    var environment = isolatedProcessEnvironment(home: root)
     environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
     environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
     environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = H.base64NULSeparated([
@@ -512,5 +508,14 @@ struct CodexResumeTrustTests {
       4,
       "Concurrent restores should share two app-server attempts, while a later restore must probe again for config changes."
     )
+  }
+
+  private func isolatedProcessEnvironment(home: URL) -> [String: String] {
+    [
+      "HOME": home.path,
+      "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+      "PWD": home.path,
+      "TMPDIR": FileManager.default.temporaryDirectory.path,
+    ]
   }
 }

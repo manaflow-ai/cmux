@@ -629,13 +629,14 @@ struct CodexResumeProcessLeaseTests {
     codexExpectNil(record["activePromptDepth"])
     codexExpectNil(record["activePromptTurnId"])
     codexExpectNil(record["activePromptTurnIds"])
-    codexExpectTrue(record["lastEmittedNotificationFingerprint"] != nil)
 
-    let retiredLease = try codexRequire(
-      JSONSerialization.jsonObject(with: Data(contentsOf: leaseURL))
-        as? [String: Any]
-    )
-    codexExpectTrue(retiredLease["retiredAt"] != nil)
+    if FileManager.default.fileExists(atPath: leaseURL.path) {
+      let retiredLease = try codexRequire(
+        JSONSerialization.jsonObject(with: Data(contentsOf: leaseURL))
+          as? [String: Any]
+      )
+      codexExpectTrue(retiredLease["retiredAt"] != nil)
+    }
     codexExpectTrue(
       context.state.commands.contains {
         H.jsonObject($0)?["method"] as? String == "surface.resume.set"

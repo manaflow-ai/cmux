@@ -252,9 +252,13 @@ import Testing
         let startupInput = try #require(binding.startupInput)
 
         #expect(startupInput.contains("/bin/sh -c"), "\(startupInput)")
-        #expect(startupInput.contains("'/usr/bin/env'"), "\(startupInput)")
+        #expect(
+            startupInput.contains("/usr/bin/env CMUX_CUSTOM_CODEX_PATH="),
+            "\(startupInput)"
+        )
         #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
-        #expect(startupInput.contains("session-operator-cli 2>/tmp/codex.log && echo done"), "\(startupInput)")
+        #expect(startupInput.contains("session-operator-cli"), "\(startupInput)")
+        #expect(startupInput.contains("2>/tmp/codex.log && echo done"), "\(startupInput)")
     }
 
     @Test func localAgentHookBindingRoutesRemoteLookingCodexPathThroughWrapper() throws {
