@@ -233,7 +233,7 @@ final class DynamicNotchNotificationPresenter: NSObject, NSWindowDelegate {
         model.upsert(notification, superseding: identifiers)
 
         let notch = DynamicNotch(
-            hoverBehavior: [.keepVisible, .increaseShadow],
+            hoverBehavior: [.keepVisible],
             style: .notch,
             chrome: model.trayAppearance.dynamicNotchChrome
         ) {

@@ -1089,6 +1089,18 @@
               "minimum": 0,
               "type": "number"
             },
+            "hoverShadowOpacity": {
+              "default": 0,
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "hoverShadowRadius": {
+              "default": 20,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
             "inputBackgroundColor": {
               "default": null,
               "oneOf": [
@@ -1320,6 +1332,37 @@
                   "type": "string"
                 }
               ]
+            },
+            "shadowColor": {
+              "default": null,
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "const": "system"
+                    },
+                    {
+                      "pattern": "^#[0-9A-Fa-f]{6}$"
+                    }
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "shadowOpacity": {
+              "default": 0,
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "shadowRadius": {
+              "default": 10,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
             },
             "shellBackgroundColor": {
               "default": null,

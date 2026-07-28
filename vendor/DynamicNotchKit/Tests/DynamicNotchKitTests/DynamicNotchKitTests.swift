@@ -107,6 +107,35 @@ struct DynamicNotchScreenGeometryTests {
     }
 }
 
+@Suite("Dynamic Notch chrome")
+struct DynamicNotchChromeTests {
+    @Test("Optional shadow overrides preserve upstream defaults")
+    func defaultShadowOverridesAreUnset() {
+        let chrome = DynamicNotchChrome()
+
+        #expect(chrome.shadowColor == nil)
+        #expect(chrome.shadowOpacity == nil)
+        #expect(chrome.shadowRadius == nil)
+        #expect(chrome.hoverShadowOpacity == nil)
+        #expect(chrome.hoverShadowRadius == nil)
+    }
+
+    @Test("Callers can disable both regular and hover shadows")
+    func shadowOverridesAcceptZero() {
+        let chrome = DynamicNotchChrome(
+            shadowOpacity: 0,
+            shadowRadius: 0,
+            hoverShadowOpacity: 0,
+            hoverShadowRadius: 0
+        )
+
+        #expect(chrome.shadowOpacity == 0)
+        #expect(chrome.shadowRadius == 0)
+        #expect(chrome.hoverShadowOpacity == 0)
+        #expect(chrome.hoverShadowRadius == 0)
+    }
+}
+
 /// Hey there! Looks like you found DynamicNotchKit's tests.
 /// Please note that these tests do NOT actually "test" anything. They are only here to serve as examples of usage of DynamicNotchKit.
 /// To run these tests, simply `cd` into the `DynamicNotchKit` directory and run `swift test`. Alternatively, open this package directly in Xcode, and the tests should show up in the sidebar.

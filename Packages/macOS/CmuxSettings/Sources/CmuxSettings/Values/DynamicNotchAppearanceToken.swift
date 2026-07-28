@@ -26,6 +26,8 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
     case notificationIconFrame
     case shellBorderWidth
     case inputBorderWidth
+    case shadowRadius
+    case hoverShadowRadius
 
     case compactSpacing
     case rowSpacing
@@ -37,6 +39,7 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
 
     case shellBackgroundColor
     case shellBorderColor
+    case shadowColor
     case primaryTextColor
     case secondaryTextColor
     case accentColor
@@ -53,6 +56,8 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
     case animationDuration
     case arrivalRevealDuration
     case shellBackgroundOpacity
+    case shadowOpacity
+    case hoverShadowOpacity
     case rowBackgroundOpacity
     case compactBackgroundOpacity
     case inputBackgroundOpacity
@@ -76,6 +81,7 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
             .spacing
         case .shellBackgroundColor,
              .shellBorderColor,
+             .shadowColor,
              .primaryTextColor,
              .secondaryTextColor,
              .accentColor,
@@ -92,6 +98,10 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
         case .animationDuration,
              .arrivalRevealDuration,
              .shellBackgroundOpacity,
+             .shadowOpacity,
+             .hoverShadowOpacity,
+             .shadowRadius,
+             .hoverShadowRadius,
              .rowBackgroundOpacity,
              .compactBackgroundOpacity,
              .inputBackgroundOpacity,
@@ -150,6 +160,9 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
         case .shellBorderWidth,
              .inputBorderWidth:
             .number(minimum: 0, maximum: 8, step: 0.5)
+        case .shadowRadius,
+             .hoverShadowRadius:
+            .number(minimum: 0, maximum: 64, step: 1)
         case .compactSpacing,
              .inputSpacing,
              .actionSpacing:
@@ -167,6 +180,8 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
         case .pointerRevealDistance:
             .number(minimum: 0, maximum: 400, step: 1)
         case .shellBackgroundOpacity,
+             .shadowOpacity,
+             .hoverShadowOpacity,
              .rowBackgroundOpacity,
              .compactBackgroundOpacity,
              .inputBackgroundOpacity:
@@ -181,6 +196,7 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
             .boolean
         case .shellBackgroundColor,
              .shellBorderColor,
+             .shadowColor,
              .primaryTextColor,
              .secondaryTextColor,
              .accentColor,
@@ -251,6 +267,10 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
             .number(1)
         case .inputBorderWidth:
             .number(1)
+        case .shadowRadius:
+            .number(10)
+        case .hoverShadowRadius:
+            .number(20)
         case .compactSpacing:
             .number(5)
         case .rowSpacing,
@@ -269,6 +289,9 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
             .number(3)
         case .pointerRevealDistance:
             .number(0)
+        case .shadowOpacity,
+             .hoverShadowOpacity:
+            .number(0)
         case .shellBackgroundOpacity,
              .rowBackgroundOpacity,
              .compactBackgroundOpacity,
@@ -286,6 +309,7 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
             .boolean(true)
         case .shellBackgroundColor,
              .shellBorderColor,
+             .shadowColor,
              .primaryTextColor,
              .secondaryTextColor,
              .accentColor,

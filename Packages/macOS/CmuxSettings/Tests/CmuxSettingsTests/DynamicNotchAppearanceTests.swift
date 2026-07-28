@@ -21,6 +21,14 @@ struct DynamicNotchAppearanceTests {
         #expect(appearance[.pointerRevealDistance] == .number(0))
     }
 
+    @Test("Notch shadow is disabled by default")
+    func shadowDefaultsAreTransparent() {
+        let appearance = DynamicNotchAppearance()
+
+        #expect(appearance[.shadowOpacity] == .number(0))
+        #expect(appearance[.hoverShadowOpacity] == .number(0))
+    }
+
     @Test("Partial JSON merges over defaults and normalizes colors")
     func partialJSONMergesAndNormalizes() {
         let appearance = DynamicNotchAppearance.decodeFromJSON([

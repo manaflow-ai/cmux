@@ -49,6 +49,11 @@ extension DynamicNotchAppearance {
             backgroundOpacity: Double(dimension(.shellBackgroundOpacity)),
             borderColor: explicitColor(.shellBorderColor),
             borderWidth: borderIsNative ? nil : borderWidth,
+            shadowColor: explicitColor(.shadowColor),
+            shadowOpacity: Double(dimension(.shadowOpacity)),
+            shadowRadius: dimension(.shadowRadius),
+            hoverShadowOpacity: Double(dimension(.hoverShadowOpacity)),
+            hoverShadowRadius: dimension(.hoverShadowRadius),
             floatingOuterPadding: dimension(.floatingOuterPadding),
             floatingContentInsets: EdgeInsets(
                 top: shellPadding,

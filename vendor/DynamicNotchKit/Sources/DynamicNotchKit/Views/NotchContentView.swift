@@ -17,9 +17,15 @@ struct NotchContentView<Expanded, CompactLeading, CompactTrailing>: View where E
         self.style = style
     }
 
-    private var shadowOpacity: CGFloat {
-        if dynamicNotch.hoverBehavior.contains(.increaseShadow), dynamicNotch.isHovering {
+    private var shadowOpacity: Double {
+        if dynamicNotch.isHovering,
+           let hoverShadowOpacity = dynamicNotch.chrome.hoverShadowOpacity {
+            hoverShadowOpacity
+        } else if dynamicNotch.hoverBehavior.contains(.increaseShadow),
+                  dynamicNotch.isHovering {
             0.8
+        } else if let shadowOpacity = dynamicNotch.chrome.shadowOpacity {
+            shadowOpacity
         } else if dynamicNotch.state != .expanded {
             0.0
         } else {
@@ -30,10 +36,16 @@ struct NotchContentView<Expanded, CompactLeading, CompactTrailing>: View where E
     private var shadowRadius: CGFloat {
         if dynamicNotch.state == .hidden {
             0
+        } else if dynamicNotch.isHovering,
+                  dynamicNotch.chrome.hoverShadowOpacity != nil
+                    || dynamicNotch.chrome.hoverShadowRadius != nil {
+            dynamicNotch.chrome.hoverShadowRadius
+                ?? dynamicNotch.chrome.shadowRadius
+                ?? 10
         } else if dynamicNotch.isHovering, dynamicNotch.hoverBehavior.contains(.increaseShadow) {
             20
         } else {
-            10
+            dynamicNotch.chrome.shadowRadius ?? 10
         }
     }
 
@@ -47,7 +59,8 @@ struct NotchContentView<Expanded, CompactLeading, CompactTrailing>: View where E
             }
         }
         .shadow(
-            color: .black.opacity(shadowOpacity),
+            color: (dynamicNotch.chrome.shadowColor ?? .black)
+                .opacity(shadowOpacity),
             radius: shadowRadius
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
