@@ -2587,6 +2587,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn resolver_without_scrollback_preserves_file_configured_limit() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let root = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-scrollback-fallback-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = root.join("ghostty");
+        let binary = root.join("ghostty-config-helper");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(ghostty_dir.join("config"), "scrollback-limit = 8_000_000\n").unwrap();
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe {
+            std::env::set_var("GHOSTTY_BIN", &binary);
+            std::env::remove_var("CMUX_MUX_CONFIG");
+            std::env::set_var("XDG_CONFIG_HOME", &root);
+        }
+
+        let config = load();
+
+        restore_env_var("GHOSTTY_BIN", old_ghostty_bin);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        let _ = std::fs::remove_dir_all(root);
+        assert_eq!(config.scrollback_limit_bytes(), 8_000_000);
+    }
+
     #[test]
     fn fallback_theme_selection_matches_ghostty_first_theme_wins() {
         let dir = std::env::temp_dir().join(format!(
