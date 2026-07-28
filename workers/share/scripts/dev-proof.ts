@@ -68,6 +68,7 @@ function mint(sub: string, email: string, host: boolean): string {
 }
 
 const url = (token: string) => `${base}/v2/share/sessions/${code}/ws?token=${token}`;
+const sessionUrl = `${base.replace(/^ws/, "http")}/v2/share/sessions/${code}`;
 
 interface Waiter {
   next(pred: (msg: Record<string, unknown>) => boolean, label: string): Promise<Record<string, unknown>>;
@@ -210,8 +211,19 @@ function encodeInputFrame(ws: string, pane: string, payload: Uint8Array): Uint8A
 const step = (label: string) => console.log(`✓ ${label}`);
 
 // 1. Host connects and declares one workspace.
-const host = await connect(mint("proof-host", "host@proof.dev", true), "host");
+const hostToken = mint("proof-host", "host@proof.dev", true);
+let host = await connect(hostToken, "host");
 await host.next((m) => m.t === "session-state", "host snapshot");
+const initialSubscriptions = await host.next(
+  (m) => m.t === "guest-subs",
+  "initial guest subscriptions",
+);
+if (
+  !Array.isArray(initialSubscriptions.subscriptions) ||
+  initialSubscriptions.subscriptions.length !== 0
+) {
+  throw new Error("new session did not report an empty subscription snapshot");
+}
 step("host connected, session created");
 host.ws.send(
   JSON.stringify({
@@ -254,7 +266,37 @@ if (decodeTerminalFrame(frame)?.kind !== BINARY_KIND_BASELINE) {
 }
 step("terminal baseline fanned out to the subscribed guest");
 
-// 5. Guest input relays to the host; chat broadcasts; cursors flow.
+// 5. A replacement host receives the complete subscriber state. This is what
+// lets the Mac send a fresh baseline without waiting for a guest-sub delta.
+host = await connect(hostToken, "replacement host");
+await host.next((m) => m.t === "session-state", "replacement host snapshot");
+const replacementSubscriptions = await host.next(
+  (m) => m.t === "guest-subs",
+  "replacement host guest subscriptions",
+);
+const subscriptions = replacementSubscriptions.subscriptions;
+if (!Array.isArray(subscriptions) || subscriptions.length !== 1) {
+  throw new Error("replacement host did not recover one guest subscription");
+}
+const subscription = subscriptions[0] as Record<string, unknown> | undefined;
+if (
+  subscription?.ws !== "ws-1" ||
+  subscription?.pane !== "pane-1" ||
+  subscription?.count !== 1
+) {
+  throw new Error("replacement host did not recover the guest subscription");
+}
+host.ws.send(
+  JSON.stringify({
+    t: "hello",
+    proto: PROTO_VERSION,
+    shared: [{ id: "ws-1", title: "proof" }],
+    layouts: [{ ws: "ws-1", tree: { kind: "pane", pane: "pane-1", content: "terminal", cols: 80, rows: 24 } }],
+  }),
+);
+step("replacement host recovered the authoritative subscription snapshot");
+
+// 6. Guest input relays to the host; chat broadcasts; cursors flow.
 const inputPayload = new TextEncoder().encode("echo hi\n");
 guest.ws.send(encodeInputFrame("ws-1", "pane-1", inputPayload));
 const inputFrame = await host.nextBinary("guest terminal input");
@@ -359,10 +401,17 @@ if (hibernationProof) {
   step("post-wake grid, traffic, and automatic ACKs remained healthy");
 }
 
-// 6. Host ends; guest is told and the code is dead.
-host.ws.send(JSON.stringify({ t: "end" }));
+// 7. Authenticated HTTP revocation ends the Durable Object even without
+// depending on delivery through the host WebSocket.
+const revoke = await fetch(sessionUrl, {
+  method: "DELETE",
+  headers: { authorization: `Bearer ${hostToken}` },
+});
+if (revoke.status !== 204) {
+  throw new Error(`HTTP revocation failed with ${revoke.status}`);
+}
 await guest.next((m) => m.t === "session-ended", "session-ended");
-step("session ended cleanly");
+step("authenticated HTTP revocation ended the session");
 
 const late = new WebSocket(url(mint("proof-late", "late@proof.dev", false)));
 await new Promise<void>((resolve, reject) => {
