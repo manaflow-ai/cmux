@@ -204,6 +204,42 @@ func TestClaudeTeamsShellWrapperRejectsUnknownDialectBeforeReplacingShell(t *tes
 	}
 }
 
+func TestClaudeTeamsShellWrapperRejectsReentryWithoutOriginalShell(t *testing.T) {
+	root := t.TempDir()
+	shimDir := filepath.Join(root, "claude-teams-bin")
+	wrapperPath := filepath.Join(shimDir, "shell", "bash")
+	t.Setenv("SHELL", "/bin/zsh")
+	t.Setenv("CLAUDE_CODE_SHELL", wrapperPath)
+	t.Setenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL", "")
+	t.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", "")
+
+	err := configureClaudeTeamsShellWrapper(shimDir)
+	if err == nil || !strings.Contains(err.Error(), "CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL is missing") {
+		t.Fatalf("configureClaudeTeamsShellWrapper error = %v", err)
+	}
+	if got := os.Getenv("CLAUDE_CODE_SHELL"); got != wrapperPath {
+		t.Fatalf("re-entrant wrapper was replaced with %q", got)
+	}
+	if _, statErr := os.Stat(wrapperPath); !os.IsNotExist(statErr) {
+		t.Fatalf("re-entrant wrapper was unexpectedly written: %v", statErr)
+	}
+}
+
+func TestClaudeTeamsShellWrapperDefaultsInitialLaunchToBinSh(t *testing.T) {
+	shimDir := filepath.Join(t.TempDir(), "claude-teams-bin")
+	t.Setenv("SHELL", "")
+	t.Setenv("CLAUDE_CODE_SHELL", "")
+	t.Setenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL", "")
+	t.Setenv("CMUX_CLAUDE_TEAMS_SHIM_DIR", "")
+
+	if err := configureClaudeTeamsShellWrapper(shimDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv("CMUX_CLAUDE_TEAMS_ORIGINAL_SHELL"); got != "/bin/sh" {
+		t.Fatalf("original shell = %q, want /bin/sh", got)
+	}
+}
+
 func TestClaudeTeamsNonLaunchRelayLeavesUnknownShellUntouched(t *testing.T) {
 	if os.Getenv("CMUX_TEST_CLAUDE_TEAMS_NON_LAUNCH_RELAY") == "1" {
 		os.Exit(runClaudeTeamsRelay("/tmp/cmux-missing-test.sock", []string{"--version"}, nil))
