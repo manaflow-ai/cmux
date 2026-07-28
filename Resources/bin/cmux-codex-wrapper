@@ -117,7 +117,7 @@ resolve_hook_cmux_bin() {
 # `--dangerously-bypass-hook-trust` / `-c hooks.X=...` flags before the `resume`
 # subcommand, so prepending them is safe. Mirrors should_inject_claude_hooks: a
 # leading non-option token that is a known Codex subcommand means "not a session"
-# unless it is exec, resume, or fork.
+# unless it is exec, e, resume, or fork.
 codex_subcommand_starts_session() {
     case "$1" in
         exec|e|resume|fork) return 0 ;;
