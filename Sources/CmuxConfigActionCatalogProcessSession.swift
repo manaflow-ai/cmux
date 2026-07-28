@@ -10,7 +10,6 @@ final class CmuxConfigActionCatalogProcessSession:
     private let launch: CmuxConfigActionCatalogProcessReader.LaunchSpecification
     private let timeout: TimeInterval
     private let terminationGrace: TimeInterval
-    private let postKillHandoffDelay: TimeInterval
     private let maximumOutputBytes: Int
     private let timing: CmuxConfigActionCatalogProcessReader.Timing
     private let processOperations: CmuxConfigActionCatalogProcessReader.ProcessOperations
@@ -31,7 +30,6 @@ final class CmuxConfigActionCatalogProcessSession:
     private var processSource: DispatchSourceProcess?
     private var timeoutTask: Task<Void, Never>?
     private var killTask: Task<Void, Never>?
-    private var handoffTask: Task<Void, Never>?
     private var reapState = CmuxConfigActionCatalogProcessReapState.pending
     private var output = Data()
     private var outputOverflow = false
@@ -50,7 +48,6 @@ final class CmuxConfigActionCatalogProcessSession:
         launch: CmuxConfigActionCatalogProcessReader.LaunchSpecification,
         timeout: TimeInterval,
         terminationGrace: TimeInterval,
-        postKillHandoffDelay: TimeInterval,
         maximumOutputBytes: Int,
         timing: CmuxConfigActionCatalogProcessReader.Timing,
         processOperations: CmuxConfigActionCatalogProcessReader.ProcessOperations,
@@ -62,7 +59,6 @@ final class CmuxConfigActionCatalogProcessSession:
         self.launch = launch
         self.timeout = timeout
         self.terminationGrace = terminationGrace
-        self.postKillHandoffDelay = postKillHandoffDelay
         self.maximumOutputBytes = maximumOutputBytes
         self.timing = timing
         self.processOperations = processOperations
@@ -320,28 +316,11 @@ final class CmuxConfigActionCatalogProcessSession:
                 return
             }
             self.signalProcessGroup(processIdentifier, signal: SIGKILL)
-            self.scheduleQuarantineHandoff()
-        }
-    }
-
-    private func scheduleQuarantineHandoff() {
-        guard handoffTask == nil else { return }
-        let timing = timing
-        let postKillHandoffDelay = postKillHandoffDelay
-        handoffTask = Task { [weak self] in
-            do {
-                try await timing.sleep(.seconds(postKillHandoffDelay))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            self?.enqueueQuarantineHandoff()
-        }
-    }
-
-    private nonisolated func enqueueQuarantineHandoff() {
-        queue.async { [weak self] in
-            self?.handoffToQuarantineIfNeeded()
+            // One blocking wait is the authoritative post-kill lifecycle
+            // signal. The caller may return after quarantine takes ownership,
+            // but the lane remains held until this wait confirms the reap.
+            self.startBlockingReap(processIdentifier: processIdentifier)
+            self.handoffToQuarantineIfNeeded()
         }
     }
 
@@ -391,7 +370,6 @@ final class CmuxConfigActionCatalogProcessSession:
         timeoutTask = nil
         killTask?.cancel()
         killTask = nil
-        handoffTask = nil
         closeStdout()
         continuation.resume(returning: .quarantined)
     }
@@ -506,8 +484,6 @@ final class CmuxConfigActionCatalogProcessSession:
         timeoutTask = nil
         killTask?.cancel()
         killTask = nil
-        handoffTask?.cancel()
-        handoffTask = nil
         processSource?.cancel()
         processSource = nil
         closeStdout()
@@ -520,8 +496,6 @@ final class CmuxConfigActionCatalogProcessSession:
             timeoutTask = nil
             killTask?.cancel()
             killTask = nil
-            handoffTask?.cancel()
-            handoffTask = nil
             processSource?.cancel()
             processSource = nil
             closeStdout()

@@ -15,7 +15,6 @@ struct CmuxConfigActionCatalogProcessReader: CmuxConfigActionCatalogRawReading {
 
     private let timeout: TimeInterval
     private let terminationGrace: TimeInterval
-    private let postKillHandoffDelay: TimeInterval
     private let launchProvider: LaunchProvider
     private let timing: Timing
     private let codec: CmuxConfigActionCatalogFrameCodec
@@ -25,7 +24,6 @@ struct CmuxConfigActionCatalogProcessReader: CmuxConfigActionCatalogRawReading {
     init(
         timeout: TimeInterval = 2,
         terminationGrace: TimeInterval = 0.2,
-        postKillHandoffDelay: TimeInterval = 0.2,
         timing: Timing = .continuous,
         codec: CmuxConfigActionCatalogFrameCodec = .shared,
         processOperations: ProcessOperations = .live,
@@ -36,7 +34,6 @@ struct CmuxConfigActionCatalogProcessReader: CmuxConfigActionCatalogRawReading {
     ) {
         self.timeout = max(0.01, timeout)
         self.terminationGrace = max(0.01, terminationGrace)
-        self.postKillHandoffDelay = max(0.01, postKillHandoffDelay)
         self.timing = timing
         self.codec = codec
         self.processOperations = processOperations
@@ -70,7 +67,6 @@ struct CmuxConfigActionCatalogProcessReader: CmuxConfigActionCatalogRawReading {
             launch: launch,
             timeout: timeout,
             terminationGrace: terminationGrace,
-            postKillHandoffDelay: postKillHandoffDelay,
             maximumOutputBytes: maximumFrameBytes,
             timing: timing,
             processOperations: processOperations,

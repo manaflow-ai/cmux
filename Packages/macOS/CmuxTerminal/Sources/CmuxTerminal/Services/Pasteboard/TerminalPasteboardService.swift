@@ -59,6 +59,8 @@ public final class TerminalPasteboardService: Sendable {
 
     /// The directory that owned temporary image files are written into.
     let temporaryDirectory: URL
+    private let temporaryImageParentDirectory:
+        TerminalPasteboardTemporaryImageParentDirectory?
 
     private let temporaryImageOwnershipLock = NSLock()
     // SAFETY: guarded by `temporaryImageOwnershipLock`; mutated from
@@ -82,7 +84,12 @@ public final class TerminalPasteboardService: Sendable {
     ///   files. Tests inject a scratch directory; the app uses the user's
     ///   temporary directory.
     public init(temporaryDirectory: URL = FileManager.default.temporaryDirectory) {
-        self.temporaryDirectory = temporaryDirectory
+        let normalizedTemporaryDirectory = temporaryDirectory.standardizedFileURL
+        self.temporaryDirectory = normalizedTemporaryDirectory
+        self.temporaryImageParentDirectory =
+            TerminalPasteboardTemporaryImageParentDirectory(
+                opening: normalizedTemporaryDirectory
+            )
         self.selectionPasteboard = NSPasteboard(
             name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
         )
@@ -229,6 +236,7 @@ extension TerminalPasteboardService {
         _ fileURLs: [URL],
         afterQuarantineValidation: () -> Void
     ) {
+        guard !fileURLs.isEmpty else { return }
         guard let quarantine = cleanupQuarantine() else { return }
         for fileURL in fileURLs {
             let normalizedURL = fileURL.standardizedFileURL
@@ -273,8 +281,10 @@ extension TerminalPasteboardService {
     func registerOwnedTemporaryImageFile(_ fileURL: URL) -> Bool {
         guard fileURL.isFileURL else { return false }
         let normalizedURL = fileURL.standardizedFileURL
-        guard let ownedIdentity = TerminalPasteboardTemporaryImageFileIdentity(
-            capturing: normalizedURL
+        guard let temporaryImageParentDirectory,
+              let ownedIdentity = TerminalPasteboardTemporaryImageFileIdentity(
+            capturing: normalizedURL,
+            parentDirectory: temporaryImageParentDirectory
         ) else {
             return false
         }

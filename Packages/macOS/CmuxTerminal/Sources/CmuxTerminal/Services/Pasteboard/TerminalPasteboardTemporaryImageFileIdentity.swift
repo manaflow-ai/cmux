@@ -5,12 +5,33 @@ internal import Foundation
 ///
 /// Cleanup uses this descriptor with `*at(2)` operations, so renaming or
 /// replacing a pathname component above the directory cannot retarget it.
-private final class TerminalPasteboardTemporaryImageParentDirectory:
+final class TerminalPasteboardTemporaryImageParentDirectory:
     @unchecked Sendable
 {
+    let normalizedPath: String
     let descriptor: Int32
 
-    init(descriptor: Int32) {
+    init?(opening directoryURL: URL) {
+        guard directoryURL.isFileURL else { return nil }
+        let normalizedURL = directoryURL.standardizedFileURL
+        let descriptor = normalizedURL.withUnsafeFileSystemRepresentation {
+            path -> Int32 in
+            guard let path else { return -1 }
+            return Darwin.open(
+                path,
+                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else { return nil }
+
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR) else {
+            Darwin.close(descriptor)
+            return nil
+        }
+
+        normalizedPath = normalizedURL.path
         self.descriptor = descriptor
     }
 
@@ -115,7 +136,10 @@ struct TerminalPasteboardTemporaryImageFileIdentity: Equatable, Sendable {
     private let parentDirectory:
         TerminalPasteboardTemporaryImageParentDirectory
 
-    init?(capturing fileURL: URL) {
+    init?(
+        capturing fileURL: URL,
+        parentDirectory: TerminalPasteboardTemporaryImageParentDirectory
+    ) {
         guard fileURL.isFileURL else { return nil }
         let normalizedURL = fileURL.standardizedFileURL
         let entryName = normalizedURL.lastPathComponent
@@ -124,26 +148,15 @@ struct TerminalPasteboardTemporaryImageFileIdentity: Equatable, Sendable {
               entryName != ".." else {
             return nil
         }
-
-        let parentURL = normalizedURL.deletingLastPathComponent()
-        let parentDescriptor = parentURL.withUnsafeFileSystemRepresentation {
-            path -> Int32 in
-            guard let path else { return -1 }
-            return Darwin.open(
-                path,
-                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
-            )
+        guard normalizedURL.deletingLastPathComponent().path
+            == parentDirectory.normalizedPath else {
+            return nil
         }
-        guard parentDescriptor >= 0 else { return nil }
-        let parentDirectory =
-            TerminalPasteboardTemporaryImageParentDirectory(
-                descriptor: parentDescriptor
-            )
 
         var metadata = stat()
         let didReadMetadata = entryName.withCString { name in
             Darwin.fstatat(
-                parentDescriptor,
+                parentDirectory.descriptor,
                 name,
                 &metadata,
                 AT_SYMLINK_NOFOLLOW

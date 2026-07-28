@@ -293,7 +293,11 @@ struct TextBoxAttachment: Identifiable {
         self.submissionText = submissionText
         self.submissionPath = submissionPath ?? fileURL.path
         self.localURL = fileURL
-        self.thumbnail = TextBoxAttachment.makeThumbnail(from: preparedFile)
+        let thumbnail = TextBoxAttachment.makeThumbnail(from: preparedFile)
+        self.thumbnail = thumbnail
+        self.inlineThumbnailSource = thumbnail.map { _ in
+            TextBoxInlineAttachmentThumbnailSource(fileURL: fileURL)
+        }
         self.cleanupLocalURLWhenDisposed =
             preparedFile.localFileDisposition.cleanupLocalURLWhenDisposed
         self.cleanupPathEntryIdentity = preparedFile.cleanupPathEntryIdentity

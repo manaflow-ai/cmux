@@ -17401,6 +17401,9 @@ struct CMUXCLI {
         let surfaceHandle = try normalizeSurfaceHandle(env["CMUX_SURFACE_ID"], client: client, workspaceHandle: workspaceHandle)
         if let surfaceHandle {
             params["surface_id"] = surfaceHandle
+            if let workspaceHandle {
+                params["workspace_id"] = workspaceHandle
+            }
         } else if let workspaceHandle {
             params["workspace_id"] = workspaceHandle
         }

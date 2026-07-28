@@ -168,7 +168,12 @@ enum WorkspaceTodoPaletteCommands {
                     },
                     subtitle: workspaceSubtitle,
                     keywords: ["workspace", "checklist", "todo", "task", "add", "item"],
-                    arguments: [CmuxActionArgumentDefinition(name: "text")],
+                    arguments: [
+                        CmuxActionArgumentDefinition(
+                            name: "text",
+                            required: false
+                        )
+                    ],
                     when: hasWorkspace
                 )
             )

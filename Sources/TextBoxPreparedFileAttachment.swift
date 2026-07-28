@@ -195,7 +195,6 @@ nonisolated struct TextBoxPreparedFileAttachment: Sendable {
             launch: launch,
             timeout: snapshotHelperTimeout,
             terminationGrace: 0.2,
-            postKillHandoffDelay: 0.2,
             maximumOutputBytes:
                 snapshotHelperFrameMagic.count,
             timing: .continuous,

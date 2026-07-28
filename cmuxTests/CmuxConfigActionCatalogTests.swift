@@ -340,11 +340,9 @@ struct CmuxConfigActionCatalogTests {
         let sleeps = CmuxConfigActionCatalogTimingRecorder()
         let timeout: TimeInterval = 10
         let terminationGrace: TimeInterval = 20
-        let postKillHandoffDelay: TimeInterval = 30
         let reader = CmuxConfigActionCatalogProcessReader(
             timeout: timeout,
             terminationGrace: terminationGrace,
-            postKillHandoffDelay: postKillHandoffDelay,
             timing: .init { duration in
                 sleeps.record(duration)
             },
@@ -699,7 +697,6 @@ struct CmuxConfigActionCatalogTests {
         let reader = CmuxConfigActionCatalogProcessReader(
             timeout: 0.05,
             terminationGrace: 0.02,
-            postKillHandoffDelay: 0.02,
             processOperations: operations,
             quarantine: quarantine
         ) { request in
@@ -820,7 +817,6 @@ struct CmuxConfigActionCatalogTests {
             ),
             timeout: 0.05,
             terminationGrace: 0.02,
-            postKillHandoffDelay: 0.02,
             maximumOutputBytes: 1024,
             timing: .continuous,
             processOperations: operations,
@@ -901,7 +897,6 @@ struct CmuxConfigActionCatalogTests {
         let reader = CmuxConfigActionCatalogProcessReader(
             timeout: 0.05,
             terminationGrace: 0.02,
-            postKillHandoffDelay: 0.02,
             processOperations: operations,
             quarantine: quarantine
         ) { request in

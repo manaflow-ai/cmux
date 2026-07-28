@@ -89,7 +89,10 @@ extension TerminalPasteboardService: TerminalImagePasteWriting {
             try? FileManager.default.removeItem(at: fileURL)
             return nil
         }
-        guard registerOwnedTemporaryImageFile(fileURL) else { return nil }
+        guard registerOwnedTemporaryImageFile(fileURL) else {
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
+        }
         return fileURL.path.terminalShellEscaped
     }
 }
@@ -124,6 +127,7 @@ extension TerminalPasteboardService {
             }
 
             guard registerOwnedTemporaryImageFile(fileURL) else {
+                try? FileManager.default.removeItem(at: fileURL)
                 cleanupTransferredTemporaryImageFiles(fileURLs)
                 return .rejectedImagePayload
             }
