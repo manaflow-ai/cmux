@@ -92,8 +92,17 @@ extension Workspace {
     }
 
     func resolveForkAgentConversationContextMenuAvailability(
+        forPanelId panelId: UUID
+    ) async {
+        await resolveForkAgentConversationContextMenuAvailability(
+            forPanelId: panelId,
+            liveAgentIndex: .shared
+        )
+    }
+
+    func resolveForkAgentConversationContextMenuAvailability(
         forPanelId panelId: UUID,
-        liveAgentIndex: SharedLiveAgentIndex = .shared
+        liveAgentIndex: SharedLiveAgentIndex
     ) async {
         let selection = forkAgentConversationContextMenuOpenSelection(
             forPanelId: panelId,
