@@ -4,7 +4,6 @@ import Combine
 import CmuxControlSocket
 import CmuxTerminal
 import Foundation
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -404,85 +403,62 @@ struct DockNotificationAttentionTests {
         #expect(panel.flashReasons == [.notificationArrival])
     }
 
-    @Test("A single-pane Dock renders its unread notification ring")
-    func singlePaneDockRendersUnreadNotificationRing() async throws {
-        let defaultsSuite = "DockNotificationAttentionTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
-        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
-        defaults.set(true, forKey: NotificationPaneRingSettings.enabledKey)
-
-        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
-        dock.hasLoadedConfiguration = true
-        let panel = TerminalPanel(
-            workspaceId: dock.workspaceId,
-            runtimeSpawnPolicy: .pacedSessionRestore
-        )
-        try dock.seedRuntimeParityPanel(panel)
-        dock.setVisibleInUI(true)
-
+    @Test("Dock unread projection is scoped to active Dock panels")
+    func dockUnreadProjectionIsScopedToActiveDockPanels() {
+        let workspaceID = UUID()
+        let firstPanelID = UUID()
+        let secondPanelID = UUID()
+        let foreignPanelID = UUID()
         let unread = SidebarUnreadModel()
+        let projection = DockUnreadPanelProjection(
+            source: unread,
+            workspaceID: workspaceID,
+            panelIDs: [firstPanelID, secondPanelID],
+            isActive: true
+        )
+
         unread.apply(
-            totalUnreadCount: 1,
+            totalUnreadCount: 2,
             summaries: [:],
             unreadSurfaceKeys: [
-                SidebarSurfaceUnreadKey(workspaceId: dock.workspaceId, surfaceId: panel.id),
+                SidebarSurfaceUnreadKey(workspaceId: workspaceID, surfaceId: firstPanelID),
+                SidebarSurfaceUnreadKey(workspaceId: UUID(), surfaceId: foreignPanelID),
             ],
             focusedReadIndicatorByWorkspaceId: [:],
             manualUnreadWorkspaceIds: []
         )
+        #expect(projection.unreadPanelIDs == [firstPanelID])
 
-        let hostingView = NSHostingView(
-            rootView: DockPanelView(
-                store: dock,
-                isSidebarVisible: true,
-                mode: .dock,
-                rootDirectory: nil,
-                windowAppearance: .rightSidebarPanelViewTestDefault,
-                unreadSource: unread
-            )
-            .defaultAppStorage(defaults)
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: [:],
+            unreadSurfaceKeys: [],
+            focusedReadIndicatorByWorkspaceId: [workspaceID: secondPanelID],
+            manualUnreadWorkspaceIds: []
         )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+        #expect(projection.unreadPanelIDs == [secondPanelID])
+
+        projection.updateContext(
+            panelIDs: [firstPanelID, secondPanelID],
+            isActive: false
         )
-        window.contentView = hostingView
-        window.orderBack(nil)
-        defer {
-            window.orderOut(nil)
-            window.close()
-        }
+        #expect(projection.unreadPanelIDs.isEmpty)
 
-        let ringBecameVisible = await waitForVisibleNotificationRing(
-            on: panel,
-            hostingView: hostingView,
-            window: window
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: [:],
+            unreadSurfaceKeys: [
+                SidebarSurfaceUnreadKey(workspaceId: workspaceID, surfaceId: firstPanelID),
+            ],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
         )
+        #expect(projection.unreadPanelIDs.isEmpty)
 
-        let ring = panel.hostedView.debugNotificationRingState()
-        #expect(ringBecameVisible)
-        #expect(!ring.isHidden)
-        #expect(ring.opacity > 0)
-    }
-
-    private func waitForVisibleNotificationRing(
-        on panel: TerminalPanel,
-        hostingView: NSView,
-        window: NSWindow
-    ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        repeat {
-            hostingView.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            let ring = panel.hostedView.debugNotificationRingState()
-            if !ring.isHidden, ring.opacity > 0 {
-                return true
-            }
-            await Task.yield()
-        } while clock.now < deadline
-        return false
+        projection.updateContext(
+            panelIDs: [firstPanelID, secondPanelID],
+            isActive: true
+        )
+        #expect(projection.unreadPanelIDs == [firstPanelID])
     }
 }

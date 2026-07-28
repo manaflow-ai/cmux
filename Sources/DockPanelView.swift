@@ -3,6 +3,7 @@ import Bonsplit
 import Combine
 import CmuxAppKitSupportUI
 import CmuxTerminal
+import Observation
 import SwiftUI
 
 /// Right-sidebar Dock. Renders the window's own Dock `BonsplitController` tree
@@ -19,10 +20,9 @@ struct DockPanelView: View {
     /// dims its focus ring when false so Dock and main-pane focus are mutually
     /// exclusive (the main pane dims its ring when this is true).
     var rightSidebarOwnsInputFocus: Bool = false
-    private let unreadSource: SidebarUnreadModel
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
-    @State private var unreadPanelIDs: Set<UUID> = []
+    @State private var unreadProjection: DockUnreadPanelProjection
     @State private var visibilityHostId = UUID()
 
     @MainActor
@@ -41,7 +41,12 @@ struct DockPanelView: View {
         self.rootDirectory = rootDirectory
         self.windowAppearance = windowAppearance
         self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
-        self.unreadSource = unreadSource
+        _unreadProjection = State(initialValue: DockUnreadPanelProjection(
+            source: unreadSource,
+            workspaceID: store.workspaceId,
+            panelIDs: Set(store.panels.keys),
+            isActive: isSidebarVisible && mode == .dock
+        ))
     }
 
     private var appearance: PanelAppearance {
@@ -56,12 +61,10 @@ struct DockPanelView: View {
                 .frame(width: 1, height: 1)
         )
         .background(
-            DockUnreadProjectionBridge(
-                sidebarUnread: unreadSource,
-                workspaceID: store.workspaceId,
+            DockUnreadProjectionContextBridge(
+                projection: unreadProjection,
                 panelIDs: Set(store.panels.keys),
-                isActive: isSidebarVisible && mode == .dock,
-                unreadPanelIDs: $unreadPanelIDs
+                isActive: isSidebarVisible && mode == .dock
             )
             .frame(width: 0, height: 0)
         )
@@ -113,7 +116,7 @@ struct DockPanelView: View {
                 appearance: appearance,
                 windowAppearance: windowAppearance,
                 rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
-                unreadPanelIDs: unreadPanelIDs
+                unreadPanelIDs: unreadProjection.unreadPanelIDs
             )
         }
     }
@@ -121,41 +124,61 @@ struct DockPanelView: View {
 
 /// Narrows the app-wide unread model to this Dock before updating its Bonsplit
 /// subtree. Hidden Docks clear once, then ignore unrelated notification churn.
-private struct DockUnreadProjectionBridge: View {
-    let sidebarUnread: SidebarUnreadModel
-    let workspaceID: UUID
-    let panelIDs: Set<UUID>
-    let isActive: Bool
-    @Binding var unreadPanelIDs: Set<UUID>
+@MainActor
+@Observable
+final class DockUnreadPanelProjection {
+    private(set) var unreadPanelIDs: Set<UUID> = []
 
-    var body: some View {
-        Color.clear
-            .onAppear { refresh() }
-            .onChange(of: panelIDs) { _, _ in refresh() }
-            .onChange(of: isActive) { _, _ in refresh() }
-            .onReceive(
-                sidebarUnread.$unreadSurfaceKeys.combineLatest(
-                    sidebarUnread.$focusedReadIndicatorByWorkspaceId
-                )
-            ) { unreadSurfaceKeys, focusedReadIndicatorByWorkspaceID in
-                update(
+    @ObservationIgnored private let workspaceID: UUID
+    @ObservationIgnored private var panelIDs: Set<UUID> = []
+    @ObservationIgnored private var isActive = false
+    @ObservationIgnored private var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>
+    @ObservationIgnored private var focusedReadIndicatorByWorkspaceID: [UUID: UUID]
+    @ObservationIgnored private var unreadSubscription: AnyCancellable?
+
+    init(
+        source: SidebarUnreadModel,
+        workspaceID: UUID,
+        panelIDs: Set<UUID>,
+        isActive: Bool
+    ) {
+        self.workspaceID = workspaceID
+        self.panelIDs = panelIDs
+        self.isActive = isActive
+        unreadSurfaceKeys = source.unreadSurfaceKeys
+        focusedReadIndicatorByWorkspaceID = source.focusedReadIndicatorByWorkspaceId
+        refresh()
+        unreadSubscription = source.$unreadSurfaceKeys.combineLatest(
+            source.$focusedReadIndicatorByWorkspaceId
+        ).sink { [weak self] unreadSurfaceKeys, focusedReadIndicatorByWorkspaceID in
+            // Both publishers are main-actor-owned and publish synchronously
+            // from SidebarUnreadModel.apply().
+            MainActor.assumeIsolated {
+                self?.receive(
                     unreadSurfaceKeys: unreadSurfaceKeys,
                     focusedReadIndicatorByWorkspaceID: focusedReadIndicatorByWorkspaceID
                 )
             }
+        }
     }
 
-    private func refresh() {
-        update(
-            unreadSurfaceKeys: sidebarUnread.unreadSurfaceKeys,
-            focusedReadIndicatorByWorkspaceID: sidebarUnread.focusedReadIndicatorByWorkspaceId
-        )
+    func updateContext(panelIDs: Set<UUID>, isActive: Bool) {
+        guard self.panelIDs != panelIDs || self.isActive != isActive else { return }
+        self.panelIDs = panelIDs
+        self.isActive = isActive
+        refresh()
     }
 
-    private func update(
+    private func receive(
         unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
         focusedReadIndicatorByWorkspaceID: [UUID: UUID]
     ) {
+        self.unreadSurfaceKeys = unreadSurfaceKeys
+        self.focusedReadIndicatorByWorkspaceID = focusedReadIndicatorByWorkspaceID
+        refresh()
+    }
+
+    private func refresh() {
         let nextUnreadPanelIDs: Set<UUID>
         if isActive {
             let focusedReadPanelID = focusedReadIndicatorByWorkspaceID[workspaceID]
@@ -169,6 +192,23 @@ private struct DockUnreadProjectionBridge: View {
         }
         guard unreadPanelIDs != nextUnreadPanelIDs else { return }
         unreadPanelIDs = nextUnreadPanelIDs
+    }
+}
+
+private struct DockUnreadProjectionContextBridge: View {
+    let projection: DockUnreadPanelProjection
+    let panelIDs: Set<UUID>
+    let isActive: Bool
+
+    var body: some View {
+        Color.clear
+            .onAppear { projection.updateContext(panelIDs: panelIDs, isActive: isActive) }
+            .onChange(of: panelIDs) { _, panelIDs in
+                projection.updateContext(panelIDs: panelIDs, isActive: isActive)
+            }
+            .onChange(of: isActive) { _, isActive in
+                projection.updateContext(panelIDs: panelIDs, isActive: isActive)
+            }
     }
 }
 
