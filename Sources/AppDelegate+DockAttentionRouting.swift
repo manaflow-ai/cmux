@@ -48,7 +48,6 @@ extension AppDelegate {
         if DockSplitStore.routeAttentionFlash(
             panelID: panelID,
             reason: reason,
-            requiresSplit: requiresSplit,
             shouldFocus: shouldFocus
         ) {
             return true
