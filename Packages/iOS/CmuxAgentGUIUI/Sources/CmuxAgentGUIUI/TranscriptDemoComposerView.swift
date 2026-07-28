@@ -10,10 +10,14 @@ struct TranscriptDemoComposerView: View {
     let jumpToBottom: () -> Void
 
     @State private var demoText = ""
+    @State private var didApplyAutomationFocus = false
     @FocusState private var demoFieldFocused: Bool
 
     var body: some View {
         composerSurface
+            .task {
+                await applyAutomationFocusIfNeeded()
+            }
     }
 
     @ViewBuilder
@@ -135,6 +139,16 @@ struct TranscriptDemoComposerView: View {
             .font(.system(size: 16, weight: .semibold))
             .frame(width: 44, height: 44)
             .mobileGlassCircle()
+    }
+
+    private func applyAutomationFocusIfNeeded() async {
+        guard !didApplyAutomationFocus,
+              ProcessInfo.processInfo.environment["CMUX_UITEST_TRANSCRIPT_DEMO_KEYBOARD"] == "1" else {
+            return
+        }
+        didApplyAutomationFocus = true
+        try? await Task.sleep(for: .milliseconds(600))
+        demoFieldFocused = true
     }
 }
 #endif

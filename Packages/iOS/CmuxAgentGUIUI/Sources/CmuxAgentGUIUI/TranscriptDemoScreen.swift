@@ -15,6 +15,7 @@ public struct TranscriptDemoScreen: View {
     @State private var scrollGeneration = 0
     @State private var markdownRenderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
+    @State private var didStartAutomation = false
 
     public init() {
         let rawDensity = UITestEnvironmentConfig(
@@ -71,6 +72,9 @@ public struct TranscriptDemoScreen: View {
             TranscriptActivityTimelineView(details: details, terminalTheme: .monokai)
                 .presentationDetents([.medium, .large])
         }
+        .task {
+            await runAutomationIfRequested()
+        }
         .onDisappear { model.tearDown() }
     }
 
@@ -78,6 +82,53 @@ public struct TranscriptDemoScreen: View {
         followState = .followingTail
         scrollGeneration += 1
         scrollCommand = ConversationScrollCommand(generation: scrollGeneration, target: .tail)
+    }
+
+    private func runAutomationIfRequested() async {
+        guard !didStartAutomation else {
+            return
+        }
+        let env = ProcessInfo.processInfo.environment
+        let enabled = env["CMUX_UITEST_TRANSCRIPT_DEMO_SEED"] == "full"
+            || env["CMUX_UITEST_TRANSCRIPT_DEMO_AUTOPLAY"] == "1"
+            || env["CMUX_UITEST_TRANSCRIPT_DEMO_STREAMING"] == "1"
+            || env["CMUX_UITEST_TRANSCRIPT_DEMO_BURST"] == "1"
+            || env["CMUX_UITEST_TRANSCRIPT_DEMO_TALL"] == "1"
+            || env["CMUX_UITEST_TRANSCRIPT_DEMO_TOGGLE_DENSITY"] == "1"
+        guard enabled else {
+            return
+        }
+        didStartAutomation = true
+
+        if env["CMUX_UITEST_TRANSCRIPT_DEMO_SEED"] == "full" {
+            model.seedReplayForAutomation()
+        }
+
+        if env["CMUX_UITEST_TRANSCRIPT_DEMO_AUTOPLAY"] == "1" {
+            let delayMs = env["CMUX_UITEST_TRANSCRIPT_DEMO_DELAY_MS"].flatMap(Int.init) ?? 180
+            await model.playReplayForAutomation(delayMs: delayMs)
+        }
+
+        if env["CMUX_UITEST_TRANSCRIPT_DEMO_STREAMING"] == "1" {
+            try? await Task.sleep(for: .milliseconds(450))
+            model.injectStreamingTick()
+        }
+
+        if env["CMUX_UITEST_TRANSCRIPT_DEMO_BURST"] == "1" {
+            try? await Task.sleep(for: .milliseconds(450))
+            model.appendBurstRows()
+        }
+
+        if env["CMUX_UITEST_TRANSCRIPT_DEMO_TALL"] == "1" {
+            try? await Task.sleep(for: .milliseconds(450))
+            model.setTallFixtureEnabled(true)
+        }
+
+        if env["CMUX_UITEST_TRANSCRIPT_DEMO_TOGGLE_DENSITY"] == "1" {
+            let delayMs = env["CMUX_UITEST_TRANSCRIPT_DEMO_TOGGLE_DELAY_MS"].flatMap(Int.init) ?? 700
+            try? await Task.sleep(for: .milliseconds(max(1, delayMs)))
+            density = density == .comfortable ? .compact : .comfortable
+        }
     }
 }
 #endif

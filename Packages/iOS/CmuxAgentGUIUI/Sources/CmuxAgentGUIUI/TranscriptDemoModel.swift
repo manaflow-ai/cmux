@@ -93,6 +93,32 @@ import Observation
         )
     }
 
+    func seedReplayForAutomation() {
+        playbackTask?.cancel()
+        playbackTask = nil
+        isPlaying = false
+        while index < records.count {
+            step()
+        }
+    }
+
+    func playReplayForAutomation(delayMs: Int) async {
+        guard isPlaybackAvailable else {
+            return
+        }
+        playbackTask?.cancel()
+        playbackTask = nil
+        isPlaying = true
+        while index < records.count {
+            step()
+            guard isPlaying else {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(max(1, delayMs)))
+        }
+        isPlaying = false
+    }
+
     func setTallFixtureEnabled(_ enabled: Bool) {
         tallFixtureEnabled = enabled
         guard enabled else {
