@@ -83,6 +83,12 @@ extension DockSplitStore {
         return true
     }
 
+    var hasAuthoritativelyConnectedRemoteTerminal: Bool {
+        detachedSurfaceTransfersByPanelId.values.contains {
+            $0.isRemoteTerminal && $0.remoteTerminalSessionPhase == .connected
+        }
+    }
+
     /// Detaches a live panel from this Dock *without closing it*, packaging it
     /// into a `Workspace.DetachedSurfaceTransfer` for re-attachment elsewhere.
     ///

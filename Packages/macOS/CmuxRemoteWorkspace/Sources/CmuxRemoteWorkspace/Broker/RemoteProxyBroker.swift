@@ -177,6 +177,15 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             ptyLifecycleOwnership.acknowledge(lifecycleKey)
         }
     }
+
+    /// Returns whether a wrapper generation still owns its attachment.
+    public func isCurrentPTYLifecycle(sessionID: String, lifecycleID: String) -> Bool {
+        let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        return queue.sync {
+            ptyLifecycleOwnership.isCurrent(lifecycleKey)
+        }
+    }
+
     /// Claims a generation and enqueues retirement against its exact transport.
     @discardableResult
     public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool {

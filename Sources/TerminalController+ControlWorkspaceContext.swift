@@ -688,27 +688,54 @@ extension TerminalController: ControlWorkspaceContext {
         )
     }
 
+    private func controlRemoteTerminalDockOwner(
+        app: AppDelegate,
+        dock: DockSplitStore,
+        requestedWorkspaceID: UUID
+    ) -> (tabManager: TabManager, workspace: Workspace?)? {
+        guard let tabManager = app.dockReferenceTabManager(for: dock) else { return nil }
+        let workspaceID = dock.scope == .workspace ? dock.workspaceId : requestedWorkspaceID
+        return (tabManager, tabManager.workspacesById[workspaceID])
+    }
+
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
-        relayPort: Int?
+        relayPort: Int?,
+        sessionID: String?,
+        lifecycleID: String?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
+        let generationIsCurrent = switch (sessionID, lifecycleID) {
+        case let (.some(sessionID), .some(lifecycleID)):
+            remoteProxyBroker.isCurrentPTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+        case (nil, nil):
+            true
+        default:
+            false
+        }
+        guard generationIsCurrent else { return .notFound }
+
         let app = AppDelegate.shared
         let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
         let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
-        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
+        if let app,
+           let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
+           let dockOwner = controlRemoteTerminalDockOwner(
+               app: app,
+               dock: dock,
+               requestedWorkspaceID: workspaceId
+           ),
            dock.markRemoteTerminalSessionConnected(panelId: surfaceId, relayPort: relayPort) {
-            _ = fallbackWorkspace?.markRemoteTerminalSessionConnected(
+            _ = dockOwner.workspace?.markRemoteTerminalSessionConnected(
                 surfaceId: surfaceId,
                 relayPort: relayPort,
                 allowUntracked: true
             )
-            let owner = app?.dockReferenceTabManager(for: dock) ?? fallbackOwner
-            let windowId = owner.flatMap { app?.windowId(for: $0) }
+            let windowId = app.windowId(for: dockOwner.tabManager)
             return .resolved(
                 windowID: windowId,
-                workspaceID: fallbackWorkspace?.id ?? workspaceId,
-                remoteStatus: fallbackWorkspace.flatMap {
+                workspaceID: dockOwner.workspace?.id,
+                remoteStatus: dockOwner.workspace.flatMap {
                     JSONValue(foundationObject: $0.remoteStatusPayload())
                 } ?? .object([:])
             )
@@ -750,22 +777,27 @@ extension TerminalController: ControlWorkspaceContext {
         let app = AppDelegate.shared
         let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
         let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
-        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
+        if let app,
+           let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
+           let dockOwner = controlRemoteTerminalDockOwner(
+               app: app,
+               dock: dock,
+               requestedWorkspaceID: workspaceId
+           ),
            lifecycleOnly || !generationIsCurrent ||
             dock.markRemoteTerminalSessionEnded(panelId: surfaceId, relayPort: relayPort) {
             if !lifecycleOnly, generationIsCurrent {
-                fallbackWorkspace?.markRemoteTerminalSessionEnded(
+                dockOwner.workspace?.markRemoteTerminalSessionEnded(
                     surfaceId: surfaceId,
                     relayPort: relayPort,
                     allowUntracked: true
                 )
             }
-            let owner = app?.dockReferenceTabManager(for: dock) ?? fallbackOwner
-            let windowId = owner.flatMap { app?.windowId(for: $0) }
+            let windowId = app.windowId(for: dockOwner.tabManager)
             return .resolved(
                 windowID: windowId,
-                workspaceID: fallbackWorkspace?.id ?? workspaceId,
-                remoteStatus: fallbackWorkspace.flatMap {
+                workspaceID: dockOwner.workspace?.id,
+                remoteStatus: dockOwner.workspace.flatMap {
                     JSONValue(foundationObject: $0.remoteStatusPayload())
                 } ?? .object([:])
             )

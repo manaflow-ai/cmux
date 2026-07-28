@@ -276,11 +276,15 @@ public protocol ControlWorkspaceContext: AnyObject {
     ///   - workspaceID: The workspace id captured when the terminal launched.
     ///   - surfaceID: The connected terminal surface id.
     ///   - relayPort: The relay generation for non-persistent SSH, when present.
+    ///   - sessionID: The persistent PTY session, when this wrapper owns one.
+    ///   - lifecycleID: The wrapper-owned PTY lifecycle generation, when present.
     /// - Returns: The connected-session resolution.
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int?
+        relayPort: Int?,
+        sessionID: String?,
+        lifecycleID: String?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
 
     /// Records a remote terminal session-end for

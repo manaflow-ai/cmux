@@ -1798,10 +1798,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        let dock = DockSplitStore(
-            workspaceId: workspace.id,
-            baseDirectoryProvider: { nil }
-        )
+        let dock = workspace.dockSplit
         defer { dock.closeAllPanels() }
         let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
 
@@ -1815,6 +1812,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 allowUntracked: true
             )
         )
+        XCTAssertTrue(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Auxiliary daemon reconnecting",
+            target: config.destination
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
 
         let connectedTransfer = try XCTUnwrap(dock.detachSurface(panelId: panelID))
         XCTAssertEqual(connectedTransfer.remoteTerminalSessionPhase, .connected)

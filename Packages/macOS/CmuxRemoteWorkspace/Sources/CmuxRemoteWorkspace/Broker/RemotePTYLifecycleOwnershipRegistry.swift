@@ -49,6 +49,11 @@ struct RemotePTYLifecycleOwnershipRegistry {
         return Claim(transportKey: endedEntry.transportKey, wasCurrent: wasCurrent)
     }
 
+    func isCurrent(_ lifecycleKey: RemotePTYLifecycleKey) -> Bool {
+        guard let owner = owners[lifecycleKey] else { return false }
+        return currentByAttachmentStorage[owner.attachmentKey] == lifecycleKey
+    }
+
     mutating func removeAll(forTransportKey transportKey: String) {
         owners = owners.filter { $0.value.transportKey != transportKey }
         currentByAttachmentStorage = currentByAttachmentStorage.filter {

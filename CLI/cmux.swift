@@ -9236,14 +9236,8 @@ struct CMUXCLI {
             localCLIPath: resolvedExecutableURL()?.path,
             foregroundAuthToken: deferredRemoteReconnectToken
         )
-        let sshConnectedCommandScript = sshConnectedLocalCommandScript(
-            target: sshOptions.displayDestination,
-            relayPort: sshOptions.remoteRelayPort,
-            localCLIPath: resolvedExecutableURL()?.path
-        )
         let combinedLocalCommandScript = combinedLocalShellScript([
             deferredRemoteReconnectCommandScript,
-            sshConnectedCommandScript,
         ])
         let configuredForegroundAuthToken = deferredRemoteReconnectCommandScript == nil
             ? nil
@@ -10051,9 +10045,11 @@ struct CMUXCLI {
                 "      cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"reason\":\"command\"}'",
                 "      if [ -n \"__CMUX_SURFACE_ID__\" ]; then",
                 "        cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\"}'",
+                "        cmux_relay_terminal_connected='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"relay_port\":\(remoteRelayPort)}'",
                 "        cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"reason\":\"command\"}'",
                 "      fi",
                 "      env -u CMUX_SOCKET CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
+                "      if [ -n \"${cmux_relay_terminal_connected:-}\" ]; then env -u CMUX_SOCKET CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc workspace.remote.terminal_session_connected \"$cmux_relay_terminal_connected\" >/dev/null 2>&1 || true; fi",
                 "      env -u CMUX_SOCKET CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.ports_kick \"$cmux_relay_ports_kick\" >/dev/null 2>&1 || true",
                 "    ) </dev/null >/dev/null 2>&1 & unset cmux_relay_cli",
                 "  fi",
@@ -12648,6 +12644,8 @@ struct CMUXCLI {
                     params: [
                         "workspace_id": workspaceId,
                         "surface_id": surfaceID,
+                        "session_id": sessionID,
+                        "lifecycle_id": lifecycleID,
                     ]
                 )
             }
@@ -12997,35 +12995,6 @@ struct CMUXCLI {
             "fi;",
             "fi;",
             "unset cmux_reconnect_socket cmux_reconnect_cli;",
-        ].joined(separator: " ")
-    }
-
-    private func sshConnectedLocalCommandScript(
-        target: String,
-        relayPort: Int,
-        localCLIPath: String?
-    ) -> String {
-        let escapedTarget = target
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        let preferredCLIPath = localCLIPath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return [
-            preferredCLIPath.map { "cmux_ssh_connected_cli=\(shellQuote($0));" } ?? "cmux_ssh_connected_cli=\"\";",
-            "cmux_ssh_connected_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
-            "if [ -z \"$cmux_ssh_connected_cli\" ] && [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]; then cmux_ssh_connected_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
-            "if [ ! -x \"$cmux_ssh_connected_cli\" ]; then cmux_ssh_connected_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi;",
-            "if [ -n \"$cmux_ssh_connected_socket\" ] && [ -x \"$cmux_ssh_connected_cli\" ] && [ -n \"${CMUX_WORKSPACE_ID:-}\" ] && [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "cmux_ssh_connected_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"relay_port\\\":\(relayPort)}\";",
-            "\"$cmux_ssh_connected_cli\" --socket \"$cmux_ssh_connected_socket\" rpc workspace.remote.terminal_session_connected \"$cmux_ssh_connected_payload\" >/dev/null 2>&1 || true;",
-            "unset cmux_ssh_connected_payload;",
-            "fi;",
-            "cmux_ssh_log_path=\"\";",
-            "if [ -r /tmp/cmux-last-debug-log-path ]; then cmux_ssh_log_path=\"$(tr -d '\\r\\n' < /tmp/cmux-last-debug-log-path 2>/dev/null || true)\"; fi;",
-            "if [ -n \"$cmux_ssh_log_path\" ]; then",
-            "cmux_ssh_ts=\"$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec=\"milliseconds\").replace(\"+00:00\", \"Z\"))' 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)\";",
-            "printf '%s [cmux-cli] cli.ssh.handshake target=\(escapedTarget) relayPort=\(relayPort) stage=ssh.connected workspace=%s surface=%s\\n' \"$cmux_ssh_ts\" \"${CMUX_WORKSPACE_ID:-nil}\" \"${CMUX_SURFACE_ID:-nil}\" >> \"$cmux_ssh_log_path\";",
-            "fi;",
-            "unset cmux_ssh_connected_cli cmux_ssh_connected_socket cmux_ssh_log_path cmux_ssh_ts;",
         ].joined(separator: " ")
     }
 

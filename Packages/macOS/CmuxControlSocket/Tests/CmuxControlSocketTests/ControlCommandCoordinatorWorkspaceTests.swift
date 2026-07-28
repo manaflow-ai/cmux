@@ -239,6 +239,61 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(context.terminalSessionConnectedCall?.workspaceID == workspaceID)
         #expect(context.terminalSessionConnectedCall?.surfaceID == surfaceID)
         #expect(context.terminalSessionConnectedCall?.relayPort == 64007)
+        #expect(context.terminalSessionConnectedCall?.sessionID == nil)
+        #expect(context.terminalSessionConnectedCall?.lifecycleID == nil)
+    }
+
+    @Test func persistentTerminalSessionConnectedForwardsLifecycleAuthority() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "ssh-session"
+        let lifecycleID = UUID().uuidString.lowercased()
+        context.terminalSessionConnectedResolution = .resolved(
+            windowID: nil,
+            workspaceID: workspaceID,
+            remoteStatus: .object(["connected": .bool(true)])
+        )
+
+        guard case .ok = coordinator.handle(request("workspace.remote.terminal_session_connected", [
+            "workspace_id": .string(workspaceID.uuidString),
+            "surface_id": .string(surfaceID.uuidString),
+            "session_id": .string(sessionID),
+            "lifecycle_id": .string(lifecycleID),
+        ])) else {
+            Issue.record("unexpected persistent terminal_session_connected result")
+            return
+        }
+
+        #expect(context.terminalSessionConnectedCall?.relayPort == nil)
+        #expect(context.terminalSessionConnectedCall?.sessionID == sessionID)
+        #expect(context.terminalSessionConnectedCall?.lifecycleID == lifecycleID)
+    }
+
+    @Test(arguments: [
+        ["relay_port": JSONValue.int(64007), "session_id": .string("session"), "lifecycle_id": .string("lifecycle")],
+        ["session_id": JSONValue.string("session")],
+        ["lifecycle_id": JSONValue.string("lifecycle")],
+        [:],
+    ])
+    func terminalSessionConnectedRejectsAmbiguousAuthority(
+        authority: [String: JSONValue]
+    ) throws {
+        let (coordinator, context) = coordinator()
+        var params = authority
+        params["workspace_id"] = .string(UUID().uuidString)
+        params["surface_id"] = .string(UUID().uuidString)
+
+        guard case .err(let code, _, _) = coordinator.handle(request(
+            "workspace.remote.terminal_session_connected",
+            params
+        )) else {
+            Issue.record("ambiguous terminal authority was accepted")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(context.terminalSessionConnectedCall == nil)
     }
 
     @Test func lifecycleOnlySessionEndRejectsMissingGeneration() throws {

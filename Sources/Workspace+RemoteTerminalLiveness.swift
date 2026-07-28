@@ -16,7 +16,7 @@ extension Workspace {
     var hasAuthoritativelyConnectedRemoteTerminal: Bool {
         activeRemoteTerminalSurfaceIds.contains {
             remoteTerminalSessionPhasesBySurfaceId[$0] == .connected
-        }
+        } || _dockSplit?.hasAuthoritativelyConnectedRemoteTerminal == true
     }
 
     func markRemoteTerminalSessionLaunching(surfaceId: UUID) {

@@ -11,15 +11,28 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
         let relayPort = strictInt(params, "relay_port")
-        if relayPort.map({ $0 <= 0 || $0 > 65535 }) == true ||
-            (params["relay_port"] != nil && relayPort == nil) {
-            return .err(code: "invalid_params", message: "Invalid relay_port", data: nil)
+        let sessionID = optionalTrimmedRawString(params, "session_id")
+        let lifecycleID = optionalTrimmedRawString(params, "lifecycle_id")
+        let invalidRelayPort = relayPort.map { $0 <= 0 || $0 > 65535 } ?? false
+        let hasRelayAuthority = relayPort != nil
+        let hasPersistentAuthority = sessionID != nil && lifecycleID != nil
+        if invalidRelayPort ||
+            (params["relay_port"] != nil && relayPort == nil) ||
+            (sessionID == nil) != (lifecycleID == nil) ||
+            hasRelayAuthority == hasPersistentAuthority {
+            return .err(
+                code: "invalid_params",
+                message: "Provide exactly one terminal authority: relay_port or session_id with lifecycle_id",
+                data: nil
+            )
         }
 
         let resolution = context?.controlWorkspaceRemoteTerminalSessionConnected(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            relayPort: relayPort
+            relayPort: relayPort,
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
         ) ?? .notFound
         switch resolution {
         case .notFound:
@@ -34,7 +47,7 @@ extension ControlCommandCoordinator {
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
-                "workspace_id": .string(resolvedWorkspaceID.uuidString),
+                "workspace_id": orNull(resolvedWorkspaceID?.uuidString),
                 "workspace_ref": ref(.workspace, resolvedWorkspaceID),
                 "surface_id": .string(surfaceID.uuidString),
                 "surface_ref": ref(.surface, surfaceID),
@@ -86,7 +99,7 @@ extension ControlCommandCoordinator {
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
-                "workspace_id": .string(resolvedWorkspaceID.uuidString),
+                "workspace_id": orNull(resolvedWorkspaceID?.uuidString),
                 "workspace_ref": ref(.workspace, resolvedWorkspaceID),
                 "surface_id": .string(surfaceID.uuidString),
                 "surface_ref": ref(.surface, surfaceID),

@@ -5,6 +5,7 @@ public import Foundation
 public enum ControlWorkspaceRemoteTerminalSessionConnectedResolution: Sendable, Equatable {
     /// No tracked remote terminal matches the requested workspace and surface.
     case notFound
-    /// The terminal handshake was recorded for the resolved workspace.
-    case resolved(windowID: UUID?, workspaceID: UUID, remoteStatus: JSONValue)
+    /// The terminal handshake was recorded. `workspaceID` is absent when a
+    /// window-scoped Dock owns the terminal after its launch workspace closed.
+    case resolved(windowID: UUID?, workspaceID: UUID?, remoteStatus: JSONValue)
 }

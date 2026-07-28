@@ -20,7 +20,10 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
         sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
     )?
-    var terminalSessionConnectedCall: (workspaceID: UUID, surfaceID: UUID, relayPort: Int?)?
+    var terminalSessionConnectedCall: (
+        workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
+        sessionID: String?, lifecycleID: String?
+    )?
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -92,9 +95,11 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int?
+        relayPort: Int?,
+        sessionID: String?,
+        lifecycleID: String?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
-        terminalSessionConnectedCall = (workspaceID, surfaceID, relayPort)
+        terminalSessionConnectedCall = (workspaceID, surfaceID, relayPort, sessionID, lifecycleID)
         return terminalSessionConnectedResolution
     }
 }

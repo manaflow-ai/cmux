@@ -198,6 +198,15 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
             )
         }
 
+        #expect(!broker.isCurrentPTYLifecycle(
+            sessionID: "session",
+            lifecycleID: "old-generation"
+        ))
+        #expect(broker.isCurrentPTYLifecycle(
+            sessionID: "session",
+            lifecycleID: "new-generation"
+        ))
+
         let oldGenerationWasCurrent = broker.acknowledgePTYLifecycleAfterWrapperEnd(
             sessionID: "session",
             lifecycleID: "old-generation"

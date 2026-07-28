@@ -3755,6 +3755,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             XCTAssertFalse(initialScript.contains("ssh-pty-attach"), testCase.name)
             XCTAssertFalse(terminalStartupScript.contains("ssh-pty-attach"), testCase.name)
+            XCTAssertTrue(
+                initialScript.contains("workspace.remote.terminal_session_connected"),
+                testCase.name
+            )
+            XCTAssertTrue(
+                terminalStartupScript.contains("workspace.remote.terminal_session_connected"),
+                testCase.name
+            )
             XCTAssertEqual(configureParams["auto_connect"] as? Bool, true, testCase.name)
             XCTAssertNil(configureParams["foreground_auth_token"], testCase.name)
             XCTAssertNil(configureParams["preserve_after_terminal_exit"], testCase.name)
@@ -3899,6 +3907,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             case "workspace.remote.terminal_session_connected":
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertNotNil(
+                    (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
+                )
                 return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
