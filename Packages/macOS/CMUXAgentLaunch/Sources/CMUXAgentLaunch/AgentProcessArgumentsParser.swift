@@ -109,6 +109,7 @@ public struct AgentProcessArgumentsParser: Sendable {
         var pwd: String?
         var agentLaunchKind: String?
         var agentLaunchExecutable: String?
+        var bundledCLIPath: String?
         var argumentIndex = 0
         var executableArgumentRange: Range<Int>?
         var firstArgumentAfterExecutableRange: Range<Int>?
@@ -162,6 +163,13 @@ public struct AgentProcessArgumentsParser: Sendable {
                               prefix: Self.launchExecutableEnvironmentPrefix
                           ) {
                     agentLaunchExecutable = value
+                } else if baseAddress[0] == Self.bundledCLIPathEnvironmentPrefix[0],
+                          let value = environmentValue(
+                              baseAddress: baseAddress,
+                              length: length,
+                              prefix: Self.bundledCLIPathEnvironmentPrefix
+                          ) {
+                    bundledCLIPath = value
                 }
                 return false
             }
@@ -186,6 +194,7 @@ public struct AgentProcessArgumentsParser: Sendable {
             argumentsContainAnyNeedle: argumentsContainAnyNeedle,
             agentLaunchKind: agentLaunchKind,
             agentLaunchExecutable: agentLaunchExecutable,
+            bundledCLIPath: bundledCLIPath,
             executableArgument: executableArgument,
             firstArgumentAfterExecutable: firstArgumentAfterExecutable
         )
@@ -247,6 +256,9 @@ public struct AgentProcessArgumentsParser: Sendable {
     )
     private static let launchExecutableEnvironmentPrefix = Array(
         "CMUX_AGENT_LAUNCH_EXECUTABLE=".utf8
+    )
+    private static let bundledCLIPathEnvironmentPrefix = Array(
+        "CMUX_BUNDLED_CLI_PATH=".utf8
     )
     private static let pwdEnvironmentPrefix = Array("PWD=".utf8)
 

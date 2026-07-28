@@ -12,6 +12,9 @@ public struct AgentProcessFilterMetadata: Sendable {
     /// The agent executable recorded by cmux at launch.
     public let agentLaunchExecutable: String?
 
+    /// The bundled cmux CLI path exported to the process.
+    public let bundledCLIPath: String?
+
     /// The process executable at `argv[0]`, retained for identity matching.
     public let executableArgument: String?
 

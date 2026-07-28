@@ -83,6 +83,14 @@ public struct AgentProcessCandidateSelector: Sendable {
             return true
         }
 
+        if bundledCLIPathMatches(
+            metadata.bundledCLIPath,
+            process: process,
+            executableArgument: metadata.executableArgument
+        ) {
+            return true
+        }
+
         let executableCandidates = [
             process.name,
             process.path,
@@ -100,5 +108,29 @@ public struct AgentProcessCandidateSelector: Sendable {
             recordedKind: metadata.agentLaunchKind,
             recordedExecutable: metadata.agentLaunchExecutable
         )
+    }
+
+    private func bundledCLIPathMatches(
+        _ bundledCLIPath: String?,
+        process: AgentProcessCandidate,
+        executableArgument: String?
+    ) -> Bool {
+        guard let bundledCLIPath = bundledCLIPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !bundledCLIPath.isEmpty else {
+            return false
+        }
+        let standardizedBundledCLIPath = (bundledCLIPath as NSString).standardizingPath
+        return [
+            executableArgument,
+            process.path,
+            process.name,
+        ].compactMap { candidate in
+            candidate?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }.contains { candidate in
+            !candidate.isEmpty
+                && (candidate as NSString).standardizingPath == standardizedBundledCLIPath
+        }
     }
 }
