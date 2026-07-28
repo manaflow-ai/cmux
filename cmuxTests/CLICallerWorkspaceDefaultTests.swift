@@ -118,9 +118,9 @@ struct CLICallerWorkspaceDefaultTests {
         }
     }
 
-    /// Workspace-scoped commands need the caller workspace even when they also
-    /// preserve the caller surface as the routing anchor.
-    @Test func workspaceCommandsCarryCallerWorkspaceAlongsideCallerSurface() throws {
+    /// Workspace-scoped commands still fall back to the caller workspace when
+    /// the shell has no live surface identity.
+    @Test func workspaceCommandsCarryCallerWorkspaceWithoutCallerSurface() throws {
         let cases: [(arguments: [String], method: String)] = [
             (["list-workspaces", "--json"], "workspace.list"),
             (["new-workspace", "--json"], "workspace.create"),
@@ -138,7 +138,7 @@ struct CLICallerWorkspaceDefaultTests {
             )
             let params = try #require(request["params"] as? [String: Any])
             #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
-            #expect(params["surface_id"] as? String == Self.callerSurfaceId)
+            #expect(params["surface_id"] == nil)
         }
     }
 
@@ -184,11 +184,10 @@ struct CLICallerWorkspaceDefaultTests {
             return Self.v2Response(id: id, ok: true, result: result)
         }
 
-        var environment = cliEnvironment(
+        let environment = cliEnvironment(
             socketPath: socketPath,
             callerWorkspaceId: Self.callerWorkspaceId
         )
-        environment["CMUX_SURFACE_ID"] = Self.callerSurfaceId
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
             arguments: arguments,
