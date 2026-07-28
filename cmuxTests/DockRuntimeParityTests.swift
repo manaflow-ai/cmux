@@ -122,25 +122,6 @@ struct DockRuntimeParityTests {
         for await _ in readiness { break }
     }
 
-    private func waitForVisibleNotificationRing(
-        on panel: TerminalPanel,
-        hostingView: NSView,
-        window: NSWindow
-    ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        repeat {
-            hostingView.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            let ring = panel.hostedView.debugNotificationRingState()
-            if !ring.isHidden, ring.opacity > 0 {
-                return true
-            }
-            await Task.yield()
-        } while clock.now < deadline
-        return false
-    }
-
     private func withAppContext(
         _ body: @MainActor (AppDelegate, TabManager, Workspace, UUID) async throws -> Void
     ) async throws {
@@ -215,16 +196,6 @@ struct DockRuntimeParityTests {
                 requiresSplit: false,
                 shouldFocus: false
             )
-            workspace.triggerNotificationFocusFlash(
-                panelId: workspacePanel.id,
-                requiresSplit: true,
-                shouldFocus: false
-            )
-            workspace.triggerNotificationFocusFlash(
-                panelId: globalPanel.id,
-                requiresSplit: true,
-                shouldFocus: false
-            )
             manager.workspaceTriggerNotificationDismissFlash(
                 workspaceId: workspace.id,
                 panelId: workspacePanel.id
@@ -244,82 +215,11 @@ struct DockRuntimeParityTests {
 
             let expected: [WorkspaceAttentionFlashReason] = [
                 .notificationArrival,
-                .notificationArrival,
                 .notificationDismiss,
                 .unreadIndicatorDismiss,
             ]
             #expect(workspacePanel.flashReasons == expected)
             #expect(globalPanel.flashReasons == expected)
-        }
-    }
-
-    @Test("A single-pane Dock renders its unread notification ring")
-    func singlePaneDockRendersUnreadNotificationRing() async throws {
-        try await withAppContext { _, _, workspace, _ in
-            let defaults = UserDefaults.standard
-            let previousRingSetting = defaults.object(forKey: NotificationPaneRingSettings.enabledKey)
-            defer {
-                if let previousRingSetting {
-                    defaults.set(previousRingSetting, forKey: NotificationPaneRingSettings.enabledKey)
-                } else {
-                    defaults.removeObject(forKey: NotificationPaneRingSettings.enabledKey)
-                }
-            }
-            defaults.set(true, forKey: NotificationPaneRingSettings.enabledKey)
-
-            let dock = workspace.dockSplit
-            dock.hasLoadedConfiguration = true
-            let panel = TerminalPanel(
-                workspaceId: workspace.id,
-                runtimeSpawnPolicy: .pacedSessionRestore
-            )
-            try dock.seedRuntimeParityPanel(panel)
-            dock.setVisibleInUI(true)
-
-            let unread = SidebarUnreadModel()
-            unread.apply(
-                totalUnreadCount: 1,
-                summaries: [:],
-                unreadSurfaceKeys: [
-                    SidebarSurfaceUnreadKey(workspaceId: dock.workspaceId, surfaceId: panel.id),
-                ],
-                focusedReadIndicatorByWorkspaceId: [:],
-                manualUnreadWorkspaceIds: []
-            )
-
-            let hostingView = NSHostingView(
-                rootView: DockPanelView(
-                    store: dock,
-                    isSidebarVisible: true,
-                    mode: .dock,
-                    rootDirectory: nil,
-                    windowAppearance: .rightSidebarPanelViewTestDefault
-                )
-                .environmentObject(unread)
-            )
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
-                styleMask: [.borderless],
-                backing: .buffered,
-                defer: false
-            )
-            window.contentView = hostingView
-            window.orderBack(nil)
-            defer {
-                window.orderOut(nil)
-                window.close()
-            }
-
-            let ringBecameVisible = await waitForVisibleNotificationRing(
-                on: panel,
-                hostingView: hostingView,
-                window: window
-            )
-
-            let ring = panel.hostedView.debugNotificationRingState()
-            #expect(ringBecameVisible)
-            #expect(!ring.isHidden)
-            #expect(ring.opacity > 0)
         }
     }
 
@@ -481,5 +381,113 @@ struct DockRuntimeParityTests {
             let readResult = try #require(readEnvelope["result"] as? [String: Any])
             #expect(readResult["surface_id"] as? String == workspaceTerminal.id.uuidString)
         }
+    }
+}
+
+@MainActor
+@Suite("Dock notification attention", .serialized)
+struct DockNotificationAttentionTests {
+    @Test("Single-pane Dock attention bypasses workspace split gating")
+    func singlePaneDockAttentionBypassesWorkspaceSplitGating() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = DockRuntimeParityPanel(title: "Dock")
+        try dock.seedRuntimeParityPanel(panel)
+
+        let routed = AppDelegate().routeNotificationAttentionFlash(
+            workspaceID: dock.workspaceId,
+            panelID: panel.id,
+            reason: .notificationArrival,
+            requiresSplit: true
+        )
+
+        #expect(routed)
+        #expect(panel.flashReasons == [.notificationArrival])
+    }
+
+    @Test("A single-pane Dock renders its unread notification ring")
+    func singlePaneDockRendersUnreadNotificationRing() async throws {
+        let defaults = UserDefaults.standard
+        let previousRingSetting = defaults.object(forKey: NotificationPaneRingSettings.enabledKey)
+        defer {
+            if let previousRingSetting {
+                defaults.set(previousRingSetting, forKey: NotificationPaneRingSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: NotificationPaneRingSettings.enabledKey)
+            }
+        }
+        defaults.set(true, forKey: NotificationPaneRingSettings.enabledKey)
+
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        dock.hasLoadedConfiguration = true
+        let panel = TerminalPanel(
+            workspaceId: dock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        try dock.seedRuntimeParityPanel(panel)
+        dock.setVisibleInUI(true)
+
+        let unread = SidebarUnreadModel()
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: [:],
+            unreadSurfaceKeys: [
+                SidebarSurfaceUnreadKey(workspaceId: dock.workspaceId, surfaceId: panel.id),
+            ],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+
+        let hostingView = NSHostingView(
+            rootView: DockPanelView(
+                store: dock,
+                isSidebarVisible: true,
+                mode: .dock,
+                rootDirectory: nil,
+                windowAppearance: .rightSidebarPanelViewTestDefault
+            )
+            .environmentObject(unread)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.orderBack(nil)
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let ringBecameVisible = await waitForVisibleNotificationRing(
+            on: panel,
+            hostingView: hostingView,
+            window: window
+        )
+
+        let ring = panel.hostedView.debugNotificationRingState()
+        #expect(ringBecameVisible)
+        #expect(!ring.isHidden)
+        #expect(ring.opacity > 0)
+    }
+
+    private func waitForVisibleNotificationRing(
+        on panel: TerminalPanel,
+        hostingView: NSView,
+        window: NSWindow
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        repeat {
+            hostingView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            let ring = panel.hostedView.debugNotificationRingState()
+            if !ring.isHidden, ring.opacity > 0 {
+                return true
+            }
+            await Task.yield()
+        } while clock.now < deadline
+        return false
     }
 }
