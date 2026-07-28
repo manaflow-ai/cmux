@@ -12,6 +12,7 @@ struct CmuxTopProcessFilterMetadata: Sendable {
     let argumentsContainAnyNeedle: Bool
     let agentLaunchKind: String?
     let agentLaunchExecutable: String?
+    let firstArgumentAfterExecutable: String?
 }
 
 extension CmuxTopProcessSnapshot {
@@ -85,9 +86,15 @@ extension CmuxTopProcessSnapshot {
         var pwd: String?
         var agentLaunchKind: String?
         var agentLaunchExecutable: String?
+        var argumentIndex = 0
+        var firstArgumentAfterExecutableRange: Range<Int>?
         let traversal = visitProcessArgumentsAndEnvironment(
             fromKernProcArgs: bytes,
-            visitArgument: { baseAddress, length in
+            visitArgument: { baseAddress, length, byteOffset in
+                defer { argumentIndex += 1 }
+                if argumentIndex == 1 {
+                    firstArgumentAfterExecutableRange = byteOffset..<(byteOffset + length)
+                }
                 if !argumentsContainAnyNeedle {
                     argumentsContainAnyNeedle = normalizedArgumentNeedles.contains {
                         argumentContains(
@@ -134,11 +141,20 @@ extension CmuxTopProcessSnapshot {
             }
         )
         guard traversal != nil else { return nil }
+        let firstArgumentAfterExecutable: String?
+        if agentLaunchKind != nil,
+           agentLaunchExecutable != nil,
+           let range = firstArgumentAfterExecutableRange {
+            firstArgumentAfterExecutable = String(bytes: bytes[range], encoding: .utf8)
+        } else {
+            firstArgumentAfterExecutable = nil
+        }
         return CmuxTopProcessFilterMetadata(
             projectWorkingDirectory: sawLaunchWorkingDirectory ? launchWorkingDirectory : pwd,
             argumentsContainAnyNeedle: argumentsContainAnyNeedle,
             agentLaunchKind: agentLaunchKind,
-            agentLaunchExecutable: agentLaunchExecutable
+            agentLaunchExecutable: agentLaunchExecutable,
+            firstArgumentAfterExecutable: firstArgumentAfterExecutable
         )
     }
 
@@ -201,7 +217,7 @@ extension CmuxTopProcessSnapshot {
     /// requests an early stop, and false after a complete traversal.
     private static func visitProcessArgumentsAndEnvironment(
         fromKernProcArgs bytes: [UInt8],
-        visitArgument: (UnsafePointer<UInt8>, Int) -> Bool = { _, _ in false },
+        visitArgument: (UnsafePointer<UInt8>, Int, Int) -> Bool = { _, _, _ in false },
         visitEnvironment: (UnsafePointer<UInt8>, Int) -> Bool = { _, _ in false }
     ) -> Bool? {
         guard bytes.count > MemoryLayout<Int32>.size else { return nil }
@@ -233,7 +249,7 @@ extension CmuxTopProcessSnapshot {
                 ) else {
                     return nil
                 }
-                if visitArgument(baseAddress.advanced(by: start), index - start) {
+                if visitArgument(baseAddress.advanced(by: start), index - start, start) {
                     return true
                 }
                 index += 1

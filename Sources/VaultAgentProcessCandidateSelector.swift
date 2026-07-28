@@ -52,7 +52,11 @@ struct VaultAgentProcessCandidateSelector {
             "CMUX_AGENT_LAUNCH_KIND": agentLaunchKind,
             "CMUX_AGENT_LAUNCH_EXECUTABLE": agentLaunchExecutable,
         ]
-        let executableCandidates = [process.name, process.path].compactMap { $0 }
+        let executableCandidates = [
+            process.name,
+            process.path,
+            metadata.firstArgumentAfterExecutable,
+        ].compactMap { $0 }
         return CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(
             kind: .claude,
             executableCandidates: executableCandidates,
