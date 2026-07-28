@@ -77,6 +77,7 @@ struct RemoteTmuxNotificationLifecycleTests {
             try? pipe.fileHandleForReading.close()
             let identifier = "cmux.main.\(windowID.uuidString)"
             NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })?.performClose(nil)
+            AppDelegate.shared?.forgetRecoverableMainWindowRoute(windowId: windowID)
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
     }
@@ -146,5 +147,19 @@ struct RemoteTmuxNotificationLifecycleTests {
         #expect(mirror.activePaneId == 4)
         #expect(TerminalNotificationStore.shared.notifications
             .first(where: { $0.id == notification.id })?.isRead == true)
+
+        let appDelegate = try #require(AppDelegate.shared)
+        appDelegate.unregisterMainWindowContextForTesting(windowId: harness.windowID)
+        #expect(
+            appDelegate.recoverableMainWindowRoute(windowId: harness.windowID)?.tabManager
+                === harness.manager
+        )
+        appDelegate.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(
+            reason: "remote-tmux-notification-lifecycle-test"
+        )
+        #expect(
+            appDelegate.recoverableMainWindowRoute(windowId: harness.windowID)?.tabManager
+                === harness.manager
+        )
     }
 }
