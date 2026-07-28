@@ -5,7 +5,6 @@ import CmuxSettings
 /// Owns the app-level computer-use menu-bar and onboarding controllers.
 @MainActor
 final class ComputerUseUXCoordinator {
-    private let liveAgentIndex: SharedLiveAgentIndex
     private let stateRepository: ComputerUseStateRepository
     private let stateDirectoryURL: URL
     private let configStore: JSONConfigStore
@@ -16,6 +15,7 @@ final class ComputerUseUXCoordinator {
     private let userDefaults: UserDefaults
     private let workspaceTitle: @MainActor (UUID) -> String?
     private let featureEnabled: @MainActor () -> Bool
+    private let liveSessionProjection: ComputerUseLiveSessionProjection
 
     private var menuBarController: ComputerUseMenuBarController?
     private var watchTargetController: ComputerUseWatchTargetController?
@@ -37,7 +37,6 @@ final class ComputerUseUXCoordinator {
         workspaceTitle: @escaping @MainActor (UUID) -> String?,
         featureEnabled: @escaping @MainActor () -> Bool
     ) {
-        self.liveAgentIndex = liveAgentIndex
         self.stateRepository = stateRepository
         self.stateDirectoryURL = stateDirectoryURL
         self.configStore = configStore
@@ -48,6 +47,9 @@ final class ComputerUseUXCoordinator {
         self.userDefaults = userDefaults
         self.workspaceTitle = workspaceTitle
         self.featureEnabled = featureEnabled
+        self.liveSessionProjection = ComputerUseLiveSessionProjection(
+            liveAgentIndex: liveAgentIndex
+        )
         runtimeService.helperBuildReplacedHandler = { [userDefaults] in
             ComputerUseOnboardingWindowController.invalidateDirectCaptureReady(
                 in: userDefaults
@@ -109,35 +111,11 @@ final class ComputerUseUXCoordinator {
         let watchTarget = ComputerUseWatchTargetController(
             stateDirectoryURL: stateDirectoryURL,
             featureEnabled: featureEnabled,
-            liveDriverSessions: { [liveAgentIndex] in
-                (liveAgentIndex.index?.liveEntries() ?? []).reduce(into: [
-                    String: ComputerUseLiveDriverSession
-                ]()) { sessions, pair in
-                    let driverSessionID =
-                        ComputerUseSessionScope.driverSessionID(
-                            surfaceID: pair.panelKey.panelId
-                        )
-                    sessions[driverSessionID] = ComputerUseLiveDriverSession(
-                        workspaceID: pair.panelKey.workspaceId,
-                        surfaceID: pair.panelKey.panelId,
-                        entry: pair.entry
-                    )
-                }
+            liveDriverSessions: { [liveSessionProjection] in
+                liveSessionProjection.sessionsByDriverSessionID()
             },
-            currentLiveDriverSession: { [liveAgentIndex] scannedSession in
-                guard
-                    let entry = liveAgentIndex.index?.exactEntry(
-                        workspaceId: scannedSession.workspaceID,
-                        panelId: scannedSession.surfaceID
-                    )
-                else {
-                    return nil
-                }
-                return ComputerUseLiveDriverSession(
-                    workspaceID: scannedSession.workspaceID,
-                    surfaceID: scannedSession.surfaceID,
-                    entry: entry
-                )
+            currentLiveDriverSession: { [liveSessionProjection] scannedSession in
+                liveSessionProjection.currentSession(matching: scannedSession)
             },
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: runtimeService.stateAuthenticationKey
@@ -153,7 +131,7 @@ final class ComputerUseUXCoordinator {
         )
 
         let snapshotStore = ComputerUseMenuBarSnapshotStore(
-            liveAgentIndex: liveAgentIndex,
+            liveSessionProjection: liveSessionProjection,
             stateRepository: stateRepository,
             stateDirectoryURL: stateDirectoryURL,
             configStore: configStore,

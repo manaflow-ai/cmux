@@ -15,7 +15,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
 
     @Published private(set) var snapshot: ComputerUseMenuBarSnapshot = .hidden
 
-    private let liveAgentIndex: SharedLiveAgentIndex
+    private let liveSessionProjection: ComputerUseLiveSessionProjection
     private let stateRepository: ComputerUseStateRepository
     private let stateDirectoryURL: URL
     private let configStore: JSONConfigStore
@@ -37,7 +37,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     private var liveRowsNeedRebuild = true
 
     init(
-        liveAgentIndex: SharedLiveAgentIndex,
+        liveSessionProjection: ComputerUseLiveSessionProjection,
         stateRepository: ComputerUseStateRepository,
         stateDirectoryURL: URL,
         configStore: JSONConfigStore,
@@ -46,7 +46,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         featureEnabled: @escaping @MainActor () -> Bool,
         refreshPolicy: ComputerUseMenuBarRefreshPolicy = .live
     ) {
-        self.liveAgentIndex = liveAgentIndex
+        self.liveSessionProjection = liveSessionProjection
         self.stateRepository = stateRepository
         self.stateDirectoryURL = stateDirectoryURL
         self.configStore = configStore
@@ -90,7 +90,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 self?.refresh()
             }
         }
-        liveAgentIndex.scheduleRefreshIfStale()
+        liveSessionProjection.scheduleRefreshIfStale()
         liveRowsNeedRebuild = true
         refresh()
     }
@@ -139,7 +139,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         guard !liveRows.isEmpty else {
             #if DEBUG
             cmuxDebugLog(
-                "computerUse.menuBar.hidden noLiveAgentRows indexEntries=\(liveAgentIndex.index?.liveEntries().count ?? -1)"
+                "computerUse.menuBar.hidden noLiveAgentRows"
             )
             #endif
             hideSnapshot(
@@ -276,34 +276,9 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     }
 
     private func rebuildLiveRows() {
-        liveRows = (liveAgentIndex.index?.liveEntries() ?? []).compactMap { pair in
-            let snapshot = pair.entry.snapshot
-            let workspaceName = workspaceTitle(pair.panelKey.workspaceId)
-                ?? String(
-                    localized: "computerUse.menu.unknownWorkspace",
-                    defaultValue: "Unknown Workspace"
-                )
-            guard let liveSession = ComputerUseLiveDriverSession(
-                workspaceID: pair.panelKey.workspaceId,
-                surfaceID: pair.panelKey.panelId,
-                entry: pair.entry
-            ) else { return nil }
-            return ComputerUseMenuBarRow(
-                id: liveSession.logicalSessionID,
-                title: String(
-                    localized: "computerUse.menu.sessionTitle",
-                    defaultValue: "\(snapshot.kind.displayName) · \(workspaceName)"
-                ),
-                sessionID: snapshot.sessionId,
-                workspaceID: pair.panelKey.workspaceId,
-                surfaceID: pair.panelKey.panelId,
-                rootProcessIdentities: liveSession.rootProcessIdentities,
-                targetIdentity: nil,
-                targetAppName: nil,
-                stateWriterIdentity: nil,
-                proxySessionID: nil
-            )
-        }
+        liveRows = liveSessionProjection.menuBarRows(
+            workspaceTitle: workspaceTitle
+        )
     }
 
     private func scheduleExpiryRefresh(lastActionAt: Date, generation: Int) {

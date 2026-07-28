@@ -2057,7 +2057,9 @@ struct ComputerUseUXTests {
         )
         let catalog = SettingCatalog()
         let store = ComputerUseMenuBarSnapshotStore(
-            liveAgentIndex: sharedIndex,
+            liveSessionProjection: ComputerUseLiveSessionProjection(
+                liveAgentIndex: sharedIndex
+            ),
             stateRepository: ComputerUseStateRepository(
                 authenticationKey: Self.stateAuthenticationKey
             ),
