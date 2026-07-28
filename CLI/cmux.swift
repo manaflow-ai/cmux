@@ -28013,7 +28013,7 @@ struct CMUXCLI {
         if let normalizedSessionId {
             params["checkpoint_id"] = normalizedSessionId
         }
-        if sessionDidEnd {
+        if sessionDidEnd, normalizedSessionId != nil {
             params["agent_session_ended"] = true
         }
         _ = try? client.sendV2(method: "surface.resume.clear", params: params)

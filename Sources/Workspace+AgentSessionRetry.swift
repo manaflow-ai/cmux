@@ -109,9 +109,12 @@ extension Workspace {
         )
         postAgentRetryNotification(
             panelId: panelId,
-            body: String(
-                localized: "agent.autoRetry.notification.exhausted.body",
-                defaultValue: "The agent could not be resumed after three automatic retries."
+            body: String.localizedStringWithFormat(
+                String(
+                    localized: "agent.autoRetry.notification.exhausted.body",
+                    defaultValue: "The agent could not be resumed after %lld automatic retries."
+                ),
+                Int64(maximumAttempts)
             )
         )
     }

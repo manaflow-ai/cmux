@@ -1,44 +1,57 @@
+import CmuxSettings
 import Foundation
 
-enum AgentSessionAutoRetrySettings {
-    static let autoRetryAgentSessionsKey = "terminal.autoRetryAgentSessions"
-    static let defaultAutoRetryAgentSessions = false
-    static let didChangeNotification = Notification.Name("cmux.agentSessionAutoRetrySettingsDidChange")
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: autoRetryAgentSessionsKey) != nil else {
-            return defaultAutoRetryAgentSessions
-        }
-        return defaults.bool(forKey: autoRetryAgentSessionsKey)
+struct AgentSessionAutoRetrySettings {
+    static var autoRetryAgentSessionsKey: String {
+        TerminalCatalogSection().autoRetryAgentSessions.userDefaultsKey
     }
 
-    static func setEnabled(
-        _ enabled: Bool,
+    static var defaultAutoRetryAgentSessions: Bool {
+        TerminalCatalogSection().autoRetryAgentSessions.defaultValue
+    }
+    static let didChangeNotification = Notification.Name("cmux.agentSessionAutoRetrySettingsDidChange")
+
+    private let defaults: UserDefaults
+    private let notificationCenter: NotificationCenter
+    private let key: DefaultsKey<Bool>
+
+    init(
         defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        key: DefaultsKey<Bool> = TerminalCatalogSection().autoRetryAgentSessions
     ) {
-        let wasEnabled = isEnabled(defaults: defaults)
-        defaults.set(enabled, forKey: autoRetryAgentSessionsKey)
+        self.defaults = defaults
+        self.notificationCenter = notificationCenter
+        self.key = key
+    }
+
+    var isEnabled: Bool {
+        guard defaults.object(forKey: key.userDefaultsKey) != nil else {
+            return key.defaultValue
+        }
+        return defaults.bool(forKey: key.userDefaultsKey)
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        let wasEnabled = isEnabled
+        defaults.set(enabled, forKey: key.userDefaultsKey)
         if wasEnabled != enabled {
-            notifyDidChange(notificationCenter: notificationCenter)
+            notifyDidChange()
         }
     }
 
     @discardableResult
-    static func reset(
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) -> Bool {
-        let wasEnabled = isEnabled(defaults: defaults)
-        defaults.removeObject(forKey: autoRetryAgentSessionsKey)
-        let didChange = wasEnabled != isEnabled(defaults: defaults)
+    func reset() -> Bool {
+        let wasEnabled = isEnabled
+        defaults.removeObject(forKey: key.userDefaultsKey)
+        let didChange = wasEnabled != isEnabled
         if didChange {
-            notifyDidChange(notificationCenter: notificationCenter)
+            notifyDidChange()
         }
         return didChange
     }
 
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        notificationCenter.post(name: didChangeNotification, object: nil)
+    func notifyDidChange() {
+        notificationCenter.post(name: Self.didChangeNotification, object: nil)
     }
 }

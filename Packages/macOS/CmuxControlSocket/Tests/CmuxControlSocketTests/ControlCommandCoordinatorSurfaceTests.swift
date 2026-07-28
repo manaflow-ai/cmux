@@ -230,6 +230,28 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(context.resumeClearAgentSessionEnded == false)
     }
 
+    @Test(
+        "surface resume clear rejects malformed session-end provenance",
+        arguments: [JSONValue.null, .int(1), .string("true")]
+    )
+    func surfaceResumeClearRejectsMalformedSessionEndProvenance(value: JSONValue) {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.clear",
+            params: ["agent_session_ended": value]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "agent_session_ended must be a boolean",
+            data: nil
+        ))
+        #expect(context.resumeClearAgentSessionEnded == nil)
+    }
+
     @Test func paneCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let context = FakeSurfaceControlCommandContext()
         context.paneCreateResolution = .dockUnsupportedType(

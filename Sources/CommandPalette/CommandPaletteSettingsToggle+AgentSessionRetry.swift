@@ -15,13 +15,14 @@ extension CommandPaletteSettingsToggleCommands {
             },
             sectionTitle: sectionTitle,
             keywords: ["terminal.autoRetryAgentSessions", "terminal", "agent", "retry", "resume", "error", "failure"],
-            isOn: { defaults in AgentSessionAutoRetrySettings.isEnabled(defaults: defaults) },
+            isOn: { defaults in
+                AgentSessionAutoRetrySettings(defaults: defaults).isEnabled
+            },
             setOn: { newValue, defaults, notificationCenter in
-                AgentSessionAutoRetrySettings.setEnabled(
-                    newValue,
+                AgentSessionAutoRetrySettings(
                     defaults: defaults,
                     notificationCenter: notificationCenter
-                )
+                ).setEnabled(newValue)
             }
         )
     }

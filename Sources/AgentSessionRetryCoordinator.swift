@@ -22,14 +22,20 @@ final class AgentSessionRetryCoordinator {
 
     @ObservationIgnored private weak var workspace: Workspace?
     @ObservationIgnored private let policy: AgentSessionRetryPolicy
+    @ObservationIgnored private let settings: AgentSessionAutoRetrySettings
     @ObservationIgnored private var activePanelIds: Set<UUID> = []
     @ObservationIgnored private var awaitingCommandCompletionPanelIds: Set<UUID> = []
     @ObservationIgnored private var retryCandidatesByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     @ObservationIgnored private var statesByPanelId: [UUID: RetryState] = [:]
 
-    init(workspace: Workspace, policy: AgentSessionRetryPolicy = .standard) {
+    init(
+        workspace: Workspace,
+        policy: AgentSessionRetryPolicy = .standard,
+        settings: AgentSessionAutoRetrySettings
+    ) {
         self.workspace = workspace
         self.policy = policy
+        self.settings = settings
     }
 
     deinit {
@@ -139,9 +145,7 @@ final class AgentSessionRetryCoordinator {
             workspace.hasActiveAgentLifecycleForRetry(panelId: panelId)
         let completedAttempts = statesByPanelId[panelId]?.completedAttempts ?? 0
         let context = AgentSessionRetryContext(
-            isEnabled: AgentSessionAutoRetrySettings.isEnabled(
-                defaults: workspace.agentSessionAutoResumeDefaults
-            ),
+            isEnabled: settings.isEnabled,
             hadActiveAgentSession: hadActiveSession,
             hasManagedResumeBinding: binding != nil,
             exitCode: exitCode
@@ -220,7 +224,7 @@ final class AgentSessionRetryCoordinator {
             attempt: attempt,
             maximumAttempts: maximumAttempts
         )
-        Self.logger.error(
+        Self.logger.warning(
             "Agent session exited abnormally; scheduling retry panel=\(panelId, privacy: .public) exit=\(exitCode) attempt=\(attempt)/\(maximumAttempts) delaySeconds=\(delaySeconds)"
         )
     }
@@ -229,9 +233,7 @@ final class AgentSessionRetryCoordinator {
         guard let workspace,
               let state = statesByPanelId[panelId],
               case let .waiting(attempt, maximumAttempts, _) = state.phase,
-              AgentSessionAutoRetrySettings.isEnabled(
-                  defaults: workspace.agentSessionAutoResumeDefaults
-              ),
+              settings.isEnabled,
               retryCandidatesByPanelId[panelId] == state.binding else {
             reset(panelId: panelId)
             return

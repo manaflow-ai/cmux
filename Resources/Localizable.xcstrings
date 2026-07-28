@@ -1418,13 +1418,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent could not be resumed after three automatic retries."
+            "value": "The agent could not be resumed after %lld automatic retries."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "3 回の自動再試行後もエージェントを再開できませんでした。"
+            "value": "%lld 回の自動再試行後もエージェントを再開できませんでした。"
           }
         }
       }
@@ -186768,6 +186768,23 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.agent-auto-retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.autoRetryAgentSessions auto retry resume error failure transport api rate limit overloaded agents claude codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.autoRetryAgentSessions 自動 再試行 再開 エラー 失敗 通信 API レート制限 過負荷 エージェント claude codex"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.copy-on-select": {
       "extractionState": "manual",
       "localizations": {
@@ -192459,13 +192476,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent sessions that exit with an error resume automatically with bounded backoff."
+            "value": "Eligible managed agent sessions that fail during active work resume automatically with bounded backoff; normal and intentional exits are not retried."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エラーで終了したエージェントセッションを、回数制限付きのバックオフで自動的に再開します。"
+            "value": "作業中に失敗した対象の管理対象エージェントセッションのみを、回数制限付きバックオフで自動的に再開します。正常終了や意図的な終了は再試行しません。"
           }
         }
       }

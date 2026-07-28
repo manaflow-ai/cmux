@@ -1579,7 +1579,9 @@ final class CmuxSettingsFileStore {
                 AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
             if agentSessionAutoRetryDidChange {
-                AgentSessionAutoRetrySettings.notifyDidChange(notificationCenter: notificationCenter)
+                AgentSessionAutoRetrySettings(
+                    notificationCenter: notificationCenter
+                ).notifyDidChange()
             }
             if agentHibernationDidChange {
                 AgentHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)

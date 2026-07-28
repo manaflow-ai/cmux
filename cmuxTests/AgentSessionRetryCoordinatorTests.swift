@@ -16,10 +16,13 @@ struct AgentSessionRetryCoordinatorTests {
         defer { defaults.removePersistentDomain(forName: "AgentSessionRetryCoordinatorTests.retained") }
         defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
 
-        let workspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
         let panelId = try #require(workspace.focusedPanelId)
         let binding = managedBinding(sessionId: "retry-after-teardown")
         #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+        #expect(workspace.managedAgentRetryBinding(panelId: panelId) == binding)
         workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
 
         #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
@@ -29,9 +32,21 @@ struct AgentSessionRetryCoordinatorTests {
         #expect(!workspace.hasActiveAgentLifecycleForRetry(panelId: panelId))
         workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
 
-        #expect(workspace.statusEntries.keys.contains {
-            $0.hasPrefix("agent.auto_retry.")
-        })
+        let retryStatusKey = "agent.auto_retry.\(panelId.uuidString.lowercased())"
+        let status = try #require(workspace.statusEntries[retryStatusKey])
+        let expectedStatus = String.localizedStringWithFormat(
+            String(
+                localized: "agent.autoRetry.status.retrying",
+                defaultValue: "Retrying agent (attempt %lld/%lld)…"
+            ),
+            Int64(1),
+            Int64(3)
+        )
+        #expect(status.key == retryStatusKey)
+        #expect(status.value == expectedStatus)
+        #expect(status.icon == "arrow.clockwise")
+        #expect(status.priority == 200)
+        #expect(workspace.statusEntries.keys.filter { $0.hasPrefix("agent.auto_retry.") } == [retryStatusKey])
         workspace.agentSessionRetryCoordinator.cancelAll()
     }
 
@@ -42,7 +57,9 @@ struct AgentSessionRetryCoordinatorTests {
         defer { defaults.removePersistentDomain(forName: "AgentSessionRetryCoordinatorTests.cleared") }
         defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
 
-        let workspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
         let panelId = try #require(workspace.focusedPanelId)
         #expect(workspace.setSurfaceResumeBinding(
             managedBinding(sessionId: "manual-clear"),

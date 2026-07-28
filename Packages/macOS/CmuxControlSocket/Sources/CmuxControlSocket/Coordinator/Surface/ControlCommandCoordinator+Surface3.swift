@@ -113,6 +113,19 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
+        let agentSessionEnded: Bool
+        switch params["agent_session_ended"] {
+        case .none:
+            agentSessionEnded = false
+        case .some(.bool(let value)):
+            agentSessionEnded = value
+        case .some:
+            return .err(
+                code: "invalid_params",
+                message: "agent_session_ended must be a boolean",
+                data: nil
+            )
+        }
         let resolution = context?.controlSurfaceResumeClear(
             routing: routing,
             explicitTargetID: surfaceResumeExplicitTargetID(params),
@@ -120,7 +133,7 @@ extension ControlCommandCoordinator {
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             expectedSource: optionalTrimmedRawString(params, "source"),
-            agentSessionEnded: bool(params, "agent_session_ended") ?? false
+            agentSessionEnded: agentSessionEnded
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
     }

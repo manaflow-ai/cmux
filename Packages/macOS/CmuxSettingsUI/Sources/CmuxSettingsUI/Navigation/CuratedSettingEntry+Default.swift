@@ -116,7 +116,10 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "agent-auto-retry",
                 title: String(localized: "settings.terminal.agentAutoRetry", defaultValue: "Retry Failed Agent Sessions"),
-                synonyms: "terminal.autoRetryAgentSessions auto retry resume error failure transport api rate limit overloaded agents claude codex"
+                synonyms: String(
+                    localized: "settings.search.alias.setting.terminal.agent-auto-retry",
+                    defaultValue: "terminal.autoRetryAgentSessions auto retry resume error failure transport api rate limit overloaded agents claude codex"
+                )
             ),
             .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: "Hibernate After Idle Seconds", synonyms: "terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),
