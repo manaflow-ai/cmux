@@ -49,7 +49,7 @@ extension AppDelegate.MainWindowContext {
     func teardownWindowDock() {
         guard let dock = windowDock else { return }
         windowDock = nil
-        dock.closeAllPanels()
+        dock.retire()
     }
 }
 
