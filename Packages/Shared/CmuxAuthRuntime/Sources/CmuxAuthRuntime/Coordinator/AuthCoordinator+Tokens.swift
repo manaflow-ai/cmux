@@ -125,6 +125,40 @@ extension AuthCoordinator {
         return (access, refresh)
     }
 
+    /// Both tokens for the current session as ONE coherent pair, for callers that
+    /// must never send a torn (old-access, new-refresh) credential set.
+    ///
+    /// ``currentTokens()`` reads the access and refresh tokens through two
+    /// separate awaits, so a ``forceRefreshAccessToken()`` landing between them
+    /// can rotate the pair and return an old access token with a rotated refresh
+    /// token. This captures the refresh token ONCE, then derives the access token
+    /// FOR that exact refresh via
+    /// ``AuthClient/freshAccessToken(accessToken:refreshToken:)`` with no access
+    /// hint, which mints a token from the captured refresh. The returned access
+    /// therefore always belongs to the returned refresh, even if another force
+    /// refresh rotates the store concurrently. (Passing the stored access as a
+    /// hint would risk reusing a still-unexpired but torn access, so it is
+    /// deliberately omitted.)
+    /// - Returns: The access and refresh tokens from one coherent capture.
+    /// - Throws: ``AuthError/networkError`` when the refresh token survives but a
+    ///   fresh access token cannot be minted from it (transient), or when token
+    ///   storage was unavailable; ``AuthError/unauthorized`` when available
+    ///   storage has no refresh token to derive an access token from.
+    private func consistentTokenPair() async throws -> (accessToken: String, refreshToken: String) {
+        let storageWasAvailable = await isTokenStorageAvailable()
+        guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
+            throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+        }
+        guard let access = await client.freshAccessToken(accessToken: nil, refreshToken: refresh),
+              !access.isEmpty else {
+            // The refresh token survived but minting an access token from it
+            // failed: stay retryable, matching currentTokens()'s classification
+            // of a surviving-refresh access miss.
+            throw AuthError.networkError
+        }
+        return (access, refresh)
+    }
+
     /// The current session generation. Bumped on every session transition (each
     /// sign-out and each sign-in), so a caller can pin a multi-step operation to
     /// one session and reject it the moment the generation moves.
@@ -152,7 +186,7 @@ extension AuthCoordinator {
     /// - Returns: The pinned generation, account id, and both tokens.
     /// - Throws: ``AuthError/unauthorized`` when no account is signed in, a
     ///   session transition is active, or the session changed mid-read;
-    ///   otherwise the same token errors as ``currentTokens()``.
+    ///   otherwise the same token errors as ``consistentTokenPair()``.
     public func authenticatedSessionSnapshot() async throws -> AuthenticatedSessionSnapshot {
         await awaitBootstrapped()
         guard isAuthenticated,
@@ -162,7 +196,10 @@ extension AuthCoordinator {
             throw AuthError.unauthorized
         }
         let generation = sessionGeneration
-        let tokens = try await currentTokens()
+        // Read both tokens as one coherent pair so a concurrent force refresh
+        // cannot pair an old access token with a rotated refresh token; the
+        // separately-read `currentTokens()` cannot make that guarantee.
+        let tokens = try await consistentTokenPair()
         guard sessionGeneration == generation,
               !sessionTokenTransitionIsActive,
               currentUser?.id == accountID else {
