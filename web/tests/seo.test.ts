@@ -111,10 +111,14 @@ describe("SEO metadata helpers", () => {
 
     for (const key of recentlyAddedKeys) {
       const messageKey = `docs.ohMyOpenCode.${key}`;
-      expect(japanese(messageKey)).not.toBe(english(messageKey));
+      expect(japanese(messageKey as never)).not.toBe(
+        english(messageKey as never),
+      );
     }
-    expect(japanese("docs.ohMyOpenCode.shimStep3")).toContain("tmux.enabled");
-    expect(japanese("docs.ohMyOpenCode.shadowStep3")).toContain(
+    expect(japanese("docs.ohMyOpenCode.shimStep3" as never)).toContain(
+      "tmux.enabled",
+    );
+    expect(japanese("docs.ohMyOpenCode.shadowStep3" as never)).toContain(
       "oh-my-opencode.json",
     );
   });

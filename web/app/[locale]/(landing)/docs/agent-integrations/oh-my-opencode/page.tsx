@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
+import { authoredContentLocalesByPath } from "@/i18n/locale-availability";
 import { auditedDocsMetadata } from "../../audited-docs-metadata";
 import { DocsSchema } from "../../docs-schema";
 
@@ -10,6 +11,10 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     locale,
     pageKey: "ohMyOpenCode",
     path: "/docs/agent-integrations/oh-my-opencode",
+    availableLocales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/oh-my-opencode"
+      ],
   });
 }
 

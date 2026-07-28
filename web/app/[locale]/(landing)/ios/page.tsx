@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
+import { authoredContentLocalesByPath } from "@/i18n/locale-availability";
 import { RevealImage } from "@/app/[locale]/components/reveal-image";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
@@ -29,7 +30,11 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "ios" });
-  const alternates = buildAlternates(locale, "/ios");
+  const alternates = buildAlternates(
+    locale,
+    "/ios",
+    authoredContentLocalesByPath["/ios"],
+  );
   const title = t("metaTitle");
   const description = seoDescription(locale, t("metaDescription"));
   return {

@@ -25,28 +25,39 @@ export const englishFallbackContentLocales = [
   "en",
 ] as const satisfies readonly Locale[];
 
-const fallbackContentRoutes = [
-  { path: "/pricing", locales: fallbackContentLocales },
-  {
-    path: "/docs/agent-integrations/oh-my-pi",
-    locales: fallbackContentLocales,
-  },
-  {
-    path: "/blog/claude-code-best-worktree-manager",
-    locales: fallbackContentLocales,
-  },
-  { path: "/blog/cmux-ssh", locales: fallbackContentLocales },
-  {
-    path: "/blog/cmux-claude-teams",
-    locales: englishFallbackContentLocales,
-  },
-  { path: "/blog/cmux-omo", locales: englishFallbackContentLocales },
-  { path: "/blog/gpl", locales: englishFallbackContentLocales },
-] as const;
+const extendedAgentIntegrationContentLocales = [
+  "en",
+  "ja",
+  "uk",
+] as const satisfies readonly Locale[];
 
-export const fallbackContentPaths = fallbackContentRoutes.map(
-  ({ path }) => path,
-);
+// Routes in this registry render fallback messages outside these authored
+// locales. Keep redirects, sitemap entries, page metadata, and internal links
+// on this shared source of truth so crawlers never receive duplicate locale
+// URLs with self-referencing canonicals.
+export const authoredContentLocalesByPath = {
+  "/ios": fallbackContentLocales,
+  "/pricing": fallbackContentLocales,
+  "/enterprise": fallbackContentLocales,
+  "/docs/agent-integrations/claude-code-teams":
+    extendedAgentIntegrationContentLocales,
+  "/docs/agent-integrations/oh-my-opencode":
+    extendedAgentIntegrationContentLocales,
+  "/docs/agent-integrations/oh-my-codex": fallbackContentLocales,
+  "/docs/agent-integrations/oh-my-pi": fallbackContentLocales,
+  "/docs/agent-integrations/oh-my-claudecode": fallbackContentLocales,
+  "/blog/claude-code-best-worktree-manager": fallbackContentLocales,
+  "/blog/cmux-ssh": fallbackContentLocales,
+  "/blog/cmux-claude-teams": englishFallbackContentLocales,
+  "/blog/cmux-omo": englishFallbackContentLocales,
+  "/blog/gpl": englishFallbackContentLocales,
+} as const satisfies Record<string, readonly Locale[]>;
+
+type AuthoredContentPath = keyof typeof authoredContentLocalesByPath;
+
+export const fallbackContentPaths = Object.keys(
+  authoredContentLocalesByPath,
+) as AuthoredContentPath[];
 
 export function hasFeatureWorkflowContent(
   locale: string,
@@ -94,17 +105,18 @@ export function hasFallbackContent(
 export function fallbackContentRequestForPathname(
   pathname: string,
 ): {
-  path: (typeof fallbackContentRoutes)[number]["path"];
+  path: AuthoredContentPath;
   locale: Locale | null;
   locales: readonly Locale[];
 } | null {
   const { locale, path } = unprefixLocale(pathname);
-  const route = fallbackContentRoutes.find((candidate) => candidate.path === path);
-  if (route) {
+  const availableLocales =
+    authoredContentLocalesByPath[path as AuthoredContentPath];
+  if (availableLocales) {
     return {
-      path: route.path,
+      path: path as AuthoredContentPath,
       locale,
-      locales: route.locales,
+      locales: availableLocales,
     };
   }
   return null;

@@ -2,6 +2,7 @@ import { locales } from "../../i18n/routing";
 import { comparePages, comparePath } from "./compare-pages";
 import type { ComparePageKey } from "./compare-pages";
 import {
+  authoredContentLocalesByPath,
   englishFallbackContentLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
@@ -110,9 +111,17 @@ const agentReadableComparePages = comparePages.map((page) => ({
 
 export const agentReadablePages = [
   { path: "/", title: "Home" },
-  { path: "/ios", title: "cmux iOS" },
+  {
+    path: "/ios",
+    title: "cmux iOS",
+    locales: authoredContentLocalesByPath["/ios"],
+  },
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
-  { path: "/enterprise", title: "Enterprise" },
+  {
+    path: "/enterprise",
+    title: "Enterprise",
+    locales: authoredContentLocalesByPath["/enterprise"],
+  },
   { path: "/blog", title: "Blog" },
   {
     path: "/blog/claude-code-best-worktree-manager",
@@ -175,14 +184,26 @@ export const agentReadablePages = [
   {
     path: "/docs/agent-integrations/claude-code-teams",
     title: "Claude Code Teams",
+    locales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/claude-code-teams"
+      ],
   },
   {
     path: "/docs/agent-integrations/oh-my-opencode",
     title: "oh-my-opencode",
+    locales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/oh-my-opencode"
+      ],
   },
   {
     path: "/docs/agent-integrations/oh-my-codex",
     title: "oh-my-codex",
+    locales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/oh-my-codex"
+      ],
   },
   {
     path: "/docs/agent-integrations/oh-my-pi",
@@ -192,6 +213,10 @@ export const agentReadablePages = [
   {
     path: "/docs/agent-integrations/oh-my-claudecode",
     title: "oh-my-claudecode",
+    locales:
+      authoredContentLocalesByPath[
+        "/docs/agent-integrations/oh-my-claudecode"
+      ],
   },
   { path: "/docs/changelog", title: "Changelog" },
   { path: "/community", title: "Community" },

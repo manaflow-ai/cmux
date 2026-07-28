@@ -1,5 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { authoredContentLocalesByPath } from "../../../i18n/locale-availability";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
 import { EnterpriseContactForm } from "./enterprise-contact-form";
@@ -11,7 +12,11 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "enterprise" });
-  const alternates = buildAlternates(locale, "/enterprise");
+  const alternates = buildAlternates(
+    locale,
+    "/enterprise",
+    authoredContentLocalesByPath["/enterprise"],
+  );
   const title = t("metaTitle");
   const description = seoDescription(locale, t("metaDescription"));
   return {
