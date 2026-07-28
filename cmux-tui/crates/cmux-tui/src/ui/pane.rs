@@ -12,8 +12,9 @@ use cmux_tui_core::{BrowserStatus, Rect, SurfaceKind};
 use ghostty_vt::RenderState;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 
-use super::{ScrollbarState, ScrollbarStyle, thumb_geometry, truncate};
+use super::{ScrollbarState, ScrollbarStyle, copy_buffer_row_cropped, thumb_geometry, truncate};
 use crate::app::{App, FocusTarget, Hit, PaneArea, PaneEdge, Selection};
 use crate::config::{Theme, tab_label};
 use crate::session::{ClientInfo, TabNotificationView};
@@ -143,21 +144,29 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     if x1 >= screen.width || y1 >= screen.height {
         return;
     }
-    for x in x0 + 1..x1 {
+    for x in x0..=x1 {
         buf[(x, y1)].set_symbol("─").set_style(style);
     }
     for y in y0 + 1..y1 {
-        buf[(x0, y)].set_symbol("│").set_style(style);
-        buf[(x1, y)].set_symbol("│").set_style(style);
+        if area.has_left_edge() {
+            buf[(x0, y)].set_symbol("│").set_style(style);
+        }
+        if area.has_right_edge() {
+            buf[(x1, y)].set_symbol("│").set_style(style);
+        }
     }
-    buf[(x0, y0)].set_symbol("┌").set_style(style);
-    buf[(x1, y0)].set_symbol("┐").set_style(style);
-    buf[(x0, y1)].set_symbol("└").set_style(style);
-    buf[(x1, y1)].set_symbol("┘").set_style(style);
+    if area.has_left_edge() {
+        buf[(x0, y0)].set_symbol("┌").set_style(style);
+        buf[(x0, y1)].set_symbol("└").set_style(style);
+    }
+    if area.has_right_edge() {
+        buf[(x1, y0)].set_symbol("┐").set_style(style);
+        buf[(x1, y1)].set_symbol("┘").set_style(style);
+    }
 
     if let Some(label) = app.client_border_labels.get(&area.surface) {
-        let width = label.chars().count() as u16;
-        if width + 2 < rect.width {
+        let width = label.width() as u16;
+        if area.has_left_edge() && area.has_right_edge() && width + 2 < rect.width {
             let hit = Rect { x: x0 + 1, y: y1, width, height: 1 };
             buf.set_stringn(hit.x, hit.y, label, width as usize, style);
             app.hits.push((hit, Hit::Clients { surface: area.surface }));
@@ -168,6 +177,17 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
 /// The top border row: `┌` + tabs + `+` + `─...─` + `┐`, with `‹`/`›`
 /// overflow arrows when the tabs don't fit. Always visible so a new tab
 /// is always one click away.
+fn clip_tab_bar_rect(logical: Rect, bar: Rect, source_x: u16) -> Option<Rect> {
+    let start = logical.x.max(source_x);
+    let end = logical.x.saturating_add(logical.width).min(source_x.saturating_add(bar.width));
+    (end > start).then(|| Rect {
+        x: bar.x.saturating_add(start.saturating_sub(source_x)),
+        y: bar.y,
+        width: end - start,
+        height: 1,
+    })
+}
+
 fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let Some(bar) = area.bar else { return };
     let Some(screen_view) = app.tree.active_screen() else { return };
@@ -194,9 +214,21 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         .and_then(|(target_pane, index)| (target_pane == pane_id).then_some(index));
 
     let screen = frame.area();
-    if bar.width < 2 || bar.y >= screen.height {
+    let full_width = area.viewport.map_or(bar.width, |clip| clip.full_rect_width);
+    let source_x = area.viewport.map_or(0, |clip| clip.rect_source_x);
+    let screen_right = screen.x.saturating_add(screen.width);
+    let screen_bottom = screen.y.saturating_add(screen.height);
+    if full_width < 2
+        || bar.width == 0
+        || source_x >= full_width
+        || bar.x < screen.x
+        || bar.x >= screen_right
+        || bar.y < screen.y
+        || bar.y >= screen_bottom
+    {
         return;
     }
+    let visible_bar = Rect { width: bar.width.min(screen_right.saturating_sub(bar.x)), ..bar };
     let theme = app.config.theme;
     let chrome = app.chrome;
     let style = border_style(app, focused);
@@ -226,23 +258,37 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             },
         )
     };
+    let visible_rect = |rect| clip_tab_bar_rect(rect, visible_bar, source_x);
     // Hover highlight for the bar's controls (+, ‹, ›).
-    let hovered_ctrl = |rect: Rect| hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
     let ctrl_style = |rect: Rect| {
-        if hovered_ctrl(rect) {
+        if visible_rect(rect)
+            .is_some_and(|rect| hover.is_some_and(|(hx, hy)| rect.contains(hx, hy)))
+        {
             Style::default().fg(chrome.tab_control_hover_fg).add_modifier(Modifier::BOLD)
         } else {
             base
         }
     };
 
-    // Fill the whole top row with the border line first; tabs overlay it.
-    let buf = frame.buffer_mut();
-    let (x0, x1) = (bar.x, bar.x + bar.width - 1);
-    buf[(x0, bar.y)].set_symbol("┌").set_style(style);
-    buf[(x1, bar.y)].set_symbol("┐").set_style(style);
-    for x in x0 + 1..x1 {
-        buf[(x, bar.y)].set_symbol("─").set_style(style);
+    // Unclipped panes render directly into the frame. Cropped panes retain
+    // their full logical geometry in a one-row scratch buffer, then use the
+    // shared wide-glyph-safe crop path.
+    let direct = area.viewport.is_none() && bar.width <= screen_right.saturating_sub(bar.x);
+    let mut logical = (!direct).then(|| app.chrome_row_scratch.take(full_width));
+    let (origin_x, origin_y) = if direct { (bar.x, bar.y) } else { (0, 0) };
+    let buf = match logical.as_mut() {
+        Some(logical) => logical,
+        None => frame.buffer_mut(),
+    };
+    let (x0, x1) = (0, full_width - 1);
+    for x in x0..=x1 {
+        buf[(origin_x + x, origin_y)].set_symbol("─").set_style(style);
+    }
+    if area.has_left_edge() {
+        buf[(origin_x + x0, origin_y)].set_symbol("┌").set_style(style);
+    }
+    if area.has_right_edge() {
+        buf[(origin_x + x1, origin_y)].set_symbol("┐").set_style(style);
     }
 
     // Layout the tab labels: " 1 zsh " ... " + ", scrolled so the range
@@ -253,12 +299,12 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         .map(|t| {
             let label = format!(" {} ", truncate(t, 16));
             // Pad to the configured minimum width, keeping the text centered-ish.
-            let short = min_w.saturating_sub(label.chars().count());
+            let short = min_w.saturating_sub(label.width());
             format!("{}{}{}", " ".repeat(short / 2), label, " ".repeat(short - short / 2))
         })
         .collect();
-    let widths: Vec<u16> = labels.iter().map(|l| l.chars().count() as u16).collect();
-    let inner_w = bar.width.saturating_sub(2); // between the corners
+    let widths: Vec<u16> = labels.iter().map(|label| label.width() as u16).collect();
+    let inner_w = full_width.saturating_sub(2); // between the corners
     let plus_w: u16 = 3; // " + "
     let arrow_w: u16 = 1;
 
@@ -285,8 +331,8 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let mut x = x0 + 1;
     let max_x = x1; // exclusive
     if scroll > 0 {
-        let rect = Rect { x, y: bar.y, width: arrow_w, height: 1 };
-        buf.set_stringn(x, bar.y, "‹", 1, ctrl_style(rect));
+        let rect = Rect { x, y: 0, width: arrow_w, height: 1 };
+        buf.set_stringn(origin_x + x, origin_y, "‹", 1, ctrl_style(rect));
         hits.push((rect, Hit::TabScroll { pane: pane_id, delta: -1 }));
         x += arrow_w;
     }
@@ -308,38 +354,49 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         if tab_drag.is_some_and(|drag| pane.tabs[i].surface == drag.surface) {
             style = style.add_modifier(Modifier::DIM);
         }
-        buf.set_stringn(x, bar.y, label, w as usize, style);
+        buf.set_stringn(origin_x + x, origin_y, label, w as usize, style);
         if tab_cfg.solid_background && is_active {
-            buf[(x, bar.y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
+            buf[(origin_x + x, origin_y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
         }
         if drop_index == Some(i) && x < max_x {
-            buf[(x, bar.y)]
+            buf[(origin_x + x, origin_y)]
                 .set_symbol("▌")
                 .set_style(Style::default().fg(theme.tab_rail).add_modifier(Modifier::BOLD));
         }
-        hits.push((
-            Rect { x, y: bar.y, width: w, height: 1 },
-            Hit::Tab { pane: pane_id, index: i },
-        ));
+        hits.push((Rect { x, y: 0, width: w, height: 1 }, Hit::Tab { pane: pane_id, index: i }));
         x += w;
     }
     if drop_index == Some(tabs.len()) && x < max_x {
-        buf[(x, bar.y)]
+        buf[(origin_x + x, origin_y)]
             .set_symbol("▌")
             .set_style(Style::default().fg(theme.tab_rail).add_modifier(Modifier::BOLD));
     }
     if overflow && x + arrow_w <= max_x {
-        let rect = Rect { x, y: bar.y, width: arrow_w, height: 1 };
-        buf.set_stringn(x, bar.y, "›", 1, ctrl_style(rect));
+        let rect = Rect { x, y: 0, width: arrow_w, height: 1 };
+        buf.set_stringn(origin_x + x, origin_y, "›", 1, ctrl_style(rect));
         hits.push((rect, Hit::TabScroll { pane: pane_id, delta: 1 }));
         x += arrow_w;
     }
     if x + plus_w <= max_x {
-        let rect = Rect { x, y: bar.y, width: plus_w, height: 1 };
-        buf.set_stringn(x, bar.y, " + ", plus_w as usize, ctrl_style(rect));
+        let rect = Rect { x, y: 0, width: plus_w, height: 1 };
+        buf.set_stringn(origin_x + x, origin_y, " + ", plus_w as usize, ctrl_style(rect));
         hits.push((rect, Hit::NewTab { pane: pane_id }));
     }
-    app.hits.extend(hits);
+
+    if let Some(logical) = logical.take() {
+        let visible_width = visible_bar.width.min(full_width.saturating_sub(source_x));
+        copy_buffer_row_cropped(
+            &logical,
+            0,
+            source_x,
+            frame.buffer_mut(),
+            Rect { width: visible_width, height: 1, ..bar },
+        );
+        app.chrome_row_scratch.put(logical);
+    }
+    app.hits.extend(hits.into_iter().filter_map(|(rect, hit)| {
+        clip_tab_bar_rect(rect, visible_bar, source_x).map(|rect| (rect, hit))
+    }));
 }
 
 /// Draw one pane's terminal content; returns the frame cursor position
@@ -372,7 +429,9 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let Ok(render) = surface.render_frame(rs) else {
         return DrawCursors::default();
     };
-    let live = super::terminal_grid::rendered_viewport_rect(rect, frame.area(), &render);
+    let source_x = area.content_source_x();
+    let live =
+        super::terminal_grid::rendered_viewport_rect_cropped(rect, frame.area(), &render, source_x);
     app.rendered_terminal_bounds.insert(area.surface, live);
     app.rendered_terminal_sizes.insert(area.surface, render.frame.size);
     if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
@@ -384,9 +443,10 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         );
     }
 
-    let cursor = super::terminal_grid::draw_render_frame(
+    let cursor = super::terminal_grid::draw_render_frame_cropped(
         frame,
         rect,
+        source_x,
         &render,
         &theme,
         &app.chrome,
@@ -424,7 +484,7 @@ fn draw_browser_content(
         Some("browser panes are not supported over attach yet".to_string())
     } else if !app.graphics_supported {
         Some("terminal has no kitty graphics support".to_string())
-    } else if surface.browser_frame().is_none() {
+    } else if !surface.has_browser_frame() {
         let url = surface
             .browser_url()
             .or_else(|| {
@@ -445,7 +505,7 @@ fn draw_browser_content(
         return;
     }
     let text = truncate(&message, max_cols as usize);
-    let text_w = text.chars().count() as u16;
+    let text_w = text.width() as u16;
     let x = rect.x + max_cols.saturating_sub(text_w) / 2;
     let y = rect.y + max_rows / 2;
     frame.buffer_mut().set_stringn(
@@ -522,16 +582,38 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
         (Rect { x, y, width: 1, height: 1 }, Hit::PaneResize { horizontal, vertical })
     };
     let mut hits = vec![
-        cell(x0, y0, Some((pane, PaneEdge::Left)), Some((pane, PaneEdge::Top))),
-        cell(x1, y0, Some((pane, PaneEdge::Right)), Some((pane, PaneEdge::Top))),
-        cell(x0, y1, Some((pane, PaneEdge::Left)), Some((pane, PaneEdge::Bottom))),
-        cell(x1, y1, Some((pane, PaneEdge::Right)), Some((pane, PaneEdge::Bottom))),
+        cell(
+            x0,
+            y0,
+            area.has_left_edge().then_some((pane, PaneEdge::Left)),
+            Some((pane, PaneEdge::Top)),
+        ),
+        cell(
+            x1,
+            y0,
+            area.has_right_edge().then_some((pane, PaneEdge::Right)),
+            Some((pane, PaneEdge::Top)),
+        ),
+        cell(
+            x0,
+            y1,
+            area.has_left_edge().then_some((pane, PaneEdge::Left)),
+            Some((pane, PaneEdge::Bottom)),
+        ),
+        cell(
+            x1,
+            y1,
+            area.has_right_edge().then_some((pane, PaneEdge::Right)),
+            Some((pane, PaneEdge::Bottom)),
+        ),
     ];
-    if rect.height > 2 {
+    if area.has_left_edge() && rect.height > 2 {
         hits.push((
             Rect { x: x0, y: y0 + 1, width: 1, height: rect.height - 2 },
             Hit::PaneResize { horizontal: Some((pane, PaneEdge::Left)), vertical: None },
         ));
+    }
+    if area.has_right_edge() && rect.height > 2 {
         hits.push((
             Rect { x: x1, y: y0 + 1, width: 1, height: rect.height - 2 },
             Hit::PaneResize { horizontal: Some((pane, PaneEdge::Right)), vertical: None },
@@ -552,8 +634,16 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
 
 #[cfg(test)]
 mod tests {
-    use super::client_border_labels;
+    use super::{client_border_labels, clip_tab_bar_rect};
     use crate::session::{ClientInfo, ClientSizeInfo};
+    use cmux_tui_core::Rect;
+
+    #[test]
+    fn offscreen_tab_hit_clipping_returns_none_without_underflow() {
+        let bar = Rect { x: 0, y: 0, width: 8, height: 1 };
+        let logical = Rect { x: 1, y: 0, width: 3, height: 1 };
+        assert_eq!(clip_tab_bar_rect(logical, bar, 10), None);
+    }
 
     fn client(id: u64, surface: u64, size: Option<(u16, u16)>) -> ClientInfo {
         ClientInfo {

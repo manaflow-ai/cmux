@@ -17,7 +17,7 @@ use smallvec::SmallVec;
 
 use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failure};
 
-const QUEUE_CAPACITY: usize = 512;
+pub(crate) const PTY_OPERATION_QUEUE_CAPACITY: usize = 512;
 const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CONCURRENT_SURFACE_OPERATIONS: usize = 32;
 const RESERVED_RELEASE_BYTES: usize = 64;
@@ -512,7 +512,7 @@ impl PtyInputSender {
         let reserves_release = event.kind == PtyInputKind::Press;
         let active_operations = state.in_flight_surface_operations.len();
         let active_bytes = state.in_flight_surface_operations.values().copied().sum::<usize>();
-        let available_capacity = QUEUE_CAPACITY.saturating_sub(active_operations);
+        let available_capacity = PTY_OPERATION_QUEUE_CAPACITY.saturating_sub(active_operations);
         let available_bytes = MAX_QUEUED_BYTES.saturating_sub(active_bytes);
         let QueueState { events, queued_bytes, release_reservations, .. } = &mut *state;
         let outcome = enqueue_bounded_with_evictions(
@@ -1440,7 +1440,7 @@ mod tests {
             sender.enqueue(event(7, 1, PtyInputKind::Motion)),
             PtyInputEnqueueResult::Accepted
         );
-        for _ in 0..QUEUE_CAPACITY - 1 {
+        for _ in 0..PTY_OPERATION_QUEUE_CAPACITY - 1 {
             assert_eq!(
                 sender.enqueue(PtyInputEvent::mutation("fill", None, false, || Ok(()))),
                 PtyInputEnqueueResult::Accepted

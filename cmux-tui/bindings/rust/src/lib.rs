@@ -11,10 +11,17 @@ use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
 pub const TERMINAL_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
+const MIN_VIEWPORT_PANE_WIDTH: f32 = 0.1;
+const MAX_VIEWPORT_PANE_WIDTH: f32 = 1.0;
 
 #[derive(Debug)]
 pub enum CmuxError {
-    Command { message: String, id: Option<Value>, delivery: Option<ErrorDelivery> },
+    Command {
+        message: String,
+        id: Option<Value>,
+        error_code: Option<String>,
+        delivery: Option<ErrorDelivery>,
+    },
     Decode(String),
     Connection(String),
     Timeout(String),
@@ -48,6 +55,19 @@ fn error_delivery(response: &Value) -> Option<ErrorDelivery> {
         Some("known-not-delivered") => Some(ErrorDelivery::KnownNotDelivered),
         Some("ambiguous") => Some(ErrorDelivery::Ambiguous),
         _ => None,
+    }
+}
+
+fn command_error(response: &Value) -> CmuxError {
+    CmuxError::Command {
+        message: response
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown error")
+            .to_string(),
+        id: response.get("id").cloned(),
+        error_code: response.get("error_code").and_then(Value::as_str).map(ToString::to_string),
+        delivery: error_delivery(response),
     }
 }
 
@@ -359,6 +379,47 @@ pub struct SurfaceResult {
     pub surface: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayoutUndoResult {
+    Undone { screen: u64, revision: u64 },
+    ConfirmationRequired { screen: u64, revision: u64, closes_panes: Vec<u64> },
+}
+
+impl<'de> Deserialize<'de> for LayoutUndoResult {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            undone: Option<bool>,
+            confirmation_required: Option<bool>,
+            screen: u64,
+            revision: u64,
+            closes_panes: Option<Vec<u64>>,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        match (wire.undone, wire.confirmation_required) {
+            (Some(true), None | Some(false)) => {
+                Ok(Self::Undone { screen: wire.screen, revision: wire.revision })
+            }
+            (Some(false), Some(true)) => Ok(Self::ConfirmationRequired {
+                screen: wire.screen,
+                revision: wire.revision,
+                closes_panes: wire.closes_panes.ok_or_else(|| {
+                    serde::de::Error::custom(
+                        "layout undo confirmation closes_panes must be an array of pane IDs",
+                    )
+                })?,
+            }),
+            _ => Err(serde::de::Error::custom(
+                "layout undo response does not contain exactly one valid outcome",
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkspacePlacement {
     pub workspace: u64,
@@ -419,6 +480,15 @@ fn validate_workspace_selector(workspace: Option<u64>, key: Option<&str>) -> Res
     Ok(())
 }
 
+fn validate_viewport_pane_width(width: f32) -> Result<()> {
+    if !width.is_finite() || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width) {
+        return Err(CmuxError::InvalidArgument(
+            "viewport pane width must be between 0.1 and 1.0".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AttachSurfaceOptions {
     pub cols: Option<u16>,
@@ -457,12 +527,22 @@ pub struct Workspace {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ViewportSplit {
+    pub split: u64,
+    pub width: f32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Screen {
     pub id: u64,
     pub name: Option<String>,
     pub active: bool,
     pub active_pane: u64,
     pub layout: Layout,
+    #[serde(default)]
+    pub viewport_base_width: Option<f32>,
+    #[serde(default)]
+    pub viewport_splits: Vec<ViewportSplit>,
     pub panes: Vec<Pane>,
 }
 
@@ -661,15 +741,7 @@ impl CmuxClient {
             let data = response.get("data").cloned().unwrap_or(Value::Object(Map::new()));
             serde_json::from_value(data).map_err(|err| CmuxError::Decode(err.to_string()))
         } else {
-            Err(CmuxError::Command {
-                message: response
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown error")
-                    .to_string(),
-                id: response.get("id").cloned(),
-                delivery: error_delivery(&response),
-            })
+            Err(command_error(&response))
         }
     }
 
@@ -868,6 +940,25 @@ impl CmuxClient {
         self.request("new-pane", params)
     }
 
+    pub fn new_pane_right(
+        &mut self,
+        pane: u64,
+        width: Option<f32>,
+        cols: Option<u16>,
+        rows: Option<u16>,
+    ) -> Result<SurfaceResult> {
+        if let Some(width) = width {
+            validate_viewport_pane_width(width)?;
+        }
+        self.require_capability("viewport-splits-v1", "viewport panes")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        insert_opt(&mut params, "width", width);
+        insert_opt(&mut params, "cols", cols);
+        insert_opt(&mut params, "rows", rows);
+        self.request("new-pane-right", params)
+    }
+
     pub fn split(
         &mut self,
         pane: u64,
@@ -892,11 +983,78 @@ impl CmuxClient {
     }
 
     pub fn set_split_ratio(&mut self, split: u64, ratio: f32) -> Result<()> {
+        self.set_split_ratio_request(split, ratio, None)
+    }
+
+    pub fn set_split_ratio_in_transaction(
+        &mut self,
+        split: u64,
+        ratio: f32,
+        transaction: u64,
+    ) -> Result<()> {
+        self.set_split_ratio_request(split, ratio, Some(transaction))
+    }
+
+    fn set_split_ratio_request(
+        &mut self,
+        split: u64,
+        ratio: f32,
+        transaction: Option<u64>,
+    ) -> Result<()> {
         self.require_protocol(8, "set-split-ratio")?;
         let mut params = Map::new();
         params.insert("split".to_string(), Value::from(split));
         params.insert("ratio".to_string(), Value::from(ratio));
+        insert_opt(&mut params, "transaction", transaction);
         self.request::<Empty>("set-split-ratio", params).map(|_| ())
+    }
+
+    pub fn set_viewport_pane_width(&mut self, pane: u64, width: f32) -> Result<()> {
+        self.set_viewport_pane_width_request(pane, width, None)
+    }
+
+    pub fn set_viewport_pane_width_in_transaction(
+        &mut self,
+        pane: u64,
+        width: f32,
+        transaction: u64,
+    ) -> Result<()> {
+        self.set_viewport_pane_width_request(pane, width, Some(transaction))
+    }
+
+    fn set_viewport_pane_width_request(
+        &mut self,
+        pane: u64,
+        width: f32,
+        transaction: Option<u64>,
+    ) -> Result<()> {
+        validate_viewport_pane_width(width)?;
+        self.require_capability("viewport-column-resize-v1", "viewport pane resizing")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        params.insert("width".to_string(), Value::from(width));
+        insert_opt(&mut params, "transaction", transaction);
+        self.request::<Empty>("set-viewport-pane-width", params).map(|_| ())
+    }
+
+    /// Undo the latest structural layout action.
+    ///
+    /// Pass `None` to preview the undo. If the result is
+    /// `ConfirmationRequired`, show its closing pane ids and call this method
+    /// again with that exact `revision`.
+    pub fn undo_layout(
+        &mut self,
+        pane: u64,
+        confirmation_revision: Option<u64>,
+    ) -> Result<LayoutUndoResult> {
+        self.require_capability("layout-undo-v1", "layout undo")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        if let Some(revision) = confirmation_revision {
+            params.insert("revision".to_string(), Value::from(revision));
+            params.insert("confirm_close".to_string(), Value::Bool(true));
+        }
+        self.request("undo-layout", params)
     }
 
     pub fn set_default_colors(&mut self, fg: Option<&str>, bg: Option<&str>) -> Result<()> {
@@ -1168,15 +1326,7 @@ impl CmuxStream {
             if response.get("ok") == Some(&Value::Bool(true)) {
                 return Ok(Self { conn, buffered, finished: false });
             }
-            return Err(CmuxError::Command {
-                message: response
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown error")
-                    .to_string(),
-                id: response.get("id").cloned(),
-                delivery: error_delivery(&response),
-            });
+            return Err(command_error(&response));
         }
     }
 
@@ -1381,6 +1531,43 @@ mod tests {
     }
 
     #[test]
+    fn command_error_shape_change_uses_a_breaking_sdk_version() {
+        let mut components = env!("CARGO_PKG_VERSION").split('.');
+        let major = components.next().unwrap().parse::<u64>().unwrap();
+        let minor = components.next().unwrap().parse::<u64>().unwrap();
+        assert!(
+            major > 0 || minor >= 4,
+            "the public CmuxError::Command shape requires cmux-client 0.4 or newer"
+        );
+    }
+
+    #[test]
+    fn published_sdk_versions_stay_synchronized() {
+        let rust_version = env!("CARGO_PKG_VERSION");
+        let typescript: Value =
+            serde_json::from_str(include_str!("../../typescript/package.json")).unwrap();
+        let typescript_lock: Value =
+            serde_json::from_str(include_str!("../../typescript/package-lock.json")).unwrap();
+        let python_manifest = include_str!("../../python/pyproject.toml");
+        let python_version = python_manifest
+            .lines()
+            .find_map(|line| line.strip_prefix("version = \"")?.strip_suffix('"'))
+            .unwrap();
+        let release_runbook = include_str!("../../RELEASING.md");
+        let documented_version = release_runbook
+            .split_once("Current SDK package versions are")
+            .and_then(|(_, suffix)| suffix.trim_start().strip_prefix('`'))
+            .and_then(|suffix| suffix.split_once('`').map(|(version, _)| version))
+            .unwrap();
+
+        assert_eq!(typescript["version"].as_str(), Some(rust_version));
+        assert_eq!(typescript_lock["version"].as_str(), Some(rust_version));
+        assert_eq!(typescript_lock["packages"][""]["version"].as_str(), Some(rust_version));
+        assert_eq!(python_version, rust_version);
+        assert_eq!(documented_version, rust_version);
+    }
+
+    #[test]
     fn default_socket_path_preserves_compatible_runtime_dir() {
         let runtime_dir = PathBuf::from("/tmp/cmux-tui-compat");
         assert_eq!(
@@ -1542,6 +1729,64 @@ mod tests {
     }
 
     #[test]
+    fn screen_preserves_viewport_metadata() {
+        let tree: Tree = serde_json::from_value(serde_json::json!({
+            "workspaces": [{
+                "id": 1,
+                "name": "one",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "name": null,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "viewport_base_width": 0.75,
+                    "viewport_splits": [{"split": 4, "width": 0.5}],
+                    "panes": [],
+                }],
+            }],
+        }))
+        .unwrap();
+
+        let screen = &tree.workspaces[0].screens[0];
+        assert_eq!(screen.viewport_base_width, Some(0.75));
+        assert_eq!(screen.viewport_splits.len(), 1);
+        assert_eq!(screen.viewport_splits[0].split, 4);
+        assert_eq!(screen.viewport_splits[0].width, 0.5);
+    }
+
+    #[test]
+    fn command_errors_preserve_machine_readable_codes() {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: None,
+            capabilities: Vec::new(),
+        };
+        let server = std::thread::spawn(move || {
+            let mut request = String::new();
+            BufReader::new(peer.try_clone().unwrap()).read_line(&mut request).unwrap();
+            peer.write_all(
+                br#"{"id":1,"ok":false,"error":"layout changed","error_code":"layout-undo-stale"}
+"#,
+            )
+            .unwrap();
+        });
+
+        let error = client.request::<Value>("undo-layout", Map::new()).unwrap_err();
+        server.join().unwrap();
+
+        assert!(matches!(
+            error,
+            CmuxError::Command { error_code: Some(code), .. } if code == "layout-undo-stale"
+        ));
+    }
+
+    #[test]
     fn workspace_registry_placements_decode() {
         let workspace: WorkspacePlacement = serde_json::from_value(serde_json::json!({
             "workspace": 1,
@@ -1569,6 +1814,56 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(mutation.workspace_revision, 5);
+    }
+
+    #[test]
+    fn layout_undo_decodes_both_outcomes() {
+        let preview: LayoutUndoResult = serde_json::from_value(serde_json::json!({
+            "undone": false,
+            "confirmation_required": true,
+            "screen": 3,
+            "revision": 8,
+            "closes_panes": [15],
+        }))
+        .unwrap();
+        assert_eq!(
+            preview,
+            LayoutUndoResult::ConfirmationRequired {
+                screen: 3,
+                revision: 8,
+                closes_panes: vec![15],
+            }
+        );
+
+        let undone: LayoutUndoResult = serde_json::from_value(serde_json::json!({
+            "undone": true,
+            "screen": 3,
+            "revision": 9,
+        }))
+        .unwrap();
+        assert_eq!(undone, LayoutUndoResult::Undone { screen: 3, revision: 9 });
+    }
+
+    #[test]
+    fn layout_undo_rejects_confirmation_without_closes_panes() {
+        let result = serde_json::from_value::<LayoutUndoResult>(serde_json::json!({
+            "undone": false,
+            "confirmation_required": true,
+            "screen": 3,
+            "revision": 8,
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn layout_undo_rejects_confirmation_without_undone_discriminator() {
+        let result = serde_json::from_value::<LayoutUndoResult>(serde_json::json!({
+            "confirmation_required": true,
+            "screen": 3,
+            "revision": 8,
+            "closes_panes": [15],
+        }));
+        assert!(result.is_err());
     }
 
     #[test]
@@ -1846,6 +2141,43 @@ mod tests {
     }
 
     #[test]
+    fn resize_methods_forward_explicit_transactions() {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(10),
+            capabilities: vec!["viewport-column-resize-v1".to_string()],
+        };
+        let peer_reader = peer.try_clone().unwrap();
+        let capture = std::thread::spawn(move || {
+            let mut reader = BufReader::new(peer_reader);
+            let mut requests = Vec::new();
+            for _ in 0..2 {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let id = request["id"].clone();
+                requests.push(request);
+                writeln!(peer, "{}", serde_json::json!({"id": id, "ok": true, "data": {}}))
+                    .unwrap();
+            }
+            requests
+        });
+
+        client.set_split_ratio_in_transaction(42, 0.6, 17).unwrap();
+        client.set_viewport_pane_width_in_transaction(9, 0.75, 17).unwrap();
+
+        let requests = capture.join().unwrap();
+        assert_eq!(requests[0]["cmd"], "set-split-ratio");
+        assert_eq!(requests[0]["transaction"], 17);
+        assert_eq!(requests[1]["cmd"], "set-viewport-pane-width");
+        assert_eq!(requests[1]["transaction"], 17);
+    }
+
+    #[test]
     fn new_pane_requires_protocol_nine() {
         let (socket, _peer) = UnixStream::pair().unwrap();
         let writer = socket.try_clone().unwrap();
@@ -1858,6 +2190,57 @@ mod tests {
         };
         let error = client.require_protocol(9, "new-pane").unwrap_err();
         assert_eq!(error.to_string(), "new-pane requires protocol 9; server uses protocol 8");
+    }
+
+    #[test]
+    fn new_pane_right_rejects_invalid_widths_without_sending_a_command() {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(10),
+            capabilities: vec!["viewport-splits-v1".to_string()],
+        };
+        let peer_reader = peer.try_clone().unwrap();
+        let capture = std::thread::spawn(move || {
+            let mut reader = BufReader::new(peer_reader);
+            let mut requests = Vec::new();
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        let id = request["id"].clone();
+                        requests.push(request);
+                        writeln!(
+                            peer,
+                            "{}",
+                            serde_json::json!({
+                                "id": id,
+                                "ok": true,
+                                "data": {"surface": 9},
+                            })
+                        )
+                        .unwrap();
+                    }
+                    Err(error) => panic!("failed to capture request: {error}"),
+                }
+            }
+            requests
+        });
+
+        for width in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.09, 1.01] {
+            assert!(matches!(
+                client.new_pane_right(7, Some(width), None, None),
+                Err(CmuxError::InvalidArgument(message))
+                    if message == "viewport pane width must be between 0.1 and 1.0"
+            ));
+        }
+        drop(client);
+        assert!(capture.join().unwrap().is_empty());
     }
 
     #[test]
