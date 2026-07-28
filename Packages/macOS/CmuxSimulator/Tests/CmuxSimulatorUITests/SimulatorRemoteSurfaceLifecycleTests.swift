@@ -333,6 +333,25 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(!presentation.image.shouldInterpolate)
     }
 
+    @Test("A reusable frame view releases and can replace its transport")
+    func reusableFrameViewResetsTransport() throws {
+        let firstRing = try SimulatorFramebufferSurfaceRing(width: 320, height: 240)
+        defer { firstRing.releaseResources() }
+        let secondRing = try SimulatorFramebufferSurfaceRing(width: 640, height: 480)
+        defer { secondRing.releaseResources() }
+        let view = CmuxRemoteFrameView(frame: .zero)
+        defer { view.teardown() }
+
+        view.adopt(firstRing.descriptor)
+        #expect(view.framePixelSize == CGSize(width: 320, height: 240))
+
+        view.resetTransport()
+        #expect(view.framePixelSize == .zero)
+
+        view.adopt(secondRing.descriptor)
+        #expect(view.framePixelSize == CGSize(width: 640, height: 480))
+    }
+
     @Test("The managed frame layer preserves one-to-one backing pixels")
     func frameLayerPreservesBackingPixels() throws {
         let source = EmptySimulatorFrameSurfaceSource()

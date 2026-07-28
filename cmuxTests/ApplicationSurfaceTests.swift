@@ -10,6 +10,14 @@ import Testing
 @MainActor
 @Suite("Application surfaces", .serialized)
 struct ApplicationSurfaceTests {
+    private final class MenuActionProbe: NSObject {
+        private(set) var callCount = 0
+
+        @objc func perform(_ sender: Any?) {
+            callCount += 1
+        }
+    }
+
     @Test func focusIntentWaitsForCaptureViewWindow() async {
         let runtime = FakeApplicationSurfaceRuntime()
         let panel = ApplicationPanel(
@@ -354,6 +362,117 @@ struct ApplicationSurfaceTests {
 
         #expect(firstView === secondView)
         panel.close()
+    }
+
+    @Test func hiddenApplicationCaptureReportsSuspendedHealth() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let view = panel.captureView(windowID: 42, processID: 43)
+
+        panel.setCaptureVisibleInUI(true, view: view)
+
+        #expect(panel.captureStateDescription == "suspended")
+        panel.close()
+    }
+
+    @Test func applicationEditingKeyEquivalentReachesPaneBeforeMainMenu() throws {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        let runtime = FakeApplicationSurfaceRuntime()
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { nil },
+            onStateChanged: { _ in },
+            onMovedToWindow: { _ in }
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        #expect(window.makeFirstResponder(view))
+
+        let probe = MenuActionProbe()
+        let previousMenu = NSApp.mainMenu
+        let menu = NSMenu(title: "Main")
+        let menuItem = NSMenuItem(
+            title: "Host Command",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "i"
+        )
+        menuItem.keyEquivalentModifierMask = [.command]
+        menuItem.target = probe
+        menu.addItem(menuItem)
+        NSApp.mainMenu = menu
+        defer {
+            NSApp.mainMenu = previousMenu
+            window.contentView = nil
+            window.close()
+        }
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "i",
+            charactersIgnoringModifiers: "i",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_I)
+        ))
+
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(probe.callCount == 0)
+    }
+
+    @Test func applicationTitleChangesFollowPanelAcrossWorkspaces() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let source = Workspace()
+        let destination = Workspace()
+        let sourcePane = try #require(source.bonsplitController.allPaneIds.first)
+        let destinationPane = try #require(
+            destination.bonsplitController.allPaneIds.first
+        )
+        let panel = try #require(source.newApplicationSurface(
+            inPane: sourcePane,
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            runtime: runtime
+        ))
+        let detached = try #require(source.detachSurface(panelId: panel.id))
+
+        #expect(destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        ) == panel.id)
+        panel.selectWindow(ApplicationWindowDescriptor(
+            windowID: 88,
+            processID: 99,
+            owner: "Calculator",
+            title: "Calculator",
+            width: 674,
+            height: 408
+        ))
+
+        #expect(panel.workspaceId == destination.id)
+        #expect(destination.panelTitle(panelId: panel.id) == "Calculator")
+        #expect(source.panelTitle(panelId: panel.id) == nil)
     }
 }
 

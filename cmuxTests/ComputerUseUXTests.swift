@@ -1574,6 +1574,26 @@ struct ComputerUseUXTests {
         runtime.stopForTermination()
     }
 
+    @Test
+    func applicationSurfaceStopRequiresExplicitHelperAcknowledgement() {
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
+            "ok": true,
+            "result": ["stopped": true],
+        ]))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged(nil))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
+            "ok": false,
+            "result": ["stopped": true],
+        ]))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
+            "ok": true,
+            "result": ["stopped": false],
+        ]))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
+            "ok": true,
+        ]))
+    }
+
     @Test(.timeLimit(.minutes(1))) @MainActor
     func nativePermissionRequestUsesBothCapabilitiesAndExactHelperPeer() async throws {
         let root = FileManager.default.temporaryDirectory
