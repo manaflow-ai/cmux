@@ -9,7 +9,7 @@ import Testing
         ).allowsSandboxPolicyDenial)
     }
 
-    @Test(arguments: ["danger-full-access", "disabled", "none", "off", "unrestricted", " "])
+    @Test(arguments: ["danger-full-access", "disabled", "none", "off", "unrestricted", "future-mode", " "])
     func keepsPolicyDenialsFromUnrestrictedOrMissingSandbox(_ value: String) {
         #expect(!CLISocketSentryPolicy(
             environment: ["CODEX_SANDBOX": value]

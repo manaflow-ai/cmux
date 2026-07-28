@@ -5,8 +5,17 @@ import Foundation
 public struct SentryNoiseFilter: Sendable {
     public init() {}
 
-    /// Returns `true` when a CLI socket transport stage failed because the peer
-    /// was absent, refused the connection, or disappeared during a write.
+    /// Returns `true` for an expected CLI socket lifecycle failure.
+    ///
+    /// - Parameters:
+    ///   - stage: The structured telemetry stage for the failed operation.
+    ///   - message: The rendered transport error.
+    ///   - dataKeys: Structured context keys that can prove socket ownership.
+    ///   - allowSandboxPolicyDenial: Whether a socket-connect `EPERM` has
+    ///     trusted restricted-sandbox provenance. Pass
+    ///     ``CLISocketSentryPolicy/allowsSandboxPolicyDenial`` rather than
+    ///     inferring this from the error text.
+    /// - Returns: `true` when the failure is safe to omit from Sentry.
     public func isExpectedCLISocketTransportFailure(
         stage: String,
         message: String,
