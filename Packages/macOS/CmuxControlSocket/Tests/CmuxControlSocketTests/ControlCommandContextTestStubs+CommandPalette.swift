@@ -45,6 +45,7 @@ extension ControlInlineVSCodeContext {
     nonisolated func controlInlineVSCodeStrings() -> ControlInlineVSCodeStrings {
         ControlInlineVSCodeStrings(
             missingPath: "Missing 'path' parameter",
+            cwdMustBeAbsolute: "'cwd' must be an absolute path",
             directoryNotFound: "Directory not found",
             notDirectory: "Path is not a directory",
             tabManagerUnavailable: "The inline editor is unavailable",
@@ -56,6 +57,12 @@ extension ControlInlineVSCodeContext {
 
     func controlInlineVSCodeOpen(
         routing: ControlRoutingSelectors,
-        directoryPath: String
-    ) -> ControlInlineVSCodeOpenResolution { .tabManagerUnavailable }
+        directoryPath: String,
+        deadline: Date?
+    ) async -> ControlInlineVSCodeOpenResult {
+        ControlInlineVSCodeOpenResult(
+            resolution: .tabManagerUnavailable,
+            path: directoryPath
+        )
+    }
 }

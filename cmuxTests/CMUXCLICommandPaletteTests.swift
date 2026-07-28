@@ -25,7 +25,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let windowID = UUID()
         let responder = try UnixSocketResponder(
             path: socketPath,
-            response: #"{"ok":true,"result":{"count":1,"commands":[{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":"⌘D","keywords":[],"dismiss_on_run":true,"arguments":[{"name":"path","type":"path","required":true,"allows_empty":false},{"name":"focus","type":"boolean","required":false,"allows_empty":false}]}]}}"#
+            response: #"{"ok":true,"result":{"count":1,"commands":[{"id":"palette.demo","title":"Demo","subtitle":"Test","shortcut_hint":"⌘D","keywords":[],"dismiss_on_run":true,"arguments":[{"name":"path","type":"path","required":true,"allows_empty":false,"existing_path_kind":"directory"},{"name":"focus","type":"boolean","required":false,"allows_empty":false,"existing_path_kind":null}]}]}}"#
         )
         defer { responder.stop() }
         var environment = commandPaletteCLIEnvironment()
@@ -43,7 +43,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.status == 0)
         #expect(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-                == "palette.demo --arg path=<path> [--arg focus=<boolean>]\tDemo\t⌘D"
+                == "palette.demo --arg path=<directory> [--arg focus=<boolean>]\tDemo\t⌘D"
         )
         let requests = responder.receivedRequests
         #expect(requests.count == 1)
@@ -314,7 +314,8 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "name": "pa\u001b[2Jth",
                 "type": "path",
                 "required": true,
-                "allows_empty": false
+                "allows_empty": false,
+                "existing_path_kind": "regular_file"
               }]
             }]
           }
@@ -335,7 +336,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(textResult.status == 0)
         #expect(
             textResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-                == "custom.�[31mred <pa�[2Jth>\t�]0;owned�Danger\t�2J⌘D"
+                == "custom.�[31mred <regular_file>\t�]0;owned�Danger\t�2J⌘D"
         )
         #expect(!textResult.stdout.contains("\u{001B}"))
         #expect(!textResult.stdout.contains("\u{009B}"))
@@ -362,6 +363,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(command["shortcut_hint"] as? String == "\u{009B}2J⌘D")
         let arguments = try #require(command["arguments"] as? [[String: Any]])
         #expect(arguments.first?["name"] as? String == "pa\u{001B}[2Jth")
+        #expect(arguments.first?["existing_path_kind"] as? String == "regular_file")
     }
 
     @Test func paletteRunForwardsNamedArgumentsWithoutActionSpecificParserCode() throws {
@@ -564,7 +566,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(params["path"] as? String == directoryURL.standardizedFileURL.path)
     }
 
-    @Test func vscodeNormalizesPathsLexicallyWithoutFollowingSymlinks() throws {
+    @Test func vscodePreservesSymlinkTraversalForServerSideKernelResolution() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-vscode-lexical-\(UUID().uuidString.prefix(8)).sock"
         let rootURL = FileManager.default.temporaryDirectory
@@ -572,9 +574,16 @@ extension CMUXCLIErrorOutputRegressionTests {
         let symlinkDestination = rootURL
             .appendingPathComponent("elsewhere", isDirectory: true)
             .appendingPathComponent("nested", isDirectory: true)
+        let kernelTarget = rootURL
+            .appendingPathComponent("elsewhere", isDirectory: true)
+            .appendingPathComponent("project", isDirectory: true)
         let symlinkURL = rootURL.appendingPathComponent("link", isDirectory: true)
         try FileManager.default.createDirectory(
             at: symlinkDestination,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: kernelTarget,
             withIntermediateDirectories: true
         )
         try FileManager.default.createSymbolicLink(
@@ -583,8 +592,8 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        let expectedPath = rootURL.appendingPathComponent("project", isDirectory: true).path
-        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"status\":\"queued\",\"path\":\"\(expectedPath)\"}}"
+        let preservedPath = rootURL.path + "/link/../project"
+        let response = "{\"ok\":true,\"result\":{\"accepted\":true,\"status\":\"queued\",\"path\":\"\(kernelTarget.path)\"}}"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
 
@@ -600,7 +609,12 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.status == 0)
         let request = try commandPaletteCLIRequest(try #require(responder.receivedRequests.first))
         let params = try #require(request["params"] as? [String: Any])
-        #expect(params["path"] as? String == expectedPath)
+        #expect(params["path"] as? String == preservedPath)
+        #expect(
+            URL(fileURLWithPath: preservedPath, isDirectory: true)
+                .resolvingSymlinksInPath().path == kernelTarget.path
+        )
+        #expect(kernelTarget.path != rootURL.appendingPathComponent("project").path)
     }
 
     @Test func vscodeDefaultsToTheExactCallerSurface() throws {

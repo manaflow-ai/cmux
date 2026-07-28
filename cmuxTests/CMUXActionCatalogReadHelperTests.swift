@@ -10,6 +10,105 @@ import Testing
 @Suite(.serialized)
 struct CMUXActionCatalogReadHelperTests {
     @Test
+    func attachmentSnapshotProtocolMatchesTheAppLauncher() {
+        #expect(
+            CMUXTextBoxAttachmentSnapshotHelper.command
+                == TextBoxPreparedFileAttachment.snapshotHelperCommand
+        )
+        #expect(
+            CMUXTextBoxAttachmentSnapshotHelper.frameMagic
+                == TextBoxPreparedFileAttachment.snapshotHelperFrameMagic
+        )
+        #expect(
+            CMUXTextBoxAttachmentSnapshotHelper.maximumPathBytes
+                == TextBoxPreparedFileAttachment.snapshotHelperMaximumPathBytes
+        )
+    }
+
+    @Test
+    func attachmentSnapshotHelperCopiesAnArgvPathIntoExclusiveStaging() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-attachment-helper-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceURL = root.appendingPathComponent(
+            "-source\n;$(touch should-not-run) [x].txt"
+        )
+        let destinationURL = root.appendingPathComponent("snapshot")
+        let sourceData = Data("immutable attachment".utf8)
+        try sourceData.write(to: sourceURL)
+
+        var writes: [Data] = []
+        let status = CMUXTextBoxAttachmentSnapshotHelper {
+            writes.append($0)
+        }.runIfRequested(arguments: [
+            "/unused/cmux",
+            CMUXTextBoxAttachmentSnapshotHelper.command,
+            sourceURL.path,
+            destinationURL.path,
+            "1024",
+        ])
+
+        #expect(status == 0)
+        #expect(writes == [CMUXTextBoxAttachmentSnapshotHelper.frameMagic])
+        #expect(try Data(contentsOf: destinationURL) == sourceData)
+        #expect(!FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("should-not-run").path
+        ))
+
+        let exclusiveStatus = CMUXTextBoxAttachmentSnapshotHelper {
+            writes.append($0)
+        }.runIfRequested(arguments: [
+            "/unused/cmux",
+            CMUXTextBoxAttachmentSnapshotHelper.command,
+            sourceURL.path,
+            destinationURL.path,
+            "1024",
+        ])
+        #expect(exclusiveStatus == 74)
+        #expect(try Data(contentsOf: destinationURL) == sourceData)
+    }
+
+    @Test
+    func bundledAttachmentSnapshotHelperUsesThePrivateEntrypoint() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-bundled-attachment-helper-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceURL = root.appendingPathComponent("source with spaces.txt")
+        let destinationURL = root.appendingPathComponent("snapshot")
+        let sourceData = Data("bundled immutable attachment".utf8)
+        try sourceData.write(to: sourceURL)
+        let executable = try BundledCLITestSupport.bundledCLIPath(
+            for: BundledCLILinkageTests.self
+        )
+
+        let result = try run(
+            executable: executable,
+            arguments: [
+                CMUXTextBoxAttachmentSnapshotHelper.command,
+                sourceURL.path,
+                destinationURL.path,
+                "1024",
+            ]
+        )
+
+        #expect(result.status == 0)
+        #expect(result.output == CMUXTextBoxAttachmentSnapshotHelper.frameMagic)
+        #expect(try Data(contentsOf: destinationURL) == sourceData)
+    }
+
+    @Test
     func helperServiceWritesTheSameStrictFrame() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-helper-service-\(UUID().uuidString)",

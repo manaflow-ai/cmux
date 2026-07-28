@@ -377,6 +377,46 @@ import Testing
         #expect(await next.value == .valid("/tmp/after-race"))
     }
 
+    @Test func blockingCanonicalProbeLeavesMainActorResponsive() async throws {
+        let (started, startedContinuation) = AsyncStream<Bool>.makeStream()
+        var startedIterator = started.makeAsyncIterator()
+        let releaseProbe = DispatchSemaphore(value: 0)
+        let service = TerminalController.WorkspaceCreateWorkingDirectoryValidationService(
+            timeout: .seconds(3),
+            localCapacity: 1,
+            externalCapacity: 1,
+            maximumPendingWaiters: 1,
+            pathResolver: { $0 },
+            laneClassifier: { _ in .external },
+            blockingCanonicalProbe: { path, _, _ in
+                startedContinuation.yield(Thread.isMainThread)
+                _ = releaseProbe.wait(timeout: .now() + 2)
+                return .valid(path)
+            },
+            sleepUntilDeadline: { timeout in
+                try? await ContinuousClock().sleep(for: timeout)
+            }
+        )
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+        let validation = Task { @MainActor in
+            await service.validate(
+                rawValue: "/tmp/responsive",
+                isProvided: true,
+                probeVariant: "directory"
+            )
+        }
+
+        let probeRanOnMainThread = try #require(await startedIterator.next())
+        let mainActorResponseTime = startedAt.duration(to: clock.now)
+        #expect(!probeRanOnMainThread)
+        #expect(mainActorResponseTime < .seconds(1))
+
+        releaseProbe.signal()
+        #expect(await validation.value == .valid("/tmp/responsive"))
+        startedContinuation.finish()
+    }
+
     private static func service(
         probe: ControlledDirectoryProbe,
         deadlines: ControlledValidationDeadlines

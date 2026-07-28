@@ -28,7 +28,8 @@ struct ControlCommandCoordinatorCommandPaletteTests {
                 name: "path",
                 type: "path",
                 required: true,
-                allowsEmpty: false
+                allowsEmpty: false,
+                existingPathKind: "directory"
             )]
         )
         context.listResolution = .listed(target: target, commands: [command])
@@ -70,6 +71,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
                 "type": .string("path"),
                 "required": .bool(true),
                 "allows_empty": .bool(false),
+                "existing_path_kind": .string("directory"),
             ])]),
         ])]))
     }
@@ -187,6 +189,72 @@ struct ControlCommandCoordinatorCommandPaletteTests {
         #expect(payload["status"] == .string("completed"))
     }
 
+    @Test func runRejectsUnresolvedOrConflictingSurfaceAliasesBeforeDispatch() async throws {
+        let firstSurfaceID = UUID()
+        let secondSurfaceID = UUID()
+        let cases: [[String: JSONValue]] = [
+            [
+                "surface_id": .string("surface:missing"),
+                "terminal_id": .string(firstSurfaceID.uuidString),
+            ],
+            [
+                "surface_id": .string(firstSurfaceID.uuidString),
+                "terminal_id": .string("surface:missing"),
+            ],
+            [
+                "surface_id": .string(firstSurfaceID.uuidString),
+                "tab_id": .string(secondSurfaceID.uuidString),
+            ],
+        ]
+
+        for aliases in cases {
+            let context = FakeCommandPaletteControlCommandContext()
+            context.runResolution = .completed(windowID: UUID(), command: testCommand())
+            let coordinator = ControlCommandCoordinator(context: context)
+            var params = aliases
+            params["command_id"] = .string("palette.demo")
+
+            let result = try #require(await coordinator.handleAsync(request(
+                method: "palette.run",
+                params: params
+            )))
+
+            guard case .err(let code, let message, _) = result else {
+                Issue.record("expected invalid surface-alias error for \(aliases)")
+                continue
+            }
+            #expect(code == "invalid_params")
+            #expect(message == context.paletteStrings.invalidTarget)
+            #expect(context.runCall == nil)
+        }
+    }
+
+    @Test func runAcceptsSurfaceAliasesThatResolveToTheSameTarget() async throws {
+        let context = FakeCommandPaletteControlCommandContext()
+        let windowID = UUID()
+        let surfaceID = UUID()
+        context.runResolution = .completed(windowID: windowID, command: testCommand())
+        let coordinator = ControlCommandCoordinator(context: context)
+        let surfaceRef = coordinator.ensureRef(kind: .surface, uuid: surfaceID)
+        let tabRef = surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
+
+        let result = try #require(await coordinator.handleAsync(request(
+            method: "palette.run",
+            params: [
+                "command_id": .string("palette.demo"),
+                "surface_id": .string(surfaceID.uuidString),
+                "terminal_id": .string(surfaceRef),
+                "tab_id": .string(tabRef),
+            ]
+        )))
+
+        guard case .ok = result else {
+            Issue.record("expected matching surface aliases to be accepted")
+            return
+        }
+        #expect(context.runCall?.routing.surfaceID == surfaceID)
+    }
+
     @Test func runEchoesTheListedTargetInsteadOfUsingCurrentRoutingSelectors() async throws {
         let context = FakeCommandPaletteControlCommandContext()
         let windowID = UUID()
@@ -201,11 +269,14 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             method: "palette.run",
             params: [
                 "command_id": .string(command.id),
-                // These legacy selectors deliberately point elsewhere. An
-                // echoed target is one immutable list-time identity and wins.
+                // These legacy selectors deliberately point elsewhere,
+                // conflict, and include a malformed alias. An echoed target
+                // is one immutable list-time identity and wins.
                 "window_id": .string(UUID().uuidString),
                 "workspace_id": .string(UUID().uuidString),
                 "surface_id": .string(UUID().uuidString),
+                "terminal_id": .string(UUID().uuidString),
+                "tab_id": .string("surface:missing"),
                 "target": .object([
                     "window_id": .string(windowID.uuidString),
                     "workspace_id": .string(workspaceID.uuidString),
@@ -440,6 +511,7 @@ struct ControlCommandCoordinatorCommandPaletteTests {
             "type": .string("string"),
             "required": .bool(true),
             "allows_empty": .bool(true),
+            "existing_path_kind": .null,
         ])]))
     }
 

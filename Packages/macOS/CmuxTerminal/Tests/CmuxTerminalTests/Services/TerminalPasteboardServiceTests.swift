@@ -1,5 +1,6 @@
 import AppKit
 import CmuxTerminalCore
+import Darwin
 import Foundation
 import GhosttyKit
 import Testing
@@ -146,6 +147,50 @@ struct ImageMaterializationTests {
 
         service.cleanupTransferredTemporaryImageFiles([url])
         #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(!service.isOwnedTemporaryImageFile(url))
+    }
+
+    @Test func relinquishingOwnershipPreservesTheCurrentFileDuringLaterCleanup() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService(temporaryDirectory: scratchDir)
+        scratch.pasteboard.declareTypes([.png], owner: nil)
+        scratch.pasteboard.setData(try tinyPNGData(), forType: .png)
+        let result = service.materializeImageFileURLIfNeeded(from: scratch.pasteboard)
+        guard case .saved(let url) = result else {
+            Issue.record("expected .saved, got \(result)")
+            return
+        }
+
+        service.relinquishTemporaryImageFileOwnership(url)
+        #expect(!service.isOwnedTemporaryImageFile(url))
+        service.cleanupAllOwnedTemporaryImageFiles()
+        #expect(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @Test func cleanupAllPreservesAnAtomicReplacementAndConsumesOwnership() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService(temporaryDirectory: scratchDir)
+        scratch.pasteboard.declareTypes([.png], owner: nil)
+        scratch.pasteboard.setData(try tinyPNGData(), forType: .png)
+        let result = service.materializeImageFileURLIfNeeded(from: scratch.pasteboard)
+        guard case .saved(let url) = result else {
+            Issue.record("expected .saved, got \(result)")
+            return
+        }
+
+        let replacementData = Data("caller replacement".utf8)
+        let replacementURL = scratchDir.appendingPathComponent("caller-replacement.png")
+        try replacementData.write(to: replacementURL)
+        let renameResult = Darwin.rename(replacementURL.path, url.path)
+        try #require(renameResult == 0)
+
+        service.cleanupAllOwnedTemporaryImageFiles()
+
+        #expect(try Data(contentsOf: url) == replacementData)
         #expect(!service.isOwnedTemporaryImageFile(url))
     }
 

@@ -79,14 +79,24 @@ struct CmuxConfigActionCatalogTests {
     @Test
     func actionCatalogSizeLimitIssueUsesLocalizedFormat() async throws {
         let maximumBytes = CmuxConfigActionCatalogProcessReader.defaultMaximumConfigBytes
-        #expect(CmuxConfigStore.actionCatalogTooLargeMessage(
-            maximumBytes: maximumBytes,
-            locale: Locale(identifier: "en")
-        ) == "cmux.json exceeds the 1048576-byte action catalog limit")
-        #expect(CmuxConfigStore.actionCatalogTooLargeMessage(
-            maximumBytes: maximumBytes,
-            locale: Locale(identifier: "ja")
-        ) == "cmux.json はアクションカタログの上限（1048576 バイト）を超えています")
+        func localizedMessage(localization: String) throws -> String {
+            let localizationURL = try #require(Bundle.main.url(
+                forResource: localization,
+                withExtension: "lproj"
+            ))
+            let localizationBundle = try #require(Bundle(url: localizationURL))
+            let format = localizationBundle.localizedString(
+                forKey: "config.actionCatalog.error.tooLarge",
+                value: "cmux.json exceeds the %lld-byte action catalog limit",
+                table: nil
+            )
+            return String(format: format, Int64(maximumBytes))
+        }
+
+        #expect(try localizedMessage(localization: "en")
+            == "cmux.json exceeds the 1048576-byte action catalog limit")
+        #expect(try localizedMessage(localization: "ja")
+            == "cmux.json はアクションカタログの上限（1048576 バイト）を超えています")
 
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -119,7 +129,7 @@ struct CmuxConfigActionCatalogTests {
         ))
     }
 
-    @Test @MainActor
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func perDirectoryCatalogsStayImmutableAndRevalidateSharedInputs() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -182,8 +192,7 @@ struct CmuxConfigActionCatalogTests {
             revalidate: false
         ))
         let unchangedFresh = try #require(await store.freshActionCatalogSnapshot(
-            startingFrom: projectB.path,
-            deadline: .distantFuture
+            startingFrom: projectB.path
         ))
         #expect(unchangedFresh.id == snapshotBefore.id)
         #expect(unchangedFresh.sourceFingerprint == snapshotBefore.sourceFingerprint)
@@ -191,8 +200,7 @@ struct CmuxConfigActionCatalogTests {
         try workspaceActionJSON(name: "Project C", title: "Terminal C")
             .write(to: configB, atomically: true, encoding: .utf8)
         let fresh = try #require(await store.freshActionCatalogSnapshot(
-            startingFrom: projectB.path,
-            deadline: .distantFuture
+            startingFrom: projectB.path
         ))
         #expect(fresh.id != snapshotBefore.id)
         #expect(fresh.catalog.resolvedAction(id: "project.action")?.workspaceCommandName == "Project C")
@@ -490,7 +498,7 @@ struct CmuxConfigActionCatalogTests {
         }
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func floodOutputIsBoundedAndTermIgnoringWriterIsReaped() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -500,9 +508,23 @@ struct CmuxConfigActionCatalogTests {
                 _ = Darwin.kill(-pid, SIGKILL)
             }
         }
+        let timeout: TimeInterval = 5
+        let blockedTimeout = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        defer { blockedTimeout.continuation.finish() }
+        let timing = CmuxConfigActionCatalogProcessReader.Timing { duration in
+            if duration == .seconds(timeout) {
+                for await _ in blockedTimeout.stream {}
+                try Task.checkCancellation()
+                return
+            }
+            try await ContinuousClock().sleep(for: duration)
+        }
         let reader = CmuxConfigActionCatalogProcessReader(
-            timeout: 5,
-            terminationGrace: 0.05
+            timeout: timeout,
+            terminationGrace: 0.05,
+            timing: timing
         ) { _ in
             .init(
                 executablePath: "/bin/sh",
@@ -528,7 +550,71 @@ struct CmuxConfigActionCatalogTests {
         #expect(errno == ESRCH)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
+    func nonblockingReapMissRetainsLeaseUntilOneBlockingWaitCompletes() async throws {
+        let fixture = try ProcessReaderFixture(codec: codec)
+        defer { fixture.remove() }
+        let waitRecorder = CmuxConfigActionCatalogWaitRecorder()
+        let quarantine = CmuxConfigActionCatalogProcessQuarantine(
+            generalCapacity: 1,
+            globalCapacity: 1
+        )
+        let operations = CmuxConfigActionCatalogProcessReader.ProcessOperations(
+            wait: { processIdentifier, options in
+                waitRecorder.wait(processIdentifier, options: options)
+            },
+            sendSignal: { processIdentifier, signal, group in
+                _ = Darwin.kill(group ? -processIdentifier : processIdentifier, signal)
+            }
+        )
+        let reader = CmuxConfigActionCatalogProcessReader(
+            timeout: 30,
+            processOperations: operations,
+            quarantine: quarantine
+        ) { _ in
+            .init(
+                executablePath: "/bin/cat",
+                arguments: ["/bin/cat", fixture.globalFrameURL.path],
+                environment: ["PATH": "/usr/bin:/bin"]
+            )
+        }
+
+        let readTask = Task {
+            await reader.read(request: .init(
+                directory: nil,
+                globalConfigPath: fixture.globalPath,
+                maximumConfigBytes: 1 << 20
+            ))
+        }
+        defer {
+            waitRecorder.releaseBlockingWait()
+            readTask.cancel()
+        }
+
+        #expect(await waitUntil { waitRecorder.blockingWaitEntered })
+        let blockedState = await quarantine.state()
+        #expect(blockedState.globalReservedCount == 1)
+        #expect(blockedState.globalQuarantinedCount == 0)
+        #expect(
+            await quarantine.reserve(key: "while-blocked", lane: .global) == nil
+        )
+
+        waitRecorder.releaseBlockingWait()
+        let response = await readTask.value
+        #expect(response?.global.status == .data)
+        #expect(waitRecorder.observedOptions == [WNOHANG, 0])
+        let completedState = await quarantine.state()
+        #expect(completedState.globalReservedCount == 0)
+        #expect(completedState.globalQuarantinedCount == 0)
+        let recoveredLease = await quarantine.reserve(
+            key: "after-reap",
+            lane: .global
+        )
+        #expect(recoveredLease != nil)
+        if let recoveredLease { await quarantine.release(recoveredLease) }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func quarantineHandoffCapsChildrenRecoversSlotAndReleasesOnLateReap() async throws {
         let fixture = try ProcessReaderFixture(codec: codec)
         defer { fixture.remove() }
@@ -612,6 +698,10 @@ struct CmuxConfigActionCatalogTests {
             maximumConfigBytes: 1 << 20
         ))
         #expect(sameKey == nil)
+        #expect(readPID(at: pidURL) == childPID)
+        let stateAfterSameKey = await quarantine.state()
+        #expect(stateAfterSameKey.quarantinedCount == 1)
+        #expect(stateAfterSameKey.blockedKeys == state.blockedKeys)
 
         _ = Darwin.kill(-childPID, SIGKILL)
         #expect(await waitUntil {
@@ -935,5 +1025,59 @@ struct CmuxConfigActionCatalogTests {
             try? await clock.sleep(for: .milliseconds(10))
         }
         return await condition()
+    }
+}
+
+private final class CmuxConfigActionCatalogWaitRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let blockingWaitGate = DispatchSemaphore(value: 0)
+    private var options: [Int32] = []
+    private var enteredBlockingWait = false
+    private var returnedSyntheticNonblockingMiss = false
+
+    var observedOptions: [Int32] {
+        lock.withLock { options }
+    }
+
+    var blockingWaitEntered: Bool {
+        lock.withLock { enteredBlockingWait }
+    }
+
+    func releaseBlockingWait() {
+        blockingWaitGate.signal()
+    }
+
+    func wait(
+        _ processIdentifier: pid_t,
+        options: Int32
+    ) -> CmuxConfigActionCatalogProcessWaitResult {
+        let shouldReturnSyntheticMiss = lock.withLock {
+            self.options.append(options)
+            if options == WNOHANG, !returnedSyntheticNonblockingMiss {
+                returnedSyntheticNonblockingMiss = true
+                return true
+            }
+            return false
+        }
+        if shouldReturnSyntheticMiss {
+            return .init(processIdentifier: 0, status: 0, errorNumber: 0)
+        }
+        let shouldBlock = lock.withLock {
+            guard options == 0, !enteredBlockingWait else { return false }
+            enteredBlockingWait = true
+            return true
+        }
+        if shouldBlock {
+            blockingWaitGate.wait()
+        }
+
+        var status: Int32 = 0
+        errno = 0
+        let result = Darwin.waitpid(processIdentifier, &status, options)
+        return .init(
+            processIdentifier: result,
+            status: status,
+            errorNumber: result == -1 ? errno : 0
+        )
     }
 }

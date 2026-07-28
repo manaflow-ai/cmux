@@ -4,6 +4,7 @@ import CmuxControlSocket
 import CmuxSettings
 import CmuxUpdater
 import Darwin
+import Dispatch
 import Foundation
 import Testing
 
@@ -189,12 +190,15 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         #expect(workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: orderBefore))
     }
 
-    @Test func terminalAttachmentHandlerReportsQueuedAndQueueFull() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func terminalAttachmentHandlerReportsQueuedAndQueueFull() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         let terminalPanel = try #require(
             fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
         )
+        let (textView, textBoxWindow) = mountTextBoxInput(for: terminalPanel)
+        defer { textBoxWindow.close() }
         let emptyCatalog = CmuxConfigActionCatalog(
             loadedCommands: [],
             loadedActions: [],
@@ -222,34 +226,30 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
             withDestinationURL: firstTargetURL
         )
 
-        var handler: CmuxActionHandler?
-        await confirmation("regular attachment preparation finished") { finished in
-            var registry = CommandPaletteHandlerRegistry()
-            fixture.contentView.registerCommandPaletteHandlers(
-                &registry,
-                context: fixture.context,
-                configCatalog: emptyCatalog,
-                terminalAttachmentDidFinish: { didAttach in
-                    #expect(didAttach)
-                    finished()
-                }
-            )
-            guard let registeredHandler = registry.handler(
-                for: "palette.terminalAttachTextBoxFile"
-            ) else {
-                Issue.record("Expected the attachment handler")
-                finished()
-                return
+        let (finishedStream, finishedContinuation) = AsyncStream<Bool>.makeStream()
+        defer { finishedContinuation.finish() }
+        var registry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerCommandPaletteHandlers(
+            &registry,
+            context: fixture.context,
+            configCatalog: emptyCatalog,
+            terminalAttachmentDidFinish: { didAttach in
+                finishedContinuation.yield(didAttach)
             }
-            handler = registeredHandler
-            #expect(registeredHandler(CmuxActionInvocation(
-                source: .automation,
-                arguments: ["path": firstURL.path]
-            )) == .queued)
-        }
-        let handler = try #require(handler)
+        )
+        let handler = try #require(
+            registry.handler(for: "palette.terminalAttachTextBoxFile")
+        )
+        #expect(handler(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["path": firstURL.path]
+        )) == .queued)
+        var finishedIterator = finishedStream.makeAsyncIterator()
+        #expect(await finishedIterator.next() == true)
+        terminalPanel.preserveTextBoxContentForUnmount(from: textView)
+        textBoxWindow.close()
 
-        let fillerURLs = (0..<(TerminalPanel.maximumPendingTextBoxAttachmentCount - 1)).map {
+        let fillerURLs = (0..<TerminalPanel.maximumPendingTextBoxAttachmentCount).map {
             directoryURL.appendingPathComponent("filler-\($0).txt")
         }
         #expect(terminalPanel.attachFilesToTextBoxInput(fillerURLs) == .queued)
@@ -266,7 +266,8 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         #expect(code == "attachment_queue_full")
     }
 
-    @Test func terminalAttachmentHandlerRejectsSpecialFilesWithoutBlocking() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func terminalAttachmentHandlerRejectsSpecialFilesWithoutBlocking() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         let terminalPanel = try #require(
@@ -286,7 +287,7 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         )
         let fifoURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-palette-attachment-\(UUID().uuidString).png")
-        let makeFIFOResult = fifoURL.withUnsafeFileSystemRepresentation { path in
+        let makeFIFOResult: Int32 = fifoURL.withUnsafeFileSystemRepresentation { path in
             guard let path else { return -1 }
             return Darwin.mkfifo(path, mode_t(0o600))
         }
@@ -297,40 +298,50 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
             fifoURL,
             URL(fileURLWithPath: "/dev/null"),
         ]
-        await confirmation(
-            "special-file attachment preparation finished",
-            expectedCount: specialFileURLs.count
-        ) { finished in
-            var registry = CommandPaletteHandlerRegistry()
-            fixture.contentView.registerCommandPaletteHandlers(
-                &registry,
-                context: fixture.context,
-                configCatalog: emptyCatalog,
-                terminalAttachmentDidFinish: { didAttach in
-                    #expect(!didAttach)
-                    finished()
-                }
-            )
-            guard let handler = registry.handler(for: "palette.terminalAttachTextBoxFile") else {
-                Issue.record("Expected the attachment handler")
-                for _ in specialFileURLs { finished() }
-                return
+        let budget = TextBoxAttachmentPreparationBudget(limits: .init(
+            globalConcurrentCount: 2,
+            perComposerConcurrentCount: 2,
+            globalReservedBytes: 64 * 1024 * 1024,
+            perComposerReservedBytes: 64 * 1024 * 1024,
+            maximumQueuedCount: 2
+        ))
+        let (finishedStream, finishedContinuation) = AsyncStream<Bool>.makeStream()
+        defer { finishedContinuation.finish() }
+        var registry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerCommandPaletteHandlers(
+            &registry,
+            context: fixture.context,
+            configCatalog: emptyCatalog,
+            terminalAttachmentBudget: budget,
+            terminalAttachmentDidFinish: { didAttach in
+                finishedContinuation.yield(didAttach)
             }
-            for specialFileURL in specialFileURLs {
-                #expect(handler(CmuxActionInvocation(
-                    source: .automation,
-                    arguments: ["path": specialFileURL.path]
-                )) == .queued)
-            }
+        )
+        let handler = try #require(
+            registry.handler(for: "palette.terminalAttachTextBoxFile")
+        )
+        for specialFileURL in specialFileURLs {
+            #expect(handler(CmuxActionInvocation(
+                source: .automation,
+                arguments: ["path": specialFileURL.path]
+            )) == .queued)
+        }
+        var finishedIterator = finishedStream.makeAsyncIterator()
+        for _ in specialFileURLs {
+            #expect(await finishedIterator.next() == false)
         }
 
-        #expect(!terminalPanel.isTextBoxActive)
-        let reservations = (0..<TerminalPanel.maximumPendingTextBoxAttachmentCount)
-            .compactMap { _ in terminalPanel.reservePreparedTextBoxAttachment() }
-        #expect(reservations.count == TerminalPanel.maximumPendingTextBoxAttachmentCount)
+        #expect(terminalPanel.isTextBoxActive)
+        await waitUntilAsync {
+            let snapshot = await budget.snapshot()
+            return snapshot.globalConcurrentCount == 0
+                && snapshot.globalReservedBytes == 0
+                && snapshot.queuedCount == 0
+        }
     }
 
-    @Test func suspendedAttachmentPreparationKeepsMainActorResponsive() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func suspendedAttachmentPreparationKeepsMainActorResponsive() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         let emptyCatalog = CmuxConfigActionCatalog(
@@ -351,13 +362,19 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         defer { try? FileManager.default.removeItem(at: fileURL) }
         let maybePreparedFile = await TextBoxPreparedFileAttachment.prepare(fileURL: fileURL)
         let preparedFile = try #require(maybePreparedFile)
+        let (_, textBoxWindow) = mountTextBoxInput(
+            for: try #require(
+                fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
+            )
+        )
+        defer { textBoxWindow.close() }
 
         let (startedStream, startedContinuation) = AsyncStream<Void>.makeStream()
-        let (releaseStream, releaseContinuation) = AsyncStream<Void>.makeStream()
         let (finishedStream, finishedContinuation) = AsyncStream<Bool>.makeStream()
+        let preparationGate = CommandPaletteAttachmentPreparationGate()
         defer {
+            preparationGate.release()
             startedContinuation.finish()
-            releaseContinuation.finish()
             finishedContinuation.finish()
         }
 
@@ -366,12 +383,9 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
             &registry,
             context: fixture.context,
             configCatalog: emptyCatalog,
-            terminalAttachmentPreparer: { _ in
-                #expect(!Thread.isMainThread)
+            terminalAttachmentPreparer: { _, _ in
                 startedContinuation.yield()
-                for await _ in releaseStream {
-                    break
-                }
+                #expect(preparationGate.waitForRelease())
                 return preparedFile
             },
             terminalAttachmentDidFinish: { didAttach in
@@ -387,20 +401,17 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         )) == .queued)
 
         var startedIterator = startedStream.makeAsyncIterator()
-        _ = await startedIterator.next()
-        await confirmation("main actor heartbeat") { heartbeat in
-            Task { @MainActor in
-                heartbeat()
-            }
-        }
-
-        releaseContinuation.yield()
+        try #require(await startedIterator.next() != nil)
+        // Reaching this MainActor line while preparation is synchronously
+        // suspended proves the preparer did not occupy the UI executor.
+        preparationGate.release()
         var finishedIterator = finishedStream.makeAsyncIterator()
         let didAttach = await finishedIterator.next()
         #expect(didAttach == true)
     }
 
-    @Test func preparedAttachmentReservationsFlushInInvocationOrder() throws {
+    @Test(.timeLimit(.minutes(1)))
+    func preparedAttachmentCommitsOnlyAfterConfirmedWindowMount() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         let terminalPanel = try #require(
@@ -409,11 +420,45 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 120)
         )
-        var insertedFileURLs: [URL] = []
-        textView.onInsertPreparedFileAttachments = { preparedFiles, _ in
-            insertedFileURLs.append(contentsOf: preparedFiles.map(\.fileURL))
-            return true
+        terminalPanel.registerTextBoxInputView(textView)
+        #expect(textView.window == nil)
+
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-hidden-prepared.txt")
+        let budget = TextBoxAttachmentPreparationBudget(limits: .init(
+            globalConcurrentCount: 1,
+            perComposerConcurrentCount: 1,
+            globalReservedBytes: 32 * 1024 * 1024,
+            perComposerReservedBytes: 32 * 1024 * 1024,
+            maximumQueuedCount: 1
+        ))
+        let (preparedStream, preparedContinuation) = AsyncStream<Void>.makeStream()
+        let (finishedStream, finishedContinuation) = AsyncStream<Bool>.makeStream()
+        defer {
+            preparedContinuation.finish()
+            finishedContinuation.finish()
         }
+        var completionValues: [Bool] = []
+        #expect(terminalPanel.prepareAndAttachFileToTextBoxInputForTesting(
+            fileURL,
+            using: { url, _ in
+                let preparedFile = preparedAttachmentFixture(fileURL: url)
+                preparedContinuation.yield()
+                return preparedFile
+            },
+            target: .local,
+            budget: budget,
+            completion: {
+                completionValues.append($0)
+                finishedContinuation.yield($0)
+            }
+        ) == .queued)
+
+        var preparedIterator = preparedStream.makeAsyncIterator()
+        try #require(await preparedIterator.next() != nil)
+        #expect(textView.pendingAttachmentUploadPlaceholderIDs().isEmpty)
+        #expect(textView.inlineAttachments().isEmpty)
+        #expect(completionValues.isEmpty)
+
         let window = NSWindow(
             contentRect: textView.bounds,
             styleMask: [.borderless],
@@ -422,8 +467,142 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         )
         window.contentView = textView
         defer { window.close() }
-        terminalPanel.registerTextBoxInputView(textView)
+
+        // AppKit has attached the view, but the panel has not yet observed the
+        // move-to-window callback. Preparation must remain invisible.
+        #expect(textView.pendingAttachmentUploadPlaceholderIDs().isEmpty)
+        #expect(textView.inlineAttachments().isEmpty)
+        #expect(completionValues.isEmpty)
+
         terminalPanel.textBoxInputViewDidMoveToWindow(textView)
+        var finishedIterator = finishedStream.makeAsyncIterator()
+        #expect(await finishedIterator.next() == true)
+        #expect(completionValues == [true])
+        #expect(textView.pendingAttachmentUploadPlaceholderIDs().isEmpty)
+        #expect(textView.inlineAttachments().compactMap(\.localURL) == [fileURL])
+        await waitUntilAsync {
+            let snapshot = await budget.snapshot()
+            return snapshot.globalConcurrentCount == 0
+                && snapshot.globalReservedBytes == 0
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func remoteAttachmentUploadsValidatedDescriptorSnapshotAfterSymlinkSwap() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let terminalPanel = try #require(
+            fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
+        )
+        let (textView, textBoxWindow) = mountTextBoxInput(for: terminalPanel)
+        defer { textBoxWindow.close() }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-remote-attachment-swap-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let validatedTargetURL = directoryURL.appendingPathComponent("validated.txt")
+        let swappedTargetURL = directoryURL.appendingPathComponent("swapped.txt")
+        let sourceLinkURL = directoryURL.appendingPathComponent("upload-name.txt")
+        let replacementLinkURL = directoryURL.appendingPathComponent("replacement-link.txt")
+        let validatedBytes = Data("descriptor-validated".utf8)
+        let swappedBytes = Data("path-swapped".utf8)
+        try validatedBytes.write(to: validatedTargetURL)
+        try swappedBytes.write(to: swappedTargetURL)
+        try FileManager.default.createSymbolicLink(
+            at: sourceLinkURL,
+            withDestinationURL: validatedTargetURL
+        )
+        try FileManager.default.createSymbolicLink(
+            at: replacementLinkURL,
+            withDestinationURL: swappedTargetURL
+        )
+
+        let budget = TextBoxAttachmentPreparationBudget(limits: .init(
+            globalConcurrentCount: 1,
+            perComposerConcurrentCount: 1,
+            globalReservedBytes: 32 * 1024 * 1024,
+            perComposerReservedBytes: 32 * 1024 * 1024,
+            maximumQueuedCount: 1
+        ))
+        var uploadedSnapshotURL: URL?
+        var uploadedSnapshotBytes: Data?
+        var completionValues: [Bool] = []
+        #expect(terminalPanel.prepareAndAttachFileToTextBoxInputForTesting(
+            sourceLinkURL,
+            using: { fileURL, target in
+                await TextBoxPreparedFileAttachment.prepare(
+                    fileURL: fileURL,
+                    uploadTarget: target,
+                    afterDescriptorValidation: {
+                        let renameResult = replacementLinkURL.path.withCString {
+                            replacementPath in
+                            sourceLinkURL.path.withCString { sourcePath in
+                                Darwin.rename(replacementPath, sourcePath)
+                            }
+                        }
+                        precondition(renameResult == 0)
+                    }
+                )
+            },
+            target: .remote(.workspaceRemote),
+            remoteUploader: { fileURL, _, completion in
+                uploadedSnapshotURL = fileURL
+                uploadedSnapshotBytes = try? Data(contentsOf: fileURL)
+                completion(.success(["/remote/upload-name.txt"]))
+            },
+            budget: budget,
+            completion: { completionValues.append($0) }
+        ) == .queued)
+
+        await waitUntil { completionValues == [true] }
+        let snapshotURL = try #require(uploadedSnapshotURL)
+        defer {
+            try? FileManager.default.removeItem(at: snapshotURL)
+            try? FileManager.default.removeItem(
+                at: snapshotURL.deletingLastPathComponent()
+            )
+        }
+        #expect(snapshotURL != sourceLinkURL.standardizedFileURL)
+        #expect(snapshotURL.lastPathComponent == sourceLinkURL.lastPathComponent)
+        #expect(uploadedSnapshotBytes == validatedBytes)
+        #expect(try Data(contentsOf: sourceLinkURL) == swappedBytes)
+        #expect(try Data(contentsOf: validatedTargetURL) == validatedBytes)
+        #expect(try Data(contentsOf: swappedTargetURL) == swappedBytes)
+
+        let attachment = try #require(textView.inlineAttachments().first)
+        #expect(attachment.displayName == sourceLinkURL.lastPathComponent)
+        #expect(attachment.localURL == snapshotURL)
+        #expect(attachment.submissionPath == "/remote/upload-name.txt")
+        #expect(FileManager.default.fileExists(atPath: snapshotURL.path))
+
+        let snapshotDirectoryURL = snapshotURL.deletingLastPathComponent()
+        textView.clearContent(cleanupAttachmentFiles: true)
+        #expect(!FileManager.default.fileExists(atPath: snapshotURL.path))
+        #expect(!FileManager.default.fileExists(atPath: snapshotDirectoryURL.path))
+        #expect(try Data(contentsOf: sourceLinkURL) == swappedBytes)
+        await waitUntilAsync {
+            let snapshot = await budget.snapshot()
+            return snapshot.globalConcurrentCount == 0
+                && snapshot.globalReservedBytes == 0
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func preparedAttachmentsCommitInInvocationOrder() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let terminalPanel = try #require(
+            fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
+        )
+        let (textView, textBoxWindow) = mountTextBoxInput(for: terminalPanel)
+        defer { textBoxWindow.close() }
 
         let firstURL = URL(fileURLWithPath: "/tmp/cmux-first-prepared.txt")
         let secondURL = URL(fileURLWithPath: "/tmp/cmux-second-prepared.txt")
@@ -432,40 +611,468 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
             thumbnailPixelData: nil,
             thumbnailPixelWidth: 0,
             thumbnailPixelHeight: 0,
-            thumbnailBytesPerRow: 0
+            thumbnailBytesPerRow: 0,
+            localFileDisposition: .callerOwned
         )
         let secondPrepared = TextBoxPreparedFileAttachment(
             fileURL: secondURL,
             thumbnailPixelData: nil,
             thumbnailPixelWidth: 0,
             thumbnailPixelHeight: 0,
-            thumbnailBytesPerRow: 0
+            thumbnailBytesPerRow: 0,
+            localFileDisposition: .callerOwned
         )
-        let firstReservation = try #require(
-            terminalPanel.reservePreparedTextBoxAttachment()
+        let firstGate = CommandPaletteAttachmentPreparationGate()
+        let secondGate = CommandPaletteAttachmentPreparationGate()
+        let (startedStream, startedContinuation) = AsyncStream<URL>.makeStream()
+        let (preparedStream, preparedContinuation) = AsyncStream<URL>.makeStream()
+        let (finishedStream, finishedContinuation) = AsyncStream<Bool>.makeStream()
+        defer {
+            firstGate.release()
+            secondGate.release()
+            startedContinuation.finish()
+            preparedContinuation.finish()
+            finishedContinuation.finish()
+        }
+        let budget = TextBoxAttachmentPreparationBudget(limits: .init(
+            globalConcurrentCount: 2,
+            perComposerConcurrentCount: 2,
+            globalReservedBytes: 64 * 1024 * 1024,
+            perComposerReservedBytes: 64 * 1024 * 1024,
+            maximumQueuedCount: 64
+        ))
+        var registry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerCommandPaletteHandlers(
+            &registry,
+            context: fixture.context,
+            configCatalog: emptyActionCatalog(),
+            terminalAttachmentPreparer: { url, _ in
+                startedContinuation.yield(url)
+                if url == firstURL {
+                    #expect(firstGate.waitForRelease())
+                    preparedContinuation.yield(url)
+                    return firstPrepared
+                }
+                #expect(secondGate.waitForRelease())
+                preparedContinuation.yield(url)
+                return secondPrepared
+            },
+            terminalAttachmentBudget: budget,
+            terminalAttachmentDidFinish: { didAttach in
+                finishedContinuation.yield(didAttach)
+            }
         )
-        let secondReservation = try #require(
-            terminalPanel.reservePreparedTextBoxAttachment()
-        )
-        let duplicateSecondReservation = try #require(
-            terminalPanel.reservePreparedTextBoxAttachment()
+        let handler = try #require(
+            registry.handler(for: "palette.terminalAttachTextBoxFile")
         )
 
-        #expect(terminalPanel.fulfillPreparedTextBoxAttachment(
-            reservationID: secondReservation,
-            preparedFile: secondPrepared
-        ) == .queued)
-        #expect(insertedFileURLs.isEmpty)
-        #expect(terminalPanel.fulfillPreparedTextBoxAttachment(
-            reservationID: duplicateSecondReservation,
-            preparedFile: secondPrepared
-        ) == .queued)
-        #expect(insertedFileURLs.isEmpty)
-        #expect(terminalPanel.fulfillPreparedTextBoxAttachment(
-            reservationID: firstReservation,
-            preparedFile: firstPrepared
-        ) == .completed)
-        #expect(insertedFileURLs == [firstURL, secondURL])
+        #expect(handler(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["path": firstURL.path]
+        )) == .queued)
+        #expect(handler(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["path": secondURL.path]
+        )) == .queued)
+
+        var startedIterator = startedStream.makeAsyncIterator()
+        var startedURLs = Set<URL>()
+        while startedURLs.count < 2 {
+            startedURLs.insert(try #require(await startedIterator.next()))
+        }
+        secondGate.release()
+        var preparedIterator = preparedStream.makeAsyncIterator()
+        #expect(await preparedIterator.next() == secondURL)
+        #expect(textView.inlineAttachments().isEmpty)
+
+        firstGate.release()
+        var finishedIterator = finishedStream.makeAsyncIterator()
+        #expect(await finishedIterator.next() == true)
+        #expect(await finishedIterator.next() == true)
+        #expect(
+            textView.inlineAttachments().compactMap(\.localURL)
+                == [firstURL, secondURL]
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func preparedAttachmentKeepsItsInvocationAnchorAcrossTypingAndReattachment() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let terminalPanel = try #require(
+            fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
+        )
+        let (originalTextView, originalWindow) = mountTextBoxInput(for: terminalPanel)
+        originalTextView.string = "left right"
+        originalTextView.setSelectedRange(NSRange(location: 4, length: 0))
+
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-anchored-prepared.txt")
+        let preparedFile = preparedAttachmentFixture(fileURL: fileURL)
+        let preparationGate = CommandPaletteAttachmentPreparationGate()
+        let (startedStream, startedContinuation) = AsyncStream<Void>.makeStream()
+        let (finishedStream, finishedContinuation) = AsyncStream<Bool>.makeStream()
+        defer {
+            preparationGate.release()
+            startedContinuation.finish()
+            finishedContinuation.finish()
+            originalWindow.close()
+        }
+        var registry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerCommandPaletteHandlers(
+            &registry,
+            context: fixture.context,
+            configCatalog: emptyActionCatalog(),
+            terminalAttachmentPreparer: { _, _ in
+                startedContinuation.yield()
+                #expect(preparationGate.waitForRelease())
+                return preparedFile
+            },
+            terminalAttachmentDidFinish: { finishedContinuation.yield($0) }
+        )
+        let handler = try #require(
+            registry.handler(for: "palette.terminalAttachTextBoxFile")
+        )
+
+        #expect(handler(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["path": fileURL.path]
+        )) == .queued)
+        var startedIterator = startedStream.makeAsyncIterator()
+        try #require(await startedIterator.next() != nil)
+
+        originalTextView.setSelectedRange(
+            NSRange(location: originalTextView.attributedString().length, length: 0)
+        )
+        originalTextView.insertText(
+            " tail",
+            replacementRange: originalTextView.selectedRange()
+        )
+        terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
+        originalWindow.close()
+
+        let (reattachedTextView, reattachedWindow) = mountTextBoxInput(for: terminalPanel)
+        defer { reattachedWindow.close() }
+        #expect(reattachedTextView.pendingAttachmentUploadPlaceholderIDs().count == 1)
+
+        preparationGate.release()
+        var finishedIterator = finishedStream.makeAsyncIterator()
+        #expect(await finishedIterator.next() == true)
+        #expect(
+            reattachedTextView.submissionText()
+                == "left\(TextBoxAttachment.submissionText(forPath: fileURL.path)) right tail"
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func preparedAttachmentFollowsThePanelWhenItMovesWorkspaces() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let terminalPanel = try #require(
+            fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
+        )
+        let (textView, textBoxWindow) = mountTextBoxInput(for: terminalPanel)
+        defer { textBoxWindow.close() }
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-moved-prepared.txt")
+        let preparedFile = preparedAttachmentFixture(fileURL: fileURL)
+        let preparationGate = CommandPaletteAttachmentPreparationGate()
+        let (startedStream, startedContinuation) = AsyncStream<Void>.makeStream()
+        let (finishedStream, finishedContinuation) = AsyncStream<Bool>.makeStream()
+        defer {
+            preparationGate.release()
+            startedContinuation.finish()
+            finishedContinuation.finish()
+        }
+        var registry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerCommandPaletteHandlers(
+            &registry,
+            context: fixture.context,
+            configCatalog: emptyActionCatalog(),
+            terminalAttachmentPreparer: { _, _ in
+                startedContinuation.yield()
+                #expect(preparationGate.waitForRelease())
+                return preparedFile
+            },
+            terminalAttachmentDidFinish: { finishedContinuation.yield($0) }
+        )
+        let handler = try #require(
+            registry.handler(for: "palette.terminalAttachTextBoxFile")
+        )
+
+        #expect(handler(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["path": fileURL.path]
+        )) == .queued)
+        var startedIterator = startedStream.makeAsyncIterator()
+        try #require(await startedIterator.next() != nil)
+
+        let transfer = try #require(
+            fixture.targetWorkspace.detachSurface(panelId: terminalPanel.id)
+        )
+        let destinationPane = try #require(
+            fixture.selectedWorkspace.bonsplitController.allPaneIds.first
+        )
+        #expect(
+            fixture.selectedWorkspace.attachDetachedSurface(
+                transfer,
+                inPane: destinationPane,
+                focus: false
+            ) == terminalPanel.id
+        )
+        #expect(fixture.selectedWorkspace.panels[terminalPanel.id] === terminalPanel)
+
+        preparationGate.release()
+        var finishedIterator = finishedStream.makeAsyncIterator()
+        #expect(await finishedIterator.next() == true)
+        #expect(textView.inlineAttachments().compactMap(\.localURL) == [fileURL])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func attachmentDeadlineSettlesInOrderAndIgnoresLatePreparation() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let terminalPanel = try #require(
+            fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
+        )
+        let (textView, textBoxWindow) = mountTextBoxInput(for: terminalPanel)
+        defer { textBoxWindow.close() }
+        let headURL = URL(fileURLWithPath: "/tmp/cmux-deadline-head.txt")
+        let followerURL = URL(fileURLWithPath: "/tmp/cmux-deadline-follower.txt")
+        let headPreparedFile = preparedAttachmentFixture(fileURL: headURL)
+        let followerPreparedFile = preparedAttachmentFixture(fileURL: followerURL)
+        let headPreparationGate = CommandPaletteAttachmentPreparationGate()
+        let (startedStream, startedContinuation) = AsyncStream<Void>.makeStream()
+        let (returnedStream, returnedContinuation) = AsyncStream<Void>.makeStream()
+        let (followerPreparedStream, followerPreparedContinuation) =
+            AsyncStream<Void>.makeStream()
+        let (headDeadlineStream, headDeadlineContinuation) = AsyncStream<Void>.makeStream()
+        let (followerDeadlineStream, followerDeadlineContinuation) = AsyncStream<Void>.makeStream()
+        let (finishedStream, finishedContinuation) =
+            AsyncStream<(String, Bool)>.makeStream()
+        let budget = TextBoxAttachmentPreparationBudget(limits: .init(
+            globalConcurrentCount: 2,
+            perComposerConcurrentCount: 2,
+            globalReservedBytes: 64 * 1024 * 1024,
+            perComposerReservedBytes: 64 * 1024 * 1024,
+            maximumQueuedCount: 64
+        ))
+        defer {
+            headPreparationGate.release()
+            headDeadlineContinuation.finish()
+            followerDeadlineContinuation.finish()
+            startedContinuation.finish()
+            returnedContinuation.finish()
+            followerPreparedContinuation.finish()
+            finishedContinuation.finish()
+        }
+        var headRegistry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerCommandPaletteHandlers(
+            &headRegistry,
+            context: fixture.context,
+            configCatalog: emptyActionCatalog(),
+            terminalAttachmentPreparer: { _, _ in
+                startedContinuation.yield()
+                #expect(headPreparationGate.waitForRelease())
+                returnedContinuation.yield()
+                return headPreparedFile
+            },
+            terminalAttachmentBudget: budget,
+            terminalAttachmentDeadlineWaiter: {
+                for await _ in headDeadlineStream {
+                    return
+                }
+                throw CancellationError()
+            },
+            terminalAttachmentDidFinish: {
+                finishedContinuation.yield(("head", $0))
+            }
+        )
+        var followerRegistry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerCommandPaletteHandlers(
+            &followerRegistry,
+            context: fixture.context,
+            configCatalog: emptyActionCatalog(),
+            terminalAttachmentPreparer: { _, _ in
+                followerPreparedContinuation.yield()
+                return followerPreparedFile
+            },
+            terminalAttachmentBudget: budget,
+            terminalAttachmentDeadlineWaiter: {
+                for await _ in followerDeadlineStream {
+                    return
+                }
+                throw CancellationError()
+            },
+            terminalAttachmentDidFinish: {
+                finishedContinuation.yield(("follower", $0))
+            }
+        )
+        let headHandler = try #require(
+            headRegistry.handler(for: "palette.terminalAttachTextBoxFile")
+        )
+        let followerHandler = try #require(
+            followerRegistry.handler(for: "palette.terminalAttachTextBoxFile")
+        )
+
+        #expect(headHandler(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["path": headURL.path]
+        )) == .queued)
+        #expect(followerHandler(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["path": followerURL.path]
+        )) == .queued)
+        var startedIterator = startedStream.makeAsyncIterator()
+        try #require(await startedIterator.next() != nil)
+        var followerPreparedIterator = followerPreparedStream.makeAsyncIterator()
+        try #require(await followerPreparedIterator.next() != nil)
+        #expect(textView.inlineAttachments().isEmpty)
+        headDeadlineContinuation.yield()
+
+        var finishedIterator = finishedStream.makeAsyncIterator()
+        let firstFinished = try #require(await finishedIterator.next())
+        let secondFinished = try #require(await finishedIterator.next())
+        #expect(firstFinished.0 == "head")
+        #expect(firstFinished.1 == false)
+        #expect(secondFinished.0 == "follower")
+        #expect(secondFinished.1 == true)
+        #expect(textView.pendingAttachmentUploadPlaceholderIDs().isEmpty)
+        #expect(textView.inlineAttachments().compactMap(\.localURL) == [followerURL])
+
+        headPreparationGate.release()
+        var returnedIterator = returnedStream.makeAsyncIterator()
+        try #require(await returnedIterator.next() != nil)
+        await waitUntilAsync {
+            let snapshot = await budget.snapshot()
+            return snapshot.globalConcurrentCount == 0
+                && snapshot.globalReservedBytes == 0
+        }
+        #expect(textView.inlineAttachments().compactMap(\.localURL) == [followerURL])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func closingPanelCancelsAttachmentAndRejectsItsLateOutput() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let terminalPanel = try #require(
+            fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
+        )
+        let (textView, textBoxWindow) = mountTextBoxInput(for: terminalPanel)
+        defer { textBoxWindow.close() }
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-closed-prepared.txt")
+        let preparedFile = preparedAttachmentFixture(fileURL: fileURL)
+        let preparationGate = CommandPaletteAttachmentPreparationGate()
+        let (startedStream, startedContinuation) = AsyncStream<Void>.makeStream()
+        let (returnedStream, returnedContinuation) = AsyncStream<Void>.makeStream()
+        let (finishedStream, finishedContinuation) = AsyncStream<Bool>.makeStream()
+        let budget = TextBoxAttachmentPreparationBudget(limits: .init(
+            globalConcurrentCount: 1,
+            perComposerConcurrentCount: 1,
+            globalReservedBytes: 32 * 1024 * 1024,
+            perComposerReservedBytes: 32 * 1024 * 1024,
+            maximumQueuedCount: 64
+        ))
+        defer {
+            preparationGate.release()
+            startedContinuation.finish()
+            returnedContinuation.finish()
+            finishedContinuation.finish()
+        }
+        var registry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerCommandPaletteHandlers(
+            &registry,
+            context: fixture.context,
+            configCatalog: emptyActionCatalog(),
+            terminalAttachmentPreparer: { _, _ in
+                startedContinuation.yield()
+                #expect(preparationGate.waitForRelease())
+                returnedContinuation.yield()
+                return preparedFile
+            },
+            terminalAttachmentBudget: budget,
+            terminalAttachmentDidFinish: { finishedContinuation.yield($0) }
+        )
+        let handler = try #require(
+            registry.handler(for: "palette.terminalAttachTextBoxFile")
+        )
+
+        #expect(handler(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["path": fileURL.path]
+        )) == .queued)
+        var startedIterator = startedStream.makeAsyncIterator()
+        try #require(await startedIterator.next() != nil)
+        terminalPanel.close()
+
+        var finishedIterator = finishedStream.makeAsyncIterator()
+        #expect(await finishedIterator.next() == false)
+        preparationGate.release()
+        var returnedIterator = returnedStream.makeAsyncIterator()
+        try #require(await returnedIterator.next() != nil)
+        await waitUntilAsync {
+            let snapshot = await budget.snapshot()
+            return snapshot.globalConcurrentCount == 0
+                && snapshot.globalReservedBytes == 0
+        }
+        #expect(textView.inlineAttachments().isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func retainedPreparedBytesAndDuplicateCallersStayBounded() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let terminalPanel = try #require(
+            fixture.targetWorkspace.panels[fixture.targetPanelID] as? TerminalPanel
+        )
+        let budget = TextBoxAttachmentPreparationBudget(limits: .init(
+            globalConcurrentCount: 4,
+            perComposerConcurrentCount: 2,
+            globalReservedBytes: 128 * 1024 * 1024,
+            perComposerReservedBytes: 64 * 1024 * 1024,
+            maximumQueuedCount: 64
+        ))
+        let (deadlineStream, deadlineContinuation) = AsyncStream<Void>.makeStream()
+        defer { deadlineContinuation.finish() }
+        var completionCount = 0
+        let urls = (0..<TerminalPanel.maximumPendingTextBoxAttachmentCount).map {
+            URL(fileURLWithPath: "/tmp/cmux-budgeted-prepared-\($0).txt")
+        }
+
+        for url in urls {
+            #expect(terminalPanel.prepareAndAttachFileToTextBoxInputForTesting(
+                url,
+                using: { url, _ in preparedAttachmentFixture(fileURL: url) },
+                budget: budget,
+                deadlineWaiter: {
+                    for await _ in deadlineStream {
+                        return
+                    }
+                    throw CancellationError()
+                },
+                completion: { _ in completionCount += 1 }
+            ) == .queued)
+        }
+        await waitUntilAsync {
+            let snapshot = await budget.snapshot()
+            return snapshot.globalConcurrentCount == 2
+                && snapshot.globalReservedBytes == 64 * 1024 * 1024
+                && snapshot.queuedCount == urls.count - 2
+        }
+        #expect(terminalPanel.prepareAndAttachFileToTextBoxInputForTesting(
+            urls[0],
+            using: { url, _ in preparedAttachmentFixture(fileURL: url) },
+            budget: budget,
+            deadlineWaiter: { throw CancellationError() },
+            completion: { _ in completionCount += 1 }
+        ) == .queueFull)
+
+        terminalPanel.close()
+        #expect(completionCount == urls.count)
+        await waitUntilAsync {
+            let snapshot = await budget.snapshot()
+            return snapshot.globalConcurrentCount == 0
+                && snapshot.globalReservedBytes == 0
+                && snapshot.queuedCount == 0
+        }
     }
 
     @Test func proPresentationOutcomesAreTyped() {
@@ -495,15 +1102,41 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         )
     }
 
-    @Test func proHandlersReportExternalPresentationFailure() throws {
+    @Test func proHandlersReportInjectedPresentationFailure() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
+        var registry = CommandPaletteHandlerRegistry()
+        fixture.contentView.registerProCommandHandlers(
+            &registry,
+            context: fixture.context,
+            presentUpgrade: { _, _ in false },
+            presentWelcomeChecklist: { _, _ in false }
+        )
+
+        let invocation = CmuxActionInvocation(source: .automation)
+        for commandID in [
+            ContentView.commandPaletteProUpgradeCommandId,
+            ContentView.commandPaletteProWelcomeChecklistCommandId,
+        ] {
+            let handler = try #require(registry.handler(for: commandID))
+            guard case .failed(let code, _) = handler(invocation) else {
+                Issue.record("Expected a typed Pro presentation failure")
+                continue
+            }
+            #expect(code == "presentation_failed")
+        }
+    }
+
+    @Test func proPresentersPropagateBrowserEnabledFallbackFailure() {
         let defaults = UserDefaults.standard
         let previousBrowserDisabled = defaults.object(
             forKey: BrowserAvailabilitySettings.disabledKey
         )
-        BrowserAvailabilitySettings.setDisabled(true)
+        let previousAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        BrowserAvailabilitySettings.setDisabled(false)
         defer {
+            AppDelegate.shared = previousAppDelegate
             if let previousBrowserDisabled {
                 defaults.set(
                     previousBrowserDisabled,
@@ -523,42 +1156,11 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
             attemptedURLs.append(url)
             return false
         }
-        var registry = CommandPaletteHandlerRegistry()
-        fixture.contentView.registerProCommandHandlers(
-            &registry,
-            context: fixture.context,
-            presentUpgrade: { tabManager, target in
-                ProUpgradePresenter.present(
-                    tabManager: tabManager,
-                    sourceWindowID: target.windowID,
-                    sourceWorkspaceID: target.workspaceID,
-                    sourcePanelID: target.panelID,
-                    openExternalURL: failingExternalOpener
-                )
-            },
-            presentWelcomeChecklist: { tabManager, target in
-                ProWelcomeChecklistPresenter.present(
-                    tabManager: tabManager,
-                    sourceWindowID: target.windowID,
-                    sourceWorkspaceID: target.workspaceID,
-                    sourcePanelID: target.panelID,
-                    openExternalURL: failingExternalOpener
-                )
-            }
-        )
 
-        let invocation = CmuxActionInvocation(source: .automation)
-        for commandID in [
-            ContentView.commandPaletteProUpgradeCommandId,
-            ContentView.commandPaletteProWelcomeChecklistCommandId,
-        ] {
-            let handler = try #require(registry.handler(for: commandID))
-            guard case .failed(let code, _) = handler(invocation) else {
-                Issue.record("Expected a typed Pro presentation failure")
-                continue
-            }
-            #expect(code == "presentation_failed")
-        }
+        #expect(!ProUpgradePresenter.present(openExternalURL: failingExternalOpener))
+        #expect(!ProWelcomeChecklistPresenter.present(
+            openExternalURL: failingExternalOpener
+        ))
         #expect(attemptedURLs.count == 2)
     }
 
@@ -832,6 +1434,59 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
         #expect(beeps == 1)
     }
 
+    private func mountTextBoxInput(
+        for terminalPanel: TerminalPanel
+    ) -> (TextBoxInputTextView, NSWindow) {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 120)
+        )
+        let window = NSWindow(
+            contentRect: textView.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = textView
+        terminalPanel.registerTextBoxInputView(textView)
+        terminalPanel.textBoxInputViewDidMoveToWindow(textView)
+        return (textView, window)
+    }
+
+    private func emptyActionCatalog() -> CmuxConfigActionCatalog {
+        CmuxConfigActionCatalog(
+            loadedCommands: [],
+            loadedActions: [],
+            commandSourcePaths: [:],
+            configurationIssues: [],
+            resolvedNewWorkspaceAction: nil,
+            resolvedNewWorkspaceCommand: nil,
+            configuredNewWorkspaceActionID: nil,
+            configuredNewWorkspaceActionSourcePath: nil,
+            configuredNewWorkspaceCommandName: nil,
+            configuredNewWorkspaceCommandSourcePath: nil
+        )
+    }
+
+    private func waitUntil(
+        _ condition: @escaping @MainActor () -> Bool
+    ) async {
+        for _ in 0..<20_000 {
+            if condition() { return }
+            await Task.yield()
+        }
+        Issue.record("Timed out waiting for the expected MainActor state")
+    }
+
+    private func waitUntilAsync(
+        _ condition: @escaping () async -> Bool
+    ) async {
+        for _ in 0..<20_000 {
+            if await condition() { return }
+            await Task.yield()
+        }
+        Issue.record("Timed out waiting for the expected async state")
+    }
+
     private func makeFixture() throws -> CommandPaletteTypedViewAndIdentifierFixture {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -890,4 +1545,29 @@ struct CommandPaletteTypedViewAndIdentifierOutcomeTests {
             contentView: contentView
         )
     }
+}
+
+private final class CommandPaletteAttachmentPreparationGate: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    func waitForRelease() -> Bool {
+        semaphore.wait(timeout: .now() + .seconds(30)) == .success
+    }
+
+    func release() {
+        semaphore.signal()
+    }
+}
+
+nonisolated private func preparedAttachmentFixture(
+    fileURL: URL
+) -> TextBoxPreparedFileAttachment {
+    TextBoxPreparedFileAttachment(
+        fileURL: fileURL,
+        thumbnailPixelData: nil,
+        thumbnailPixelWidth: 0,
+        thumbnailPixelHeight: 0,
+        thumbnailBytesPerRow: 0,
+        localFileDisposition: .callerOwned
+    )
 }

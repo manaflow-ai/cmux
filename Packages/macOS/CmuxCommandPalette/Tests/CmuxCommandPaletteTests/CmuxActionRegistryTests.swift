@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxCommandPalette
 
@@ -61,7 +62,7 @@ struct CmuxActionRegistryTests {
         #expect(!didRun)
     }
 
-    @Test func pathArgumentsResolveRelativeToTheAutomationCaller() {
+    @Test func pathArgumentsResolveRelativeToTheAutomationCallerWithoutCollapsingTraversal() {
         var receivedPath: String?
         let command = makeCommand(arguments: [
             CmuxActionArgumentDefinition(name: "path", valueType: .path),
@@ -75,7 +76,63 @@ struct CmuxActionRegistryTests {
             arguments: ["path": "Sources/../Tests"],
             workingDirectory: "/tmp/cmux-project"
         )) == .completed)
-        #expect(receivedPath == "/tmp/cmux-project/Tests")
+        #expect(receivedPath == "/tmp/cmux-project/Sources/../Tests")
+    }
+
+    @Test func actionInvocationOwnsPathResolutionPolicy() {
+        let invocation = CmuxActionInvocation(
+            source: .automation,
+            workingDirectory: "/tmp/cmux-project"
+        )
+
+        #expect(invocation.resolvePath("Sources/../Tests") == "/tmp/cmux-project/Sources/../Tests")
+        #expect(invocation.resolvePath("/tmp/absolute/../path") == "/tmp/absolute/../path")
+    }
+
+    @Test func pathArgumentsPreserveKernelSymlinkTraversalSemantics() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-palette-path-\(UUID().uuidString)", isDirectory: true)
+        let symlinkDestination = rootURL
+            .appendingPathComponent("elsewhere", isDirectory: true)
+            .appendingPathComponent("nested", isDirectory: true)
+        let kernelTarget = rootURL
+            .appendingPathComponent("elsewhere", isDirectory: true)
+            .appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: symlinkDestination,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: kernelTarget,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createSymbolicLink(
+            at: rootURL.appendingPathComponent("link", isDirectory: true),
+            withDestinationURL: symlinkDestination
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        var receivedPath: String?
+        let command = makeCommand(arguments: [
+            CmuxActionArgumentDefinition(name: "path", valueType: .path),
+        ]) { invocation in
+            receivedPath = invocation.string("path")
+            return .completed
+        }
+
+        #expect(command.execute(CmuxActionInvocation(
+            source: .automation,
+            arguments: ["path": "link/../project"],
+            workingDirectory: rootURL.path
+        )) == .completed)
+
+        let preservedPath = try #require(receivedPath)
+        #expect(preservedPath == rootURL.path + "/link/../project")
+        #expect(
+            URL(fileURLWithPath: preservedPath, isDirectory: true)
+                .resolvingSymlinksInPath().path == kernelTarget.path
+        )
+        #expect(kernelTarget.path != rootURL.appendingPathComponent("project").path)
     }
 
     @Test func booleanArgumentsAreValidatedAndCoercedCentrally() {

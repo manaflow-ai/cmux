@@ -19,6 +19,7 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
     var listResolution: ControlCommandPaletteListResolution = .windowNotFound
     var runResolution: ControlCommandPaletteRunResolution = .windowNotFound
     var inlineVSCodeResolution: ControlInlineVSCodeOpenResolution = .tabManagerUnavailable
+    var inlineVSCodeResolutionForPath: ((String) -> ControlInlineVSCodeOpenResolution)?
 
     private(set) var listRouting: ControlRoutingSelectors?
     private(set) var runCall: (
@@ -67,6 +68,7 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
     nonisolated func controlInlineVSCodeStrings() -> ControlInlineVSCodeStrings {
         ControlInlineVSCodeStrings(
             missingPath: "missing inline path",
+            cwdMustBeAbsolute: "inline cwd must be absolute",
             directoryNotFound: "inline directory not found",
             notDirectory: "inline path is not a directory",
             tabManagerUnavailable: "inline editor unavailable",
@@ -78,9 +80,14 @@ final class FakeCommandPaletteControlCommandContext: ControlCommandContext {
 
     func controlInlineVSCodeOpen(
         routing: ControlRoutingSelectors,
-        directoryPath: String
-    ) -> ControlInlineVSCodeOpenResolution {
+        directoryPath: String,
+        deadline: Date?
+    ) async -> ControlInlineVSCodeOpenResult {
         inlineVSCodeCall = (routing, directoryPath)
-        return inlineVSCodeResolution
+        return ControlInlineVSCodeOpenResult(
+            resolution: inlineVSCodeResolutionForPath?(directoryPath)
+                ?? inlineVSCodeResolution,
+            path: directoryPath
+        )
     }
 }

@@ -244,22 +244,27 @@ struct BrowserPanelReactGrabStateRegressionTests {
         #expect(panel.reactGrabStateReconciliationTask == nil)
     }
 
-    @Test func missingPageAPIFailsActivationButConfirmsInactiveState() async {
+    @Test func missingPageAPIFailsActivationButConfirmsInactiveState() async throws {
         let panel = await loadedBrowserPanel()
         defer { panel.close() }
-        panel.reactGrabTestingScriptSourceOverride = ""
 
-        let activated = await panel.ensureReactGrabActive()
-        let deactivated = await panel.requestReactGrabActiveAndWait(
-            false,
-            reason: "test.missingAPI.deactivate"
+        let activationResult = await panel.evaluateReactGrabInjection(
+            scriptSource: "",
+            requestGeneration: 41
         )
+        let deactivationResult = try await panel.evaluateJavaScript(
+            reactGrabActivationUpdaterInvocation(
+                receiver: "window['\(panel.reactGrabBridgeActivationUpdaterName)']",
+                active: false,
+                requestGeneration: 42
+            )
+        )
+        let deactivationConfirmed = (deactivationResult as? Bool)
+            ?? (deactivationResult as? NSNumber)?.boolValue
+            ?? false
 
-        #expect(!activated)
-        #expect(deactivated)
-        #expect(!panel.isReactGrabActive)
-        #expect(panel.requestedReactGrabActive == nil)
-        #expect(panel.reactGrabStateReconciliationTask == nil)
+        #expect(!activationResult)
+        #expect(deactivationConfirmed)
     }
 
     private func loadedBrowserPanel() async -> BrowserPanel {

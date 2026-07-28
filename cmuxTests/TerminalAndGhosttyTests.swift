@@ -6,6 +6,7 @@ import CmuxFoundation
 import CmuxTerminalCore
 import CmuxSettings
 import AppKit
+import Dispatch
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
