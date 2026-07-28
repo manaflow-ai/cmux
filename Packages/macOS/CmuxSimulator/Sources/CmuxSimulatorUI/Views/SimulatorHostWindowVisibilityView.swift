@@ -14,6 +14,8 @@ final class SimulatorHostWindowVisibilityView: NSView {
         super.viewWillMove(toWindow: newWindow)
         guard let newWindow else { return }
         for name in [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didBecomeMainNotification,
             NSWindow.didChangeOcclusionStateNotification,
             NSWindow.didMiniaturizeNotification,
             NSWindow.didDeminiaturizeNotification,
