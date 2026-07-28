@@ -177,6 +177,7 @@ public struct AgentLaunchInvocationClassifier {
             managementSubcommands: [
                 "session": ["delete", "list"],
             ],
+            informationalSubcommands: ["session"],
             booleanOptions: ["--mdns", "--print-logs", "--pure"],
             valueOptions: ["--cors", "--hostname", "--log-level", "--mdns-domain", "--port"]
         )
@@ -225,6 +226,7 @@ public struct AgentLaunchInvocationClassifier {
         args: [String],
         managementCommands: Set<String>,
         managementSubcommands: [String: Set<String>] = [:],
+        informationalSubcommands: Set<String> = [],
         booleanOptions: Set<String>,
         valueOptions: Set<String>
     ) -> Bool {
@@ -234,6 +236,10 @@ public struct AgentLaunchInvocationClassifier {
             if argument == "--" { return false }
             if !argument.hasPrefix("-") || argument == "-" {
                 if let allowedSubcommands = managementSubcommands[argument] {
+                    if informationalSubcommands.contains(argument),
+                       subcommandHasInformationalOption(args: args, startIndex: index + 1) {
+                        return true
+                    }
                     guard index + 1 < args.count else { return false }
                     return allowedSubcommands.contains(args[index + 1])
                 }
@@ -252,6 +258,14 @@ public struct AgentLaunchInvocationClassifier {
             }
             guard booleanOptions.contains(option) else { return false }
             index += 1
+        }
+        return false
+    }
+
+    private func subcommandHasInformationalOption(args: [String], startIndex: Int) -> Bool {
+        for argument in args.dropFirst(startIndex) {
+            if argument == "--" { return false }
+            if informationalOptions.contains(optionName(argument)) { return true }
         }
         return false
     }

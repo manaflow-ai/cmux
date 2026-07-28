@@ -15,6 +15,8 @@ struct ManagedLauncherNonLaunchTests {
         }
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "list"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "delete", "session-id"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "--help"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "run", "--help"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["--log-level", "WARN", "models"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["--mdns", "models"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["--port", "4096", "models"]))
@@ -33,6 +35,7 @@ struct ManagedLauncherNonLaunchTests {
             ["web"],
             ["session"],
             ["session", "run"],
+            ["session", "--", "--help"],
             ["run", "hello"],
             ["unknown-command"],
             ["--session", "session-id"],

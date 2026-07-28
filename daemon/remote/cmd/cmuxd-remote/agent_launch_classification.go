@@ -148,6 +148,7 @@ func omoLaunchIsNonLaunch(args []string) bool {
 		args,
 		omoManagementCommands,
 		map[string]map[string]bool{"session": {"delete": true, "list": true}},
+		map[string]bool{"session": true},
 		map[string]bool{"--mdns": true, "--print-logs": true, "--pure": true},
 		map[string]bool{
 			"--cors": true, "--hostname": true, "--log-level": true,
@@ -161,6 +162,7 @@ func omcLaunchIsNonLaunch(args []string) bool {
 		args,
 		omcManagementCommands,
 		map[string]map[string]bool{"team": {"api": true, "shutdown": true, "status": true}},
+		nil,
 		nil,
 		nil,
 	)
@@ -177,6 +179,7 @@ func conservativeAgentNonLaunchInvocation(
 	args []string,
 	managementCommands map[string]bool,
 	managementSubcommands map[string]map[string]bool,
+	informationalSubcommands map[string]bool,
 	booleanOptions map[string]bool,
 	valueOptions map[string]bool,
 ) bool {
@@ -187,6 +190,9 @@ func conservativeAgentNonLaunchInvocation(
 		}
 		if !strings.HasPrefix(argument, "-") || argument == "-" {
 			if allowedSubcommands := managementSubcommands[argument]; allowedSubcommands != nil {
+				if informationalSubcommands[argument] && agentSubcommandHasInformationalOption(args, index+1) {
+					return true
+				}
 				return index+1 < len(args) && allowedSubcommands[args[index+1]]
 			}
 			return managementCommands[argument]
@@ -210,6 +216,19 @@ func conservativeAgentNonLaunchInvocation(
 			return false
 		}
 		index++
+	}
+	return false
+}
+
+func agentSubcommandHasInformationalOption(args []string, index int) bool {
+	for ; index < len(args); index++ {
+		argument := args[index]
+		if argument == "--" {
+			return false
+		}
+		if agentInformationalOptions[agentOptionName(argument)] {
+			return true
+		}
 	}
 	return false
 }
