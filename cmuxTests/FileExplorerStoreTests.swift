@@ -448,6 +448,77 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func hydratedSelectedDescendantReplacesAncestorFallback() async throws {
+        let provider = DeferredListFileExplorerProvider()
+        let store = FileExplorerStore()
+        let selectedPath = "/project/Sources/App.swift"
+        store.select(node: FileExplorerNode(
+            name: "App.swift",
+            path: selectedPath,
+            isDirectory: false
+        ))
+        store.expand(node: FileExplorerNode(
+            name: "Sources",
+            path: "/project/Sources",
+            isDirectory: true
+        ))
+        store.setProviderForTesting(provider)
+        store.setRootPath("/project")
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240)
+        )
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+
+        try await waitFor("root listing started") {
+            provider.listCallPaths == ["/project"]
+        }
+        provider.resumeListing(returning: [
+            FileExplorerEntry(
+                name: "Sources",
+                path: "/project/Sources",
+                isDirectory: true
+            ),
+        ])
+        try await waitFor("expanded directory listing started") {
+            provider.listCallPaths == ["/project", "/project/Sources"]
+        }
+        coordinator.reloadIfNeeded()
+
+        #expect(
+            (outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode)?.path
+                == "/project/Sources"
+        )
+
+        provider.resumeListing(returning: [
+            FileExplorerEntry(
+                name: "App.swift",
+                path: selectedPath,
+                isDirectory: false
+            ),
+        ])
+        try await waitFor("selected descendant hydrated") {
+            store.rootNodes.first?.children?.first?.path == selectedPath
+        }
+        try await waitFor("selected descendant restored") {
+            guard outlineView.selectedRow >= 0 else { return false }
+            return (outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode)?.path
+                == selectedPath
+        }
+    }
+
+    @Test
     func testLoadRootPopulatesNodes() async throws {
         let provider = MockFileExplorerProvider()
         provider.listings["/home/user/project"] = .success([
