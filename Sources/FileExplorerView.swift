@@ -109,8 +109,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
         private static let maximumPendingNodeChangeCount = 64
-        let iconRenderContext = CmuxResolvedIconRenderContext()
+        let iconRenderContext: CmuxResolvedIconRenderContext
 
+        @MainActor
         init(
             store: FileExplorerStore,
             state: FileExplorerState,
@@ -125,6 +126,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             self.placement = placement
             self.onFocus = onFocus
             self.onContainerChange = onContainerChange
+            self.iconRenderContext = CmuxResolvedIconRenderContext()
             super.init()
             observeStore()
             observeOutlineChanges()
