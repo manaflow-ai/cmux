@@ -133,6 +133,18 @@ final class AgentSessionRetryCoordinator {
         reset(panelId: panelId)
     }
 
+    func shellActivityDidChange(panelId: UUID, state: PanelShellActivityState) {
+        guard state == .commandRunning,
+              awaitingCommandCompletionPanelIds.contains(panelId) else {
+            return
+        }
+        // The ended managed command must produce the next command-finished
+        // event before another shell command starts. If that event was lost or
+        // delayed, a new command makes the pending exit ambiguous; fail closed
+        // instead of letting its eventual exit resurrect the old agent.
+        reset(panelId: panelId)
+    }
+
     func commandFinished(panelId: UUID, exitCode: Int?) {
         guard let workspace else { return }
         if case .waiting = statesByPanelId[panelId]?.phase { return }

@@ -42,8 +42,10 @@ public struct AgentSessionRetryPolicy: Equatable, Sendable {
         guard exitCode != 0 else { return .reject(.successfulExit) }
 
         // Shells conventionally encode signal termination as 128 + signal.
-        // Treat the entire portable signal range as intentional/ambiguous so
-        // Ctrl-C, pane teardown, and explicit kills never resurrect an agent.
+        // Status 128 itself is also deliberately treated as ambiguous because
+        // wrappers/providers use it for interrupted or otherwise uncertain
+        // termination. False-positive resurrection is worse than skipping one
+        // retry, so reject the full conservative range.
         guard !(128...192).contains(exitCode) else { return .reject(.signalExit) }
 
         let normalizedCompletedAttempts = max(0, completedAttempts)

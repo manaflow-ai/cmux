@@ -30,6 +30,7 @@ struct AgentSessionRetryCoordinatorTests {
         workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
         #expect(workspace.clearAgentLifecycle(key: "claude_code", panelId: panelId))
         #expect(!workspace.hasActiveAgentLifecycleForRetry(panelId: panelId))
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
 
         let retryStatusKey = "agent.auto_retry.\(panelId.uuidString.lowercased())"
@@ -68,6 +69,34 @@ struct AgentSessionRetryCoordinatorTests {
         workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
 
         #expect(workspace.clearSurfaceResumeBinding(panelId: panelId))
+        workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
+
+        #expect(!workspace.statusEntries.keys.contains {
+            $0.hasPrefix("agent.auto_retry.")
+        })
+    }
+
+    @MainActor
+    @Test("a later shell command invalidates an unclassified ended session")
+    func laterCommandInvalidatesEndedSession() throws {
+        let defaults = try #require(UserDefaults(suiteName: "AgentSessionRetryCoordinatorTests.laterCommand"))
+        defer { defaults.removePersistentDomain(forName: "AgentSessionRetryCoordinatorTests.laterCommand") }
+        defaults.set(true, forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey)
+
+        let workspace = Workspace(
+            agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings(defaults: defaults)
+        )
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = managedBinding(sessionId: "ended-before-later-command")
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelId, agentSessionEnded: true))
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
+        #expect(workspace.clearAgentLifecycle(key: "claude_code", panelId: panelId))
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
         workspace.agentSessionRetryCoordinator.commandFinished(panelId: panelId, exitCode: 1)
 
         #expect(!workspace.statusEntries.keys.contains {

@@ -4696,6 +4696,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
+        agentSessionRetryCoordinator.shellActivityDidChange(panelId: panelId, state: state)
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         if previousState == state {
             if let terminalPanel = panels[panelId] as? TerminalPanel {

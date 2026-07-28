@@ -13,6 +13,7 @@ struct AgentSessionRetryPolicyTests {
             (true, true, false, Optional(1), .missingResumeBinding),
             (true, true, true, nil, .unknownExit),
             (true, true, true, Optional(0), .successfulExit),
+            (true, true, true, Optional(128), .signalExit),
             (true, true, true, Optional(130), .signalExit),
             (true, true, true, Optional(143), .signalExit),
         ]
