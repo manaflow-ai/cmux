@@ -7822,6 +7822,8 @@ final class Workspace: Identifiable, ObservableObject {
         guard let runtime = runtime ?? applicationSurfaceRuntime else {
             return nil
         }
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
 
         guard let applicationPanel = ApplicationPanel(
             workspaceId: id,
@@ -7867,6 +7869,11 @@ final class Workspace: Identifiable, ObservableObject {
             focusPanel(applicationPanel.id)
         } else {
             applicationPanel.unfocus()
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: applicationPanel.id,
+                previousHostedView: previousHostedView
+            )
         }
         return applicationPanel
     }
