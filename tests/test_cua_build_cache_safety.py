@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import re
 import stat
 import subprocess
@@ -86,6 +87,42 @@ def run_until_compile(root: Path, cache_dir: Path, sha: str) -> subprocess.Compl
     )
 
 
+def successful_build_environment(root: Path, sha: str) -> dict[str, str]:
+    environment = fake_tool_environment(root, sha)
+    bin_dir = root / "bin"
+    write_executable(
+        bin_dir / "rustup",
+        """#!/bin/bash
+set -eu
+if [[ "${1:-}" == "target" && "${2:-}" == "list" ]]; then
+  printf '%s\n' aarch64-apple-darwin x86_64-apple-darwin
+  exit 0
+fi
+exit 1
+""",
+    )
+    write_executable(
+        bin_dir / "cargo",
+        """#!/bin/bash
+set -eu
+target=""
+while (($#)); do
+  if [[ "$1" == "--target" ]]; then
+    target="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+[[ -n "$target" ]]
+mkdir -p "$CARGO_TARGET_DIR/$target/release"
+cp /usr/bin/true "$CARGO_TARGET_DIR/$target/release/cua-driver"
+""",
+    )
+    environment["PRODUCT_BUNDLE_IDENTIFIER"] = "com.cmuxterm.app.debug.cua-safety-test"
+    return environment
+
+
 def test_unmanaged_current_source_is_preserved(sha: str) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-cua-cache-current-") as tmp:
         root = Path(tmp)
@@ -137,11 +174,44 @@ def test_clean_legacy_source_is_adopted(sha: str) -> None:
         assert owner.read_text() == f"cmux-cua-driver-cache-v1 {sha}\n"
 
 
+def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-helper-unmanaged-") as tmp:
+        root = Path(tmp)
+        cache_dir = root / "cache"
+        contents_dir = root / "cmux DEV.app" / "Contents"
+        output = contents_dir / "Resources" / "bin" / "cmux-computer-use"
+        helper = contents_dir / "Library" / "cmux Computer Use.app"
+        helper.mkdir(parents=True)
+        sentinel = helper / "user-data.txt"
+        sentinel.write_text("keep me")
+        machine = platform.machine()
+        arch = "arm64" if machine in {"arm64", "aarch64"} else "x86_64"
+
+        result = subprocess.run(
+            [
+                str(BUILD_SCRIPT),
+                "--output",
+                str(output),
+                "--archs",
+                arch,
+                "--cache-dir",
+                str(cache_dir),
+            ],
+            env=successful_build_environment(root, sha),
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode != 0, result.stdout
+        assert sentinel.read_text() == "keep me", result.stderr
+
+
 def main() -> int:
     sha = pinned_sha()
     test_unmanaged_current_source_is_preserved(sha)
     test_stale_sibling_source_is_preserved(sha)
     test_clean_legacy_source_is_adopted(sha)
+    test_unmanaged_helper_bundle_is_preserved(sha)
     print("PASS: cua-driver builds preserve unmanaged cache contents")
     return 0
 
