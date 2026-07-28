@@ -4915,6 +4915,25 @@ mod unix {
         }
 
         #[test]
+        fn host_tap_snapshot_headroom_does_not_expand_live_output_budget() {
+            let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
+            client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let (sender, _receiver) = sync_channel(8);
+            let tap = HostTap {
+                sender,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown: Arc::new(host_socket),
+                max_queued_bytes: MAX_HOST_CLIENT_QUEUED_BYTES,
+            };
+            let half_output_budget = 4 * 1024 * 1024;
+
+            assert!(tap.try_send(Frame::new(MessageKind::Output, vec![1; half_output_budget],)));
+            assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2; half_output_budget],)));
+            let mut byte = [0u8; 1];
+            assert_eq!(client_socket.read(&mut byte).unwrap(), 0);
+        }
+
+        #[test]
         fn host_tap_channel_overflow_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
