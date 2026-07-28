@@ -32,4 +32,11 @@ extension RemoteTmuxWindowMirror {
         guard let activePaneId else { return nil }
         return controlPane(tmuxPaneID: activePaneId)
     }
+
+    /// Resolves the active pane without formatting its control-plane title.
+    func activeControlSurfaceProjection() -> (surfaceID: UUID, paneID: UUID?, panel: TerminalPanel)? {
+        guard let activePaneId,
+              let panel = panel(forPane: activePaneId) else { return nil }
+        return (panel.id, syntheticPaneID(forPane: activePaneId)?.id, panel)
+    }
 }

@@ -34,16 +34,17 @@ extension AppDelegate {
         surfaceId: UUID?,
         panelId: UUID?
     ) -> TerminalPanel? {
-        if let panelId, let panel = workspace.panels[panelId] as? TerminalPanel {
+        if let panelId,
+           let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel {
             return panel
         }
         if let surfaceId {
-            if let panel = workspace.panels[surfaceId] as? TerminalPanel {
+            if let panel = workspace.terminalInputTarget(forPanelID: surfaceId)?.panel {
                 return panel
             }
             return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
-                .flatMap { workspace.panels[$0] as? TerminalPanel }
+                .flatMap { workspace.terminalInputTarget(forPanelID: $0)?.panel }
         }
-        return workspace.focusedPanelId.flatMap { workspace.panels[$0] as? TerminalPanel }
+        return workspace.focusedTerminalPanel
     }
 }

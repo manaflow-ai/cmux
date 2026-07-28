@@ -89,6 +89,22 @@ extension Workspace {
         )
     }
 
+    /// Resolves an active nested input surface without constructing the
+    /// title-bearing control mutation DTO used by socket operations.
+    func activeRemoteTmuxControlSurfaceProjection(
+        containerPanelID: UUID
+    ) -> ControlSurfaceProjection? {
+        if let sessionMirror = remoteTmuxSessionMirror {
+            guard let projection = sessionMirror.activeControlSurfaceProjection(
+                containerPanelID: containerPanelID
+            ) else { return nil }
+            return (projection.surfaceID, projection.paneID, projection.panel)
+        }
+        guard let mirror = remoteTmuxWindowMirrors[containerPanelID],
+              let projection = mirror.activeControlSurfaceProjection() else { return nil }
+        return (projection.surfaceID, projection.paneID, projection.panel)
+    }
+
     /// Resolves a control-plane surface identity to its tab mutation owner and
     /// exposed pane. Mirror topology remains authoritative: projected panes
     /// resolve to their window container, while an unresolved hidden container
@@ -194,6 +210,23 @@ extension Workspace {
         controlTerminalTarget(for: surfaceID)?.panel
     }
 
+    /// Resolves a user input destination from either a workspace-owned panel
+    /// or an explicit projected pane surface. Unlike stable control handles, a
+    /// workspace container intentionally follows its authoritative active pane.
+    func terminalInputTarget(
+        forPanelID panelID: UUID
+    ) -> (surfaceID: UUID, panel: TerminalPanel)? {
+        let projection: ControlSurfaceProjection?
+        if panels[panelID] != nil {
+            projection = controlSurfaceProjection(forContainerPanelID: panelID)
+        } else {
+            projection = controlSurfaceTarget(for: panelID)
+        }
+        guard let projection,
+              let panel = projection.panel as? TerminalPanel else { return nil }
+        return (projection.surfaceID, panel)
+    }
+
     /// Projects a workspace-owned panel into the identity exposed by the
     /// control plane. A mirror container resolves only when tmux has published
     /// an authoritative active pane; ordinary panels keep their Bonsplit pane.
@@ -201,10 +234,9 @@ extension Workspace {
         forContainerPanelID containerPanelID: UUID
     ) -> ControlSurfaceProjection? {
         if isRemoteTmuxControlContainer(containerPanelID) {
-            guard let active = activeRemoteTmuxControlPane(containerPanelID: containerPanelID) else {
-                return nil
-            }
-            return (active.pane.panel.id, active.pane.paneID.id, active.pane.panel)
+            return activeRemoteTmuxControlSurfaceProjection(
+                containerPanelID: containerPanelID
+            )
         }
         guard let panel = panels[containerPanelID] else { return nil }
         return (containerPanelID, paneId(forPanelId: containerPanelID)?.id, panel)
@@ -214,10 +246,8 @@ extension Workspace {
     /// Workspace selection remains the stable outer identity, while a remote
     /// tmux container projects to its authoritative active inner pane.
     func focusedTerminalInputTarget() -> (surfaceID: UUID, panel: TerminalPanel)? {
-        guard let focusedPanelId,
-              let projection = controlSurfaceProjection(forContainerPanelID: focusedPanelId),
-              let panel = projection.panel as? TerminalPanel else { return nil }
-        return (projection.surfaceID, panel)
+        guard let focusedPanelId else { return nil }
+        return terminalInputTarget(forPanelID: focusedPanelId)
     }
 
     /// Whether `surfaceID` is the workspace's canonical keyboard-input target.

@@ -266,6 +266,8 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         let containerPanel = try #require(
             harness.workspace.panels[containerPanelId] as? TerminalPanel
         )
+        #expect(containerPanel.surface.portalBindingStateLabel() == "closed")
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: containerPanelId) == nil)
         for paneId in mirror.paneIDsInOrder {
             let panePanel = try #require(mirror.panel(forPane: paneId))
             #expect(
@@ -279,6 +281,14 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         #expect(
             mirror.activePaneId == 5,
             "The newly split pane must be the active input target without a click; got \(String(describing: mirror.activePaneId))"
+        )
+        let expectedInputPanel = try #require(mirror.panel(forPane: 5))
+        #expect(harness.workspace.focusedTerminalPanel === expectedInputPanel)
+        #expect(
+            AppDelegate.resolveTerminalPanelForTextSend(
+                in: harness.workspace,
+                preferredPanelId: containerPanelId
+            ) === expectedInputPanel
         )
 
 #if DEBUG
@@ -301,7 +311,6 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             isARepeat: false,
             keyCode: 7
         ))
-        let expectedInputPanel = try #require(mirror.panel(forPane: 5))
         var didRunRepair = false
         let previousRepairObserver = appDelegate.debugFocusedTerminalKeyRepairObserverForTesting
         appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { observedWindow, event, responder in

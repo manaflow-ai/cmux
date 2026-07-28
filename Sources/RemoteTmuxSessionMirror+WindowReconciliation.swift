@@ -60,6 +60,10 @@ extension RemoteTmuxSessionMirror {
         if let panel = workspace.panels[panelId] as? TerminalPanel {
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
+            // The panel remains the stable window container, but its terminal
+            // is no longer rendered or routed once the inner mirror exists.
+            GhosttyApp.terminalSurfaceRegistry.unregister(panel.surface)
+            panel.close()
         }
     }
 }

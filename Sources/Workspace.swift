@@ -2250,13 +2250,10 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceList.orderedPanelIds
     }
 
-    /// The currently focused terminal panel (if any)
+    /// The terminal that currently owns input for the focused workspace panel.
+    /// Remote tmux containers project to their authoritative active inner pane.
     var focusedTerminalPanel: TerminalPanel? {
-        guard let panelId = focusedPanelId,
-              let panel = panels[panelId] as? TerminalPanel else {
-            return nil
-        }
-        return panel
+        focusedTerminalInputTarget()?.panel
     }
 
     /// Forwards to
@@ -11247,7 +11244,7 @@ extension Workspace: BonsplitDelegate {
            previousFocusedPanelId != panelId || focusIntentAllowsBrowserOmnibarAutofocus {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: .standard)
         }
-        if let terminalPanel = panel as? TerminalPanel {
+        if let terminalPanel = activationPanel as? TerminalPanel {
             rememberTerminalConfigInheritanceSource(terminalPanel)
         }
 
@@ -11261,7 +11258,7 @@ extension Workspace: BonsplitDelegate {
                     cmuxDebugLog(
                         "focus.split.moveFocus workspace=\(id.uuidString.prefix(5)) " +
                         "panel=\(panelId.uuidString.prefix(5)) previousExists=\(previousExists) " +
-                        "to=\(panelId.uuidString.prefix(5))"
+                        "to=\(activationPanel.id.uuidString.prefix(5))"
                     )
 #endif
                     terminalPanel.hostedView.moveFocus(
@@ -11272,11 +11269,11 @@ extension Workspace: BonsplitDelegate {
 #if DEBUG
                 cmuxDebugLog(
                     "focus.split.ensureFocus workspace=\(id.uuidString.prefix(5)) " +
-                    "panel=\(panelId.uuidString.prefix(5)) pane=\(focusedPane.id.uuidString.prefix(5)) " +
+                    "panel=\(activationPanel.id.uuidString.prefix(5)) pane=\(focusedPane.id.uuidString.prefix(5)) " +
                     "tab=\(selectedTabId.uuid.uuidString.prefix(5)) intent=\(String(describing: activationIntent))"
                 )
 #endif
-                terminalPanel.hostedView.ensureFocus(for: id, surfaceId: panelId)
+                terminalPanel.hostedView.ensureFocus(for: id, surfaceId: activationPanel.id)
             }
         }
 

@@ -1710,10 +1710,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let terminalPanel: TerminalPanel? = {
-            if let focusedPanelId = workspace.focusedPanelId,
-               let terminalPanel = workspace.terminalPanel(for: focusedPanelId) {
-                return terminalPanel
-            }
             if let focusedTerminalPanel = workspace.focusedTerminalPanel {
                 return focusedTerminalPanel
             }
@@ -9584,7 +9580,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     static func resolveTerminalPanelForTextSend(in tab: Tab, preferredPanelId: UUID? = nil) -> TerminalPanel? {
         if let preferredPanelId {
-            return tab.terminalPanel(for: preferredPanelId)
+            return tab.terminalInputTarget(forPanelID: preferredPanelId)?.panel
         }
         return tab.focusedTerminalPanel
     }
@@ -10937,7 +10933,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let focusedPanelId = workspace.focusedPanelId {
             updates["focusedPanelId"] = focusedPanelId.uuidString
-            if let terminal = workspace.terminalPanel(for: focusedPanelId) {
+            if let terminal = workspace.focusedTerminalPanel {
                 updates["focusedPanelKind"] = "terminal"
                 updates["focusedTerminalFindNeedle"] = terminal.searchState?.needle ?? ""
                 updates["focusedBrowserFindNeedle"] = ""
@@ -14309,8 +14305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetTabManager = preferredTabManager ?? tabManager
         guard let targetTabManager,
               let workspace = targetTabManager.selectedWorkspace,
-              let focusedPanelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: focusedPanelId) else {
+              let terminalPanel = workspace.focusedTerminalPanel else {
             return false
         }
 

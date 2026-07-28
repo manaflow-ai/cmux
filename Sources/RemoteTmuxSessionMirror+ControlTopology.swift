@@ -92,10 +92,53 @@ extension RemoteTmuxSessionMirror {
     }
 
     /// Resolves one window's active pane without materializing its full control
-    /// topology. Input-focus repair calls this on the keystroke path.
+    /// topology.
     func activeControlPaneLocation(
         containerPanelID: UUID
     ) -> RemoteTmuxControlPaneLocation? {
+        guard let workspace,
+              let active = activePaneProjection(containerPanelID: containerPanelID),
+              let paneID = controlPaneIdByPane[active.tmuxPaneID] else { return nil }
+
+        let title: String
+        if let windowMirror = active.windowMirror {
+            title = windowMirror.title(forPane: active.tmuxPaneID)
+        } else {
+            title = workspace.panelTitle(panelId: active.panel.id) ?? active.panel.displayTitle
+        }
+
+        return RemoteTmuxControlPaneLocation(
+            containerPanelID: containerPanelID,
+            owner: self,
+            windowMirror: active.windowMirror,
+            pane: RemoteTmuxControlPane(
+                tmuxPaneID: active.tmuxPaneID,
+                paneID: paneID,
+                panel: active.panel,
+                title: title,
+                isFocused: true
+            )
+        )
+    }
+
+    /// Resolves the active pane's input identity without allocating control
+    /// metadata such as its formatted title.
+    func activeControlSurfaceProjection(
+        containerPanelID: UUID
+    ) -> (surfaceID: UUID, paneID: UUID?, panel: TerminalPanel)? {
+        guard let active = activePaneProjection(containerPanelID: containerPanelID) else {
+            return nil
+        }
+        return (
+            active.panel.id,
+            controlPaneIdByPane[active.tmuxPaneID]?.id,
+            active.panel
+        )
+    }
+
+    private func activePaneProjection(
+        containerPanelID: UUID
+    ) -> (tmuxPaneID: Int, panel: TerminalPanel, windowMirror: RemoteTmuxWindowMirror?)? {
         guard let workspace,
               let windowID = windowIdByPanel[containerPanelID] else { return nil }
 
@@ -110,33 +153,14 @@ extension RemoteTmuxSessionMirror {
         } else {
             return nil
         }
-        guard let paneID = controlPaneIdByPane[tmuxPaneID] else { return nil }
 
-        let panel: TerminalPanel
-        let title: String
         if let windowMirror {
-            guard let mirrorPanel = windowMirror.panel(forPane: tmuxPaneID) else { return nil }
-            panel = mirrorPanel
-            title = windowMirror.title(forPane: tmuxPaneID)
-        } else {
-            guard let panelID = panelIdByPane[tmuxPaneID],
-                  let workspacePanel = workspace.panels[panelID] as? TerminalPanel else { return nil }
-            panel = workspacePanel
-            title = workspace.panelTitle(panelId: panelID) ?? workspacePanel.displayTitle
+            guard let panel = windowMirror.panel(forPane: tmuxPaneID) else { return nil }
+            return (tmuxPaneID, panel, windowMirror)
         }
-
-        return RemoteTmuxControlPaneLocation(
-            containerPanelID: containerPanelID,
-            owner: self,
-            windowMirror: windowMirror,
-            pane: RemoteTmuxControlPane(
-                tmuxPaneID: tmuxPaneID,
-                paneID: paneID,
-                panel: panel,
-                title: title,
-                isFocused: true
-            )
-        )
+        guard let panelID = panelIdByPane[tmuxPaneID],
+              let panel = workspace.panels[panelID] as? TerminalPanel else { return nil }
+        return (tmuxPaneID, panel, nil)
     }
 
     func controlPaneLocation(paneID: UUID) -> RemoteTmuxControlPaneLocation? {

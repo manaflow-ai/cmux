@@ -227,7 +227,7 @@ struct WorkspaceContentView: View {
                 // Find the focused panel in this pane and drop the files into it.
                 guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
                       let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
+                      let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel else { return false }
                 return panel.hostedView.handleDroppedURLs(urls)
             }
         }()
