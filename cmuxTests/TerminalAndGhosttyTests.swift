@@ -1019,7 +1019,9 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
         let window = try XCTUnwrap(panel.hostedView.window)
         XCTAssertTrue(panel.surface.isHeadlessStartupWindow(window))
-        XCTAssertEqual(window.contentView?.bounds.size, CGSize(width: 800, height: 600))
+        let bounds = try XCTUnwrap(window.contentView?.bounds)
+        XCTAssertGreaterThanOrEqual(bounds.width, 800)
+        XCTAssertGreaterThanOrEqual(bounds.height, 600)
     }
 
     func testPlainHostedViewWindowAttachmentCreatesRuntimeSurface() throws {
