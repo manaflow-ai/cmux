@@ -709,7 +709,13 @@ enum FileExplorerSelectionRestoration {
 /// but are not annotated @MainActor.
 final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
-    @Published var rootNodes: [FileExplorerNode] = []
+    @Published var rootNodes: [FileExplorerNode] = [] {
+        didSet {
+            rootNodesByPath = rootNodes.reduce(into: [:]) { index, node in
+                index[node.path] = node
+            }
+        }
+    }
     @Published private(set) var isRootLoading: Bool = false
     private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
@@ -753,6 +759,7 @@ final class FileExplorerStore: ObservableObject {
 
     /// Cache of path -> node for quick lookup
     private var nodesByPath: [String: FileExplorerNode] = [:]
+    private var rootNodesByPath: [String: FileExplorerNode] = [:]
 
     /// Narrow view invalidations. The store is main-thread confined, so observers
     /// are invoked synchronously and never need to rescan the full outline.
@@ -985,6 +992,10 @@ final class FileExplorerStore: ObservableObject {
 
     func isExpanded(_ node: FileExplorerNode) -> Bool {
         expandedPaths.contains(node.path)
+    }
+
+    func loadedNode(at path: String) -> FileExplorerNode? {
+        nodesByPath[path] ?? rootNodesByPath[path]
     }
 
     func select(node: FileExplorerNode?) {

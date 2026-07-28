@@ -443,7 +443,7 @@ struct FileExplorerStoreTests {
         outlineView.resetMetrics()
         newStore.expand(node: newDirectory)
         try await waitFor("replacement store outline change") {
-            outlineView.reloadItemCallCount == 1
+            outlineView.reloadRowsCallCount == 1
         }
     }
 

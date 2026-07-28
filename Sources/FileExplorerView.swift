@@ -300,6 +300,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
             let changes = pendingNodeOrder.compactMap { pendingNodeChanges[$0] }
             let shouldApplySelection = pendingSelectionChange
+                || changes.contains(where: \.reloadChildren)
             let shouldReloadOutline = pendingFullOutlineReload
             let gitStatusPaths: Set<String>?
             let hasGitStatusChange: Bool
@@ -720,22 +721,25 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let row: Int
             let isExact: Bool
         }
+
         private func selectionResolution(for path: String, in outlineView: NSOutlineView) -> SelectionResolution? {
-            var bestAncestor: (row: Int, pathLength: Int)?
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if node.path == path {
-                    return SelectionResolution(row: row, isExact: true)
-                }
-                if Self.path(node.path, isAncestorOf: path) {
-                    let length = node.path.count
-                    if bestAncestor == nil || length > bestAncestor!.pathLength {
-                        bestAncestor = (row, length)
+            var candidatePath = path
+            var isExact = true
+            while true {
+                if let node = store.loadedNode(at: candidatePath) {
+                    let row = outlineView.row(forItem: node)
+                    if row >= 0 {
+                        return SelectionResolution(row: row, isExact: isExact)
                     }
                 }
+
+                let parentPath = (candidatePath as NSString).deletingLastPathComponent
+                guard !parentPath.isEmpty, parentPath != candidatePath else {
+                    return nil
+                }
+                candidatePath = parentPath
+                isExact = false
             }
-            guard let bestAncestor else { return nil }
-            return SelectionResolution(row: bestAncestor.row, isExact: false)
         }
 
         private func selectRow(
@@ -762,14 +766,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             isUpdatingOutlineProgrammatically = true
             defer { isUpdatingOutlineProgrammatically = wasUpdating }
             body()
-        }
-
-        private static func path(_ ancestor: String, isAncestorOf descendant: String) -> Bool {
-            guard ancestor != descendant else { return false }
-            if ancestor == "/" {
-                return descendant.hasPrefix("/")
-            }
-            return descendant.hasPrefix(ancestor + "/")
         }
 
         // MARK: - Drag-to-Preview
