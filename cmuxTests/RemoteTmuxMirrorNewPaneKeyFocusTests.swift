@@ -123,21 +123,13 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         let harness = try Harness()
         defer { harness.tearDown() }
         let paneFour = try #require(harness.mirror.panel(forPane: 4))
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.close() }
-        let contentView = NSView(frame: window.contentLayoutRect)
-        window.contentView = contentView
-        paneFour.hostedView.frame = contentView.bounds
-        contentView.addSubview(paneFour.hostedView)
+        let mountedPortal = try RemoteTmuxPanePortalTestHarness()
+        defer { mountedPortal.tearDown() }
+        mountedPortal.mount(paneFour, frame: NSRect(x: 0, y: 0, width: 395, height: 500))
         paneFour.hostedView.setVisibleInUI(true)
         paneFour.hostedView.setActive(true)
-        #expect(window.makeFirstResponder(paneFour.hostedView.surfaceView))
-        #expect(window.firstResponder === paneFour.hostedView.surfaceView)
+        paneFour.hostedView.moveFocus()
+        #expect(paneFour.hostedView.isSurfaceViewFirstResponder())
 
         #expect(harness.mirror.requestSplit(
             fromPane: 4,
@@ -147,22 +139,53 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         harness.splitMakingPaneFiveActive()
 
         let paneFive = try #require(harness.mirror.panel(forPane: 5))
-        defer {
-            paneFive.hostedView.removeFromSuperview()
-            paneFour.hostedView.removeFromSuperview()
-        }
-        #expect(window.firstResponder === paneFour.hostedView.surfaceView)
+        #expect(paneFour.hostedView.isSurfaceViewFirstResponder())
         paneFour.hostedView.setActive(false)
-        paneFive.hostedView.frame = contentView.bounds
-        contentView.addSubview(paneFive.hostedView)
+        mountedPortal.mount(paneFive, frame: NSRect(x: 405, y: 0, width: 395, height: 500))
         paneFive.hostedView.setVisibleInUI(true)
         paneFive.hostedView.setActive(true)
         paneFive.surface.onRuntimeReady?()
 
         #expect(
-            window.firstResponder === paneFive.hostedView.surfaceView,
+            paneFive.hostedView.isSurfaceViewFirstResponder(),
             "The authoritative created pane must receive key input as soon as it mounts"
         )
+    }
+
+    @Test
+    func locallyRequestedFocusedSplitDoesNotOverrideLaterPaneFocus() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let paneFour = try #require(harness.mirror.panel(forPane: 4))
+        let mountedPortal = try RemoteTmuxPanePortalTestHarness()
+        defer { mountedPortal.tearDown() }
+        mountedPortal.mount(paneFour, frame: NSRect(x: 0, y: 0, width: 395, height: 500))
+        paneFour.hostedView.setVisibleInUI(true)
+        paneFour.hostedView.setActive(true)
+        paneFour.hostedView.moveFocus()
+        #expect(paneFour.hostedView.isSurfaceViewFirstResponder())
+
+        #expect(harness.mirror.requestSplit(
+            fromPane: 4,
+            vertical: false,
+            focusIntent: .focusCreatedPane
+        ))
+        harness.splitMakingPaneFiveActive()
+        let paneFive = try #require(harness.mirror.panel(forPane: 5))
+
+        harness.mirror.focus(pane: 4)
+        #expect(harness.mirror.activePaneId == 4)
+        mountedPortal.mount(paneFive, frame: NSRect(x: 405, y: 0, width: 395, height: 500))
+        paneFive.hostedView.setVisibleInUI(true)
+        paneFive.hostedView.setActive(false)
+        paneFive.surface.onRuntimeReady?()
+
+        #expect(
+            paneFour.hostedView.isSurfaceViewFirstResponder(),
+            "Mounting a stale split candidate must not override newer user focus"
+        )
+        #expect(harness.mirror.activePaneId == 4)
+        #expect(harness.workspace.focusedTerminalInputTarget()?.surfaceID == paneFour.id)
     }
 
     @Test

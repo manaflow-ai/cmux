@@ -112,7 +112,7 @@ struct RemoteTmuxNotificationLifecycleTests {
     }
 
     @Test
-    func projectedPaneNotificationStoresOpensAndUsesLiveReadiness() throws {
+    func projectedPaneNotificationStoresOpensAndPreservesRecoverableRoute() throws {
         TerminalNotificationStore.shared.clearAll()
         let harness = try Harness()
         defer { harness.tearDown() }
@@ -229,8 +229,6 @@ struct RemoteTmuxNotificationLifecycleTests {
             harness.manager.panelId(forSurfaceOrPanelId: panePanel.id, in: harness.workspace)
                 == containerPanelID
         )
-        #expect(harness.workspace.hasLoadedTerminalSurface())
-
         harness.splitMakingPaneFiveActive()
         #expect(mirror.activePaneId == 5)
 

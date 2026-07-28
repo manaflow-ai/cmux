@@ -8,6 +8,97 @@ import Testing
 @testable import cmux
 #endif
 
+@MainActor
+final class RemoteTmuxPanePortalTestHarness {
+    private final class KeyStatusTestWindow: NSWindow {
+        override var isKeyWindow: Bool { true }
+    }
+
+    let window: NSWindow
+    private let originalWindow: NSWindow?
+    private let appDelegate: AppDelegate?
+    private let contentView: NSView
+    private let portal: WindowTerminalPortal
+    private var hostedViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
+
+    init(
+        panels: [TerminalPanel] = [],
+        appDelegate: AppDelegate? = nil,
+        windowID: UUID? = nil
+    ) throws {
+        let identifier = windowID.map {
+            NSUserInterfaceItemIdentifier("cmux.main.\($0.uuidString)")
+        }
+        originalWindow = identifier.flatMap { identifier in
+            NSApp.windows.first { $0.identifier == identifier }
+        }
+        self.appDelegate = appDelegate
+
+        let window = KeyStatusTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = identifier
+        let contentView = NSView(frame: window.contentLayoutRect)
+        window.contentView = contentView
+        self.window = window
+        self.contentView = contentView
+        self.portal = WindowTerminalPortal(window: window)
+
+        window.makeKeyAndOrderFront(nil)
+        if let appDelegate {
+            _ = try #require(appDelegate.contextForMainTerminalWindow(window))
+        }
+
+        let panelWidth = contentView.bounds.width / CGFloat(max(panels.count, 1))
+        for (index, panel) in panels.enumerated() {
+            mount(
+                panel,
+                frame: NSRect(
+                    x: CGFloat(index) * panelWidth,
+                    y: 0,
+                    width: panelWidth,
+                    height: contentView.bounds.height
+                ),
+                detachFromRegisteredPortal: true
+            )
+        }
+    }
+
+    func mount(
+        _ panel: TerminalPanel,
+        frame: NSRect,
+        detachFromRegisteredPortal: Bool = false
+    ) {
+        if detachFromRegisteredPortal {
+            TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
+        }
+        let anchor = NSView(frame: frame)
+        contentView.addSubview(anchor)
+        portal.bind(hostedView: panel.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        hostedViews[ObjectIdentifier(panel.hostedView)] = panel.hostedView
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        panel.hostedView.layoutSubtreeIfNeeded()
+    }
+
+    func tearDown() {
+        _ = window.makeFirstResponder(nil)
+        for (hostedID, hostedView) in hostedViews {
+            portal.detachHostedView(withId: hostedID)
+            hostedView.setVisibleInUI(false)
+        }
+        window.identifier = nil
+        if let originalWindow, let appDelegate {
+            _ = appDelegate.contextForMainTerminalWindow(originalWindow)
+        }
+        window.orderOut(nil)
+    }
+}
+
 /// Behavior coverage for AppKit interactions with a projected tmux pane.
 @MainActor
 @Suite(.serialized)
@@ -38,11 +129,14 @@ struct RemoteTmuxProjectedFocusInteractionTests {
         defer { harness.tearDown() }
         let mirror = try splitInitiallySinglePaneWindow(in: harness)
         let activePane = try #require(mirror.panel(forPane: 5))
-        let window = try #require(
-            NSApp.windows.first {
-                $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)"
-            }
+        let appDelegate = try #require(AppDelegate.shared)
+        let mountedPortal = try RemoteTmuxPanePortalTestHarness(
+            panels: [activePane],
+            appDelegate: appDelegate,
+            windowID: harness.windowId
         )
+        defer { mountedPortal.tearDown() }
+        let window = mountedPortal.window
         let hostedView = activePane.hostedView
         let searchState = TerminalSurface.SearchState(needle: "")
         defer {
@@ -76,12 +170,15 @@ struct RemoteTmuxProjectedFocusInteractionTests {
         let stalePane = try #require(mirror.panel(forPane: 4))
         let activePane = try #require(mirror.panel(forPane: 5))
         let appDelegate = try #require(AppDelegate.shared)
-        let window = try #require(
-            NSApp.windows.first {
-                $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)"
-            }
+        let mountedPortal = try RemoteTmuxPanePortalTestHarness(
+            panels: [stalePane, activePane],
+            appDelegate: appDelegate,
+            windowID: harness.windowId
         )
-        window.makeKeyAndOrderFront(nil)
+        defer { mountedPortal.tearDown() }
+        let window = mountedPortal.window
+        stalePane.hostedView.setVisibleInUI(true)
+        stalePane.hostedView.setActive(true)
         stalePane.hostedView.moveFocus()
         #expect(stalePane.hostedView.isSurfaceViewFirstResponder())
         let staleResponder = try #require(window.firstResponder)
@@ -109,6 +206,25 @@ struct RemoteTmuxProjectedFocusInteractionTests {
             activePane.hostedView.isSurfaceViewFirstResponder(),
             "Key repair must make the tmux-active inner pane the actual AppKit responder"
         )
+    }
+
+    @Test
+    func workspaceHandoffHidesMirrorOwnedTerminalPortals() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let mirror = try splitInitiallySinglePaneWindow(in: harness)
+        let paneFour = try #require(mirror.panel(forPane: 4))
+        let paneFive = try #require(mirror.panel(forPane: 5))
+
+        paneFour.hostedView.setVisibleInUI(true)
+        paneFive.hostedView.setVisibleInUI(true)
+        #expect(paneFour.hostedView.isVisibleInUI)
+        #expect(paneFive.hostedView.isVisibleInUI)
+
+        harness.workspace.setPortalRenderingEnabled(false, reason: "workspace-handoff-test")
+
+        #expect(!paneFour.hostedView.isVisibleInUI)
+        #expect(!paneFive.hostedView.isVisibleInUI)
     }
 
     private func splitInitiallySinglePaneWindow(
