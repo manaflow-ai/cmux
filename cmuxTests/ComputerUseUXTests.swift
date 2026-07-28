@@ -811,6 +811,25 @@ struct ComputerUseUXTests {
             screenRecordingGranted: true,
             directCaptureReady: true
         ) == .complete)
+
+        #expect(ComputerUseOnboardingAllowAction.resolve(
+            permissionStep: .screenRecording,
+            statusIsKnown: true,
+            screenRecordingGranted: false,
+            directCaptureReady: false
+        ) == .openSystemSettings)
+        #expect(ComputerUseOnboardingAllowAction.resolve(
+            permissionStep: .screenRecording,
+            statusIsKnown: true,
+            screenRecordingGranted: true,
+            directCaptureReady: false
+        ) == .verifyScreenCapture)
+        #expect(ComputerUseOnboardingAllowAction.resolve(
+            permissionStep: .screenRecording,
+            statusIsKnown: true,
+            screenRecordingGranted: true,
+            directCaptureReady: true
+        ) == .none)
     }
 
     @Test func completedOnboardingRemainsVisibleBeforeAutomaticDismissal() {

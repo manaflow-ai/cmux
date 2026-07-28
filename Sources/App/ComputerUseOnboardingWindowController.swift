@@ -25,8 +25,10 @@ final class ComputerUseOnboardingPresentationState: ObservableObject {
         return true
     }
 
-    func showCompletionInPlace() {
+    func showCompletionInExpandedOnboarding() {
         onboardingComplete = true
+        permissionCompanionVisible = false
+        permissionCompanionLayoutReady = false
     }
 
     func requestExpandedPresentation(resetToOverview: Bool = true) {
@@ -61,6 +63,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
+    static let directCaptureReadyDefaultsKey = "cmux.computerUse.directCapture.ready"
     static let completionDismissDelay: Duration = .seconds(2.4)
     nonisolated static let permissionCompanionGlideDuration: TimeInterval = 0.48
     private static let expandedWindowSize = NSSize(width: 600, height: 440)
@@ -74,6 +77,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     private var window: ComputerUseOnboardingWindow?
     private let runtimeService: ComputerUseRuntimeService
+    private let userDefaults: UserDefaults
     private let permissionWindowPlacement = ComputerUseOnboardingWindowPlacement()
     private var systemSettingsActivationTask: Task<Void, Never>?
     private var systemSettingsPlacementRetryTask: Task<Void, Never>?
@@ -84,8 +88,12 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private var presentationState: ComputerUseOnboardingPresentationState?
     private var completionDismissTask: Task<Void, Never>?
 
-    init(runtimeService: ComputerUseRuntimeService) {
+    init(
+        runtimeService: ComputerUseRuntimeService,
+        userDefaults: UserDefaults = .standard
+    ) {
         self.runtimeService = runtimeService
+        self.userDefaults = userDefaults
         super.init()
     }
 
@@ -94,13 +102,16 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         featureEnabled: Bool,
         permissionStatusIsKnown: Bool,
         accessibilityGranted: Bool,
-        screenRecordingGranted: Bool
+        screenRecordingGranted: Bool,
+        directCaptureReady: Bool
     ) -> Bool {
-        !seen
-            && featureEnabled
+        featureEnabled
             && (
-                !permissionStatusIsKnown
-                    || !(accessibilityGranted && screenRecordingGranted)
+                !directCaptureReady
+                    || (!seen && (
+                        !permissionStatusIsKnown
+                            || !(accessibilityGranted && screenRecordingGranted)
+                    ))
             )
     }
 
@@ -130,13 +141,18 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             runtimeService: runtimeService,
             presentationState: presentationState,
             initialStep: startingPoint.step,
+            initialDirectCaptureReady: userDefaults.bool(
+                forKey: Self.directCaptureReadyDefaultsKey
+            ),
             onPermissionSetupStarted: { [weak self] in
                 self?.permissionSetupStarted()
             },
             onPermissionCompanionLayoutReady: { [weak self] in
                 self?.permissionCompanionLayoutReady()
             },
-            onExpandedRequested: { [weak self] in self?.showExpandedOnboarding() },
+            onExpandedRequested: { [weak self] in
+                self?.showExpandedOnboarding(resetStep: false)
+            },
             onOnboardingCompleted: { [weak self] in self?.onboardingCompleted() }
         )
         let window = ComputerUseOnboardingWindow(
@@ -496,8 +512,17 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         pendingPlacementRequestID = nil
         systemSettingsActivatedForPendingRequest = false
         pendingPermissionCompanionFrame = nil
-        presentationState?.showCompletionInPlace()
-        window?.orderFrontRegardless()
+        showExpandedOnboarding(resetStep: false) { [weak self] in
+            guard let self else { return }
+            self.userDefaults.set(true, forKey: Self.directCaptureReadyDefaultsKey)
+            self.presentationState?.showCompletionInExpandedOnboarding()
+            self.window?.orderFrontRegardless()
+            self.scheduleCompletionDismissal()
+        }
+    }
+
+    private func scheduleCompletionDismissal() {
+        completionDismissTask?.cancel()
         completionDismissTask = Task { @MainActor [weak self] in
             do {
                 try await ContinuousClock().sleep(for: Self.completionDismissDelay)

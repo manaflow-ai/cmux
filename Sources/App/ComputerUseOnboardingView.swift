@@ -13,6 +13,7 @@ struct ComputerUseOnboardingView: View {
     let runtimeService: ComputerUseRuntimeService
     @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
     let initialStep: ComputerUseOnboardingStep
+    let initialDirectCaptureReady: Bool
     let onPermissionSetupStarted: @MainActor () -> Void
     let onPermissionCompanionLayoutReady: @MainActor () -> Void
     let onExpandedRequested: @MainActor () -> Void
@@ -28,13 +29,16 @@ struct ComputerUseOnboardingView: View {
     @State private var helperIcon: NSImage?
     @State private var initialPermissionFlowStarted = false
     @State private var permissionSetupInFlight = false
-    @State private var pendingPermissionSetupStep: ComputerUseOnboardingStep?
+    @State private var directCaptureReady: Bool
+    @State private var directCaptureVerificationInFlight = false
+    @State private var directCaptureVerificationAttempted = false
     @State private var settingsOpened: Set<ComputerUseSystemPermission> = []
 
     init(
         runtimeService: ComputerUseRuntimeService,
         presentationState: ComputerUseOnboardingPresentationState,
         initialStep: ComputerUseOnboardingStep = .overview,
+        initialDirectCaptureReady: Bool = false,
         onPermissionSetupStarted: @escaping @MainActor () -> Void = {},
         onPermissionCompanionLayoutReady: @escaping @MainActor () -> Void = {},
         onExpandedRequested: @escaping @MainActor () -> Void = {},
@@ -43,11 +47,13 @@ struct ComputerUseOnboardingView: View {
         self.runtimeService = runtimeService
         self.presentationState = presentationState
         self.initialStep = initialStep
+        self.initialDirectCaptureReady = initialDirectCaptureReady
         self.onPermissionSetupStarted = onPermissionSetupStarted
         self.onPermissionCompanionLayoutReady = onPermissionCompanionLayoutReady
         self.onExpandedRequested = onExpandedRequested
         self.onOnboardingCompleted = onOnboardingCompleted
         _step = State(initialValue: initialStep)
+        _directCaptureReady = State(initialValue: initialDirectCaptureReady)
         _helperIcon = State(initialValue: runtimeService.presentationIcon)
     }
 
@@ -262,7 +268,7 @@ struct ComputerUseOnboardingView: View {
             )
             permissionCard(
                 permissionStep: .screenRecording,
-                granted: screenRecordingGranted,
+                granted: screenRecordingGranted && directCaptureReady,
                 title: String(
                     localized: "computerUse.onboarding.screenshots.short",
                     defaultValue: "Screenshots"
@@ -374,9 +380,10 @@ struct ComputerUseOnboardingView: View {
             let isButtonEnabled = ComputerUsePermissionRowAction.isButtonEnabled(
                 helperIsReady: helperAppURL != nil,
                 permissionSetupInFlight: permissionSetupInFlight
+                    || directCaptureVerificationInFlight
             )
             Button {
-                beginPermissionSetup(for: permissionStep)
+                performAllowAction(for: permissionStep)
             } label: {
                 Text(String(
                     localized: "computerUse.onboarding.allow",
@@ -396,22 +403,13 @@ struct ComputerUseOnboardingView: View {
             .buttonStyle(.plain)
             .disabled(!isButtonEnabled)
             .accessibilityHint(
-                String(
-                    localized: "computerUse.onboarding.openSystemSettings",
-                    defaultValue: "Open System Settings"
-                )
+                permissionAllowAccessibilityHint(for: permissionStep)
             )
         }
     }
 
     private var permissionCompanion: some View {
-        Group {
-            if presentationState.onboardingComplete {
-                permissionCompanionCompletion
-            } else {
-                permissionCompanionInstructions
-            }
-        }
+        permissionCompanionInstructions
         .frame(width: 472, height: 112)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
@@ -491,43 +489,6 @@ struct ComputerUseOnboardingView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-    }
-
-    private var permissionCompanionCompletion: some View {
-        HStack(spacing: 13) {
-            ZStack {
-                Circle()
-                    .fill(Color.green.gradient)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 42, height: 42)
-            .shadow(color: .black.opacity(0.16), radius: 4, y: 2)
-            .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(String(
-                    localized: "computerUse.onboarding.done.title",
-                    defaultValue: "cmux Computer Use Is Ready"
-                ))
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.primary)
-
-                Text(String(
-                    localized: "computerUse.onboarding.done.detailReady",
-                    defaultValue: "Setup is complete. You can now ask cmux to use apps on your Mac."
-                ))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-            }
-            .accessibilityElement(children: .combine)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     /// A file-URL drag source accepted by the macOS permission lists.
@@ -664,14 +625,11 @@ struct ComputerUseOnboardingView: View {
         guard !permissionStatusIsKnown || !granted else { return }
 
         step = permissionStep
-        if pendingPermissionSetupStep == permissionStep {
-            pendingPermissionSetupStep = nil
-        }
         permissionSetupInFlight = true
         permissionCheckArmed = true
         onPermissionSetupStarted()
         Task { @MainActor in
-            defer { finishPermissionSetup() }
+            defer { permissionSetupInFlight = false }
             _ = await runtimeService.ensureStandaloneHelperInstalled()
             let status = await runtimeService.refreshHelperStatus()
             guard !Task.isCancelled else { return }
@@ -706,6 +664,43 @@ struct ComputerUseOnboardingView: View {
             settingsOpened.insert(systemPermission)
             await openSystemSettings(for: permissionStep)
         }
+    }
+
+    private func performAllowAction(for permissionStep: ComputerUseOnboardingStep) {
+        switch ComputerUseOnboardingAllowAction.resolve(
+            permissionStep: permissionStep,
+            statusIsKnown: permissionStatusIsKnown,
+            screenRecordingGranted: screenRecordingGranted,
+            directCaptureReady: directCaptureReady
+        ) {
+        case .openSystemSettings:
+            beginPermissionSetup(for: permissionStep)
+        case .verifyScreenCapture:
+            beginDirectCaptureVerification()
+        case .none:
+            break
+        }
+    }
+
+    private func permissionAllowAccessibilityHint(
+        for permissionStep: ComputerUseOnboardingStep
+    ) -> String {
+        let action = ComputerUseOnboardingAllowAction.resolve(
+            permissionStep: permissionStep,
+            statusIsKnown: permissionStatusIsKnown,
+            screenRecordingGranted: screenRecordingGranted,
+            directCaptureReady: directCaptureReady
+        )
+        if action == .verifyScreenCapture {
+            return String(
+                localized: "computerUse.onboarding.finishScreenshotAccess",
+                defaultValue: "Finish screenshot access"
+            )
+        }
+        return String(
+            localized: "computerUse.onboarding.openSystemSettings",
+            defaultValue: "Open System Settings"
+        )
     }
 
     private func openSystemSettings(
@@ -749,44 +744,54 @@ struct ComputerUseOnboardingView: View {
         permissionStatusIsKnown = statusIsKnown
         accessibilityGranted = newAccessibilityGranted
         screenRecordingGranted = newScreenRecordingGranted
-
-        guard let nextStep = ComputerUseOnboardingStep.nextMissingPermission(
-            statusIsKnown: statusIsKnown,
-            accessibilityGranted: newAccessibilityGranted,
-            screenRecordingGranted: newScreenRecordingGranted
-        ) else {
-            return
+        if !newScreenRecordingGranted {
+            directCaptureReady = false
+            directCaptureVerificationAttempted = false
         }
 
-        if nextStep == .complete {
+        switch ComputerUseOnboardingAdvance.resolve(
+            activeStep: step,
+            statusIsKnown: statusIsKnown,
+            accessibilityGranted: newAccessibilityGranted,
+            screenRecordingGranted: newScreenRecordingGranted,
+            directCaptureReady: directCaptureReady
+        ) {
+        case .none:
+            break
+        case .requestSecondAllow:
+            step = .screenRecording
+            onExpandedRequested()
+        case .verifyScreenCapture:
+            if !directCaptureVerificationAttempted {
+                beginDirectCaptureVerification()
+            }
+        case .complete:
             if step != .complete {
                 step = .complete
                 onOnboardingCompleted()
             }
-            return
-        }
-
-        let activePermissionWasGranted =
-            statusIsKnown
-                && (
-                    (step == .accessibility && newAccessibilityGranted)
-                        || (step == .screenRecording && newScreenRecordingGranted)
-                )
-        if activePermissionWasGranted {
-            step = nextStep
-            if permissionSetupInFlight {
-                pendingPermissionSetupStep = nextStep
-            } else {
-                beginPermissionSetup(for: nextStep)
-            }
         }
     }
 
-    private func finishPermissionSetup() {
-        permissionSetupInFlight = false
-        guard let pendingStep = pendingPermissionSetupStep else { return }
-        pendingPermissionSetupStep = nil
-        guard step == pendingStep else { return }
-        beginPermissionSetup(for: pendingStep)
+    private func beginDirectCaptureVerification() {
+        guard !directCaptureVerificationInFlight else { return }
+        directCaptureVerificationAttempted = true
+        directCaptureVerificationInFlight = true
+        Task { @MainActor in
+            defer { directCaptureVerificationInFlight = false }
+            let ready = await runtimeService.verifyDirectScreenCapture()
+            guard !Task.isCancelled else { return }
+            directCaptureReady = ready
+            if ready {
+                applyPermissions(
+                    statusIsKnown: permissionStatusIsKnown,
+                    accessibilityGranted: accessibilityGranted,
+                    screenRecordingGranted: screenRecordingGranted
+                )
+            } else {
+                step = .screenRecording
+                onExpandedRequested()
+            }
+        }
     }
 }

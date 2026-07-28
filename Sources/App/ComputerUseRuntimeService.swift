@@ -285,6 +285,63 @@ final class ComputerUseRuntimeService {
         return .accepted
     }
 
+    /// Verifies the helper can perform direct ScreenCaptureKit capture now.
+    ///
+    /// On macOS 26 this is the prompt-capable check for the separate private
+    /// window picker bypass consent. It is called only from the Screenshots
+    /// onboarding step after the ordinary Screen Recording grant is present.
+    func verifyDirectScreenCapture() async -> Bool {
+        await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
+            guard
+                let self,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                !Task.isCancelled
+            else {
+                return false
+            }
+            await self.startIfNeededWithinLifecycle()
+            guard
+                !Task.isCancelled,
+                let expectedPeerIdentity = self.processIdentity(for: .native),
+                AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
+                    == expectedPeerIdentity
+            else {
+                return false
+            }
+            return await Self.verifyDirectScreenCapture(
+                paths: self.paths,
+                transport: self.transport,
+                expectedPeerIdentity: expectedPeerIdentity
+            )
+        }
+    }
+
+    /// Socket-level host request kept internal for peer/capability regression
+    /// coverage. A normal bearer token cannot invoke this daemon method.
+    nonisolated static func verifyDirectScreenCapture(
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport = SocketTransport(),
+        expectedPeerIdentity: AgentPIDProcessIdentity
+    ) async -> Bool {
+        guard
+            let response = await sendDaemonRequest(
+                ["method": "verify_screen_capture"],
+                paths: paths,
+                transport: transport,
+                timeout: 60,
+                expectedPeerIdentity: expectedPeerIdentity,
+                socketURL: paths.daemonSocketURL
+            ),
+            response["ok"] as? Bool == true,
+            let result = response["result"] as? [String: Any],
+            let capturable = result["capturable"] as? Bool
+        else {
+            return false
+        }
+        return capturable
+    }
+
     /// Ends one exact cmux-managed proxy generation through the authenticated
     /// helper that owns its lifecycle state.
     func endDriverSession(
