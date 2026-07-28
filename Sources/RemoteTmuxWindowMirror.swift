@@ -29,8 +29,6 @@ import Observation
 @MainActor
 @Observable
 final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
-    typealias AdoptedPane = (tmuxPaneId: Int, panel: TerminalPanel)
-
     /// tmux window id (the `@N` without the sigil).
     let windowId: Int
     /// The bonsplit tab's panel id this window renders into.
@@ -308,7 +306,6 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
         onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
         onPaneSurfaceProgress: ((Int) -> Void)? = nil,
-        adoptedPanes: [AdoptedPane] = [],
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
@@ -327,11 +324,6 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         self.bonsplitController = Self.makeController(configuration: initialConfiguration)
         configureBonsplitController()
         observeWorkspaceBonsplitConfiguration()
-        for pane in adoptedPanes where layout.paneIDsInOrder.contains(pane.tmuxPaneId) {
-            panelsByPaneId[pane.tmuxPaneId] = pane.panel
-            onControlSurfaceChanged?(pane.tmuxPaneId, pane.panel.id)
-            configurePanePanel(pane.panel, paneId: pane.tmuxPaneId, needsSeed: false)
-        }
         reconcile(layout: layout)
     }
 

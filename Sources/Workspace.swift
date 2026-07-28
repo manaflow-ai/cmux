@@ -9395,28 +9395,6 @@ final class Workspace: Identifiable, ObservableObject {
         return false
     }
 
-    func moveFocus(direction: NavigationDirection) {
-        if layoutMode == .canvas {
-            moveCanvasFocus(direction: direction)
-            return
-        }
-        let previousFocusedPanelId = focusedPanelId
-
-        // Unfocus the currently-focused panel before navigating.
-        if let prevPanelId = previousFocusedPanelId, let prev = panels[prevPanelId] {
-            prev.unfocus()
-        }
-
-        bonsplitController.navigateFocus(direction: direction)
-
-        // Always reconcile selection/focus after navigation so AppKit first-responder and
-        // bonsplit's focused pane stay aligned, even through split tree mutations.
-        if let paneId = bonsplitController.focusedPaneId,
-           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: paneId)
-        }
-
-    }
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {

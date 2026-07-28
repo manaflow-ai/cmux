@@ -314,12 +314,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                   let firstPaneId = window.paneIDsInOrder.first else { continue }
             let title = Self.tabTitle(for: window)
             let panelId: UUID
-            let displayPanelWasCreated: Bool
             if let existing = panelIdByWindow[windowId] {
                 // Existing tab — refresh its title if tmux renamed the window.
                 workspace.updateRemoteTmuxTabTitle(panelId: existing, title: title)
                 panelId = existing
-                displayPanelWasCreated = false
             } else {
                 guard let panel = workspace.addRemoteTmuxDisplayPane(
                     remotePaneId: firstPaneId,
@@ -368,7 +366,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                     connection.seedPane(paneId: firstPaneId)
                 }
                 panelId = panel.id
-                displayPanelWasCreated = true
             }
             if window.paneIDsInOrder.count == 1,
                windowMirrorByWindowId[windowId] == nil,
@@ -383,7 +380,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 windowId: windowId,
                 panelId: panelId,
                 window: window,
-                displayPanelWasCreated: displayPanelWasCreated,
                 in: workspace
             )
         }

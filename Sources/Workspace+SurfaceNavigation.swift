@@ -4,6 +4,32 @@ import Foundation
 
 /// Surface navigation and sidebar status helpers extracted from `Workspace.swift`, which sits at its file-length budget.
 extension Workspace {
+    /// Moves keyboard focus through the rendered pane hierarchy. A selected
+    /// remote-tmux window owns a nested split tree, so it gets first refusal;
+    /// an edge with no inner neighbor falls through to the workspace tree.
+    func moveFocus(direction: NavigationDirection) {
+        if layoutMode == .canvas {
+            moveCanvasFocus(direction: direction)
+            return
+        }
+        if let focusedPanelId,
+           let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId),
+           mirror.navigateFocus(direction: direction) {
+            return
+        }
+
+        let previousFocusedPanelId = focusedPanelId
+        if let previousFocusedPanelId, let previous = panels[previousFocusedPanelId] {
+            previous.unfocus()
+        }
+
+        bonsplitController.navigateFocus(direction: direction)
+        if let paneId = bonsplitController.focusedPaneId,
+           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+    }
+
     /// Moves the focused surface into another pane, optionally creating a
     /// directional split when no adjacent pane exists.
     @discardableResult
