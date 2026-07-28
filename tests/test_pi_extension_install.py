@@ -368,6 +368,72 @@ completionCount += 2;
 if (await completionHookCount() !== completionCount) throw new Error("settlement did not attempt failed notification and stop");
 await handlers.get("agent_settled")({}, notificationFailureCtx);
 if (await completionHookCount() !== completionCount) throw new Error("failed notification was retried after duplicate settlement");
+const lengthCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-length"; }
+  }
+};
+await handlers.get("session_start")({}, lengthCtx);
+await handlers.get("before_agent_start")({ prompt: "produce a long answer" }, lengthCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{
+    role: "assistant",
+    content: [{ type: "text", text: "partial answer" }],
+    stopReason: "length"
+  }]
+}, lengthCtx);
+if (await completionHookCount() !== completionCount) throw new Error("length-capped agent emitted completion before settlement");
+await handlers.get("agent_settled")({}, lengthCtx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("length-capped settlement did not emit notification and stop");
+await handlers.get("session_shutdown")({ reason: "quit" }, lengthCtx);
+if (await completionHookCount() !== completionCount) throw new Error("length-capped shutdown emitted a duplicate stop");
+const errorCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-error"; }
+  }
+};
+await handlers.get("session_start")({}, errorCtx);
+await handlers.get("before_agent_start")({ prompt: "trigger a provider error" }, errorCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{
+    role: "assistant",
+    content: [],
+    stopReason: "error",
+    errorMessage: "Provider unavailable"
+  }]
+}, errorCtx);
+if (await completionHookCount() !== completionCount) throw new Error("failed agent emitted completion before settlement");
+await handlers.get("agent_settled")({}, errorCtx);
+completionCount += 2;
+if (await completionHookCount() !== completionCount) throw new Error("failed settlement did not emit notification and stop");
+await handlers.get("session_shutdown")({ reason: "quit" }, errorCtx);
+if (await completionHookCount() !== completionCount) throw new Error("failed shutdown emitted a duplicate stop");
+const abortedCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-aborted"; }
+  }
+};
+await handlers.get("session_start")({}, abortedCtx);
+await handlers.get("before_agent_start")({ prompt: "cancel this response" }, abortedCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: [], stopReason: "aborted" }]
+}, abortedCtx);
+if (await completionHookCount() !== completionCount) throw new Error("aborted agent emitted completion before settlement");
+await handlers.get("agent_settled")({}, abortedCtx);
+completionCount += 1;
+if (await completionHookCount() !== completionCount) throw new Error("aborted settlement did not emit one stop");
+await handlers.get("session_shutdown")({ reason: "quit" }, abortedCtx);
+if (await completionHookCount() !== completionCount) throw new Error("aborted shutdown emitted a duplicate stop");
 process.argv.splice(
   0,
   process.argv.length,
@@ -482,6 +548,9 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             "set", "get", "clear",
             "set", "get", "clear",
             "set", "get",
+            "set", "get", "clear",
+            "set", "get", "clear",
+            "set", "get", "clear",
             "set", "get",
             "set", "get",
             "set", "get",
@@ -506,6 +575,16 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             ]
             if completion_events != ["Notification", "Stop"]:
                 print(f"FAIL: completion hooks were out of order for {session_id}: {completion_events!r}")
+                return 1
+        for session_id in ["pi-session-length", "pi-session-error"]:
+            failure_events = [
+                payload.get("hook_event_name")
+                for payload in payloads
+                if payload.get("session_id") == session_id
+                and payload.get("hook_event_name") in {"Notification", "Stop"}
+            ]
+            if failure_events != ["Stop", "Notification"]:
+                print(f"FAIL: unsuccessful hooks were out of order for {session_id}: {failure_events!r}")
                 return 1
         if not any(payload.get("session_id") == "pi-session-test" for payload in payloads):
             print(f"FAIL: extension did not pass session id, got {payloads!r}")
@@ -542,6 +621,104 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
                 "FAIL: failed Pi completion notification still suppressed native notification fallback, "
                 f"got {fallback_stop_payload!r}"
             )
+            return 1
+        length_notification_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-length"
+                and payload.get("hook_event_name") == "Notification"
+            ),
+            None,
+        )
+        length_notification = (
+            length_notification_payload.get("notification")
+            if isinstance(length_notification_payload, dict)
+            else None
+        )
+        if not isinstance(length_notification, dict) or length_notification.get("type") != "error":
+            print(f"FAIL: length-capped Pi response was reported as completed: {length_notification_payload!r}")
+            return 1
+        if "maximum output token limit" not in str(length_notification_payload.get("message")):
+            print(f"FAIL: length-capped Pi notification did not explain the incomplete response: {length_notification_payload!r}")
+            return 1
+        length_stop_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-length"
+                and payload.get("hook_event_name") == "Stop"
+            ),
+            None,
+        )
+        if (
+            length_stop_payload is None
+            or length_stop_payload.get("terminationReason") != "length"
+            or length_stop_payload.get("cmux_notification_routed") is not True
+        ):
+            print(f"FAIL: length-capped Pi stop did not preserve its incomplete outcome: {length_stop_payload!r}")
+            return 1
+        error_notification_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-error"
+                and payload.get("hook_event_name") == "Notification"
+            ),
+            None,
+        )
+        error_notification = (
+            error_notification_payload.get("notification")
+            if isinstance(error_notification_payload, dict)
+            else None
+        )
+        if (
+            not isinstance(error_notification, dict)
+            or error_notification.get("type") != "error"
+            or error_notification_payload.get("message") != "Provider unavailable"
+        ):
+            print(f"FAIL: failed Pi response was reported as completed: {error_notification_payload!r}")
+            return 1
+        error_stop_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-error"
+                and payload.get("hook_event_name") == "Stop"
+            ),
+            None,
+        )
+        if (
+            error_stop_payload is None
+            or error_stop_payload.get("terminationReason") != "error"
+            or error_stop_payload.get("cmux_notification_routed") is not True
+        ):
+            print(f"FAIL: failed Pi stop did not preserve its error outcome: {error_stop_payload!r}")
+            return 1
+        aborted_events = [
+            payload.get("hook_event_name")
+            for payload in payloads
+            if payload.get("session_id") == "pi-session-aborted"
+            and payload.get("hook_event_name") in {"Notification", "Stop"}
+        ]
+        if aborted_events != ["Stop"]:
+            print(f"FAIL: aborted Pi response emitted a completion notification: {aborted_events!r}")
+            return 1
+        aborted_stop_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-aborted"
+                and payload.get("hook_event_name") == "Stop"
+            ),
+            None,
+        )
+        if (
+            aborted_stop_payload is None
+            or aborted_stop_payload.get("terminationReason") != "aborted"
+            or aborted_stop_payload.get("cmux_notification_routed") is not True
+        ):
+            print(f"FAIL: aborted Pi stop did not preserve its outcome: {aborted_stop_payload!r}")
             return 1
         legacy_stop_payload = next(
             (
