@@ -124,6 +124,7 @@
 		E90140000000000000000001 /* AgentSessionRetryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90140000000000000000002 /* AgentSessionRetryCoordinator.swift */; };
 		E90140000000000000000007 /* AgentSessionRetryCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90140000000000000000008 /* AgentSessionRetryCoordinatorTests.swift */; };
 		E90140000000000000000013 /* AgentSessionRetryInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90140000000000000000014 /* AgentSessionRetryInteractionTests.swift */; };
+		E90140000000000000000017 /* AgentSessionRetryOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90140000000000000000018 /* AgentSessionRetryOrderingTests.swift */; };
 		E90140000000000000000011 /* AgentSessionRetryPanelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90140000000000000000012 /* AgentSessionRetryPanelState.swift */; };
 		A9F200000000000000000010 /* AgentSessionRunningSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000010 /* AgentSessionRunningSession.swift */; };
 		A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */; };
@@ -2589,6 +2590,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E90140000000000000000002 /* AgentSessionRetryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRetryCoordinator.swift; sourceTree = "<group>"; };
 		E90140000000000000000008 /* AgentSessionRetryCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRetryCoordinatorTests.swift; sourceTree = "<group>"; };
 		E90140000000000000000014 /* AgentSessionRetryInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRetryInteractionTests.swift; sourceTree = "<group>"; };
+		E90140000000000000000018 /* AgentSessionRetryOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRetryOrderingTests.swift; sourceTree = "<group>"; };
 		E90140000000000000000012 /* AgentSessionRetryPanelState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRetryPanelState.swift; sourceTree = "<group>"; };
 		A9F100000000000000000010 /* AgentSessionRunningSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionRunningSession.swift; sourceTree = "<group>"; };
 		A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionSocketSurfaceTests.swift; sourceTree = "<group>"; };
@@ -6736,6 +6738,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */,
 				E90140000000000000000008 /* AgentSessionRetryCoordinatorTests.swift */,
 				E90140000000000000000014 /* AgentSessionRetryInteractionTests.swift */,
+				E90140000000000000000018 /* AgentSessionRetryOrderingTests.swift */,
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
 				A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */,
 				C51A720000000000000000B2 /* SimulatorPanelIntegrationTests.swift */,
@@ -9498,6 +9501,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 				E90140000000000000000007 /* AgentSessionRetryCoordinatorTests.swift in Sources */,
 				E90140000000000000000013 /* AgentSessionRetryInteractionTests.swift in Sources */,
+				E90140000000000000000017 /* AgentSessionRetryOrderingTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,

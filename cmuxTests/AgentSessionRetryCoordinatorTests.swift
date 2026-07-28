@@ -294,7 +294,7 @@ struct AgentSessionRetryCoordinatorTests {
     }
 
     @MainActor
-    @Test("timer fire revalidates pane ownership before sending a retry")
+    @Test("timer fire invalidates replacement ownership but waits for delayed idle signals")
     func timerFireRevalidatesPaneOwnership() throws {
         let activeLifecycle = try scheduledRetry(
             suiteName: "AgentSessionRetryCoordinatorTests.timerActiveLifecycle",
@@ -311,7 +311,10 @@ struct AgentSessionRetryCoordinatorTests {
         activeLifecycle.workspace.agentSessionRetryCoordinator.retryTimerFired(
             panelId: activeLifecycle.panelId
         )
-        #expect(activeLifecycle.workspace.statusEntries[activeLifecycle.statusKey] == nil)
+        #expect(
+            activeLifecycle.workspace.statusEntries[activeLifecycle.statusKey]?.icon ==
+                "arrow.clockwise"
+        )
 
         let replacementBinding = try scheduledRetry(
             suiteName: "AgentSessionRetryCoordinatorTests.timerReplacementBinding",
@@ -342,7 +345,7 @@ struct AgentSessionRetryCoordinatorTests {
         runningShell.workspace.agentSessionRetryCoordinator.retryTimerFired(
             panelId: runningShell.panelId
         )
-        #expect(runningShell.workspace.statusEntries[runningShell.statusKey] == nil)
+        #expect(runningShell.workspace.statusEntries[runningShell.statusKey]?.icon == "arrow.clockwise")
 
         let unknownShell = try scheduledRetry(
             suiteName: "AgentSessionRetryCoordinatorTests.timerUnknownShell",
@@ -357,7 +360,12 @@ struct AgentSessionRetryCoordinatorTests {
         unknownShell.workspace.agentSessionRetryCoordinator.retryTimerFired(
             panelId: unknownShell.panelId
         )
-        #expect(unknownShell.workspace.statusEntries[unknownShell.statusKey] == nil)
+        #expect(unknownShell.workspace.statusEntries[unknownShell.statusKey]?.icon == "arrow.clockwise")
+
+        activeLifecycle.workspace.agentSessionRetryCoordinator.cancelAll()
+        replacementBinding.workspace.agentSessionRetryCoordinator.cancelAll()
+        runningShell.workspace.agentSessionRetryCoordinator.cancelAll()
+        unknownShell.workspace.agentSessionRetryCoordinator.cancelAll()
     }
 
     @MainActor
