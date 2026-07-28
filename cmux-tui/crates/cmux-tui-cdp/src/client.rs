@@ -281,10 +281,16 @@ struct FrameSession {
     main_frame_id: Option<String>,
     main_loader_id: Option<String>,
     pending_document: Option<PendingDocument>,
-    minimum_screencast_timestamp: Option<f64>,
+    screencast_barrier: Option<ScreencastBarrier>,
     pending_timestampless_capture: Option<PendingTimestamplessCapture>,
     timestampless_capture_throttle: Option<TimestamplessCaptureThrottle>,
     suppressed_timestampless_epoch: Option<u64>,
+}
+
+#[derive(Clone, Copy)]
+enum ScreencastBarrier {
+    Timestamp(f64),
+    LoaderVerifiedCapture,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -633,7 +639,7 @@ impl CdpClient {
                 main_frame_id: None,
                 main_loader_id: None,
                 pending_document: None,
-                minimum_screencast_timestamp: None,
+                screencast_barrier: None,
                 pending_timestampless_capture: None,
                 timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
@@ -825,8 +831,9 @@ impl CdpClient {
             })?;
             (frame_session.epoch.clone(), main_frame_id)
         };
-        let minimum_screencast_timestamp =
-            self.chrome_wall_time_upper_bound(session_id, &main_frame_id)?;
+        let screencast_barrier = self
+            .chrome_wall_time_upper_bound(session_id, &main_frame_id)
+            .map_or(ScreencastBarrier::LoaderVerifiedCapture, ScreencastBarrier::Timestamp);
         {
             let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
             let frame_session = frame_sessions.get_mut(session_id).ok_or_else(|| {
@@ -843,7 +850,10 @@ impl CdpClient {
             // pipeline, before asynchronous encoding. A frame captured before
             // stopScreencast may otherwise be emitted after this restart with
             // the new Chromium session id.
-            frame_session.minimum_screencast_timestamp = Some(minimum_screencast_timestamp);
+            // When JavaScript execution is unavailable, streamed timestamps
+            // have no trustworthy cutoff. Keep the stream alive and verify
+            // its pixels through the bounded loader-bracketed capture path.
+            frame_session.screencast_barrier = Some(screencast_barrier);
             frame_session.pending_timestampless_capture = None;
             frame_session.timestampless_capture_throttle = None;
             frame_session.suppressed_timestampless_epoch = None;
@@ -919,7 +929,7 @@ impl CdpClient {
             json!({
                 "frameId": frame_id,
                 "worldName": "cmux-screencast-barrier",
-                "grantUniveralAccess": false,
+                "grantUniversalAccess": false,
             }),
             Some(session_id),
         )?;
@@ -1290,7 +1300,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                 let (
                     frame_epoch,
                     navigation_epoch,
-                    minimum_screencast_timestamp,
+                    screencast_barrier,
                     suppressed_timestampless_epoch,
                 ) = inner.frame_epochs.lock().unwrap().get(target_session).map_or(
                     (0, 0, None, None),
@@ -1298,7 +1308,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                         (
                             frame_session.epoch.current(),
                             frame_session.epoch.latest_navigation(),
-                            frame_session.minimum_screencast_timestamp,
+                            frame_session.screencast_barrier,
                             frame_session.suppressed_timestampless_epoch,
                         )
                     },
@@ -1308,74 +1318,71 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     .and_then(|metadata| metadata.get("timestamp"))
                     .and_then(Value::as_f64)
                     .filter(|value| value.is_finite());
-                if let Some(minimum_timestamp) = minimum_screencast_timestamp {
-                    match capture_timestamp {
-                        Some(timestamp) if timestamp < minimum_timestamp => return,
-                        Some(_) => {}
-                        None => {
-                            if suppressed_timestampless_epoch == Some(frame_epoch) {
-                                return;
-                            }
-                            let mut frame_sessions = inner.frame_epochs.lock().unwrap();
-                            let Some(frame_session) = frame_sessions.get_mut(target_session) else {
-                                return;
-                            };
-                            let now = Instant::now();
-                            if frame_session.epoch.current() != frame_epoch
-                                || frame_session.epoch.latest_navigation() != navigation_epoch
-                                || frame_session.suppressed_timestampless_epoch == Some(frame_epoch)
-                                || frame_session.pending_timestampless_capture.is_some_and(
-                                    |pending| {
-                                        pending.frame_epoch == frame_epoch
-                                            && pending.navigation_epoch == navigation_epoch
-                                    },
-                                )
-                                || frame_session.timestampless_capture_throttle.is_some_and(
-                                    |throttle| {
-                                        throttle.frame_epoch == frame_epoch
-                                            && throttle.navigation_epoch == navigation_epoch
-                                            && now < throttle.retry_at
-                                    },
-                                )
-                            {
-                                return;
-                            }
-                            let (Some(frame_id), Some(loader_id)) = (
-                                frame_session.main_frame_id.clone(),
-                                frame_session.main_loader_id.clone(),
-                            ) else {
-                                return;
-                            };
-                            let request_id = inner
-                                .next_screencast_capture_request_id
-                                .fetch_add(1, Ordering::Relaxed);
-                            frame_session.pending_timestampless_capture =
-                                Some(PendingTimestamplessCapture {
-                                    request_id,
-                                    frame_epoch,
-                                    navigation_epoch,
-                                });
-                            frame_session.timestampless_capture_throttle =
-                                Some(TimestamplessCaptureThrottle {
-                                    frame_epoch,
-                                    navigation_epoch,
-                                    retry_at: now + TIMESTAMPLESS_CAPTURE_INTERVAL,
-                                });
-                            drop(frame_sessions);
-                            dispatch_event(
-                                inner,
-                                CdpEvent::ScreencastFrameCaptureRequested {
-                                    session_id: target_session.to_string(),
-                                    frame_id,
-                                    loader_id,
-                                    request_id,
-                                    frame_epoch,
-                                    navigation_epoch,
-                                },
-                            );
-                            return;
-                        }
+                if let Some(ScreencastBarrier::Timestamp(minimum_timestamp)) = screencast_barrier
+                    && capture_timestamp.is_some_and(|timestamp| timestamp < minimum_timestamp)
+                {
+                    return;
+                }
+                let needs_loader_verified_capture =
+                    matches!(screencast_barrier, Some(ScreencastBarrier::LoaderVerifiedCapture))
+                        || matches!(screencast_barrier, Some(ScreencastBarrier::Timestamp(_)))
+                            && capture_timestamp.is_none();
+                if needs_loader_verified_capture {
+                    if suppressed_timestampless_epoch == Some(frame_epoch) {
+                        return;
                     }
+                    let mut frame_sessions = inner.frame_epochs.lock().unwrap();
+                    let Some(frame_session) = frame_sessions.get_mut(target_session) else {
+                        return;
+                    };
+                    let now = Instant::now();
+                    if frame_session.epoch.current() != frame_epoch
+                        || frame_session.epoch.latest_navigation() != navigation_epoch
+                        || frame_session.suppressed_timestampless_epoch == Some(frame_epoch)
+                        || frame_session.pending_timestampless_capture.is_some_and(|pending| {
+                            pending.frame_epoch == frame_epoch
+                                && pending.navigation_epoch == navigation_epoch
+                        })
+                        || frame_session.timestampless_capture_throttle.is_some_and(|throttle| {
+                            throttle.frame_epoch == frame_epoch
+                                && throttle.navigation_epoch == navigation_epoch
+                                && now < throttle.retry_at
+                        })
+                    {
+                        return;
+                    }
+                    let (Some(frame_id), Some(loader_id)) =
+                        (frame_session.main_frame_id.clone(), frame_session.main_loader_id.clone())
+                    else {
+                        return;
+                    };
+                    let request_id =
+                        inner.next_screencast_capture_request_id.fetch_add(1, Ordering::Relaxed);
+                    frame_session.pending_timestampless_capture =
+                        Some(PendingTimestamplessCapture {
+                            request_id,
+                            frame_epoch,
+                            navigation_epoch,
+                        });
+                    frame_session.timestampless_capture_throttle =
+                        Some(TimestamplessCaptureThrottle {
+                            frame_epoch,
+                            navigation_epoch,
+                            retry_at: now + TIMESTAMPLESS_CAPTURE_INTERVAL,
+                        });
+                    drop(frame_sessions);
+                    dispatch_event(
+                        inner,
+                        CdpEvent::ScreencastFrameCaptureRequested {
+                            session_id: target_session.to_string(),
+                            frame_id,
+                            loader_id,
+                            request_id,
+                            frame_epoch,
+                            navigation_epoch,
+                        },
+                    );
+                    return;
                 }
                 let Some(frame) = screencast_frame(params, target_session, frame_epoch) else {
                     return;
@@ -2023,7 +2030,7 @@ mod tests {
                 main_frame_id: None,
                 main_loader_id: None,
                 pending_document: None,
-                minimum_screencast_timestamp: None,
+                screencast_barrier: None,
                 pending_timestampless_capture: None,
                 timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
@@ -2106,7 +2113,7 @@ mod tests {
                 main_frame_id: None,
                 main_loader_id: None,
                 pending_document: None,
-                minimum_screencast_timestamp: None,
+                screencast_barrier: None,
                 pending_timestampless_capture: None,
                 timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
@@ -2340,7 +2347,7 @@ mod tests {
                 main_frame_id: None,
                 main_loader_id: None,
                 pending_document: None,
-                minimum_screencast_timestamp: None,
+                screencast_barrier: None,
                 pending_timestampless_capture: None,
                 timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
@@ -2404,7 +2411,7 @@ mod tests {
                 main_frame_id: None,
                 main_loader_id: None,
                 pending_document: None,
-                minimum_screencast_timestamp: None,
+                screencast_barrier: None,
                 pending_timestampless_capture: None,
                 timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
@@ -2456,7 +2463,7 @@ mod tests {
                 main_frame_id: None,
                 main_loader_id: None,
                 pending_document: None,
-                minimum_screencast_timestamp: None,
+                screencast_barrier: None,
                 pending_timestampless_capture: None,
                 timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
@@ -2605,7 +2612,7 @@ mod tests {
                 main_frame_id: Some("main-frame".to_string()),
                 main_loader_id: Some("loader-1".to_string()),
                 pending_document: None,
-                minimum_screencast_timestamp: Some(1.0),
+                screencast_barrier: Some(ScreencastBarrier::Timestamp(1.0)),
                 pending_timestampless_capture: None,
                 timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
@@ -2656,7 +2663,7 @@ mod tests {
                 main_frame_id: Some("main-frame".to_string()),
                 main_loader_id: Some("loader-1".to_string()),
                 pending_document: None,
-                minimum_screencast_timestamp: Some(1.0),
+                screencast_barrier: Some(ScreencastBarrier::Timestamp(1.0)),
                 pending_timestampless_capture: None,
                 timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
@@ -2728,7 +2735,7 @@ mod tests {
                 main_frame_id: Some("main-frame".to_string()),
                 main_loader_id: Some("loader-1".to_string()),
                 pending_document: None,
-                minimum_screencast_timestamp: Some(1.0),
+                screencast_barrier: Some(ScreencastBarrier::Timestamp(1.0)),
                 pending_timestampless_capture: None,
                 timestampless_capture_throttle: None,
                 suppressed_timestampless_epoch: None,
@@ -2800,7 +2807,7 @@ mod tests {
                 main_frame_id: Some("main-frame".to_string()),
                 main_loader_id: Some("loader-1".to_string()),
                 pending_document: None,
-                minimum_screencast_timestamp: Some(1.0),
+                screencast_barrier: Some(ScreencastBarrier::Timestamp(1.0)),
                 pending_timestampless_capture: Some(PendingTimestamplessCapture {
                     request_id: 7,
                     frame_epoch: 0,
