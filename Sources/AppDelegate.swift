@@ -5643,14 +5643,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> (workspace: Workspace, tabManager: TabManager)? {
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId),
-           let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
+           let workspace = manager.workspacesById[preferredWorkspaceId],
            workspace.panels[panelId] != nil,
            workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, manager)
         }
 
         if let located = locateSurface(surfaceId: panelId),
-           let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+           let workspace = located.tabManager.workspacesById[located.workspaceId],
            workspace.panels[panelId] != nil,
            workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, located.tabManager)
@@ -5658,7 +5658,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId) ?? tabManager,
-           let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
+           let workspace = manager.workspacesById[preferredWorkspaceId],
            workspace.panels[panelId] != nil,
            workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, manager)
@@ -7347,7 +7347,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             title: title,
             initialBrowserURL: url,
             initialBrowserOmnibarVisible: false,
-            initialBrowserTransparentBackground: true, shouldApplyWorkspaceDirectoryCustomization: false,
+            initialBrowserTransparentBackground: true,
+            workspaceDirectoryCustomizationMode: .disabled,
             focusInitialBrowserAddressBarOnCreate: false,
             createdWorkspaceHandler: { workspace in
                 createdWorkspace = workspace
@@ -7396,7 +7397,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
+        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil
     ) -> Bool {
@@ -7438,8 +7440,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         title: title,
                         initialSurface: .browser,
                         initialBrowserURL: initialBrowserURL,
-                        initialBrowserOmnibarVisible: initialBrowserOmnibarVisible, initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                        shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
+                        initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                        initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                        workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
                     )
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
@@ -7486,8 +7489,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialSurface: initialSurface,
                 title: title,
                 initialBrowserURL: initialBrowserURL,
-                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible, initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
             ) else {
                 return false
             }
@@ -7504,8 +7508,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 title: title,
                 initialSurface: initialSurface,
                 initialBrowserURL: initialBrowserURL,
-                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible, initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
             )
             createdWorkspaceHandler?(workspace)
             if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
@@ -7519,7 +7524,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialSurface: initialSurface,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode,
             event: event,
             debugSource: debugSource
         ) {
@@ -8302,7 +8308,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
+        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -8357,7 +8364,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                select: true, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
+                select: true,
+                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
@@ -8365,10 +8373,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
                 select: true,
-                autoWelcomeIfNeeded: initialTerminalInput == nil, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
+                autoWelcomeIfNeeded: initialTerminalInput == nil,
+                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
             )
         } else if title != nil {
-            workspace = context.tabManager.addWorkspace(title: title, select: true, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization)
+            workspace = context.tabManager.addWorkspace(
+                title: title,
+                select: true,
+                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+            )
         } else {
             workspace = context.tabManager.addTab(select: true)
         }

@@ -11,6 +11,13 @@ extension AppDelegate {
         surfaceID: UUID,
         preferredTabID: UUID? = nil
     ) -> (tabID: UUID, surfaceID: UUID, tabManager: TabManager)? {
+        if let preferredTabID,
+           let manager = tabManagerFor(tabId: preferredTabID),
+           let workspace = manager.workspacesById[preferredTabID],
+           workspace.panels[surfaceID] != nil,
+           workspace.surfaceIdFromPanelId(surfaceID) != nil {
+            return (preferredTabID, surfaceID, manager)
+        }
         if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
             let manager = dock.scope == .global
                 ? tabManagerFor(windowId: dock.workspaceId)
@@ -41,7 +48,6 @@ extension AppDelegate {
         if DockSplitStore.routeAttentionFlash(
             panelID: panelID,
             reason: reason,
-            requiresSplit: requiresSplit,
             shouldFocus: shouldFocus
         ) {
             return true
