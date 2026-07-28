@@ -24,7 +24,8 @@ public struct BrowserUserAgentPolicy: Sendable {
     /// - Parameter safariVersion: A numeric dot-separated Safari version.
     public init(safariVersion: String) {
         let candidateVersion: [Int]
-        if let installedVersion = Self.versionComponents(from: safariVersion) {
+        let installedVersion = Self.versionComponents(from: safariVersion)
+        if !installedVersion.isEmpty {
             candidateVersion = installedVersion
         } else {
             let osVersion = ProcessInfo.processInfo.operatingSystemVersion
@@ -76,15 +77,15 @@ public struct BrowserUserAgentPolicy: Sendable {
     }
 
     /// Parses a numeric dot-separated browser version.
-    private static func versionComponents(from string: String) -> [Int]? {
+    private static func versionComponents(from string: String) -> [Int] {
         let substrings = string.split(separator: ".", omittingEmptySubsequences: false)
-        guard !substrings.isEmpty else { return nil }
+        guard !substrings.isEmpty else { return [] }
 
         var components: [Int] = []
         components.reserveCapacity(substrings.count)
         for substring in substrings {
             guard !substring.isEmpty, let component = Int(substring), component >= 0 else {
-                return nil
+                return []
             }
             components.append(component)
         }
