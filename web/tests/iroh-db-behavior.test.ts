@@ -1040,6 +1040,91 @@ describe("Iroh trust broker database behavior", () => {
     expect(row?.appInstanceId).toBe(newerApp);
   });
 
+  dbTest("rejects a stale challenge that completes after a newer one on a fresh slot", async () => {
+    const repo = requiredRepository();
+    const userId = "user-slot-reversed-insert";
+    const deviceId = randomUUID();
+    const endpoint = "5b".repeat(32);
+    const tag = "stable";
+
+    // Same signed fields (endpoint, platform, generation) throughout, so the
+    // second landing takes the in-place update path. Only appInstanceId differs.
+    // The difference from the heartbeat case: NO row exists yet when both
+    // challenges are minted, so the FIRST landing goes through the insert path.
+    // If the insert stamps registeredAt with its own wall-clock landing time
+    // instead of its challenge mint time, an older challenge that happens to
+    // land first sets the high-water mark above a newer outstanding challenge's
+    // mint time, and the genuinely newer registration is wrongly superseded.
+    const prepare = async (input: { appInstanceId: string; suffix: string; now: Date }) => {
+      const nonceHash = input.suffix.repeat(64);
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId: input.appInstanceId,
+        tag,
+        endpointId: endpoint,
+        identityGeneration: 1,
+        payloadSha256: `${input.suffix}${"0".repeat(63)}`,
+        nonceHash,
+        now: input.now,
+        expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
+      }));
+      return { id: challenge.id, nonceHash, appInstanceId: input.appInstanceId };
+    };
+
+    const register = (
+      prepared: { id: string; nonceHash: string; appInstanceId: string },
+      now: Date,
+    ) => repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: prepared.id,
+      nonceHash: prepared.nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId: prepared.appInstanceId,
+        tag,
+        platform: "ios",
+        endpointId: endpoint,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now,
+    });
+
+    // Two challenges for a slot that does not exist yet, minted in order:
+    // OLDER at t0+1s, NEWER at t0+2s. Both outstanding before either is consumed.
+    const olderApp = randomUUID();
+    const newerApp = randomUUID();
+    const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: new Date(NOW.getTime() + 1_000) });
+    const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: new Date(NOW.getTime() + 2_000) });
+
+    // The OLDER challenge lands first and CREATES the slot via the insert path.
+    const olderResult = await Effect.runPromise(register(older, new Date(NOW.getTime() + 2_500)));
+    expect(olderResult.created).toBe(true);
+    expect(olderResult.binding.appInstanceId).toBe(olderApp);
+
+    // The NEWER challenge, minted after the older one but before the slot
+    // existed, completes second. It is genuinely newer, so it must refresh the
+    // slot in place, not be rejected. This only holds if the insert stamped the
+    // high-water mark from the older challenge's MINT time (t0+1s), leaving the
+    // newer challenge's mint time (t0+2s) above it.
+    const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 3_000)));
+    expect(newerResult.created).toBe(false);
+    expect(newerResult.binding.appInstanceId).toBe(newerApp);
+
+    // The slot reflects the NEWER registration.
+    const [row] = await requiredSql()<Array<{ appInstanceId: string }>>`
+      select app_instance_id as "appInstanceId"
+      from iroh_endpoint_bindings
+      where user_id = ${userId} and device_uuid = ${deviceId}
+        and tag = ${tag} and revoked_at is null
+    `;
+    expect(row?.appInstanceId).toBe(newerApp);
+  });
+
   dbTest("revokes a retired incarnation's pair grants instead of reassigning them", async () => {
     const repo = requiredRepository();
     const initiatorUser = "user-rekey-grant-initiator";
