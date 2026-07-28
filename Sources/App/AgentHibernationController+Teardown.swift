@@ -87,6 +87,9 @@ extension AgentHibernationController {
                 }
             }
 
+            let scopedProcessTerminationsByPanel = await Self.scopedProcessTerminations(
+                for: requests.map { $0.record.processTerminationScope }
+            )
             let postSnapshotSequence = markPostSnapshotValidationPoint()
             let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
                 minimumStartSequence: postSnapshotSequence
@@ -94,7 +97,10 @@ extension AgentHibernationController {
 
             for request in requests {
                 let record = request.record
-                guard let snapshotOutcome = snapshotOutcomes[record.key] else { continue }
+                guard let snapshotOutcome = snapshotOutcomes[record.key],
+                      let scopedProcessTerminations = scopedProcessTerminationsByPanel[record.key] else {
+                    continue
+                }
                 let currentAgent = record.workspace.restorableAgentForHibernation(
                     panelId: record.key.panelId,
                     index: postSnapshotIndex
@@ -202,7 +208,16 @@ extension AgentHibernationController {
                     }
                     continue
                 }
-                self.terminateScopedProcessesForHibernation(record: record)
+                guard self.terminateScopedProcessesForHibernation(scopedProcessTerminations) else {
+                    if let snapshot {
+                        preserveSnapshotAfterAbortedTeardown(
+                            snapshot,
+                            record: record,
+                            restoreOwnedSnapshotPaths: &restoreOwnedSnapshotPaths
+                        )
+                    }
+                    continue
+                }
                 record.workspace.enterAgentHibernation(
                     panelId: record.key.panelId,
                     agent: record.agent,

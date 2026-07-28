@@ -194112,13 +194112,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent terminals stay live until you close them or quit cmux."
+            "value": "Scheduled hibernation is off. During critical memory pressure, cmux may still hibernate safe idle background agents."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェント端末は、閉じるか cmux を終了するまでライブのままです。"
+            "value": "通常の休止はオフです。メモリ負荷が危険な状態では、安全なアイドル中のバックグラウンドエージェントを cmux が休止する場合があります。"
           }
         }
       }

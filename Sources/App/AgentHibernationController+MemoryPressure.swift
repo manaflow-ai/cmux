@@ -19,7 +19,6 @@ extension AgentHibernationController {
         }
 
         let requestID = UUID()
-        AgentHibernationTrackingGate.setEnabled(true)
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             var awaitsTeardownCompletion = false
@@ -76,8 +75,5 @@ extension AgentHibernationController {
         guard memoryPressureEvaluation?.id == requestID else { return }
         memoryPressureEvaluation = nil
         clearMemoryPressureConfirmations()
-        AgentHibernationTrackingGate.setEnabled(
-            AgentHibernationSettings.isEnabled()
-        )
     }
 }

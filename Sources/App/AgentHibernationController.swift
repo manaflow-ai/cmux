@@ -47,6 +47,7 @@ final class AgentHibernationController {
     private init() {}
 
     func start() {
+        AgentHibernationTrackingGate.setEnabled(true)
         guard settingsObserver == nil else {
             updateTimerForCurrentSettings()
             return
@@ -78,8 +79,13 @@ final class AgentHibernationController {
 
     func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
+        let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
+        if let terminalInputAt = terminalInputByPanel[key],
+           terminalInputAt > (lifecycleChangeByPanel[key] ?? 0) {
+            return
+        }
         let recordedAt = recordedAt ?? Date()
-        let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
+        recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
         terminalInputByPanel[key] = recordedAt.timeIntervalSince1970
     }
 
@@ -125,15 +131,9 @@ final class AgentHibernationController {
 
     private func updateTimerForCurrentSettings() {
         let enabled = AgentHibernationSettings.isEnabled()
-        AgentHibernationTrackingGate.setEnabled(
-            enabled || memoryPressureEvaluation != nil
-        )
         guard enabled else {
             timer?.cancel()
             timer = nil
-            if memoryPressureEvaluation == nil {
-                clearTrackingState()
-            }
             return
         }
         guard timer == nil else { return }
