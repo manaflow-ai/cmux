@@ -468,6 +468,72 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func newWorkspaceDoesNotCloneRenamedSiblingIdentity() throws {
+        let directory = "/tmp/identity-clone-project"
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let manager = TabManager(
+            initialWorkingDirectory: directory,
+            autoWelcomeIfNeeded: false,
+            workspaceDirectoryCustomizationStore: fixture.store
+        )
+        let renamed = try #require(manager.selectedWorkspace)
+        #expect(manager.setCustomTitle(tabId: renamed.id, title: "Renamed Task"))
+        manager.setTabColor(tabId: renamed.id, color: "#AABBCC")
+
+        // Cmd+T-style creation: the working directory is inherited from the
+        // selected workspace, not requested by the user.
+        let inherited = manager.addWorkspace(select: false)
+        #expect(inherited.customTitle == nil)
+        #expect(inherited.customColor == nil)
+
+        // Same directory requested explicitly (CLI --cwd, open-in-workspace).
+        let explicit = manager.addWorkspace(
+            workingDirectory: directory,
+            inheritWorkingDirectory: false,
+            select: false
+        )
+        #expect(explicit.customTitle == nil)
+        #expect(explicit.customColor == nil)
+    }
+
+    @Test
+    func sessionRestoreKeepsDistinctIdentitiesForSameDirectoryWorkspaces() throws {
+        let directory = "/tmp/identity-restore-project"
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let manager = TabManager(
+            initialWorkingDirectory: directory,
+            autoWelcomeIfNeeded: false,
+            workspaceDirectoryCustomizationStore: fixture.store
+        )
+        let first = try #require(manager.selectedWorkspace)
+        #expect(manager.setCustomTitle(tabId: first.id, title: "Task One"))
+        manager.setTabColor(tabId: first.id, color: "#111111")
+        let second = manager.addWorkspace(
+            workingDirectory: directory,
+            inheritWorkingDirectory: false,
+            select: false
+        )
+        #expect(manager.setCustomTitle(tabId: second.id, title: "Task Two"))
+        manager.setTabColor(tabId: second.id, color: "#222222")
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceDirectoryCustomizationStore: fixture.store
+        )
+        restoredManager.restoreSessionSnapshot(snapshot)
+
+        let restoredTitles = restoredManager.tabs.map(\.customTitle)
+        #expect(restoredTitles.contains("Task One"))
+        #expect(restoredTitles.contains("Task Two"))
+        let restoredColors = restoredManager.tabs.map(\.customColor)
+        #expect(restoredColors.contains("#111111"))
+        #expect(restoredColors.contains("#222222"))
+    }
+
+    @Test
     func reopenWorkspaceShortcutIsCustomizableAndMappedToThePaletteCommand() throws {
         let expected = AppStoredShortcut(
             key: "t",
