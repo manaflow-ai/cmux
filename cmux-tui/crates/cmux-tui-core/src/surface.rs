@@ -1739,6 +1739,7 @@ impl Surface {
         }
         let _ = terminal_id;
         let reaper = reserve_local_child_reaper().context("reserve bounded PTY session cleanup")?;
+        let process_creation = cmux_tui_process::ProcessCreationGuard::acquire();
         let pty = native_pty_system().openpty(PtySize {
             rows: opts.rows,
             cols: opts.cols,
@@ -1765,10 +1766,8 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
-        let child = {
-            let _process_creation = cmux_tui_process::ProcessCreationGuard::acquire();
-            pty.slave.spawn_command(cmd)?
-        };
+        let child = pty.slave.spawn_command(cmd)?;
+        drop(process_creation);
         let pid = child.process_id();
         drop(pty.slave);
         let killer = child.clone_killer();

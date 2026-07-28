@@ -2,7 +2,8 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
     Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel, sync_channel,
 };
@@ -21,6 +22,9 @@ pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
 const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
 const CDP_RESOLVER_QUEUE_CAPACITY: usize = 64;
 const CDP_RESOLVER_WORKERS: usize = 4;
+const CDP_RESOLVER_CHILD_CAPACITY: usize = CDP_RESOLVER_QUEUE_CAPACITY + CDP_RESOLVER_WORKERS;
+const CDP_RESOLVER_POLL_INTERVAL: Duration = Duration::from_millis(5);
+const CDP_RESOLVER_OUTPUT_LIMIT: u64 = 64 * 1024;
 const CDP_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 /// Maximum estimated retained bytes in each bounded CDP event queue.
 ///
@@ -36,15 +40,13 @@ static NEXT_RESOLVE_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
 static NEXT_RESOLVER_INIT_DELAY_MS: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
-type TestHostResolver = Arc<dyn Fn(&str, u16) -> std::io::Result<Vec<SocketAddr>> + Send + Sync>;
-#[cfg(test)]
-static TEST_HOST_RESOLVER: Mutex<Option<TestHostResolver>> = Mutex::new(None);
-#[cfg(test)]
-type TestHostResolverCommand = Arc<dyn Fn(&str, u16) -> std::process::Command + Send + Sync>;
+type TestHostResolverCommand = Arc<dyn Fn(&str, u16) -> Command + Send + Sync>;
 #[cfg(test)]
 static TEST_HOST_RESOLVER_COMMAND: Mutex<Option<TestHostResolverCommand>> = Mutex::new(None);
 
 static CDP_RESOLVER: std::sync::OnceLock<Mutex<Option<Arc<CdpResolver>>>> =
+    std::sync::OnceLock::new();
+static CDP_RESOLVER_CHILD_REAPER: std::sync::OnceLock<Mutex<Option<ResolverChildReaper>>> =
     std::sync::OnceLock::new();
 
 struct CdpResolver {
@@ -65,6 +67,28 @@ struct ResolveRequest {
     response: SyncSender<std::io::Result<Vec<SocketAddr>>>,
     #[cfg(test)]
     delay: Duration,
+}
+
+struct ResolverChildReaper {
+    sender: Sender<ResolverChildReapRequest>,
+    active: Arc<AtomicUsize>,
+    _worker: std::thread::JoinHandle<()>,
+}
+
+struct ResolverChildReaperLease {
+    sender: Sender<ResolverChildReapRequest>,
+    active: Arc<AtomicUsize>,
+}
+
+impl Drop for ResolverChildReaperLease {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+struct ResolverChildReapRequest {
+    child: Child,
+    _lease: ResolverChildReaperLease,
 }
 
 impl CdpResolver {
@@ -130,6 +154,7 @@ impl CdpResolver {
 }
 
 fn spawn_host_resolver_workers() -> std::io::Result<SyncSender<ResolveRequest>> {
+    resolver_child_reaper()?;
     let (sender, receiver) = sync_channel(CDP_RESOLVER_QUEUE_CAPACITY);
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..CDP_RESOLVER_WORKERS {
@@ -160,20 +185,170 @@ fn host_resolver_worker(receiver: Arc<Mutex<Receiver<ResolveRequest>>>) {
                 "CDP address resolution deadline expired",
             ))
         } else {
-            resolve_host_addresses(&request.host, request.port)
+            resolve_host_addresses_until(&request.host, request.port, request.deadline)
         };
         let _ = request.response.send(result);
     }
 }
 
-fn resolve_host_addresses(host: &str, port: u16) -> std::io::Result<Vec<SocketAddr>> {
+fn resolve_host_addresses_until(
+    host: &str,
+    port: u16,
+    deadline: Instant,
+) -> std::io::Result<Vec<SocketAddr>> {
     #[cfg(test)]
-    let test_resolver = TEST_HOST_RESOLVER.lock().unwrap().clone();
-    #[cfg(test)]
-    if let Some(resolver) = test_resolver {
-        return resolver(host, port);
+    {
+        let test_command = TEST_HOST_RESOLVER_COMMAND.lock().unwrap().clone();
+        if test_command.is_none() {
+            return (host, port).to_socket_addrs().map(Iterator::collect);
+        }
     }
-    (host, port).to_socket_addrs().map(Iterator::collect)
+
+    let reaper = reserve_resolver_child_reaper()?;
+    let mut command = host_resolver_command(host, port)?;
+    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut child = cmux_tui_process::spawn(&mut command)?;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                drop(reaper);
+                if !status.success() {
+                    return Err(std::io::Error::other(format!(
+                        "host resolver helper exited with {status}"
+                    )));
+                }
+                let stdout = child.stdout.take().ok_or_else(|| {
+                    std::io::Error::other("host resolver helper stdout was unavailable")
+                })?;
+                let mut output = Vec::new();
+                stdout.take(CDP_RESOLVER_OUTPUT_LIMIT + 1).read_to_end(&mut output)?;
+                if output.len() as u64 > CDP_RESOLVER_OUTPUT_LIMIT {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "host resolver helper output exceeded its limit",
+                    ));
+                }
+                let addresses = String::from_utf8_lossy(&output)
+                    .lines()
+                    .filter_map(|line| line.parse::<SocketAddr>().ok())
+                    .filter(|address| address.port() == port)
+                    .collect::<Vec<_>>();
+                if addresses.is_empty() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "host resolver helper returned no addresses",
+                    ));
+                }
+                return Ok(addresses);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                handoff_resolver_child(child, reaper);
+                return Err(error);
+            }
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            handoff_resolver_child(child, reaper);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "CDP address resolution deadline expired",
+            ));
+        };
+        std::thread::sleep(remaining.min(CDP_RESOLVER_POLL_INTERVAL));
+    }
+}
+
+fn host_resolver_command(host: &str, port: u16) -> std::io::Result<Command> {
+    #[cfg(test)]
+    if let Some(command) = TEST_HOST_RESOLVER_COMMAND.lock().unwrap().clone() {
+        return Ok(command(host, port));
+    }
+    let mut command = Command::new(std::env::current_exe()?);
+    command.args(["__resolve-host", host, &port.to_string()]);
+    Ok(command)
+}
+
+fn resolver_child_reaper() -> std::io::Result<()> {
+    let mut slot = CDP_RESOLVER_CHILD_REAPER.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    if slot.is_none() {
+        let (sender, receiver) = channel();
+        let active = Arc::new(AtomicUsize::new(0));
+        let worker = std::thread::Builder::new()
+            .name("cmux-tui-cdp-resolver-reaper".into())
+            .spawn(move || run_resolver_child_reaper(receiver))?;
+        *slot = Some(ResolverChildReaper { sender, active, _worker: worker });
+    }
+    Ok(())
+}
+
+fn reserve_resolver_child_reaper() -> std::io::Result<ResolverChildReaperLease> {
+    resolver_child_reaper()?;
+    let slot = CDP_RESOLVER_CHILD_REAPER.get().unwrap().lock().unwrap();
+    let reaper = slot.as_ref().expect("resolver child reaper initialized");
+    reaper
+        .active
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            (active < CDP_RESOLVER_CHILD_CAPACITY).then_some(active + 1)
+        })
+        .map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "host resolver child capacity exhausted",
+            )
+        })?;
+    Ok(ResolverChildReaperLease { sender: reaper.sender.clone(), active: reaper.active.clone() })
+}
+
+fn handoff_resolver_child(mut child: Child, lease: ResolverChildReaperLease) {
+    let _ = child.kill();
+    let sender = lease.sender.clone();
+    let request = ResolverChildReapRequest { child, _lease: lease };
+    if let Err(error) = sender.send(request) {
+        let mut request = error.0;
+        let _ = request.child.kill();
+        let _ = request.child.wait();
+    }
+}
+
+fn run_resolver_child_reaper(receiver: Receiver<ResolverChildReapRequest>) {
+    let mut pending = Vec::new();
+    loop {
+        match receiver.recv_timeout(CDP_RESOLVER_POLL_INTERVAL) {
+            Ok(request) => pending.push(request),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) if pending.is_empty() => return,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+        }
+        while let Ok(request) = receiver.try_recv() {
+            pending.push(request);
+        }
+        pending.retain_mut(|request| {
+            let _ = request.child.kill();
+            !matches!(request.child.try_wait(), Ok(Some(_)))
+        });
+    }
+}
+
+#[doc(hidden)]
+pub fn run_host_resolver_helper(args: &[String]) -> anyhow::Result<()> {
+    let [host, port] = args else {
+        anyhow::bail!("host resolver helper requires a host and port");
+    };
+    let port = port.parse::<u16>()?;
+    let addresses = (host.as_str(), port).to_socket_addrs()?.take(257).collect::<Vec<_>>();
+    if addresses.is_empty() {
+        anyhow::bail!("host resolver returned no addresses");
+    }
+    if addresses.len() > 256 {
+        anyhow::bail!("host resolver returned too many addresses");
+    }
+    let stdout = std::io::stdout();
+    let mut output = std::io::BufWriter::new(stdout.lock());
+    for address in addresses {
+        writeln!(output, "{address}")?;
+    }
+    output.flush()?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1445,8 +1620,8 @@ mod tests {
             .expect("initialize test resolver");
     }
 
-    fn resolver_fixture_command(host: &str, port: u16) -> std::process::Command {
-        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    fn resolver_fixture_command(host: &str, port: u16) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .args([
                 "--exact",
@@ -1804,12 +1979,6 @@ mod tests {
     fn local_network_endpoint_uses_the_host_resolver() {
         let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
         let called = Arc::new(AtomicBool::new(false));
-        let called_from_resolver = called.clone();
-        *TEST_HOST_RESOLVER.lock().unwrap() = Some(Arc::new(move |host, port| {
-            called_from_resolver.store(true, Ordering::Release);
-            assert_eq!(host, "cmux-host-resolver.invalid");
-            Ok(vec![SocketAddr::from(([127, 0, 0, 1], port))])
-        }));
         let called_from_command = called.clone();
         *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = Some(Arc::new(move |host, port| {
             called_from_command.store(true, Ordering::Release);
@@ -1822,7 +1991,6 @@ mod tests {
             9222,
             Instant::now() + Duration::from_secs(2),
         );
-        *TEST_HOST_RESOLVER.lock().unwrap() = None;
         *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = None;
 
         assert_eq!(result.unwrap(), SocketAddr::from(([127, 0, 0, 1], 9222)));
@@ -1833,17 +2001,6 @@ mod tests {
     fn timed_out_host_lookups_do_not_strand_resolver_capacity() {
         let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
         warm_resolver();
-        let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let release = Arc::new(AtomicBool::new(false));
-        let resolver_started = started.clone();
-        let resolver_release = release.clone();
-        *TEST_HOST_RESOLVER.lock().unwrap() = Some(Arc::new(move |_host, port| {
-            resolver_started.fetch_add(1, Ordering::AcqRel);
-            while !resolver_release.load(Ordering::Acquire) {
-                thread::sleep(Duration::from_millis(5));
-            }
-            Ok(vec![SocketAddr::from(([127, 0, 0, 1], port))])
-        }));
         *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = Some(Arc::new(resolver_fixture_command));
 
         let callers_ready = Arc::new(Barrier::new(CDP_RESOLVER_WORKERS + 1));
@@ -1863,7 +2020,6 @@ mod tests {
         for caller in callers {
             assert!(caller.join().unwrap().is_err());
         }
-        let blocked_workers = started.load(Ordering::Acquire);
 
         let next = resolve_socket_addr_until(
             "cmux-success.invalid",
@@ -1871,15 +2027,9 @@ mod tests {
             Instant::now() + Duration::from_secs(1),
         );
 
-        *TEST_HOST_RESOLVER.lock().unwrap() = None;
         *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = None;
-        release.store(true, Ordering::Release);
         thread::sleep(Duration::from_millis(100));
 
-        assert!(
-            blocked_workers == 0 || blocked_workers == CDP_RESOLVER_WORKERS,
-            "resolver saturation setup reached only {blocked_workers} workers"
-        );
         assert_eq!(next.unwrap(), SocketAddr::from(([127, 0, 0, 1], 9333)));
     }
 

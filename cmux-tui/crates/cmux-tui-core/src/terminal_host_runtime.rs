@@ -3227,6 +3227,7 @@ mod unix {
     ) -> anyhow::Result<Arc<HostShared>> {
         let reaper = crate::process_session::reserve_child_reaper()
             .context("reserve bounded PTY session cleanup")?;
+        let process_creation = cmux_tui_process::ProcessCreationGuard::acquire();
         let pty = native_pty_system().openpty(PtySize {
             rows: launch.rows,
             cols: launch.cols,
@@ -3242,10 +3243,8 @@ mod unix {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
-        let mut child = {
-            let _process_creation = cmux_tui_process::ProcessCreationGuard::acquire();
-            pty.slave.spawn_command(command)?
-        };
+        let mut child = pty.slave.spawn_command(command)?;
+        drop(process_creation);
         let pid = child.process_id();
         let Some(session) = pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
             let _ = child.kill();

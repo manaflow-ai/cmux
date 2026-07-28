@@ -684,6 +684,14 @@ fn main() {
         }
         return;
     }
+    if raw_args.first().map(String::as_str) == Some("__resolve-host") {
+        discard_provider_secret_environment();
+        if let Err(error) = cmux_tui_cdp::run_host_resolver_helper(&raw_args[1..]) {
+            eprintln!("cmux-tui host resolver: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__legacy-stop-helper") {
         discard_provider_secret_environment();
