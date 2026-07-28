@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import Testing
 
 #if canImport(cmux_DEV)
