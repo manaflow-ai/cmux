@@ -319,6 +319,58 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func freshWorkspaceCreationDoesNotAdoptStickyDirectoryIdentityFromInheritedCwd() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-sticky-cmdn-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let directory = directoryURL.path
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
+        let manager = TabManager(
+            initialWorkingDirectory: directory,
+            autoWelcomeIfNeeded: false,
+            workspaceDirectoryCustomizationStore: store
+        )
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+
+        #expect(manager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "MY WORKSPACE"
+        ))
+        manager.applyWorkspaceColor(
+            "#AABBCC",
+            toWorkspaceIds: [sourceWorkspace.id]
+        )
+        #expect(
+            store.customization(for: directory) ==
+                WorkspaceDirectoryCustomization(
+                    customTitle: "MY WORKSPACE",
+                    customColor: "#AABBCC"
+                )
+        )
+
+        let generated = manager.addWorkspace(select: false)
+        #expect(generated.title == "Terminal 2")
+        #expect(generated.currentDirectory == directory)
+        #expect(generated.customTitle == nil)
+        #expect(generated.customColor == nil)
+
+        let explicitlyNamed = manager.addWorkspace(
+            title: "Explicit Fresh",
+            workingDirectory: directory,
+            inheritWorkingDirectory: false,
+            select: false
+        )
+        #expect(explicitlyNamed.customTitle == "Explicit Fresh")
+        #expect(explicitlyNamed.customColor == nil)
+    }
+
+    @Test
     func createRenameAndColorChangesShareOneStickyDirectoryRecord() throws {
         let directory = "/tmp/sticky-project"
         let fixture = try makeCustomizationStore()
