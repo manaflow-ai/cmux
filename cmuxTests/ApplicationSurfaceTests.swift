@@ -80,7 +80,7 @@ struct ApplicationSurfaceTests {
         ))
     }
 
-    @Test func captureLivenessDistinguishesFirstFrameAndStreamStalls() {
+    @Test func captureLivenessAllowsStaticContentAfterFirstFrame() {
         var state = ApplicationCaptureLivenessState(startedAt: 10)
 
         #expect(state.failure(
@@ -96,15 +96,10 @@ struct ApplicationSurfaceTests {
 
         state.recordFrame(at: 20)
         #expect(state.failure(
-            at: 24.9,
+            at: 120,
             firstFrameTimeout: 8,
             frameStallTimeout: 5
         ) == nil)
-        #expect(state.failure(
-            at: 25,
-            firstFrameTimeout: 8,
-            frameStallTimeout: 5
-        ) == .frameStalled)
     }
 
     @Test func letterboxMarginsDoNotMapToNativeWindowEdges() {
