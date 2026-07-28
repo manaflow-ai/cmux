@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
@@ -894,6 +894,7 @@ pub struct RemoteSession {
     subscription_recovery: Mutex<SubscriptionRecoveryState>,
     subscribers: MuxEventBroadcaster,
     primed_subscription: Mutex<Option<MuxEventReceiver>>,
+    frame_dump_dir: Option<PathBuf>,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
     surface_overflow_reconnect_required: AtomicBool,
@@ -1126,6 +1127,7 @@ impl RemoteSession {
             subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
             primed_subscription: Mutex::new(None),
+            frame_dump_dir: std::env::var_os("CMUX_MUX_DEBUG_MIRROR_DUMP").map(PathBuf::from),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             surface_overflow_reconnect_required: AtomicBool::new(false),
@@ -1319,7 +1321,7 @@ impl RemoteSession {
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(
                     id,
-                    format!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
+                    format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     if !surface.apply_stream_resize_with_colors(
@@ -1370,7 +1372,7 @@ impl RemoteSession {
                     return;
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
-                self.log_frame(id, format!("output bytes={}", bytes.len()));
+                self.log_frame(id, format_args!("output bytes={}", bytes.len()));
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     let mut term = surface.term.lock().unwrap();
                     term.vt_write(&bytes);
@@ -1395,7 +1397,7 @@ impl RemoteSession {
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(
                     id,
-                    format!(
+                    format_args!(
                         "resized cols={cols} rows={rows} bytes={}",
                         replay.as_ref().map(|bytes| bytes.len()).unwrap_or(0)
                     ),
@@ -1700,11 +1702,11 @@ impl RemoteSession {
         )
     }
 
-    fn log_frame(&self, surface: SurfaceId, line: String) {
-        if std::env::var_os("CMUX_MUX_DEBUG_MIRROR_DUMP").is_none() {
+    fn log_frame(&self, surface: SurfaceId, line: std::fmt::Arguments<'_>) {
+        if self.frame_dump_dir.is_none() {
             return;
         }
-        self.frame_logs.lock().unwrap().entry(surface).or_default().push(line);
+        self.frame_logs.lock().unwrap().entry(surface).or_default().push(line.to_string());
     }
 
     pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
@@ -2229,15 +2231,15 @@ fn local_hostname() -> Option<String> {
 
 impl Drop for RemoteSession {
     fn drop(&mut self) {
-        let Ok(dir) = std::env::var("CMUX_MUX_DEBUG_MIRROR_DUMP") else {
+        let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
         };
-        let _ = fs::create_dir_all(&dir);
+        let _ = fs::create_dir_all(dir);
         let logs = self.frame_logs.lock().unwrap();
         for surface in self.surfaces.lock().unwrap().values() {
-            let path = Path::new(&dir).join(format!("mirror-{}.txt", surface.id));
+            let path = dir.join(format!("mirror-{}.txt", surface.id));
             let _ = fs::write(path, dump_mirror(surface));
-            let frames = Path::new(&dir).join(format!("frames-{}.log", surface.id));
+            let frames = dir.join(format!("frames-{}.log", surface.id));
             let text = logs.get(&surface.id).map(|lines| lines.join("\n")).unwrap_or_default();
             let _ = fs::write(frames, format!("{text}\n"));
         }
@@ -2453,6 +2455,7 @@ fn test_session_with_writer(
         subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
         subscribers: MuxEventBroadcaster::default(),
         primed_subscription: Mutex::new(None),
+        frame_dump_dir: None,
         frame_logs: Mutex::new(HashMap::new()),
         surface_overflow_recovery: Mutex::new(HashMap::new()),
         surface_overflow_reconnect_required: AtomicBool::new(false),
@@ -2597,6 +2600,26 @@ mod tests {
     #[test]
     fn protocol_10_identity_is_accepted() {
         validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    }
+
+    #[test]
+    fn disabled_frame_logging_does_not_format_hot_path_messages() {
+        struct FormattingProbe(Arc<AtomicBool>);
+
+        impl std::fmt::Display for FormattingProbe {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.store(true, Ordering::Relaxed);
+                formatter.write_str("formatted")
+            }
+        }
+
+        let formatted = Arc::new(AtomicBool::new(false));
+        let session = super::test_session_with_provider_context(None, HashSet::new());
+
+        session.log_frame(7, format_args!("{}", FormattingProbe(formatted.clone())));
+
+        assert!(!formatted.load(Ordering::Relaxed));
+        assert!(session.frame_logs.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -2974,6 +2997,7 @@ mod tests {
             subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
             primed_subscription: Mutex::new(None),
+            frame_dump_dir: None,
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             surface_overflow_reconnect_required: AtomicBool::new(false),

@@ -995,16 +995,18 @@ async fn read_mux_uploads<R>(
 where
     R: AsyncRead + Unpin,
 {
-    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::io::BufReader;
 
     let mut reader = BufReader::new(local_reader);
     let mut line = Vec::new();
     let mut message = 1_u64;
     loop {
-        line.clear();
-        let size = reader.read_until(b'\n', &mut line).await?;
+        let size = crate::mux_codec::read_bounded_line(&mut reader, &mut line).await?;
         if size == 0 {
             return Ok(());
+        }
+        if line.len() > crate::mux_codec::MAX_LINE_BYTES {
+            return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
         }
         let Some(lane) = tracker.classify_server_line(&line) else {
             continue;

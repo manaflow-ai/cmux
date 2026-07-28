@@ -11,7 +11,6 @@ use tokio::sync::{Semaphore, oneshot};
 use crate::service::{ServiceError, ServiceMultiplexer, ServiceStream};
 use crate::services::ServicesError;
 
-const MAX_MUX_LINE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_MAX_FORWARD_CONNECTIONS: usize = 128;
 
 pub struct LocalPortForward {
@@ -307,7 +306,7 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncWriteExt, BufReader};
     let upload = {
         let remote = remote.clone();
         async move {
@@ -315,13 +314,12 @@ where
             let mut line = Vec::new();
             let mut message = 1_u64;
             loop {
-                line.clear();
-                let size = reader.read_until(b'\n', &mut line).await?;
+                let size = crate::mux_codec::read_bounded_line(&mut reader, &mut line).await?;
                 if size == 0 {
                     remote.close().await?;
                     break;
                 }
-                if line.len() > MAX_MUX_LINE_BYTES {
+                if line.len() > crate::mux_codec::MAX_LINE_BYTES {
                     return Err(BridgeError::MuxLineTooLarge(line.len()));
                 }
                 if mux_input_v1 && let Some(input) = crate::mux_input::encode_local_line(&line)? {

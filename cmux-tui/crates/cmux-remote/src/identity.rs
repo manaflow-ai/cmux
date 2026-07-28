@@ -800,60 +800,94 @@ impl AuthDatabase {
         }
     }
 
-    pub async fn approve(&self, invitation_id: &str) -> Result<DeviceRecord, IdentityError> {
+    /// Keep the approval transaction alive if its admin caller disconnects.
+    /// The transaction retains the authentication-state lock until its snapshot
+    /// is durable, so no authorization reader can observe the staged device.
+    pub async fn approve(
+        self: &Arc<Self>,
+        invitation_id: &str,
+    ) -> Result<DeviceRecord, IdentityError> {
+        let database = Arc::clone(self);
+        let invitation_id = invitation_id.to_owned();
+        tokio::spawn(async move { database.approve_durably(&invitation_id).await })
+            .await
+            .unwrap_or_else(|error| {
+                Err(IdentityError::Persistence(format!(
+                    "identity approval task failed to join: {error}"
+                )))
+            })
+    }
+
+    async fn approve_durably(&self, invitation_id: &str) -> Result<DeviceRecord, IdentityError> {
         let now = unix_time()?;
-        let (record, decision, persistence, generation) = {
-            let mut state = self.state.lock().await;
-            let pending = state
-                .pending
-                .remove(invitation_id)
-                .ok_or_else(|| IdentityError::UnknownPending(invitation_id.into()))?;
-            let invitation = state
-                .invitations
-                .get_mut(invitation_id)
-                .ok_or_else(|| IdentityError::InvitationExpired(invitation_id.into()))?;
-            if invitation.expires_at_unix <= now {
-                return Err(IdentityError::InvitationExpired(invitation_id.into()));
+        let mut state = self.state.lock().await;
+        let pending = state
+            .pending
+            .remove(invitation_id)
+            .ok_or_else(|| IdentityError::UnknownPending(invitation_id.into()))?;
+        let invitation = state
+            .invitations
+            .get_mut(invitation_id)
+            .ok_or_else(|| IdentityError::InvitationExpired(invitation_id.into()))?;
+        if invitation.expires_at_unix <= now {
+            return Err(IdentityError::InvitationExpired(invitation_id.into()));
+        }
+        let fingerprint = public_key_fingerprint(&pending.device_public_key);
+        let previous_claim = invitation.claimed_by.replace(fingerprint.clone());
+        let previous_expiration = invitation.expires_at_unix;
+        invitation.expires_at_unix =
+            invitation.expires_at_unix.max(now.saturating_add(ENROLLMENT_RETRY_GRACE.as_secs()));
+        let record = DeviceRecord {
+            id: fingerprint.clone(),
+            name: pending.request.device_name.clone(),
+            public_key: encode_key(&pending.device_public_key),
+            fingerprint,
+            created_at_unix: now,
+            last_seen_at_unix: now,
+            revoked_at_unix: None,
+        };
+        let previous_device = state.devices.insert(record.id.clone(), record.clone());
+        let generation = state.revocation_generation;
+        let persistence = match self.submit_mutation_locked(&mut state) {
+            Ok(persistence) => persistence,
+            Err(error) => {
+                rollback_approval(
+                    &mut state,
+                    invitation_id,
+                    &record.id,
+                    previous_claim,
+                    previous_expiration,
+                    previous_device,
+                );
+                let _ = pending.decision.send(Err(error.to_string()));
+                return Err(error);
             }
-            let fingerprint = public_key_fingerprint(&pending.device_public_key);
-            invitation.claimed_by = Some(fingerprint.clone());
-            invitation.expires_at_unix = invitation
-                .expires_at_unix
-                .max(now.saturating_add(ENROLLMENT_RETRY_GRACE.as_secs()));
-            let record = DeviceRecord {
-                id: fingerprint.clone(),
-                name: pending.request.device_name.clone(),
-                public_key: encode_key(&pending.device_public_key),
-                fingerprint,
-                created_at_unix: now,
-                last_seen_at_unix: now,
-                revoked_at_unix: None,
-            };
-            state.devices.insert(record.id.clone(), record.clone());
-            let generation = state.revocation_generation;
-            let persistence = self.submit_mutation_locked(&mut state)?;
-            (record, pending.decision, persistence, generation)
         };
         let grant = AuthGrant {
             device_id: record.id.clone(),
             daemon_name: self.daemon_name.clone(),
             revocation_generation: generation,
         };
-        let (completed_tx, completed_rx) = oneshot::channel();
-        tokio::spawn(async move {
-            let result = persistence.wait_message().await;
-            let authorization = match &result {
-                Ok(()) => Ok(grant),
-                Err(message) => Err(message.clone()),
-            };
-            let _ = decision.send(authorization);
-            let _ = completed_tx.send(result);
-        });
-        completed_rx
-            .await
-            .unwrap_or_else(|_| Err("identity approval persistence task stopped".into()))
-            .map_err(IdentityError::Persistence)?;
-        Ok(record)
+        match persistence.wait_message().await {
+            Ok(()) => {
+                drop(state);
+                let _ = pending.decision.send(Ok(grant));
+                Ok(record)
+            }
+            Err(message) => {
+                rollback_approval(
+                    &mut state,
+                    invitation_id,
+                    &record.id,
+                    previous_claim,
+                    previous_expiration,
+                    previous_device,
+                );
+                drop(state);
+                let _ = pending.decision.send(Err(message.clone()));
+                Err(IdentityError::Persistence(message))
+            }
+        }
     }
 
     pub async fn deny(&self, invitation_id: &str) -> Result<(), IdentityError> {
@@ -999,6 +1033,27 @@ impl AuthDatabase {
     ) -> Result<PersistenceWaiter, IdentityError> {
         let snapshot = state.snapshot_after_mutation()?;
         Ok(self.persistence.submit(snapshot))
+    }
+}
+
+fn rollback_approval(
+    state: &mut AuthState,
+    invitation_id: &str,
+    device_id: &str,
+    previous_claim: Option<String>,
+    previous_expiration: u64,
+    previous_device: Option<DeviceRecord>,
+) {
+    let invitation = state
+        .invitations
+        .get_mut(invitation_id)
+        .expect("approval keeps its invitation while persistence is pending");
+    invitation.claimed_by = previous_claim;
+    invitation.expires_at_unix = previous_expiration;
+    if let Some(previous_device) = previous_device {
+        state.devices.insert(device_id.to_owned(), previous_device);
+    } else {
+        state.devices.remove(device_id);
     }
 }
 

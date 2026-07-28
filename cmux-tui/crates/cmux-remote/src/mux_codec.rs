@@ -1,15 +1,39 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::io;
 
 use bytes::{BufMut, Bytes, BytesMut};
 use cmux_remote_protocol::{Lane, MAX_FRAME_PAYLOAD};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 
 const MAGIC: [u8; 4] = *b"CMXL";
 const HEADER_BYTES: usize = 4 + 8 + 4 + 4;
 const CHUNK_BYTES: usize = MAX_FRAME_PAYLOAD - HEADER_BYTES;
-const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_IN_FLIGHT_LINES: usize = 256;
 const MAX_IN_FLIGHT_BYTES: usize = 32 * 1024 * 1024;
+
+pub(crate) async fn read_bounded_line<R>(reader: &mut R, line: &mut Vec<u8>) -> io::Result<usize>
+where
+    R: AsyncBufRead + Unpin,
+{
+    read_bounded_line_with_limit(reader, line, MAX_LINE_BYTES).await
+}
+
+async fn read_bounded_line_with_limit<R>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+    maximum: usize,
+) -> io::Result<usize>
+where
+    R: AsyncBufRead + Unpin,
+{
+    line.clear();
+    let limit = u64::try_from(maximum).ok().and_then(|maximum| maximum.checked_add(1)).ok_or_else(
+        || io::Error::new(io::ErrorKind::InvalidInput, "mux line limit is too large"),
+    )?;
+    reader.take(limit).read_until(b'\n', line).await
+}
 
 pub(crate) fn encode_line(message: u64, line: &[u8]) -> Result<Vec<Bytes>, MuxCodecError> {
     if line.len() > MAX_LINE_BYTES {
@@ -126,7 +150,22 @@ impl std::error::Error for MuxCodecError {}
 
 #[cfg(test)]
 mod tests {
+    use tokio::io::{AsyncReadExt, BufReader};
+
     use super::*;
+
+    #[tokio::test]
+    async fn bounded_line_reader_stops_at_limit_plus_one_before_eof() {
+        let input = b"abcdefghij\n";
+        let mut reader = BufReader::new(input.as_slice());
+        let mut line = Vec::new();
+
+        let read = read_bounded_line_with_limit(&mut reader, &mut line, 4).await.unwrap();
+
+        assert_eq!(read, 5);
+        assert_eq!(line, b"abcde");
+        assert_eq!(reader.read_u8().await.unwrap(), b'f');
+    }
 
     #[test]
     fn interleaved_lanes_reassemble_without_byte_corruption() {
