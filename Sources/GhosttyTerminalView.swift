@@ -2692,7 +2692,11 @@ class GhosttyApp {
                     let result = tabManager.cycleSplitFocus(tabId: tabId, forward: forward)
 #if DEBUG
                     if result {
-                        app.recordGotoSplitCycleMoveIfNeeded(tabId: tabId, forward: forward)
+                        GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
+                            tabManager: tabManager,
+                            tabId: tabId,
+                            forward: forward
+                        )
                     }
 #endif
                     return result

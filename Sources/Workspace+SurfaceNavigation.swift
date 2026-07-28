@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import CmuxWorkspaces
 import Foundation
 
@@ -201,23 +202,19 @@ extension Workspace {
     func cycleFocus(forward: Bool) -> Bool {
         guard layoutMode != .canvas else { return false }
 
-        let panesById = Dictionary(
-            uniqueKeysWithValues: bonsplitController.allPaneIds.map { ($0.id, $0) }
-        )
-        let allPaneIds = spatiallyOrderedPaneIds.compactMap { panesById[$0] }
-        guard allPaneIds.count > 1,
-              let currentId = bonsplitController.focusedPaneId,
-              let currentIndex = allPaneIds.firstIndex(of: currentId) else { return false }
+        guard let targetPaneId = PaneCycleNavigator().targetPane(
+            orderedPaneIds: spatiallyOrderedPaneIds,
+            livePaneIds: bonsplitController.allPaneIds,
+            focusedPaneId: bonsplitController.focusedPaneId,
+            forward: forward
+        ) else { return false }
 
         if let previousPanelId = focusedPanelId,
            let previousPanel = panels[previousPanelId] {
             previousPanel.unfocus()
         }
 
-        let targetIndex = forward
-            ? (currentIndex + 1) % allPaneIds.count
-            : (currentIndex - 1 + allPaneIds.count) % allPaneIds.count
-        bonsplitController.focusPane(allPaneIds[targetIndex])
+        bonsplitController.focusPane(targetPaneId)
 
         if let paneId = bonsplitController.focusedPaneId,
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
