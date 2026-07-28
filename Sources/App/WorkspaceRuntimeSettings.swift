@@ -383,7 +383,9 @@ enum RendererRealizationSettings {
 
     static let defaultEnabled = true
     static let defaultIdleSeconds: TimeInterval = 30
-    static let defaultMaxWarmRenderers = 12
+    // Keep the visible terminal and the previous terminal warm for fast
+    // backtracking without retaining every renderer in a typical tab set.
+    static let defaultMaxWarmRenderers = 2
     static let didChangeNotification = Notification.Name("cmux.rendererRealizationSettingsDidChange")
 
     static func values(defaults: UserDefaults = .standard) -> Values {

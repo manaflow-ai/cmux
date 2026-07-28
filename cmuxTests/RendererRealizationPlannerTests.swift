@@ -28,7 +28,7 @@ struct RendererRealizationPlannerTests {
     private func settings(
         enabled: Bool = true,
         idle: TimeInterval = 30,
-        warm: Int = 12
+        warm: Int = RendererRealizationSettings.defaultMaxWarmRenderers
     ) -> RendererRealizationSettings.Values {
         .init(enabled: enabled, idleSeconds: idle, maxWarmRenderers: warm)
     }
