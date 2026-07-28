@@ -116,6 +116,64 @@ struct ControlCommandCoordinatorWorkspaceFloatingDockTests {
         #expect(context.lastAction == .restoreAll(focus: false))
     }
 
+    @Test func renameAndReorderForwardWorkspaceScopedMutations() {
+        let (coordinator, context) = makeCoordinator()
+
+        _ = coordinator.handle(request("workspace.float.rename", [
+            "float": .string("float:2"),
+            "title": .string("Release Notes"),
+        ]))
+        #expect(context.lastAction == .rename(
+            selector: "float:2",
+            title: "Release Notes"
+        ))
+
+        _ = coordinator.handle(request("workspace.float.reorder", [
+            "float": .string("float:2"),
+            "position": .int(3),
+        ]))
+        #expect(context.lastAction == .reorder(
+            selector: "float:2",
+            position: 3
+        ))
+    }
+
+    @Test func renameAndReorderRejectInvalidInputsBeforeDispatch() {
+        let (coordinator, context) = makeCoordinator()
+
+        let blankTitle = coordinator.handle(request("workspace.float.rename", [
+            "float": .string("float:1"),
+            "title": .string("   "),
+        ]))
+        guard case .err(let renameCode, _, _) = blankTitle else {
+            Issue.record("Expected invalid rename params")
+            return
+        }
+        #expect(renameCode == "invalid_params")
+        #expect(context.lastAction == nil)
+
+        let zeroPosition = coordinator.handle(request("workspace.float.reorder", [
+            "float": .string("float:1"),
+            "position": .int(0),
+        ]))
+        guard case .err(let reorderCode, _, _) = zeroPosition else {
+            Issue.record("Expected invalid reorder params")
+            return
+        }
+        #expect(reorderCode == "invalid_params")
+        #expect(context.lastAction == nil)
+
+        let oversizedCreateTitle = coordinator.handle(request("workspace.float.create", [
+            "title": .string(String(repeating: "x", count: 121)),
+        ]))
+        guard case .err(let createCode, _, _) = oversizedCreateTitle else {
+            Issue.record("Expected invalid create title params")
+            return
+        }
+        #expect(createCode == "invalid_params")
+        #expect(context.lastAction == nil)
+    }
+
     @Test func closePendingReturnsAcceptedPayload() {
         let (coordinator, context) = makeCoordinator()
         let payload: JSONValue = .object([
@@ -196,6 +254,18 @@ struct ControlCommandCoordinatorWorkspaceFloatingDockTests {
         }
         #expect(code == "not_found")
         #expect(message == "Floating Dock not found")
+
+        context.resolution = .invalidParkingPosition(maximum: 2)
+        let invalidPosition = coordinator.handle(request("workspace.float.reorder", [
+            "float": .string("float:1"),
+            "position": .int(3),
+        ]))
+        guard case .err(let positionCode, _, let data) = invalidPosition else {
+            Issue.record("Expected invalid parking position")
+            return
+        }
+        #expect(positionCode == "invalid_params")
+        #expect(data == .object(["maximum_position": .int(2)]))
     }
 
     @Test func malformedWorkspaceSelectorFailsBeforeDispatch() {

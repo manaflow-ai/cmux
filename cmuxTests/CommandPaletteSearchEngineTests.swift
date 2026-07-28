@@ -1091,7 +1091,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNil(snapshot)
     }
 
-    func testForkCommandsDismissPaletteBeforeRunning() {
+    func testFocusChangingCommandsDismissPaletteBeforeRunning() {
         let forkCommandIds = [
             "palette.forkAgentConversationRight",
             "palette.forkAgentConversationLeft",
@@ -1104,6 +1104,9 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         for commandId in forkCommandIds {
             XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: commandId))
         }
+        XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(
+            forCommandId: "palette.renameFloatingWindow"
+        ))
         XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalSplitRight"))
         XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalFocusTextBoxInput"))
     }

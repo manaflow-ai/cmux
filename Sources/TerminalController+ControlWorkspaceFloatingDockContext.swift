@@ -320,6 +320,41 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 "workspace_id": .string(workspace.id.uuidString),
                 "restored_count": .int(Int64(restoredCount)),
             ]))
+        case .rename(let selector, let title):
+            guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
+            guard AppDelegate.shared?.renameWorkspaceFloatingDock(
+                dock,
+                in: workspace,
+                tabManager: tabManager,
+                title: title
+            ) == true else {
+                return .operationFailed("Invalid floating Dock title")
+            }
+            return .resolved(floatingDockMutationPayload(
+                dock: dock,
+                workspace: workspace,
+                tabManager: tabManager
+            ))
+        case .reorder(let selector, let position):
+            guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
+            guard dock.isStashed else { return .floatingDockNotStashed }
+            let maximumPosition = workspace.stashedFloatingDocksInVisualOrder.count
+            guard position >= 1, position <= maximumPosition else {
+                return .invalidParkingPosition(maximum: maximumPosition)
+            }
+            guard AppDelegate.shared?.reorderStashedWorkspaceFloatingDock(
+                dock,
+                in: workspace,
+                tabManager: tabManager,
+                toVisualPosition: position
+            ) == true else {
+                return .operationFailed("Invalid floating Dock position")
+            }
+            return .resolved(floatingDockMutationPayload(
+                dock: dock,
+                workspace: workspace,
+                tabManager: tabManager
+            ))
         case .close(let selector):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
             let needsNoteFlush = dock.store.needsAutosavingNoteFlush
@@ -550,6 +585,8 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             ),
             "presentation": .string(dock.presentationState.rawValue),
             "stashed_at": dock.stashedAt.map(JSONValue.double) ?? .null,
+            "stashed_position": workspace.stashedFloatingDockVisualPosition(id: dock.id)
+                .map { .int(Int64($0)) } ?? .null,
             "focused": .bool(dock.ownsInputFocus),
             "close_status": closeStatus,
             "close_error": closeFailure.map(JSONValue.string) ?? .null,

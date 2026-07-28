@@ -2,6 +2,7 @@ internal import Foundation
 
 extension ControlCommandCoordinator {
     nonisolated private static let maximumFloatingDockNoteBytes = 16 * 1024 * 1024
+    nonisolated private static let maximumFloatingDockTitleCharacters = 120
 
     func handleWorkspaceFloatingDock(_ request: ControlRequest) -> ControlCallResult? {
         let workspaceID = uuid(request.params, "workspace_id")
@@ -15,8 +16,12 @@ extension ControlCommandCoordinator {
         case "workspace.float.create":
             let frame = floatingDockFrame(request.params, required: false)
             if let error = frame.error { return error }
+            let title = optionalTrimmedRawString(request.params, "title")
+            if let title, title.count > Self.maximumFloatingDockTitleCharacters {
+                return invalidFloatingDockTitle()
+            }
             action = .create(
-                title: optionalTrimmedRawString(request.params, "title"),
+                title: title,
                 frame: frame.value,
                 kind: string(request.params, "kind") ?? "terminal",
                 url: optionalTrimmedRawString(request.params, "url"),
@@ -38,6 +43,23 @@ extension ControlCommandCoordinator {
             )
         case "workspace.float.restore_all":
             action = .restoreAll(focus: bool(request.params, "focus") ?? false)
+        case "workspace.float.rename":
+            guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
+            guard let title = optionalTrimmedRawString(request.params, "title"),
+                  title.count <= Self.maximumFloatingDockTitleCharacters else {
+                return invalidFloatingDockTitle()
+            }
+            action = .rename(selector: selector, title: title)
+        case "workspace.float.reorder":
+            guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
+            guard let position = int(request.params, "position"), position > 0 else {
+                return .err(
+                    code: "invalid_params",
+                    message: "position must be a positive 1-based index",
+                    data: nil
+                )
+            }
+            action = .reorder(selector: selector, position: position)
         case "workspace.float.close":
             guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
             action = .close(selector: selector)
@@ -260,6 +282,16 @@ extension ControlCommandCoordinator {
         .err(code: "invalid_params", message: "\(key) must be a UUID", data: nil)
     }
 
+    nonisolated private func invalidFloatingDockTitle() -> ControlCallResult {
+        .err(
+            code: "invalid_params",
+            message: "title must contain 1 to \(Self.maximumFloatingDockTitleCharacters) characters",
+            data: .object([
+                "maximum_characters": .int(Int64(Self.maximumFloatingDockTitleCharacters)),
+            ])
+        )
+    }
+
     nonisolated private func floatingDockResult(
         _ resolution: ControlWorkspaceFloatingDockResolution
     ) -> ControlCallResult {
@@ -297,6 +329,18 @@ extension ControlCommandCoordinator {
                 code: "invalid_params",
                 message: "color must use #RRGGBB format",
                 data: .object(["color": .string(color)])
+            )
+        case .floatingDockNotStashed:
+            return .err(
+                code: "invalid_state",
+                message: "Floating Dock must be stashed before it can be reordered",
+                data: nil
+            )
+        case .invalidParkingPosition(let maximum):
+            return .err(
+                code: "invalid_params",
+                message: "position must be between 1 and \(maximum)",
+                data: .object(["maximum_position": .int(Int64(maximum))])
             )
         case .operationFailed:
             return .err(code: "internal_error", message: "The floating Dock operation failed", data: nil)

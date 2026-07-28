@@ -18,7 +18,7 @@ extension CMUXCLI {
         guard let subcommand = optionArgs.first?.lowercased() else {
             throw CLIError(message: floatingDockCLIString(
                 "cli.workspace.float.error.subcommandRequired",
-                defaultValue: "workspace float requires a subcommand. Try: list, create, focus, stash, restore, restore-all, close, close-all, frame, color, note, surface, pane"
+                defaultValue: "workspace float requires a subcommand. Try: list, create, focus, stash, restore, restore-all, rename, reorder, close, close-all, frame, color, note, surface, pane"
             ))
         }
         let target = try workspaceFloatingDockTarget(
@@ -73,6 +73,34 @@ extension CMUXCLI {
                     restoredCount
                 ))
             }
+        case "rename":
+            let (selector, remaining) = try floatingDockSelector(from: args)
+            let (titleOption, titleArguments) = parseOption(remaining, name: "--title")
+            let title = titleOption ?? titleArguments.joined(separator: " ")
+            guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CLIError(message: floatingDockCLIString(
+                    "cli.workspace.float.error.renameUsage",
+                    defaultValue: "Usage: cmux workspace float rename <float> <name>"
+                ))
+            }
+            params["float"] = selector
+            params["title"] = title
+            let payload = try client.sendV2(method: "workspace.float.rename", params: params)
+            printFloatingDockMutation(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "reorder":
+            let (selector, remaining) = try floatingDockSelector(from: args)
+            let (positionOption, positional) = parseOption(remaining, name: "--position")
+            let rawPosition = positionOption ?? positional.first
+            guard let rawPosition, let position = Int(rawPosition), position > 0 else {
+                throw CLIError(message: floatingDockCLIString(
+                    "cli.workspace.float.error.reorderUsage",
+                    defaultValue: "Usage: cmux workspace float reorder <float> <1-based-position>"
+                ))
+            }
+            params["float"] = selector
+            params["position"] = position
+            let payload = try client.sendV2(method: "workspace.float.reorder", params: params)
+            printFloatingDockMutation(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case "close-all", "close_all":
             let payload = try client.sendV2(method: "workspace.float.close_all", params: params)
             if jsonOutput {
@@ -383,6 +411,8 @@ extension CMUXCLI {
              [--color #RRGGBB] [--relative-to <float>]
              [--x N --y N --width N --height N] [--focus]
       focus <float> | stash <float> | restore <float> [--focus] | restore-all [--focus]
+      rename <float> <name>
+      reorder <float> <1-based-position>
       close <float> | close-all
       frame <float> --x N --y N --width N --height N
       color get <float> | color set <float> --color #RRGGBB | color reset <float>

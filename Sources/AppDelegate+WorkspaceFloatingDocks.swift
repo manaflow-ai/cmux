@@ -64,6 +64,18 @@ extension AppDelegate.MainWindowContext {
 }
 
 extension AppDelegate {
+    func updateWorkspaceFloatingDockKeyContext(
+        keyWindow: NSWindow?,
+        applicationIsActive: Bool
+    ) {
+        mainWindowContexts.values.forEach {
+            $0.workspaceFloatingDockPresenter?.updateKeyContext(
+                keyWindow: keyWindow,
+                applicationIsActive: applicationIsActive
+            )
+        }
+    }
+
     func contextForShortcutSourceWindow(_ window: NSWindow?) -> MainWindowContext? {
         guard let window else { return nil }
         if let context = contextForMainTerminalWindow(window) {
@@ -264,6 +276,83 @@ extension AppDelegate {
     }
 
     @discardableResult
+    func renameWorkspaceFloatingDock(
+        _ dock: WorkspaceFloatingDock,
+        in workspace: Workspace,
+        tabManager: TabManager,
+        title: String
+    ) -> Bool {
+        guard workspace.floatingDock(id: dock.id) === dock,
+              dock.rename(to: title) else { return false }
+        refreshWorkspaceFloatingDocks(for: tabManager)
+        return true
+    }
+
+    @discardableResult
+    func reorderStashedWorkspaceFloatingDock(
+        _ dock: WorkspaceFloatingDock,
+        in workspace: Workspace,
+        tabManager: TabManager,
+        toVisualPosition position: Int
+    ) -> Bool {
+        guard workspace.floatingDock(id: dock.id) === dock,
+              dock.isStashed,
+              workspace.reorderStashedFloatingDock(
+                id: dock.id,
+                toVisualPosition: position
+              ) else { return false }
+        guard tabManager.selectedTabId == workspace.id,
+              let context = mainWindowContexts.values.first(where: {
+                  $0.tabManager === tabManager
+              }) else { return true }
+        context.installWorkspaceFloatingDockPresenterIfNeeded()
+        context.workspaceFloatingDockPresenter?.animateParkingReorder()
+        return true
+    }
+
+    func movePreferredStashedWorkspaceFloatingDock(
+        in tabManager: TabManager,
+        visualOffset: Int
+    ) -> Bool {
+        guard visualOffset != 0,
+              let workspace = tabManager.selectedWorkspace,
+              let context = mainWindowContexts.values.first(where: {
+                  $0.tabManager === tabManager
+              }) else {
+            return false
+        }
+        context.installWorkspaceFloatingDockPresenterIfNeeded()
+        guard let presenter = context.workspaceFloatingDockPresenter,
+              let dock = presenter.preferredStashedDock(in: workspace),
+              let currentPosition = workspace.stashedFloatingDockVisualPosition(id: dock.id) else {
+            return false
+        }
+        return reorderStashedWorkspaceFloatingDock(
+            dock,
+            in: workspace,
+            tabManager: tabManager,
+            toVisualPosition: currentPosition + visualOffset
+        )
+    }
+
+    func beginRenamingPreferredWorkspaceFloatingDock(in tabManager: TabManager) -> Bool {
+        guard let workspace = tabManager.selectedWorkspace,
+              let context = mainWindowContexts.values.first(where: {
+                  $0.tabManager === tabManager
+              }) else {
+            return false
+        }
+        context.installWorkspaceFloatingDockPresenterIfNeeded()
+        context.workspaceFloatingDockPresenter?.refresh()
+        guard let presenter = context.workspaceFloatingDockPresenter,
+              let dock = presenter.preferredDockForNaming(in: workspace) else {
+            return false
+        }
+        presenter.beginRenaming(dock)
+        return true
+    }
+
+    @discardableResult
     func restoreAllStashedWorkspaceFloatingDocks(
         in workspace: Workspace,
         tabManager: TabManager,
@@ -305,8 +394,15 @@ extension AppDelegate {
     }
 
     func customizeWorkspaceFloatingDockColor(in tabManager: TabManager) -> Bool {
-        guard let dock = preferredWorkspaceFloatingDock(in: tabManager) else { return false }
-        WorkspaceFloatingDockColorPanelController.shared.show(dock: dock) { [weak self, weak tabManager] in
+        guard let dock = preferredWorkspaceFloatingDock(in: tabManager),
+              let context = mainWindowContexts.values.first(where: {
+                  $0.tabManager === tabManager
+              }),
+              let ownerWindow = context.window else { return false }
+        WorkspaceFloatingDockColorPanelController.shared.show(
+            dock: dock,
+            ownerWindow: ownerWindow
+        ) { [weak self, weak tabManager] in
             guard let self, let tabManager else { return }
             guard let context = self.mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) else {
                 return
@@ -450,10 +546,20 @@ private final class WorkspaceFloatingDockColorPanelController: NSObject {
     private weak var dock: WorkspaceFloatingDock?
     private var onChange: (() -> Void)?
 
-    func show(dock: WorkspaceFloatingDock, onChange: @escaping () -> Void) {
+    func show(
+        dock: WorkspaceFloatingDock,
+        ownerWindow: NSWindow,
+        onChange: @escaping () -> Void
+    ) {
         self.dock = dock
         self.onChange = onChange
         let panel = NSColorPanel.shared
+        if let currentParent = panel.parent, currentParent !== ownerWindow {
+            currentParent.removeChildWindow(panel)
+        }
+        if panel.parent !== ownerWindow {
+            ownerWindow.addChildWindow(panel, ordered: .above)
+        }
         panel.title = String(
             localized: "floatingDock.colorPanel.title",
             defaultValue: "Floating Window Color"

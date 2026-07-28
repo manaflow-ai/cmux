@@ -235,6 +235,48 @@ extension Workspace {
         return floatingDocks[numeric - 1]
     }
 
+    var stashedFloatingDocksInParkingOrder: [WorkspaceFloatingDock] {
+        floatingDocks.enumerated()
+            .filter { $0.element.isStashed }
+            .sorted { lhs, rhs in
+                let lhsTimestamp = lhs.element.stashedAt ?? 0
+                let rhsTimestamp = rhs.element.stashedAt ?? 0
+                if lhsTimestamp == rhsTimestamp {
+                    return lhs.offset < rhs.offset
+                }
+                return lhsTimestamp < rhsTimestamp
+            }
+            .map(\.element)
+    }
+
+    var stashedFloatingDocksInVisualOrder: [WorkspaceFloatingDock] {
+        Array(stashedFloatingDocksInParkingOrder.reversed())
+    }
+
+    func stashedFloatingDockVisualPosition(id: UUID) -> Int? {
+        stashedFloatingDocksInVisualOrder.firstIndex(where: { $0.id == id }).map { $0 + 1 }
+    }
+
+    @discardableResult
+    func reorderStashedFloatingDock(
+        id: UUID,
+        toVisualPosition position: Int,
+        timestamp: TimeInterval = Date().timeIntervalSince1970
+    ) -> Bool {
+        var visualOrder = stashedFloatingDocksInVisualOrder
+        guard let sourceIndex = visualOrder.firstIndex(where: { $0.id == id }),
+              visualOrder.indices.contains(position - 1) else { return false }
+        let destinationIndex = position - 1
+        guard sourceIndex != destinationIndex else { return true }
+        let dock = visualOrder.remove(at: sourceIndex)
+        visualOrder.insert(dock, at: destinationIndex)
+
+        for (index, parkedDock) in visualOrder.reversed().enumerated() {
+            parkedDock.setStashed(true, at: timestamp + (Double(index) * 0.001))
+        }
+        return true
+    }
+
     @discardableResult
     func closeFloatingDock(id: UUID) async -> Bool {
         guard let index = floatingDocks.firstIndex(where: { $0.id == id }) else { return false }

@@ -50,15 +50,10 @@ struct WorkspaceFloatingDockBackdropAppearance {
 /// Owns the native child panel for one workspace floating Dock.
 @MainActor
 final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowDelegate {
-    private struct StashedPresentation {
-        var restoreFrame: CGRect
-        var visibleScreenFrame: CGRect
-        var isHovered: Bool
-    }
-
     private enum Presentation {
         case visible
-        case stashed(StashedPresentation)
+        case parked(WorkspaceFloatingDockParkingSnapshot)
+        case revealed(WorkspaceFloatingDockParkingSnapshot)
     }
 
     let dock: WorkspaceFloatingDock
@@ -67,6 +62,13 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     private let onStashRequest: (UUID) -> Void
     private let onRestoreRequest: (UUID) -> Void
     private let onBecomeKey: (UUID) -> Void
+    private let onRenameRequest: (UUID, String) -> Bool
+    private let onReorderDrag: (
+        UUID,
+        WorkspaceFloatingDockParkingReorderPhase,
+        NSPoint
+    ) -> Void
+    private let onReorderStep: (UUID, Int) -> Void
     private let glassEffect = WindowGlassEffect()
     private let stashOverlay = WorkspaceFloatingDockStashOverlayView()
     private weak var compatibilityBlurView: NSVisualEffectView?
@@ -76,6 +78,45 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     private var hasAppliedInitialScreenPlacement = false
     private var isScreenConfigurationChanging = false
     private var presentation: Presentation = .visible
+    private var accessoryIsTransientForVisibleRename = false
+    private lazy var parkingAccessoryController = WorkspaceFloatingDockParkingAccessoryController(
+        dockID: dock.id,
+        onRestore: { [weak self] in
+            guard let self else { return }
+            self.onRestoreRequest(self.dock.id)
+        },
+        onRename: { [weak self] title in
+            guard let self else { return false }
+            let renamed = self.onRenameRequest(self.dock.id, title)
+            if renamed {
+                self.window?.title = self.dock.title
+            }
+            return renamed
+        },
+        onReorderDrag: { [weak self] phase, screenPoint in
+            guard let self else { return }
+            self.onReorderDrag(self.dock.id, phase, screenPoint)
+            if case .ended = phase {
+                self.parentWindow?.makeKeyAndOrderFront(nil)
+            }
+        },
+        onReorderStep: { [weak self] offset in
+            guard let self else { return }
+            self.onReorderStep(self.dock.id, offset)
+        },
+        onEditingEnded: { [weak self] in
+            self?.parkingAccessoryEditingEnded()
+        }
+    )
+
+    private var parkingSnapshot: WorkspaceFloatingDockParkingSnapshot? {
+        switch presentation {
+        case .visible:
+            nil
+        case .parked(let snapshot), .revealed(let snapshot):
+            snapshot
+        }
+    }
 
     init(
         dock: WorkspaceFloatingDock,
@@ -83,7 +124,14 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         onCloseRequest: @escaping (UUID) -> Void,
         onStashRequest: @escaping (UUID) -> Void = { _ in },
         onRestoreRequest: @escaping (UUID) -> Void = { _ in },
-        onBecomeKey: @escaping (UUID) -> Void = { _ in }
+        onBecomeKey: @escaping (UUID) -> Void = { _ in },
+        onRenameRequest: @escaping (UUID, String) -> Bool = { _, _ in false },
+        onReorderDrag: @escaping (
+            UUID,
+            WorkspaceFloatingDockParkingReorderPhase,
+            NSPoint
+        ) -> Void = { _, _, _ in },
+        onReorderStep: @escaping (UUID, Int) -> Void = { _, _ in }
     ) {
         self.dock = dock
         self.parentWindow = parentWindow
@@ -91,6 +139,9 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         self.onStashRequest = onStashRequest
         self.onRestoreRequest = onRestoreRequest
         self.onBecomeKey = onBecomeKey
+        self.onRenameRequest = onRenameRequest
+        self.onReorderDrag = onReorderDrag
+        self.onReorderStep = onReorderStep
 
         let panel = WorkspaceFloatingDockPanel(
             contentRect: Self.screenFrame(relativeFrame: dock.frame, parentWindow: parentWindow),
@@ -136,9 +187,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             stashOverlay.leadingAnchor.constraint(equalTo: stashOverlayHost.leadingAnchor),
             stashOverlay.trailingAnchor.constraint(equalTo: stashOverlayHost.trailingAnchor),
         ])
-        stashOverlay.onHoverChange = { [weak self] isHovering in
-            self?.setStashedWindowHovered(isHovering)
-        }
         stashOverlay.onPress = { [weak self] in
             guard let self else { return }
             self.onRestoreRequest(self.dock.id)
@@ -166,7 +214,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         panel.title = dock.title
         applyGlassTexture()
         Self.configureStandardWindowButtons(in: panel)
-        if case .stashed = presentation {
+        if parkingSnapshot != nil {
             restoreStashedWindow(
                 panel,
                 focus: focus
@@ -205,6 +253,15 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         glassEffect.backgroundOpacity = appearance.opacity
         glassEffect.updateTint(to: panel, color: appearance.tintColor)
         compatibilityBlurView?.alphaValue = appearance.opacity
+        if parkingAccessoryController.isVisible {
+            parkingAccessoryController.update(
+                title: dock.title,
+                attachedTo: panel,
+                anchorFrame: parkingAccessoryAnchorFrame(for: panel),
+                appearance: appearance,
+                animated: false
+            )
+        }
     }
 
     func hide() {
@@ -218,60 +275,95 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         }
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
+        parkingAccessoryController.hide(animated: false)
         window?.ignoresMouseEvents = false
         window?.orderOut(nil)
     }
 
-    func showStashed(
-        visibleScreenFrame: CGRect?,
-        animated: Bool
-    ) {
-        guard let panel = window,
-              let parentWindow,
-              let visibleScreenFrame else {
-            hide()
-            return
+    /// Temporarily removes the panel when another cmux window context or app
+    /// owns the key window without changing its visible/parked model state.
+    func hideForInactiveKeyContext() {
+        presentationGeneration &+= 1
+        isAnimatingPresentation = false
+        if let parkingSnapshot {
+            presentation = .parked(parkingSnapshot)
+            setPanelFrame(parkingSnapshot.parkedFrame, display: false)
         }
+        dock.ownsInputFocus = false
+        dock.store.setVisibleInUI(false)
+        parkingAccessoryController.hide(animated: false)
+        window?.ignoresMouseEvents = false
+        window?.orderOut(nil)
+    }
+
+    func parkingRequest(
+        fallbackVisibleScreenFrame: CGRect?
+    ) -> (restoreFrame: CGRect, visibleScreenFrame: CGRect)? {
+        guard let panel = window,
+              let fallbackVisibleScreenFrame else { return nil }
         if !hasAppliedInitialScreenPlacement {
             applyInitialScreenPlacement()
             hasAppliedInitialScreenPlacement = true
         }
-        let stashed: StashedPresentation
-        switch presentation {
-        case .visible:
-            let anchorScreen = panel.screen?.visibleFrame ?? visibleScreenFrame
-            stashed = StashedPresentation(
-                restoreFrame: panel.frame,
-                visibleScreenFrame: anchorScreen,
-                isHovered: false
+        if let parkingSnapshot {
+            return (
+                restoreFrame: parkingSnapshot.restoreFrame,
+                visibleScreenFrame: parkingSnapshot.visibleScreenFrame
             )
-            presentation = .stashed(stashed)
-        case .stashed(let existing):
-            stashed = existing
         }
+        return (
+            restoreFrame: panel.frame,
+            visibleScreenFrame: panel.screen?.visibleFrame ?? fallbackVisibleScreenFrame
+        )
+    }
+
+    func showStashed(
+        snapshot: WorkspaceFloatingDockParkingSnapshot,
+        animated: Bool
+    ) {
+        guard let panel = window else { return }
+        panel.title = dock.title
+        let wasKeyWindow = panel.isKeyWindow
+        let targetFrame: CGRect
+        switch presentation {
+        case .visible, .parked:
+            presentation = .parked(snapshot)
+            targetFrame = snapshot.parkedFrame
+        case .revealed:
+            presentation = .revealed(snapshot)
+            targetFrame = snapshot.revealedFrame
+        }
+        persistRestorableFrame(snapshot.restoreFrame)
         detachParkedPanel(panel)
         stashOverlay.isHidden = false
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(true)
         panel.ignoresMouseEvents = false
         panel.orderFront(nil)
+        if case .revealed = presentation {
+            showParkingAccessory(
+                panel: panel,
+                snapshot: snapshot,
+                animated: animated
+            )
+        } else {
+            parkingAccessoryController.hide(animated: false)
+        }
 
-        let targetFrame = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
-            windowFrame: stashed.restoreFrame,
-            visibleScreenFrame: stashed.visibleScreenFrame,
-            isHovered: stashed.isHovered
-        )
         guard animated,
               panel.frame != targetFrame,
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             setPanelFrame(targetFrame, display: panel.isVisible)
+            if wasKeyWindow {
+                parentWindow?.makeKeyAndOrderFront(nil)
+            }
             return
         }
         animatePanel(panel, to: targetFrame, duration: 0.22)
     }
 
     func stash(
-        visibleScreenFrame: CGRect,
+        snapshot: WorkspaceFloatingDockParkingSnapshot,
         completion: @escaping () -> Void
     ) {
         guard let panel = window, panel.isVisible else {
@@ -284,18 +376,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         let originalFrame = panel.frame
         let wasKeyWindow = panel.isKeyWindow
         persistRestorableFrame(originalFrame)
-        let anchorScreen = panel.screen?.visibleFrame ?? visibleScreenFrame
-        let stashed = StashedPresentation(
-            restoreFrame: originalFrame,
-            visibleScreenFrame: anchorScreen,
-            isHovered: false
-        )
-        let stashedFrame = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
-            windowFrame: stashed.restoreFrame,
-            visibleScreenFrame: stashed.visibleScreenFrame,
-            isHovered: false
-        )
-        presentation = .stashed(stashed)
+        presentation = .parked(snapshot)
+        parkingAccessoryController.hide(animated: false)
         detachParkedPanel(panel)
         stashOverlay.isHidden = false
         dock.ownsInputFocus = false
@@ -304,7 +386,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             completeStash(
                 panel: panel,
-                stashedFrame: stashedFrame,
+                stashedFrame: snapshot.parkedFrame,
                 wasKeyWindow: wasKeyWindow,
                 completion: completion
             )
@@ -321,14 +403,14 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 0.8,
                 1.0
             )
-            panel.animator().setFrame(stashedFrame, display: true)
+            panel.animator().setFrame(snapshot.parkedFrame, display: true)
         } completionHandler: { [weak self, weak panel] in
             guard let self, let panel,
                   self.presentationGeneration == generation else { return }
             if self.dock.isStashed {
                 self.completeStash(
                     panel: panel,
-                    stashedFrame: stashedFrame,
+                    stashedFrame: snapshot.parkedFrame,
                     wasKeyWindow: wasKeyWindow,
                     completion: completion
                 )
@@ -367,13 +449,15 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         _ panel: NSWindow,
         focus: Bool
     ) {
-        guard case .stashed(let stashed) = presentation else {
+        guard let parkingSnapshot else {
             finishShowing(panel, focus: focus)
             return
         }
         let generation = presentationGeneration
-        let destinationFrame = stashed.restoreFrame
+        let destinationFrame = parkingSnapshot.restoreFrame
         presentation = .visible
+        accessoryIsTransientForVisibleRename = false
+        parkingAccessoryController.hide(animated: true)
         stashOverlay.isHidden = true
         if let panel = panel as? WorkspaceFloatingDockPanel {
             panel.presentsStashedWindow = false
@@ -410,26 +494,52 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         }
     }
 
-    private func setStashedWindowHovered(_ isHovered: Bool) {
+    func setParkingRevealed(_ isRevealed: Bool, animated: Bool = true) {
         guard dock.isStashed,
               let panel = window,
-              case .stashed(var stashed) = presentation else { return }
-        guard isHovered != stashed.isHovered else { return }
-        stashed.isHovered = isHovered
-        presentation = .stashed(stashed)
-        let targetFrame = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
-            windowFrame: stashed.restoreFrame,
-            visibleScreenFrame: stashed.visibleScreenFrame,
-            isHovered: isHovered
-        )
-        animatePanel(panel, to: targetFrame, duration: 0.16)
+              let parkingSnapshot else { return }
+        let isCurrentlyRevealed: Bool
+        switch presentation {
+        case .visible, .parked:
+            isCurrentlyRevealed = false
+        case .revealed:
+            isCurrentlyRevealed = true
+        }
+        guard isRevealed != isCurrentlyRevealed else { return }
+        presentation = isRevealed
+            ? .revealed(parkingSnapshot)
+            : .parked(parkingSnapshot)
+        let targetFrame = isRevealed
+            ? parkingSnapshot.revealedFrame
+            : parkingSnapshot.parkedFrame
+        if isRevealed {
+            showParkingAccessory(
+                panel: panel,
+                snapshot: parkingSnapshot,
+                animated: animated
+            )
+        } else {
+            parkingAccessoryController.hide(animated: animated)
+        }
+        if animated {
+            animatePanel(panel, to: targetFrame, duration: 0.16)
+        } else {
+            setPanelFrame(targetFrame, display: panel.isVisible)
+        }
     }
 
-    func updateStashedPointer(at screenPoint: NSPoint) {
-        guard dock.isStashed,
-              case .stashed = presentation,
-              let panel = window else { return }
-        setStashedWindowHovered(panel.frame.contains(screenPoint))
+    func containsParkingRestingPoint(_ screenPoint: NSPoint) -> Bool {
+        parkingSnapshot?.containsRestingPoint(screenPoint) == true
+    }
+
+    func containsParkingRevealedPoint(_ screenPoint: NSPoint) -> Bool {
+        parkingSnapshot?.containsRevealedPoint(screenPoint) == true
+            || parkingAccessoryController.contains(screenPoint)
+            || parkingAccessoryController.isEditing
+    }
+
+    var parkingInteractionCenterY: CGFloat? {
+        parkingSnapshot?.restingHitFrame.midY
     }
 
     func orderStashedWindowFront() {
@@ -479,6 +589,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         isAnimatingPresentation = false
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
+        parkingAccessoryController.teardown()
         if let window, let parent = window.parent {
             parent.removeChildWindow(window)
         }
@@ -518,24 +629,18 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         presentationGeneration &+= 1
         isAnimatingPresentation = false
         persistRestorableFrame(resolvedFrame)
-        if dock.isStashed, case .stashed = presentation {
+        if dock.isStashed, parkingSnapshot != nil {
             guard let visibleScreenFrame = Self.visibleScreenFrame(
                 containing: resolvedFrame
             ) ?? parentWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame else {
                 return false
             }
-            let stashed = StashedPresentation(
+            let snapshot = WorkspaceFloatingDockParkingSnapshot(
                 restoreFrame: resolvedFrame,
-                visibleScreenFrame: visibleScreenFrame,
-                isHovered: false
+                visibleScreenFrame: visibleScreenFrame
             )
-            presentation = .stashed(stashed)
-            let parkedFrame = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
-                windowFrame: stashed.restoreFrame,
-                visibleScreenFrame: stashed.visibleScreenFrame,
-                isHovered: false
-            )
-            setPanelFrame(parkedFrame, display: panel.isVisible)
+            presentation = .parked(snapshot)
+            setPanelFrame(snapshot.parkedFrame, display: panel.isVisible)
         } else {
             applyScreenFrame(resolvedFrame)
         }
@@ -604,6 +709,49 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
 
     func windowDidResignKey(_ notification: Notification) {
         dock.ownsInputFocus = false
+    }
+
+    func owns(window candidate: NSWindow) -> Bool {
+        window === candidate || parkingAccessoryController.window === candidate
+    }
+
+    func beginRenaming() {
+        guard let panel = window else { return }
+        if let parkingSnapshot {
+            presentation = .revealed(parkingSnapshot)
+            accessoryIsTransientForVisibleRename = false
+            showParkingAccessory(
+                panel: panel,
+                snapshot: parkingSnapshot,
+                animated: true
+            )
+            animatePanel(panel, to: parkingSnapshot.revealedFrame, duration: 0.16)
+        } else {
+            accessoryIsTransientForVisibleRename = true
+            parkingAccessoryController.show(
+                attachedTo: panel,
+                title: dock.title,
+                anchorFrame: parkingAccessoryAnchorFrame(for: panel),
+                appearance: resolvedBackdropAppearance(),
+                animated: true
+            )
+        }
+        parkingAccessoryController.beginRenaming()
+    }
+
+    private func parkingAccessoryEditingEnded() {
+        if accessoryIsTransientForVisibleRename {
+            accessoryIsTransientForVisibleRename = false
+            parkingAccessoryController.hide(animated: true)
+            window?.makeKeyAndOrderFront(nil)
+        } else if let panel = window, let parkingSnapshot {
+            showParkingAccessory(
+                panel: panel,
+                snapshot: parkingSnapshot,
+                animated: true
+            )
+            parentWindow?.makeKeyAndOrderFront(nil)
+        }
     }
 
     private func applyModelFrame() {
@@ -717,6 +865,32 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         if panel.parent !== parentWindow {
             parentWindow.addChildWindow(panel, ordered: .above)
         }
+    }
+
+    private func showParkingAccessory(
+        panel: NSWindow,
+        snapshot: WorkspaceFloatingDockParkingSnapshot,
+        animated: Bool
+    ) {
+        parkingAccessoryController.show(
+            attachedTo: panel,
+            title: dock.title,
+            anchorFrame: snapshot.restingHitFrame,
+            appearance: resolvedBackdropAppearance(),
+            animated: animated
+        )
+    }
+
+    private func parkingAccessoryAnchorFrame(for panel: NSWindow) -> CGRect {
+        if let parkingSnapshot {
+            return parkingSnapshot.restingHitFrame
+        }
+        return CGRect(
+            x: panel.frame.minX,
+            y: panel.frame.maxY - 58,
+            width: 1,
+            height: WorkspaceFloatingDockParkingAccessoryController.height
+        )
     }
 
     private func detachParkedPanel(_ panel: NSWindow) {
@@ -930,9 +1104,7 @@ private final class WorkspaceFloatingDockHostingView<Content: View>: UserSizedWi
 }
 
 private final class WorkspaceFloatingDockStashOverlayView: NSView {
-    var onHoverChange: ((Bool) -> Void)?
     var onPress: (() -> Void)?
-    private var hoverTrackingArea: NSTrackingArea?
 
     override var isOpaque: Bool { false }
 
@@ -940,36 +1112,8 @@ private final class WorkspaceFloatingDockStashOverlayView: NSView {
         true
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
-        }
-        let trackingArea = NSTrackingArea(
-            rect: .zero,
-            options: [
-                .mouseEnteredAndExited,
-                .activeAlways,
-                .inVisibleRect,
-                .enabledDuringMouseDrag,
-            ],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        hoverTrackingArea = trackingArea
-    }
-
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        onHoverChange?(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        onHoverChange?(false)
     }
 
     override func mouseDown(with event: NSEvent) {

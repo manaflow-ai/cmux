@@ -1,5 +1,7 @@
+import AppKit
 import CmuxWindowing
 import CoreGraphics
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -121,20 +123,226 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         let regularWindow = CGRect(x: 240, y: 180, width: 620, height: 420)
         let narrowWindow = CGRect(x: 240, y: 180, width: 80, height: 420)
 
-        let regularParked = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
-            windowFrame: regularWindow,
-            visibleScreenFrame: screen,
-            isHovered: false
-        )
-        let narrowParked = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
-            windowFrame: narrowWindow,
-            visibleScreenFrame: screen,
-            isHovered: false
-        )
+        let regularParked = WorkspaceFloatingDockParkingSnapshot(
+            restoreFrame: regularWindow,
+            visibleScreenFrame: screen
+        ).parkedFrame
+        let narrowParked = WorkspaceFloatingDockParkingSnapshot(
+            restoreFrame: narrowWindow,
+            visibleScreenFrame: screen
+        ).parkedFrame
 
         #expect(screen.intersection(regularParked).width == 24)
         #expect(screen.intersection(narrowParked).width == 16)
         #expect(regularParked.size == regularWindow.size)
         #expect(narrowParked.size == narrowWindow.size)
+    }
+
+    @Test
+    func parkingSnapshotKeepsExplicitRestoreRevealAndToleranceFrames() {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let restoreFrame = CGRect(x: 240, y: 180, width: 620, height: 420)
+        let snapshot = WorkspaceFloatingDockParkingSnapshot(
+            restoreFrame: restoreFrame,
+            visibleScreenFrame: screen
+        )
+
+        #expect(snapshot.restoreFrame == restoreFrame)
+        #expect(screen.intersection(snapshot.parkedFrame).width == 24)
+        #expect(screen.intersection(snapshot.revealedFrame).width == 120)
+        #expect(snapshot.parkedFrame.size == restoreFrame.size)
+        #expect(snapshot.revealedFrame.size == restoreFrame.size)
+        #expect(snapshot.containsRevealedPoint(CGPoint(
+            x: snapshot.revealedFrame.minX - 10,
+            y: snapshot.revealedFrame.midY
+        )))
+        #expect(!snapshot.containsRevealedPoint(CGPoint(
+            x: snapshot.revealedFrame.minX - 16,
+            y: snapshot.revealedFrame.midY
+        )))
+    }
+
+    @Test
+    func parkingArrangesOverlappingWindowsIntoTargetableBands() {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let restoreFrames = (0..<4).map { _ in
+            CGRect(x: 240, y: 180, width: 620, height: 420)
+        }
+
+        let snapshots = WorkspaceFloatingDockParkingSnapshot.arranged(
+            restoreFrames: restoreFrames,
+            visibleScreenFrame: screen
+        )
+
+        #expect(snapshots.count == restoreFrames.count)
+        for index in snapshots.indices.dropFirst() {
+            #expect(
+                snapshots[index].parkedFrame.minY
+                    - snapshots[index - 1].parkedFrame.minY
+                    == WorkspaceFloatingDockParkingSnapshot.preferredTargetHeight
+            )
+        }
+        #expect(snapshots.allSatisfy {
+            $0.parkedFrame.minY >= screen.minY && $0.parkedFrame.maxY <= screen.maxY
+        })
+        for index in snapshots.indices.dropFirst() {
+            #expect(
+                snapshots[index - 1].restingHitFrame.maxY
+                    <= snapshots[index].restingHitFrame.minY
+            )
+        }
+    }
+
+    @Test
+    func parkingCompressesLargeStacksWithoutMovingAnyWindowOffscreen() {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let restoreFrames = (0..<10).map { _ in
+            CGRect(x: 240, y: 180, width: 620, height: 420)
+        }
+
+        let snapshots = WorkspaceFloatingDockParkingSnapshot.arranged(
+            restoreFrames: restoreFrames,
+            visibleScreenFrame: screen
+        )
+
+        #expect(snapshots.count == restoreFrames.count)
+        #expect(snapshots.allSatisfy {
+            $0.parkedFrame.minY >= screen.minY && $0.parkedFrame.maxY <= screen.maxY
+        })
+        for index in snapshots.indices.dropFirst() {
+            #expect(snapshots[index].parkedFrame.minY > snapshots[index - 1].parkedFrame.minY)
+        }
+    }
+}
+
+@Suite(.serialized)
+@MainActor
+struct WorkspaceFloatingDockNamingAndOrderingTests {
+    @Test
+    func renameValidationAndVisualReorderSharePersistedDockMetadata() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let docks = (0..<3).map { index in
+            WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: ["Alpha", "Beta", "Gamma"][index],
+                frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+                noteFilePath: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-order-\(UUID().uuidString).md")
+                    .path,
+                presentationState: .stashed,
+                stashedAt: TimeInterval(index + 1),
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+        }
+        workspace.floatingDocks.append(contentsOf: docks)
+        defer {
+            workspace.floatingDocks.removeAll { dock in
+                docks.contains { $0 === dock }
+            }
+            docks.forEach { $0.close() }
+        }
+
+        #expect(workspace.stashedFloatingDocksInVisualOrder.map(\.title) == [
+            "Gamma", "Beta", "Alpha",
+        ])
+        #expect(docks[0].rename(to: "  Release Notes  "))
+        #expect(docks[0].title == "Release Notes")
+        #expect(!docks[0].rename(to: "   "))
+        #expect(!docks[0].rename(to: String(repeating: "x", count: 121)))
+
+        #expect(workspace.reorderStashedFloatingDock(
+            id: docks[0].id,
+            toVisualPosition: 1,
+            timestamp: 10
+        ))
+        #expect(workspace.stashedFloatingDocksInVisualOrder.map(\.title) == [
+            "Release Notes", "Gamma", "Beta",
+        ])
+        #expect(workspace.stashedFloatingDockVisualPosition(id: docks[0].id) == 1)
+        #expect(docks.allSatisfy(\.isStashed))
+    }
+}
+
+@Suite(.serialized)
+@MainActor
+struct WorkspaceFloatingDockKeyContextTests {
+    @Test
+    func floatingWindowsFollowTheirOwningKeyWindowContext() throws {
+        _ = NSApplication.shared
+        let noteURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-key-context-\(UUID().uuidString).md")
+        try "".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let unrelatedWindow = NSWindow(
+            contentRect: CGRect(x: 200, y: 200, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let transient = NSPanel(
+            contentRect: CGRect(x: 250, y: 250, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: workspace.id,
+            title: "Key context",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            noteFilePath: noteURL.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        workspace.floatingDocks.append(dock)
+        let presenter = WorkspaceFloatingDockPresenter(
+            parentWindow: parent,
+            tabManager: manager
+        )
+        defer {
+            presenter.teardown()
+            workspace.floatingDocks.removeAll { $0 === dock }
+            dock.close()
+            if transient.parent === parent {
+                parent.removeChildWindow(transient)
+            }
+            transient.close()
+            unrelatedWindow.close()
+            parent.close()
+            try? FileManager.default.removeItem(at: noteURL)
+        }
+
+        presenter.updateKeyContext(keyWindow: nil, applicationIsActive: true)
+        presenter.refresh()
+        let floatingWindow = try #require(presenter.window(for: dock))
+        #expect(!floatingWindow.isVisible)
+
+        presenter.updateKeyContext(keyWindow: parent, applicationIsActive: true)
+        #expect(floatingWindow.isVisible)
+
+        parent.addChildWindow(transient, ordered: .above)
+        presenter.updateKeyContext(keyWindow: transient, applicationIsActive: true)
+        #expect(floatingWindow.isVisible)
+
+        presenter.updateKeyContext(keyWindow: unrelatedWindow, applicationIsActive: true)
+        #expect(!floatingWindow.isVisible)
+
+        presenter.updateKeyContext(keyWindow: floatingWindow, applicationIsActive: true)
+        #expect(floatingWindow.isVisible)
+
+        presenter.updateKeyContext(keyWindow: nil, applicationIsActive: false)
+        #expect(!floatingWindow.isVisible)
     }
 }

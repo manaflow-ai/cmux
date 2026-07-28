@@ -11,6 +11,8 @@ public enum ControlWorkspaceFloatingDockResolution: Sendable, Equatable {
     case invalidSurfaceKind(String)
     case invalidDirection(String)
     case invalidColor(String)
+    case floatingDockNotStashed
+    case invalidParkingPosition(maximum: Int)
     case operationFailed(String)
     /// The close was accepted and is waiting for note persistence. Callers can
     /// poll `workspace.float.list`; the payload identifies the requested Dock.

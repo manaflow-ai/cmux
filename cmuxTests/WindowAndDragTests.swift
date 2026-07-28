@@ -3327,54 +3327,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
     }
 
-    func testWorkspaceFloatingDockStashKeepsQuarterActualWindowVisibleAndRevealsOnHover() {
-        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
-        let window = CGRect(x: 240, y: 180, width: 620, height: 420)
-        let resting = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
-            windowFrame: window,
-            visibleScreenFrame: screen,
-            isHovered: false
-        )
-        let hovered = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
-            windowFrame: window,
-            visibleScreenFrame: screen,
-            isHovered: true
-        )
-
-        XCTAssertEqual(resting.size, window.size)
-        XCTAssertEqual(WorkspaceFloatingDockStashLayout.restingVisibleFraction, 0.25)
-        XCTAssertEqual(
-            screen.intersection(resting).width,
-            window.width * WorkspaceFloatingDockStashLayout.restingVisibleFraction
-        )
-        XCTAssertEqual(
-            screen.intersection(hovered).width,
-            screen.intersection(resting).width
-                + WorkspaceFloatingDockStashLayout.hoverRevealDistance
-        )
-        XCTAssertEqual(resting.minY, window.minY)
-        XCTAssertEqual(hovered.minY, window.minY)
-    }
-
-    func testWorkspaceFloatingDockStashAnimationKeepsBonsplitWindowSize() {
-        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
-        let window = CGRect(x: 240, y: 180, width: 620, height: 420)
-
-        let stashed = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
-            windowFrame: window,
-            visibleScreenFrame: screen,
-            isHovered: false
-        )
-
-        XCTAssertEqual(stashed.size, window.size)
-        XCTAssertEqual(
-            screen.intersection(stashed).width,
-            window.width * WorkspaceFloatingDockStashLayout.restingVisibleFraction
-        )
-        XCTAssertGreaterThanOrEqual(stashed.minY, screen.minY)
-        XCTAssertLessThanOrEqual(stashed.maxY, screen.maxY)
-    }
-
     func testWorkspaceFloatingDockStashKeepsNativeWindowAndContentAlive() throws {
         _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "", encoding: .utf8)
@@ -3401,6 +3353,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let presenter = WorkspaceFloatingDockPresenter(
             parentWindow: parent,
             tabManager: manager
+        )
+        presenter.updateKeyContext(
+            keyWindow: parent,
+            applicationIsActive: true
         )
         defer {
             presenter.teardown()

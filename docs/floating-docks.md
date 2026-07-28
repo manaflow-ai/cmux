@@ -1,10 +1,10 @@
 # Floating Docks
 
-A Floating Dock is a movable, resizable Bonsplit container owned by one workspace. It appears above that workspace's main content and hides when another workspace is selected. A workspace may own multiple Floating Docks.
+A Floating Dock is a movable, resizable Bonsplit container owned by one workspace. It appears above that workspace's main content only while its cmux window context owns the key window and the app is active. It hides when another workspace, cmux window, or app becomes active. A workspace may own multiple Floating Docks.
 
 New Floating Docks start with a terminal. Their tabs and panes use the same Bonsplit drag behavior as the existing right Dock, so notes, terminals, and browsers can move between the main workspace, right Dock, and Floating Docks without recreating the surface. The default glass tint follows the active Ghostty background while keeping the translucent Raycast-style material; a per-window color overrides that derived tint.
 
-Create one from the command palette with `New Terminal Floating Window`, `New Notes Floating Window`, or `New Browser Floating Window`. The yellow titlebar control parks the actual live window with one quarter left visible at the right screen edge without using the macOS Dock. Moving the pointer over the visible quarter reveals more of that window, and clicking it restores its previous frame. Multiple parked windows overlap newest-first. They remain workspace-scoped and survive session restore. Double-clicking the titlebar has no action. `Stash Floating Window`, `Restore Stashed Floating Windows`, `Customize Floating Window Color…`, and `Close All Floating Windows in Workspace` use the same workspace lifecycle as the CLI:
+Create one from the command palette with `New Terminal Floating Window`, `New Notes Floating Window`, or `New Browser Floating Window`. The yellow titlebar control parks the live window with a 24-point edge slice instead of using the macOS Dock. Parked windows get separate target bands when space permits. Moving the pointer into a band reveals more of that window and a glass name accessory without changing the parked window's stacking order. The accessory can rename, restore, or vertically reorder the parked window. Clicking the window itself restores its previous frame. Parked windows remain workspace-scoped and survive session restore. Double-clicking the titlebar has no action. `Stash Floating Window`, `Restore Stashed Floating Windows`, `Rename Floating Window…`, `Move Parked Floating Window Up`, `Move Parked Floating Window Down`, `Customize Floating Window Color…`, and `Close All Floating Windows in Workspace` use the same workspace lifecycle as the CLI:
 
 ```sh
 cmux workspace float create --type terminal --title Scratch --focus
@@ -18,10 +18,16 @@ cmux workspace float pane create float:1 --type browser --direction right --url 
 cmux workspace float stash float:1
 cmux workspace float restore float:1 --focus
 cmux workspace float restore-all --focus
+cmux workspace float rename float:1 "Release Notes"
+cmux workspace float reorder float:1 1
 cmux workspace float focus float:1
 cmux workspace float close-all
 ```
 
-`list --json` returns every Floating Dock in the target workspace, including its `visible` or `stashed` presentation, saved restore `frame`, live native-window `presentation_frame`, background color, workspace visibility and focus state, panes, selected tabs, and surface identifiers. A parked live window remains `visible: true`. `focus` restores a stashed window before focusing it. With no explicit frame, new windows use AppKit's cascade placement relative to `--relative-to`, the most recently active floating window, or the last visible floating window. Mutations preserve the user's current focus unless `--focus` is explicit.
+`reorder` positions use the visible top-to-bottom parking order, with `1` as the top target band.
 
-Run `cmux workspace float --help` for the complete command set. The target workspace defaults to the caller's `CMUX_WORKSPACE_ID`; use `--workspace <id|ref|index>` to inspect another workspace.
+`list --json` returns every Floating Dock in the target workspace, including its `visible` or `stashed` presentation, saved restore `frame`, live native-window `presentation_frame`, background color, workspace visibility and focus state, panes, selected tabs, and surface identifiers. A parked live window reports `visible: true` while its owning cmux key-window context is active. Its presentation remains `stashed` while the native window is temporarily hidden for an inactive context. `focus` restores a stashed window before focusing it. With no explicit frame, new windows use AppKit's cascade placement relative to `--relative-to`, the most recently active floating window, or the last visible floating window. Mutations preserve the user's current focus unless `--focus` is explicit.
+
+The edge-parking interaction is inspired by [Loop's Stash feature](https://github.com/MrKai77/Loop/tree/3b632db585ceeb5208c7e4ec4a43cf9c05804b34). cmux uses an independent AppKit implementation so Loop's GPL-3.0 code is not copied into cmux.
+
+Run `cmux workspace float help` for the complete command set. The target workspace defaults to the caller's `CMUX_WORKSPACE_ID`; use `--workspace <id|ref|index>` to inspect another workspace.

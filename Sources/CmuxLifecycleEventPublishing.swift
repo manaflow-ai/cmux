@@ -260,6 +260,10 @@ extension AppDelegate {
     func handleCmuxWindowBecameKey(_ note: Notification) {
         guard let window = note.object as? NSWindow else { return }
         MainActor.assumeIsolated {
+            updateWorkspaceFloatingDockKeyContext(
+                keyWindow: window,
+                applicationIsActive: NSApp.isActive
+            )
             let context = contextForMainTerminalWindow(window)
             setActiveMainWindow(window)
             if let windowId = mainWindowId(from: window) {
@@ -276,6 +280,16 @@ extension AppDelegate {
         MainActor.assumeIsolated {
             if let windowId = mainWindowId(from: window) {
                 publishCmuxWindowLifecycle(name: "window.unkeyed", windowId: windowId, origin: "appkit_key")
+            }
+            // AppKit posts resign before become during a key-window handoff.
+            // Reconcile after the notification pair so clicking a floating
+            // panel does not briefly hide it between those two notifications.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.updateWorkspaceFloatingDockKeyContext(
+                    keyWindow: NSApp.keyWindow,
+                    applicationIsActive: NSApp.isActive
+                )
             }
         }
     }

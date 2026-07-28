@@ -272,6 +272,8 @@ enum WorkspaceFloatingDockPresentationState: String, Codable, Sendable {
 @MainActor
 @Observable
 final class WorkspaceFloatingDock: Identifiable {
+    static let maximumTitleCharacterCount = 120
+
     let id: UUID
     let workspaceId: UUID
     var title: String {
@@ -376,6 +378,19 @@ final class WorkspaceFloatingDock: Identifiable {
 
     var isStashed: Bool {
         presentationState == .stashed
+    }
+
+    static func normalizedTitle(_ rawTitle: String) -> String? {
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title.count <= maximumTitleCharacterCount else { return nil }
+        return title
+    }
+
+    @discardableResult
+    func rename(to rawTitle: String) -> Bool {
+        guard let normalizedTitle = Self.normalizedTitle(rawTitle) else { return false }
+        title = normalizedTitle
+        return true
     }
 
     func setStashed(_ stashed: Bool, at timestamp: TimeInterval = Date().timeIntervalSince1970) {

@@ -9595,7 +9595,10 @@ struct ContentView: View {
              // Entering browser focus mode focuses the web view synchronously;
              // dismiss the palette first so its makeFirstResponder(nil) doesn't
              // clear that focus and leave focus mode active without key routing.
-             "palette.browserFocusMode":
+             "palette.browserFocusMode",
+             // The rename accessory becomes key and focuses its text field.
+             // Dismiss first so palette teardown cannot steal that responder.
+             "palette.renameFloatingWindow":
             return true
         default:
             return false

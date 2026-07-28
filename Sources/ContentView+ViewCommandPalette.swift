@@ -74,6 +74,33 @@ extension ContentView {
                 keywords: ["restore", "stash", "show", "floating", "dock", "windows"]
             ),
             CommandPaletteCommandContribution(
+                commandId: "palette.renameFloatingWindow",
+                title: constant(String(
+                    localized: "command.renameFloatingWindow.title",
+                    defaultValue: "Rename Floating Window…"
+                )),
+                subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["rename", "name", "title", "floating", "dock", "window"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.moveParkedFloatingWindowUp",
+                title: constant(String(
+                    localized: "command.moveParkedFloatingWindowUp.title",
+                    defaultValue: "Move Parked Floating Window Up"
+                )),
+                subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["move", "reorder", "up", "parked", "stashed", "floating", "window"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.moveParkedFloatingWindowDown",
+                title: constant(String(
+                    localized: "command.moveParkedFloatingWindowDown.title",
+                    defaultValue: "Move Parked Floating Window Down"
+                )),
+                subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["move", "reorder", "down", "parked", "stashed", "floating", "window"]
+            ),
+            CommandPaletteCommandContribution(
                 commandId: "palette.customizeFloatingWindowColor",
                 title: constant(String(
                     localized: "command.customizeFloatingWindowColor.title",
@@ -174,6 +201,29 @@ extension ContentView {
                 in: tabManager,
                 focus: true
             ) == nil {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.renameFloatingWindow") {
+            if AppDelegate.shared?.beginRenamingPreferredWorkspaceFloatingDock(
+                in: tabManager
+            ) != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.moveParkedFloatingWindowUp") {
+            if AppDelegate.shared?.movePreferredStashedWorkspaceFloatingDock(
+                in: tabManager,
+                visualOffset: -1
+            ) != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.moveParkedFloatingWindowDown") {
+            if AppDelegate.shared?.movePreferredStashedWorkspaceFloatingDock(
+                in: tabManager,
+                visualOffset: 1
+            ) != true {
                 NSSound.beep()
             }
         }

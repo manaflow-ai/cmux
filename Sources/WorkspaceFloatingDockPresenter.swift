@@ -7,11 +7,17 @@ final class WorkspaceFloatingDockPresenter {
     private weak var tabManager: TabManager?
     private var controllers: [UUID: WorkspaceFloatingDockWindowController] = [:]
     private var lastActiveDockId: UUID?
+    private var stashedDockOrder: [UUID] = []
+    private var revealedStashedDockId: UUID?
+    private var reorderingStashedDockId: UUID?
+    private var isKeyContextVisible = false
     private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
 
     init(parentWindow: NSWindow, tabManager: TabManager) {
         self.parentWindow = parentWindow
         self.tabManager = tabManager
+        isKeyContextVisible = NSApp.isActive && ownsKeyContext(window: NSApp.keyWindow)
         installMouseMonitors()
     }
 
@@ -75,6 +81,30 @@ final class WorkspaceFloatingDockPresenter {
                         },
                         onBecomeKey: { [weak self] dockId in
                             self?.lastActiveDockId = dockId
+                        },
+                        onRenameRequest: { [weak self, weak workspace] dockId, title in
+                            guard let self,
+                                  let workspace,
+                                  let tabManager = self.tabManager,
+                                  let dock = workspace.floatingDock(id: dockId) else {
+                                return false
+                            }
+                            return AppDelegate.shared?.renameWorkspaceFloatingDock(
+                                dock,
+                                in: workspace,
+                                tabManager: tabManager,
+                                title: title
+                            ) == true
+                        },
+                        onReorderDrag: { [weak self] dockId, phase, screenPoint in
+                            self?.handleParkingReorderDrag(
+                                dockId: dockId,
+                                phase: phase,
+                                screenPoint: screenPoint
+                            )
+                        },
+                        onReorderStep: { [weak self] dockId, offset in
+                            self?.moveParkedDock(dockId: dockId, visualOffset: offset)
                         }
                     )
                     controllers[dock.id] = created
@@ -88,21 +118,33 @@ final class WorkspaceFloatingDockPresenter {
                         controller.cascade(relativeTo: sourceWindow)
                     }
                 }
-                guard !dock.isStashed else {
-                    controller.showStashed(
-                        visibleScreenFrame: visibleScreenFrame(),
-                        animated: false
-                    )
-                    continue
-                }
-                controller.show(focus: focusDockId == dock.id)
             }
-            workspaceDocks
-                .filter(\.isStashed)
-                .sorted {
-                    ($0.stashedAt ?? 0) < ($1.stashedAt ?? 0)
-                }
-                .forEach { controllers[$0.id]?.orderStashedWindowFront() }
+            guard isKeyContextVisible else {
+                hideForInactiveKeyContext()
+                return
+            }
+            for dock in workspaceDocks where !dock.isStashed {
+                controllers[dock.id]?.show(focus: focusDockId == dock.id)
+            }
+            applyParkingLayout(
+                to: workspace.stashedFloatingDocksInParkingOrder,
+                animatedDockId: nil
+            )
+        } else {
+            stashedDockOrder.removeAll()
+            revealedStashedDockId = nil
+            reorderingStashedDockId = nil
+        }
+    }
+
+    func updateKeyContext(keyWindow: NSWindow?, applicationIsActive: Bool) {
+        let nextIsVisible = applicationIsActive && ownsKeyContext(window: keyWindow)
+        guard nextIsVisible != isKeyContextVisible else { return }
+        isKeyContextVisible = nextIsVisible
+        if nextIsVisible {
+            refresh()
+        } else {
+            hideForInactiveKeyContext()
         }
     }
 
@@ -113,6 +155,13 @@ final class WorkspaceFloatingDockPresenter {
             NSEvent.removeMonitor(localMouseMonitor)
             self.localMouseMonitor = nil
         }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+            self.globalMouseMonitor = nil
+        }
+        stashedDockOrder.removeAll()
+        revealedStashedDockId = nil
+        reorderingStashedDockId = nil
     }
 
     func animateStash(_ dock: WorkspaceFloatingDock) {
@@ -121,16 +170,25 @@ final class WorkspaceFloatingDockPresenter {
             refresh()
             return
         }
-        guard let controller = controllers[dock.id],
-              let visibleScreenFrame = visibleScreenFrame() else {
+        guard controllers[dock.id] != nil else {
             refresh()
             return
         }
-        controller.stash(
-            visibleScreenFrame: visibleScreenFrame
+        applyParkingLayout(
+            to: workspace.stashedFloatingDocksInParkingOrder,
+            animatedDockId: dock.id
         ) { [weak self] in
             self?.refresh()
         }
+    }
+
+    func animateParkingReorder() {
+        guard let workspace = tabManager?.selectedWorkspace else { return }
+        applyParkingLayout(
+            to: workspace.stashedFloatingDocksInParkingOrder,
+            animatedDockId: nil,
+            animatesLayout: true
+        )
     }
 
     func beginScreenConfigurationChange() {
@@ -139,9 +197,16 @@ final class WorkspaceFloatingDockPresenter {
 
     @discardableResult
     func reconcileScreenConfiguration() -> Bool {
-        return controllers.values.reduce(true) { reconciled, controller in
+        let reconciled = controllers.values.reduce(true) { reconciled, controller in
             controller.reconcileScreenConfiguration() && reconciled
         }
+        if reconciled, let workspace = tabManager?.selectedWorkspace {
+            applyParkingLayout(
+                to: workspace.stashedFloatingDocksInParkingOrder,
+                animatedDockId: nil
+            )
+        }
+        return reconciled
     }
 
     func isAttached(to window: NSWindow) -> Bool {
@@ -149,12 +214,12 @@ final class WorkspaceFloatingDockPresenter {
     }
 
     func owns(window: NSWindow) -> Bool {
-        controllers.values.contains { $0.window === window }
+        controllers.values.contains { $0.owns(window: window) }
     }
 
     func dockId(owning window: NSWindow?) -> UUID? {
         guard let window else { return nil }
-        return controllers.first(where: { $0.value.window === window })?.key
+        return controllers.first(where: { $0.value.owns(window: window) })?.key
     }
 
     func dock(owning window: NSWindow?) -> WorkspaceFloatingDock? {
@@ -173,7 +238,19 @@ final class WorkspaceFloatingDockPresenter {
     }
 
     func focus(_ dock: WorkspaceFloatingDock) {
+        guard isKeyContextVisible else { return }
         controllers[dock.id]?.show(focus: true)
+    }
+
+    func beginRenaming(_ dock: WorkspaceFloatingDock) {
+        guard isKeyContextVisible,
+              let workspace = tabManager?.selectedWorkspace,
+              workspace.floatingDock(id: dock.id) === dock,
+              let controller = controllers[dock.id] else { return }
+        if dock.isStashed {
+            revealedStashedDockId = dock.id
+        }
+        controller.beginRenaming()
     }
 
     func updateTint(for dock: WorkspaceFloatingDock) {
@@ -194,6 +271,29 @@ final class WorkspaceFloatingDockPresenter {
         return workspace.floatingDocks.last(where: { !$0.isStashed })
     }
 
+    func preferredDockForNaming(in workspace: Workspace) -> WorkspaceFloatingDock? {
+        if let keyWindow = NSApp.keyWindow,
+           let dockId = dockId(owning: keyWindow),
+           let dock = workspace.floatingDock(id: dockId) {
+            return dock
+        }
+        return preferredDock(in: workspace) ?? preferredStashedDock(in: workspace)
+    }
+
+    func preferredStashedDock(in workspace: Workspace) -> WorkspaceFloatingDock? {
+        if let reorderingStashedDockId,
+           let dock = workspace.floatingDock(id: reorderingStashedDockId),
+           dock.isStashed {
+            return dock
+        }
+        if let revealedStashedDockId,
+           let dock = workspace.floatingDock(id: revealedStashedDockId),
+           dock.isStashed {
+            return dock
+        }
+        return workspace.stashedFloatingDocksInVisualOrder.first
+    }
+
     private func preferredCascadeSourceDockId(
         in workspace: Workspace,
         excluding dockId: UUID
@@ -204,6 +304,94 @@ final class WorkspaceFloatingDockPresenter {
             return lastActiveDockId
         }
         return workspace.floatingDocks.last(where: { $0.id != dockId && !$0.isStashed })?.id
+    }
+
+    private func applyParkingLayout(
+        to docks: [WorkspaceFloatingDock],
+        animatedDockId: UUID?,
+        animatesLayout: Bool = false,
+        completion: (() -> Void)? = nil
+    ) {
+        guard isKeyContextVisible else {
+            hideForInactiveKeyContext()
+            completion?()
+            return
+        }
+        guard let fallbackVisibleScreenFrame = visibleScreenFrame() else {
+            docks.forEach { controllers[$0.id]?.hide() }
+            stashedDockOrder.removeAll()
+            revealedStashedDockId = nil
+            completion?()
+            return
+        }
+
+        let liveIds = Set(docks.map(\.id))
+        if let revealedStashedDockId, !liveIds.contains(revealedStashedDockId) {
+            controllers[revealedStashedDockId]?.setParkingRevealed(false)
+            self.revealedStashedDockId = nil
+        }
+
+        var entries: [(
+            dock: WorkspaceFloatingDock,
+            controller: WorkspaceFloatingDockWindowController,
+            restoreFrame: CGRect,
+            visibleScreenFrame: CGRect
+        )] = []
+        entries.reserveCapacity(docks.count)
+        for dock in docks {
+            guard let controller = controllers[dock.id],
+                  let request = controller.parkingRequest(
+                    fallbackVisibleScreenFrame: fallbackVisibleScreenFrame
+                  ) else {
+                controllers[dock.id]?.hide()
+                continue
+            }
+            entries.append((
+                dock: dock,
+                controller: controller,
+                restoreFrame: request.restoreFrame,
+                visibleScreenFrame: request.visibleScreenFrame
+            ))
+        }
+        stashedDockOrder = entries.map { $0.dock.id }
+
+        var didStartRequestedAnimation = false
+        var remainingEntries = entries
+        while let first = remainingEntries.first {
+            let screenFrame = first.visibleScreenFrame
+            let group = remainingEntries.filter { $0.visibleScreenFrame == screenFrame }
+            remainingEntries.removeAll { $0.visibleScreenFrame == screenFrame }
+            let snapshots = WorkspaceFloatingDockParkingSnapshot.arranged(
+                restoreFrames: group.map(\.restoreFrame),
+                visibleScreenFrame: screenFrame
+            )
+            for (entry, snapshot) in zip(group, snapshots) {
+                if entry.dock.id == animatedDockId {
+                    didStartRequestedAnimation = true
+                    entry.controller.stash(snapshot: snapshot) {
+                        completion?()
+                    }
+                } else {
+                    entry.controller.showStashed(
+                        snapshot: snapshot,
+                        animated: animatesLayout || animatedDockId != nil
+                    )
+                }
+            }
+        }
+
+        for dockId in stashedDockOrder {
+            controllers[dockId]?.setParkingRevealed(dockId == revealedStashedDockId)
+        }
+        orderStashedWindows()
+        if animatedDockId != nil, !didStartRequestedAnimation {
+            completion?()
+        }
+    }
+
+    private func orderStashedWindows() {
+        guard isKeyContextVisible else { return }
+        stashedDockOrder.forEach { controllers[$0]?.orderStashedWindowFront() }
     }
 
     private func visibleScreenFrame() -> CGRect? {
@@ -219,12 +407,120 @@ final class WorkspaceFloatingDockPresenter {
             }
             return event
         }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) {
+            [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateStashedWindowHover()
+            }
+        }
     }
 
     private func updateStashedWindowHover() {
-        let mouseLocation = NSEvent.mouseLocation
-        controllers.values.forEach {
-            $0.updateStashedPointer(at: mouseLocation)
+        guard isKeyContextVisible else { return }
+        if let reorderingStashedDockId {
+            if revealedStashedDockId != reorderingStashedDockId {
+                if let revealedStashedDockId {
+                    controllers[revealedStashedDockId]?.setParkingRevealed(false)
+                }
+                revealedStashedDockId = reorderingStashedDockId
+                controllers[reorderingStashedDockId]?.setParkingRevealed(true)
+            }
+            return
         }
+        let mouseLocation = NSEvent.mouseLocation
+        let nextRevealedDockId: UUID?
+        if let revealedStashedDockId,
+           controllers[revealedStashedDockId]?.containsParkingRevealedPoint(mouseLocation) == true {
+            nextRevealedDockId = revealedStashedDockId
+        } else {
+            nextRevealedDockId = stashedDockOrder.reversed().first {
+                controllers[$0]?.containsParkingRestingPoint(mouseLocation) == true
+            }
+        }
+        guard nextRevealedDockId != revealedStashedDockId else { return }
+
+        if let revealedStashedDockId {
+            controllers[revealedStashedDockId]?.setParkingRevealed(false)
+        }
+        revealedStashedDockId = nextRevealedDockId
+        if let nextRevealedDockId {
+            controllers[nextRevealedDockId]?.setParkingRevealed(true)
+        }
+    }
+
+    private func handleParkingReorderDrag(
+        dockId: UUID,
+        phase: WorkspaceFloatingDockParkingReorderPhase,
+        screenPoint: NSPoint
+    ) {
+        switch phase {
+        case .began:
+            reorderingStashedDockId = dockId
+            revealedStashedDockId = dockId
+            controllers[dockId]?.setParkingRevealed(true)
+        case .changed:
+            reorderParkedDock(dockId: dockId, nearestTo: screenPoint.y)
+        case .ended:
+            reorderParkedDock(dockId: dockId, nearestTo: screenPoint.y)
+            reorderingStashedDockId = nil
+            updateStashedWindowHover()
+        }
+    }
+
+    private func reorderParkedDock(dockId: UUID, nearestTo screenY: CGFloat) {
+        guard let workspace = tabManager?.selectedWorkspace,
+              let tabManager,
+              let dock = workspace.floatingDock(id: dockId),
+              dock.isStashed else { return }
+        let visualDockIds = Array(stashedDockOrder.reversed())
+        let target = visualDockIds.enumerated().compactMap { index, candidateId in
+            controllers[candidateId]?.parkingInteractionCenterY.map {
+                (position: index + 1, distance: abs($0 - screenY))
+            }
+        }.min { $0.distance < $1.distance }
+        guard let target,
+              workspace.stashedFloatingDockVisualPosition(id: dockId) != target.position else {
+            return
+        }
+        _ = AppDelegate.shared?.reorderStashedWorkspaceFloatingDock(
+            dock,
+            in: workspace,
+            tabManager: tabManager,
+            toVisualPosition: target.position
+        )
+    }
+
+    private func moveParkedDock(dockId: UUID, visualOffset: Int) {
+        guard visualOffset != 0,
+              let workspace = tabManager?.selectedWorkspace,
+              let tabManager,
+              let dock = workspace.floatingDock(id: dockId),
+              let position = workspace.stashedFloatingDockVisualPosition(id: dockId) else {
+            return
+        }
+        _ = AppDelegate.shared?.reorderStashedWorkspaceFloatingDock(
+            dock,
+            in: workspace,
+            tabManager: tabManager,
+            toVisualPosition: position + visualOffset
+        )
+    }
+
+    private func ownsKeyContext(window: NSWindow?) -> Bool {
+        var candidate = window
+        while let currentWindow = candidate {
+            if currentWindow === parentWindow || owns(window: currentWindow) {
+                return true
+            }
+            candidate = currentWindow.parent
+        }
+        return false
+    }
+
+    private func hideForInactiveKeyContext() {
+        revealedStashedDockId = nil
+        reorderingStashedDockId = nil
+        stashedDockOrder.removeAll()
+        controllers.values.forEach { $0.hideForInactiveKeyContext() }
     }
 }

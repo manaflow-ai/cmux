@@ -47508,6 +47508,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "使い方: cmux workspace float note <get|set> <float> [text]" } }
       }
     },
+    "cli.workspace.float.error.renameUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux workspace float rename <float> <name>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使い方: cmux workspace float rename <float> <名前>" } }
+      }
+    },
+    "cli.workspace.float.error.reorderUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux workspace float reorder <float> <1-based-position>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使い方: cmux workspace float reorder <float> <1始まりの位置>" } }
+      }
+    },
     "cli.workspace.float.error.paneUsage": {
       "extractionState": "manual",
       "localizations": {
@@ -47525,8 +47539,8 @@
     "cli.workspace.float.error.subcommandRequired": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "workspace float requires a subcommand. Try: list, create, focus, stash, restore, restore-all, close, close-all, frame, color, note, surface, pane" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "workspace float にはサブコマンドが必要です。利用可能: list, create, focus, stash, restore, restore-all, close, close-all, frame, color, note, surface, pane" } }
+        "en": { "stringUnit": { "state": "translated", "value": "workspace float requires a subcommand. Try: list, create, focus, stash, restore, restore-all, rename, reorder, close, close-all, frame, color, note, surface, pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "workspace float にはサブコマンドが必要です。利用可能: list, create, focus, stash, restore, restore-all, rename, reorder, close, close-all, frame, color, note, surface, pane" } }
       }
     },
     "cli.workspace.float.error.subcommandUnknown": {
@@ -47626,13 +47640,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux workspace float <subcommand> [flags]\n\nManage window-like Bonsplit containers scoped to one workspace. Targets the\ncaller's workspace by default. A float selector is a UUID, float:N, or the\n1-based index printed by list. Mutations preserve focus unless --focus is set.\n\nSubcommands:\n  list\n  create [--type terminal|browser|notes] [--title <title>] [--url <URL>]\n         [--color #RRGGBB] [--relative-to <float>]\n         [--x N --y N --width N --height N] [--focus]\n  focus <float> | stash <float> | restore <float> [--focus] | restore-all [--focus]\n  close <float> | close-all\n  frame <float> --x N --y N --width N --height N\n  color get <float> | color set <float> --color #RRGGBB | color reset <float>\n  note get <float> | note set <float> <text>\n  surface create <float> --type terminal|browser [--pane <UUID>] [--url <URL>] [--focus]\n  pane create <float> --type terminal|browser [--surface <UUID>]\n              [--direction left|right|up|down] [--url <URL>] [--focus]\n\nShared flags: --workspace <id|ref|index>, --window <id|ref|index>, --json"
+            "value": "Usage: cmux workspace float <subcommand> [flags]\n\nManage window-like Bonsplit containers scoped to one workspace. Targets the\ncaller's workspace by default. A float selector is a UUID, float:N, or the\n1-based index printed by list. Mutations preserve focus unless --focus is set.\n\nSubcommands:\n  list\n  create [--type terminal|browser|notes] [--title <title>] [--url <URL>]\n         [--color #RRGGBB] [--relative-to <float>]\n         [--x N --y N --width N --height N] [--focus]\n  focus <float> | stash <float> | restore <float> [--focus] | restore-all [--focus]\n  rename <float> <name>\n  reorder <float> <1-based-position>\n  close <float> | close-all\n  frame <float> --x N --y N --width N --height N\n  color get <float> | color set <float> --color #RRGGBB | color reset <float>\n  note get <float> | note set <float> <text>\n  surface create <float> --type terminal|browser [--pane <UUID>] [--url <URL>] [--focus]\n  pane create <float> --type terminal|browser [--surface <UUID>]\n              [--direction left|right|up|down] [--url <URL>] [--focus]\n\nShared flags: --workspace <id|ref|index>, --window <id|ref|index>, --json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux workspace float <サブコマンド> [フラグ]\n\n1つのワークスペースに紐づく、ウィンドウ型の Bonsplit コンテナを管理します。\n既定では呼び出し元のワークスペースが対象です。float セレクタには UUID、\nfloat:N、または list に表示される1始まりの番号を使えます。--focus を指定しない\n変更操作は現在のフォーカスを維持します。\n\nサブコマンド:\n  list\n  create [--type terminal|browser|notes] [--title <title>] [--url <URL>]\n         [--color #RRGGBB] [--relative-to <float>]\n         [--x N --y N --width N --height N] [--focus]\n  focus <float> | stash <float> | restore <float> [--focus] | restore-all [--focus]\n  close <float> | close-all\n  frame <float> --x N --y N --width N --height N\n  color get <float> | color set <float> --color #RRGGBB | color reset <float>\n  note get <float> | note set <float> <text>\n  surface create <float> --type terminal|browser [--pane <UUID>] [--url <URL>] [--focus]\n  pane create <float> --type terminal|browser [--surface <UUID>]\n              [--direction left|right|up|down] [--url <URL>] [--focus]\n\n共通フラグ: --workspace <id|ref|index>, --window <id|ref|index>, --json"
+            "value": "使い方: cmux workspace float <サブコマンド> [フラグ]\n\n1つのワークスペースに紐づく、ウィンドウ型の Bonsplit コンテナを管理します。\n既定では呼び出し元のワークスペースが対象です。float セレクタには UUID、\nfloat:N、または list に表示される1始まりの番号を使えます。--focus を指定しない\n変更操作は現在のフォーカスを維持します。\n\nサブコマンド:\n  list\n  create [--type terminal|browser|notes] [--title <title>] [--url <URL>]\n         [--color #RRGGBB] [--relative-to <float>]\n         [--x N --y N --width N --height N] [--focus]\n  focus <float> | stash <float> | restore <float> [--focus] | restore-all [--focus]\n  rename <float> <名前>\n  reorder <float> <1始まりの位置>\n  close <float> | close-all\n  frame <float> --x N --y N --width N --height N\n  color get <float> | color set <float> --color #RRGGBB | color reset <float>\n  note get <float> | note set <float> <text>\n  surface create <float> --type terminal|browser [--pane <UUID>] [--url <URL>] [--focus]\n  pane create <float> --type terminal|browser [--surface <UUID>]\n              [--direction left|right|up|down] [--url <URL>] [--focus]\n\n共通フラグ: --workspace <id|ref|index>, --window <id|ref|index>, --json"
           }
         }
       }
@@ -63951,6 +63965,27 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Restore Stashed Floating Windows" } },
         "ja": { "stringUnit": { "state": "translated", "value": "スタッシュしたフローティングウインドウを復元" } }
+      }
+    },
+    "command.renameFloatingWindow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rename Floating Window…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フローティングウインドウの名前を変更…" } }
+      }
+    },
+    "command.moveParkedFloatingWindowUp.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Move Parked Floating Window Up" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スタッシュしたフローティングウインドウを上へ移動" } }
+      }
+    },
+    "command.moveParkedFloatingWindowDown.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Move Parked Floating Window Down" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スタッシュしたフローティングウインドウを下へ移動" } }
       }
     },
     "command.customizeFloatingWindowColor.title": {
@@ -102978,6 +103013,41 @@
             "value": "ノート"
           }
         }
+      }
+    },
+    "floatingDock.parking.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rename Floating Window" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フローティングウインドウの名前を変更" } }
+      }
+    },
+    "floatingDock.parking.nameField": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Floating Window Name" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フローティングウインドウ名" } }
+      }
+    },
+    "floatingDock.parking.reorder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reorder %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@を並べ替え" } }
+      }
+    },
+    "floatingDock.parking.reorder.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Drag vertically, or use the Up and Down Arrow keys." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上下にドラッグするか、上下矢印キーを使います。" } }
+      }
+    },
+    "floatingDock.parking.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restore Floating Window" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フローティングウインドウを復元" } }
       }
     },
     "dock.source.project": {

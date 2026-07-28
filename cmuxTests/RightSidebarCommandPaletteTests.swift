@@ -102,6 +102,9 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
         XCTAssertTrue(contributionIDs.contains("palette.stashFloatingWindow"))
         XCTAssertTrue(contributionIDs.contains("palette.restoreStashedFloatingWindows"))
+        XCTAssertTrue(contributionIDs.contains("palette.renameFloatingWindow"))
+        XCTAssertTrue(contributionIDs.contains("palette.moveParkedFloatingWindowUp"))
+        XCTAssertTrue(contributionIDs.contains("palette.moveParkedFloatingWindowDown"))
     }
 
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
