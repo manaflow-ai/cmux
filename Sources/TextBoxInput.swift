@@ -3072,7 +3072,9 @@ struct TextBoxInputView: NSViewRepresentable {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
-        textView.synchronizeExternalTextIfNeeded(text)
+        // The mounted AppKit editor owns the live draft. Its binding publications can lag this
+        // update, so treating an older binding snapshot as input would clobber text, selection,
+        // marked text, and undo state. Restored drafts enter through the explicit install paths.
         updateTextView(textView, context: context)
     }
 
