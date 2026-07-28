@@ -1642,6 +1642,27 @@ struct GhostMainWindowContextLifecycleTests {
         #expect(Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id)) == registryIdsAfterFinalization)
     }
 
+    @Test("Retired workspace never lazily creates its Dock")
+    func retiredWorkspaceNeverLazilyCreatesItsDock() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            workspace._dockSplit?.closeAllPanels()
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+
+        manager.finalizeAllWorkspacesForWindowClose()
+        let matchingStoresBeforeAccess = DockSplitStore.liveStores.filter {
+            $0.workspaceId == workspace.id
+        }.count
+
+        _ = workspace.dockSplit
+
+        #expect(workspace._dockSplit == nil)
+        #expect(DockSplitStore.liveStores.filter { $0.workspaceId == workspace.id }.count == matchingStoresBeforeAccess)
+    }
+
     @Test("Retired workspace rejects detached remote tmux mirror panel factory")
     func retiredWorkspaceRejectsDetachedRemoteTmuxMirrorPanelFactory() throws {
         let manager = TabManager()
