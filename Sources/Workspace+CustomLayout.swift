@@ -110,34 +110,34 @@ extension Workspace {
 
         guard !surfaces.isEmpty else { return }
 
-        var orderedPanelIds: [UUID] = []
+        // Layouts are declarative, so materialize their surfaces by appending in
+        // config order. Restore the interactive "next to current" policy as soon
+        // as this pane is populated.
+        let interactiveNewTabPosition = bonsplitController.configuration.newTabPosition
+        bonsplitController.configuration.newTabPosition = .end
+        defer { bonsplitController.configuration.newTabPosition = interactiveNewTabPosition }
+
         let firstSurface = surfaces[0]
         if let placeholderPanelId = existingPanelIds.first {
-            if let panelId = configureExistingSurface(
+            configureExistingSurface(
                 panelId: placeholderPanelId,
                 inPane: paneId,
                 surface: firstSurface,
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
-            ) {
-                orderedPanelIds.append(panelId)
-            }
+            )
         }
 
         for surfaceIndex in 1..<surfaces.count {
-            if let panelId = createNewSurface(
+            createNewSurface(
                 inPane: paneId,
                 surface: surfaces[surfaceIndex],
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
-            ) {
-                orderedPanelIds.append(panelId)
-            }
+            )
         }
-
-        applyDeclaredSurfaceOrder(orderedPanelIds, inPane: paneId)
     }
 
     /// Consumes the workspace-level setup command on the first terminal surface it
@@ -165,7 +165,7 @@ extension Workspace {
         baseCwd: String,
         focusPanelId: inout UUID?,
         pendingSetup: inout String?
-    ) -> UUID? {
+    ) {
         switch surface.type {
         case .terminal where surface.cwd != nil || surface.env != nil:
             // Placeholder can't change cwd/env — replace it
@@ -182,9 +182,7 @@ extension Workspace {
                 if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
                     sendInputWhenReady(input, to: panel)
                 }
-                return panel.id
             }
-            return nil
 
         case .terminal:
             if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
@@ -193,7 +191,6 @@ extension Workspace {
                let terminal = terminalPanel(for: panelId) {
                 sendInputWhenReady(input, to: terminal)
             }
-            return panelId
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
@@ -206,9 +203,7 @@ extension Workspace {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                return panel.id
             }
-            return nil
 
         case .project:
             if let panel = newProjectSurface(
@@ -219,9 +214,7 @@ extension Workspace {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                return panel.id
             }
-            return nil
         }
     }
 
@@ -231,7 +224,7 @@ extension Workspace {
         baseCwd: String,
         focusPanelId: inout UUID?,
         pendingSetup: inout String?
-    ) -> UUID? {
+    ) {
         switch surface.type {
         case .terminal:
             let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
@@ -246,9 +239,7 @@ extension Workspace {
                 if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
                     sendInputWhenReady(input, to: panel)
                 }
-                return panel.id
             }
-            return nil
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
@@ -260,9 +251,7 @@ extension Workspace {
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                return panel.id
             }
-            return nil
 
         case .project:
             if let panel = newProjectSurface(
@@ -272,37 +261,7 @@ extension Workspace {
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                return panel.id
             }
-            return nil
-        }
-    }
-
-    /// Reconciles Bonsplit's interactive insertion policy with the declarative
-    /// order owned by the layout, without changing the user's new-tab behavior.
-    private func applyDeclaredSurfaceOrder(_ panelIds: [UUID], inPane paneId: PaneID) {
-        let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id
-        let focusedPaneId = bonsplitController.focusedPaneId
-        var didReorder = false
-
-        for (targetIndex, panelId) in panelIds.enumerated() {
-            guard let tabId = surfaceIdFromPanelId(panelId) else { continue }
-            let tabs = bonsplitController.tabs(inPane: paneId)
-            guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }),
-                  currentIndex != targetIndex else {
-                continue
-            }
-            _ = bonsplitController.reorderTab(tabId, toIndex: targetIndex)
-            didReorder = true
-        }
-
-        guard didReorder else { return }
-        if let selectedTabId,
-           bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == selectedTabId }) {
-            bonsplitController.selectTab(selectedTabId)
-        }
-        if let focusedPaneId, bonsplitController.focusedPaneId != focusedPaneId {
-            bonsplitController.focusPane(focusedPaneId)
         }
     }
 

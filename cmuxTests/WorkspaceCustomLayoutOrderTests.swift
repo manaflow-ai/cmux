@@ -52,6 +52,34 @@ import Testing
         #expect(snapshot.selectedTitle == names[focusedIndex])
     }
 
+    @Test
+    func layoutApplicationRestoresInteractiveNewTabPlacement() throws {
+        let workspace = Workspace()
+        workspace.applyCustomLayout(
+            .pane(CmuxPaneDefinition(surfaces: [
+                CmuxSurfaceDefinition(type: .terminal, name: "AAA"),
+                CmuxSurfaceDefinition(type: .terminal, name: "BBB", focus: true),
+                CmuxSurfaceDefinition(type: .terminal, name: "CCC"),
+            ])),
+            baseCwd: NSTemporaryDirectory()
+        )
+
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let layoutTabIds = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
+        #expect(layoutTabIds.count == 3)
+
+        let newPanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        let newTabId = try #require(workspace.surfaceIdFromPanelId(newPanel.id))
+
+        #expect(workspace.bonsplitController.tabs(inPane: paneId).map(\.id) == [
+            layoutTabIds[0],
+            layoutTabIds[1],
+            newTabId,
+            layoutTabIds[2],
+        ])
+        #expect(workspace.bonsplitController.selectedTab(inPane: paneId)?.id == layoutTabIds[1])
+    }
+
     private static func surfaceSnapshot(in workspace: Workspace) throws -> (titles: [String], selectedTitle: String?) {
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
         let titles = workspace.bonsplitController.tabs(inPane: paneId).map(\.title)
