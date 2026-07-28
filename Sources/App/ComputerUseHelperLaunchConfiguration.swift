@@ -27,10 +27,12 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
             "--no-permissions-gate",
             "--cursor-shape",
             "cmux",
-            // Keep the landing visible briefly, then remove an abandoned
-            // overlay even when a client fails to close its session cleanly.
+            // The proxy's control connection owns cursor teardown and sends
+            // session_end on EOF/crash. A wall-clock idle timer measures gaps
+            // between model calls, not task completion, and hides the cursor
+            // while a still-active agent is inspecting the returned state.
             "--idle-hide-ms",
-            "1200",
+            "0",
             // Glide-speed multiplier over the driver's stock 900 pts/s peak.
             // Stock pacing reads as sluggish between agent actions; press and
             // dwell visuals keep their durations so clicks stay legible.

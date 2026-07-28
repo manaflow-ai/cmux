@@ -969,6 +969,42 @@ cmux_computer_use_config() {
         "$(cmux_computer_use_json_escape "$state_dir")"
 }
 
+cmux_claude_install_computer_use_skill() {
+    # Claude discovers user-wide skills under ~/.agents/skills. Keep the source
+    # inside the signed cmux app and link it instead of copying stale versions.
+    # Never replace a real directory or a symlink the user owns. The Codex
+    # wrapper maintains the identical link; both writers stay idempotent so
+    # whichever agent launches first (or after a tag cleanup dangles the link)
+    # repairs it for every agent.
+    local home="${HOME:-}"
+    [[ "$home" = /* ]] || return 1
+    local self_dir resource_dir source_dir skills_root destination target
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    source_dir="$resource_dir/cmux-computer-use"
+    [[ -f "$source_dir/SKILL.md" ]] || return 1
+
+    skills_root="$home/.agents/skills"
+    destination="$skills_root/cmux-computer-use"
+    /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
+
+    if [[ -L "$destination" ]]; then
+        target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
+        case "$target" in
+            */Contents/Resources/cmux-computer-use)
+                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    elif [[ -e "$destination" ]]; then
+        return 0
+    else
+        /bin/ln -s "$source_dir" "$destination" 2>/dev/null
+    fi
+}
+
 claude_interactive_entry_flag() {
     case "$1" in
         --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
@@ -1276,6 +1312,16 @@ process.stdout.write(JSON.stringify(acc));
         printf 'cmux: warning: --settings merge failed; your --settings was ignored\n' >&2
     fi
     unset CMUX_MERGED_SETTINGS cmux_merge_status
+fi
+
+# Skill discovery does not depend on the helper or its daemon being ready.
+# Install the signed app-bundled ~/.agents/skills link before resolving MCP
+# config so the first Claude session can name cmux Computer Use even while
+# onboarding is still preparing the standalone helper — and so a link left
+# dangling by a removed dev build is repaired without waiting for a Codex
+# session to do it.
+if [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" != "1" ]] && ! cmux_claude_sideload_flags_disabled; then
+    cmux_claude_install_computer_use_skill || true
 fi
 
 # Attach the cmux computer use MCP server. Prepended so a user-supplied

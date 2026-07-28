@@ -123,9 +123,10 @@ Use it like the built-in Computer Use connector:
 2. Prefer the current snapshot's string `element_index`; use screenshot-local
    x/y coordinates only as fallback.
 3. Use xdotool-style key strings such as `super+l` with `press_key`.
-4. Re-read the returned app state after each action and verify the requested
-   outcome. A successful dispatch is not proof that navigation or UI state
-   changed.
+4. Every successful action already returns a fresh app state and screenshot.
+   Use that returned state to verify the requested outcome and choose the next
+   action directly. Call `get_app_state` again only when an action reports that
+   its state refresh failed or when you intentionally switch to another app.
 
 Do not expect native cmux extensions such as `get_window_state`, tokens,
 `perform_actions`, cursor controls, diagnostics, recordings, or browser/CDP in
@@ -170,12 +171,12 @@ The agent's pointer shows as the cmux logo gradient (`#12c7f5 → #2d8cff →
 #6c5cff`) with a `cmux` label, so it is visually distinct from the user's
 cursor. It is configured by env the wrapper injects
 (`CUA_DRIVER_CURSOR_GRADIENT` / `_BLOOM` / `_LABEL`) and is auto-active while
-the helper daemon is driving. The landing remains visible briefly, then a
-short idle timeout removes the overlay after the driving action ends, including
-when a client fails to close its session cleanly. Each later action reasserts
-the cursor directly above the driven target. If no cursor appears during an
-action, confirm the MCP config uses the helper socket, has a stable
-`CUA_DRIVER_DEFAULT_SESSION`, and uses the pinned driver build.
+the helper daemon is driving. It remains visible across normal reasoning gaps
+and is removed when the driving session ends or the proxy control connection
+closes. Each later action reasserts the cursor directly above the driven
+target. If no cursor appears during an action, confirm the MCP config uses the
+helper socket, has a stable `CUA_DRIVER_DEFAULT_SESSION`, and uses the pinned
+driver build.
 
 ## Finding and focusing the driving session
 

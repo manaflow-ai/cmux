@@ -565,7 +565,7 @@ struct ComputerUseUXTests {
 
     @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() async {
         let expandedSize = CGSize(width: 600, height: 440)
-        let companionSize = CGSize(width: 472, height: 112)
+        let companionSize = ComputerUsePermissionCompanionLayout.size
         let oversizedContent = Color.clear.frame(width: 680, height: 883)
         let window = ComputerUseOnboardingWindow(
             contentRect: NSRect(origin: .zero, size: expandedSize),
@@ -611,7 +611,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func permissionCompanionUsesItsEntireFixedFrameForContent() {
-        let companionSize = CGSize(width: 472, height: 112)
+        let companionSize = ComputerUsePermissionCompanionLayout.size
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
@@ -682,7 +682,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func permissionCompanionUsesASeparateBorderlessWindow() {
-        let companionSize = CGSize(width: 472, height: 112)
+        let companionSize = ComputerUsePermissionCompanionLayout.size
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
@@ -721,7 +721,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func completionClosesCompanionAndRevealsCenteredMainWindowWithoutReturnGlide() {
-        let companionSize = CGSize(width: 472, height: 112)
+        let companionSize = ComputerUsePermissionCompanionLayout.size
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
@@ -776,7 +776,10 @@ struct ComputerUseUXTests {
 
         controller.configureForPermissionCompanion(
             mainWindow,
-            frame: NSRect(origin: .zero, size: CGSize(width: 472, height: 112))
+            frame: NSRect(
+                origin: .zero,
+                size: ComputerUsePermissionCompanionLayout.size
+            )
         )
         let companionWindow = NSApp.windows.first {
             $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
@@ -874,6 +877,35 @@ struct ComputerUseUXTests {
         #expect(!presentationState.screenCaptureConsentPending)
     }
 
+    /// Regression: ScreenCaptureKit can return from its first direct-content
+    /// query while Tahoe's system consent sheet is still waiting for a user
+    /// decision. The companion must remain visible and completion must not
+    /// replace it until that prompt-capable verification has actually ended.
+    @Test @MainActor func pendingScreenCaptureConsentCannotShowCompletion() {
+        let presentationState = ComputerUseOnboardingPresentationState()
+        presentationState.showPermissionCompanion()
+        presentationState.beginScreenCaptureConsent()
+
+        presentationState.showCompletionInExpandedOnboarding()
+
+        #expect(presentationState.screenCaptureConsentPending)
+        #expect(presentationState.permissionCompanionVisible)
+        #expect(!presentationState.onboardingComplete)
+    }
+
+    /// The dogfood companion was an overly wide 472×112 strip with only eight
+    /// points of vertical breathing room. Keep the next composition compact
+    /// enough to sit beside System Settings while giving its two rows a native
+    /// panel proportion and full macOS control spacing.
+    @Test func permissionCompanionUsesBalancedNativeProportions() {
+        let size = ComputerUsePermissionCompanionLayout.size
+
+        #expect(size == CGSize(width: 456, height: 138))
+        #expect(size.width / size.height < 3.5)
+        #expect(ComputerUsePermissionCompanionLayout.horizontalInset >= 16)
+        #expect(ComputerUsePermissionCompanionLayout.verticalInset >= 14)
+    }
+
     @Test func permissionCompanionUsesOneAlignmentGrid() {
         let instructionLeadingEdge = ComputerUsePermissionCompanionLayout.horizontalInset
             + ComputerUsePermissionCompanionLayout.leadingColumnWidth
@@ -905,7 +937,7 @@ struct ComputerUseUXTests {
 
     @Test @MainActor func permissionCompanionTransitionAllowsIntermediateWindowFrames() {
         let expandedSize = CGSize(width: 600, height: 440)
-        let companionSize = CGSize(width: 472, height: 112)
+        let companionSize = ComputerUsePermissionCompanionLayout.size
         let window = ComputerUseOnboardingWindow(
             contentRect: NSRect(origin: .zero, size: expandedSize),
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -1145,7 +1177,7 @@ struct ComputerUseUXTests {
         ))
 
         let onboarding = placement.frame(
-            onboardingSize: CGSize(width: 472, height: 112),
+            onboardingSize: ComputerUsePermissionCompanionLayout.size,
             beside: systemSettings,
             in: permissionDisplay
         )
@@ -1898,7 +1930,7 @@ struct ComputerUseUXTests {
             "--cursor-shape",
             "cmux",
             "--idle-hide-ms",
-            "1200",
+            "0",
             "--cursor-speed",
             "1.75",
         ])
@@ -1936,11 +1968,28 @@ struct ComputerUseUXTests {
             "--cursor-shape",
             "cmux",
             "--idle-hide-ms",
-            "1200",
+            "0",
             "--cursor-speed",
             "1.75",
         ])
         #expect(codexConfiguration.environment == configuration.environment)
+    }
+
+    /// Every Codex compatibility action already returns a refreshed screenshot
+    /// and accessibility snapshot. Asking the agent to scan again doubled the
+    /// state captures and model/MCP round trips between Calculator clicks.
+    @Test func bundledCodexInstructionsReuseActionReturnedState() throws {
+        let skillURL = try #require(Bundle.main.url(
+            forResource: "SKILL",
+            withExtension: "md",
+            subdirectory: "cmux-computer-use"
+        ))
+        let skill = try String(contentsOf: skillURL, encoding: .utf8)
+
+        #expect(skill.contains(
+            "Every successful action already returns a fresh app state and screenshot."
+        ))
+        #expect(!skill.contains("Re-read the returned app state after each action"))
     }
 
     @Test(.timeLimit(.minutes(1)))
