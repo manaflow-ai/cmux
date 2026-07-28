@@ -5,6 +5,8 @@ CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.
 CMUX_CUA_PINNED_SHA="8550ab617f57c89810c04eab2a87db1a66b5654b"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-driver-cache-v1 $CMUX_CUA_PINNED_SHA"
+CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
+CMUX_CUA_HELPER_OWNER_VALUE="cmux-cua-driver-helper-v1"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 OUTPUT=""
@@ -25,6 +27,42 @@ helper_bundle_id_for_host() {
       echo "${host_id}.computer-use"
       ;;
   esac
+}
+
+validate_replaceable_helper_bundle() {
+  local helper_app="$1"
+  local expected_id="$2"
+  local expected_executable="$3"
+  local owner_value
+  local existing_id
+  local existing_executable
+
+  if [[ ! -e "$helper_app" && ! -L "$helper_app" ]]; then
+    return 0
+  fi
+  if [[ -L "$helper_app" || ! -d "$helper_app" ]]; then
+    echo "error: refusing to replace non-directory or symlinked helper bundle: $helper_app" >&2
+    exit 1
+  fi
+
+  owner_value="$(cat "$helper_app/Contents/Resources/$CMUX_CUA_HELPER_OWNER_FILE" 2>/dev/null || true)"
+  if [[ "$owner_value" == "$CMUX_CUA_HELPER_OWNER_VALUE" ]]; then
+    return 0
+  fi
+
+  # Adopt helper bundles produced before the ownership marker existed only
+  # when their exact TCC identity and executable prove they are our generated
+  # build output. Never remove an arbitrary directory merely because it lives
+  # at the computed output path.
+  existing_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
+  existing_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ "$existing_id" == "$expected_id" && "$existing_executable" == "$expected_executable" ]]; then
+    return 0
+  fi
+
+  echo "error: refusing to replace unmanaged helper bundle: $helper_app" >&2
+  echo "  move it aside or remove it manually, then rerun the build" >&2
+  exit 1
 }
 
 usage() {
@@ -353,28 +391,11 @@ chmod 0755 "$OUTPUT"
 # Package the driver into a branded helper with its own bundle identifier and
 # TCC identity. The helper is copied out of the host bundle before launch; that
 # top-level copy is what macOS shows in Accessibility and Screen Recording.
-_cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd)"
-_cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd || true)"
+_cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd -P)"
+_cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd -P || true)"
 if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
   HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
   HELPER_EXECUTABLE="cmux Computer Use"
-  rm -rf "$HELPER_APP"
-  mkdir -p \
-    "$HELPER_APP/Contents/MacOS" \
-    "$HELPER_APP/Contents/Resources/en.lproj" \
-    "$HELPER_APP/Contents/Resources/ja.lproj"
-  cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
-  chmod 0755 "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
-
-  _helper_icon="$REPO_ROOT/Resources/ComputerUseHelperIcon.icns"
-  if [ -f "$_helper_icon" ]; then
-    cp "$_helper_icon" "$HELPER_APP/Contents/Resources/AppIcon.icns"
-  elif [ -f "$_cua_contents/Resources/AppIcon.icns" ]; then
-    cp "$_cua_contents/Resources/AppIcon.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
-  elif [ -f "$_cua_contents/Resources/AppIcon-Debug.icns" ]; then
-    cp "$_cua_contents/Resources/AppIcon-Debug.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
-  fi
-
   # This build phase runs before Xcode writes the processed host Info.plist.
   # Prefer exported build settings; reading a missing plist makes PlistBuddy
   # print "File Doesn't Exist, Will Create" on stdout and corrupts the helper
@@ -389,6 +410,25 @@ if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" 
   # dogfood builds. Runtime isolation comes from the tag-scoped install path,
   # socket, credential, and state directory.
   HELPER_DISPLAY="${CMUX_CUA_HELPER_DISPLAY_NAME:-cmux Computer Use}"
+  validate_replaceable_helper_bundle "$HELPER_APP" "$HELPER_ID" "$HELPER_EXECUTABLE"
+  /bin/rm -rf -- "$HELPER_APP"
+  mkdir -p \
+    "$HELPER_APP/Contents/MacOS" \
+    "$HELPER_APP/Contents/Resources/en.lproj" \
+    "$HELPER_APP/Contents/Resources/ja.lproj"
+  printf '%s\n' "$CMUX_CUA_HELPER_OWNER_VALUE" > "$HELPER_APP/Contents/Resources/$CMUX_CUA_HELPER_OWNER_FILE"
+  cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
+  chmod 0755 "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
+
+  _helper_icon="$REPO_ROOT/Resources/ComputerUseHelperIcon.icns"
+  if [ -f "$_helper_icon" ]; then
+    cp "$_helper_icon" "$HELPER_APP/Contents/Resources/AppIcon.icns"
+  elif [ -f "$_cua_contents/Resources/AppIcon.icns" ]; then
+    cp "$_cua_contents/Resources/AppIcon.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
+  elif [ -f "$_cua_contents/Resources/AppIcon-Debug.icns" ]; then
+    cp "$_cua_contents/Resources/AppIcon-Debug.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
+  fi
+
   cat > "$HELPER_APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
