@@ -53,6 +53,53 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
     }
 
+    func testDebugShortcutUsesPreferredWindowWhenAppHasNoKeyWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let event = makeKeyDownEvent(
+                  key: "p",
+                  modifiers: [.command, .shift],
+                  keyCode: 35,
+                  windowNumber: 0
+              ) else {
+            XCTFail("Expected a window and Cmd+Shift+P event")
+            return
+        }
+
+        withTemporaryCommandPaletteShortcut(.commandPalette) {
+            KeyboardShortcutSettings.resetShortcut(for: .commandPalette)
+            let requestExpectation = expectation(description: "Expected a window-scoped palette request")
+            var requestedWindow: NSWindow?
+            let token = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRequested,
+                object: nil,
+                queue: nil
+            ) { notification in
+                requestedWindow = notification.object as? NSWindow
+                requestExpectation.fulfill()
+            }
+            defer { NotificationCenter.default.removeObserver(token) }
+
+            #if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event, preferredWindow: window)
+            )
+            #else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            #endif
+
+            wait(for: [requestExpectation], timeout: 1)
+            XCTAssertTrue(requestedWindow === window)
+        }
+    }
+
     func testFieldEditorMoveCommandHonorsClearedCommandPalettePreviousShortcut() {
         guard let controlPEvent = makeKeyDownEvent(
             key: "\u{10}",
