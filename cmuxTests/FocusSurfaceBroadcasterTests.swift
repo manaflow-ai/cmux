@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-/// Regression coverage for the focus-broadcast re-entrancy hang (issue #5100).
+/// Regression coverage for the focus-broadcast re-entrancy loop (issue #8843).
 ///
 /// Production symptom: `Workspace.applyTabSelectionNow` posted
 /// `.ghosttyDidFocusSurface` *synchronously* while `@Published` selection state was
@@ -16,8 +16,8 @@ import Testing
 /// (`attemptCommandPaletteFocusRestoreIfNeeded` → `TabManager.focusTab` →
 /// `Workspace.focusPanel` → `applyTabSelectionNow` → post again). The only guard
 /// (`Workspace.isApplyingTabSelection`) is per-instance, so a cycle that bounced
-/// through SwiftUI body re-evaluation and across workspace instances was unbounded —
-/// a 426s main-thread hang.
+/// through SwiftUI body re-evaluation and across workspace instances was unbounded,
+/// matching the hours-long SwiftUI/AppKit layout loop in issue #8843.
 ///
 /// ``FocusSurfaceBroadcaster`` is the fix seam: emitting a focus broadcast is now
 /// deferred + coalesced and a re-entrant emit during delivery is drained in a bounded
@@ -54,6 +54,17 @@ struct FocusSurfaceBroadcasterTests {
             let work = pending
             pending.removeAll()
             for unit in work { unit() }
+        }
+    }
+
+    /// Safe because the relay is main-actor isolated and every captured test
+    /// delivery closure is also `@MainActor`.
+    @MainActor
+    private final class BroadcasterRelay: @unchecked Sendable {
+        var broadcaster: FocusSurfaceBroadcaster?
+
+        func emit(_ payload: FocusSurfaceBroadcaster.FocusSurfacePayload) {
+            broadcaster?.emit(payload)
         }
     }
 
@@ -107,13 +118,13 @@ struct FocusSurfaceBroadcasterTests {
         let scheduler = ManualScheduler()
         var delivered: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         var boundExceeded: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
-        var broadcaster: FocusSurfaceBroadcaster!
+        let relay = BroadcasterRelay()
         let reentryTarget = Self.payload(99)
         // Simulates the .onReceive → focusTab → applyTabSelectionNow → emit cycle:
         // every delivery re-focuses, far more often than the per-turn bound allows.
         var reentryBudget = 100
 
-        broadcaster = FocusSurfaceBroadcaster(
+        let broadcaster = FocusSurfaceBroadcaster(
             maxCoalescedDeliveries: 8,
             maxConsecutiveBoundedFlushes: 1_000,
             schedule: { scheduler.append($0) },
@@ -122,10 +133,11 @@ struct FocusSurfaceBroadcasterTests {
                 delivered.append(payload)
                 if reentryBudget > 0 {
                     reentryBudget -= 1
-                    broadcaster.emit(reentryTarget)
+                    relay.emit(reentryTarget)
                 }
             }
         )
+        relay.broadcaster = broadcaster
 
         broadcaster.emit(Self.payload(0))
 
@@ -159,23 +171,24 @@ struct FocusSurfaceBroadcasterTests {
     func reentrantEmitConvergesToFinalSelection() {
         let scheduler = ManualScheduler()
         var delivered: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
-        var broadcaster: FocusSurfaceBroadcaster!
+        let relay = BroadcasterRelay()
         let finalTarget = Self.payload(7)
         // The observer re-focuses the same target a couple of times, then stops —
         // the realistic case where focus restore eventually converges.
         var reEmitsRemaining = 2
 
-        broadcaster = FocusSurfaceBroadcaster(
+        let broadcaster = FocusSurfaceBroadcaster(
             maxCoalescedDeliveries: 8,
             schedule: { scheduler.append($0) },
             deliver: { payload in
                 delivered.append(payload)
                 if reEmitsRemaining > 0 {
                     reEmitsRemaining -= 1
-                    broadcaster.emit(finalTarget)
+                    relay.emit(finalTarget)
                 }
             }
         )
+        relay.broadcaster = broadcaster
 
         broadcaster.emit(Self.payload(0))
         scheduler.runAll()
@@ -191,11 +204,11 @@ struct FocusSurfaceBroadcasterTests {
         let scheduler = ManualScheduler()
         var delivered: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
         var boundExceeded: [FocusSurfaceBroadcaster.FocusSurfacePayload] = []
-        var broadcaster: FocusSurfaceBroadcaster!
+        let relay = BroadcasterRelay()
         let reentryTarget = Self.payload(8843)
         var reentryBudget = 1_000
 
-        broadcaster = FocusSurfaceBroadcaster(
+        let broadcaster = FocusSurfaceBroadcaster(
             maxCoalescedDeliveries: 2,
             schedule: { scheduler.append($0) },
             onDrainBoundExceeded: { boundExceeded.append($0) },
@@ -203,10 +216,11 @@ struct FocusSurfaceBroadcasterTests {
                 delivered.append(payload)
                 if reentryBudget > 0 {
                     reentryBudget -= 1
-                    broadcaster.emit(reentryTarget)
+                    relay.emit(reentryTarget)
                 }
             }
         )
+        relay.broadcaster = broadcaster
 
         broadcaster.emit(Self.payload(0))
 

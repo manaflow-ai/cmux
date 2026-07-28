@@ -1,4 +1,11 @@
 import Foundation
+import OSLog
+import CmuxNotifications
+
+nonisolated private let focusSurfaceBroadcasterLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "FocusSurfaceBroadcaster"
+)
 
 /// Coalesces and defers `.ghosttyDidFocusSurface` focus broadcasts so that emitting
 /// one mid-mutation can never synchronously re-enter the focus/selection path.
@@ -14,7 +21,8 @@ import Foundation
 /// (`Workspace.isApplyingTabSelection`) is *per-instance*, a cycle that bounces
 /// through SwiftUI body re-evaluation and across different `Workspace` instances
 /// (command-palette focus restore + cross-workspace handoff) was unbounded. That is
-/// the 426s main-thread hang in https://github.com/manaflow-ai/cmux/issues/5100.
+/// the re-entrant SwiftUI/AppKit layout loop reported in
+/// https://github.com/manaflow-ai/cmux/issues/8843.
 ///
 /// ## Contract
 ///
@@ -72,21 +80,11 @@ final class FocusSurfaceBroadcaster {
 #if DEBUG
             cmuxDebugLog(message)
 #endif
-            NSLog("%@", message)
+            focusSurfaceBroadcasterLogger.error("\(message, privacy: .public)")
         }
     )
 
-    private let deliver: @MainActor (FocusSurfacePayload) -> Void
-    private let schedule: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
-    private let maxCoalescedDeliveries: Int
-    private let maxConsecutiveBoundedFlushes: Int
-    private let onDrainBoundExceeded: @MainActor (FocusSurfacePayload) -> Void
-    private let onCircuitBreakerTripped: @MainActor (FocusSurfacePayload) -> Void
-
-    private var pending: FocusSurfacePayload?
-    private var flushScheduled = false
-    private var isDelivering = false
-    private var consecutiveBoundedFlushes = 0
+    private let coalescer: FocusSurfaceBroadcastCoalescer<FocusSurfacePayload>
 
     /// Creates a broadcaster.
     ///
@@ -109,14 +107,14 @@ final class FocusSurfaceBroadcaster {
     init(
         maxCoalescedDeliveries: Int = 8,
         maxConsecutiveBoundedFlushes: Int = 4,
-        schedule: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
+        schedule: @escaping @MainActor @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { work() }
             }
         },
-        onDrainBoundExceeded: @escaping @MainActor (FocusSurfacePayload) -> Void = { _ in },
-        onCircuitBreakerTripped: @escaping @MainActor (FocusSurfacePayload) -> Void = { _ in },
-        deliver: @escaping @MainActor (FocusSurfacePayload) -> Void = { payload in
+        onDrainBoundExceeded: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { _ in },
+        onCircuitBreakerTripped: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { _ in },
+        deliver: @escaping @MainActor @Sendable (FocusSurfacePayload) -> Void = { payload in
             NotificationCenter.default.post(
                 name: .ghosttyDidFocusSurface,
                 object: nil,
@@ -128,12 +126,14 @@ final class FocusSurfaceBroadcaster {
             )
         }
     ) {
-        self.maxCoalescedDeliveries = max(1, maxCoalescedDeliveries)
-        self.maxConsecutiveBoundedFlushes = max(1, maxConsecutiveBoundedFlushes)
-        self.schedule = schedule
-        self.onDrainBoundExceeded = onDrainBoundExceeded
-        self.onCircuitBreakerTripped = onCircuitBreakerTripped
-        self.deliver = deliver
+        self.coalescer = FocusSurfaceBroadcastCoalescer(
+            maxCoalescedDeliveries: maxCoalescedDeliveries,
+            maxConsecutiveBoundedFlushes: maxConsecutiveBoundedFlushes,
+            schedule: schedule,
+            onDrainBoundExceeded: onDrainBoundExceeded,
+            onCircuitBreakerTripped: onCircuitBreakerTripped,
+            deliver: deliver
+        )
     }
 
     /// Records a focus broadcast for asynchronous, coalesced delivery.
@@ -143,15 +143,7 @@ final class FocusSurfaceBroadcaster {
     /// progress (an observer re-entered during a flush), the payload is recorded for
     /// the active drain loop instead of scheduling another flush.
     func emit(_ payload: FocusSurfacePayload) {
-        pending = payload
-        // A re-entrant emit during delivery hands the payload to the running drain
-        // loop; scheduling another flush here would re-introduce the storm.
-        if isDelivering { return }
-        if flushScheduled { return }
-        flushScheduled = true
-        schedule { @Sendable [weak self] in
-            self?.flush()
-        }
+        coalescer.emit(payload)
     }
 
     /// Delivers the pending broadcast(s) on the main queue.
@@ -160,50 +152,6 @@ final class FocusSurfaceBroadcaster {
     /// spin forever. Exposed (non-private) so tests can run the scheduled flush
     /// deterministically.
     func flush() {
-        flushScheduled = false
-        // Defensive: never run nested deliveries even if a flush is somehow scheduled
-        // while one is already draining.
-        guard !isDelivering else { return }
-        isDelivering = true
-
-        var iterations = 0
-        var hitDeliveryBound = false
-        while let next = pending {
-            pending = nil
-            iterations += 1
-            if iterations > maxCoalescedDeliveries {
-                // Re-entrancy did not converge within this turn. Keep the latest
-                // payload for now and let the post-loop reschedule continue it on
-                // a fresh runloop turn. If this keeps happening across turns, the
-                // circuit breaker below drops the payload rather than letting a
-                // SwiftUI/AppKit layout storm run indefinitely.
-                pending = next
-                hitDeliveryBound = true
-                consecutiveBoundedFlushes += 1
-                onDrainBoundExceeded(next)
-                if consecutiveBoundedFlushes >= maxConsecutiveBoundedFlushes {
-                    pending = nil
-                    consecutiveBoundedFlushes = 0
-                    onCircuitBreakerTripped(next)
-                }
-                break
-            }
-            deliver(next)
-        }
-
-        isDelivering = false
-        if !hitDeliveryBound {
-            consecutiveBoundedFlushes = 0
-        }
-        // A delivery (or `onDrainBoundExceeded`) may have left a payload pending —
-        // either because the per-turn bound tripped, or because a re-entrant emit
-        // raced the `isDelivering` window and returned without scheduling. Schedule
-        // one more flush for finite cycles; non-converging cycles are cleared above.
-        if pending != nil, !flushScheduled {
-            flushScheduled = true
-            schedule { @Sendable [weak self] in
-                self?.flush()
-            }
-        }
+        coalescer.flush()
     }
 }
