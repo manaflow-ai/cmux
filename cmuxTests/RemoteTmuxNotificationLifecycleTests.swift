@@ -238,6 +238,11 @@ struct RemoteTmuxNotificationLifecycleTests {
             return
         }
         #expect(harness.workspace.focusedPanelId == containerPanelID)
+        #expect(
+            TerminalNotificationStore.shared.notifications
+                .first(where: { $0.id == notification.id })?.isRead == false,
+            "Projected-pane notifications must remain unread until tmux confirms the requested pane"
+        )
         harness.writer.close()
         let commands = try #require(String(
             bytes: try harness.pipe.fileHandleForReading.readToEnd() ?? Data(),

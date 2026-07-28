@@ -208,7 +208,7 @@ struct RemoteTmuxProjectedFocusInteractionTests {
     }
 
     @Test
-    func projectedPaneWordPathSnapshotUsesMirrorOwnedTerminal() throws {
+    func projectedPaneWordPathSnapshotRejectsRemoteFilesystemResolution() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
         let mirror = try splitInitiallySinglePaneWindow(in: harness)
@@ -216,8 +216,8 @@ struct RemoteTmuxProjectedFocusInteractionTests {
 
         #expect(harness.workspace.panels[activePane.id] == nil)
         #expect(
-            activePane.hostedView.surfaceView.debugWordPathSnapshotTerminalPanelID() == activePane.id,
-            "Pointer-anchored path lookup must read the projected pane, not its retired wrapper"
+            activePane.hostedView.surfaceView.debugWordPathSnapshotTerminalPanelID() == nil,
+            "Projected SSH-tmux transcripts must not probe the local filesystem"
         )
     }
 
