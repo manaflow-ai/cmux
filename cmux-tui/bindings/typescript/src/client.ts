@@ -202,6 +202,16 @@ export interface SendOptions {
   /** Request bracketed-paste wrapping when terminal mode 2004 is enabled. */
   paste?: boolean;
 }
+export interface ReportAgentOptions {
+  session?: string | null;
+  label?: string | null;
+  detail?: string | null;
+  started_at_ms?: number | null;
+  tasks_completed?: number | null;
+  tasks_total?: number | null;
+  jobs_running?: number | null;
+  agents_active?: number | null;
+}
 export interface SubscribeOptions { treeEvents?: "coarse" | "deltas" }
 export type AttachSurfaceOptions = { mode?: "bytes" | "render" } & (
   | { cols: number; rows: number }
@@ -838,22 +848,30 @@ export class CmuxClient {
   listAgents(options: CmuxRequestParams<"list-agents"> = {}): Promise<ListAgentsResult> {
     return this.request("list-agents", options);
   }
+  reportAgent(
+    surface: IdRef,
+    state: AgentState,
+    source: AgentReportSource,
+    session?: string | null,
+  ): Promise<ReportAgentResult>;
+  reportAgent(
+    surface: IdRef,
+    state: AgentState,
+    source: AgentReportSource,
+    options?: ReportAgentOptions,
+  ): Promise<ReportAgentResult>;
   async reportAgent(
     surface: IdRef,
     state: AgentState,
     source: AgentReportSource,
-    options: {
-      session?: string | null;
-      label?: string | null;
-      detail?: string | null;
-      started_at_ms?: number | null;
-      tasks_completed?: number | null;
-      tasks_total?: number | null;
-      jobs_running?: number | null;
-      agents_active?: number | null;
-    } = {},
+    sessionOrOptions: string | ReportAgentOptions | null = {},
   ): Promise<ReportAgentResult> {
-    if (Object.values(options).some((value) => value !== undefined && value !== null)) {
+    const options = typeof sessionOrOptions === "string" || sessionOrOptions === null
+      ? { session: sessionOrOptions }
+      : sessionOrOptions;
+    if (Object.entries(options).some(
+      ([key, value]) => key !== "session" && value !== undefined && value !== null,
+    )) {
       await this.requireProtocol(12, "agent telemetry");
     }
     return this.request("report-agent", { surface, state, source, ...options });

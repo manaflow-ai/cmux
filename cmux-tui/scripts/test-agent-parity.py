@@ -137,8 +137,10 @@ class AgentParitySmoke(unittest.TestCase):
             "--agents-active",
             "4",
         )
-        event = json.loads(subscriber_stream.readline())
-        self.assertEqual(event["event"], "agent-state-changed")
+        while True:
+            event = json.loads(subscriber_stream.readline())
+            if event.get("event") == "agent-state-changed":
+                break
         self.assertEqual(event["state"], "error")
         self.assertEqual(event["tasks_completed"], 3)
 

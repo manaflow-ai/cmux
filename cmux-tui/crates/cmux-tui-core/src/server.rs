@@ -2777,7 +2777,7 @@ pub fn window_title_osc(title: &str) -> Vec<u8> {
     format!("\x1b]0;{title}\x07\x1b]2;{title}\x07").into_bytes()
 }
 
-fn sanitize_window_title(title: &str) -> String {
+pub(crate) fn sanitize_window_title(title: &str) -> String {
     title
         .chars()
         .map(|ch| match ch {

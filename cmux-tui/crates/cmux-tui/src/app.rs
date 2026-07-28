@@ -95,6 +95,7 @@ const MACHINE_PROVIDER_RECONNECT_MAX_BACKOFF_EXPONENT: u8 = 5;
 const DURABLE_NOTICE_RECENT_CAPACITY: usize = 64;
 const DURABLE_NOTICE_QUEUE_CAPACITY: usize = 64;
 const DURABLE_NOTICE_DISPLAY_DURATION: Duration = Duration::from_secs(4);
+const NOTIFICATION_BANNER_DISPLAY_DURATION: Duration = Duration::from_secs(4);
 const DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT: u8 = 5;
 
 #[derive(Debug, Clone)]
@@ -4830,6 +4831,7 @@ pub struct App {
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub(crate) agent_records: HashMap<SurfaceId, AgentRecord>,
+    agent_observed_at_ms: HashMap<SurfaceId, u64>,
     last_agent_elapsed_second: Option<u64>,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub(crate) chrome_row_scratch: ReusableRowBuffer,
@@ -5991,12 +5993,14 @@ pub fn run_with_machine_updates(
     let sidebar_view = config.sidebar.view;
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let initial_machine_notice = machine_ui.as_ref().and_then(|machine| machine.notice.clone());
-    let agent_records = session
+    let agent_records: HashMap<SurfaceId, AgentRecord> = session
         .agents()
         .unwrap_or_default()
         .into_iter()
         .map(|record| (record.surface, record))
         .collect();
+    let agent_observed_at_ms =
+        agent_records.keys().copied().map(|surface| (surface, wall_clock_ms())).collect();
     let mut app = App {
         session,
         session_event_worker: Some(session_event_worker),
@@ -6023,6 +6027,7 @@ pub fn run_with_machine_updates(
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         agent_records,
+        agent_observed_at_ms,
         last_agent_elapsed_second: None,
         render_states: HashMap::new(),
         chrome_row_scratch: ReusableRowBuffer::default(),
@@ -6501,7 +6506,14 @@ impl App {
         let started = record.telemetry.started_at_ms?;
         let end = match record.state {
             AgentState::Done | AgentState::Error => record.updated_at_ms,
-            _ => wall_clock_ms(),
+            _ => {
+                let observed_at = self
+                    .agent_observed_at_ms
+                    .get(&record.surface)
+                    .copied()
+                    .unwrap_or_else(wall_clock_ms);
+                record.updated_at_ms.saturating_add(wall_clock_ms().saturating_sub(observed_at))
+            }
         };
         Some(end.saturating_sub(started) / 1_000)
     }
@@ -6533,8 +6545,12 @@ impl App {
     }
 
     fn tick_agent_elapsed(&mut self) -> bool {
-        let elapsed =
-            self.active_agent_record().and_then(|record| self.agent_elapsed_seconds(record));
+        let elapsed = self
+            .agent_records
+            .values()
+            .filter(|record| !matches!(record.state, AgentState::Done | AgentState::Error))
+            .filter_map(|record| self.agent_elapsed_seconds(record))
+            .max();
         if elapsed == self.last_agent_elapsed_second {
             false
         } else {
@@ -6733,13 +6749,13 @@ impl App {
             }
             action = action.merge(self.apply_graphics_completion());
             action = action.merge(self.process_machine_requests());
-            // Always drain retained failures. PtyFailuresReady only shortens
             if self.tick_agent_elapsed() {
                 action = action.merge(RenderAction::Draw);
             }
             if self.expire_notification_banner() {
                 action = action.merge(RenderAction::Draw);
             }
+            // Always drain retained failures. PtyFailuresReady only shortens
             // the idle wait, so a failed try_send cannot create a lost wakeup.
             action = action.merge(self.apply_pty_failures());
             if self.session.take_cancellation_pending() {
@@ -7388,6 +7404,8 @@ impl App {
             .into_iter()
             .map(|record| (record.surface, record))
             .collect();
+        self.agent_observed_at_ms =
+            self.agent_records.keys().copied().map(|surface| (surface, wall_clock_ms())).collect();
         self.last_agent_elapsed_second = None;
         self.render_states.clear();
         self.pane_areas.clear();
@@ -8388,6 +8406,7 @@ impl App {
         self.mux_titles.remove(surface);
         self.session.retire_surface_input(surface);
         self.agent_records.remove(&surface);
+        self.agent_observed_at_ms.remove(&surface);
         self.session.forget_surface(surface);
         if self.sidebar_plugin_surface == Some(surface) {
             self.session.invalidate_sidebar_plugin_sync();
@@ -9712,14 +9731,16 @@ impl App {
                 })
             }
             AppEvent::Mux(MuxEvent::AgentStateChanged { record, .. }) => {
-                self.agent_records.insert(record.surface, record);
+                let surface = record.surface;
+                self.agent_records.insert(surface, record);
+                self.agent_observed_at_ms.insert(surface, wall_clock_ms());
                 self.last_agent_elapsed_second = None;
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::Notification(event)) => {
                 self.notification_banner = Some(NotificationBanner {
                     event,
-                    deadline: Instant::now() + Duration::from_secs(4),
+                    deadline: Instant::now() + NOTIFICATION_BANNER_DISPLAY_DURATION,
                 });
                 Ok(RenderAction::Draw)
             }
@@ -16554,7 +16575,7 @@ mod tests {
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput,
         DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, GraphicIdentity,
         GraphicPlacement, GuardedMouseEncode, MachineActionWorker, MachineConnectRoute, MenuAction,
-        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
+        MenuItem, MutationImpact, MuxTitleIngress, NotificationBanner, OmnibarHit, OmnibarState,
         OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
         PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
@@ -18098,6 +18119,73 @@ mod tests {
         let status = rendered.lines().last().unwrap();
         assert!(status.contains("screens"), "{status}");
         assert!(status.contains("[session]"), "{status}");
+    }
+
+    #[test]
+    fn live_agent_elapsed_uses_server_timeline_despite_clock_skew() {
+        let mux = Mux::new("agent-elapsed-skew-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let started_at_ms = 9_000_000_000_000;
+        let record = AgentRecord {
+            surface: 41,
+            state: AgentState::Working,
+            source: AgentSource::Socket,
+            session: None,
+            telemetry: AgentTelemetry {
+                started_at_ms: Some(started_at_ms),
+                ..AgentTelemetry::default()
+            },
+            updated_at_ms: started_at_ms + 1_000,
+        };
+        app.agent_observed_at_ms.insert(41, wall_clock_ms().saturating_sub(2_000));
+
+        assert_eq!(app.agent_elapsed_seconds(&record), Some(3));
+    }
+
+    #[test]
+    fn elapsed_tick_tracks_running_agents_outside_the_active_surface() {
+        let mux = Mux::new("sidebar-agent-elapsed-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.agent_records.insert(
+            41,
+            AgentRecord {
+                surface: 41,
+                state: AgentState::Working,
+                source: AgentSource::Socket,
+                session: None,
+                telemetry: AgentTelemetry {
+                    started_at_ms: Some(wall_clock_ms().saturating_sub(1_000)),
+                    ..AgentTelemetry::default()
+                },
+                updated_at_ms: wall_clock_ms(),
+            },
+        );
+
+        assert!(app.tick_agent_elapsed());
+    }
+
+    #[test]
+    fn notification_banner_expiry_clears_only_expired_banners() {
+        let mux = Mux::new("notification-expiry-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let event = NotificationEvent {
+            notification: 1,
+            title: "Build".to_string(),
+            subtitle: None,
+            body: "done".to_string(),
+            level: NotificationLevel::Info,
+            surface: None,
+        };
+        app.notification_banner = Some(NotificationBanner {
+            event: event.clone(),
+            deadline: Instant::now() + Duration::from_secs(1),
+        });
+        assert!(!app.expire_notification_banner());
+
+        app.notification_banner =
+            Some(NotificationBanner { event, deadline: Instant::now() - Duration::from_millis(1) });
+        assert!(app.expire_notification_banner());
+        assert!(app.notification_banner.is_none());
     }
 
     #[test]
@@ -31642,6 +31730,7 @@ mod tests {
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
             agent_records: HashMap::new(),
+            agent_observed_at_ms: HashMap::new(),
             last_agent_elapsed_second: None,
             render_states: HashMap::<u64, RenderState>::new(),
             chrome_row_scratch: crate::ui::ReusableRowBuffer::default(),

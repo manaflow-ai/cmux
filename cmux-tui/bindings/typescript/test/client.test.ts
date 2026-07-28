@@ -1606,6 +1606,36 @@ test("protocol 12 helpers serialize notification subtitles and agent telemetry",
   await client.close();
 });
 
+test("reportAgent preserves legacy session calls and gates only protocol 12 telemetry", async () => {
+  const reports: unknown[] = [];
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 11, session: "main", pid: 1 },
+      });
+      return;
+    }
+    reports.push(request);
+    connection.emit({ id: request.id, ok: true, data: { ...request, updated_at_ms: 1 } });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.reportAgent(41, "working", "socket", "legacy-session");
+  await client.reportAgent(42, "idle", "socket", { session: "object-session" });
+  await assert.rejects(
+    client.reportAgent(43, "working", "socket", { detail: "reviewing" }),
+    /agent telemetry requires protocol 12/,
+  );
+
+  assert.deepEqual(reports, [
+    { id: 1, cmd: "report-agent", surface: 41, state: "working", source: "socket", session: "legacy-session" },
+    { id: 2, cmd: "report-agent", surface: 42, state: "idle", source: "socket", session: "object-session" },
+  ]);
+  await client.close();
+});
+
 test("protocol v7 commands preserve protocol v6 server failures as command errors", async () => {
   const transport = new ScriptedTransport((request, connection) => {
     connection.emit({

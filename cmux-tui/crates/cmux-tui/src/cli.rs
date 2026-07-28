@@ -1190,16 +1190,21 @@ fn build_notify(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(value)
 }
 
+fn validate_agent_state(state: &str) -> Result<(), UsageError> {
+    if matches!(state, "working" | "blocked" | "idle" | "done" | "error" | "unknown") {
+        Ok(())
+    } else {
+        Err(UsageError(
+            "--state must be working, blocked, idle, done, error, or unknown".to_string(),
+        ))
+    }
+}
+
 fn build_list_agents(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({});
     flags.insert_optional_u64(&mut value, "surface")?;
     if let Some(state) = flags.optional("state") {
-        if !matches!(state.as_str(), "working" | "blocked" | "idle" | "done" | "error" | "unknown")
-        {
-            return Err(UsageError(
-                "--state must be working, blocked, idle, done, error, or unknown".to_string(),
-            ));
-        }
+        validate_agent_state(&state)?;
         value["state"] = json!(state);
     }
     Ok(value)
@@ -1207,11 +1212,7 @@ fn build_list_agents(flags: &FlagMap) -> Result<Value, UsageError> {
 
 fn build_report_agent(flags: &FlagMap) -> Result<Value, UsageError> {
     let state = flags.required("state")?;
-    if !matches!(state.as_str(), "working" | "blocked" | "idle" | "done" | "error" | "unknown") {
-        return Err(UsageError(
-            "--state must be working, blocked, idle, done, error, or unknown".to_string(),
-        ));
-    }
+    validate_agent_state(&state)?;
     let source = flags.required("source")?;
     if !matches!(source.as_str(), "socket" | "hook") {
         return Err(UsageError("--source must be socket or hook".to_string()));

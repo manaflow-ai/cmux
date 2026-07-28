@@ -210,10 +210,10 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345,"registry_id":"registry-1","generation":"generation-1","workspace_revision":7}}
 ```
 
-The current server reports protocol `12` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, protocol 10 before using per-surface client sizing, protocol 11 for upstream viewport/layout/clear-history additions, and protocol 12 before using agent telemetry fields, `agent-state-changed`, or notification subtitles.
+The current server reports protocol `12` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`; protocol 9 before decoding stack layouts, sending `new-pane`, or using capability-gated `clear-history`; protocol 10 before using per-surface client sizing; protocol 11 for upstream viewport/layout additions; and protocol 12 before using agent telemetry fields, `agent-state-changed`, or notification subtitles. `clear-history` additionally requires `clear-history-v1` and its structured fallback requires `clear-history-key-v1`.
 
 ### ping
 
@@ -3157,7 +3157,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `notify` |
-| Flags | `--title <title> --body <body> [--subtitle <subtitle>] [--level info|warning|error] [--surface <id>]` |
+| Flags | `--title <title> --body <body> [--subtitle <subtitle>] [--level info\|warning\|error] [--surface <id>]` |
 | Plain stdout | notification id followed by newline |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -3220,7 +3220,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `list-agents` |
-| Flags | `[--surface <id>] [--state working|blocked|idle|done|error|unknown]` |
+| Flags | `[--surface <id>] [--state working\|blocked\|idle\|done\|error\|unknown]` |
 | Plain stdout | one line per agent: `<surface> <state> <source> <session-or->` |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -3278,7 +3278,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `report-agent` |
-| Flags | `--surface <id> --state working|blocked|idle|done|error|unknown --source socket|hook [--session <id>] [--label <label>] [--detail <detail>] [--started-at-ms <n>] [--tasks-completed <n>] [--tasks-total <n>] [--jobs-running <n>] [--agents-active <n>]` |
+| Flags | `--surface <id> --state working\|blocked\|idle\|done\|error\|unknown --source socket\|hook [--session <id>] [--label <label>] [--detail <detail>] [--started-at-ms <n>] [--tasks-completed <n>] [--tasks-total <n>] [--jobs-running <n>] [--agents-active <n>]` |
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |

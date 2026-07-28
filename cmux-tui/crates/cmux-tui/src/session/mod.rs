@@ -25,7 +25,7 @@ use cmux_tui_core::{
     TerminalPointerSnapshot, ViewportWidthError, WorkspaceId, ZoomMode,
 };
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value as JsonValue, json};
 
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
@@ -250,6 +250,21 @@ pub enum SurfaceHandle {
     RemoteBrowserUnsupported,
 }
 
+fn decode_remote_agent_list(value: &JsonValue) -> anyhow::Result<Vec<AgentRecord>> {
+    let agents = value
+        .get("agents")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| anyhow::anyhow!("remote list-agents response omitted its agents array"))?;
+    agents
+        .iter()
+        .map(|value| {
+            remote::parse_agent_record(value).ok_or_else(|| {
+                anyhow::anyhow!("remote list-agents response contained a malformed agent")
+            })
+        })
+        .collect()
+}
+
 impl Session {
     pub(crate) fn allocate_layout_resize_owner(&self) -> u64 {
         match self {
@@ -273,13 +288,7 @@ impl Session {
             Session::Local(mux) => Ok(mux.list_agents(None, None)),
             Session::Remote(remote) => {
                 let value = remote.request(json!({"cmd": "list-agents"}))?;
-                Ok(value
-                    .get("agents")
-                    .and_then(serde_json::Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(remote::parse_agent_record)
-                    .collect())
+                decode_remote_agent_list(&value)
             }
         }
     }
@@ -2099,12 +2108,30 @@ pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
 #[cfg(test)]
 mod tests {
     use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
+    use serde_json::json;
 
     use super::{
-        Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
-        test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
-        test_remote_transport_error,
+        Session, decode_remote_agent_list, is_remote_surface_unavailable,
+        normalize_remote_layout_undo_error, resize_action, test_remote_rejected_error_with_code,
+        test_remote_rejected_error_with_message, test_remote_transport_error,
     };
+
+    #[test]
+    fn remote_agent_lists_reject_missing_non_array_and_malformed_records() {
+        assert!(decode_remote_agent_list(&json!({})).is_err());
+        assert!(decode_remote_agent_list(&json!({"agents": {}})).is_err());
+        assert!(
+            decode_remote_agent_list(&json!({
+                "agents": [{
+                    "surface": 41,
+                    "state": "working",
+                    "source": "socket",
+                    "updated_at_ms": 1
+                }, {"surface": "bad"}]
+            }))
+            .is_err()
+        );
+    }
 
     #[test]
     fn remote_surface_unavailable_matches_only_the_requested_surface_rejection() {

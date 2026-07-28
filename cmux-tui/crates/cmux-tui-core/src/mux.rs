@@ -3822,8 +3822,14 @@ impl Mux {
         state: AgentState,
         source: AgentSource,
         session: Option<String>,
-        telemetry: AgentTelemetry,
+        mut telemetry: AgentTelemetry,
     ) -> AgentRecord {
+        telemetry.label = telemetry
+            .label
+            .map(|value| crate::server::sanitize_window_title(&value).chars().take(64).collect());
+        telemetry.detail = telemetry
+            .detail
+            .map(|value| crate::server::sanitize_window_title(&value).chars().take(64).collect());
         let (previous, record) = {
             let mut records = self.agent_records.lock().unwrap();
             if let Some(existing) = records.get(&surface)
@@ -9638,6 +9644,29 @@ mod tests {
                     && changed.state == AgentState::Error
                     && changed.telemetry == telemetry
         ));
+    }
+
+    #[test]
+    fn agent_reports_sanitize_and_bound_free_form_telemetry() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let record = mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            None,
+            AgentTelemetry {
+                label: Some(format!("root\u{1b}[31m{}", "x".repeat(80))),
+                detail: Some("reviewing\nnext\u{7}".to_string()),
+                ..AgentTelemetry::default()
+            },
+        );
+
+        let label = record.telemetry.label.as_deref().unwrap();
+        let detail = record.telemetry.detail.as_deref().unwrap();
+        assert_eq!(label.chars().count(), 64);
+        assert!(!label.chars().any(char::is_control), "{label:?}");
+        assert_eq!(detail, "reviewing next ");
     }
 
     #[test]

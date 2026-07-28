@@ -27,7 +27,7 @@ Send [`identify`](commands.md#identify) immediately after connecting. Verify `da
 {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":12,"session":"main","pid":12345}}
 ```
 
-Require protocol 12 for lifecycle telemetry and notification subtitles. Upstream viewport/layout/clear-history behavior remains protocol 11, per-surface client sizing protocol 10, stack layouts protocol 9, stable split ids protocol 8, and render mode protocol 7.
+Require protocol 12 for lifecycle telemetry and notification subtitles. Upstream viewport/layout behavior remains protocol 11, per-surface client sizing protocol 10, stack layouts protocol 9, stable split ids protocol 8, and render mode protocol 7. Use `clear-history` only with `identify.protocol >= 9` and the advertised `clear-history-v1` capability; structured fallback keys also require `clear-history-key-v1`.
 
 ## 3. Load And Track The Workspace Tree
 

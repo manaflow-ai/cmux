@@ -15,6 +15,7 @@ import type {
   RenderStateEvent,
   Screen,
   Tree,
+  SubscribeEvent,
   TreeDeltaEvent,
 } from "../src/browser.js";
 
@@ -33,6 +34,38 @@ const scaledBrowserFrame: BrowserFrame = {
   data: "cG5n",
 };
 void scaledBrowserFrame;
+const notificationWithoutSubtitle: KnownCmuxEvent = {
+  event: "notification",
+  notification: 1,
+  title: "Build",
+  body: "done",
+  level: "info",
+  surface: null,
+};
+void notificationWithoutSubtitle;
+const subscribedNotification: SubscribeEvent = notificationWithoutSubtitle;
+void subscribedNotification;
+const agentWithoutTelemetry: KnownCmuxEvent = {
+  event: "agent-state-changed",
+  surface: 1,
+  previous: null,
+  state: "working",
+  source: "socket",
+  session: null,
+  updated_at_ms: 1,
+};
+void agentWithoutTelemetry;
+const agentWithNullTelemetry: KnownCmuxEvent = {
+  ...agentWithoutTelemetry,
+  label: null,
+  detail: null,
+  started_at_ms: null,
+  tasks_completed: null,
+  tasks_total: null,
+  jobs_running: null,
+  agents_active: null,
+};
+void agentWithNullTelemetry;
 const exportedViewportLayout: ExportLayoutResult = {
   layout: { type: "leaf", pane: 1 },
   panes: [{ pane: 1, surfaces: [2] }],
