@@ -12,15 +12,18 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `facfef23a`, the reviewed head of the
-merged https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless
-hidden-tab renderer reclamation and forced renderer rebuild transactions. The
-PR landed on `manaflow-ai/ghostty` `main` in merge commit `1e86b46e2`.
+The submodule pinned by this branch is `8b1781336`, the reviewed head of the
+merged https://github.com/manaflow-ai/ghostty/pull/165 follow-up to
+https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless hidden-tab
+renderer reclamation and forced renderer rebuild transactions. The original
+PR landed in merge commit `1e86b46e2`; its retry-race correction landed in
+merge commit `4dab6fd6c`.
 
 ### Hidden macOS renderer reclamation
 
 - Pull request:
   - https://github.com/manaflow-ai/ghostty/pull/153
+  - https://github.com/manaflow-ai/ghostty/pull/165
 - Commits:
   - `1de584d1e` (test: require lossless renderer realization requests)
   - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
@@ -57,6 +60,10 @@ PR landed on `manaflow-ai/ghostty` `main` in merge commit `1e86b46e2`.
   - `288fa8cac` (renderer: release presented targets without purge)
   - `bef29c98f` (test: hand external renderer retries to loop owner)
   - `facfef23a` (renderer: hand external retries to loop owner)
+  - `bcc7fc4bd` (test: reject stale renderer retry delivery)
+  - `2013a9c3d` (renderer: reject stale realization retry delivery)
+  - `41aeef311` (test: invalidate retry while claiming request)
+  - `8b1781336` (renderer: invalidate retry while claiming request)
 - Files:
   - `include/ghostty.h`
   - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
@@ -92,6 +99,9 @@ PR landed on `manaflow-ai/ghostty` `main` in merge commit `1e86b46e2`.
     purgeable.
   - Hands external-render retry scheduling back to the xev loop owner instead
     of mutating loop timers from the iOS external render queue.
+  - Tags retries with publication generations and invalidates them atomically
+    while claiming newer requests, so stale retries cannot override the latest
+    external-render state.
   - Shares immutable standard shader pipelines by Metal device and pixel
     format while preserving renderer-owned resources and transactional cleanup.
   - Observes native tab selection conservatively and avoids synchronous
@@ -99,11 +109,11 @@ PR landed on `manaflow-ai/ghostty` `main` in merge commit `1e86b46e2`.
   - Conflict note: future renderer lifecycle work must preserve lossless
     realization publication, forced rebuild transactions, bounded recovery,
     compositor-owned IOSurface lifetimes, loop-owned retry timers,
-    conservative tab selection, and off-main teardown without synchronous
-    main-queue waits.
+    generation-checked retry delivery, atomic request claiming, conservative
+    tab selection, and off-main teardown without synchronous main-queue waits.
 
-The pinned `facfef23a` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-facfef23a00ef87f7ce85a82170d619f28b60690-crashsubdir-cmux-crash-v1
+The pinned `8b1781336` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-8b178133645dade48828257cf8134410ef92bead-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### `os/open` stderr drain spin and zombie leak
