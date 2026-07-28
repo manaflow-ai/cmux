@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
+import shutil
 import socket
 import subprocess
 import tempfile
 import threading
+from pathlib import Path
 from typing import Optional
 
 
@@ -83,18 +84,11 @@ def shell_cases() -> list[tuple[str, Path, list[str]]]:
             ["/bin/zsh", "-f", "-c"],
         ),
     ]
-    fish = next(
-        (
-            Path(candidate)
-            for candidate in (
-                "/opt/homebrew/bin/fish",
-                "/usr/local/bin/fish",
-                "/usr/bin/fish",
-                "/bin/fish",
-            )
-            if os.access(candidate, os.X_OK)
-        ),
-        None,
+    fish_executable = shutil.which("fish")
+    fish = (
+        Path(fish_executable)
+        if fish_executable is not None and os.access(fish_executable, os.X_OK)
+        else None
     )
     if fish is not None:
         cases.append(
@@ -197,7 +191,7 @@ def assert_background_send_is_capability_authenticated(
         )
 
 
-def assert_tmux_publishes_capability(
+def assert_tmux_does_not_publish_capability(
     shell_name: str,
     integration: Path,
     argv_prefix: list[str],
@@ -208,10 +202,15 @@ def assert_tmux_publishes_capability(
     environment["CMUX_TEST_TMUX_LOG"] = str(log_path)
     run_shell(argv_prefix, tmux_publish_command(shell_name), environment)
     output = log_path.read_text(encoding="utf-8")
-    expected = f"set-environment -g CMUX_SOCKET_CAPABILITY {CAPABILITY}"
+    forbidden = "set-environment -g CMUX_SOCKET_CAPABILITY "
+    if forbidden in output:
+        raise AssertionError(
+            f"{shell_name} published the socket capability to tmux:\n{output}"
+        )
+    expected = "set-environment -g CMUX_SHELL_INTEGRATION 1"
     if expected not in output:
         raise AssertionError(
-            f"{shell_name} did not publish the socket capability to tmux:\n{output}"
+            f"{shell_name} did not publish ordinary cmux state to tmux:\n{output}"
         )
 
 
@@ -230,7 +229,7 @@ def main() -> int:
                 argv_prefix,
                 directory,
             )
-            assert_tmux_publishes_capability(
+            assert_tmux_does_not_publish_capability(
                 shell_name,
                 integration,
                 argv_prefix,
@@ -254,7 +253,7 @@ def main() -> int:
     tested_shells = ", ".join(case[0] for case in shell_cases())
     print(
         "PASS: detached shell reports present the inherited socket capability "
-        f"and publish it through tmux ({tested_shells})"
+        f"without publishing it through tmux ({tested_shells})"
     )
     return 0
 

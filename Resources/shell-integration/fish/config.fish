@@ -23,6 +23,8 @@ if test "$_cmux_integration_enabled" != 0
     set -g _CMUX_PWD_LAST_PWD ""
     set -g _CMUX_TMUX_PULL_SIGNATURE ""
     set -g _CMUX_TMUX_PUSH_SIGNATURE ""
+    # Keep CMUX_SOCKET_CAPABILITY inherited; tmux's global environment is
+    # readable by clients that were not started inside cmux.
     set -g _CMUX_TMUX_SYNC_KEYS \
         CMUX_BUNDLED_CLI_PATH \
         CMUX_BUNDLE_ID \
@@ -36,7 +38,6 @@ if test "$_cmux_integration_enabled" != 0
         CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD \
         CMUX_SHELL_INTEGRATION \
         CMUX_SHELL_INTEGRATION_DIR \
-        CMUX_SOCKET_CAPABILITY \
         CMUX_SOCKET_ENABLE \
         CMUX_SOCKET_MODE \
         CMUX_SOCKET_PATH \
