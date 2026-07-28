@@ -4650,8 +4650,8 @@
       "runButton": "npx で実行",
       "docsButton": "ドキュメントを読む",
       "sourceButton": "ソースを見る",
-      "screenshotAlt": "エージェント、テスト、アクティビティ用の3つのペインとワークスペースサイドバーを表示する cmux TUI",
-      "screenshotCaption": "実際の cmux-tui セッション · 132 × 36 セル · Ghostty VT レンダラー",
+      "screenshotAlt": "macOS の cmux 内で Neovim、OpenCode、Git diff を3つのペインに表示する cmux TUI",
+      "screenshotCaption": "両方のサイドバーを非表示にした、macOS の cmux 内で動く実際の cmux-tui セッション。",
       "facts": {
         "platforms": {
           "label": "対応環境",
@@ -4712,8 +4712,8 @@
       "metaDescription": "cmux TUI のインストール、ワークスペースモデル、キーボード操作、セッションへのアタッチ、リモート接続、自動化を説明します。",
       "title": "cmux TUI",
       "intro": "cmux TUI は macOS と Linux 向けの Rust 製ターミナルマルチプレクサです。ワークスペース、スクリーン、分割ペイン、ターミナルタブ、ブラウザタブ、リモートセッション、制御ソケットを一つのプロセスにまとめます。",
-      "screenshotAlt": "ワークスペースレールと分割ターミナルペインを表示する cmux TUI",
-      "screenshotCaption": "一つのワークスペース、3つのペイン、内蔵ワークスペースレールを備えたライブセッション。",
+      "screenshotAlt": "macOS の cmux 内で Neovim、OpenCode、Git diff を3つのペインに表示する cmux TUI",
+      "screenshotCaption": "Neovim、OpenCode、Git diff を表示するライブセッション。",
       "installTitle": "インストールと実行",
       "installIntro": "公開 npm パッケージを使うと、プラットフォームに合うネイティブバイナリが自動で選ばれます。",
       "installGlobal": "日常的に使う場合は、コマンドをグローバルにインストールします。",

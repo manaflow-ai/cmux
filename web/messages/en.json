@@ -4740,8 +4740,8 @@
       "runButton": "Run with npx",
       "docsButton": "Read the docs",
       "sourceButton": "View source",
-      "screenshotAlt": "cmux TUI showing a workspace sidebar and three panes for an agent, tests, and activity",
-      "screenshotCaption": "Real cmux-tui session · 132 × 36 cells · Ghostty VT renderer",
+      "screenshotAlt": "cmux TUI running inside cmux on macOS with Neovim, OpenCode, and a Git diff in three panes",
+      "screenshotCaption": "A real cmux-tui session inside cmux on macOS, with both sidebars hidden.",
       "facts": {
         "platforms": {
           "label": "Runs on",
@@ -4802,8 +4802,8 @@
       "metaDescription": "Install cmux TUI, learn its workspace model and keyboard controls, attach to sessions, connect remote machines, and automate it.",
       "title": "cmux TUI",
       "intro": "cmux TUI is a Rust terminal multiplexer for macOS and Linux. It combines workspaces, screens, split panes, terminal tabs, browser tabs, remote sessions, and a control socket in one process.",
-      "screenshotAlt": "cmux TUI with a workspace rail and split terminal panes",
-      "screenshotCaption": "A live session with one workspace, three panes, and the built-in workspace rail.",
+      "screenshotAlt": "cmux TUI running inside cmux on macOS with Neovim, OpenCode, and a Git diff in three panes",
+      "screenshotCaption": "A live session with Neovim, OpenCode, and a Git diff.",
       "installTitle": "Install and run",
       "installIntro": "The quickest start uses the published npm package, which selects a native binary for your platform.",
       "installGlobal": "Install the command globally when you use it regularly.",
