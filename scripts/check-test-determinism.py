@@ -708,6 +708,84 @@ def _swift_type_scopes(text: str) -> set[int]:
     return result
 
 
+def _swift_secondary_binding_events(
+    text: str,
+) -> dict[int, tuple[str, bool]]:
+    """Return non-leading bindings from comma-separated declarations."""
+    result: dict[int, tuple[str, bool]] = {}
+    declaration_pattern = re.compile(
+        rf"\b(?:let|var)\s+{_SWIFT_IDENTIFIER_PATTERN}\b"
+    )
+    closing_for = {"(": ")", "[": "]", "{": "}"}
+    for declaration in declaration_pattern.finditer(text):
+        delimiters: list[str] = []
+        statement_end = len(text)
+        for index in range(declaration.end(), len(text)):
+            character = text[index]
+            if character in closing_for:
+                delimiters.append(closing_for[character])
+                continue
+            if character in ")]}":
+                if not delimiters:
+                    statement_end = index
+                    break
+                if character == delimiters[-1]:
+                    delimiters.pop()
+                continue
+            if not delimiters and character == ";":
+                statement_end = index
+                break
+            if not delimiters and character in "\r\n":
+                previous = index - 1
+                while (
+                    previous >= declaration.end()
+                    and text[previous].isspace()
+                ):
+                    previous -= 1
+                if previous < declaration.end() or text[previous] != ",":
+                    statement_end = index
+                    break
+
+        segment_start = declaration.end()
+        delimiters.clear()
+        segments: list[tuple[int, int]] = []
+        for index in range(declaration.end(), statement_end):
+            character = text[index]
+            if character in closing_for:
+                delimiters.append(closing_for[character])
+            elif character in ")]}":
+                if delimiters and character == delimiters[-1]:
+                    delimiters.pop()
+            elif character == "," and not delimiters:
+                segments.append((segment_start, index))
+                segment_start = index + 1
+        segments.append((segment_start, statement_end))
+
+        for start, end in segments[1:]:
+            clause = text[start:end]
+            binding = re.match(
+                rf"\s*(?P<name>{_SWIFT_IDENTIFIER_PATTERN})\b",
+                clause,
+            )
+            if binding is None:
+                continue
+            name = binding.group("name")
+            suffix = clause[binding.end() :]
+            is_clock = bool(
+                re.match(
+                    rf"\s*:\s*{_SWIFT_CLOCK_TYPE_PATTERN}\b",
+                    suffix,
+                )
+                or re.match(
+                    rf"\s*=\s*{_SWIFT_CLOCK_TYPE_PATTERN}"
+                    rf"\s*\(\s*\)",
+                    suffix,
+                )
+            )
+            result[start + binding.start("name")] = (name, is_clock)
+    return result
+
+
 def _swift_type_member_bindings(
     text: str,
     type_scopes: set[int],
@@ -715,7 +793,26 @@ def _swift_type_member_bindings(
     """Pre-index direct type members because Swift ignores declaration order."""
     result = {opening: {} for opening in type_scopes}
     scope_openings: list[Optional[int]] = [None]
-    for event in _SWIFT_CLOCK_EVENT.finditer(text):
+    events = [
+        (event.start(), event, None)
+        for event in _SWIFT_CLOCK_EVENT.finditer(text)
+    ]
+    events.extend(
+        (offset, None, binding)
+        for offset, binding in _swift_secondary_binding_events(text).items()
+    )
+    for _, event, secondary_binding in sorted(
+        events,
+        key=lambda item: item[0],
+    ):
+        if secondary_binding is not None:
+            current = scope_openings[-1]
+            if current in type_scopes:
+                name, is_clock = secondary_binding
+                result[current][name] = is_clock
+            continue
+
+        assert event is not None
         if event.group("open_brace") is not None:
             scope_openings.append(event.start())
             continue
@@ -829,6 +926,11 @@ def _swift_conditional_bindings(
             declaration_offsets.add(
                 conditional.start("header") + event.start()
             )
+        for offset, (name, is_clock) in _swift_secondary_binding_events(
+            header
+        ).items():
+            bindings.setdefault(body_opening, {})[name] = is_clock
+            declaration_offsets.add(conditional.start("header") + offset)
     return bindings, declaration_offsets
 
 
@@ -968,15 +1070,25 @@ def _swift_named_clock_sleep_positions(text: str) -> set[int]:
         (offset, "case", None, bindings)
         for offset, bindings in switch_case_bindings.items()
     ]
-    for _, event_kind, event, case_bindings in sorted(
-        clock_events + case_events,
+    binding_events = [
+        (offset, "binding", None, binding)
+        for offset, binding in _swift_secondary_binding_events(text).items()
+    ]
+    for event_offset, event_kind, event, payload in sorted(
+        clock_events + case_events + binding_events,
         key=lambda item: item[0],
     ):
         if event_kind == "case":
             if len(scopes) > 1 and scopes[-1][0] == "case":
                 scopes.pop()
             if len(scopes) > 1 and scopes[-1][0] == "switch":
-                scopes.append(("case", case_bindings.copy()))
+                scopes.append(("case", payload.copy()))
+            continue
+        if event_kind == "binding":
+            if event_offset in conditional_declaration_offsets:
+                continue
+            name, is_clock = payload
+            scopes[-1][1][name] = is_clock
             continue
 
         assert event is not None
@@ -1324,10 +1436,14 @@ def _javascript_expression_arrow_scopes(
 def _javascript_for_loop_declarations(
     text: str,
     aliases: set[str],
-) -> tuple[dict[int, set[str]], set[int]]:
-    """Map braced for-loop bodies to their lexical timer-alias bindings."""
+) -> tuple[
+    dict[int, set[str]],
+    set[int],
+    list[tuple[int, int, set[str]]],
+]:
+    """Map for-loop bodies to their lexical timer-alias bindings."""
     if not aliases:
-        return {}, set()
+        return {}, set(), []
 
     alias_pattern = "|".join(
         re.escape(alias)
@@ -1338,23 +1454,49 @@ def _javascript_for_loop_declarations(
     )
     bindings: dict[int, set[str]] = {}
     declaration_offsets: set[int] = set()
+    unbraced_scopes: list[tuple[int, int, set[str]]] = []
     for loop in re.finditer(r"\bfor\s*(?:await\s*)?\(", text):
         opening = loop.end() - 1
         closing = _swift_matching_parenthesis(text, opening)
         if closing is None:
             continue
+        header = text[opening + 1 : closing]
+        loop_bindings: set[str] = set()
+        for declaration in declaration_pattern.finditer(header):
+            loop_bindings.add(declaration.group("declared"))
+            declaration_offsets.add(opening + 1 + declaration.start())
+        if not loop_bindings:
+            continue
+
         body_opening = closing + 1
         while body_opening < len(text) and text[body_opening].isspace():
             body_opening += 1
-        if body_opening >= len(text) or text[body_opening] != "{":
+        if body_opening >= len(text):
             continue
-        header = text[opening + 1 : closing]
-        for declaration in declaration_pattern.finditer(header):
-            bindings.setdefault(body_opening, set()).add(
-                declaration.group("declared")
-            )
-            declaration_offsets.add(opening + 1 + declaration.start())
-    return bindings, declaration_offsets
+        if text[body_opening] == "{":
+            bindings.setdefault(body_opening, set()).update(loop_bindings)
+            continue
+
+        delimiters: list[str] = []
+        closing_for = {"(": ")", "[": "]", "{": "}"}
+        body_end = len(text)
+        for index in range(body_opening, len(text)):
+            character = text[index]
+            if character in closing_for:
+                delimiters.append(closing_for[character])
+                continue
+            if character in ")]}":
+                if not delimiters:
+                    body_end = index
+                    break
+                if character == delimiters[-1]:
+                    delimiters.pop()
+                continue
+            if not delimiters and character in ";\r\n":
+                body_end = index
+                break
+        unbraced_scopes.append((body_opening, body_end, loop_bindings))
+    return bindings, declaration_offsets, unbraced_scopes
 
 
 def _javascript_class_body_scopes(text: str) -> set[int]:
@@ -1444,7 +1586,11 @@ def _javascript_timer_alias_positions(
             for start, end in callable_parameter_ranges
         )
 
-    for_loop_declarations, for_loop_declaration_offsets = (
+    (
+        for_loop_declarations,
+        for_loop_declaration_offsets,
+        unbraced_for_scopes,
+    ) = (
         _javascript_for_loop_declarations(text, aliases)
     )
     class_body_scopes = _javascript_class_body_scopes(text)
@@ -1568,7 +1714,9 @@ def _javascript_timer_alias_positions(
         alias = event.group("called")
         if any(
             start <= event.start() < end and alias in shadowed
-            for start, end, shadowed in expression_arrow_scopes
+            for start, end, shadowed in (
+                expression_arrow_scopes + unbraced_for_scopes
+            )
         ):
             continue
         for _, scope in reversed(scopes):
@@ -2061,6 +2209,13 @@ def _python_merge_binding_variants(
     return result
 
 
+def _python_literal_boolean(node: ast.AST) -> Optional[bool]:
+    """Return a statically certain boolean literal, if this is one."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+        return node.value
+    return None
+
+
 def _python_bindings_after_statement(
     statement: ast.stmt,
     bindings: dict[str, str],
@@ -2090,6 +2245,12 @@ def _python_bindings_after_statement(
     if isinstance(statement, ast.If):
         condition_bindings = bindings.copy()
         condition_bindings.update(_python_binding_updates(statement.test))
+        literal_condition = _python_literal_boolean(statement.test)
+        if literal_condition is not None:
+            return _python_bindings_after_block(
+                statement.body if literal_condition else statement.orelse,
+                condition_bindings,
+            )
         return _python_merge_binding_variants(
             [
                 _python_bindings_after_block(
@@ -2231,18 +2392,16 @@ def _python_direct_calls_in_statement(
             [bindings, condition_bindings]
         )
         result = _python_direct_calls_in_node(statement.test, test_bindings)
-        result.extend(
-            _python_direct_calls_in_block(
-                statement.body,
-                condition_bindings,
-            )
+        literal_condition = _python_literal_boolean(statement.test)
+        blocks = (
+            [statement.body if literal_condition else statement.orelse]
+            if literal_condition is not None
+            else [statement.body, statement.orelse]
         )
-        result.extend(
-            _python_direct_calls_in_block(
-                statement.orelse,
-                condition_bindings,
+        for block in blocks:
+            result.extend(
+                _python_direct_calls_in_block(block, condition_bindings)
             )
-        )
         return result
 
     if isinstance(statement, (ast.For, ast.AsyncFor)):
@@ -2856,6 +3015,13 @@ class _PythonSleepVisitor(ast.NodeVisitor):
 
     def visit_If(self, node: ast.If) -> None:
         self.visit(node.test)
+        literal_condition = _python_literal_boolean(node.test)
+        if literal_condition is not None:
+            for statement in (
+                node.body if literal_condition else node.orelse
+            ):
+                self.visit(statement)
+            return
         self._visit_branch_blocks([node.body, node.orelse])
 
     def _visit_loop(
