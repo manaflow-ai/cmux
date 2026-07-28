@@ -78,6 +78,35 @@ struct ExtensionWorktreeSpawnArgsTests {
         #expect(try !branchExists(result.branchName, projectRoot: projectRoot))
     }
 
+    @Test("rollback accepts a symlinked checkout path")
+    func rollbackAcceptsSymlinkedCheckoutPath() async throws {
+        let fileManager = FileManager.default
+        let projectRoot = try makeTemporaryRepository(label: "symlink-target")
+        let projectRootAlias = projectRoot
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(projectRoot.lastPathComponent)-alias-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer {
+            try? fileManager.removeItem(at: projectRootAlias)
+            try? fileManager.removeItem(at: projectRoot)
+        }
+        try fileManager.createSymbolicLink(at: projectRootAlias, withDestinationURL: projectRoot)
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(
+            projectRootPath: projectRootAlias.path
+        )
+        let resolvedWorktreePath = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
+            .resolvingSymlinksInPath()
+            .path
+
+        try await result.rollbackUnclaimedWorktree()
+
+        #expect(!fileManager.fileExists(atPath: resolvedWorktreePath))
+        #expect(try !branchExists(result.branchName, projectRoot: projectRoot))
+    }
+
     @Test("rollback retains checkout when tracked, untracked, or ignored content changes")
     func rollbackRetainsCheckoutWhenWorktreeContentChanges() async throws {
         let fileManager = FileManager.default
