@@ -64,6 +64,8 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 		{"omx team resume", omxLaunchIsNonLaunch, []string{"team", "resume"}, false},
 		{"omx leading option dispatches launch", omxLaunchIsNonLaunch, []string{"--scope", "project", "setup"}, false},
 		{"omx operator after leading option dispatches launch", omxLaunchIsNonLaunch, []string{"--scope", "project", "ask"}, false},
+		{"omx informational option value dispatches launch", omxLaunchIsNonLaunch, []string{"--scope", "--version"}, false},
+		{"omx delimiter blocks informational option", omxLaunchIsNonLaunch, []string{"--", "--version"}, false},
 		{"omc management", omcLaunchIsNonLaunch, []string{"doctor", "conflicts"}, true},
 		{"omc team api", omcLaunchIsNonLaunch, []string{"team", "api", "claim-task"}, true},
 		{"omc team status", omcLaunchIsNonLaunch, []string{"team", "status", "demo"}, true},

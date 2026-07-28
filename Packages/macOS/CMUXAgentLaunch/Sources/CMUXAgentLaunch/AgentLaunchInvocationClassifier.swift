@@ -17,6 +17,7 @@ public struct AgentLaunchInvocationClassifier {
             "auto-mode",
             "doctor",
             "gateway",
+            "import",
             "install",
             "kill",
             "logs",
@@ -216,7 +217,6 @@ public struct AgentLaunchInvocationClassifier {
                 "github": ["install"],
                 "session": ["delete", "list"],
             ],
-            informationalSubcommands: ["session"],
             booleanOptions: ["--mdns", "--print-logs", "--pure"],
             valueOptions: ["--cors", "--hostname", "--log-level", "--mdns-domain", "--port"]
         )
@@ -258,6 +258,16 @@ public struct AgentLaunchInvocationClassifier {
     public func omxLaunchIsNonLaunch(args: [String]) -> Bool {
         guard let first = args.first else { return false }
         if informationalOptions.contains(first) { return true }
+        if !first.hasPrefix("-") || first == "-" {
+            if nestedInformationalInvocation(
+                args: args,
+                startIndex: 1,
+                booleanOptions: [],
+                valueOptions: []
+            ) {
+                return true
+            }
+        }
         if first == "team" {
             guard args.count > 1 else { return false }
             switch args[1] {
@@ -274,7 +284,6 @@ public struct AgentLaunchInvocationClassifier {
         args: [String],
         managementCommands: Set<String>,
         managementSubcommands: [String: Set<String>] = [:],
-        informationalSubcommands: Set<String> = [],
         booleanOptions: Set<String>,
         valueOptions: Set<String>
     ) -> Bool {
@@ -283,11 +292,15 @@ public struct AgentLaunchInvocationClassifier {
             let argument = args[index]
             if argument == "--" { return false }
             if !argument.hasPrefix("-") || argument == "-" {
+                if nestedInformationalInvocation(
+                    args: args,
+                    startIndex: index + 1,
+                    booleanOptions: booleanOptions,
+                    valueOptions: valueOptions
+                ) {
+                    return true
+                }
                 if let allowedSubcommands = managementSubcommands[argument] {
-                    if informationalSubcommands.contains(argument),
-                       subcommandHasInformationalOption(args: args, startIndex: index + 1) {
-                        return true
-                    }
                     guard index + 1 < args.count else { return false }
                     return allowedSubcommands.contains(args[index + 1])
                 }
@@ -310,10 +323,33 @@ public struct AgentLaunchInvocationClassifier {
         return false
     }
 
-    private func subcommandHasInformationalOption(args: [String], startIndex: Int) -> Bool {
-        for argument in args.dropFirst(startIndex) {
+    private func nestedInformationalInvocation(
+        args: [String],
+        startIndex: Int,
+        booleanOptions: Set<String>,
+        valueOptions: Set<String>
+    ) -> Bool {
+        var index = startIndex
+        while index < args.count {
+            let argument = args[index]
             if argument == "--" { return false }
-            if informationalOptions.contains(optionName(argument)) { return true }
+            if !argument.hasPrefix("-") || argument == "-" {
+                index += 1
+                continue
+            }
+            let option = optionName(argument)
+            if informationalOptions.contains(option) { return true }
+            if booleanOptions.contains(option) {
+                index += 1
+                continue
+            }
+            guard valueOptions.contains(option) else { return false }
+            if argument.contains("=") {
+                index += 1
+            } else {
+                guard index + 1 < args.count else { return false }
+                index += 2
+            }
         }
         return false
     }

@@ -171,7 +171,6 @@ func omoLaunchIsNonLaunch(args []string) bool {
 			"github":  {"install": true},
 			"session": {"delete": true, "list": true},
 		},
-		map[string]bool{"session": true},
 		map[string]bool{"--mdns": true, "--print-logs": true, "--pure": true},
 		map[string]bool{
 			"--cors": true, "--hostname": true, "--log-level": true,
@@ -189,13 +188,17 @@ func omcLaunchIsNonLaunch(args []string) bool {
 		},
 		nil,
 		nil,
-		nil,
 	)
 }
 
 func omxLaunchIsNonLaunch(args []string) bool {
 	if len(args) == 0 {
 		return false
+	}
+	if !strings.HasPrefix(args[0], "-") || args[0] == "-" {
+		if agentNestedInformationalInvocation(args, 1, nil, nil) {
+			return true
+		}
 	}
 	if args[0] == "team" {
 		if len(args) < 2 {
@@ -215,7 +218,6 @@ func conservativeAgentNonLaunchInvocation(
 	args []string,
 	managementCommands map[string]bool,
 	managementSubcommands map[string]map[string]bool,
-	informationalSubcommands map[string]bool,
 	booleanOptions map[string]bool,
 	valueOptions map[string]bool,
 ) bool {
@@ -225,10 +227,10 @@ func conservativeAgentNonLaunchInvocation(
 			return false
 		}
 		if !strings.HasPrefix(argument, "-") || argument == "-" {
+			if agentNestedInformationalInvocation(args, index+1, booleanOptions, valueOptions) {
+				return true
+			}
 			if allowedSubcommands := managementSubcommands[argument]; allowedSubcommands != nil {
-				if informationalSubcommands[argument] && agentSubcommandHasInformationalOption(args, index+1) {
-					return true
-				}
 				return index+1 < len(args) && allowedSubcommands[args[index+1]]
 			}
 			return managementCommands[argument]
@@ -256,15 +258,40 @@ func conservativeAgentNonLaunchInvocation(
 	return false
 }
 
-func agentSubcommandHasInformationalOption(args []string, index int) bool {
-	for ; index < len(args); index++ {
+func agentNestedInformationalInvocation(
+	args []string,
+	index int,
+	booleanOptions map[string]bool,
+	valueOptions map[string]bool,
+) bool {
+	for index < len(args) {
 		argument := args[index]
 		if argument == "--" {
 			return false
 		}
-		if agentInformationalOptions[agentOptionName(argument)] {
+		if !strings.HasPrefix(argument, "-") || argument == "-" {
+			index++
+			continue
+		}
+		option := agentOptionName(argument)
+		if agentInformationalOptions[option] {
 			return true
 		}
+		if booleanOptions[option] {
+			index++
+			continue
+		}
+		if !valueOptions[option] {
+			return false
+		}
+		if strings.Contains(argument, "=") {
+			index++
+			continue
+		}
+		if index+1 >= len(args) {
+			return false
+		}
+		index += 2
 	}
 	return false
 }
@@ -278,7 +305,7 @@ func agentOptionName(argument string) string {
 
 var claudeTeamsManagementCommands = map[string]bool{
 	"auth": true, "auto-mode": true, "doctor": true,
-	"gateway": true, "install": true, "kill": true, "logs": true,
+	"gateway": true, "import": true, "install": true, "kill": true, "logs": true,
 	"mcp": true, "plugin": true, "plugins": true, "project": true,
 	"rm": true, "setup-token": true, "stop": true,
 	"update": true, "upgrade": true,
