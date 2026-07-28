@@ -182,6 +182,24 @@ struct RemoteTmuxNotificationLifecycleTests {
         )))
         #expect(resolvedProjectedContainer)
         #expect(externallyOpenedURLs == [projectedURL])
+        #expect(
+            harness.workspace.terminalLinkIsRemoteTerminal(panePanel.id),
+            "A projected SSH-tmux pane must remain remote at the terminal-link policy boundary"
+        )
+        let localOnlyPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("projected-link-\(UUID().uuidString).swift")
+        try "local-only".write(to: localOnlyPath, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: localOnlyPath) }
+        #expect(linkCoordinator.open(TerminalLinkOpenRequest(
+            rawValue: localOnlyPath.path,
+            sourceWorkspaceId: harness.workspace.id,
+            sourcePanelId: panePanel.id,
+            workingDirectory: nil
+        )))
+        #expect(
+            externallyOpenedURLs.last == localOnlyPath,
+            "Remote transcript paths must fall back externally instead of opening the Mac-local file in cmux"
+        )
 
         #expect(harness.manager.focusedSurfaceId(for: harness.workspace.id) == panePanel.id)
         #expect(AppDelegate.shared?.agentNotificationDeliveryTarget(
@@ -337,6 +355,54 @@ struct RemoteTmuxNotificationLifecycleTests {
         #expect(mirror.activePaneId == 5, "A rejected request must restore the previous pane")
         #expect(TerminalNotificationStore.shared.notifications
             .first(where: { $0.id == notification.id })?.isRead == false)
+    }
+
+    @Test
+    func projectedPaneForkRoutesCommandThroughRemoteTmuxOwner() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        try harness.publishSinglePane()
+
+        let sessionMirror = try #require(harness.workspace.remoteTmuxSessionMirror)
+        let containerPanelID = try #require(sessionMirror.panelIdByWindow[2])
+        let mirror = try #require(
+            harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID)
+        )
+        let panePanel = try #require(mirror.panel(forPane: 4))
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/tmp/remote fork",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/homebrew/bin/claude",
+                arguments: ["/opt/homebrew/bin/claude"],
+                workingDirectory: "/tmp/remote fork",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        harness.workspace.setRestoredAgentSnapshotForTesting(
+            snapshot,
+            panelId: panePanel.id
+        )
+
+        #expect(await harness.workspace.forkAgentConversationFromContextMenu(
+            fromPanelId: panePanel.id,
+            destination: .newTab
+        ))
+
+        harness.writer.close()
+        let commands = try #require(String(
+            bytes: try harness.pipe.fileHandleForReading.readToEnd() ?? Data(),
+            encoding: .utf8
+        ))
+        let forkCommand = try #require(
+            commands.split(separator: "\n").last(where: { $0.hasPrefix("new-window ") })
+        )
+        #expect(forkCommand.contains("claude"))
+        #expect(forkCommand.contains("--fork-session"))
     }
 
     @Test

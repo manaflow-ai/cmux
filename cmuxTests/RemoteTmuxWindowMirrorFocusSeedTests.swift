@@ -49,6 +49,59 @@ import Testing
         #expect(mirror.activePaneId == 8)
     }
 
+    @Test func reconnectRejectsOptimisticFocusBeforeReconciliation() throws {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-focus-reconnect-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer {
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 0, lines: [], isError: false)
+        )
+        connection.activePaneByWindow[1] = 4
+        let layout = Self.twoPaneLayout(left: 4, right: 5)
+        let workspace = Workspace()
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            appearance: .default,
+            makePanel: { _ in
+                workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
+            }
+        )
+        defer { mirror.teardown() }
+        var focusResult: Bool?
+
+        #expect(mirror.controlFocus(pane: 5) { focusResult = $0 })
+        #expect(mirror.activePaneId == 5)
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 1, lines: [], isError: false)
+        )
+
+        connection.observers.notifyStateChanged(.reconnecting)
+        mirror.reconcile(layout: layout)
+
+        #expect(focusResult == false)
+        #expect(
+            mirror.activePaneId == 4,
+            "Reconnect reconciliation must prefer published tmux truth over optimistic local focus"
+        )
+    }
+
     @Test func liveWindowPaneChangedUpdatesMirrorBeforeAnotherReconcile() throws {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
