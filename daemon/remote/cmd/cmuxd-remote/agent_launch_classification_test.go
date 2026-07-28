@@ -16,6 +16,7 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 		{"claude daemon host", claudeTeamsLaunchIsNonLaunch, []string{"daemon", "run"}, false},
 		{"claude bare daemon", claudeTeamsLaunchIsNonLaunch, []string{"daemon"}, false},
 		{"claude Agent View", claudeTeamsLaunchIsNonLaunch, []string{"agents"}, false},
+		{"claude ultrareview workflow", claudeTeamsLaunchIsNonLaunch, []string{"ultrareview"}, false},
 		{"claude tmux management", claudeTeamsLaunchIsNonLaunch, []string{"--tmux", "classic", "doctor"}, true},
 		{"claude informational after prompt", claudeTeamsLaunchIsNonLaunch, []string{"prompt", "--version"}, true},
 		{"claude uppercase V is a launch", claudeTeamsLaunchIsNonLaunch, []string{"-V"}, false},

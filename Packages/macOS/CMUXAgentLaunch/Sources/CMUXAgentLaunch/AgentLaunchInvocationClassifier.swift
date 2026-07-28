@@ -27,7 +27,6 @@ public struct AgentLaunchInvocationClassifier {
             "rm",
             "setup-token",
             "stop",
-            "ultrareview",
             "update",
             "upgrade",
         ]

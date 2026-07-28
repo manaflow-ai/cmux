@@ -162,7 +162,6 @@ exit 86
             "rm",
             "setup-token",
             "stop",
-            "ultrareview",
             "update",
             "upgrade",
         ):
@@ -217,6 +216,7 @@ exit 86
             ["config"],
             ["rc"],
             ["remote-control"],
+            ["ultrareview"],
         ):
             unmanaged = subprocess.run(
                 [cli_path, "claude-teams", *real_args],

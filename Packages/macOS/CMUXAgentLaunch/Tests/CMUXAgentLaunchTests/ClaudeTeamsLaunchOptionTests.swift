@@ -62,7 +62,7 @@ struct ClaudeTeamsLaunchOptionTests {
         let classifier = AgentLaunchInvocationClassifier()
         for command in [
             "auth", "auto-mode", "doctor", "gateway", "install", "kill", "logs", "mcp",
-            "plugin", "plugins", "project", "rm", "setup-token", "stop", "ultrareview", "update", "upgrade",
+            "plugin", "plugins", "project", "rm", "setup-token", "stop", "update", "upgrade",
         ] {
             #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: [command]))
             #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["--verbose", command]))
@@ -105,6 +105,7 @@ struct ClaudeTeamsLaunchOptionTests {
             ["config"],
             ["rc"],
             ["remote-control"],
+            ["ultrareview"],
         ]
         for args in launches {
             #expect(!classifier.claudeTeamsLaunchIsManagementCommand(args: args))
