@@ -346,12 +346,20 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         if browserShouldBlockInsecureHTTPURL(url) {
             presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
                 guard policy == .allow, let webView else { return }
-                browserLoadRequest(request, in: webView)
+                self.loadRequest(request, in: webView)
             }
             return
         }
 
-        browserLoadRequest(request, in: webView)
+        loadRequest(request, in: webView)
+    }
+
+    fileprivate func loadRequest(_ request: URLRequest, in webView: WKWebView) {
+        browserLoadRequest(
+            request,
+            in: webView,
+            localFileReadAccessPolicy: browserContext.localFileReadAccessPolicy
+        )
     }
 
     // MARK: - Insecure HTTP prompt (parity with main browser)
@@ -851,7 +859,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         recordSSLTrustBypassReplayRequest(request)
-        browserLoadRequest(request, in: webView)
+        controller?.loadRequest(request, in: webView)
     }
 
     func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
@@ -862,7 +870,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         recordSSLTrustBypassReplayRequest(request)
-        browserLoadRequest(request, in: webView)
+        controller?.loadRequest(request, in: webView)
     }
 
     private func recordSSLTrustBypassReplayRequest(_ request: URLRequest) {

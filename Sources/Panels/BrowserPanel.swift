@@ -729,6 +729,7 @@ func browserNewTabNavigationSeed(
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
     let websiteDataStore: WKWebsiteDataStore
+    let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
 }
 
 enum BrowserFileSystemAccessBridge {
@@ -3404,7 +3405,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            localFileReadAccessPolicy: localFileReadAccessPolicy
         )
     }
 
