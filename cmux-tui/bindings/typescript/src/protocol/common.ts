@@ -76,6 +76,7 @@ export interface AgentRecord {
   surface: Id;
   state: AgentState;
   source: AgentSource;
+  root_session: boolean;
   session: string | null;
   label?: string | null;
   detail?: string | null;

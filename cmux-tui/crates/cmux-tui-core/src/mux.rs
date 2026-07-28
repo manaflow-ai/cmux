@@ -435,6 +435,7 @@ impl AgentSource {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentTelemetry {
+    pub root_session: bool,
     pub label: Option<String>,
     pub detail: Option<String>,
     pub started_at_ms: Option<u64>,
@@ -9616,6 +9617,7 @@ mod tests {
         let surface = mux.new_workspace(None, None).unwrap();
         let events = mux.subscribe();
         let telemetry = AgentTelemetry {
+            root_session: true,
             label: Some("root".to_string()),
             detail: Some("reviewing".to_string()),
             started_at_ms: Some(1_700_000_000_000),

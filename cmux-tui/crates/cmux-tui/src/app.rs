@@ -6476,11 +6476,7 @@ fn wall_clock_ms() -> u64 {
         .min(u128::from(u64::MAX)) as u64
 }
 
-fn format_elapsed(
-    seconds: u64,
-    compact: bool,
-    messages: &localization::AgentMessages,
-) -> String {
+fn format_elapsed(seconds: u64, compact: bool, messages: &localization::AgentMessages) -> String {
     messages.elapsed(seconds, compact)
 }
 impl App {
@@ -6490,6 +6486,73 @@ impl App {
 
     pub(crate) fn agent_record(&self, surface: SurfaceId) -> Option<&AgentRecord> {
         self.agent_records.get(&surface)
+    }
+
+    fn is_omp_root_record(record: &AgentRecord) -> bool {
+        record.telemetry.root_session
+    }
+
+    fn omp_root_record(&self, surface: SurfaceId) -> Option<&AgentRecord> {
+        self.agent_record(surface).filter(|record| Self::is_omp_root_record(record))
+    }
+
+    pub(crate) fn omp_root_session_counts(&self) -> (usize, usize, usize) {
+        let mut running = 0;
+        let mut idle = 0;
+        let mut waiting = 0;
+        for record in self
+            .agent_records
+            .values()
+            .filter(|record| self.tree.surface(record.surface).is_some())
+            .filter(|record| Self::is_omp_root_record(record))
+        {
+            match record.state {
+                AgentState::Working => running += 1,
+                AgentState::Idle => idle += 1,
+                AgentState::Blocked => waiting += 1,
+                AgentState::Done | AgentState::Error | AgentState::Unknown => {}
+            }
+        }
+        (running, idle, waiting)
+    }
+
+    pub(crate) fn omp_root_workspace_summary(
+        &self,
+        workspace: &crate::session::WorkspaceView,
+    ) -> Option<String> {
+        use std::fmt::Write as _;
+
+        let mut counts = [0usize; 6];
+        for record in workspace
+            .screens
+            .iter()
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .filter_map(|tab| self.omp_root_record(tab.surface))
+        {
+            match record.state {
+                AgentState::Done => counts[0] += 1,
+                AgentState::Blocked => counts[1] += 1,
+                AgentState::Working => counts[2] += 1,
+                AgentState::Idle => counts[3] += 1,
+                AgentState::Error => counts[4] += 1,
+                AgentState::Unknown => counts[5] += 1,
+            }
+        }
+
+        let mut summary = String::new();
+        for (count, label) in
+            counts.into_iter().zip(["completed", "waiting", "running", "idle", "failed", "stopped"])
+        {
+            if count == 0 {
+                continue;
+            }
+            if !summary.is_empty() {
+                summary.push_str(" · ");
+            }
+            write!(&mut summary, "{count} {label}").expect("writing to a String cannot fail");
+        }
+        (!summary.is_empty()).then_some(summary)
     }
 
     pub(crate) fn active_agent_record(&self) -> Option<&AgentRecord> {
@@ -18091,6 +18154,7 @@ mod tests {
                 source: AgentSource::Socket,
                 session: Some("session-1".to_string()),
                 telemetry: AgentTelemetry {
+                    root_session: false,
                     label: Some("root".to_string()),
                     detail: Some("reviewing".to_string()),
                     started_at_ms: Some(wall_clock_ms().saturating_sub(65_000)),
@@ -18140,6 +18204,74 @@ mod tests {
         assert_eq!(messages.agents(4), "4体");
         assert_eq!(format_elapsed(3_661, false, messages), "1時間01分");
         assert_eq!(format_elapsed(61, false, messages), "1分01秒");
+    }
+
+    #[test]
+    fn workspace_subtitle_counts_every_omp_root_status_without_counting_subagents() {
+        let mux = Mux::new("omp-root-summary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut tree = notify_tree(41, false);
+        let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let template = pane.tabs[0].clone();
+        pane.tabs = (41..=47)
+            .map(|surface| {
+                let mut tab = template.clone();
+                tab.surface = surface;
+                tab
+            })
+            .collect();
+        let mut second_workspace = tree.workspaces[0].clone();
+        second_workspace.id = 5;
+        second_workspace.key = "00000000-0000-4000-8000-000000000005".to_string();
+        second_workspace.short_id = "000005".to_string();
+        second_workspace.name = "other".to_string();
+        let second_pane = &mut second_workspace.screens[0].panes[0];
+        second_pane.tabs = (48..=50)
+            .map(|surface| {
+                let mut tab = template.clone();
+                tab.surface = surface;
+                tab
+            })
+            .collect();
+        tree.workspaces.push(second_workspace);
+        app.tree = tree;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 80;
+        let record = |surface, state, root_session, label: &str, agents_active| AgentRecord {
+            surface,
+            state,
+            source: AgentSource::Hook,
+            session: Some(format!("session-{surface}")),
+            telemetry: AgentTelemetry {
+                root_session,
+                label: Some(label.to_string()),
+                agents_active: Some(agents_active),
+                ..AgentTelemetry::default()
+            },
+            updated_at_ms: wall_clock_ms(),
+        };
+        app.agent_records.insert(41, record(41, AgentState::Done, true, "Worker", 1));
+        app.agent_records.insert(42, record(42, AgentState::Blocked, true, "Worker", 1));
+        app.agent_records.insert(43, record(43, AgentState::Working, true, "Worker", 99));
+        app.agent_records.insert(44, record(44, AgentState::Idle, true, "Worker", 1));
+        app.agent_records.insert(45, record(45, AgentState::Error, true, "Worker", 1));
+        app.agent_records.insert(46, record(46, AgentState::Unknown, true, "Worker", 1));
+        app.agent_records.insert(47, record(47, AgentState::Blocked, false, "OMP", 1));
+        app.agent_records.insert(48, record(48, AgentState::Done, true, "Worker", 1));
+        app.agent_records.insert(49, record(49, AgentState::Working, true, "Worker", 1));
+        app.agent_records.insert(50, record(50, AgentState::Working, true, "Worker", 1));
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+
+        assert!(
+            rendered
+                .contains("1 completed · 1 waiting · 1 running · 1 idle · 1 failed · 1 stopped"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("1 completed · 2 running"), "{rendered}");
+        assert!(!rendered.contains("99"), "subagent telemetry leaked into root counts: {rendered}");
     }
 
     #[test]
@@ -27944,6 +28076,44 @@ mod tests {
         assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.border_active));
         assert!(!row_contains(buffer, 1, "•"), "tab bar dot should clear");
         assert_ne!(buffer[(1, 2)].symbol(), "•", "sidebar dot should clear");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn omp_root_status_does_not_impersonate_unread_workspace_marker() {
+        let mux = Mux::new("omp-root-unread-marker-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_width = 14;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(notify_tree(surface.id, false));
+        app.agent_records.insert(
+            surface.id,
+            AgentRecord {
+                surface: surface.id,
+                state: AgentState::Blocked,
+                source: AgentSource::Hook,
+                session: Some("session-root".to_string()),
+                telemetry: AgentTelemetry {
+                    root_session: true,
+                    label: Some("Worker".to_string()),
+                    agents_active: Some(42),
+                    ..AgentTelemetry::default()
+                },
+                updated_at_ms: wall_clock_ms(),
+            },
+        );
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+
+        assert_ne!(
+            buffer[(1, 2)].symbol(),
+            "•",
+            "workspace marker is reserved for unread notifications"
+        );
 
         mux.close_surface(surface.id).unwrap();
     }

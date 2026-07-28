@@ -52,6 +52,7 @@ const agentWithoutTelemetry: KnownCmuxEvent = {
   state: "working",
   source: "socket",
   session: null,
+  root_session: false,
   updated_at_ms: 1,
 };
 void agentWithoutTelemetry;
@@ -163,6 +164,7 @@ const requests = [
     surface: 1,
     state: "error",
     source: "socket",
+    root_session: true,
     session: "session-1",
     label: "root",
     detail: "reviewing",

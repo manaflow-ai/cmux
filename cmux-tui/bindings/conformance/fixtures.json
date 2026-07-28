@@ -490,8 +490,8 @@
         },
         {
           "type": "command",
-          "request": { "id": 6, "cmd": "report-agent", "surface": "$surface0", "state": "working", "source": "socket", "session": "conf" },
-          "expect": { "id": 6, "ok": true, "data": { "state": "working", "source": "socket", "session": "conf" } },
+          "request": { "id": 6, "cmd": "report-agent", "surface": "$surface0", "state": "working", "source": "socket", "root_session": true, "session": "conf" },
+          "expect": { "id": 6, "ok": true, "data": { "state": "working", "source": "socket", "root_session": true, "session": "conf" } },
           "match": "partial"
         },
         {

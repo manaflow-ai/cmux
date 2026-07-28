@@ -111,6 +111,13 @@ fn optional_agent_u64(value: &Value, field: &str) -> Option<Option<u64>> {
     }
 }
 
+fn optional_agent_bool(value: &Value, field: &str) -> Option<Option<bool>> {
+    match value.get(field) {
+        None | Some(Value::Null) => Some(None),
+        Some(value) => value.as_bool().map(Some),
+    }
+}
+
 pub(super) fn parse_agent_record(value: &Value) -> Option<AgentRecord> {
     let state = match value.get("state")?.as_str()? {
         "working" => AgentState::Working,
@@ -137,6 +144,7 @@ pub(super) fn parse_agent_record(value: &Value) -> Option<AgentRecord> {
         source,
         session: optional_agent_string(value, "session")?,
         telemetry: AgentTelemetry {
+            root_session: optional_agent_bool(value, "root_session")?.unwrap_or(false),
             label: optional_agent_string(value, "label")?,
             detail: optional_agent_string(value, "detail")?,
             started_at_ms: optional_agent_u64(value, "started_at_ms")?,
@@ -2453,6 +2461,7 @@ mod tests {
             "surface": 41,
             "state": "error",
             "source": "hook",
+            "root_session": true,
             "session": "session-1",
             "label": "root",
             "detail": "reviewing",
@@ -2467,6 +2476,7 @@ mod tests {
 
         assert_eq!(record.state, AgentState::Error);
         assert_eq!(record.source, AgentSource::Hook);
+        assert!(record.telemetry.root_session);
         assert_eq!(record.telemetry.label.as_deref(), Some("root"));
         assert_eq!(record.telemetry.detail.as_deref(), Some("reviewing"));
         assert_eq!(record.telemetry.started_at_ms, Some(1_700_000_000_000));

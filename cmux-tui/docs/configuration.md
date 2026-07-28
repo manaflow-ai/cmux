@@ -38,6 +38,8 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
 
+Protocol v12 reports with `root_session: true` add an `OMP R<n> I<n> W<n>` summary above the workspace list; compact mode uses `R<n> I<n> W<n>`. Each workspace subtitle aggregates authoritative roots across all of its screens, panes, and tabs, rendering only nonzero counts in this order: `completed`, `waiting`, `running`, `idle`, `failed`, `stopped`. Embedded subagent telemetry can appear in a root session's detail or `agents_active` total but never creates another root count. The workspace dot remains reserved exclusively for unread notifications.
+
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `sidebar.view` | `"files"` or `"workspaces"` | `"workspaces"` | Built-in sidebar view when `sidebar.plugin` is unset |

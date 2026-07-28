@@ -203,6 +203,7 @@ export interface SendOptions {
   paste?: boolean;
 }
 export interface ReportAgentOptions {
+  root_session?: boolean | null;
   session?: string | null;
   label?: string | null;
   detail?: string | null;

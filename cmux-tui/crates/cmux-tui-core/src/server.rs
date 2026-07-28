@@ -634,6 +634,8 @@ enum Command {
         state: String,
         source: String,
         #[serde(default)]
+        root_session: bool,
+        #[serde(default)]
         session: Option<String>,
         #[serde(default)]
         label: Option<String>,
@@ -3818,6 +3820,7 @@ fn agent_json(record: &AgentRecord) -> Value {
         "surface": record.surface,
         "state": record.state.as_str(),
         "source": record.source.as_str(),
+        "root_session": record.telemetry.root_session,
         "session": record.session,
         "label": record.telemetry.label,
         "detail": record.telemetry.detail,
@@ -4801,6 +4804,7 @@ fn handle_command_with_cancellation(
             surface,
             state,
             source,
+            root_session,
             session,
             label,
             detail,
@@ -4819,6 +4823,7 @@ fn handle_command_with_cancellation(
                 source,
                 session,
                 crate::AgentTelemetry {
+                    root_session,
                     label,
                     detail,
                     started_at_ms,
@@ -9728,6 +9733,7 @@ mod tests {
                 surface: surface.id,
                 state: "error".to_string(),
                 source: "socket".to_string(),
+                root_session: true,
                 session: Some("session-1".to_string()),
                 label: Some("root".to_string()),
                 detail: Some("reviewing".to_string()),
@@ -9743,12 +9749,14 @@ mod tests {
 
         assert_eq!(data["state"], "error");
         assert_eq!(data["label"], "root");
+        assert_eq!(data["root_session"], true);
         assert_eq!(data["tasks_completed"], 3);
         let changed = events.recv_timeout(Duration::from_secs(1)).unwrap();
         let encoded = subscribed_event_json(&changed);
         assert_eq!(encoded["event"], "agent-state-changed");
         assert_eq!(encoded["previous"], Value::Null);
         assert_eq!(encoded["detail"], "reviewing");
+        assert_eq!(encoded["root_session"], true);
         assert_eq!(encoded["agents_active"], 4);
 
         let listed = handle_command(

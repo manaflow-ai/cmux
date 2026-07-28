@@ -1072,6 +1072,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
             "working",
             "--source",
             "socket",
+            "--root-session",
             "--session",
             "cli",
         ],
@@ -1081,6 +1082,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&agents);
     let agents: serde_json::Value = serde_json::from_slice(&agents.stdout).unwrap();
     assert_eq!(agents["agents"][0]["state"].as_str(), Some("working"));
+    assert_eq!(agents["agents"][0]["root_session"].as_bool(), Some(true));
 
     let send_key = cli(&server, &["send-key", "--surface", &surface.to_string(), "enter"]);
     assert_success(&send_key);

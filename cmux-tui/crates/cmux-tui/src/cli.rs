@@ -227,6 +227,7 @@ const VERBS: &[VerbSpec] = &[
             "surface",
             "state",
             "source",
+            "root-session",
             "session",
             "label",
             "detail",
@@ -817,6 +818,7 @@ fn is_boolean_flag(spec: &VerbSpec, name: &str) -> bool {
     (spec.name == "run" && name == "new-workspace")
         || (spec.name == "send" && name == "paste")
         || (spec.name == "undo-layout" && name == "confirm-close")
+        || (spec.name == "report-agent" && name == "root-session")
         || (spec.name == "plugin" && matches!(name, "force" | "builtin"))
 }
 
@@ -1222,6 +1224,9 @@ fn build_report_agent(flags: &FlagMap) -> Result<Value, UsageError> {
         "state": state,
         "source": source,
     });
+    if flags.optional("root-session").is_some() {
+        value["root_session"] = json!(true);
+    }
     flags.insert_optional_string(&mut value, "session");
     flags.insert_optional_string(&mut value, "label");
     flags.insert_optional_string(&mut value, "detail");
@@ -2338,6 +2343,7 @@ mod tests {
                 ("surface".to_string(), "9".to_string()),
                 ("state".to_string(), "error".to_string()),
                 ("source".to_string(), "socket".to_string()),
+                ("root-session".to_string(), "true".to_string()),
                 ("session".to_string(), "session-1".to_string()),
                 ("label".to_string(), "root".to_string()),
                 ("detail".to_string(), "reviewing".to_string()),
@@ -2356,6 +2362,7 @@ mod tests {
                 "surface": 9,
                 "state": "error",
                 "source": "socket",
+                "root_session": true,
                 "session": "session-1",
                 "label": "root",
                 "detail": "reviewing",

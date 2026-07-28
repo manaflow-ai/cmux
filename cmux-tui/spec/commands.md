@@ -3194,6 +3194,7 @@ object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"error"|"unknown",
     source: "detected"|"socket"|"hook",
+    root_session: bool,
     session: string|null,
     label?: string|null,
     detail?: string|null,
@@ -3249,6 +3250,7 @@ Params:
 | `surface` | `IdRef` | required | Surface associated with the agent |
 | `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, `"error"`, or `"unknown"` |
 | `source` | `string` | required | `"socket"` or `"hook"` |
+| `root_session` | `bool` | default false | Protocol 12: authoritative root-session identity for workspace aggregation |
 | `session` | `string` | default null | Optional upstream agent session id |
 | `label` | `string` | default null | Human-readable agent label |
 | `detail` | `string` | default null | Current tool, todo phase/item, or subagent activity |
@@ -3261,7 +3263,7 @@ Params:
 Result:
 
 ```text
-object{surface:Id,state:string,source:string,session:string|null,label:string|null,detail:string|null,started_at_ms:uint64|null,tasks_completed:uint64|null,tasks_total:uint64|null,jobs_running:uint64|null,agents_active:uint64|null,updated_at_ms:uint64}
+object{surface:Id,state:string,source:string,root_session:bool,session:string|null,label:string|null,detail:string|null,started_at_ms:uint64|null,tasks_completed:uint64|null,tasks_total:uint64|null,jobs_running:uint64|null,agents_active:uint64|null,updated_at_ms:uint64}
 ```
 
 Errors:
@@ -3278,7 +3280,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `report-agent` |
-| Flags | `--surface <id> --state working\|blocked\|idle\|done\|error\|unknown --source socket\|hook [--session <id>] [--label <label>] [--detail <detail>] [--started-at-ms <n>] [--tasks-completed <n>] [--tasks-total <n>] [--jobs-running <n>] [--agents-active <n>]` |
+| Flags | `--surface <id> --state working\|blocked\|idle\|done\|error\|unknown --source socket\|hook [--root-session] [--session <id>] [--label <label>] [--detail <detail>] [--started-at-ms <n>] [--tasks-completed <n>] [--tasks-total <n>] [--jobs-running <n>] [--agents-active <n>]` |
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -3286,8 +3288,8 @@ CLI mapping:
 Example:
 
 ```json
-{"id":108,"cmd":"report-agent","surface":1,"state":"working","source":"socket","session":"abc","label":"root","detail":"reviewing","started_at_ms":1710000000000,"tasks_completed":3,"tasks_total":5,"jobs_running":2,"agents_active":4}
-{"id":108,"ok":true,"data":{"surface":1,"state":"working","source":"socket","session":"abc","label":"root","detail":"reviewing","started_at_ms":1710000000000,"tasks_completed":3,"tasks_total":5,"jobs_running":2,"agents_active":4,"updated_at_ms":1710000001000}}
+{"id":108,"cmd":"report-agent","surface":1,"state":"working","source":"socket","root_session":true,"session":"abc","label":"root","detail":"reviewing","started_at_ms":1710000000000,"tasks_completed":3,"tasks_total":5,"jobs_running":2,"agents_active":4}
+{"id":108,"ok":true,"data":{"surface":1,"state":"working","source":"socket","root_session":true,"session":"abc","label":"root","detail":"reviewing","started_at_ms":1710000000000,"tasks_completed":3,"tasks_total":5,"jobs_running":2,"agents_active":4,"updated_at_ms":1710000001000}}
 ```
 
 ## Proposed Hooks Config

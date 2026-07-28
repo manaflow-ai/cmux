@@ -97,7 +97,7 @@ Subscribed event lines are:
 {"event":"empty"}
 ```
 
-Protocol v12 adds `agent-state-changed` events carrying the same optional telemetry returned by `list-agents`: `label`, `detail`, `started_at_ms`, `tasks_completed`, `tasks_total`, `jobs_running`, and `agents_active`. Agent states are `working`, `blocked`, `idle`, `done`, `error`, and `unknown`. Notification events add an optional `subtitle`; omitted subtitles preserve the existing title/body presentation.
+Protocol v12 adds `agent-state-changed` events carrying `root_session` plus the same optional telemetry returned by `list-agents`: `label`, `detail`, `started_at_ms`, `tasks_completed`, `tasks_total`, `jobs_running`, and `agents_active`. `root_session: true` structurally identifies one authoritative root agent for workspace aggregation; labels and embedded subagent totals do not create roots. Agent states are `working`, `blocked`, `idle`, `done`, `error`, and `unknown`. Notification events add an optional `subtitle`; omitted subtitles preserve the existing title/body presentation.
 
 Every child PTY retains `CMUX_TUI_SOCKET` and `CMUX_MUX_SOCKET` and receives numeric `CMUX_TUI_SURFACE_ID` and `CMUX_TUI_WORKSPACE_ID`. These ids route agent reports back to the owning TUI surface and workspace.
 

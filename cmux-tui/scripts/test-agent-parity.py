@@ -120,6 +120,7 @@ class AgentParitySmoke(unittest.TestCase):
             "error",
             "--source",
             "socket",
+            "--root-session",
             "--session",
             "session-1",
             "--label",
@@ -147,6 +148,7 @@ class AgentParitySmoke(unittest.TestCase):
         agents = json.loads(self.cli("--json", "list-agents", "--surface", str(surface)))
         self.assertEqual(
             {key: agents["agents"][0][key] for key in (
+                "root_session",
                 "state",
                 "label",
                 "detail",
@@ -158,6 +160,7 @@ class AgentParitySmoke(unittest.TestCase):
             )},
             {
                 "state": "error",
+                "root_session": True,
                 "label": "root",
                 "detail": "reviewing",
                 "started_at_ms": 1_700_000_000_000,

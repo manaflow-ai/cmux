@@ -283,6 +283,7 @@ export interface AgentStateChangedEvent {
   previous: AgentState | null;
   state: AgentState;
   source: AgentSource;
+  root_session: boolean;
   session: string | null;
   label?: string | null;
   detail?: string | null;

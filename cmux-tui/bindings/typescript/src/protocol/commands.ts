@@ -721,6 +721,7 @@ export interface ReportAgentRequest extends CmuxRequestBase {
   surface: IdRef;
   state: AgentState;
   source: AgentReportSource;
+  root_session?: boolean | null;
   session?: string | null;
   label?: string | null;
   detail?: string | null;
