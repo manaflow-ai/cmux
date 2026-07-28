@@ -12,6 +12,7 @@ import {
   RENDER_GRAPHIC_CANVAS_COUNT_CAP,
   RENDER_GRAPHIC_DECODED_BYTE_CAP,
 } from "../src/lib/renderGraphics";
+import { RenderGraphicsDecodeScheduler } from "../src/lib/renderGraphicsDecodeScheduler";
 import type { RenderGraphicsModel } from "../src/lib/renderModel";
 import type {
   RenderGraphicsDecodeRequest,
@@ -266,6 +267,47 @@ describe("RenderGraphics canvas resource policy", () => {
       expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(1);
     });
     expect(workerCount).toBe(2);
+  });
+
+  it("continues with later owners after large-image worker retries are exhausted", async () => {
+    class FailingWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+
+      postMessage(): void {
+        setTimeout(() => this.onerror?.(new ErrorEvent("error")), 0);
+      }
+
+      terminate(): void {}
+    }
+    vi.stubGlobal("Worker", FailingWorker);
+    const scheduler = new RenderGraphicsDecodeScheduler();
+    const largeImage = (id: number) => ({
+      id,
+      generation: 1,
+      width: 257,
+      height: 256,
+      format: "rgba" as const,
+      data: zeroBytesBase64(257 * 256 * 4),
+    });
+    const smallImage = {
+      id: 3,
+      generation: 1,
+      width: 1,
+      height: 1,
+      format: "rgba" as const,
+      data: "AAAAAA==",
+    };
+    const smallComplete = vi.fn();
+
+    scheduler.schedule(Symbol("large-a"), [largeImage(1)], vi.fn());
+    scheduler.schedule(Symbol("large-b"), [largeImage(2)], vi.fn());
+    scheduler.schedule(Symbol("small"), [smallImage], smallComplete);
+
+    await waitFor(() => expect(smallComplete).toHaveBeenCalledTimes(1));
+    expect(smallComplete.mock.calls[0]?.[0]?.[0]?.pixels).not.toBeNull();
+    scheduler.dispose();
   });
 
   it("chunks aggregate browser-thread decoding after worker failure", async () => {
