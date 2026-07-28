@@ -20,6 +20,7 @@ struct DockPanelView: View {
     var rightSidebarOwnsInputFocus: Bool = false
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
+    @State private var appearanceRevision: UInt = 0
     @State private var unreadProjection: DockUnreadPanelProjection
     @State private var visibilityHostId = UUID()
 
@@ -97,6 +98,7 @@ struct DockPanelView: View {
     private func refreshAppearance(reason: String) {
         let next = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
         appearanceConfig = next
+        appearanceRevision &+= 1
         store.applyGhosttyChrome(from: next)
     }
 
@@ -112,6 +114,7 @@ struct DockPanelView: View {
             DockSplitContentView(
                 store: store,
                 appearance: appearance,
+                appearanceRevision: appearanceRevision,
                 windowAppearance: windowAppearance,
                 rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
                 unreadPanelIDs: unreadProjection.unreadPanelIDs
