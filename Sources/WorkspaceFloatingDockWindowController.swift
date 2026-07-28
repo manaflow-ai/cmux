@@ -256,7 +256,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         if parkingAccessoryController.isVisible {
             parkingAccessoryController.update(
                 title: dock.title,
-                attachedTo: panel,
+                attachedTo: parentWindow ?? panel,
                 anchorFrame: parkingAccessoryAnchorFrame(for: panel),
                 appearance: appearance,
                 animated: false
@@ -297,7 +297,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     }
 
     func parkingRequest(
-        fallbackVisibleScreenFrame: CGRect?
+        fallbackVisibleScreenFrame: CGRect?,
+        migratingToVisibleScreenFrame targetVisibleScreenFrame: CGRect? = nil
     ) -> (restoreFrame: CGRect, visibleScreenFrame: CGRect)? {
         guard let panel = window,
               let fallbackVisibleScreenFrame else { return nil }
@@ -306,6 +307,16 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             hasAppliedInitialScreenPlacement = true
         }
         if let parkingSnapshot {
+            if let targetVisibleScreenFrame,
+               parkingSnapshot.visibleScreenFrame != targetVisibleScreenFrame {
+                let migrated = parkingSnapshot.migrated(
+                    toVisibleScreenFrame: targetVisibleScreenFrame
+                )
+                return (
+                    restoreFrame: migrated.restoreFrame,
+                    visibleScreenFrame: migrated.visibleScreenFrame
+                )
+            }
             return (
                 restoreFrame: parkingSnapshot.restoreFrame,
                 visibleScreenFrame: parkingSnapshot.visibleScreenFrame
@@ -729,7 +740,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         } else {
             accessoryIsTransientForVisibleRename = true
             parkingAccessoryController.show(
-                attachedTo: panel,
+                attachedTo: parentWindow ?? panel,
                 title: dock.title,
                 anchorFrame: parkingAccessoryAnchorFrame(for: panel),
                 appearance: resolvedBackdropAppearance(),
@@ -820,27 +831,19 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
 
     private func persistRestorableFrame(_ frame: CGRect) {
         guard let parentWindow else { return }
-        dock.frame = CGRect(
-            x: frame.minX - parentWindow.frame.minX,
-            y: frame.minY - parentWindow.frame.minY,
-            width: frame.width,
-            height: frame.height
-        )
-        dock.screenFrame = frame
         guard let appDelegate = AppDelegate.shared else { return }
+        let displaySnapshot: SessionDisplaySnapshot?
         if let screen = Self.screen(containing: frame) {
-            dock.displaySnapshot = appDelegate.displaySnapshot(for: screen)
+            displaySnapshot = appDelegate.displaySnapshot(for: screen)
         } else {
-            dock.displaySnapshot = appDelegate.displaySnapshot(for: window)
+            displaySnapshot = appDelegate.displaySnapshot(for: window)
         }
-        guard let signature = appDelegate.currentDisplayConfigurationSignature() else { return }
-        let entry = SessionConfigFrameEntry(
-            signature: signature,
-            frame: SessionRectSnapshot(frame),
-            display: dock.displaySnapshot,
-            lastUsedAt: Date().timeIntervalSince1970
+        dock.recordScreenPlacement(
+            frame,
+            relativeTo: parentWindow.frame,
+            displaySnapshot: displaySnapshot,
+            configurationSignature: appDelegate.currentDisplayConfigurationSignature()
         )
-        dock.configFrames = dock.configFrames.upserting(entry)
     }
 
     private func setPanelFrame(_ frame: CGRect, display: Bool) {
@@ -873,7 +876,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         animated: Bool
     ) {
         parkingAccessoryController.show(
-            attachedTo: panel,
+            attachedTo: parentWindow ?? panel,
             title: dock.title,
             anchorFrame: snapshot.restingHitFrame,
             appearance: resolvedBackdropAppearance(),

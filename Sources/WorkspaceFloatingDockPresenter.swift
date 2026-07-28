@@ -13,12 +13,17 @@ final class WorkspaceFloatingDockPresenter {
     private var isKeyContextVisible = false
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
+    private var parentWindowObserverTokens: [any NSObjectProtocol] = []
+    private var lastOwnerVisibleScreenFrame: CGRect?
+    private var pendingParkingOwnerVisibleScreenFrame: CGRect?
 
     init(parentWindow: NSWindow, tabManager: TabManager) {
         self.parentWindow = parentWindow
         self.tabManager = tabManager
+        lastOwnerVisibleScreenFrame = parentWindow.screen?.visibleFrame
         isKeyContextVisible = NSApp.isActive && ownsKeyContext(window: NSApp.keyWindow)
         installMouseMonitors()
+        installParentWindowObservers()
     }
 
     func refresh(
@@ -27,6 +32,7 @@ final class WorkspaceFloatingDockPresenter {
         relativeToDockId: UUID? = nil
     ) {
         guard let parentWindow, let tabManager else { return }
+        _ = updateOwnerScreenTransitionIfNeeded()
         let selectedWorkspace = tabManager.selectedWorkspace
         let workspaceDocks = selectedWorkspace?.floatingDocks ?? []
         let liveIds = Set(workspaceDocks.map(\.id))
@@ -159,9 +165,14 @@ final class WorkspaceFloatingDockPresenter {
             NSEvent.removeMonitor(globalMouseMonitor)
             self.globalMouseMonitor = nil
         }
+        for token in parentWindowObserverTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        parentWindowObserverTokens.removeAll()
         stashedDockOrder.removeAll()
         revealedStashedDockId = nil
         reorderingStashedDockId = nil
+        pendingParkingOwnerVisibleScreenFrame = nil
     }
 
     func animateStash(_ dock: WorkspaceFloatingDock) {
@@ -197,6 +208,7 @@ final class WorkspaceFloatingDockPresenter {
 
     @discardableResult
     func reconcileScreenConfiguration() -> Bool {
+        _ = updateOwnerScreenTransitionIfNeeded()
         let reconciled = controllers.values.reduce(true) { reconciled, controller in
             controller.reconcileScreenConfiguration() && reconciled
         }
@@ -338,10 +350,12 @@ final class WorkspaceFloatingDockPresenter {
             visibleScreenFrame: CGRect
         )] = []
         entries.reserveCapacity(docks.count)
+        let migrationTarget = pendingParkingOwnerVisibleScreenFrame
         for dock in docks {
             guard let controller = controllers[dock.id],
                   let request = controller.parkingRequest(
-                    fallbackVisibleScreenFrame: fallbackVisibleScreenFrame
+                    fallbackVisibleScreenFrame: fallbackVisibleScreenFrame,
+                    migratingToVisibleScreenFrame: migrationTarget
                   ) else {
                 controllers[dock.id]?.hide()
                 continue
@@ -353,6 +367,7 @@ final class WorkspaceFloatingDockPresenter {
                 visibleScreenFrame: request.visibleScreenFrame
             ))
         }
+        pendingParkingOwnerVisibleScreenFrame = nil
         stashedDockOrder = entries.map { $0.dock.id }
 
         var didStartRequestedAnimation = false
@@ -412,6 +427,91 @@ final class WorkspaceFloatingDockPresenter {
             MainActor.assumeIsolated {
                 self?.updateStashedWindowHover()
             }
+        }
+    }
+
+    private func installParentWindowObservers() {
+        guard let parentWindow else { return }
+        let center = NotificationCenter.default
+        let handler: @Sendable (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.updateOwnerScreenTransitionIfNeeded() {
+                    self.refresh()
+                }
+            }
+        }
+        parentWindowObserverTokens = [
+            center.addObserver(
+                forName: NSWindow.didChangeScreenNotification,
+                object: parentWindow,
+                queue: .main,
+                using: handler
+            ),
+            // AppKit normally posts didChangeScreen, while didMove covers
+            // windows crossing a display boundary during unusual live moves.
+            center.addObserver(
+                forName: NSWindow.didMoveNotification,
+                object: parentWindow,
+                queue: .main,
+                using: handler
+            ),
+        ]
+    }
+
+    @discardableResult
+    private func updateOwnerScreenTransitionIfNeeded() -> Bool {
+        guard let parentWindow,
+              let nextVisibleScreenFrame = parentWindow.screen?.visibleFrame else { return false }
+        guard let previousVisibleScreenFrame = lastOwnerVisibleScreenFrame else {
+            lastOwnerVisibleScreenFrame = nextVisibleScreenFrame
+            return false
+        }
+        guard previousVisibleScreenFrame != nextVisibleScreenFrame else { return false }
+
+        lastOwnerVisibleScreenFrame = nextVisibleScreenFrame
+        pendingParkingOwnerVisibleScreenFrame = nextVisibleScreenFrame
+        migrateUnpresentedWorkspaceDocks(
+            from: previousVisibleScreenFrame,
+            to: nextVisibleScreenFrame
+        )
+        return true
+    }
+
+    private func migrateUnpresentedWorkspaceDocks(
+        from previousOwnerVisibleScreenFrame: CGRect,
+        to targetVisibleScreenFrame: CGRect
+    ) {
+        guard let parentWindow,
+              let tabManager,
+              let appDelegate = AppDelegate.shared else { return }
+        let presentedDockIds = Set(controllers.keys)
+        let signature = appDelegate.currentDisplayConfigurationSignature()
+        let targetDisplaySnapshot = appDelegate.displaySnapshot(for: parentWindow.screen)
+
+        for dock in tabManager.tabs.lazy.flatMap(\.floatingDocks)
+            where !presentedDockIds.contains(dock.id) {
+            let remembered = signature.flatMap(dock.configFrames.entry(for:))
+            guard let sourceFrame = remembered?.frame.cgRect ?? dock.screenFrame else {
+                // A never-presented Dock has only a parent-relative frame. Its
+                // first controller will resolve that frame against the new owner.
+                continue
+            }
+            let sourceVisibleScreenFrame = remembered?.display?.visibleFrame?.cgRect
+                ?? dock.displaySnapshot?.visibleFrame?.cgRect
+                ?? previousOwnerVisibleScreenFrame
+            let migratedFrame = WorkspaceFloatingDockScreenPlacement
+                .remappedFramePreservingSize(
+                    sourceFrame,
+                    from: sourceVisibleScreenFrame,
+                    to: targetVisibleScreenFrame
+                )
+            dock.recordScreenPlacement(
+                migratedFrame,
+                relativeTo: parentWindow.frame,
+                displaySnapshot: targetDisplaySnapshot,
+                configurationSignature: signature
+            )
         }
     }
 

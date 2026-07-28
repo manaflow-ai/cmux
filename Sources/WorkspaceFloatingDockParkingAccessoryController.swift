@@ -19,6 +19,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     private let accessoryView: WorkspaceFloatingDockParkingAccessoryView
     private let glassEffect = WindowGlassEffect()
     private var presentationGeneration = 0
+    private var anchorFrame: CGRect?
     private(set) var isEditing = false
 
     var window: NSWindow { panel }
@@ -93,11 +94,11 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         animated: Bool
     ) {
         presentationGeneration &+= 1
+        self.anchorFrame = anchorFrame
         accessoryView.updateTitle(title)
         applyAppearance(appearance)
         attach(to: ownerWindow)
         let targetFrame = frame(
-            attachedTo: ownerWindow,
             anchorFrame: anchorFrame,
             width: accessoryView.preferredWidth
         )
@@ -142,12 +143,12 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         animated: Bool
     ) {
         guard panel.isVisible else { return }
+        self.anchorFrame = anchorFrame
         accessoryView.updateTitle(title)
         applyAppearance(appearance)
         attach(to: ownerWindow)
         setFrame(
             frame(
-                attachedTo: ownerWindow,
                 anchorFrame: anchorFrame,
                 width: accessoryView.preferredWidth
             ),
@@ -156,17 +157,11 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     }
 
     func beginRenaming() {
-        guard panel.isVisible else { return }
+        guard panel.isVisible, let anchorFrame else { return }
         presentationGeneration &+= 1
         accessoryView.beginRenaming()
         let targetFrame = frame(
-            attachedTo: panel.parent ?? panel,
-            anchorFrame: CGRect(
-                x: panel.frame.maxX + Self.gap,
-                y: panel.frame.midY - 1,
-                width: 1,
-                height: 2
-            ),
+            anchorFrame: anchorFrame,
             width: accessoryView.preferredWidth
         )
         setFrame(targetFrame, animated: true)
@@ -249,15 +244,15 @@ final class WorkspaceFloatingDockParkingAccessoryController {
 
     private func detach() {
         panel.parent?.removeChildWindow(panel)
+        anchorFrame = nil
     }
 
     private func frame(
-        attachedTo ownerWindow: NSWindow,
         anchorFrame: CGRect,
         width: CGFloat
     ) -> CGRect {
         CGRect(
-            x: ownerWindow.frame.minX - Self.gap - width,
+            x: anchorFrame.minX - Self.gap - width,
             y: anchorFrame.midY - (Self.height / 2),
             width: width,
             height: Self.height

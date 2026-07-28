@@ -403,6 +403,30 @@ final class WorkspaceFloatingDock: Identifiable {
         sessionMetadataRevision &+= 1
     }
 
+    func recordScreenPlacement(
+        _ screenFrame: CGRect,
+        relativeTo parentFrame: CGRect,
+        displaySnapshot: SessionDisplaySnapshot?,
+        configurationSignature: String?,
+        timestamp: TimeInterval = Date().timeIntervalSince1970
+    ) {
+        frame = CGRect(
+            x: screenFrame.minX - parentFrame.minX,
+            y: screenFrame.minY - parentFrame.minY,
+            width: screenFrame.width,
+            height: screenFrame.height
+        )
+        self.screenFrame = screenFrame
+        self.displaySnapshot = displaySnapshot
+        guard let configurationSignature else { return }
+        configFrames = configFrames.upserting(SessionConfigFrameEntry(
+            signature: configurationSignature,
+            frame: SessionRectSnapshot(screenFrame),
+            display: displaySnapshot,
+            lastUsedAt: timestamp
+        ))
+    }
+
     func sessionContentSnapshot() -> SessionFloatingDockContentSnapshot? {
         store.floatingDockSessionSnapshot(notePanelId: notePanel?.id)
     }

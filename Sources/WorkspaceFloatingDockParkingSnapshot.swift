@@ -82,6 +82,17 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
         hoverExitFrame.contains(point)
     }
 
+    func migrated(toVisibleScreenFrame targetVisibleScreenFrame: CGRect) -> Self {
+        Self(
+            restoreFrame: WorkspaceFloatingDockScreenPlacement.remappedFramePreservingSize(
+                restoreFrame,
+                from: visibleScreenFrame,
+                to: targetVisibleScreenFrame
+            ),
+            visibleScreenFrame: targetVisibleScreenFrame
+        )
+    }
+
     static func arranged(
         restoreFrames: [CGRect],
         visibleScreenFrame: CGRect

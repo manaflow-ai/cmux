@@ -33,7 +33,7 @@ struct WorkspaceFloatingDockScreenPlacement {
             return fitted(sourceFrame, within: targetDisplay.visibleFrame)
         }
         if let sourceVisibleFrame, isUsable(sourceVisibleFrame) {
-            return remappedPreservingSize(
+            return remappedFramePreservingSize(
                 sourceFrame,
                 from: sourceVisibleFrame,
                 to: targetDisplay.visibleFrame
@@ -84,7 +84,7 @@ struct WorkspaceFloatingDockScreenPlacement {
         return nil
     }
 
-    private static func remappedPreservingSize(
+    static func remappedFramePreservingSize(
         _ frame: CGRect,
         from sourceVisibleFrame: CGRect,
         to targetVisibleFrame: CGRect
