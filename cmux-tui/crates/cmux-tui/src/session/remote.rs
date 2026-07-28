@@ -4999,6 +4999,31 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn graphics_status_event_preserves_localization_fields() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+
+        session.handle_line(json!({
+            "event": "graphics-status",
+            "kind": "kitty-image-budget-update-failed",
+            "retry_exhausted": true,
+            "summary": "surface 7: offline",
+        }));
+
+        assert!(events.try_iter().any(|event| matches!(
+            event,
+            MuxEvent::GraphicsStatus(
+                cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
+                    retry_exhausted: true,
+                    summary,
+                }
+            ) if summary.as_ref() == "surface 7: offline"
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn notification_event_preserves_payload_without_invalidating_tree() {
         let (client, _server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);

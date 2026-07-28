@@ -475,6 +475,37 @@ fn replay_aliases_follow_generation_order_and_exclude_omitted_images() {
 }
 
 #[test]
+fn bounded_replay_suppresses_an_incomplete_duplicate_number_alias_history() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=t,t=d,f=24,I=77,s=1,v=1,q=2", "/wAA"));
+    let first_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
+    source.vt_write(&kitty("a=t,t=d,f=24,I=77,s=100,v=1,q=2", &encode_base64(&vec![255; 300])));
+    let images = source.kitty_graphics_snapshot().unwrap().images;
+    let newest_id = images.iter().max_by_key(|image| image.generation).unwrap().id;
+    assert_ne!(first_id, newest_id);
+
+    let bounded = source.vt_replay_bounded(256).unwrap();
+    let replay_text = String::from_utf8_lossy(&bounded.bytes);
+    assert!(replay_text.contains(&format!("i={first_id}")));
+    assert!(!replay_text.contains(&format!("i={newest_id}")));
+    assert!(
+        bounded.kitty_image_aliases.iter().all(|alias| alias.image_number != 77),
+        "a partial duplicate-number history exposed an alias to the wrong image"
+    );
+
+    let mut mirror = terminal();
+    mirror.apply_vt_replay(&bounded).unwrap();
+    let place_by_number = kitty("a=p,I=77,p=12,c=1,r=1,q=2", "");
+    source.vt_write(&place_by_number);
+    mirror.vt_write(&place_by_number);
+    assert_eq!(source.kitty_graphics_snapshot().unwrap().placements[0].image_id, newest_id);
+    assert!(
+        mirror.kitty_graphics_snapshot().unwrap().placements.is_empty(),
+        "a bounded mirror routed a number command to an older admitted image"
+    );
+}
+
+#[test]
 fn replay_preserves_an_inflight_chunked_transmission_until_its_final_chunk() {
     let mut source = terminal();
     source.vt_write(&kitty("a=t,t=d,f=24,i=92,s=1,v=2,m=1,q=2", "////"));

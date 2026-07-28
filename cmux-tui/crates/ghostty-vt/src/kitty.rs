@@ -1142,6 +1142,31 @@ mod tests {
     }
 
     #[test]
+    fn completed_oversized_non_transmissions_do_not_poison_future_replay() {
+        for header in ["a=p,i=92,p=1,c=1,r=1", "a=d,d=i,i=92"] {
+            let mut tracker = KittyInFlightTracker::default();
+            tracker.set_max_bytes(64);
+            let mut command = format!("\x1b_G{header};").into_bytes();
+            command.extend(std::iter::repeat_n(b'x', 128));
+            command.extend_from_slice(b"\x1b\\");
+            tracker.write(&command);
+
+            assert!(
+                tracker.replay_prefix_checked(usize::MAX).is_ok(),
+                "completed oversized {header} command poisoned replay"
+            );
+
+            let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
+            tracker.write(first);
+            assert_eq!(
+                tracker.replay_prefix_checked(usize::MAX).unwrap(),
+                first,
+                "completed oversized {header} command poisoned a later upload"
+            );
+        }
+    }
+
+    #[test]
     fn snapshot_enumerates_each_stored_image_once() {
         let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
         for number in 1..=64 {

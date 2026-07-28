@@ -21150,6 +21150,84 @@ mod tests {
     }
 
     #[test]
+    fn graphics_status_events_use_the_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_GRAPHICS_STATUS_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("app::tests::graphics_status_events_use_the_selected_locale")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese graphics status child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let mux = Mux::new("graphics-status-locale-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let cases = [
+            (
+                MuxEvent::GraphicsStatus(
+                    cmux_tui_core::GraphicsStatus::KittyImageBudgetWorkerStartFailed {
+                        error: Arc::<str>::from("thread unavailable"),
+                    },
+                ),
+                "Kitty 画像予算ワーカーを開始できませんでした: thread unavailable",
+            ),
+            (
+                MuxEvent::GraphicsStatus(
+                    cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
+                        retry_exhausted: false,
+                        summary: Arc::<str>::from("surface 7: offline"),
+                    },
+                ),
+                "Kitty 画像予算の更新に失敗しました。再試行しています: surface 7: offline",
+            ),
+            (
+                MuxEvent::GraphicsStatus(
+                    cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
+                        retry_exhausted: true,
+                        summary: Arc::<str>::from("surface 7: offline"),
+                    },
+                ),
+                "Kitty 画像予算の更新に失敗し、再試行回数の上限に達したため停止しました: surface 7: offline",
+            ),
+            (
+                MuxEvent::GraphicsStatus(
+                    cmux_tui_core::GraphicsStatus::CellPixelUpdateRetriesExhausted {
+                        attempts: 5,
+                        remaining: 2,
+                        cell_pixels: (8, 16),
+                    },
+                ),
+                "セルピクセル更新は 5 回の再試行後に停止しました。8x16 で未収束のサーフェスが 2 個あります。後続のホスト確認応答で復旧できます",
+            ),
+            (
+                MuxEvent::SurfaceResizeFailed {
+                    surface: 7,
+                    cols: 90,
+                    rows: 31,
+                    error: Arc::<str>::from("device metrics rejected"),
+                    retry_after_ms: None,
+                    reservation_id: None,
+                },
+                "ブラウザサーフェス 7 の 90x31 へのサイズ変更に失敗しました: device metrics rejected",
+            ),
+        ];
+        for (event, expected) in cases {
+            app.handle(AppEvent::Mux(event)).unwrap();
+            assert_eq!(app.status_message.as_deref(), Some(expected));
+        }
+    }
+
+    #[test]
     fn first_input_for_missing_mirror_is_deferred_through_attach() {
         let mux = Mux::new("missing-mirror-input-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
