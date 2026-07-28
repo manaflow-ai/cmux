@@ -10,9 +10,11 @@ extension DockSplitStore {
     /// Returns the best current directory owned by a Dock terminal.
     ///
     /// Local terminals prefer the shell integration report owned by their
-    /// surface, then fall back to foreground-process inspection. Remote terminals
-    /// must keep their transferred remote directory because their local process
-    /// is only the relay.
+    /// surface, then fall back to foreground-process inspection. A restored
+    /// agent that is still auto-resuming retains the pre-report candidate order
+    /// so an early shell-home report cannot bypass its cwd rescue state. Remote
+    /// terminals must keep their transferred remote directory because their
+    /// local process is only the relay.
     func terminalWorkingDirectory(for sourcePanelId: UUID) -> String? {
         guard let terminal = panels[sourcePanelId] as? TerminalPanel else { return nil }
         let transfer = detachedSurfaceTransfersByPanelId[sourcePanelId]
@@ -23,12 +25,16 @@ extension DockSplitStore {
                 terminal.requestedWorkingDirectory,
             ])
         }
-        return TerminalWorkingDirectoryResolver.firstAvailable([
-            terminal.surface.reportedWorkingDirectory,
+        let existingCandidates = [
             terminalWorkingDirectoryResolver.liveForegroundProcessWorkingDirectory(for: terminal),
             terminal.directory,
             transfer?.directory,
             terminal.requestedWorkingDirectory,
-        ])
+        ]
+        let reportedDirectory = terminal.surface.reportedWorkingDirectory
+        if restoredAgentLifecycle.resumeStatesByPanelId[sourcePanelId] == .autoResumeCommandRunning {
+            return TerminalWorkingDirectoryResolver.firstAvailable(existingCandidates + [reportedDirectory])
+        }
+        return TerminalWorkingDirectoryResolver.firstAvailable([reportedDirectory] + existingCandidates)
     }
 }

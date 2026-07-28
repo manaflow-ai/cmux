@@ -156,6 +156,52 @@ struct DockWorkingDirectoryInheritanceTests {
         }
     }
 
+    @Test("Ghostty PWD reports preserve path whitespace")
+    @MainActor
+    func reportedDirectoryPreservesPathWhitespace() async throws {
+        try await withDock(inheritanceEnabled: true) { store, rootPane, root, _ in
+            let sourcePanelId = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                workingDirectory: root.path,
+                focus: true
+            ))
+            let sourcePanel = try terminalPanel(in: store, panelId: sourcePanelId)
+            let reportedDirectory = root.appending(path: "Reported Directory ", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: reportedDirectory, withIntermediateDirectories: true)
+
+            sourcePanel.surface.recordReportedWorkingDirectory(reportedDirectory.path)
+
+            #expect(sourcePanel.surface.reportedWorkingDirectory == reportedDirectory.path)
+        }
+    }
+
+    @Test("Restored agent live cwd outranks a stale Ghostty report")
+    @MainActor
+    func restoredAgentLiveDirectoryOutranksStaleReport() async throws {
+        var liveDirectory: String?
+        let resolver = TerminalWorkingDirectoryResolver(liveDirectoryProvider: { _ in liveDirectory })
+        try await withDock(
+            inheritanceEnabled: true,
+            terminalWorkingDirectoryResolver: resolver
+        ) { store, rootPane, root, sourceDirectory in
+            let sourcePanelId = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                workingDirectory: root.path,
+                focus: true
+            ))
+            let sourcePanel = try terminalPanel(in: store, panelId: sourcePanelId)
+            sourcePanel.surface.recordReportedWorkingDirectory(root.path)
+            store.restoredAgentLifecycle.resumeStatesByPanelId[sourcePanelId] = .autoResumeCommandRunning
+            liveDirectory = sourceDirectory.path
+
+            let newPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+
+            #expect(try terminalPanel(in: store, panelId: newPanelId).requestedWorkingDirectory == sourceDirectory.path)
+        }
+    }
+
     @Test("Remote Dock directory is not inherited by a new local terminal")
     @MainActor
     func remoteDirectoryDoesNotBecomeLocalStartupDirectory() async throws {

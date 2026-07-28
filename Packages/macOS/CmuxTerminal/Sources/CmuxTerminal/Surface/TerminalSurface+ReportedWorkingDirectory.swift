@@ -8,8 +8,7 @@ extension TerminalSurface {
     /// - Parameter directory: The working directory reported by Ghostty.
     @MainActor
     public func recordReportedWorkingDirectory(_ directory: String) {
-        let normalized = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty, normalized != reportedWorkingDirectory else { return }
-        reportedWorkingDirectory = normalized
+        guard !directory.isEmpty, directory != reportedWorkingDirectory else { return }
+        reportedWorkingDirectory = directory
     }
 }
