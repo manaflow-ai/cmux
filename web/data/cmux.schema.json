@@ -1314,6 +1314,12 @@
               "minimum": 0,
               "type": "number"
             },
+            "scrollContainerHorizontalPadding": {
+              "default": 0,
+              "maximum": 64,
+              "minimum": 0,
+              "type": "number"
+            },
             "secondaryTextColor": {
               "default": null,
               "oneOf": [

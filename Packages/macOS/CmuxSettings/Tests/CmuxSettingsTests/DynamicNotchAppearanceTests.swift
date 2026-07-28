@@ -21,6 +21,15 @@ struct DynamicNotchAppearanceTests {
         #expect(appearance[.pointerRevealDistance] == .number(0))
     }
 
+    @Test("Scroll container is flush with the shell by default")
+    func scrollContainerHorizontalPaddingDefaultsToZero() {
+        let appearance = DynamicNotchAppearance()
+
+        #expect(
+            appearance[.scrollContainerHorizontalPadding] == .number(0)
+        )
+    }
+
     @Test("Notch shadow is disabled by default")
     func shadowDefaultsAreTransparent() {
         let appearance = DynamicNotchAppearance()

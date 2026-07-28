@@ -40,6 +40,9 @@ extension DynamicNotchAppearance {
 
     var dynamicNotchChrome: DynamicNotchChrome {
         let shellPadding = dimension(.shellPadding)
+        let scrollContainerHorizontalPadding = dimension(
+            .scrollContainerHorizontalPadding
+        )
         let borderWidth = dimension(.shellBorderWidth)
         let borderIsNative = explicitColor(.shellBorderColor) == nil
             && self[.shellBorderWidth] == DynamicNotchAppearanceToken.shellBorderWidth.defaultValue
@@ -57,15 +60,15 @@ extension DynamicNotchAppearance {
             floatingOuterPadding: dimension(.floatingOuterPadding),
             floatingContentInsets: EdgeInsets(
                 top: shellPadding,
-                leading: shellPadding,
+                leading: scrollContainerHorizontalPadding,
                 bottom: shellPadding,
-                trailing: shellPadding
+                trailing: scrollContainerHorizontalPadding
             ),
             notchContentInsets: EdgeInsets(
                 top: 0,
-                leading: shellPadding,
+                leading: scrollContainerHorizontalPadding,
                 bottom: shellPadding,
-                trailing: shellPadding
+                trailing: scrollContainerHorizontalPadding
             ),
             floatingCornerRadius: dimension(.floatingCornerRadius),
             notchTopCornerRadius: dimension(.notchTopCornerRadius),

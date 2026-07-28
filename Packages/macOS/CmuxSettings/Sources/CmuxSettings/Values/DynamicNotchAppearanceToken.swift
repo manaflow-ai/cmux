@@ -6,6 +6,7 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
     case expandedWidth
     case maximumExpandedHeight
     case shellPadding
+    case scrollContainerHorizontalPadding
     case floatingOuterPadding
     case compactHorizontalPadding
     case compactVerticalPadding
@@ -131,6 +132,7 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
         case .maximumExpandedHeight:
             .number(minimum: 160, maximum: 1_400, step: 1)
         case .shellPadding,
+             .scrollContainerHorizontalPadding,
              .compactHorizontalPadding,
              .rowHorizontalPadding,
              .rowTopPadding,
@@ -228,6 +230,8 @@ public enum DynamicNotchAppearanceToken: String, CaseIterable, Sendable, Hashabl
             .number(520)
         case .shellPadding:
             .number(15)
+        case .scrollContainerHorizontalPadding:
+            .number(0)
         case .floatingOuterPadding:
             .number(20)
         case .compactHorizontalPadding:

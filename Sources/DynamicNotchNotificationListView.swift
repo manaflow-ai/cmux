@@ -70,6 +70,8 @@ struct DynamicNotchNotificationListView: View {
         .scrollIndicators(
             trayAppearance.boolean(.showScrollIndicators) ? .visible : .hidden
         )
+        .contentMargins(.horizontal, 0, for: .scrollContent)
+        .contentMargins(.horizontal, 0, for: .scrollIndicators)
         .frame(
             width: trayAppearance.dimension(.expandedWidth),
             height: viewportHeight
