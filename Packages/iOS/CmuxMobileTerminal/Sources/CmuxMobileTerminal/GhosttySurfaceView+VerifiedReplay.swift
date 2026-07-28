@@ -14,6 +14,107 @@ extension GhosttySurfaceView {
         hasPresentedContents
     }
 
+    /// Captures a content-relative viewport anchor on the serial surface queue.
+    ///
+    /// - Returns: The anchor when the viewport is above bottom; otherwise `nil`.
+    public func captureVerifiedReplayViewportAnchor() async -> VerifiedReplayViewportAnchor? {
+        guard let surface, !isDismantled else { return nil }
+        let operation = VerifiedReplayViewportSurfaceOperation(
+            surface: surface,
+            generation: surfaceGeneration
+        )
+        let workQueue = outputQueue
+        return await withCheckedContinuation { continuation in
+            workQueue.async {
+                var scrollbar = ghostty_surface_scrollbar_s()
+                let anchor: VerifiedReplayViewportAnchor?
+                if ghostty_surface_scrollbar(operation.surface, &scrollbar),
+                   scrollbar.offset < scrollbar.total {
+                    let rowsAfterOffset = scrollbar.total - scrollbar.offset
+                    if scrollbar.len < rowsAfterOffset {
+                        anchor = VerifiedReplayViewportAnchor(
+                            rowsFromBottom: rowsAfterOffset - scrollbar.len,
+                            totalRows: scrollbar.total
+                        )
+                    } else {
+                        anchor = nil
+                    }
+                } else {
+                    anchor = nil
+                }
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.surface == operation.surface,
+                          self.surfaceGeneration == operation.generation,
+                          !self.isDismantled else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    continuation.resume(returning: anchor)
+                }
+            }
+        }
+    }
+
+    /// Restores a verified-replay viewport anchor on the serial surface queue.
+    ///
+    /// - Parameter anchor: The content-relative position captured before replay.
+    /// - Returns: `true` when Ghostty accepted the revision-matched target row.
+    @discardableResult
+    public func restoreVerifiedReplayViewportAnchor(
+        _ anchor: VerifiedReplayViewportAnchor
+    ) async -> Bool {
+        guard let surface, !isDismantled else { return false }
+        let operation = VerifiedReplayViewportSurfaceOperation(
+            surface: surface,
+            generation: surfaceGeneration
+        )
+        let workQueue = outputQueue
+        return await withCheckedContinuation { continuation in
+            workQueue.async {
+                var postReplay = ghostty_surface_scrollbar_s()
+                let readPostReplay = ghostty_surface_scrollbar(
+                    operation.surface,
+                    &postReplay
+                )
+                let targetTopRow = readPostReplay
+                    ? anchor.targetTopRow(
+                        postReplayTotalRows: postReplay.total,
+                        postReplayVisibleRows: postReplay.len
+                    )
+                    : nil
+                var restoredScrollbar = ghostty_surface_scrollbar_s()
+                let restored = targetTopRow.map {
+                    ghostty_surface_scroll_to_row_if_revision(
+                        operation.surface,
+                        $0,
+                        postReplay.row_space_revision,
+                        &restoredScrollbar
+                    )
+                } ?? false
+                if readPostReplay {
+                    MobileDebugLog.anchormux(
+                        "verified_replay.viewport_restore preTotal=\(anchor.totalRows) preRowsFromBottom=\(anchor.rowsFromBottom) postTotal=\(postReplay.total) postOffset=\(postReplay.offset) postLen=\(postReplay.len) targetTop=\(targetTopRow.map(String.init) ?? "nil") restored=\(restored)"
+                    )
+                }
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.surface == operation.surface,
+                          self.surfaceGeneration == operation.generation,
+                          !self.isDismantled else {
+                        continuation.resume(returning: false)
+                        return
+                    }
+                    if restored {
+                        self.needsDraw = true
+                        self.scheduleVisibleArtifactCountUpdate()
+                    }
+                    continuation.resume(returning: restored)
+                }
+            }
+        }
+    }
+
     /// Retains an immutable copy of the last presented pixels and cursor above
     /// the live renderer while a replacement grid is replayed and verified.
     @discardableResult
@@ -330,5 +431,13 @@ extension GhosttySurfaceView {
         )
     }
 
+}
+
+/// One generation-bound pointer used only on its serial Ghostty surface queue.
+private nonisolated struct VerifiedReplayViewportSurfaceOperation: @unchecked Sendable {
+    // Safety: the surface stays owned by GhosttySurfaceView, and every C call
+    // using this pointer is enqueued on that generation's serial output queue.
+    let surface: ghostty_surface_t
+    let generation: UInt64
 }
 #endif
