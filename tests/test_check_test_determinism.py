@@ -291,6 +291,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "sleep 1\n"
                 'assert "$actual" "$expected"\n'
             ),
+            "shell-after-uncalled-function-installer.sh": (
+                'install_fake() { sleep() { advance_clock "$@"; }; }\n'
+                "sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
             "shell-command-after-function.sh": (
                 "sleep() { advance_clock \"$@\"; }\n"
                 "command sleep 1\n"
@@ -700,6 +705,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "esac-keyword-pattern-alternative.sh",
                     "shell-command-after-function.sh",
                     "shell-after-subshell-function.sh",
+                    "shell-after-uncalled-function-installer.sh",
                 )
                 else 1
             )
@@ -847,6 +853,21 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    expect(completed).toBe(true)\n"
                     "})\n"
                 ),
+                "timer-alias-expression-arrow-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "fakeDelays.map(delay => delay(1))\n"
+                    "expect(completed).toBe(true)\n"
+                ),
+                "timer-alias-parenthesized-expression-arrow-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "fakeDelays.map((delay) => delay(1))\n"
+                    "expect(completed).toBe(true)\n"
+                ),
+                "timer-alias-destructured-expression-arrow-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "fakeDelays.map(({ delay }) => delay(1))\n"
+                    "expect(completed).toBe(true)\n"
+                ),
                 "timer-alias-function-type-shadow.ts": (
                     'import { setTimeout as delay } from "timers/promises"\n'
                     "function verify(delay: () => Promise<void>) {\n"
@@ -874,6 +895,19 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    }\n"
                     "}\n"
                 ),
+                "swift-multiline-switch-case-clock-shadow.swift": (
+                    "func verify(clock: ContinuousClock, value: Value) async throws {\n"
+                    "    switch value {\n"
+                    "    case let .ready(\n"
+                    "        clock\n"
+                    "    ):\n"
+                    "        try await clock.sleep(until: deadline)\n"
+                    "        #expect(completed)\n"
+                    "    default:\n"
+                    "        break\n"
+                    "    }\n"
+                    "}\n"
+                ),
                 "timer-alias-var-block-shadow.ts": (
                     'import { setTimeout as delay } from "timers/promises"\n'
                     "function verify() {\n"
@@ -890,6 +924,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "shell-function-shadow-after-subshell-unset.sh": (
                     "sleep() { advance_clock \"$@\"; }\n"
                     "( unset -f sleep )\n"
+                    "sleep \"$ticks\"\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "shell-function-shadow-after-uncalled-cleanup.sh": (
+                    "sleep() { advance_clock \"$@\"; }\n"
+                    "cleanup() { unset -f sleep; }\n"
                     "sleep \"$ticks\"\n"
                     'assert "$actual" "$expected"\n'
                 ),
