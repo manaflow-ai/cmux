@@ -220,7 +220,12 @@ describe("join and approval flow", () => {
     const effects = core.connect("c-alice", ALICE, T0);
     expect(sends(effects, "c-alice")).toEqual([{ t: "access-pending" }]);
     expect(sends(effects, "c-host")).toEqual([
-      { t: "access-request", user: ALICE.user, email: ALICE.email },
+      {
+        t: "access-request",
+        user: ALICE.user,
+        email: ALICE.email,
+        pending: [{ user: ALICE.user, email: ALICE.email }],
+      },
     ]);
   });
 
@@ -233,6 +238,7 @@ describe("join and approval flow", () => {
     expect(sends(effects, "c-host")).toContainEqual({
       t: "access-request-cancelled",
       user: ALICE.user,
+      pending: [],
     });
   });
 
@@ -251,6 +257,7 @@ describe("join and approval flow", () => {
     expect(sends(finalDisconnect, "c-host")).toContainEqual({
       t: "access-request-cancelled",
       user: ALICE.user,
+      pending: [],
     });
   });
 
@@ -388,6 +395,7 @@ describe("join and approval flow", () => {
       t: "access-request",
       user: ALICE.user,
       email: ALICE.email,
+      pending: [{ user: ALICE.user, email: ALICE.email }],
     });
   });
 
@@ -414,18 +422,23 @@ describe("join and approval flow", () => {
     // socket was never retained, so its user cannot surface as pending.
     const reconnected = core.connect("c-host-2", HOST, T0 + 101);
     expect(closes(reconnected)).toContainEqual({ to: "c-host", code: 4000 });
-    expect(sends(reconnected, "c-host-2")).not.toContainEqual({
-      t: "access-request",
-      user: overflow.user,
-      email: overflow.email,
-    });
+    expect(
+      sends(reconnected, "c-host-2").some(
+        (message) => message.t === "access-request" && message.user === overflow.user,
+      ),
+    ).toBe(false);
 
     // Releasing one accepted socket makes exactly one slot available.
     core.disconnect("c-alice-1", T0 + 102);
     const retry = core.connect("c-overflow-retry", overflow, T0 + 103);
     expect(sends(retry, "c-overflow-retry")).toEqual([{ t: "access-pending" }]);
     expect(sends(retry, "c-host-2")).toEqual([
-      { t: "access-request", user: overflow.user, email: overflow.email },
+      {
+        t: "access-request",
+        user: overflow.user,
+        email: overflow.email,
+        pending: [{ user: overflow.user, email: overflow.email }],
+      },
     ]);
   });
 
@@ -438,11 +451,18 @@ describe("join and approval flow", () => {
       hostToken: false,
     }));
 
-    for (const { conn, ...who } of pending) {
+    for (const [index, { conn, ...who }] of pending.entries()) {
       const effects = core.connect(conn, who, T0);
       expect(sends(effects, conn)).toEqual([{ t: "access-pending" }]);
       expect(sends(effects, "c-host")).toEqual([
-        { t: "access-request", user: who.user, email: who.email },
+        {
+          t: "access-request",
+          user: who.user,
+          email: who.email,
+          pending: pending
+            .slice(0, index + 1)
+            .map(({ user, email }) => ({ user, email })),
+        },
       ]);
     }
 
@@ -457,17 +477,27 @@ describe("join and approval flow", () => {
     const reconnected = core.connect("c-host-2", HOST, T0 + 2);
     const resurfaced = sends(reconnected, "c-host-2").filter((m) => m.t === "access-request");
     expect(resurfaced).toHaveLength(MAX_PENDING_REQUESTS_PER_SESSION);
-    expect(resurfaced).not.toContainEqual({
-      t: "access-request",
-      user: overflow.user,
-      email: overflow.email,
-    });
+    expect(
+      resurfaced.some(
+        (message) => message.t === "access-request" && message.user === overflow.user,
+      ),
+    ).toBe(false);
 
     core.disconnect(pending[0]!.conn, T0 + 3);
     const retry = core.connect("c-pending-overflow-retry", overflow, T0 + 4);
     expect(sends(retry, "c-pending-overflow-retry")).toEqual([{ t: "access-pending" }]);
     expect(sends(retry, "c-host-2")).toEqual([
-      { t: "access-request", user: overflow.user, email: overflow.email },
+      {
+        t: "access-request",
+        user: overflow.user,
+        email: overflow.email,
+        pending: [
+          ...pending
+            .slice(1)
+            .map(({ user, email }) => ({ user, email })),
+          { user: overflow.user, email: overflow.email },
+        ],
+      },
     ]);
   });
 });
@@ -1244,7 +1274,12 @@ describe("session lifecycle", () => {
     );
     expect(sends(effects, "c-pending")).toEqual([{ t: "access-pending" }]);
     expect(sends(effects, "c-host").filter((message) => message.t === "access-request")).toEqual([
-      { t: "access-request", user: ALICE.user, email: ALICE.email },
+      {
+        t: "access-request",
+        user: ALICE.user,
+        email: ALICE.email,
+        pending: [{ user: ALICE.user, email: ALICE.email }],
+      },
     ]);
     expect(sends(effects).some((message) => message.t === "presence")).toBe(false);
   });

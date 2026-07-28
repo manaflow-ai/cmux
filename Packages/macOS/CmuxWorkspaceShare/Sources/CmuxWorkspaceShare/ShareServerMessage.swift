@@ -1,13 +1,31 @@
+/// One participant whose live guest sockets are awaiting host approval.
+public struct ShareAccessRequest: Codable, Equatable, Sendable {
+    public let user: String
+    public let email: String
+
+    public init(user: String, email: String) {
+        self.user = user
+        self.email = email
+    }
+}
+
 /// A JSON message consumed by the macOS host from the relay.
 public enum ShareServerMessage: Equatable, Sendable {
     /// Authoritative state after connection or resynchronization.
     case sessionState(ShareSessionSnapshot)
 
     /// A participant waiting for host approval.
-    case accessRequest(user: String, email: String)
+    case accessRequest(
+        user: String,
+        email: String,
+        pending: [ShareAccessRequest]?
+    )
 
     /// The final pending socket for a participant disconnected before approval.
-    case accessRequestCancelled(user: String)
+    case accessRequestCancelled(
+        user: String,
+        pending: [ShareAccessRequest]?
+    )
 
     /// Current participant presence and roles.
     case presence(participants: [ShareParticipant])
@@ -48,6 +66,7 @@ extension ShareServerMessage: Decodable {
         case t
         case user
         case email
+        case pending
         case participants
         case pos
         case msg
@@ -71,11 +90,19 @@ extension ShareServerMessage: Decodable {
         case "access-request":
             self = .accessRequest(
                 user: try container.decode(String.self, forKey: .user),
-                email: try container.decode(String.self, forKey: .email)
+                email: try container.decode(String.self, forKey: .email),
+                pending: try container.decodeIfPresent(
+                    [ShareAccessRequest].self,
+                    forKey: .pending
+                )
             )
         case "access-request-cancelled":
             self = .accessRequestCancelled(
-                user: try container.decode(String.self, forKey: .user)
+                user: try container.decode(String.self, forKey: .user),
+                pending: try container.decodeIfPresent(
+                    [ShareAccessRequest].self,
+                    forKey: .pending
+                )
             )
         case "presence":
             self = .presence(

@@ -181,13 +181,32 @@ export interface SessionSnapshot {
   you: { user: string; role: Role; color: number; isHost: boolean };
 }
 
+export interface PendingAccessRequest {
+  user: string;
+  email: string;
+}
+
 export type ServerMessage =
   | SessionSnapshot
   | { t: "ack-request"; nonce: string }
   | { t: "access-pending" }
   | { t: "access-denied" }
-  | { t: "access-request"; user: string; email: string }
-  | { t: "access-request-cancelled"; user: string }
+  | {
+      t: "access-request";
+      user: string;
+      email: string;
+      /**
+       * Complete pending membership after this update. Optional so clients
+       * remain compatible with protocol-v2 relays deployed before snapshots.
+       */
+      pending?: PendingAccessRequest[];
+    }
+  | {
+      t: "access-request-cancelled";
+      user: string;
+      /** Complete pending membership after this update. */
+      pending?: PendingAccessRequest[];
+    }
   | { t: "presence"; participants: Participant[] }
   | { t: "layout"; layout: WorkspaceLayout }
   | { t: "shared"; shared: SharedWorkspace[] }

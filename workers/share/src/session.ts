@@ -449,11 +449,25 @@ export class ShareSessionCore {
   }
 
   private pendingCount(): number {
-    let count = 0;
+    return this.pendingRequests().length;
+  }
+
+  private pendingRequests(): Array<{ user: string; email: string }> {
+    const requests: Array<{ user: string; email: string }> = [];
+    const seen = new Set<string>();
     for (const conn of this.conns.values()) {
-      if (!conn.isHost && !conn.active) count += 1;
+      if (
+        conn.isHost ||
+        conn.active ||
+        this.isDenied(conn.user) ||
+        seen.has(conn.user)
+      ) {
+        continue;
+      }
+      seen.add(conn.user);
+      requests.push({ user: conn.user, email: conn.email });
     }
-    return count;
+    return requests;
   }
 
   private newConnection(
@@ -531,14 +545,18 @@ export class ShareSessionCore {
     effects.push({ kind: "send", to: id, msg: this.snapshotFor(id) });
     effects.push(...this.broadcastPresence(id));
     // Re-surface pending join requests to the freshly (re)connected host.
-    for (const conn of this.conns.values()) {
-      if (!conn.isHost && !conn.active && !this.isDenied(conn.user)) {
-        effects.push({
-          kind: "send",
-          to: id,
-          msg: { t: "access-request", user: conn.user, email: conn.email },
-        });
-      }
+    const pending = this.pendingRequests();
+    for (const request of pending) {
+      effects.push({
+        kind: "send",
+        to: id,
+        msg: {
+          t: "access-request",
+          user: request.user,
+          email: request.email,
+          pending,
+        },
+      });
     }
     return effects;
   }
@@ -593,7 +611,12 @@ export class ShareSessionCore {
       effects.push({
         kind: "send",
         to: hostConn.id,
-        msg: { t: "access-request", user: who.user, email: who.email },
+        msg: {
+          t: "access-request",
+          user: who.user,
+          email: who.email,
+          pending: this.pendingRequests(),
+        },
       });
     }
     return effects;
@@ -713,6 +736,7 @@ export class ShareSessionCore {
     effects.push(...this.reconcileAlarm());
     if (persistenceChanged) effects.push({ kind: "persist" });
 
+    const pending = this.pendingRequests();
     for (const conn of this.conns.values()) {
       if (conn.isHost || conn.active) {
         effects.push(
@@ -725,7 +749,12 @@ export class ShareSessionCore {
           effects.push({
             kind: "send",
             to: host.id,
-            msg: { t: "access-request", user: conn.user, email: conn.email },
+            msg: {
+              t: "access-request",
+              user: conn.user,
+              email: conn.email,
+              pending,
+            },
           });
         }
       }
@@ -754,7 +783,11 @@ export class ShareSessionCore {
         pendingCancellation.push({
           kind: "send",
           to: host.id,
-          msg: { t: "access-request-cancelled", user: conn.user },
+          msg: {
+            t: "access-request-cancelled",
+            user: conn.user,
+            pending: this.pendingRequests(),
+          },
         });
       }
     }

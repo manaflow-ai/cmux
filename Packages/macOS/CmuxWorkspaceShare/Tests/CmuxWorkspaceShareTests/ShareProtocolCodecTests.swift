@@ -51,11 +51,11 @@ struct ShareProtocolCodecTests {
 
         #expect(
             try JSONDecoder().decode(ShareServerMessage.self, from: message)
-                == .accessRequestCancelled(user: "u1")
+                == .accessRequestCancelled(user: "u1", pending: nil)
         )
         #expect(
             WorkspaceShareInboundMessageValidator().acceptsPayload(
-                .accessRequestCancelled(user: "u1")
+                .accessRequestCancelled(user: "u1", pending: nil)
             )
         )
     }
@@ -85,6 +85,29 @@ struct ShareProtocolCodecTests {
             try JSONDecoder().decode(ShareServerMessage.self, from: cancellation)
                 == .accessRequestCancelled(user: "u1", pending: expected)
         )
+    }
+
+    @Test
+    func `Authoritative pending access membership is unique and bounded`() {
+        let validator = WorkspaceShareInboundMessageValidator()
+        let duplicate = [
+            ShareAccessRequest(user: "u1", email: "one@example.com"),
+            ShareAccessRequest(user: "u1", email: "other@example.com"),
+        ]
+        let overflow = (0...ShareProtocolConstants.maximumPendingAccessRequests).map {
+            ShareAccessRequest(user: "u\($0)", email: "\($0)@example.com")
+        }
+
+        #expect(!validator.acceptsPayload(
+            .accessRequest(
+                user: "u1",
+                email: "one@example.com",
+                pending: duplicate
+            )
+        ))
+        #expect(!validator.acceptsPayload(
+            .accessRequestCancelled(user: "u1", pending: overflow)
+        ))
     }
 
     @Test

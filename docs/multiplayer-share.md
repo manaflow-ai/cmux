@@ -89,7 +89,8 @@ and payload, must each be smaller than 1 MiB.
 ## Hard limits
 
 - 32 live connections per session, including the host
-- 16 pending access requests per session
+- 16 unique pending users per session. Every approval update carries the
+  Durable Object's complete bounded pending set so reconnects converge.
 - 64 pane subscriptions per guest connection
 - 4,000 UTF-8 bytes per chat message
 - 500 retained chat messages per session

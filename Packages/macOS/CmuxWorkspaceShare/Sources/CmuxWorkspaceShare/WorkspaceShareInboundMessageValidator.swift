@@ -17,10 +17,13 @@ public struct WorkspaceShareInboundMessageValidator: Sendable {
         switch message {
         case .sessionState(let snapshot):
             return accepts(snapshot)
-        case .accessRequest(let user, let email):
-            return isID(user) && isEmail(email)
-        case .accessRequestCancelled(let user):
+        case .accessRequest(let user, let email, let pending):
             return isID(user)
+                && isEmail(email)
+                && pending.map(acceptsPendingAccessRequests) != false
+        case .accessRequestCancelled(let user, let pending):
+            return isID(user)
+                && pending.map(acceptsPendingAccessRequests) != false
         case .presence(let participants):
             return accepts(participants)
         case .cursor(let user, let pos):
@@ -190,6 +193,23 @@ public struct WorkspaceShareInboundMessageValidator: Sendable {
         ) && value.unicodeScalars.allSatisfy({
             !CharacterSet.controlCharacters.contains($0)
         })
+    }
+
+    private func acceptsPendingAccessRequests(
+        _ requests: [ShareAccessRequest]
+    ) -> Bool {
+        guard requests.count <= ShareProtocolConstants.maximumPendingAccessRequests else {
+            return false
+        }
+        var users = Set<String>()
+        for request in requests {
+            guard isID(request.user),
+                  isEmail(request.email),
+                  users.insert(request.user).inserted else {
+                return false
+            }
+        }
+        return true
     }
 
     private func isEmail(_ value: String) -> Bool {

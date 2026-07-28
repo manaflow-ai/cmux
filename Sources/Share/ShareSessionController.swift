@@ -895,9 +895,15 @@ final class ShareSessionController {
             rebuildFeed(chat: snapshot.chat)
             pruneCursors()
             return true
-        case .accessRequest(let user, let email):
+        case .accessRequest(let user, let email, let pending):
+            if let pending {
+                return replacePendingAccessRequests(with: pending)
+            }
             return appendAccessRequest(user: user, email: email)
-        case .accessRequestCancelled(let user):
+        case .accessRequestCancelled(let user, let pending):
+            if let pending {
+                return replacePendingAccessRequests(with: pending)
+            }
             removePendingAccessRequest(user: user)
             return true
         case .presence(let updated):
@@ -1055,6 +1061,21 @@ final class ShareSessionController {
             }
             return false
         }
+    }
+
+    private func replacePendingAccessRequests(
+        with requests: [ShareAccessRequest]
+    ) -> Bool {
+        feed.removeAll(\.isPendingAccessRequest)
+        for request in requests {
+            guard appendAccessRequest(
+                user: request.user,
+                email: request.email
+            ) else {
+                return false
+            }
+        }
+        return true
     }
 
     private func makeFeedRoom() -> Bool {

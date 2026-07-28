@@ -168,6 +168,11 @@ The host also receives `guest-input`, `guest-resync`, and `guest-sub`.
 `guest-input.user` and `guest-resync.user` always come from the verified
 socket attachment.
 
+Every host-bound `access-request` and `access-request-cancelled` update includes
+`pending`, the complete current set of unique pending users. Protocol-v2 hosts
+that understand this optional field replace local pending rows atomically.
+Older protocol-v2 hosts ignore it and continue applying the original delta.
+
 ## Terminal transport
 
 Binary frames use a fixed 56-byte header. All integers are unsigned and
