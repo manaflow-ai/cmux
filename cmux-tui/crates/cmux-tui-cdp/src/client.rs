@@ -2056,6 +2056,58 @@ mod tests {
     }
 
     #[test]
+    fn reconnect_uses_the_cached_peer_without_resolving_again() {
+        let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
+        warm_resolver();
+        let listener = TcpListener::bind(("localhost", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            listener.set_nonblocking(true).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut connections = 0;
+            while connections < 2 && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        let mut ws = accept(stream).unwrap();
+                        ws.close(None).unwrap();
+                        connections += 1;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => panic!("reconnect test listener failed: {error}"),
+                }
+            }
+            connections
+        });
+        let (initial_events, _initial_receiver) = sync_channel(1);
+        let client = CdpClient::connect(
+            &format!("ws://localhost:{port}/devtools/browser/fake"),
+            initial_events,
+        )
+        .unwrap();
+        let close_deadline = Instant::now() + Duration::from_secs(1);
+        while !client.inner.reader_stopped.load(Ordering::Acquire) {
+            assert!(Instant::now() < close_deadline, "initial CDP reader did not stop");
+            thread::yield_now();
+        }
+
+        NEXT_RESOLVE_DELAY_MS.store(250, Ordering::Release);
+        let (reconnect_events, _reconnect_receiver) = sync_channel(1);
+        let reconnect = client.reconnect_with_timeout(reconnect_events, Duration::from_millis(100));
+        let unused_delay = NEXT_RESOLVE_DELAY_MS.swap(0, Ordering::AcqRel);
+
+        let reconnected = reconnect.is_ok();
+        drop(reconnect);
+        drop(client);
+        let connections = server.join().unwrap();
+        assert!(reconnected, "cached-peer reconnect did not complete");
+        assert_eq!(connections, 2, "cached-peer reconnect did not reach the server");
+        assert_eq!(unused_delay, 250, "reconnect invoked the hostname resolver");
+    }
+
+    #[test]
     fn resolver_initialization_obeys_the_first_request_deadline() {
         let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
         *CDP_RESOLVER.get_or_init(|| Mutex::new(None)).lock().unwrap() = None;

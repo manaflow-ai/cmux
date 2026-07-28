@@ -253,8 +253,6 @@ pub struct BrowserRuntime {
     stealth_user_agent: Option<String>,
     routes: Mutex<Routes>,
     closed: AtomicBool,
-    #[cfg(test)]
-    shutdown_reconnect_before_resolve: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 #[derive(Default)]
@@ -434,8 +432,6 @@ impl BrowserRuntime {
             stealth_user_agent,
             routes: Mutex::new(Routes::default()),
             closed: AtomicBool::new(false),
-            #[cfg(test)]
-            shutdown_reconnect_before_resolve: Mutex::new(None),
         });
         start_router(Arc::downgrade(&runtime), event_rx)?;
         runtime.client.set_discover_targets(true)?;
@@ -3341,7 +3337,7 @@ mod tests {
     }
 
     #[test]
-    fn server_shutdown_reconnect_does_not_resolve_endpoint_after_deadline_starts() {
+    fn server_shutdown_reconnect_obeys_its_deadline() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -3364,8 +3360,6 @@ mod tests {
             thread::yield_now();
         }
         assert!(runtime.is_closed(), "initial CDP transport did not close");
-        *runtime.shutdown_reconnect_before_resolve.lock().unwrap() =
-            Some(Arc::new(|| thread::sleep(Duration::from_millis(250))));
         let started = Instant::now();
 
         let terminated = runtime.close_surface_for_shutdown(
