@@ -87,6 +87,10 @@ actor ShareSocket {
         WorkspaceShareOutboundMessageValidator()
     nonisolated private let connectionAdmission =
         OSAllocatedUnfairLock(initialState: ConnectionAdmissionState())
+    nonisolated private let outboundCapacitySignalPending =
+        OSAllocatedUnfairLock(initialState: false)
+    nonisolated private let onOutboundCapacityAvailable:
+        @Sendable () -> Void
 
     private var runTask: Task<Void, Never>?
     private var outboundWakeTask: Task<Void, Never>?
@@ -114,7 +118,9 @@ actor ShareSocket {
         maximumPendingMessages: Int = 256,
         maximumPendingBytes: Int = 4 * 1_024 * 1_024,
         maximumBufferedEvents: Int = 512,
-        manualTeardownGracePeriod: Duration = .milliseconds(100)
+        manualTeardownGracePeriod: Duration = .milliseconds(100),
+        onOutboundCapacityAvailable:
+            @escaping @Sendable () -> Void = {}
     ) {
         let eventPair = AsyncStream.makeStream(
             of: Event.self,
@@ -140,6 +146,7 @@ actor ShareSocket {
         self.refreshEndpoint = refresh
         self.lifecycle = lifecycle
         self.manualTeardownGracePeriod = manualTeardownGracePeriod
+        self.onOutboundCapacityAvailable = onOutboundCapacityAvailable
     }
 
     func start() {
@@ -187,6 +194,7 @@ actor ShareSocket {
         activeConnectionGeneration = nil
         urlSession?.invalidateAndCancel()
         urlSession = nil
+        clearOutboundCapacitySignal()
         resumeDiscarded(outboundMailbox.stop())
         enqueueEvent(.connectionStateChanged(false))
         eventContinuation.finish()
@@ -356,6 +364,7 @@ actor ShareSocket {
             // make its final message the only queued work so an unresolved
             // delivery-credit barrier cannot strand shutdown.
             setConnectionAdmission(false)
+            clearOutboundCapacitySignal()
             resumeDiscarded(outboundMailbox.discardAll())
         }
         guard let message = outboundValidator.prepareForTransport(message),
@@ -425,6 +434,7 @@ actor ShareSocket {
             return true
         }
         setConnectionAdmission(false)
+        clearOutboundCapacitySignal()
         let discarded = outboundMailbox.discardAll()
         resumeDiscarded(discarded)
         guard !isStopped else {
@@ -473,6 +483,7 @@ actor ShareSocket {
         _ task: URLSessionWebSocketTask,
         connection: UInt64
     ) {
+        clearOutboundCapacitySignal()
         resumeDiscarded(outboundMailbox.discardAll())
         webSocketTask = task
         activeConnectionGeneration = connection
@@ -496,8 +507,10 @@ actor ShareSocket {
         guard let claim = outboundMailbox.claimNext() else {
             return false
         }
-        outboundMailbox.complete(claim)?
-            .payload.completion?.resume(returning: true)
+        if let completed = outboundMailbox.complete(claim) {
+            completed.payload.completion?.resume(returning: true)
+            signalOutboundCapacityAvailableIfNeeded()
+        }
         return true
     }
 
@@ -531,8 +544,10 @@ actor ShareSocket {
     private func finishBlockedSendTaskForTesting() {
         sendTask = nil
         guard let claim = outboundMailbox.claimNext() else { return }
-        outboundMailbox.complete(claim)?
-            .payload.completion?.resume(returning: true)
+        if let completed = outboundMailbox.complete(claim) {
+            completed.payload.completion?.resume(returning: true)
+            signalOutboundCapacityAvailableIfNeeded()
+        }
     }
 
     func setBeforeCriticalBackpressureLifecycleStateForTesting(
@@ -571,6 +586,7 @@ actor ShareSocket {
                 "Dropping outbound share work displaced before its acknowledgement marker"
             )
             resumeDiscarded(discarded)
+            signalOutboundCapacityAvailableIfNeeded()
         }
         return true
     }
@@ -602,6 +618,7 @@ actor ShareSocket {
                 "Dropping outbound share work behind an unresolved acknowledgement marker"
             )
             resumeDiscarded(discarded)
+            signalOutboundCapacityAvailableIfNeeded()
         }
         if outboundMailbox.hasClaimablePending {
             outboundWakeContinuation.yield(())
@@ -633,6 +650,7 @@ actor ShareSocket {
             )
         }
         guard accepted else {
+            outboundCapacitySignalPending.withLock { $0 = true }
             shareSocketLogger.warning(
                 "Rejecting an outbound share frame at the bounded mailbox"
             )
@@ -669,11 +687,14 @@ actor ShareSocket {
                 if claim.entry.priority == .handshake {
                     connectionNeedsHandshake = false
                 }
-                outboundMailbox.complete(claim)?
-                    .payload.completion?.resume(returning: true)
+                if let completed = outboundMailbox.complete(claim) {
+                    completed.payload.completion?.resume(returning: true)
+                    signalOutboundCapacityAvailableIfNeeded()
+                }
             } catch {
                 outboundMailbox.complete(claim)?
                     .payload.completion?.resume(returning: false)
+                clearOutboundCapacitySignal()
                 resumeDiscarded(outboundMailbox.discardAll())
                 shareSocketLogger.warning(
                     "A queued share frame failed; reconnecting the share socket"
@@ -682,6 +703,21 @@ actor ShareSocket {
                 return
             }
         }
+    }
+
+    private nonisolated func signalOutboundCapacityAvailableIfNeeded() {
+        let shouldSignal = outboundCapacitySignalPending.withLock { pending in
+            guard pending else { return false }
+            pending = false
+            return true
+        }
+        if shouldSignal {
+            onOutboundCapacityAvailable()
+        }
+    }
+
+    private nonisolated func clearOutboundCapacitySignal() {
+        outboundCapacitySignalPending.withLock { $0 = false }
     }
 
     private func connect(attempt: Int) async {
@@ -732,6 +768,7 @@ actor ShareSocket {
 
         switch openEvent {
         case .opened:
+            clearOutboundCapacitySignal()
             let staleEntries = outboundMailbox.discardAll()
             if !staleEntries.isEmpty {
                 shareSocketLogger.info(
@@ -865,6 +902,7 @@ actor ShareSocket {
             connectionNeedsHandshake = false
             activeConnectionGeneration = nil
             urlSession = nil
+            clearOutboundCapacitySignal()
             resumeDiscarded(outboundMailbox.discardAll())
         }
         session.invalidateAndCancel()
@@ -955,6 +993,7 @@ actor ShareSocket {
         sendTask?.cancel()
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         urlSession?.invalidateAndCancel()
+        clearOutboundCapacitySignal()
         resumeDiscarded(outboundMailbox.stop())
         eventContinuation.finish()
     }

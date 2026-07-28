@@ -46,10 +46,16 @@ type DomainServerMessage = Exclude<ServerMessage, { t: "ack-request" }>;
 type OutboundPayload = GuestMessage | Uint8Array;
 
 const MAX_PENDING_DELIVERY_BATCHES = 128;
+// Fits the protocol's valid 64-subscription replay plus focus/control work.
+// The remaining relay ingress budget can still carry the next fully saturated
+// 24-frame terminal-input window without turning ACK release into a burst.
+const MAX_DEFERRED_OUTBOUND_MESSAGES = 80;
+const MAX_DEFERRED_OUTBOUND_BYTES = 64 * 1024;
 
 interface DeferredOutboundBatch {
   socket: WebSocket;
   messages: OutboundPayload[];
+  messageBytes: number;
   accepted: boolean;
   settled: boolean;
   nonce: string | null;
@@ -359,6 +365,8 @@ export class ShareClient {
   private bubbleTimer: ReturnType<typeof setTimeout> | null = null;
   private acceptingPayload: DeferredOutboundBatch | null = null;
   private pendingPayloads: DeferredOutboundBatch[] = [];
+  private deferredOutboundMessages = 0;
+  private deferredOutboundBytes = 0;
   private terminalInputQueue: QueuedTerminalInput[] = [];
   private terminalInputQueuedBytes = 0;
   private terminalInputWindowStartedAt = 0;
@@ -388,6 +396,8 @@ export class ShareClient {
     this.terminalInputTimer = null;
     this.acceptingPayload = null;
     this.pendingPayloads = [];
+    this.deferredOutboundMessages = 0;
+    this.deferredOutboundBytes = 0;
     this.clearTerminalInputQueue();
     this.pendingCursorResolver = undefined;
     this.reconnectAttempt = 0;
@@ -508,15 +518,18 @@ export class ShareClient {
       const pending = this.pendingPayloads.at(-1);
       if (pending?.socket === socket && pending.nonce === null) {
         this.pendingPayloads.pop();
+        this.releaseDeferredBatch(pending);
       }
       if (this.acceptingPayload?.socket === socket) {
         this.acceptingPayload = null;
       }
     };
     const dropSocketPayloads = (): void => {
-      this.pendingPayloads = this.pendingPayloads.filter(
-        (batch) => batch.socket !== socket,
-      );
+      this.pendingPayloads = this.pendingPayloads.filter((batch) => {
+        if (batch.socket !== socket) return true;
+        this.releaseDeferredBatch(batch);
+        return false;
+      });
       if (this.acceptingPayload?.socket === socket) {
         this.acceptingPayload = null;
       }
@@ -533,8 +546,8 @@ export class ShareClient {
     const flushPayloads = (): void => {
       while (this.isCurrentSocket(socket, generation)) {
         const batch = this.pendingPayloads[0];
+        if (!batch) break;
         if (
-          !batch ||
           batch.socket !== socket ||
           batch.nonce === null ||
           !batch.settled
@@ -542,11 +555,16 @@ export class ShareClient {
           return;
         }
         this.pendingPayloads.shift();
+        const deferredMessages = batch.messages;
+        this.releaseDeferredBatch(batch);
         if (!batch.accepted) continue;
         if (!this.sendImmediate({ t: "ack", nonce: batch.nonce })) return;
-        for (const deferred of batch.messages) {
+        for (const deferred of deferredMessages) {
           if (!this.sendImmediate(deferred)) return;
         }
+      }
+      if (this.terminalInputQueue.length > 0) {
+        this.drainTerminalInputQueue();
       }
     };
     const acceptPayload = (
@@ -563,6 +581,7 @@ export class ShareClient {
       const batch: DeferredOutboundBatch = {
         socket,
         messages: [],
+        messageBytes: 0,
         accepted: false,
         settled: false,
         nonce: null,
@@ -1005,10 +1024,65 @@ export class ShareClient {
           ? pending
           : null;
     if (deferred && this.ws?.readyState === WebSocket.OPEN) {
-      deferred.messages.push(message);
-      return true;
+      return this.deferOutbound(deferred, message);
     }
     return this.sendImmediate(message);
+  }
+
+  private deferOutbound(
+    batch: DeferredOutboundBatch,
+    message: OutboundPayload,
+  ): boolean {
+    const bytes = this.outboundPayloadBytes(message);
+    if (
+      bytes === null ||
+      this.deferredOutboundMessages >= MAX_DEFERRED_OUTBOUND_MESSAGES ||
+      bytes > MAX_DEFERRED_OUTBOUND_BYTES - this.deferredOutboundBytes
+    ) {
+      const socket = this.ws;
+      if (socket?.readyState === WebSocket.OPEN) {
+        try {
+          socket.close(1013, "outbound backpressure");
+        } catch {
+          // onclose or the next send observes the failed socket.
+        }
+      }
+      return false;
+    }
+    batch.messages.push(message);
+    batch.messageBytes += bytes;
+    this.deferredOutboundMessages += 1;
+    this.deferredOutboundBytes += bytes;
+    return true;
+  }
+
+  private releaseDeferredBatch(batch: DeferredOutboundBatch): void {
+    this.deferredOutboundMessages = Math.max(
+      0,
+      this.deferredOutboundMessages - batch.messages.length,
+    );
+    this.deferredOutboundBytes = Math.max(
+      0,
+      this.deferredOutboundBytes - batch.messageBytes,
+    );
+    batch.messages = [];
+    batch.messageBytes = 0;
+  }
+
+  private outboundPayloadBytes(message: OutboundPayload): number | null {
+    if (message instanceof Uint8Array) return message.byteLength;
+    try {
+      return utf8ByteLength(JSON.stringify(message));
+    } catch {
+      return null;
+    }
+  }
+
+  private hasPendingDeliveryBarrier(): boolean {
+    return (
+      this.acceptingPayload?.socket === this.ws ||
+      this.pendingPayloads.some((batch) => batch.socket === this.ws)
+    );
   }
 
   private sendImmediate(message: OutboundPayload): boolean {
@@ -1356,6 +1430,10 @@ export class ShareClient {
       clearTimeout(this.terminalInputTimer);
       this.terminalInputTimer = null;
     }
+    // Keep byte accounting and the one-second pacing window attached to the
+    // terminal queue until the parser-dependent ACK has actually been sent.
+    // Moving these frames into a delivery batch would create an unpaced burst.
+    if (this.hasPendingDeliveryBarrier()) return true;
     const now = Date.now();
     if (
       now < this.terminalInputWindowStartedAt ||
@@ -1386,7 +1464,7 @@ export class ShareClient {
         next.pane,
         next.data,
       );
-      if (!frame || !this.sendOutbound(frame)) {
+      if (!frame || !this.sendImmediate(frame)) {
         this.clearTerminalInputQueue();
         return false;
       }

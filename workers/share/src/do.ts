@@ -40,7 +40,6 @@ import {
   restorePersistedSession,
   ShareSessionCore,
 } from "./session";
-import { HibernationRestoreGate } from "./restore-gate";
 
 export { MAX_SOCKET_BUFFERED_BYTES };
 
@@ -62,7 +61,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
   private sockets = new Map<string, WebSocket>();
   private attachments = new Map<string, ShareSocketAttachment>();
   private readonly ingress = new ApplicationIngressLimiter();
-  private readonly restoreGate = new HibernationRestoreGate();
   private restored = false;
 
   constructor(ctx: DurableObjectState, env: ShareWorkerEnv) {
@@ -238,13 +236,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
           DELIVERY_FAILURE_CLOSE_REASON,
         );
       }
-      if (result === "released") {
-        // Every pre-wake entry for this exact socket must clear before its
-        // snapshot/resync and any later room traffic reserve fresh credit.
-        await this.apply(
-          this.restoreGate.release(attachment.connId, ack.nonce),
-        );
-      }
       if (result === "ignored" && !ingressAccepted && this.sockets.has(attachment.connId)) {
         await this.closeProtocolSocket(
           ws,
@@ -305,7 +296,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     const attachment = this.attachment(ws);
     if (!core || !attachment) return;
     if (!this.sockets.has(attachment.connId)) return;
-    this.restoreGate.discard(attachment.connId);
     this.sockets.delete(attachment.connId);
     this.attachments.delete(attachment.connId);
     this.ingress.remove(attachment.connId);
@@ -375,10 +365,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
       }
       this.sockets.set(attachment.connId, ws);
       this.attachments.set(attachment.connId, attachment);
-      this.restoreGate.register(
-        attachment.connId,
-        attachment.outstanding.map(({ nonce }) => nonce),
-      );
       restoredOutstandingAckEntries += attachment.outstanding.length;
       survivors.push({
         id: attachment.connId,
@@ -394,10 +380,10 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
       });
     }
     if (this.core && (survivors.length > 0 || this.core.ended)) {
-      // Rebuild membership immediately. apply() executes durable alarm/storage
-      // work now, while the per-socket gate holds every delivery to a survivor
-      // until all of that socket's serialized pre-wake credit is released.
-      // This ordering is identical whether a message, fetch, or alarm woke us.
+      // Restore traffic uses the same serialized, attachment-backed credit
+      // window as every other delivery. Existing credit remains charged. A
+      // saturated survivor is closed independently and reconnects for a fresh
+      // snapshot instead of accumulating volatile work in the Durable Object.
       await this.apply(this.core.restore(survivors, Date.now()));
     } else if (!this.core && survivors.length > 0) {
       for (const survivor of survivors) {
@@ -430,7 +416,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     code: number,
     reason: string,
   ): Promise<void> {
-    this.restoreGate.discard(attachment.connId);
     this.sockets.delete(attachment.connId);
     this.attachments.delete(attachment.connId);
     this.ingress.remove(attachment.connId);
@@ -443,9 +428,7 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
   }
 
   private async apply(effects: Effect[]): Promise<void> {
-    const immediate = this.restoreGate.route(effects);
-    if (immediate.length === 0) return;
-    await dispatchEffects(immediate, {
+    await dispatchEffects(effects, {
       core: this.core,
       sockets: this.sockets,
       attachments: this.attachments,
@@ -464,7 +447,6 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
         }
         this.sockets.clear();
         this.attachments.clear();
-        this.restoreGate.clear();
         this.core = null;
         this.restored = false;
       },

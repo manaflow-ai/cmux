@@ -260,8 +260,10 @@ arrival at the authoritative host.
 The viewer keeps one FIFO delivery batch for every payload whose xterm write is
 still pending, up to the relay's 128-entry window. It emits each ACK only after
 xterm's write callback and never lets a later payload displace earlier credit.
-Outbound guest traffic created while a payload is pending follows that
-payload's ACK.
+Control traffic created while a payload is pending is count- and byte-bounded
+behind that payload's ACK. Pacing retains terminal input in its separate 2 MiB
+queue until the ACK barrier clears, so parser stalls cannot turn multiple
+one-second input windows into one relay burst.
 
 xterm's public `onData` includes both user input and terminal-generated DA,
 DSR, OSC-query, window, and focus replies. The pinned xterm 6.0.0 integration
@@ -294,16 +296,18 @@ cannot permanently starve another.
 
 The WebSocket hibernation API serializes validated identity and the compact
 delivery-credit window. On wake, attachments are validated before use.
-Membership is rebuilt, but all deliveries to each survivor remain pending
-until that socket has acknowledged every delivery-credit entry persisted
-before the wake. Durable alarm and storage effects, new connections, and other
-sockets continue independently, so message, fetch, and alarm wakes preserve
-the same ordering. Unknown, duplicate, replayed, and cross-socket ACKs release
-nothing. Volatile focus, rate windows, cursors, and subscriptions are rebuilt.
-Approved clients receive a fresh `session-state` and `resync`, then re-send
-`focus`, `sub`, and cursor state. Editor input still authorizes against the
-current shared terminal during this resync window, so the wake-triggering input
-is not lost. The host re-sends `hello` and baselines for active subscriptions.
+Membership is rebuilt and restore deliveries enter the same serialized,
+attachment-backed 128-entry, 2 MiB credit window as live traffic. Existing
+unacknowledged entries stay charged and preserve WebSocket order. If a restore
+snapshot cannot fit, only that saturated socket closes with
+`4008/slow_client`; its normal reconnect receives a fresh snapshot. The relay
+never holds terminal or control traffic in a volatile wake queue. Unknown,
+duplicate, replayed, and cross-socket ACKs release nothing. Volatile focus,
+rate windows, cursors, and subscriptions are rebuilt. Approved clients receive
+a fresh `session-state` and `resync`, then re-send `focus`, `sub`, and cursor
+state. Binary editor input remains denied until its exact terminal
+subscription is replayed. The client ACK barrier orders that replay before
+queued user input. The host re-sends `hello` and baselines for active subscriptions.
 Snapshots include all 256 grants plus the host; if combined valid state reaches
 the 1 MiB server ceiling, oldest chat is omitted from that snapshot only until
 it fits. An ended tombstone also re-arms its fixed cleanup deadline on wake,

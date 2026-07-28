@@ -307,9 +307,6 @@ interface Conn {
   isHost: boolean;
   /** Guests start pending until the host approves them. */
   active: boolean;
-  /** A surviving socket can have input already in flight while it rebuilds
-   * volatile subscriptions after a Durable Object wake. */
-  restored: boolean;
   focusWs: string | null;
   subs: Set<string>;
   cursorWindowStartedAt: number;
@@ -429,7 +426,10 @@ export class ShareSessionCore {
       return this.capacityRejection(id, "session_full", "session is full");
     }
     const isKnown =
-      who.user === this.s.host.user || this.grantFor(who.user) !== null || this.isDenied(who.user);
+      who.user === this.s.host.user ||
+      this.grantFor(who.user) !== null ||
+      this.isDenied(who.user) ||
+      this.hasPendingRequest(who.user);
     if (!isKnown && this.pendingCount() >= MAX_PENDING_REQUESTS_PER_SESSION) {
       return this.capacityRejection(
         id,
@@ -453,6 +453,16 @@ export class ShareSessionCore {
 
   private pendingCount(): number {
     return this.pendingRequests().length;
+  }
+
+  private hasPendingRequest(user: string): boolean {
+    return [...this.conns.values()].some(
+      (conn) =>
+        !conn.isHost &&
+        !conn.active &&
+        !this.isDenied(conn.user) &&
+        conn.user === user,
+    );
   }
 
   private pendingRequests(): Array<{ user: string; email: string }> {
@@ -480,7 +490,6 @@ export class ShareSessionCore {
     isHost: boolean,
     active: boolean,
     now: number,
-    restored = false,
   ): Conn {
     return {
       id,
@@ -488,7 +497,6 @@ export class ShareSessionCore {
       email,
       isHost,
       active,
-      restored,
       focusWs: null,
       subs: new Set(),
       cursorWindowStartedAt: now,
@@ -528,7 +536,6 @@ export class ShareSessionCore {
       email: who.email,
       isHost: true,
       active: true,
-      restored: false,
       focusWs: null,
       subs: new Set(),
       cursorWindowStartedAt: now,
@@ -587,7 +594,6 @@ export class ShareSessionCore {
       email: who.email,
       isHost: false,
       active: selfHost || grant !== null,
-      restored: false,
       focusWs: null,
       subs: new Set(),
       cursorWindowStartedAt: now,
@@ -689,7 +695,6 @@ export class ShareSessionCore {
             true,
             true,
             now,
-            true,
           ),
         );
         continue;
@@ -709,7 +714,11 @@ export class ShareSessionCore {
       }
       const selfHost = survivor.user === this.s.host.user;
       const active = selfHost || this.grantFor(survivor.user) !== null;
-      if (!active && this.pendingCount() >= MAX_PENDING_REQUESTS_PER_SESSION) {
+      if (
+        !active &&
+        !this.hasPendingRequest(survivor.user) &&
+        this.pendingCount() >= MAX_PENDING_REQUESTS_PER_SESSION
+      ) {
         effects.push(
           ...this.capacityRejection(
             survivor.id,
@@ -728,7 +737,6 @@ export class ShareSessionCore {
           false,
           active,
           now,
-          true,
         ),
       );
     }
@@ -1118,7 +1126,7 @@ export class ShareSessionCore {
       kind !== BINARY_KIND_INPUT ||
       this.roleOf(conn.user) !== "editor" ||
       !this.isCurrentTerminalPane(ws, pane) ||
-      (!conn.restored && !conn.subs.has(subKey(ws, pane)))
+      !conn.subs.has(subKey(ws, pane))
     ) {
       return [];
     }
@@ -1197,6 +1205,7 @@ export class ShareSessionCore {
         effects.push({ kind: "send", to: conn.id, msg: this.snapshotFor(conn.id) });
       }
     }
+    effects.push(...this.pendingResolutionUpdate(user));
     effects.push(...this.broadcastPresence(null));
     return effects;
   }
@@ -1221,9 +1230,25 @@ export class ShareSessionCore {
       }
     }
     for (const conn of removed) effects.push(...this.subCountUpdatesFor(conn));
+    effects.push(...this.pendingResolutionUpdate(user));
     effects.push(...this.broadcastPresence(null));
     effects.push(...this.reconcileAlarm());
     return effects;
+  }
+
+  private pendingResolutionUpdate(user: string): Effect[] {
+    const host = this.hostConn();
+    return host
+      ? [{
+          kind: "send",
+          to: host.id,
+          msg: {
+            t: "access-request-cancelled",
+            user,
+            pending: this.pendingRequests(),
+          },
+        }]
+      : [];
   }
 
   /** Kick = deny for the remainder of the session. */

@@ -20,7 +20,6 @@ import {
   decodeTerminalFrame,
   encodeTerminalFrame,
   PROTO_VERSION,
-  TERMINAL_FRAME_HEADER_BYTES,
   TERMINAL_TRANSPORT_VERSION,
 } from "../src/protocol";
 
@@ -193,24 +192,6 @@ function encodeBaselineFrame(
   });
 }
 
-function encodeSizedBaselineFrame(
-  ws: string,
-  pane: string,
-  totalBytes: number,
-): Uint8Array {
-  const enc = new TextEncoder();
-  const headerBytes =
-    TERMINAL_FRAME_HEADER_BYTES +
-    enc.encode(ws).byteLength +
-    enc.encode(pane).byteLength;
-  if (totalBytes <= headerBytes) throw new Error("sized grid frame is too small");
-  return encodeBaselineFrame(
-    ws,
-    pane,
-    new Uint8Array(totalBytes - headerBytes),
-  );
-}
-
 function encodeInputFrame(ws: string, pane: string, payload: Uint8Array): Uint8Array {
   return encodeTerminalFrame({
     kind: BINARY_KIND_INPUT,
@@ -296,43 +277,31 @@ step("byte-exact terminal input relayed, chat + cursor broadcast");
 // Optional deployed-only hibernation proof. Local workerd does not evict
 // Durable Objects, so this mode intentionally idles a deployed dev Worker.
 if (hibernationProof) {
-  const binaryLimit = 1024 * 1024;
-  const firstNearLimit = encodeSizedBaselineFrame("ws-1", "pane-1", binaryLimit - 1);
-  const secondNearLimit = encodeSizedBaselineFrame("ws-1", "pane-1", binaryLimit - 512);
-  guest.withholdNextAcks(2);
-  host.ws.send(firstNearLimit);
-  await guest.nextBinary("first near-limit grid frame");
-  host.ws.send(secondNearLimit);
-  await guest.nextBinary("second near-limit grid frame");
-  const [wakingNonce, remainingNonce] = await guest.nextWithheldAcks(
-    2,
-    "near-ceiling ACK requests",
+  guest.withholdNextAcks(1);
+  host.ws.send(
+    encodeBaselineFrame(
+      "ws-1",
+      "pane-1",
+      new TextEncoder().encode("\u001b[Hpersisted before wake"),
+    ),
   );
-  if (!wakingNonce || !remainingNonce) throw new Error("missing withheld ACK nonce");
-  const ackBytes = (nonce: string) =>
-    new TextEncoder().encode(JSON.stringify({ t: "ack-request", nonce })).byteLength;
-  const outstandingBytes =
-    firstNearLimit.byteLength +
-    ackBytes(wakingNonce) +
-    20 +
-    secondNearLimit.byteLength +
-    ackBytes(remainingNonce) +
-    20;
-  if (outstandingBytes >= 2 * 1024 * 1024 || 2 * 1024 * 1024 - outstandingBytes > 1_024) {
-    throw new Error(`proof did not reach the delivery-credit ceiling (${outstandingBytes})`);
-  }
-  step("persisted two withheld grid deliveries within 1 KiB of the 2 MiB ceiling");
+  await guest.nextBinary("pre-wake grid frame");
+  const [wakingNonce] = await guest.nextWithheldAcks(
+    1,
+    "persisted pre-wake ACK request",
+  );
+  if (!wakingNonce) throw new Error("missing withheld ACK nonce");
+  step("persisted one unacknowledged delivery in the hibernation attachment");
 
   console.log(`… idling ${hibernationIdleSeconds}s for Durable Object eviction`);
   await new Promise((resolve) => setTimeout(resolve, hibernationIdleSeconds * 1_000));
   guest.sendAck(wakingNonce);
-  guest.sendAck(remainingNonce);
 
   await Promise.all([
     guest.next((m) => m.t === "resync", "guest post-wake resync"),
     host.next((m) => m.t === "resync", "host post-wake resync"),
   ]);
-  step("all withheld ACKs released pre-wake credit before both sockets resynced");
+  step("persisted credit and both surviving sockets restored without a volatile queue");
 
   host.ws.send(
     JSON.stringify({

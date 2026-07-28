@@ -310,6 +310,11 @@ final class ShareSessionController {
                     created: created,
                     refreshed: refreshed
                 )
+            },
+            onOutboundCapacityAvailable: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.streamer.transportCapacityAvailable()
+                }
             }
         )
         self.socket = socket
@@ -1031,15 +1036,15 @@ final class ShareSessionController {
     }
 
     private func appendAccessRequest(user: String, email: String) -> Bool {
-        // A repeat request from the same still-pending user collapses into one
-        // actionable item.
-        let hasPending = feed.contains { item in
-            if case .accessRequest(let requestUser, _, .none) = item.kind {
+        // A request already resolved in this session cannot become actionable
+        // again when an older aggregate snapshot finishes decoding later.
+        let hasExistingRequest = feed.contains { item in
+            if case .accessRequest(let requestUser, _, _) = item.kind {
                 return requestUser == user
             }
             return false
         }
-        guard !hasPending else { return true }
+        guard !hasExistingRequest else { return true }
         let pendingCount = feed.lazy.filter(\.isPendingAccessRequest).count
         guard pendingCount < ShareProtocolConstants.maximumPendingAccessRequests,
               makeFeedRoom() else {

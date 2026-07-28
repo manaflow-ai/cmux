@@ -175,6 +175,17 @@ final class ShareGridStreamer {
         requestBaselinesForAllPanes()
     }
 
+    /// A rejected baseline remains dirty until the exact bounded mailbox that
+    /// rejected it releases capacity. The transport coalesces this callback,
+    /// so one fresh parser tick retries all dirty subscribed panes.
+    func transportCapacityAvailable() {
+        guard streamsBySurfaceID.values.contains(where: \.needsBaseline)
+        else {
+            return
+        }
+        GhosttyApp.shared.scheduleTick()
+    }
+
     /// Replaces one currently subscribed xterm after that guest detected a
     /// sequence gap or remounted its parser.
     @discardableResult

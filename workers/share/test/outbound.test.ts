@@ -327,7 +327,7 @@ describe("serialized delivery credit", () => {
     );
   });
 
-  it("releases a waking ACK before restore messages reserve new credit", async () => {
+  it("keeps restore deliveries inside persisted credit and closes a saturated survivor", async () => {
     const withheld = uuid(99);
     const socket = new FakeSocket();
     const credit = attachment("socket");
@@ -336,10 +336,9 @@ describe("serialized delivery credit", () => {
     ];
     const sockets = new Map([["socket", socket]]);
     const attachments = new Map([["socket", credit]]);
-    const { runtime } = harness(null, sockets, attachments);
+    const { runtime, logs } = harness(null, sockets, attachments);
 
     expect(canReserveDeliveryCredit(credit, deliveryCreditBytes(1, uuid(1)))).toBe(false);
-    expect(releaseDeliveryCredit(socket, credit, withheld)).toBe("released");
     await dispatchEffects(
       [
         errorEffect("socket", "restored snapshot"),
@@ -348,15 +347,18 @@ describe("serialized delivery credit", () => {
       runtime,
     );
 
-    expect(socket.closes).toEqual([]);
-    expect(socket.sent).toHaveLength(4);
-    expect(
-      socket.sent
-        .filter((message): message is string => typeof message === "string")
-        .map((message) => JSON.parse(message) as Record<string, unknown>)
-        .some((message) => message.t === "resync"),
-    ).toBe(true);
-    expect(credit.outstanding).toHaveLength(2);
+    expect(socket.sent).toEqual([]);
+    expect(socket.closes).toEqual([
+      {
+        code: SLOW_CLIENT_CLOSE_CODE,
+        reason: SLOW_CLIENT_CLOSE_REASON,
+      },
+    ]);
+    expect(sockets.has("socket")).toBe(false);
+    expect(attachments.has("socket")).toBe(false);
+    expect(logs.map((entry) => entry.event)).toContain(
+      "delivery_credit_exhausted",
+    );
   });
 });
 

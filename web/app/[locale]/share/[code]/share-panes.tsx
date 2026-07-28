@@ -186,8 +186,9 @@ function PlaceholderPane({
 }
 
 /**
- * One terminal pane. The callback ref owns xterm and stream subscriptions, so
- * mounting/unmounting is the complete lifecycle without a component effect.
+ * One terminal pane. The stable mount ref owns xterm and stream
+ * subscriptions. Permission changes use a separate ref, so editor/viewer
+ * transitions never discard parser state or request replacement baselines.
  */
 function TerminalPane({
   client,
@@ -202,6 +203,9 @@ function TerminalPane({
 }): ReactNode {
   const registry = useContext(PaneRegistryContext);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const terminalRef = useRef<XtermPaneController | null>(null);
+  const canTypeRef = useRef(canType);
+  canTypeRef.current = canType;
   const paneKey = paneKeyOf(ws, pane);
 
   const registerPane = useCallback(
@@ -227,17 +231,25 @@ function TerminalPane({
         client.reportTerminalRuntimeFailure();
         return;
       }
-      terminal.setInputEnabled(canType);
+      terminalRef.current = terminal;
+      terminal.setInputEnabled(canTypeRef.current);
       const detachTerminal = client.attachTerminal(ws, pane, terminal);
       const focusTerminal = (): void => terminal.focus();
       element.addEventListener("pointerdown", focusTerminal);
       cleanupRef.current = () => {
         element.removeEventListener("pointerdown", focusTerminal);
         detachTerminal();
+        if (terminalRef.current === terminal) terminalRef.current = null;
         terminal.dispose();
       };
     },
-    [canType, client, pane, ws],
+    [client, pane, ws],
+  );
+  const syncInputMode = useCallback(
+    (element: HTMLDivElement | null): void => {
+      if (element) terminalRef.current?.setInputEnabled(canType);
+    },
+    [canType],
   );
 
   return (
@@ -248,15 +260,17 @@ function TerminalPane({
         canType ? "focus-within:ring-1 focus-within:ring-[#2d8cff]/60" : ""
       }`}
     >
-      <div
-        ref={mountTerminal}
-        role={canType ? "textbox" : "presentation"}
-        aria-label={pane}
-        tabIndex={canType ? 0 : -1}
-        className={`cmux-share-xterm-host absolute inset-0 outline-none ${
-          canType ? "cursor-text" : "cursor-default"
-        }`}
-      />
+      <div ref={syncInputMode} className="absolute inset-0">
+        <div
+          ref={mountTerminal}
+          role={canType ? "textbox" : "presentation"}
+          aria-label={pane}
+          tabIndex={canType ? 0 : -1}
+          className={`cmux-share-xterm-host absolute inset-0 outline-none ${
+            canType ? "cursor-text" : "cursor-default"
+          }`}
+        />
+      </div>
     </div>
   );
 }

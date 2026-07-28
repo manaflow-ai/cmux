@@ -1304,6 +1304,60 @@ describe("ShareClient delivery credit acknowledgements", () => {
     ).toHaveLength(binaryBefore + 25);
   });
 
+  test("reconnects instead of growing deferred control traffic without bound", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "snapshot" });
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    socket.receiveBinary(terminalFrame());
+    socket.receive({ t: "ack-request", nonce: "stalled-terminal" });
+    await settle();
+
+    let accepted = 0;
+    while (client.sendChat(`queued-${accepted}`)) {
+      accepted += 1;
+    }
+
+    expect(accepted).toBe(80);
+    expect(socket.closedWith).toEqual({
+      code: 1013,
+      reason: "outbound backpressure",
+    });
+    expect(client.session.get().reconnecting).toBe(true);
+    expect(retryDelays()).toEqual([800]);
+  });
+
+  test("reserves relay byte headroom for a full terminal-input window", async () => {
+    const { client, socket } = await connectedClient();
+    socket.receive(snapshot());
+    socket.receive({ t: "ack-request", nonce: "snapshot" });
+    const terminal = recordingTerminal();
+    client.attachTerminal(
+      "workspace:1",
+      "surface:terminal",
+      terminal.adapter,
+    );
+    socket.receiveBinary(terminalFrame());
+    socket.receive({ t: "ack-request", nonce: "stalled-terminal" });
+    await settle();
+
+    let accepted = 0;
+    while (client.sendChat("x".repeat(4_000))) {
+      accepted += 1;
+    }
+
+    expect(accepted).toBe(16);
+    expect(socket.closedWith).toEqual({
+      code: 1013,
+      reason: "outbound backpressure",
+    });
+  });
+
   test("retains all 128 delivery credits while xterm serially consumes frames", async () => {
     const { client, socket } = await connectedClient();
     socket.receive(snapshot());
