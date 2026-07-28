@@ -1,5 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
+import CmuxControlSocket
+import CmuxSettings
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -441,6 +443,7 @@ struct ApplicationSurfaceTests {
             onStateChanged: { _ in },
             onMovedToWindow: { _ in }
         )
+        let windowID = UUID()
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
             styleMask: [.titled],
@@ -448,6 +451,7 @@ struct ApplicationSurfaceTests {
             defer: false
         )
         window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
         window.contentView = view
         #expect(window.makeFirstResponder(view))
 
@@ -481,8 +485,75 @@ struct ApplicationSurfaceTests {
             keyCode: UInt16(kVK_ANSI_I)
         ))
 
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(applicationSurfaceRuntime: runtime)
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: tabManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.clearConfiguredShortcutChordState()
+        defer {
+            appDelegate.clearConfiguredShortcutChordState()
+            AppDelegate.shared = previousAppDelegate
+        }
+        #expect(!appDelegate.handleConfiguredShortcutKeyEquivalent(event))
         #expect(window.performKeyEquivalent(with: event))
         #expect(probe.callCount == 0)
+    }
+
+    @Test func restoredWorkspacesKeepApplicationSurfaceRuntime() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let manager = TabManager(applicationSurfaceRuntime: runtime)
+        let persistedSnapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        manager.restoreSessionSnapshot(persistedSnapshot)
+        var workspace = try #require(manager.selectedWorkspace)
+        var pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        var panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: "Preview"
+        ))
+        #expect(panel.runtime === runtime)
+        panel.close()
+
+        manager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: nil,
+            workspaces: []
+        ))
+        workspace = try #require(manager.selectedWorkspace)
+        pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 44,
+            processID: 45,
+            title: "Dictionary"
+        ))
+        #expect(panel.runtime === runtime)
+        panel.close()
+    }
+
+    @Test func socketApplicationControlRequiresTrustedMode() {
+        #expect(TerminalController.applicationSurfaceSocketControlIsAllowed(
+            accessMode: .cmuxOnly
+        ))
+        #expect(TerminalController.applicationSurfaceSocketControlIsAllowed(
+            accessMode: .password
+        ))
+        #expect(!TerminalController.applicationSurfaceSocketControlIsAllowed(
+            accessMode: .automation
+        ))
+        #expect(!TerminalController.applicationSurfaceSocketControlIsAllowed(
+            accessMode: .allowAll
+        ))
+        #expect(!TerminalController.applicationSurfaceSocketControlIsAllowed(
+            accessMode: .off
+        ))
     }
 
     @Test func applicationTitleChangesFollowPanelAcrossWorkspaces() throws {
