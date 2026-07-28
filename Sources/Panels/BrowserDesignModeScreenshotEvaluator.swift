@@ -26,6 +26,10 @@ final class BrowserDesignModeScreenshotEvaluator {
         NSRect,
         @escaping @MainActor () -> Void
     ) async throws -> NSImage
+    typealias CallbackGateReleaseScheduler = @MainActor (
+        Duration,
+        @escaping @MainActor () -> Void
+    ) -> Task<Void, Never>
 
     private let timeout: TimeInterval
     private let cleanupTimeout: TimeInterval
@@ -39,6 +43,7 @@ final class BrowserDesignModeScreenshotEvaluator {
     private var cleanupContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var cleanupTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var callbackGateReleaseTasks: [UUID: Task<Void, Never>] = [:]
+    private var callbackGateReleaseScheduler: CallbackGateReleaseScheduler?
     private var operationIDsByWebView: [ObjectIdentifier: UUID] = [:]
     private var webViewIDsByOperation: [UUID: ObjectIdentifier] = [:]
 
@@ -71,6 +76,7 @@ final class BrowserDesignModeScreenshotEvaluator {
     convenience init(
         timeout: TimeInterval,
         cleanupTimeout: TimeInterval = 2,
+        callbackGateReleaseScheduler: CallbackGateReleaseScheduler? = nil,
         capture: @escaping Capture
     ) {
         self.init(
@@ -85,6 +91,7 @@ final class BrowserDesignModeScreenshotEvaluator {
                 }
             }
         )
+        self.callbackGateReleaseScheduler = callbackGateReleaseScheduler
     }
 
     init(
@@ -359,6 +366,14 @@ final class BrowserDesignModeScreenshotEvaluator {
     ) {
         guard webViewIDsByOperation[operationID] != nil else { return }
         callbackGateReleaseTasks.removeValue(forKey: operationID)?.cancel()
+        if let callbackGateReleaseScheduler {
+            callbackGateReleaseTasks[operationID] = callbackGateReleaseScheduler(
+                .seconds(max(0, timeout))
+            ) { [weak self] in
+                self?.callbackGateReleaseDidExpire(operationID)
+            }
+            return
+        }
         callbackGateReleaseTasks[operationID] = Task { @MainActor [weak self] in
             // This bounds quarantine for callback APIs that provide no
             // cancellation handle and may never invoke their completion.

@@ -60,14 +60,20 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
     }
 
-    @Test func droppedVisibleCaptureCallbackRecoversAfterBoundedQuarantine() async {
+    @Test func droppedVisibleCaptureCallbackRecoversAfterBoundedQuarantine() async throws {
         let expected = NSImage(size: NSSize(width: 20, height: 10))
         var captureStartCount = 0
         var firstCompletion: (@MainActor (Result<NSImage, any Error>) -> Void)?
+        var scheduledGateRelease: (@MainActor () -> Void)?
         let webView = WKWebView()
         let evaluator = BrowserDesignModeScreenshotEvaluator(
             timeout: 0.01,
-            cleanupTimeout: 0.02
+            cleanupTimeout: 0.02,
+            callbackGateReleaseScheduler: { delay, release in
+                #expect(delay == .milliseconds(20))
+                scheduledGateRelease = release
+                return Task {}
+            }
         ) { _, completion in
             captureStartCount += 1
             if captureStartCount == 1 {
@@ -92,7 +98,8 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
         #expect(captureStartCount == 1)
 
-        try? await ContinuousClock().sleep(for: .milliseconds(40))
+        let releaseGate = try #require(scheduledGateRelease)
+        releaseGate()
         do {
             let captured = try await evaluator.captureVisibleViewport(from: webView)
             #expect(captured === expected)
