@@ -3552,5 +3552,55 @@
     "successBody": "{platform} 版本就绪后，我们会给你发邮件。",
     "successBodyAny": "cmux 在你的平台上就绪后，我们会给你发邮件。",
     "done": "完成"
+  },
+  "browserDownloads": {
+    "eyebrow": "cmux 浏览器",
+    "title": "适用于 {platform} 的 cmux",
+    "tagline": "将 Chromium 浏览器与智能体工作区融为一体。",
+    "logoAlt": "cmux 应用图标",
+    "portableCta": "便携版 ZIP",
+    "featuresTitle": "专为智能体工作打造",
+    "features": {
+      "chromium": {
+        "title": "真正的 Chromium",
+        "description": "：拥有 Chrome 级别的标签页、渲染、扩展和地址栏体验"
+      },
+      "workspaces": {
+        "title": "面向任务的工作区",
+        "description": "：按任务组织网页标签和工具，告别无限延伸的标签栏"
+      },
+      "terminals": {
+        "title": "终端界面",
+        "description": "：在同一窗口和合成器中使用 shell 与浏览器标签"
+      },
+      "openSource": {
+        "title": "免费且开源",
+        "description": "：可在 GitHub 上查看代码、提交问题并从源码构建"
+      }
+    },
+    "installTitle": "安装",
+    "releaseTitle": "版本与更新",
+    "releaseBody": "这些链接始终指向 <github>GitHub Releases</github> 上的最新稳定版本。cmux 会在安装更新前验证已签名的更新清单。",
+    "sourceLink": "在 GitHub 上查看源代码",
+    "otherPlatform": "适用于 {platform} 的 cmux",
+    "macLink": "Mac 版 cmux 终端",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "下载 Windows 版 cmux",
+      "metaDescription": "下载 Windows x64 版 cmux：一款免费开源的 Chromium 浏览器与智能体工作区，提供面向任务的标签页和终端界面。",
+      "subtitle": "原生 x64 版本，提供 Chromium 标签页、cmux 工作区和熟悉的 Windows 键盘操作。",
+      "primaryCta": "下载安装程序（.exe）",
+      "requirements": "Windows 10 或更高版本 · x64",
+      "installBody": "运行安装程序并按照 Windows 提示操作。如果希望将 cmux 保留在文件夹中而不进行全局安装，请选择便携版 ZIP。"
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "下载 Linux 版 cmux",
+      "metaDescription": "下载 Linux x64 版 cmux：一款免费开源的 Chromium 浏览器与智能体工作区，提供面向任务的标签页和终端界面。",
+      "subtitle": "原生 x64 版本，提供 Chromium 标签页、cmux 工作区和集成终端界面。",
+      "primaryCta": "下载 .deb",
+      "requirements": "Debian 或 Ubuntu · x64",
+      "installBody": "下载 Debian 软件包并使用软件包管理器安装。若需按用户安装和应用内更新，请选择便携版 ZIP。"
+    }
   }
 }

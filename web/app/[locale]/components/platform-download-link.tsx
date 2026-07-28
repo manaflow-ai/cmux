@@ -3,6 +3,7 @@
 import posthog from "posthog-js";
 import type { DownloadPlatform } from "@/app/lib/download";
 
+/** Emits download intent telemetry before following an artifact link. */
 export function PlatformDownloadLink({
   href,
   platform,

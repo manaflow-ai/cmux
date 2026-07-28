@@ -61,18 +61,47 @@ export const PLATFORM_DOWNLOADS = {
 
 export type DownloadPlatform = keyof typeof PLATFORM_DOWNLOADS;
 
-export const DOWNLOAD_PLATFORMS = Object.keys(
-  PLATFORM_DOWNLOADS,
-) as DownloadPlatform[];
+/**
+ * Release availability is deliberately separate from the stable URL contract.
+ * Flip a platform only after every referenced artifact is present on the
+ * latest public release. Until then its route, sitemap entry, and direct menu
+ * link stay gated together.
+ */
+export const PLATFORM_DOWNLOAD_AVAILABILITY = {
+  windows: false,
+  linux: false,
+} as const satisfies Record<DownloadPlatform, boolean>;
+
+const DOWNLOAD_PLATFORM_ORDER = ["windows", "linux"] as const;
 
 /**
- * Platforms shown in the Download button's waitlist section. Windows and
- * Linux now have dedicated download pages, leaving Android as the unreleased
- * desktop/mobile target.
+ * Published platforms shown as direct page links in the Download menu.
  */
-export const WAITLIST_PLATFORMS = ["android"] as const;
+export const DOWNLOAD_PLATFORMS = DOWNLOAD_PLATFORM_ORDER.filter(
+  (platform) => PLATFORM_DOWNLOAD_AVAILABILITY[platform],
+);
 
-export type WaitlistPlatform = (typeof WAITLIST_PLATFORMS)[number];
+/** Returns whether every public artifact required by a platform is released. */
+export function isPlatformDownloadAvailable(
+  platform: DownloadPlatform,
+): boolean {
+  return PLATFORM_DOWNLOAD_AVAILABILITY[platform];
+}
+
+const WAITLIST_PLATFORM_ORDER = ["linux", "android", "windows"] as const;
+
+export type WaitlistPlatform = (typeof WAITLIST_PLATFORM_ORDER)[number];
+
+/**
+ * Unreleased platforms shown in the Download button's waitlist section. This
+ * derives from the same release gate as direct links so enabling Windows or
+ * Linux cannot leave it in both menu sections.
+ */
+export const WAITLIST_PLATFORMS = WAITLIST_PLATFORM_ORDER.filter(
+  (platform) =>
+    platform === "android" ||
+    !PLATFORM_DOWNLOAD_AVAILABILITY[platform],
+);
 
 /**
  * What a waitlist signup is for: a specific platform (from the platform menu)
@@ -88,5 +117,7 @@ export type WaitlistTarget = WaitlistPlatform | "any";
  * rather than only as a raw event.
  */
 export const WAITLIST_EARLY_ACCESS_FLAGS: Record<WaitlistPlatform, string> = {
+  linux: "cmux-for-linux",
   android: "cmux-for-android",
+  windows: "cmux-for-windows",
 };

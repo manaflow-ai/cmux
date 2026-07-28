@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { getTranslations } from "next-intl/server";
 import { BrandLogoLink } from "@/app/[locale]/components/brand-logo-link";
 import {
@@ -9,6 +10,7 @@ import { PlatformDownloadLink } from "@/app/[locale]/components/platform-downloa
 import { PlatformIcon } from "@/app/[locale]/components/platform-icons";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
+  isPlatformDownloadAvailable,
   PLATFORM_DOWNLOADS,
   type DownloadPlatform,
 } from "@/app/lib/download";
@@ -16,6 +18,7 @@ import { Link } from "@/i18n/navigation";
 
 const GITHUB_URL = "https://github.com/manaflow-ai/cmux-browser";
 
+/** Renders the localized download, install, and release details for a platform. */
 export async function PlatformDownloadPage({
   platform,
 }: {
@@ -24,6 +27,7 @@ export async function PlatformDownloadPage({
   const t = await getTranslations("browserDownloads");
   const downloads = PLATFORM_DOWNLOADS[platform];
   const isWindows = platform === "windows";
+  const otherPlatform = isWindows ? "linux" : "windows";
   const platformName = t(`${platform}.name`);
   const featureKeys = [
     "chromium",
@@ -42,7 +46,7 @@ export async function PlatformDownloadPage({
           data-dev={`${platform}-header`}
         >
           <BrandLogoLink className="shrink-0">
-            <img
+            <Image
               src="/logo.png"
               alt={t("logoAlt")}
               width={48}
@@ -157,14 +161,16 @@ export async function PlatformDownloadPage({
           >
             {t("sourceLink")}
           </a>
-          <Link
-            href={isWindows ? "/linux" : "/windows"}
-            className="text-muted underline decoration-link-underline underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground"
-          >
-            {t("otherPlatform", {
-              platform: t(`${isWindows ? "linux" : "windows"}.name`),
-            })}
-          </Link>
+          {isPlatformDownloadAvailable(otherPlatform) && (
+            <Link
+              href={PLATFORM_DOWNLOADS[otherPlatform].page}
+              className="text-muted underline decoration-link-underline underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground"
+            >
+              {t("otherPlatform", {
+                platform: t(`${otherPlatform}.name`),
+              })}
+            </Link>
+          )}
           <Link
             href="/"
             className="text-muted underline decoration-link-underline underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground"
@@ -177,6 +183,7 @@ export async function PlatformDownloadPage({
   );
 }
 
+/** Displays the arrow used in the primary download action. */
 function DownloadIcon() {
   return (
     <svg

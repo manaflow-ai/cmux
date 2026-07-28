@@ -3551,5 +3551,55 @@
     "successBody": "{platform} 版本就緒後，我們會寄電子郵件給你。",
     "successBodyAny": "cmux 在你的平台上就緒後，我們會寄電子郵件給你。",
     "done": "完成"
+  },
+  "browserDownloads": {
+    "eyebrow": "cmux 瀏覽器",
+    "title": "適用於 {platform} 的 cmux",
+    "tagline": "將 Chromium 瀏覽器與代理工作區整合在一起。",
+    "logoAlt": "cmux App 圖示",
+    "portableCta": "可攜式 ZIP",
+    "featuresTitle": "專為代理工作打造",
+    "features": {
+      "chromium": {
+        "title": "真正的 Chromium",
+        "description": "：具備 Chrome 等級的分頁、轉譯、擴充功能與網址列體驗"
+      },
+      "workspaces": {
+        "title": "以任務為核心的工作區",
+        "description": "：依任務整理網頁分頁與工具，不再面對無止盡的分頁列"
+      },
+      "terminals": {
+        "title": "終端介面",
+        "description": "：在同一個視窗與合成器中使用 shell 和瀏覽器分頁"
+      },
+      "openSource": {
+        "title": "免費且開放原始碼",
+        "description": "：可在 GitHub 上檢視程式碼、回報問題並從原始碼建置"
+      }
+    },
+    "installTitle": "安裝",
+    "releaseTitle": "版本與更新",
+    "releaseBody": "這些連結一律指向 <github>GitHub Releases</github> 上的最新穩定版本。cmux 會在安裝更新前驗證已簽署的更新資訊清單。",
+    "sourceLink": "在 GitHub 上檢視原始碼",
+    "otherPlatform": "適用於 {platform} 的 cmux",
+    "macLink": "Mac 版 cmux 終端",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "下載 Windows 版 cmux",
+      "metaDescription": "下載 Windows x64 版 cmux：免費且開放原始碼的 Chromium 瀏覽器與代理工作區，提供以任務為核心的分頁和終端介面。",
+      "subtitle": "原生 x64 版本，提供 Chromium 分頁、cmux 工作區和熟悉的 Windows 鍵盤操作。",
+      "primaryCta": "下載安裝程式（.exe）",
+      "requirements": "Windows 10 或更新版本 · x64",
+      "installBody": "執行安裝程式並依照 Windows 提示操作。若想將 cmux 放在資料夾中而不進行全系統安裝，請選擇可攜式 ZIP。"
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "下載 Linux 版 cmux",
+      "metaDescription": "下載 Linux x64 版 cmux：免費且開放原始碼的 Chromium 瀏覽器與代理工作區，提供以任務為核心的分頁和終端介面。",
+      "subtitle": "原生 x64 版本，提供 Chromium 分頁、cmux 工作區和整合式終端介面。",
+      "primaryCta": "下載 .deb",
+      "requirements": "Debian 或 Ubuntu · x64",
+      "installBody": "下載 Debian 套件並使用套件管理員安裝。若要進行每位使用者安裝和 App 內更新，請選擇可攜式 ZIP。"
+    }
   }
 }

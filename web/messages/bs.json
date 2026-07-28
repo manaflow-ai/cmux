@@ -3552,5 +3552,55 @@
     "successBody": "Poslat ćemo ti email kada {platform} verzija bude spremna.",
     "successBodyAny": "Poslat ćemo ti email kada cmux bude spreman za tvoju platformu.",
     "done": "Gotovo"
+  },
+  "browserDownloads": {
+    "eyebrow": "cmux preglednik",
+    "title": "cmux za {platform}",
+    "tagline": "Chromium preglednik i radni prostor za agente, izrađeni kao jedna cjelina.",
+    "logoAlt": "Ikona aplikacije cmux",
+    "portableCta": "Prijenosni ZIP",
+    "featuresTitle": "Napravljeno za rad s agentima",
+    "features": {
+      "chromium": {
+        "title": "Pravi Chromium",
+        "description": ": kartice, prikazivanje, proširenja i ponašanje adresne trake na nivou Chromea"
+      },
+      "workspaces": {
+        "title": "Radni prostori usmjereni na zadatke",
+        "description": ": organizujte web-kartice i alate oko zadatka umjesto u beskrajnoj traci kartica"
+      },
+      "terminals": {
+        "title": "Terminalske površine",
+        "description": ": koristite ljuske i kartice preglednika u istom prozoru i kompozitoru"
+      },
+      "openSource": {
+        "title": "Besplatno i otvorenog koda",
+        "description": ": pregledajte kod, prijavite probleme i napravite verziju iz izvornog koda na GitHubu"
+      }
+    },
+    "installTitle": "Instalacija",
+    "releaseTitle": "Izdanja i ažuriranja",
+    "releaseBody": "Ove poveznice uvijek vode do najnovijeg stabilnog izdanja na <github>GitHub Releases</github>. cmux provjerava potpisane manifeste ažuriranja prije instaliranja ažuriranja.",
+    "sourceLink": "Pogledajte izvorni kod na GitHubu",
+    "otherPlatform": "cmux za {platform}",
+    "macLink": "cmux terminal za Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Preuzmite cmux za Windows",
+      "metaDescription": "Preuzmite cmux za Windows x64: besplatan Chromium preglednik otvorenog koda i radni prostor za agente s karticama usmjerenim na zadatke i terminalskim površinama.",
+      "subtitle": "Izvorna x64 verzija s Chromium karticama, cmux radnim prostorima i poznatim Windows prečicama na tastaturi.",
+      "primaryCta": "Preuzmite instalacijski program (.exe)",
+      "requirements": "Windows 10 ili noviji · x64",
+      "installBody": "Pokrenite instalacijski program i slijedite Windows upute. Odaberite prijenosni ZIP ako želite držati cmux u mapi bez instalacije na cijelom sistemu."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Preuzmite cmux za Linux",
+      "metaDescription": "Preuzmite cmux za Linux x64: besplatan Chromium preglednik otvorenog koda i radni prostor za agente s karticama usmjerenim na zadatke i terminalskim površinama.",
+      "subtitle": "Izvorna x64 verzija s Chromium karticama, cmux radnim prostorima i integriranim terminalskim površinama.",
+      "primaryCta": "Preuzmite .deb",
+      "requirements": "Debian ili Ubuntu · x64",
+      "installBody": "Preuzmite Debian paket i instalirajte ga pomoću upravitelja paketa. Odaberite prijenosni ZIP za instalaciju po korisniku i ažuriranja unutar aplikacije."
+    }
   }
 }

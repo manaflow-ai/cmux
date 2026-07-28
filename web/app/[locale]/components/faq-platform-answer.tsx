@@ -3,7 +3,6 @@
 import { useTranslations } from "next-intl";
 import posthog from "posthog-js";
 import { useState } from "react";
-import { Link } from "../../../i18n/navigation";
 import { WaitlistDialog } from "./waitlist-dialog";
 
 const LOCATION = "faq";
@@ -21,34 +20,6 @@ export function FaqPlatformAnswer({ linkClass }: { linkClass: string }) {
     <>
       <p className="text-muted">
         {t.rich("faqPlatformA", {
-          windows: (chunks) => (
-            <Link
-              href="/windows"
-              onClick={() =>
-                posthog.capture("cmux_browser_platform_page_clicked", {
-                  location: LOCATION,
-                  platform: "windows",
-                })
-              }
-              className={linkClass}
-            >
-              {chunks}
-            </Link>
-          ),
-          linux: (chunks) => (
-            <Link
-              href="/linux"
-              onClick={() =>
-                posthog.capture("cmux_browser_platform_page_clicked", {
-                  location: LOCATION,
-                  platform: "linux",
-                })
-              }
-              className={linkClass}
-            >
-              {chunks}
-            </Link>
-          ),
           waitlist: (chunks) => (
             <button
               type="button"

@@ -712,7 +712,7 @@
     "faqGhosttyQ": "How does cmux relate to Ghostty?",
     "faqGhosttyA": "cmux is not a fork of Ghostty. It uses <link>libghostty</link> as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.",
     "faqPlatformQ": "What platforms does it support?",
-    "faqPlatformA": "The native cmux terminal is built for macOS. You can also <windows>download cmux for Windows</windows> or <linux>download cmux for Linux</linux>; <waitlist>join the Android waitlist</waitlist> for the remaining platform.",
+    "faqPlatformA": "macOS only, for now. cmux is a native Swift + AppKit app. <waitlist>Join the waitlist</waitlist> to hear when Linux, Windows, and Android are ready.",
     "faqAgentsQ": "What coding agents does cmux work with?",
     "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
@@ -4704,8 +4704,8 @@
     "title": "Join the {platform} waitlist",
     "titleAny": "Join the waitlist",
     "description": "{platform} support is on the way. Leave your email and we'll let you know the moment it's ready.",
-    "descriptionAny": "cmux is now available on macOS, Windows, Linux, and iOS. Leave your email and we'll tell you the moment Android is ready.",
-    "calloutText": "Now on Windows and Linux. Android is coming.",
+    "descriptionAny": "cmux is macOS-first today. Leave your email and we'll tell you the moment Linux, Windows, or Android is ready.",
+    "calloutText": "Coming to Linux, Windows, and Android.",
     "platformsLabel": "Which platforms?",
     "selectPlatform": "Pick at least one platform.",
     "emailLabel": "Email",
@@ -4717,7 +4717,7 @@
     "sendError": "Couldn't send. Please try again.",
     "successTitle": "You're on the list",
     "successBody": "We'll email you when the {platform} build is ready.",
-    "successBodyAny": "We'll email you when cmux is ready on Android.",
+    "successBodyAny": "We'll email you when cmux is ready on your platform.",
     "done": "Done"
   },
   "enterprise": {

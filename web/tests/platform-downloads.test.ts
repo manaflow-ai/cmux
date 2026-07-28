@@ -1,19 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { NextRequest } from "next/server";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   DOWNLOAD_PLATFORMS,
   PLATFORM_DOWNLOADS,
   WAITLIST_PLATFORMS,
 } from "../app/lib/download";
 import sitemap from "../app/sitemap";
-import middleware from "../proxy";
+import { locales } from "../i18n/routing";
 import en from "../messages/en.json";
-import ja from "../messages/ja.json";
+
+const MESSAGE_DIRECTORY = fileURLToPath(
+  new URL("../messages/", import.meta.url),
+);
 
 describe("Windows and Linux downloads", () => {
-  test("uses the stable cmux-browser release asset names", () => {
-    expect(DOWNLOAD_PLATFORMS).toEqual(["windows", "linux"]);
-    expect(WAITLIST_PLATFORMS).toEqual(["android"]);
+  test("keeps unpublished platforms gated behind the waitlist", () => {
+    expect(DOWNLOAD_PLATFORMS).toEqual([]);
+    expect(WAITLIST_PLATFORMS).toEqual(["linux", "android", "windows"]);
 
     expect(PLATFORM_DOWNLOADS.windows.primary.url).toBe(
       "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64-installer.exe",
@@ -29,51 +34,66 @@ describe("Windows and Linux downloads", () => {
     );
   });
 
-  test("keeps English and Japanese download copy in sync", () => {
-    expect(messageShape(ja.browserDownloads)).toEqual(
-      messageShape(en.browserDownloads),
-    );
-    expect(allStrings(en.browserDownloads).every(Boolean)).toBe(true);
-    expect(allStrings(ja.browserDownloads).every(Boolean)).toBe(true);
-  });
+  test("keeps every locale's download copy complete and token-compatible", async () => {
+    const englishLeaves = leafStrings(en.browserDownloads);
 
-  test("publishes localized sitemap entries for both authored locales", () => {
-    for (const path of ["/windows", "/linux"]) {
-      const entries = sitemap().filter((entry) =>
-        new URL(entry.url).pathname.endsWith(path),
+    for (const locale of locales) {
+      const catalog = JSON.parse(
+        await readFile(join(MESSAGE_DIRECTORY, `${locale}.json`), "utf8"),
       );
+      const localizedLeaves = leafStrings(catalog.browserDownloads);
 
-      expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual([
-        path,
-        `/ja${path}`,
-      ]);
-      expect(entries.every((entry) => entry.lastModified === "2026-07-27")).toBe(
-        true,
+      expect(messageShape(catalog.browserDownloads)).toEqual(
+        messageShape(en.browserDownloads),
       );
+      expect(Object.keys(localizedLeaves)).toEqual(Object.keys(englishLeaves));
+      for (const [key, english] of Object.entries(englishLeaves)) {
+        const localized = localizedLeaves[key];
+        expect(localized.length).toBeGreaterThan(0);
+        expect(messageTokens(localized)).toEqual(messageTokens(english));
+      }
     }
   });
 
-  test("redirects unauthored localized routes to the canonical page", () => {
+  test("keeps unavailable platform pages out of the sitemap", () => {
     for (const path of ["/windows", "/linux"]) {
-      const response = middleware(
-        new NextRequest(`https://cmux.com/de${path}`),
-      );
-
-      expect(response.status).toBe(301);
-      expect(response.headers.get("location")).toBe(`https://cmux.com${path}`);
+      expect(
+        sitemap().filter((entry) =>
+          new URL(entry.url).pathname.endsWith(path),
+        ),
+      ).toEqual([]);
     }
   });
 });
 
-function allStrings(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return value.flatMap(allStrings);
-  if (value && typeof value === "object") {
-    return Object.values(value).flatMap(allStrings);
+/** Flattens a nested message namespace into dot-path string leaves. */
+function leafStrings(
+  value: unknown,
+  prefix = "",
+): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
   }
-  return [];
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, nested]) => {
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (typeof nested === "string") return [[path, nested]];
+      return Object.entries(leafStrings(nested, path));
+    }),
+  );
 }
 
+/** Extracts ICU placeholders and rich-text tags for locale parity checks. */
+function messageTokens(value: string): string[] {
+  return Array.from(
+    value.matchAll(
+      /(?:\{[A-Za-z][A-Za-z0-9_]*\}|<\/?[A-Za-z][A-Za-z0-9_]*>)/gu,
+    ),
+    (match) => match[0],
+  ).sort();
+}
+
+/** Describes a message namespace without depending on translated values. */
 function messageShape(value: unknown): unknown {
   if (typeof value === "string") return "string";
   if (Array.isArray(value)) return value.map(messageShape);

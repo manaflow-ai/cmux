@@ -3549,5 +3549,55 @@
     "successBody": "Vi sender dig en e-mail, når {platform}-versionen er klar.",
     "successBodyAny": "Vi sender dig en e-mail, når cmux er klar til din platform.",
     "done": "Færdig"
+  },
+  "browserDownloads": {
+    "eyebrow": "cmux-browser",
+    "title": "cmux til {platform}",
+    "tagline": "En Chromium-browser og et agentarbejdsområde, bygget som én helhed.",
+    "logoAlt": "cmux-appikon",
+    "portableCta": "Transportabel ZIP",
+    "featuresTitle": "Bygget til agentbaseret arbejde",
+    "features": {
+      "chromium": {
+        "title": "Ægte Chromium",
+        "description": ": faner, rendering, udvidelser og omnibox-adfærd i Chrome-kvalitet"
+      },
+      "workspaces": {
+        "title": "Opgavebaserede arbejdsområder",
+        "description": ": organiser webfaner og værktøjer omkring opgaven i stedet for én endeløs fanelinje"
+      },
+      "terminals": {
+        "title": "Terminalflader",
+        "description": ": behold shells og browserfaner i samme vindue og compositor"
+      },
+      "openSource": {
+        "title": "Gratis og open source",
+        "description": ": gennemse koden, rapporter problemer, og byg fra kildekoden på GitHub"
+      }
+    },
+    "installTitle": "Installation",
+    "releaseTitle": "Versioner og opdateringer",
+    "releaseBody": "Disse links peger altid på den nyeste stabile version på <github>GitHub Releases</github>. cmux kontrollerer signerede opdateringsmanifester, før en opdatering installeres.",
+    "sourceLink": "Se kildekoden på GitHub",
+    "otherPlatform": "cmux til {platform}",
+    "macLink": "cmux-terminal til Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Download cmux til Windows",
+      "metaDescription": "Download cmux til Windows x64: en gratis open source Chromium-browser og et agentarbejdsområde med opgavebaserede faner og terminalflader.",
+      "subtitle": "En indbygget x64-version med Chromium-faner, cmux-arbejdsområder og velkendte Windows-tastaturgenveje.",
+      "primaryCta": "Download installationsprogram (.exe)",
+      "requirements": "Windows 10 eller nyere · x64",
+      "installBody": "Kør installationsprogrammet, og følg anvisningerne i Windows. Vælg den transportable ZIP, hvis du vil beholde cmux i en mappe uden en systemomfattende installation."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Download cmux til Linux",
+      "metaDescription": "Download cmux til Linux x64: en gratis open source Chromium-browser og et agentarbejdsområde med opgavebaserede faner og terminalflader.",
+      "subtitle": "En indbygget x64-version med Chromium-faner, cmux-arbejdsområder og integrerede terminalflader.",
+      "primaryCta": "Download .deb",
+      "requirements": "Debian eller Ubuntu · x64",
+      "installBody": "Download Debian-pakken, og installer den med din pakkehåndtering. Vælg den transportable ZIP til installation pr. bruger og opdateringer i appen."
+    }
   }
 }
