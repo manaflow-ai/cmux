@@ -6,8 +6,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use axum::body::Bytes;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Request, State};
-use axum::http::header::{CONNECTION, RETRY_AFTER};
-use axum::http::{HeaderValue, StatusCode};
+use axum::http::header::{CONNECTION, ORIGIN, RETRY_AFTER};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -276,7 +276,15 @@ impl Relay {
         (StatusCode::OK, Json(relay.health().await))
     }
 
-    async fn websocket_handler(State(relay): State<Self>, upgrade: WebSocketUpgrade) -> Response {
+    async fn websocket_handler(
+        State(relay): State<Self>,
+        headers: HeaderMap,
+        upgrade: WebSocketUpgrade,
+    ) -> Response {
+        if headers.contains_key(ORIGIN) {
+            return (StatusCode::FORBIDDEN, "browser-origin WebSocket connections are not allowed")
+                .into_response();
+        }
         let Some(permit) = relay.try_admit_upgraded_socket() else {
             let mut response =
                 (StatusCode::SERVICE_UNAVAILABLE, "relay concurrent WebSocket limit was reached")

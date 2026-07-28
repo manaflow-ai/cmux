@@ -35,6 +35,11 @@ async fn browser_origin_is_rejected_by_direct_websocket_listener() {
             if response.status() == StatusCode::FORBIDDEN
     ));
 
+    let native = connect_async(format!("ws://{}/v1/link", server.local_addr()))
+        .await
+        .expect("rejected browser origin retained WebSocket capacity")
+        .0;
+    drop(native);
     server.shutdown().await.unwrap();
 }
 

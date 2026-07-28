@@ -111,6 +111,11 @@ fn ssh_destination(endpoint: &url::Url) -> Result<(String, String), ProviderErro
         return Err(ProviderError::Configuration("SSH username is not shell-safe".into()));
     }
     let destination = if username.is_empty() { host } else { format!("{username}@{host}") };
+    if destination.starts_with('-') {
+        return Err(ProviderError::Configuration(
+            "SSH destination cannot begin with an option prefix".into(),
+        ));
+    }
     let description = sanitized_route(endpoint);
     Ok((destination, description))
 }

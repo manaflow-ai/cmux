@@ -3,7 +3,7 @@ use std::fmt;
 use std::io;
 use std::net::SocketAddr;
 #[cfg(unix)]
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -15,7 +15,9 @@ use std::time::{Duration, Instant};
 use axum::Router;
 use axum::extract::connect_info::{ConnectInfo, Connected};
 use axum::extract::{State, WebSocketUpgrade};
-use axum::response::Response;
+use axum::http::header::ORIGIN;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::serve::{IncomingStream, Listener};
 use bytes::Bytes;
@@ -1252,8 +1254,13 @@ pub async fn serve_direct_websocket(
 async fn upgrade_websocket(
     State(state): State<WebSocketState>,
     ConnectInfo(admission): ConnectInfo<AdmissionInfo>,
+    headers: HeaderMap,
     websocket: WebSocketUpgrade,
 ) -> Response {
+    if headers.contains_key(ORIGIN) {
+        return (StatusCode::FORBIDDEN, "browser-origin WebSocket connections are not allowed")
+            .into_response();
+    }
     websocket
         .max_message_size(state.maximum_frame_bytes)
         .max_frame_size(state.maximum_frame_bytes)
@@ -1306,32 +1313,32 @@ pub async fn serve_unix(
     maximum_frame_bytes: usize,
 ) -> Result<UnixServer, DaemonError> {
     let path = path.into();
-    if let Some(parent) = path.parent() {
-        let parent_existed = parent.exists();
-        std::fs::create_dir_all(parent).map_err(|error| {
-            DaemonError::Protocol(format!("could not create socket directory: {error}"))
-        })?;
-        if !parent_existed {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let parent_metadata = match std::fs::symlink_metadata(parent) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                DaemonError::Protocol(format!("could not create socket directory: {error}"))
+            })?;
             std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).map_err(
                 |error| {
                     DaemonError::Protocol(format!("could not secure socket directory: {error}"))
                 },
             )?;
-        } else {
-            let mode = std::fs::metadata(parent)
-                .map_err(|error| {
-                    DaemonError::Protocol(format!("could not inspect socket directory: {error}"))
-                })?
-                .permissions()
-                .mode();
-            if mode & 0o022 != 0 && mode & 0o1000 == 0 {
-                return Err(DaemonError::Protocol(format!(
-                    "socket directory {} is writable by other users and is not sticky",
-                    parent.display()
-                )));
-            }
+            std::fs::symlink_metadata(parent).map_err(|error| {
+                DaemonError::Protocol(format!("could not inspect socket directory: {error}"))
+            })?
         }
-    }
+        Err(error) => {
+            return Err(DaemonError::Protocol(format!(
+                "could not inspect socket directory: {error}"
+            )));
+        }
+    };
+    validate_unix_socket_directory(parent, &parent_metadata, unsafe { libc::geteuid() })?;
     if let Ok(metadata) = std::fs::symlink_metadata(&path) {
         if !metadata.file_type().is_socket() {
             return Err(DaemonError::Protocol(format!(
@@ -1387,6 +1394,33 @@ pub async fn serve_unix(
         let _ = std::fs::remove_file(task_path);
     });
     Ok(UnixServer { path, shutdown: Some(shutdown_tx), task: Some(task) })
+}
+
+#[cfg(unix)]
+fn validate_unix_socket_directory(
+    parent: &Path,
+    metadata: &std::fs::Metadata,
+    effective_uid: u32,
+) -> Result<(), DaemonError> {
+    if !metadata.file_type().is_dir() {
+        return Err(DaemonError::Protocol(format!(
+            "socket directory {} must be a non-symlink directory",
+            parent.display()
+        )));
+    }
+    if metadata.uid() != effective_uid {
+        return Err(DaemonError::Protocol(format!(
+            "socket directory {} is not owned by the daemon user",
+            parent.display()
+        )));
+    }
+    if metadata.permissions().mode() & 0o022 != 0 {
+        return Err(DaemonError::Protocol(format!(
+            "socket directory {} is writable by the group or other users",
+            parent.display()
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -1525,6 +1559,34 @@ mod tests {
 
         assert!(inbound.is_none());
         assert_eq!(reads.load(Ordering::SeqCst), 0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_accepts_private_owner_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let parent = directory.path().join("private");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "safe-unix-parent", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        let server = serve_unix(daemon, parent.join("link.sock"), 65_535).await.unwrap();
+        server.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_socket_directory_requires_effective_uid_ownership() {
+        let directory = tempdir().unwrap();
+        let metadata = std::fs::symlink_metadata(directory.path()).unwrap();
+        let wrong_uid = metadata.uid().wrapping_add(1);
+        let error =
+            validate_unix_socket_directory(directory.path(), &metadata, wrong_uid).unwrap_err();
+        assert!(matches!(error, DaemonError::Protocol(message) if message.contains("owned")));
     }
 
     #[cfg(unix)]

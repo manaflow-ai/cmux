@@ -51,6 +51,11 @@ impl SshBootstrapConfig {
     }
 
     fn validate(&self) -> Result<(), BootstrapError> {
+        if self.destination.starts_with('-') {
+            return Err(BootstrapError::Configuration(
+                "SSH destination cannot begin with an option prefix".into(),
+            ));
+        }
         for (label, value) in [
             ("SSH destination", self.destination.as_str()),
             ("remote binary", self.remote_binary.as_str()),
