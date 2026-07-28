@@ -231,6 +231,9 @@ struct RemoteTmuxNotificationLifecycleTests {
         )
         #expect(harness.workspace.hasLoadedTerminalSurface())
 
+        harness.splitMakingPaneFiveActive()
+        #expect(mirror.activePaneId == 5)
+
         let openResult = TerminalController.shared.controlNotificationOpen(id: notification.id)
         guard case .opened = openResult else {
             Issue.record("Expected the projected-pane notification to open, got \(openResult)")

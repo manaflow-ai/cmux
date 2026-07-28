@@ -1,3 +1,4 @@
+import AppKit
 import CmuxRemoteSession
 import Foundation
 import Testing
@@ -35,6 +36,9 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         let workspace: Workspace
         let mirror: RemoteTmuxWindowMirror
         let containerPanelId: UUID
+        let connection: RemoteTmuxControlConnection
+        let writer: RemoteTmuxControlPipeWriter
+        let pipe: Pipe
 
         init() throws {
             let manager = TabManager()
@@ -43,6 +47,18 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
             let connection = RemoteTmuxControlConnection(
                 host: RemoteTmuxHost(destination: "user@newpanefocus"),
                 sessionName: "focus-map"
+            )
+            let pipe = Pipe()
+            let writer = RemoteTmuxControlPipeWriter(
+                handle: pipe.fileHandleForWriting,
+                label: "remote-tmux-created-pane-focus-test",
+                maxPendingBytes: 1 << 16,
+                onFailure: {}
+            )
+            connection.installStdinWriterForTesting(writer)
+            connection.handleMessageForTesting(.enter)
+            connection.handleMessageForTesting(
+                .commandResult(commandNumber: 0, lines: [], isError: false)
             )
             let mirror = RemoteTmuxWindowMirror(
                 windowId: 2,
@@ -55,6 +71,9 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
             self.workspace = workspace
             self.mirror = mirror
             self.containerPanelId = containerPanelId
+            self.connection = connection
+            self.writer = writer
+            self.pipe = pipe
         }
 
         func splitMakingPaneFiveActive() {
@@ -67,6 +86,8 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         func tearDown() {
             workspace.setRemoteTmuxWindowMirror(nil, forPanelId: containerPanelId)
             mirror.teardown()
+            writer.close()
+            try? pipe.fileHandleForReading.close()
         }
     }
 
@@ -94,6 +115,49 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
                 in: harness.workspace,
                 preferredPanelId: harness.containerPanelId
             ) === paneFive
+        )
+    }
+
+    @Test
+    func locallyRequestedFocusedSplitTransfersFirstResponderWhenNewPaneMounts() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let paneFour = try #require(harness.mirror.panel(forPane: 4))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let contentView = NSView(frame: window.contentLayoutRect)
+        window.contentView = contentView
+        paneFour.hostedView.frame = contentView.bounds
+        contentView.addSubview(paneFour.hostedView)
+        paneFour.hostedView.setVisibleInUI(true)
+        paneFour.hostedView.setActive(true)
+        #expect(window.makeFirstResponder(paneFour.hostedView.surfaceView))
+        #expect(window.firstResponder === paneFour.hostedView.surfaceView)
+
+        #expect(harness.mirror.requestSplit(
+            fromPane: 4,
+            vertical: false,
+            focusIntent: .focusCreatedPane
+        ))
+        harness.splitMakingPaneFiveActive()
+
+        let paneFive = try #require(harness.mirror.panel(forPane: 5))
+        #expect(window.firstResponder === paneFour.hostedView.surfaceView)
+        paneFour.hostedView.setActive(false)
+        paneFive.hostedView.frame = contentView.bounds
+        contentView.addSubview(paneFive.hostedView)
+        paneFive.hostedView.setVisibleInUI(true)
+        paneFive.hostedView.setActive(true)
+        paneFive.surface.onRuntimeReady?()
+
+        #expect(
+            window.firstResponder === paneFive.hostedView.surfaceView,
+            "The authoritative created pane must receive key input as soon as it mounts"
         )
     }
 
