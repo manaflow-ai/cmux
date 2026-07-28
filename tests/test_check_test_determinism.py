@@ -335,6 +335,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "sleep 1\n"
                 'assert "$actual" "$expected"\n'
             ),
+            "shell-env-sleep-wrapper.sh": (
+                'sleep() { /usr/bin/env sleep "$@"; }\n'
+                "sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
             "shell-after-unreachable-function.sh": (
                 'if false; then sleep() { advance_clock "$@"; }; fi\n'
                 "sleep 1\n"
@@ -537,6 +542,18 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    time.sleep(0.01)\n"
                 "    assert finished\n"
             ),
+            "terminating-match-shadow.py": (
+                "def verify(value):\n"
+                "    import time\n"
+                "    match value:\n"
+                "        case 0:\n"
+                "            time = fake_clock\n"
+                "            return\n"
+                "        case _:\n"
+                "            pass\n"
+                "    time.sleep(0.01)\n"
+                "    assert finished\n"
+            ),
             "shell-assert-arithmetic-substitution.sh": (
                 'assert "$(echo $((1 + 2)); sleep 1)"\n'
             ),
@@ -688,6 +705,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         for relative_path in fixtures:
             line = (
+                9
+                if relative_path == "terminating-match-shadow.py"
+                else
                 6
                 if relative_path
                 in (
@@ -775,6 +795,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "shell-after-subshell-function.sh",
                     "shell-after-uncalled-function-installer.sh",
                     "shell-real-sleep-wrapper.sh",
+                    "shell-env-sleep-wrapper.sh",
                     "shell-after-unreachable-function.sh",
                 )
                 else 1
@@ -941,6 +962,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "timer-alias-function-type-shadow.ts": (
                     'import { setTimeout as delay } from "timers/promises"\n'
                     "function verify(delay: () => Promise<void>) {\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "}\n"
+                ),
+                "timer-alias-catch-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "try { work() } catch ({ delay }) {\n"
                     "    await delay(1)\n"
                     "    expect(completed).toBe(true)\n"
                     "}\n"
