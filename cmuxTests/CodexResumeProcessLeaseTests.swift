@@ -1,0 +1,738 @@
+import Darwin
+import Foundation
+import Testing
+
+private final class CodexResumeOneShotGate: @unchecked Sendable {
+  private let lock = NSLock()
+  private var available = true
+
+  func take() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard available else { return false }
+    available = false
+    return true
+  }
+}
+
+@Suite("Codex resume process leases", .serialized)
+struct CodexResumeProcessLeaseTests {
+  private typealias H = CodexResumeTestHarness
+
+  @Test
+  func testCodexWrapperResumeSessionStartRebindsInterruptedActivePrompt() throws {
+    let context = try H.makeContext(name: "codex-wrapper-resume-rebind")
+    defer { context.cleanup() }
+
+    let sessionId = "interrupted-active-session"
+    let resumedPID = Int(Darwin.getpid())
+    let oldPID = resumedPID
+    let now = Date().timeIntervalSince1970
+    let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+    let store: [String: Any] = [
+      "version": 1,
+      "sessions": [
+        sessionId: [
+          "sessionId": sessionId,
+          "workspaceId": context.workspaceId,
+          "surfaceId": context.surfaceId,
+          "cwd": context.root.path,
+          "pid": oldPID,
+          "pidStartSeconds": 1,
+          "pidStartMicroseconds": 0,
+          "runtimeStatus": "running",
+          "activePromptDepth": 1,
+          "activePromptTurnId": "interrupted-turn",
+          "activePromptTurnIds": ["interrupted-turn"],
+          "lastPromptTurnId": "interrupted-turn",
+          "startedAt": now,
+          "updatedAt": now,
+        ]
+      ],
+    ]
+    try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+      .write(to: stateURL, options: .atomic)
+
+    H.startMockServer(context: context, connectionLimit: 24)
+    let result = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+      extraEnvironment: H.launchEnvironment(context: context, sessionId: sessionId).merging(
+        [
+          "CMUX_CODEX_PID": String(resumedPID)
+        ], uniquingKeysWith: { _, new in new })
+    )
+
+    codexExpectFalse(result.timedOut, result.stderr)
+    codexExpectEqual(result.status, 0, result.stderr)
+    let record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(
+      record["pid"] as? Int,
+      resumedPID,
+      "A wrapper-confirmed resume must replace the dead pre-crash PID."
+    )
+    codexExpectNil(
+      record["activePromptDepth"],
+      "The interrupted pre-crash turn must not make the resumed process look nested."
+    )
+    codexExpectTrue(
+      context.state.commands.contains {
+        H.jsonObject($0)?["method"] as? String == "surface.resume.set"
+      },
+      "The resumed process must republish its binding for another crash cycle."
+    )
+  }
+
+  @Test
+  func testCodexTurnFromNewerProcessWinsDelayedResumeRebindAndOlderHooks() throws {
+    let context = try H.makeContext(name: "codex-newer-turn-before-rebind")
+    defer { context.cleanup() }
+
+    let sessionId = "newer-turn-before-rebind-session"
+    let oldPID = Int(Darwin.getpid())
+    let resumedProcess = Process()
+    let resumedProcessInput = Pipe()
+    resumedProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+    resumedProcess.standardInput = resumedProcessInput
+    try resumedProcess.run()
+    defer {
+      try? resumedProcessInput.fileHandleForWriting.close()
+      if resumedProcess.isRunning {
+        resumedProcess.terminate()
+      }
+      resumedProcess.waitUntilExit()
+    }
+    let resumedPID = Int(resumedProcess.processIdentifier)
+    let launchEnvironment = H.launchEnvironment(
+      context: context,
+      sessionId: sessionId
+    )
+    H.startMockServer(context: context, connectionLimit: 96)
+
+    let initialStart = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+      extraEnvironment: launchEnvironment.merging(
+        [
+          "CMUX_CODEX_PID": String(oldPID)
+        ], uniquingKeysWith: { _, new in new })
+    )
+    codexExpectEqual(initialStart.status, 0, initialStart.stderr)
+
+    let interruptedPrompt = H.runHook(
+      context: context,
+      subcommand: "prompt-submit",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","turn_id":"interrupted-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"before crash"}"#,
+      extraEnvironment: launchEnvironment.merging(
+        [
+          "CMUX_CODEX_PID": String(oldPID)
+        ], uniquingKeysWith: { _, new in new })
+    )
+    codexExpectEqual(interruptedPrompt.status, 0, interruptedPrompt.stderr)
+
+    let resumedPrompt = H.runHook(
+      context: context,
+      subcommand: "prompt-submit",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","turn_id":"resumed-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"after restore"}"#,
+      extraEnvironment: launchEnvironment.merging(
+        [
+          "CMUX_CODEX_PID": String(resumedPID)
+        ], uniquingKeysWith: { _, new in new })
+    )
+    codexExpectEqual(resumedPrompt.status, 0, resumedPrompt.stderr)
+
+    let delayedRebind = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+      extraEnvironment: launchEnvironment.merging(
+        [
+          "CMUX_CODEX_PID": String(resumedPID)
+        ], uniquingKeysWith: { _, new in new })
+    )
+    codexExpectEqual(delayedRebind.status, 0, delayedRebind.stderr)
+
+    let staleOldPrompt = H.runHook(
+      context: context,
+      subcommand: "prompt-submit",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","turn_id":"stale-old-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"late old hook"}"#,
+      extraEnvironment: launchEnvironment.merging(
+        [
+          "CMUX_CODEX_PID": String(oldPID)
+        ], uniquingKeysWith: { _, new in new })
+    )
+    codexExpectEqual(staleOldPrompt.status, 0, staleOldPrompt.stderr)
+
+    let record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(record["pid"] as? Int, resumedPID)
+    codexExpectEqual(record["activePromptDepth"] as? Int, 1)
+    codexExpectEqual(record["activePromptTurnId"] as? String, "resumed-turn")
+    codexExpectEqual(record["activePromptTurnIds"] as? [String], ["resumed-turn"])
+    codexExpectEqual(record["lastPromptTurnId"] as? String, "resumed-turn")
+  }
+
+  @Test
+  func testStalePromptCannotMutateAfterNewerResumeWins() async throws {
+    let context = try H.makeContext(name: "codex-atomic-lease")
+    let staleContext = try H.makeSiblingContext(
+      sharing: context,
+      name: "codex-stale-hook"
+    )
+    defer {
+      staleContext.cleanup()
+      context.cleanup()
+    }
+
+    let sessionId = "atomic-lease-session"
+    let olderPID = Int(Darwin.getpid())
+    let olderLease = UUID().uuidString
+    let newerLease = UUID().uuidString
+    let newerProcess = Process()
+    let newerProcessInput = Pipe()
+    newerProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+    newerProcess.standardInput = newerProcessInput
+    try newerProcess.run()
+    defer {
+      try? newerProcessInput.fileHandleForWriting.close()
+      if newerProcess.isRunning {
+        newerProcess.terminate()
+      }
+      newerProcess.waitUntilExit()
+    }
+    let newerPID = Int(newerProcess.processIdentifier)
+    let gateOnce = CodexResumeOneShotGate()
+    let staleValidated = DispatchSemaphore(value: 0)
+    let releaseStale = DispatchSemaphore(value: 0)
+
+    H.startMockServer(context: context, connectionLimit: 64)
+    H.startMockServer(
+      context: staleContext,
+      connectionLimit: 32,
+      beforeResponse: { line in
+        guard H.jsonObject(line)?["method"] as? String == "system.top",
+          gateOnce.take()
+        else {
+          return
+        }
+        staleValidated.signal()
+        releaseStale.wait()
+      }
+    )
+
+    let olderEnvironment = H.launchEnvironment(
+      context: context,
+      sessionId: sessionId
+    ).merging(
+      [
+        "CMUX_CODEX_PID": String(olderPID),
+        "CMUX_CODEX_PROCESS_LEASE_ID": olderLease,
+      ], uniquingKeysWith: { _, new in new }
+    ).merging(
+      try H.codexProcessIdentityEnvironment(pid: olderPID),
+      uniquingKeysWith: { _, new in new }
+    )
+    let initialStart = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+      extraEnvironment: olderEnvironment
+    )
+    codexExpectEqual(initialStart.status, 0, initialStart.stderr)
+
+    let stalePrompt = Task.detached {
+      H.runHook(
+        context: staleContext,
+        subcommand: "prompt-submit",
+        standardInput:
+          #"{"session_id":"\#(sessionId)","turn_id":"stale-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"late old hook"}"#,
+        extraEnvironment: olderEnvironment.merging(
+          ["CMUX_SOCKET_PATH": staleContext.socketPath],
+          uniquingKeysWith: { _, new in new })
+      )
+    }
+    let reachedGate = staleValidated.wait(timeout: .now() + 5) == .success
+    codexExpectTrue(
+      reachedGate,
+      "The stale hook must pause after its ownership preflight."
+    )
+
+    let newerEnvironment = H.launchEnvironment(
+      context: context,
+      sessionId: sessionId
+    ).merging(
+      [
+        "CMUX_CODEX_PID": String(newerPID),
+        "CMUX_CODEX_PROCESS_LEASE_ID": newerLease,
+      ], uniquingKeysWith: { _, new in new }
+    ).merging(
+      try H.codexProcessIdentityEnvironment(pid: newerPID),
+      uniquingKeysWith: { _, new in new }
+    )
+    let newerStartInvoked = AsyncStream<Void>.makeStream(
+      bufferingPolicy: .bufferingNewest(1)
+    )
+    let newerStartCompleted = DispatchSemaphore(value: 0)
+    let newerStartTask = Task.detached {
+      _ = newerStartInvoked.continuation.yield()
+      newerStartInvoked.continuation.finish()
+      let result = H.runHook(
+        context: context,
+        subcommand: "session-start",
+        standardInput:
+          #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+        extraEnvironment: newerEnvironment
+      )
+      newerStartCompleted.signal()
+      return result
+    }
+    var newerInvocations = newerStartInvoked.stream.makeAsyncIterator()
+    let didInvokeNewerStart: Void? = await newerInvocations.next()
+    codexExpectTrue(didInvokeNewerStart != nil)
+    codexExpectTrue(
+      newerStartCompleted.wait(timeout: .now() + 0.2) == .timedOut,
+      "The newer resume must wait until the older hook finishes its socket mutations."
+    )
+    releaseStale.signal()
+    let staleResult = await stalePrompt.value
+    codexExpectFalse(staleResult.timedOut, staleResult.stderr)
+    codexExpectEqual(staleResult.status, 0, staleResult.stderr)
+    let newerStart = await newerStartTask.value
+    codexExpectFalse(newerStart.timedOut, newerStart.stderr)
+    codexExpectEqual(newerStart.status, 0, newerStart.stderr)
+
+    let record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(record["pid"] as? Int, newerPID)
+    codexExpectEqual(record["processLeaseId"] as? String, newerLease)
+    codexExpectNil(record["activePromptTurnId"])
+    codexExpectNil(record["activePromptTurnIds"])
+  }
+
+  @Test
+  func testDelayedHookCannotAuthenticateReusedPID() throws {
+    let context = try H.makeContext(name: "codex-reused-pid")
+    defer { context.cleanup() }
+    let sessionId = "reused-pid-session"
+    let currentPID = Int(Darwin.getpid())
+    let currentIdentity = try H.codexProcessIdentityEnvironment(pid: currentPID)
+    let currentStartSeconds = try codexRequire(
+      Int64(currentIdentity["CMUX_CODEX_PID_START_SECONDS"] ?? "")
+    )
+    let currentStartMicroseconds = try codexRequire(
+      Int64(currentIdentity["CMUX_CODEX_PID_START_MICROSECONDS"] ?? "")
+    )
+    let newerLease = UUID().uuidString
+    let staleLease = UUID().uuidString
+    let now = Date().timeIntervalSince1970
+    let stateURL = context.root.appendingPathComponent(
+      "codex-hook-sessions.json"
+    )
+    let store: [String: Any] = [
+      "version": 1,
+      "sessions": [
+        sessionId: [
+          "sessionId": sessionId,
+          "workspaceId": context.workspaceId,
+          "surfaceId": context.surfaceId,
+          "cwd": context.root.path,
+          "pid": Int(Int32.max),
+          "pidStartSeconds": currentStartSeconds - 5,
+          "pidStartMicroseconds": currentStartMicroseconds,
+          "processLeaseId": newerLease,
+          "runtimeStatus": "running",
+          "startedAt": now,
+          "updatedAt": now,
+        ]
+      ],
+    ]
+    try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+      .write(to: stateURL, options: .atomic)
+    H.startMockServer(context: context, connectionLimit: 24)
+
+    let result = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+      extraEnvironment: H.launchEnvironment(
+        context: context,
+        sessionId: sessionId
+      ).merging(
+        [
+          "CMUX_CODEX_PID": String(currentPID),
+          "CMUX_CODEX_PROCESS_LEASE_ID": staleLease,
+          "CMUX_CODEX_PID_START_SECONDS": String(currentStartSeconds - 10),
+          "CMUX_CODEX_PID_START_MICROSECONDS": String(
+            currentStartMicroseconds
+          ),
+        ],
+        uniquingKeysWith: { _, new in new }
+      )
+    )
+
+    codexExpectFalse(result.timedOut, result.stderr)
+    codexExpectEqual(result.status, 0, result.stderr)
+    let record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(record["pid"] as? Int, Int(Int32.max))
+    codexExpectEqual(record["processLeaseId"] as? String, newerLease)
+    codexExpectFalse(
+      context.state.commands.contains {
+        H.jsonObject($0)?["method"] as? String == "surface.resume.set"
+      },
+      "A captured launch identity mismatch must reject the recycled PID before publishing."
+    )
+  }
+
+  @Test
+  func testDelayedOlderCodexResumeCannotReplaceNewerActiveProcess() throws {
+    let context = try H.makeContext(name: "codex-delayed-resume-generation")
+    defer { context.cleanup() }
+
+    let sessionId = "newer-active-session"
+    let incomingPID = Int(Darwin.getpid())
+    let newerPID = 22_222
+    let now = Date().timeIntervalSince1970
+    let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+    let store: [String: Any] = [
+      "version": 1,
+      "sessions": [
+        sessionId: [
+          "sessionId": sessionId,
+          "workspaceId": context.workspaceId,
+          "surfaceId": context.surfaceId,
+          "cwd": context.root.path,
+          "pid": newerPID,
+          "pidStartSeconds": Int64(now) + 3_600,
+          "pidStartMicroseconds": 0,
+          "runtimeStatus": "running",
+          "activePromptDepth": 1,
+          "activePromptTurnId": "newer-turn",
+          "activePromptTurnIds": ["newer-turn"],
+          "lastPromptTurnId": "newer-turn",
+          "startedAt": now,
+          "updatedAt": now,
+        ]
+      ],
+    ]
+    try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+      .write(to: stateURL, options: .atomic)
+
+    H.startMockServer(context: context, connectionLimit: 24)
+    let result = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+      extraEnvironment: H.launchEnvironment(context: context, sessionId: sessionId).merging(
+        [
+          "CMUX_CODEX_PID": String(incomingPID)
+        ], uniquingKeysWith: { _, new in new })
+    )
+
+    codexExpectFalse(result.timedOut, result.stderr)
+    codexExpectEqual(result.status, 0, result.stderr)
+    let record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(
+      record["pid"] as? Int,
+      newerPID,
+      "A delayed older resume event must not replace the newer process generation."
+    )
+    codexExpectEqual(
+      record["activePromptDepth"] as? Int,
+      1,
+      "A delayed older resume event must not clear the newer process's active turn."
+    )
+    codexExpectFalse(
+      context.state.commands.contains {
+        H.jsonObject($0)?["method"] as? String == "surface.resume.set"
+      },
+      "A rejected older resume event must not republish the session binding."
+    )
+  }
+
+  @Test
+  func testDelayedOlderCodexResumeCannotReplaceAcceptedNewerProcessAfterTurnStateClears() throws {
+    let context = try H.makeContext(name: "codex-repeat-generation")
+    defer { context.cleanup() }
+    let sessionId = "accepted-newer-session"
+    let olderPID = Int(Darwin.getpid())
+    let deadPID = Int(Int32.max)
+    let newerProcess = Process()
+    let newerProcessInput = Pipe()
+    newerProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+    newerProcess.standardInput = newerProcessInput
+    try newerProcess.run()
+    defer {
+      try? newerProcessInput.fileHandleForWriting.close()
+      if newerProcess.isRunning {
+        newerProcess.terminate()
+      }
+      newerProcess.waitUntilExit()
+    }
+    let newerPID = Int(newerProcess.processIdentifier)
+    try H.writeRebindState(
+      context: context,
+      sessionId: sessionId,
+      pid: deadPID
+    )
+    H.startMockServer(context: context, connectionLimit: 48)
+
+    let acceptedResume = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+      extraEnvironment: H.launchEnvironment(context: context, sessionId: sessionId).merging(
+        [
+          "CMUX_CODEX_PID": String(newerPID)
+        ], uniquingKeysWith: { _, new in new })
+    )
+    codexExpectFalse(acceptedResume.timedOut, acceptedResume.stderr)
+    codexExpectEqual(acceptedResume.status, 0, acceptedResume.stderr)
+    var record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(record["pid"] as? Int, newerPID)
+    codexExpectNil(record["activePromptDepth"])
+    codexExpectTrue(
+      context.state.commands.contains {
+        H.jsonObject($0)?["method"] as? String == "surface.resume.set"
+      },
+      "The newer resume must replace the dead legacy owner."
+    )
+
+    let delayedStart = context.state.commands.count
+    let delayedResume = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+      extraEnvironment: H.launchEnvironment(context: context, sessionId: sessionId).merging(
+        [
+          "CMUX_CODEX_PID": String(olderPID)
+        ], uniquingKeysWith: { _, new in new })
+    )
+    codexExpectFalse(delayedResume.timedOut, delayedResume.stderr)
+    codexExpectEqual(delayedResume.status, 0, delayedResume.stderr)
+    record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(record["pid"] as? Int, newerPID)
+    codexExpectEqual(record["workspaceId"] as? String, context.workspaceId)
+    codexExpectEqual(record["surfaceId"] as? String, context.surfaceId)
+    codexExpectFalse(
+      context.state.commands.dropFirst(delayedStart).contains {
+        H.jsonObject($0)?["method"] as? String == "surface.resume.set"
+      },
+      "A delayed older rebind must remain stale after the accepted newer resume clears interrupted-turn guards."
+    )
+  }
+
+  @Test
+  func testStopFromExactRecordedOwnerCompletesAfterOwnerExits() throws {
+    let context = try H.makeContext(name: "codex-exited-owner-stop")
+    defer { context.cleanup() }
+    let sessionId = "exited-owner-stop-session"
+    let turnId = "completed-turn"
+    let processLeaseId = UUID().uuidString
+    let ownerProcess = Process()
+    let ownerProcessInput = Pipe()
+    var ownerProcessInputClosed = false
+    ownerProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+    ownerProcess.standardInput = ownerProcessInput
+    try ownerProcess.run()
+    defer {
+      if !ownerProcessInputClosed {
+        try? ownerProcessInput.fileHandleForWriting.close()
+      }
+      if ownerProcess.isRunning {
+        ownerProcess.terminate()
+        ownerProcess.waitUntilExit()
+      }
+    }
+    let ownerPID = Int(ownerProcess.processIdentifier)
+    let ownerEnvironment = H.launchEnvironment(
+      context: context,
+      sessionId: sessionId
+    ).merging(
+      [
+        "CMUX_CODEX_PID": String(ownerPID),
+        "CMUX_CODEX_PROCESS_IDENTITY_REQUIRED": "1",
+        "CMUX_CODEX_PROCESS_LEASE_ID": processLeaseId,
+      ],
+      uniquingKeysWith: { _, new in new }
+    ).merging(
+      try H.codexProcessIdentityEnvironment(pid: ownerPID),
+      uniquingKeysWith: { _, new in new }
+    )
+    H.startMockServer(context: context, connectionLimit: 64)
+
+    let start = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+      extraEnvironment: ownerEnvironment
+    )
+    codexExpectFalse(start.timedOut, start.stderr)
+    codexExpectEqual(start.status, 0, start.stderr)
+
+    let prompt = H.runHook(
+      context: context,
+      subcommand: "prompt-submit",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"finish"}"#,
+      extraEnvironment: ownerEnvironment
+    )
+    codexExpectFalse(prompt.timedOut, prompt.stderr)
+    codexExpectEqual(prompt.status, 0, prompt.stderr)
+
+    let leaseDirectory = context.root.appendingPathComponent(
+      "codex-monitor-leases",
+      isDirectory: true
+    )
+    let leaseURLs = try FileManager.default.contentsOfDirectory(
+      at: leaseDirectory,
+      includingPropertiesForKeys: nil,
+      options: [.skipsHiddenFiles]
+    )
+    let leaseURL = try codexRequire(leaseURLs.first)
+    let activeLease = try codexRequire(
+      JSONSerialization.jsonObject(with: Data(contentsOf: leaseURL))
+        as? [String: Any]
+    )
+    codexExpectEqual(activeLease["sessionId"] as? String, sessionId)
+    codexExpectEqual(activeLease["turnId"] as? String, turnId)
+    codexExpectNil(activeLease["retiredAt"])
+
+    try ownerProcessInput.fileHandleForWriting.close()
+    ownerProcessInputClosed = true
+    ownerProcess.waitUntilExit()
+
+    let stop = H.runHook(
+      context: context,
+      subcommand: "stop",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"finished"}"#,
+      extraEnvironment: ownerEnvironment
+    )
+    codexExpectFalse(stop.timedOut, stop.stderr)
+    codexExpectEqual(stop.status, 0, stop.stderr)
+
+    let record = try H.readSession(sessionId, context: context)
+    codexExpectEqual(record["runtimeStatus"] as? String, "idle")
+    codexExpectEqual(record["lastNotificationStatus"] as? String, "idle")
+    codexExpectNil(record["activePromptDepth"])
+    codexExpectNil(record["activePromptTurnId"])
+    codexExpectNil(record["activePromptTurnIds"])
+
+    if FileManager.default.fileExists(atPath: leaseURL.path) {
+      let retiredLease = try codexRequire(
+        JSONSerialization.jsonObject(with: Data(contentsOf: leaseURL))
+          as? [String: Any]
+      )
+      codexExpectTrue(retiredLease["retiredAt"] != nil)
+    }
+    codexExpectTrue(
+      context.state.commands.contains {
+        H.jsonObject($0)?["method"] as? String == "surface.resume.set"
+      }
+    )
+    codexExpectTrue(
+      context.state.commands.contains { $0.contains("notify_target_async") }
+    )
+  }
+
+  @Test
+  func testDelayedOlderCodexStopCannotRetireNewerProcessMonitorLease() throws {
+    let context = try H.makeContext(name: "codex-stale-stop-lease")
+    defer { context.cleanup() }
+    let sessionId = "stale-stop-lease-session"
+    let turnId = "shared-turn"
+    let olderPID = Int(Darwin.getpid())
+    let deadPID = Int(Int32.max)
+    let newerProcess = Process()
+    let newerProcessInput = Pipe()
+    newerProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+    newerProcess.standardInput = newerProcessInput
+    try newerProcess.run()
+    defer {
+      try? newerProcessInput.fileHandleForWriting.close()
+      if newerProcess.isRunning {
+        newerProcess.terminate()
+      }
+      newerProcess.waitUntilExit()
+    }
+    let newerPID = Int(newerProcess.processIdentifier)
+    try H.writeRebindState(
+      context: context,
+      sessionId: sessionId,
+      pid: deadPID
+    )
+    H.startMockServer(context: context, connectionLimit: 64)
+
+    let newerEnvironment = H.launchEnvironment(context: context, sessionId: sessionId).merging(
+      [
+        "CMUX_CODEX_PID": String(newerPID)
+      ], uniquingKeysWith: { _, new in new })
+    let acceptedResume = H.runHook(
+      context: context,
+      subcommand: "session-start",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+      extraEnvironment: newerEnvironment
+    )
+    codexExpectFalse(acceptedResume.timedOut, acceptedResume.stderr)
+    codexExpectEqual(acceptedResume.status, 0, acceptedResume.stderr)
+
+    let prompt = H.runHook(
+      context: context,
+      subcommand: "prompt-submit",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+      extraEnvironment: newerEnvironment
+    )
+    codexExpectFalse(prompt.timedOut, prompt.stderr)
+    codexExpectEqual(prompt.status, 0, prompt.stderr)
+
+    let leaseDirectory = context.root.appendingPathComponent(
+      "codex-monitor-leases", isDirectory: true)
+    let leaseURLs = try FileManager.default.contentsOfDirectory(
+      at: leaseDirectory,
+      includingPropertiesForKeys: nil,
+      options: [.skipsHiddenFiles]
+    )
+    let leaseURL = try codexRequire(leaseURLs.first)
+    let activeLease = try codexRequire(
+      JSONSerialization.jsonObject(with: Data(contentsOf: leaseURL)) as? [String: Any]
+    )
+    codexExpectEqual(activeLease["sessionId"] as? String, sessionId)
+    codexExpectEqual(activeLease["turnId"] as? String, turnId)
+    codexExpectNil(activeLease["retiredAt"])
+
+    let staleStop = H.runHook(
+      context: context,
+      subcommand: "stop",
+      standardInput:
+        #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"late old stop"}"#,
+      extraEnvironment: H.launchEnvironment(context: context, sessionId: sessionId).merging(
+        [
+          "CMUX_CODEX_PID": String(olderPID)
+        ], uniquingKeysWith: { _, new in new })
+    )
+    codexExpectFalse(staleStop.timedOut, staleStop.stderr)
+    codexExpectEqual(staleStop.status, 0, staleStop.stderr)
+
+    let leaseAfterStaleStop = try codexRequire(
+      JSONSerialization.jsonObject(with: Data(contentsOf: leaseURL)) as? [String: Any]
+    )
+    codexExpectNil(
+      leaseAfterStaleStop["retiredAt"],
+      "A Stop rejected from an older process generation must not retire the newer process's monitor lease."
+    )
+  }
+}

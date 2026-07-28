@@ -281,6 +281,234 @@ private final class CLIProcessOutputBuffer: @unchecked Sendable {
     }
 }
 
+private typealias CLIJSONLinesReadEvent = (
+    standardOutput: Data?,
+    standardError: Data?,
+    matchedResponse: Bool,
+    limitExceeded: Bool,
+    error: String?,
+    timedOut: Bool
+)
+
+private final class CLIJSONLinesChunkReader: @unchecked Sendable {
+    enum Stream {
+        case standardOutput(
+            responseID: Int,
+            followupStdinHandle: FileHandle,
+            followupStdinText: String?,
+            followupAfterResponseID: Int?
+        )
+        case standardError
+    }
+
+    private let handle: FileHandle
+    private let stream: Stream
+    private let maxOutputBytes: Int
+    private let lock = NSLock()
+    private var data = Data()
+    private var lineStart = 0
+    private var scanStart = 0
+    private var wroteFollowup = false
+    private var isConsuming = false
+    private var completion: CLIJSONLinesReadEvent?
+    private var continuation:
+        CheckedContinuation<CLIJSONLinesReadEvent, Never>?
+
+    init(
+        handle: FileHandle,
+        stream: Stream,
+        maxOutputBytes: Int
+    ) {
+        self.handle = handle
+        self.stream = stream
+        self.maxOutputBytes = maxOutputBytes
+    }
+
+    func read() async -> CLIJSONLinesReadEvent {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if let completion {
+                    lock.unlock()
+                    continuation.resume(returning: completion)
+                    return
+                }
+                self.continuation = continuation
+                handle.readabilityHandler = { [weak self] _ in
+                    self?.consumeAvailableData()
+                }
+                lock.unlock()
+                // A fast child can write before the readability handler is
+                // installed. Drain once immediately so an already-buffered
+                // initialize response cannot strand the staged request.
+                consumeAvailableData()
+            }
+        } onCancel: {
+            finish((nil, nil, false, false, nil, false))
+        }
+    }
+
+    private func consumeAvailableData() {
+        lock.lock()
+        guard completion == nil, !isConsuming else {
+            lock.unlock()
+            return
+        }
+        isConsuming = true
+        lock.unlock()
+
+        while true {
+            lock.lock()
+            guard completion == nil else {
+                isConsuming = false
+                lock.unlock()
+                return
+            }
+            let remaining = max(0, maxOutputBytes - data.count)
+            lock.unlock()
+
+            let readLength = min(
+                FileHandle.processPipeReadChunkSize,
+                remaining + 1
+            )
+            switch handle.readAvailableData(maxLength: readLength) {
+            case .success(.data(let chunk)):
+                lock.lock()
+                guard completion == nil else {
+                    isConsuming = false
+                    lock.unlock()
+                    return
+                }
+                let acceptedCount = min(remaining, chunk.count)
+                if acceptedCount > 0 {
+                    data.append(contentsOf: chunk.prefix(acceptedCount))
+                }
+                let event = processAcceptedData()
+                    ?? (chunk.count > acceptedCount ? limitEvent() : nil)
+                if event != nil {
+                    isConsuming = false
+                }
+                lock.unlock()
+                if let event {
+                    finish(event)
+                    return
+                }
+            case .success(.wouldBlock):
+                lock.lock()
+                isConsuming = false
+                lock.unlock()
+                return
+            case .success(.endOfFile):
+                lock.lock()
+                isConsuming = false
+                let event = endEvent(error: nil)
+                lock.unlock()
+                finish(event)
+                return
+            case .failure(let error):
+                lock.lock()
+                isConsuming = false
+                let event = endEvent(error: error.localizedDescription)
+                lock.unlock()
+                finish(event)
+                return
+            }
+        }
+    }
+
+    /// Must be called while `lock` is held.
+    private func processAcceptedData() -> CLIJSONLinesReadEvent? {
+        guard case .standardOutput(
+            let responseID,
+            let followupStdinHandle,
+            let followupStdinText,
+            let followupAfterResponseID
+        ) = stream else {
+            return nil
+        }
+
+        while scanStart < data.endIndex {
+            guard let newline = data[scanStart...].firstIndex(of: 0x0a) else {
+                scanStart = data.endIndex
+                return nil
+            }
+            let line = data[lineStart..<newline]
+            lineStart = data.index(after: newline)
+            scanStart = lineStart
+            guard let object = try? JSONSerialization.jsonObject(
+                with: Data(line)
+            ) as? [String: Any],
+                let emittedResponseID =
+                    (object["id"] as? NSNumber)?.intValue
+            else {
+                continue
+            }
+            if !wroteFollowup,
+               let followupAfterResponseID,
+               emittedResponseID == followupAfterResponseID,
+               let followupStdinText {
+                guard cliWrite(
+                    followupStdinText,
+                    to: followupStdinHandle,
+                    onBrokenPipe: .ignore
+                ) else {
+                    return (
+                        data,
+                        nil,
+                        false,
+                        false,
+                        "process closed stdin before staged JSON input",
+                        false
+                    )
+                }
+                wroteFollowup = true
+            }
+            if emittedResponseID == responseID {
+                return (data, nil, true, false, nil, false)
+            }
+        }
+        return nil
+    }
+
+    /// Must be called while `lock` is held.
+    private func limitEvent() -> CLIJSONLinesReadEvent {
+        switch stream {
+        case .standardOutput:
+            return (data, nil, false, true, nil, false)
+        case .standardError:
+            return (nil, data, false, true, nil, false)
+        }
+    }
+
+    /// Must be called while `lock` is held.
+    private func endEvent(error: String?) -> CLIJSONLinesReadEvent {
+        switch stream {
+        case .standardOutput:
+            return (data, nil, false, false, error, false)
+        case .standardError:
+            return (nil, data, false, false, error, false)
+        }
+    }
+
+    private func finish(_ event: CLIJSONLinesReadEvent) {
+        let continuation: CheckedContinuation<
+            CLIJSONLinesReadEvent,
+            Never
+        >?
+        lock.lock()
+        guard completion == nil else {
+            lock.unlock()
+            return
+        }
+        completion = event
+        continuation = self.continuation
+        self.continuation = nil
+        handle.readabilityHandler = nil
+        lock.unlock()
+        continuation?.resume(returning: event)
+    }
+}
+
 enum CLIProcessRunner {
     static func runProcess(
         executablePath: String,
@@ -477,6 +705,294 @@ enum CLIProcessRunner {
             stderr: stderr,
             timedOut: timedOut
         )
+    }
+
+    /// Runs a JSONL process until it emits the requested response id.
+    ///
+    /// stdin remains open after the requests are written because app servers
+    /// may cancel in-flight requests as soon as their transport reaches EOF.
+    /// The child is stopped after the matching response, process exit, output
+    /// limit, or timeout.
+    static func runJSONLinesProcess(
+        executablePath: String,
+        arguments: [String],
+        stdinText: String,
+        followupStdinText: String? = nil,
+        followupAfterResponseID: Int? = nil,
+        responseID: Int,
+        currentDirectoryPath: String? = nil,
+        timeout: TimeInterval,
+        maxOutputBytes: Int = 8 * 1024 * 1024
+    ) async -> CLIProcessResult {
+        guard (followupStdinText == nil) == (followupAfterResponseID == nil) else {
+            return CLIProcessResult(
+                status: 1,
+                stdout: "",
+                stderr: "staged JSON input requires both a response id and follow-up text",
+                timedOut: false
+            )
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        if let currentDirectoryPath {
+            process.currentDirectoryURL = URL(
+                fileURLWithPath: currentDirectoryPath,
+                isDirectory: true
+            )
+        }
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let terminationPair = AsyncStream<Int32>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        process.terminationHandler = { terminatedProcess in
+            terminationPair.continuation.yield(
+                terminatedProcess.terminationStatus
+            )
+            terminationPair.continuation.finish()
+        }
+        defer {
+            process.terminationHandler = nil
+            terminationPair.continuation.finish()
+        }
+
+        let boundedMaxOutputBytes = max(1, maxOutputBytes)
+
+        do {
+            try cliRunProcess(process)
+        } catch {
+            try? stdinPipe.fileHandleForWriting.close()
+            try? stdinPipe.fileHandleForReading.close()
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stdoutPipe.fileHandleForReading.close()
+            try? stderrPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForReading.close()
+            return CLIProcessResult(
+                status: 1,
+                stdout: "",
+                stderr: error.localizedDescription,
+                timedOut: false
+            )
+        }
+
+        // Process owns duplicated child endpoints after launch. Close the
+        // parent's copies so child exit can produce HUP while stdin remains
+        // open through its write endpoint.
+        try? stdinPipe.fileHandleForReading.close()
+        try? stdoutPipe.fileHandleForWriting.close()
+        try? stderrPipe.fileHandleForWriting.close()
+
+        if let input = stdinText.data(using: .utf8) {
+            _ = cliWrite(
+                input,
+                to: stdinPipe.fileHandleForWriting,
+                onBrokenPipe: .ignore
+            )
+        }
+
+        let boundedTimeout = max(0, min(timeout, 3_600))
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+        var stdoutData = Data()
+        var stderrData = Data()
+        var matchedResponse = false
+        var stdoutLimitExceeded = false
+        var stderrLimitExceeded = false
+        var timedOut = false
+        var pipeError: String?
+        var finished = false
+        var cleanupStarted = false
+
+        func stopChildAndClosePipes() {
+            guard !cleanupStarted else { return }
+            cleanupStarted = true
+            try? stdinPipe.fileHandleForWriting.close()
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+
+        await withTaskGroup(of: CLIJSONLinesReadEvent.self) { group in
+            group.addTask {
+                await CLIJSONLinesChunkReader(
+                    handle: stdoutHandle,
+                    stream: .standardOutput(
+                        responseID: responseID,
+                        followupStdinHandle:
+                            stdinPipe.fileHandleForWriting,
+                        followupStdinText: followupStdinText,
+                        followupAfterResponseID:
+                            followupAfterResponseID
+                    ),
+                    maxOutputBytes: boundedMaxOutputBytes
+                ).read()
+            }
+            group.addTask {
+                await CLIJSONLinesChunkReader(
+                    handle: stderrHandle,
+                    stream: .standardError,
+                    maxOutputBytes: boundedMaxOutputBytes
+                ).read()
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(
+                        for: .seconds(boundedTimeout)
+                    )
+                } catch {
+                    return (nil, nil, false, false, nil, false)
+                }
+                return (nil, nil, false, false, nil, true)
+            }
+
+            while let event = await group.next() {
+                if let data = event.standardOutput {
+                    stdoutData = data
+                    if !finished {
+                        matchedResponse = event.matchedResponse
+                        stdoutLimitExceeded = event.limitExceeded
+                        pipeError = event.error
+                        finished = true
+                    }
+                } else if let data = event.standardError {
+                    stderrData = data
+                    stderrLimitExceeded = event.limitExceeded
+                    if !finished,
+                       event.limitExceeded || event.error != nil {
+                        pipeError = event.error
+                        finished = true
+                    }
+                } else if event.timedOut {
+                    if !finished {
+                        timedOut = true
+                        finished = true
+                    }
+                }
+
+                if finished, !cleanupStarted {
+                    group.cancelAll()
+                    stopChildAndClosePipes()
+                }
+            }
+        }
+
+        stopChildAndClosePipes()
+        let childTerminationStatus = await reapJSONLinesProcess(
+            process,
+            terminationEvents: terminationPair.stream
+        )
+
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        var stderr = String(data: stderrData, encoding: .utf8) ?? ""
+
+        if timedOut {
+            if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                stderr = "process timed out"
+            } else if !stderr.contains("process timed out") {
+                stderr += "\nprocess timed out"
+            }
+        } else if stdoutLimitExceeded || stderrLimitExceeded {
+            if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                stderr = "process output exceeded \(boundedMaxOutputBytes) bytes per stream"
+            }
+        } else if let pipeError {
+            if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                stderr = pipeError
+            }
+        } else if !matchedResponse,
+                  stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            stderr = "process exited before JSON response \(responseID)"
+        }
+
+        let status: Int32
+        if matchedResponse, !stderrLimitExceeded, pipeError == nil {
+            status = 0
+        } else if timedOut {
+            status = 124
+        } else if stdoutLimitExceeded || stderrLimitExceeded {
+            status = 1
+        } else if pipeError != nil {
+            status = 1
+        } else {
+            let childStatus = childTerminationStatus ?? 1
+            status = childStatus == 0 ? 1 : childStatus
+        }
+        return CLIProcessResult(
+            status: status,
+            stdout: stdout,
+            stderr: stderr,
+            timedOut: timedOut
+        )
+    }
+
+    private typealias CLIProcessTerminationWaitEvent = (
+        status: Int32?,
+        terminateGraceElapsed: Bool,
+        killGraceElapsed: Bool
+    )
+
+    /// Reaps the direct child from its Process termination event without
+    /// blocking a cooperative Swift thread. Escalate once if orderly
+    /// termination does not complete promptly, while keeping cleanup bounded.
+    private static func reapJSONLinesProcess(
+        _ process: Process,
+        terminationEvents: AsyncStream<Int32>
+    ) async -> Int32? {
+        await withTaskGroup(of: CLIProcessTerminationWaitEvent.self) { group in
+            group.addTask {
+                var iterator = terminationEvents.makeAsyncIterator()
+                guard let status = await iterator.next() else {
+                    return (nil, false, false)
+                }
+                return (status, false, false)
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: .milliseconds(100))
+                } catch {
+                    return (nil, false, false)
+                }
+                return (nil, true, false)
+            }
+
+            while let event = await group.next() {
+                if let status = event.status {
+                    group.cancelAll()
+                    return status
+                }
+                if event.terminateGraceElapsed {
+                    if process.isRunning {
+                        kill(process.processIdentifier, SIGKILL)
+                    }
+                    group.addTask {
+                        do {
+                            try await ContinuousClock().sleep(
+                                for: .milliseconds(400)
+                            )
+                        } catch {
+                            return (nil, false, false)
+                        }
+                        return (nil, false, true)
+                    }
+                } else if event.killGraceElapsed {
+                    group.cancelAll()
+                    return nil
+                } else if Task.isCancelled {
+                    group.cancelAll()
+                    return nil
+                }
+            }
+            return process.isRunning ? nil : process.terminationStatus
+        }
     }
 
     private static func terminate(process: Process, finished: DispatchSemaphore) {
