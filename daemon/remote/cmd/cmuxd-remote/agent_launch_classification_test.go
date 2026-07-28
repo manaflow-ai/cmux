@@ -24,6 +24,7 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 		{"claude ultrareview workflow", claudeTeamsLaunchIsNonLaunch, []string{"ultrareview"}, false},
 		{"claude tmux management", claudeTeamsLaunchIsNonLaunch, []string{"--tmux", "classic", "doctor"}, true},
 		{"claude informational after prompt", claudeTeamsLaunchIsNonLaunch, []string{"prompt", "--version"}, true},
+		{"claude informational after forward subagent text", claudeTeamsLaunchIsNonLaunch, []string{"--forward-subagent-text", "--version"}, true},
 		{"claude uppercase V is a launch", claudeTeamsLaunchIsNonLaunch, []string{"-V"}, false},
 		{"claude command-shaped value", claudeTeamsLaunchIsNonLaunch, []string{"--model", "doctor"}, false},
 		{"claude background command-shaped value", claudeTeamsLaunchIsNonLaunch, []string{"--model", "logs"}, false},
