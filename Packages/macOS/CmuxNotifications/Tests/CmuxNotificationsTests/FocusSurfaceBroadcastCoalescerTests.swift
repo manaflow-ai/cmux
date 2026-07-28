@@ -133,10 +133,19 @@ struct FocusSurfaceBroadcastCoalescerTests {
         #expect(boundExceeded == [8843, 8843, 8843, 8843])
         #expect(tripped == [8843])
         #expect(reentryBudget > 0)
+
+        scheduler.runAllCircuitBreaker()
+
+        #expect(scheduler.count == 0)
+        #expect(scheduler.circuitBreakerCount == 0)
+        #expect(delivered.count == 9)
+        #expect(delivered.last == 8843)
+        #expect(boundExceeded == [8843, 8843, 8843, 8843])
+        #expect(tripped == [8843])
     }
 
-    @Test("the circuit breaker retains pending focus for a throttled continuation")
-    func circuitBreakerRetainsPendingPayloadForThrottledContinuation() {
+    @Test("the circuit breaker recovery stops re-entrant rescheduling")
+    func circuitBreakerRecoveryStopsReentrantRescheduling() {
         let scheduler = ManualScheduler()
         var delivered: [Int] = []
         var boundExceeded: [Int] = []
@@ -173,16 +182,19 @@ struct FocusSurfaceBroadcastCoalescerTests {
         scheduler.runAllCircuitBreaker()
 
         #expect(delivered == [1, 2])
-        #expect(boundExceeded == [2, 3])
-        #expect(tripped == [2, 3])
+        #expect(boundExceeded == [2])
+        #expect(tripped == [2])
         #expect(scheduler.count == 0)
-        #expect(scheduler.circuitBreakerCount == 1)
+        #expect(scheduler.circuitBreakerCount == 0)
 
-        scheduler.runAllCircuitBreaker()
+        coalescer.emit(4)
+        #expect(scheduler.count == 1)
+        #expect(scheduler.circuitBreakerCount == 0)
+        scheduler.runAll()
 
-        #expect(delivered == [1, 2, 3])
-        #expect(boundExceeded == [2, 3])
-        #expect(tripped == [2, 3])
+        #expect(delivered == [1, 2, 4])
+        #expect(boundExceeded == [2])
+        #expect(tripped == [2])
         #expect(scheduler.count == 0)
         #expect(scheduler.circuitBreakerCount == 0)
     }

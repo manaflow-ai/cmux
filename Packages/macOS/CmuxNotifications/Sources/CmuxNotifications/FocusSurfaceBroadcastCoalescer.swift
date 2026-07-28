@@ -17,6 +17,7 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
     private var pending: Payload?
     private var flushScheduled = false
     private var circuitBreakerFlushScheduled = false
+    private var circuitBreakerOpen = false
     private var isDelivering = false
     private var consecutiveBoundedFlushes = 0
 
@@ -29,8 +30,8 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
     ///     hit ``maxCoalescedDeliveries`` before the still-pending payload is moved
     ///     to the circuit-breaker scheduler. Values below one are clamped to one.
     ///   - schedule: Schedules deferred main-actor flush work.
-    ///   - scheduleAfterCircuitBreaker: Schedules continuation work after the
-    ///     circuit breaker trips. Defaults to ``schedule``.
+    ///   - scheduleAfterCircuitBreaker: Schedules one retained-payload recovery
+    ///     after the circuit breaker trips. Defaults to ``schedule``.
     ///   - onDrainBoundExceeded: Called with the still-pending payload when a
     ///     flush hits ``maxCoalescedDeliveries`` and defers to another turn.
     ///   - onCircuitBreakerTripped: Called with the retained pending payload when
@@ -58,10 +59,16 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
     ///
     /// This method never delivers synchronously. If delivery is already in
     /// progress, the payload is recorded for the active drain loop instead of
-    /// recursively scheduling more work.
+    /// recursively scheduling more work. If the circuit breaker is open, only an
+    /// external emit closes it and schedules immediate work; synchronous emits from
+    /// recovery delivery remain pending without rescheduling the loop.
     public func emit(_ payload: Payload) {
         pending = payload
         if isDelivering { return }
+        if circuitBreakerOpen {
+            circuitBreakerOpen = false
+            consecutiveBoundedFlushes = 0
+        }
         scheduleImmediateFlush()
     }
 
@@ -72,6 +79,10 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
     public func flush() {
         flushScheduled = false
         guard !isDelivering else { return }
+        if circuitBreakerOpen {
+            flushCircuitBreakerRecovery()
+            return
+        }
         isDelivering = true
 
         var iterations = 0
@@ -87,6 +98,7 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
                 if consecutiveBoundedFlushes >= maxConsecutiveBoundedFlushes {
                     pending = next
                     hitCircuitBreaker = true
+                    circuitBreakerOpen = true
                     consecutiveBoundedFlushes = 0
                     onCircuitBreakerTripped(next)
                 } else {
@@ -107,6 +119,22 @@ public final class FocusSurfaceBroadcastCoalescer<Payload: Sendable> {
             } else {
                 scheduleImmediateFlush()
             }
+        }
+    }
+
+    private func flushCircuitBreakerRecovery() {
+        guard let next = pending else {
+            circuitBreakerOpen = false
+            consecutiveBoundedFlushes = 0
+            return
+        }
+        pending = nil
+        isDelivering = true
+        deliver(next)
+        isDelivering = false
+        consecutiveBoundedFlushes = 0
+        if pending == nil {
+            circuitBreakerOpen = false
         }
     }
 

@@ -277,5 +277,21 @@ struct FocusSurfaceBroadcasterTests {
             reentryBudget > 0,
             "The test must stop because the circuit breaker tripped, not because the synthetic re-entry budget ran dry."
         )
+
+        scheduler.runAllCircuitBreaker()
+
+        #expect(
+            scheduler.count == 0,
+            "The delayed recovery must not restart an immediate self-sustaining focus cycle."
+        )
+        #expect(
+            scheduler.circuitBreakerCount == 0,
+            "The circuit breaker should remain open after a re-entrant recovery emit until an external focus event arrives."
+        )
+        #expect(
+            delivered.count == 9,
+            "The delayed recovery should deliver the retained focus payload exactly once."
+        )
+        #expect(delivered.last == reentryTarget)
     }
 }

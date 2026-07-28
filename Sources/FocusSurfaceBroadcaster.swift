@@ -35,9 +35,10 @@ nonisolated private let focusSurfaceBroadcasterLogger = Logger(
 ///   loop (at most ``maxCoalescedDeliveries`` deliveries per turn). If the cycle has
 ///   not settled within that bound, the still-pending payload is carried to a fresh
 ///   scheduled flush. Consecutive bounded turns are capped by
-///   ``maxConsecutiveBoundedFlushes``; after that the pending payload is retained
-///   but moved to a delayed continuation so a non-converging observer cycle cannot
-///   monopolize SwiftUI/AppKit layout work.
+///   ``maxConsecutiveBoundedFlushes``; after that the pending payload gets one
+///   delayed recovery delivery and the breaker stays open until a new external
+///   focus emit arrives, so a non-converging observer cycle cannot monopolize
+///   SwiftUI/AppKit layout work.
 ///
 /// The type is fully testable without AppKit: inject ``deliver`` to capture
 /// broadcasts, and inject ``schedule`` to drive flushes deterministically.
@@ -64,8 +65,8 @@ final class FocusSurfaceBroadcaster {
     ///
     /// Posts the real `.ghosttyDidFocusSurface` notification and logs (DEBUG builds)
     /// whenever the bounded drain trips, and logs when the cross-turn circuit
-    /// breaker trips and moves the pending payload onto a delayed continuation, so
-    /// a future re-entrancy regression is observable instead of a silent hours-long
+    /// breaker trips and moves the pending payload onto a delayed recovery, so a
+    /// future re-entrancy regression is observable instead of a silent hours-long
     /// hang.
     static let shared = FocusSurfaceBroadcaster(
         scheduleAfterCircuitBreaker: { work in
@@ -106,7 +107,7 @@ final class FocusSurfaceBroadcaster {
     ///     `DispatchQueue.main.async`. Injected by tests to flush deterministically.
     ///   - scheduleAfterCircuitBreaker: Schedules continuation work after the
     ///     cross-turn circuit breaker trips. The shared runtime broadcaster uses a
-    ///     delayed continuation to stop tight loops from monopolizing the main actor.
+    ///     delayed recovery to stop tight loops from monopolizing the main actor.
     ///   - onDrainBoundExceeded: Invoked with the still-pending payload when a flush
     ///     hits ``maxCoalescedDeliveries`` and defers the remainder to a follow-up
     ///     flush. Used for structured logging of a non-converging focus cycle.
