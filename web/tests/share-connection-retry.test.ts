@@ -844,7 +844,7 @@ describe("ShareClient terminal-only session behavior", () => {
       )
       .slice(binaryBefore)
       .map((message) => decodeTerminalFrame(new Uint8Array(message)));
-    expect(frames).toHaveLength(24);
+    expect(frames).toHaveLength(15);
     expect(scheduledTimers.size).toBe(1);
 
     now += 1_000;
@@ -951,7 +951,7 @@ describe("ShareClient terminal-only session behavior", () => {
       )
       .slice(binaryBefore)
       .map((message) => decodeTerminalFrame(new Uint8Array(message)));
-    expect(frames).toHaveLength(24);
+    expect(frames).toHaveLength(15);
     expect(client.session.get().you?.role).toBe("viewer");
     expect(
       client.sendTerminalData("workspace:1", "surface:terminal", "blocked"),
@@ -1292,7 +1292,7 @@ describe("ShareClient delivery credit acknowledgements", () => {
       socket.sent.filter(
         (message): message is ArrayBuffer => message instanceof ArrayBuffer,
       ),
-    ).toHaveLength(binaryBefore + 24);
+    ).toHaveLength(binaryBefore + 15);
     expect(scheduledTimers.size).toBe(1);
 
     now += 1_000;

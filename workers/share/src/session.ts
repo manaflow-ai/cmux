@@ -1078,6 +1078,22 @@ export class ShareSessionCore {
     }
   }
 
+  /** Rebuild one exact subscription that the DO independently authenticated
+   * from a hibernation attachment. Normal layout, membership, capacity, and
+   * rate checks still apply before wake-triggering input can be routed. */
+  restoreSubscription(
+    id: ConnId,
+    ws: string,
+    pane: string,
+    now: number = Date.now(),
+  ): Effect[] {
+    return this.handleGuest(id, { t: "sub", ws, pane }, now);
+  }
+
+  hasSubscription(id: ConnId, ws: string, pane: string): boolean {
+    return this.conns.get(id)?.subs.has(subKey(ws, pane)) === true;
+  }
+
   /** Route an already validated terminal frame through the authoritative
    * session membership, role, layout, and exact-pane subscription state. */
   routeBinary(

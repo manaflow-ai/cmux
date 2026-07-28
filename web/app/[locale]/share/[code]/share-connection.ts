@@ -46,11 +46,15 @@ type DomainServerMessage = Exclude<ServerMessage, { t: "ack-request" }>;
 type OutboundPayload = GuestMessage | Uint8Array;
 
 const MAX_PENDING_DELIVERY_BATCHES = 128;
-// Fits the protocol's valid 64-subscription replay plus focus/control work.
-// The remaining relay ingress budget can still carry the next fully saturated
-// 24-frame terminal-input window without turning ACK release into a burst.
+// Bounds unsent control traffic across both delivery barriers and pacing.
 const MAX_DEFERRED_OUTBOUND_MESSAGES = 80;
 const MAX_DEFERRED_OUTBOUND_BYTES = 64 * 1024;
+// The relay accepts 120 messages and 512 KiB per fixed one-second window.
+// A half-sized browser window remains safe when one relay window overlaps the
+// tail and head of two consecutive browser windows.
+const APPLICATION_PACING_WINDOW_MS = 1_000;
+const APPLICATION_MESSAGES_PER_WINDOW = 60;
+const APPLICATION_BYTES_PER_WINDOW = 256 * 1024;
 
 interface DeferredOutboundBatch {
   socket: WebSocket;
@@ -59,6 +63,11 @@ interface DeferredOutboundBatch {
   accepted: boolean;
   settled: boolean;
   nonce: string | null;
+}
+
+interface QueuedOutboundPayload {
+  readonly message: OutboundPayload;
+  readonly bytes: number;
 }
 
 export interface ShareTerminalAdapter {
@@ -367,6 +376,13 @@ export class ShareClient {
   private pendingPayloads: DeferredOutboundBatch[] = [];
   private deferredOutboundMessages = 0;
   private deferredOutboundBytes = 0;
+  private pacedOutboundQueue: QueuedOutboundPayload[] = [];
+  private pacedOutboundBytes = 0;
+  private applicationWindowStartedAt = 0;
+  private applicationMessagesInWindow = 0;
+  private applicationBytesInWindow = 0;
+  private outboundPacingTimer: ReturnType<typeof setTimeout> | null = null;
+  private outboundPacingDeadline = 0;
   private terminalInputQueue: QueuedTerminalInput[] = [];
   private terminalInputQueuedBytes = 0;
   private terminalInputWindowStartedAt = 0;
@@ -398,6 +414,7 @@ export class ShareClient {
     this.pendingPayloads = [];
     this.deferredOutboundMessages = 0;
     this.deferredOutboundBytes = 0;
+    this.clearPacedOutboundQueue();
     this.clearTerminalInputQueue();
     this.pendingCursorResolver = undefined;
     this.reconnectAttempt = 0;
@@ -558,14 +575,12 @@ export class ShareClient {
         const deferredMessages = batch.messages;
         this.releaseDeferredBatch(batch);
         if (!batch.accepted) continue;
-        if (!this.sendImmediate({ t: "ack", nonce: batch.nonce })) return;
+        if (!this.sendSocketImmediate({ t: "ack", nonce: batch.nonce })) return;
         for (const deferred of deferredMessages) {
-          if (!this.sendImmediate(deferred)) return;
+          if (!this.enqueuePacedOutbound(deferred, false)) return;
         }
       }
-      if (this.terminalInputQueue.length > 0) {
-        this.drainTerminalInputQueue();
-      }
+      this.drainOutboundQueues();
     };
     const acceptPayload = (
       handler: () => boolean | Promise<boolean>,
@@ -703,6 +718,7 @@ export class ShareClient {
       if (!this.isCurrentSocket(socket, generation)) return;
       dropSocketPayloads();
       this.ws = null;
+      this.clearPacedOutboundQueue();
       this.clearTerminalInputQueue();
       // A replacement socket has no server-side subscription state. Preserve
       // local xterm/layout state, then rebuild desired subscriptions.
@@ -895,6 +911,7 @@ export class ShareClient {
     this.terminalInputTimer = null;
     this.pendingCursorResolver = undefined;
     this.subs.clear();
+    this.clearPacedOutboundQueue();
     this.clearTerminalInputQueue();
     for (const channel of this.terminals.values()) {
       this.releaseTerminalChannel(channel);
@@ -1026,7 +1043,7 @@ export class ShareClient {
     if (deferred && this.ws?.readyState === WebSocket.OPEN) {
       return this.deferOutbound(deferred, message);
     }
-    return this.sendImmediate(message);
+    return this.enqueuePacedOutbound(message);
   }
 
   private deferOutbound(
@@ -1036,17 +1053,14 @@ export class ShareClient {
     const bytes = this.outboundPayloadBytes(message);
     if (
       bytes === null ||
-      this.deferredOutboundMessages >= MAX_DEFERRED_OUTBOUND_MESSAGES ||
-      bytes > MAX_DEFERRED_OUTBOUND_BYTES - this.deferredOutboundBytes
+      this.deferredOutboundMessages + this.pacedOutboundQueue.length >=
+        MAX_DEFERRED_OUTBOUND_MESSAGES ||
+      bytes >
+        MAX_DEFERRED_OUTBOUND_BYTES -
+          this.deferredOutboundBytes -
+          this.pacedOutboundBytes
     ) {
-      const socket = this.ws;
-      if (socket?.readyState === WebSocket.OPEN) {
-        try {
-          socket.close(1013, "outbound backpressure");
-        } catch {
-          // onclose or the next send observes the failed socket.
-        }
-      }
+      this.closeForOutboundBackpressure();
       return false;
     }
     batch.messages.push(message);
@@ -1069,6 +1083,39 @@ export class ShareClient {
     batch.messageBytes = 0;
   }
 
+  private enqueuePacedOutbound(
+    message: OutboundPayload,
+    drain = true,
+  ): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
+    const bytes = this.outboundPayloadBytes(message);
+    if (
+      bytes === null ||
+      this.deferredOutboundMessages + this.pacedOutboundQueue.length >=
+        MAX_DEFERRED_OUTBOUND_MESSAGES ||
+      bytes >
+        MAX_DEFERRED_OUTBOUND_BYTES -
+          this.deferredOutboundBytes -
+          this.pacedOutboundBytes
+    ) {
+      this.closeForOutboundBackpressure();
+      return false;
+    }
+    this.pacedOutboundQueue.push({ message, bytes });
+    this.pacedOutboundBytes += bytes;
+    return drain ? this.drainOutboundQueues() : true;
+  }
+
+  private closeForOutboundBackpressure(): void {
+    const socket = this.ws;
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    try {
+      socket.close(1013, "outbound backpressure");
+    } catch {
+      // onclose or the next send observes the failed socket.
+    }
+  }
+
   private outboundPayloadBytes(message: OutboundPayload): number | null {
     if (message instanceof Uint8Array) return message.byteLength;
     try {
@@ -1085,7 +1132,7 @@ export class ShareClient {
     );
   }
 
-  private sendImmediate(message: OutboundPayload): boolean {
+  private sendSocketImmediate(message: OutboundPayload): boolean {
     if (this.ws?.readyState !== WebSocket.OPEN) return false;
     try {
       if (message instanceof Uint8Array) {
@@ -1422,19 +1469,49 @@ export class ShareClient {
 
   /**
    * Coalesce adjacent xterm callbacks, then preserve large pastes without
-   * exceeding the relay's one-second ingress budget. Frame boundaries do not
-   * alter the opaque PTY byte stream.
+   * altering the opaque PTY byte stream.
    */
   private drainTerminalInputQueue(): boolean {
     if (this.terminalInputTimer !== null) {
       clearTimeout(this.terminalInputTimer);
       this.terminalInputTimer = null;
     }
-    // Keep byte accounting and the one-second pacing window attached to the
-    // terminal queue until the parser-dependent ACK has actually been sent.
-    // Moving these frames into a delivery batch would create an unpaced burst.
+    return this.drainOutboundQueues();
+  }
+
+  /**
+   * One FIFO application budget covers replayed subscriptions, controls, and
+   * PTY input. Delivery ACKs bypass it because the relay refunds exact ACKs.
+   */
+  private drainOutboundQueues(): boolean {
     if (this.hasPendingDeliveryBarrier()) return true;
     const now = Date.now();
+    this.refreshApplicationWindow(now);
+
+    while (this.pacedOutboundQueue.length > 0) {
+      const next = this.pacedOutboundQueue[0];
+      if (!next) break;
+      if (!this.applicationBudgetAllows(next.bytes)) {
+        this.scheduleOutboundDrain(
+          this.applicationWindowStartedAt +
+            APPLICATION_PACING_WINDOW_MS -
+            now,
+        );
+        return true;
+      }
+      if (!this.sendSocketImmediate(next.message)) return false;
+      this.pacedOutboundQueue.shift();
+      this.pacedOutboundBytes = Math.max(
+        0,
+        this.pacedOutboundBytes - next.bytes,
+      );
+      this.applicationMessagesInWindow += 1;
+      this.applicationBytesInWindow += next.bytes;
+    }
+
+    // Preserve the short coalescing interval for normal keystrokes. A large
+    // paste and an expired coalescing timer both enter with this timer clear.
+    if (this.terminalInputTimer !== null) return true;
     if (
       now < this.terminalInputWindowStartedAt ||
       now >= this.terminalInputWindowStartedAt + TERMINAL_INPUT_WINDOW_MS
@@ -1464,13 +1541,27 @@ export class ShareClient {
         next.pane,
         next.data,
       );
-      if (!frame || !this.sendImmediate(frame)) {
+      if (!frame) {
+        this.clearTerminalInputQueue();
+        return false;
+      }
+      if (!this.applicationBudgetAllows(frame.byteLength)) {
+        this.scheduleOutboundDrain(
+          this.applicationWindowStartedAt +
+            APPLICATION_PACING_WINDOW_MS -
+            now,
+        );
+        return true;
+      }
+      if (!this.sendSocketImmediate(frame)) {
         this.clearTerminalInputQueue();
         return false;
       }
       this.terminalInputQueue.shift();
       this.terminalInputQueuedBytes -= next.data.byteLength;
       this.terminalInputFramesInWindow += 1;
+      this.applicationMessagesInWindow += 1;
+      this.applicationBytesInWindow += frame.byteLength;
     }
 
     if (this.terminalInputQueue.length > 0) {
@@ -1478,12 +1569,63 @@ export class ShareClient {
         1,
         this.terminalInputWindowStartedAt + TERMINAL_INPUT_WINDOW_MS - now,
       );
-      this.terminalInputTimer = setTimeout(() => {
-        this.terminalInputTimer = null;
-        this.drainTerminalInputQueue();
-      }, delay);
+      this.scheduleOutboundDrain(delay);
     }
     return true;
+  }
+
+  private refreshApplicationWindow(now: number): void {
+    if (
+      now < this.applicationWindowStartedAt ||
+      now >=
+        this.applicationWindowStartedAt + APPLICATION_PACING_WINDOW_MS
+    ) {
+      this.applicationWindowStartedAt = now;
+      this.applicationMessagesInWindow = 0;
+      this.applicationBytesInWindow = 0;
+    }
+  }
+
+  private applicationBudgetAllows(bytes: number): boolean {
+    return (
+      this.applicationMessagesInWindow <
+        APPLICATION_MESSAGES_PER_WINDOW &&
+      bytes <=
+        APPLICATION_BYTES_PER_WINDOW - this.applicationBytesInWindow
+    );
+  }
+
+  private scheduleOutboundDrain(delay: number): void {
+    const boundedDelay = Math.max(1, delay);
+    const deadline = Date.now() + boundedDelay;
+    if (
+      this.outboundPacingTimer !== null &&
+      this.outboundPacingDeadline <= deadline
+    ) {
+      return;
+    }
+    if (this.outboundPacingTimer !== null) {
+      clearTimeout(this.outboundPacingTimer);
+    }
+    this.outboundPacingDeadline = deadline;
+    this.outboundPacingTimer = setTimeout(() => {
+      this.outboundPacingTimer = null;
+      this.outboundPacingDeadline = 0;
+      this.drainOutboundQueues();
+    }, boundedDelay);
+  }
+
+  private clearPacedOutboundQueue(): void {
+    if (this.outboundPacingTimer !== null) {
+      clearTimeout(this.outboundPacingTimer);
+      this.outboundPacingTimer = null;
+    }
+    this.outboundPacingDeadline = 0;
+    this.pacedOutboundQueue = [];
+    this.pacedOutboundBytes = 0;
+    this.applicationWindowStartedAt = 0;
+    this.applicationMessagesInWindow = 0;
+    this.applicationBytesInWindow = 0;
   }
 
   private clearTerminalInputQueue(): void {
@@ -1495,5 +1637,13 @@ export class ShareClient {
     this.terminalInputQueuedBytes = 0;
     this.terminalInputWindowStartedAt = 0;
     this.terminalInputFramesInWindow = 0;
+    if (
+      this.pacedOutboundQueue.length === 0 &&
+      this.outboundPacingTimer !== null
+    ) {
+      clearTimeout(this.outboundPacingTimer);
+      this.outboundPacingTimer = null;
+      this.outboundPacingDeadline = 0;
+    }
   }
 }

@@ -18,6 +18,9 @@ export const MAX_SOCKET_OUTSTANDING_ENTRIES = 128;
 export const MAX_NONCE_GENERATION_ATTEMPTS = 4;
 /** The boundary is inclusive: prospective credit at 2 MiB is rejected. */
 export const MAX_SOCKET_OUTSTANDING_BYTES = 2 * 1024 * 1024;
+/** Mirrors the pure-core subscription cap. SHA-256 fingerprints keep the
+ * hibernation attachment bounded even when workspace and pane IDs are long. */
+export const MAX_PERSISTED_SOCKET_SUBSCRIPTIONS = 64;
 /** Compatibility name retained for downstream imports. */
 export const MAX_SOCKET_BUFFERED_BYTES = MAX_SOCKET_OUTSTANDING_BYTES;
 /** A server-to-client WebSocket frame has at most ten bytes of RFC 6455
@@ -46,20 +49,28 @@ export interface ShareSocketAttachment {
   email: string;
   host: boolean;
   outstanding: DeliveryCreditEntry[];
+  /** Exact pre-hibernation terminal subscriptions, stored as SHA-256
+   * fingerprints so wake-triggering input can be authorized without trusting
+   * the client or storing up to 32 KiB of raw IDs. */
+  subscriptions: string[];
 }
 
 interface SerializedSocketAttachment {
   /** Format version. */
-  v: 1;
-  /** Connection id, user, email, host bit, outstanding [nonce, bytes] tuples. */
+  v: 2;
+  /** Connection id, user, email, host bit, outstanding [nonce, bytes] tuples,
+   * and subscription fingerprints. */
   i: string;
   u: string;
   e: string;
   h: boolean;
   w: Array<[string, number]>;
+  s: string[];
 }
 
 type UnknownRecord = Record<string, unknown>;
+const subscriptionFingerprintEncoder = new TextEncoder();
+const SUBSCRIPTION_FINGERPRINT_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 function record(value: unknown): UnknownRecord | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -92,13 +103,56 @@ function parseOutstanding(value: unknown): DeliveryCreditEntry[] | null {
   return entries;
 }
 
+function parseSubscriptionFingerprints(value: unknown): string[] | null {
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_PERSISTED_SOCKET_SUBSCRIPTIONS
+  ) {
+    return null;
+  }
+  const subscriptions: string[] = [];
+  const seen = new Set<string>();
+  for (const fingerprint of value) {
+    if (
+      typeof fingerprint !== "string" ||
+      !SUBSCRIPTION_FINGERPRINT_PATTERN.test(fingerprint) ||
+      seen.has(fingerprint)
+    ) {
+      return null;
+    }
+    seen.add(fingerprint);
+    subscriptions.push(fingerprint);
+  }
+  return subscriptions;
+}
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+async function subscriptionFingerprint(
+  ws: string,
+  pane: string,
+): Promise<string | null> {
+  if (!isProtocolId(ws) || !isProtocolId(pane)) return null;
+  const input = subscriptionFingerprintEncoder.encode(`${ws}\u0000${pane}`);
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", input);
+    return base64Url(new Uint8Array(digest));
+  } catch {
+    return null;
+  }
+}
+
 export function createSocketAttachment(identity: {
   connId: string;
   user: string;
   email: string;
   host: boolean;
 }): ShareSocketAttachment {
-  return { ...identity, outstanding: [] };
+  return { ...identity, outstanding: [], subscriptions: [] };
 }
 
 /** Validate and defensively clone attachment state after hibernation. The
@@ -107,35 +161,90 @@ export function parseSocketAttachment(value: unknown): ShareSocketAttachment | n
   const obj = record(value);
   if (!obj) return null;
 
-  const compact = obj.v === 1;
+  if (obj.v !== undefined && obj.v !== 1 && obj.v !== 2) return null;
+  const compact = obj.v === 1 || obj.v === 2;
   const connId = compact ? obj.i : obj.connId;
   const user = compact ? obj.u : obj.user;
   const email = compact ? obj.e : obj.email;
   const host = compact ? obj.h : obj.host;
   const outstanding = compact ? parseOutstanding(obj.w) : [];
+  const subscriptions =
+    obj.v === 2 ? parseSubscriptionFingerprints(obj.s) : [];
   if (
     !isProtocolId(connId) ||
     !isProtocolId(user) ||
     !isIdentityEmail(email) ||
     typeof host !== "boolean" ||
-    outstanding === null
+    outstanding === null ||
+    subscriptions === null
   ) {
     return null;
   }
-  return { connId, user, email, host, outstanding };
+  return { connId, user, email, host, outstanding, subscriptions };
 }
 
 export function serializeSocketAttachment(
   attachment: ShareSocketAttachment,
 ): SerializedSocketAttachment {
   return {
-    v: 1,
+    v: 2,
     i: attachment.connId,
     u: attachment.user,
     e: attachment.email,
     h: attachment.host,
     w: attachment.outstanding.map(({ nonce, bytes }) => [nonce, bytes]),
+    s: [...attachment.subscriptions],
   };
+}
+
+export type PersistSocketSubscriptionResult =
+  | "updated"
+  | "unchanged"
+  | "invalid"
+  | "limit"
+  | "serialization-failed";
+
+/** Persist one exact accepted subscription before the DO can hibernate. */
+export async function persistSocketSubscription<TSocket extends OutboundSocket>(
+  socket: TSocket,
+  attachment: ShareSocketAttachment,
+  ws: string,
+  pane: string,
+  subscribed: boolean,
+): Promise<PersistSocketSubscriptionResult> {
+  const fingerprint = await subscriptionFingerprint(ws, pane);
+  if (!fingerprint) return "invalid";
+  const existing = attachment.subscriptions.indexOf(fingerprint);
+  if (subscribed && existing >= 0) return "unchanged";
+  if (!subscribed && existing < 0) return "unchanged";
+  if (
+    subscribed &&
+    attachment.subscriptions.length >= MAX_PERSISTED_SOCKET_SUBSCRIPTIONS
+  ) {
+    return "limit";
+  }
+  const subscriptions = subscribed
+    ? [...attachment.subscriptions, fingerprint]
+    : attachment.subscriptions.filter((_, index) => index !== existing);
+  const next = { ...attachment, subscriptions };
+  try {
+    socket.serializeAttachment(serializeSocketAttachment(next));
+  } catch {
+    return "serialization-failed";
+  }
+  attachment.subscriptions = subscriptions;
+  return "updated";
+}
+
+/** Authorize only an exact pre-hibernation pane, without exposing raw IDs in
+ * the attachment or accepting arbitrary first-message input after wake. */
+export async function hasPersistedSocketSubscription(
+  attachment: ShareSocketAttachment,
+  ws: string,
+  pane: string,
+): Promise<boolean> {
+  const fingerprint = await subscriptionFingerprint(ws, pane);
+  return fingerprint !== null && attachment.subscriptions.includes(fingerprint);
 }
 
 export function outstandingDeliveryBytes(attachment: ShareSocketAttachment): number {

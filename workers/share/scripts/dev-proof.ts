@@ -295,6 +295,21 @@ if (hibernationProof) {
 
   console.log(`… idling ${hibernationIdleSeconds}s for Durable Object eviction`);
   await new Promise((resolve) => setTimeout(resolve, hibernationIdleSeconds * 1_000));
+  const wakeInputPayload = new TextEncoder().encode("first input after wake\n");
+  guest.ws.send(encodeInputFrame("ws-1", "pane-1", wakeInputPayload));
+  const wakeInputFrame = await host.nextBinary("wake-triggering terminal input");
+  const decodedWakeInput = decodeTerminalFrame(wakeInputFrame);
+  if (
+    decodedWakeInput?.kind !== BINARY_KIND_FORWARDED_INPUT ||
+    decodedWakeInput.user !== "proof-guest" ||
+    !wakeInputPayload.every(
+      (byte, index) =>
+        wakeInputFrame[decodedWakeInput.payloadOffset + index] === byte,
+    )
+  ) {
+    throw new Error("wake-triggering terminal input was not byte-exact");
+  }
+  step("first wake-triggering terminal input used its persisted exact subscription");
   guest.sendAck(wakingNonce);
 
   await Promise.all([

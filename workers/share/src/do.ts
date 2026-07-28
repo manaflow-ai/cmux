@@ -26,8 +26,10 @@ import {
   DELIVERY_FAILURE_CLOSE_CODE,
   DELIVERY_FAILURE_CLOSE_REASON,
   dispatchEffects,
+  hasPersistedSocketSubscription,
   MAX_SOCKET_BUFFERED_BYTES,
   parseSocketAttachment,
+  persistSocketSubscription,
   releaseDeliveryCredit,
   serializeSocketAttachment,
   type ShareSocketAttachment,
@@ -183,6 +185,57 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
         );
         return;
       }
+      if (
+        !isHost &&
+        !core.hasSubscription(
+          attachment.connId,
+          decision.header.ws,
+          decision.header.pane,
+        )
+      ) {
+        // SHA-256 is non-storage async work. Hold the DO input gate only for
+        // this rare wake path so a later unsub/input event cannot overtake the
+        // attachment check or the restored subscription.
+        await this.ctx.blockConcurrencyWhile(async () => {
+          try {
+            if (this.sockets.get(attachment.connId) !== ws) return;
+            if (
+              !core.hasSubscription(
+                attachment.connId,
+                decision.header.ws,
+                decision.header.pane,
+              ) &&
+              await hasPersistedSocketSubscription(
+                attachment,
+                decision.header.ws,
+                decision.header.pane,
+              )
+            ) {
+              await this.apply(
+                core.restoreSubscription(
+                  attachment.connId,
+                  decision.header.ws,
+                  decision.header.pane,
+                  receivedAt,
+                ),
+              );
+            }
+            await this.apply(
+              core.routeBinary(
+                attachment.connId,
+                decision.header.ws,
+                decision.header.pane,
+                bytes,
+                decision.header.kind,
+                receivedAt,
+              ),
+            );
+          } catch {
+            this.logInvariant("wake_subscription_restore_failed", {});
+          }
+        });
+        return;
+      }
       await this.apply(
         core.routeBinary(
           attachment.connId,
@@ -287,7 +340,72 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
         await rejectInvalid();
         return;
       }
-      await this.apply(core.handleGuest(attachment.connId, parsed));
+      if (
+        parsed.t === "sub" ||
+        parsed.t === "unsub"
+      ) {
+        // Preserve same-socket message order across Web Crypto. This gate is
+        // held only for rare sub mutations, never the steady-state terminal
+        // data path.
+        await this.ctx.blockConcurrencyWhile(async () => {
+          try {
+            if (this.sockets.get(attachment.connId) !== ws) return;
+            await this.apply(core.handleGuest(attachment.connId, parsed));
+            if (this.sockets.get(attachment.connId) !== ws) return;
+            const result = await persistSocketSubscription(
+              ws,
+              attachment,
+              parsed.ws,
+              parsed.pane,
+              core.hasSubscription(
+                attachment.connId,
+                parsed.ws,
+                parsed.pane,
+              ),
+            );
+            if (
+              result === "serialization-failed" ||
+              result === "limit" ||
+              result === "invalid"
+            ) {
+              this.logInvariant("subscription_attachment_update_failed", {
+                result,
+              });
+              await this.closeProtocolSocket(
+                ws,
+                attachment,
+                core,
+                DELIVERY_FAILURE_CLOSE_CODE,
+                DELIVERY_FAILURE_CLOSE_REASON,
+              );
+            }
+          } catch {
+            this.logInvariant("subscription_update_failed", {});
+            if (this.sockets.get(attachment.connId) === ws) {
+              try {
+                await this.closeProtocolSocket(
+                  ws,
+                  attachment,
+                  core,
+                  DELIVERY_FAILURE_CLOSE_CODE,
+                  DELIVERY_FAILURE_CLOSE_REASON,
+                );
+              } catch {
+                try {
+                  ws.close(
+                    DELIVERY_FAILURE_CLOSE_CODE,
+                    DELIVERY_FAILURE_CLOSE_REASON,
+                  );
+                } catch {
+                  // Already closed.
+                }
+              }
+            }
+          }
+        });
+      } else {
+        await this.apply(core.handleGuest(attachment.connId, parsed));
+      }
     }
   }
 

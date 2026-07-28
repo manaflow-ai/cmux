@@ -261,9 +261,12 @@ The viewer keeps one FIFO delivery batch for every payload whose xterm write is
 still pending, up to the relay's 128-entry window. It emits each ACK only after
 xterm's write callback and never lets a later payload displace earlier credit.
 Control traffic created while a payload is pending is count- and byte-bounded
-behind that payload's ACK. Pacing retains terminal input in its separate 2 MiB
-queue until the ACK barrier clears, so parser stalls cannot turn multiple
-one-second input windows into one relay burst.
+behind that payload's ACK. After the barrier clears, replayed subscriptions,
+controls, and terminal input draw from one browser budget of 60 messages and
+256 KiB per second. Control replay stays FIFO, and terminal bytes stay FIFO in
+a separate 2 MiB queue. This half-sized client window remains within the relay
+limit even when one relay window overlaps two client windows, so parser stalls
+cannot turn multiple input windows into one relay burst.
 
 xterm's public `onData` includes both user input and terminal-generated DA,
 DSR, OSC-query, window, and focus replies. The pinned xterm 6.0.0 integration
@@ -306,8 +309,13 @@ duplicate, replayed, and cross-socket ACKs release nothing. Volatile focus,
 rate windows, cursors, and subscriptions are rebuilt. Approved clients receive
 a fresh `session-state` and `resync`, then re-send `focus`, `sub`, and cursor
 state. Binary editor input remains denied until its exact terminal
-subscription is replayed. The client ACK barrier orders that replay before
-queued user input. The host re-sends `hello` and baselines for active subscriptions.
+subscription is present. Each accepted subscription is stored in the socket
+attachment as a bounded SHA-256 fingerprint. The relay can therefore restore
+only an exact pre-wake subscription before routing the message that woke the
+object, without trusting arbitrary pane IDs or losing the first keystroke.
+Later subscription replay is idempotent. The client ACK barrier orders normal
+replay before queued user input. The host re-sends `hello` and baselines for
+active subscriptions.
 Snapshots include all 256 grants plus the host; if combined valid state reaches
 the 1 MiB server ceiling, oldest chat is omitted from that snapshot only until
 it fits. An ended tombstone also re-arms its fixed cleanup deadline on wake,
