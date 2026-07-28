@@ -257,5 +257,26 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             mirror.activePaneId == 4,
             "Workspace directional focus must enter the nested mirror and select the adjacent tmux pane"
         )
+
+        // Selecting the outer tab is part of every nested pane focus callback.
+        // After promotion that tab's TerminalPanel is only a container: allowing
+        // it to become active again makes its old surface steal first responder,
+        // so the focus ring moves while keystrokes still reach the original pane.
+        let containerPaneId = try #require(harness.workspace.paneId(forPanelId: containerPanelId))
+        let containerTabId = try #require(harness.workspace.surfaceIdFromPanelId(containerPanelId))
+        let activePanePanel = try #require(mirror.panel(forPane: 4))
+        containerPanel.hostedView.setActive(true)
+        activePanePanel.hostedView.setActive(false)
+
+        harness.workspace.applyTabSelection(tabId: containerTabId, inPane: containerPaneId)
+
+        #expect(
+            !containerPanel.hostedView.debugPortalActive,
+            "A promoted window container must never compete with its inner panes for input focus"
+        )
+        #expect(
+            activePanePanel.hostedView.debugPortalActive,
+            "Selecting the window container must activate the tmux-active inner pane"
+        )
     }
 }
