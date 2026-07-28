@@ -329,6 +329,9 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
 
 fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.workspace_sidebar_area(frame.area().height) else { return };
+    if area.width < 3 || area.height < 2 {
+        return;
+    }
     let palette = rail::RailPalette::for_app(app, app.workspace_sidebar_focused());
     let workspace_drag = app.workspace_drag();
     let messages = &localization::catalog().sidebar;

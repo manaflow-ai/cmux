@@ -2462,9 +2462,7 @@ impl Mux {
                 .state
                 .lock()
                 .unwrap()
-                .workspaces
-                .iter()
-                .find(|workspace| workspace.key == workspace_key)
+                .workspace_by_key(workspace_key)
                 .map(|workspace| workspace.id)
         {
             opts.extra_env.push(("CMUX_TUI_WORKSPACE_ID".to_string(), workspace_id.to_string()));

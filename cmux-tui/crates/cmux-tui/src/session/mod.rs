@@ -2107,7 +2107,7 @@ pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
 
 #[cfg(test)]
 mod tests {
-    use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
+    use cmux_tui_core::{AgentState, LayoutUndoError, Mux, SurfaceOptions};
     use serde_json::json;
 
     use super::{
@@ -2131,6 +2131,65 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn remote_agent_lists_reject_invalid_optional_fields_and_unknown_states() {
+        let valid = json!({
+            "surface": 41,
+            "state": "working",
+            "source": "socket",
+            "updated_at_ms": 1
+        });
+        for (field, invalid) in [
+            ("session", json!(7)),
+            ("label", json!(false)),
+            ("detail", json!([])),
+            ("started_at_ms", json!("now")),
+            ("tasks_completed", json!(-1)),
+            ("tasks_total", json!("five")),
+            ("jobs_running", json!({})),
+            ("agents_active", json!(1.5)),
+            ("updated_at_ms", json!("later")),
+            ("updated_at_ms", json!(null)),
+        ] {
+            let mut record = valid.clone();
+            record[field] = invalid;
+            assert!(
+                decode_remote_agent_list(&json!({"agents": [record]})).is_err(),
+                "{field} must reject the complete list"
+            );
+        }
+
+        let mut record = valid;
+        record["state"] = json!("broken");
+        assert!(decode_remote_agent_list(&json!({"agents": [record]})).is_err());
+    }
+
+    #[test]
+    fn remote_agent_lists_accept_explicit_unknown_and_nullable_optional_fields() {
+        let records = decode_remote_agent_list(&json!({
+            "agents": [{
+                "surface": 41,
+                "state": "unknown",
+                "source": "socket",
+                "session": null,
+                "label": null,
+                "detail": null,
+                "started_at_ms": null,
+                "tasks_completed": null,
+                "tasks_total": null,
+                "jobs_running": null,
+                "agents_active": null,
+                "updated_at_ms": 1
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].state, AgentState::Unknown);
+        assert_eq!(records[0].session, None);
+        assert_eq!(records[0].telemetry, Default::default());
     }
 
     #[test]

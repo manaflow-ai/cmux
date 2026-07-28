@@ -6476,18 +6476,12 @@ fn wall_clock_ms() -> u64 {
         .min(u128::from(u64::MAX)) as u64
 }
 
-fn format_elapsed(seconds: u64, compact: bool) -> String {
-    if seconds >= 3_600 {
-        let hours = seconds / 3_600;
-        let minutes = (seconds % 3_600) / 60;
-        if compact { format!("{hours}h") } else { format!("{hours}h{minutes:02}m") }
-    } else if seconds >= 60 {
-        let minutes = seconds / 60;
-        let remainder = seconds % 60;
-        if compact { format!("{minutes}m") } else { format!("{minutes}m{remainder:02}s") }
-    } else {
-        format!("{seconds}s")
-    }
+fn format_elapsed(
+    seconds: u64,
+    compact: bool,
+    messages: &localization::AgentMessages,
+) -> String {
+    messages.elapsed(seconds, compact)
 }
 impl App {
     pub fn is_surface_only(&self) -> bool {
@@ -6520,7 +6514,8 @@ impl App {
 
     pub(crate) fn agent_summary(&self, record: &AgentRecord, compact: bool) -> String {
         let telemetry = &record.telemetry;
-        let mut parts = vec![record.state.as_str().to_string()];
+        let messages = &localization::catalog().agent;
+        let mut parts = vec![messages.state_label(record.state).to_string()];
         if !compact {
             if let Some(label) = telemetry.label.as_deref().filter(|value| !value.is_empty()) {
                 parts.push(label.to_string());
@@ -6530,13 +6525,13 @@ impl App {
             parts.push(format!("{completed}/{total}"));
         }
         if let Some(jobs) = telemetry.jobs_running {
-            parts.push(format!("{jobs}j"));
+            parts.push(messages.jobs(jobs));
         }
         if let Some(agents) = telemetry.agents_active {
-            parts.push(format!("{agents}a"));
+            parts.push(messages.agents(agents));
         }
         if let Some(elapsed) = self.agent_elapsed_seconds(record) {
-            parts.push(format_elapsed(elapsed, compact));
+            parts.push(format_elapsed(elapsed, compact, messages));
         }
         if let Some(detail) = telemetry.detail.as_deref().filter(|value| !value.is_empty()) {
             parts.push(detail.to_string());
@@ -16590,7 +16585,8 @@ mod tests {
         browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
         canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
         client_menu_item, clip_horizontal_rect, disable_host_keyboard_protocol,
-        enable_host_keyboard_protocol, forward_host_input, forward_mux_event, forward_mux_events,
+        enable_host_keyboard_protocol, format_elapsed, forward_host_input, forward_mux_event,
+        forward_mux_events,
         keyboard_protocol_accepts, layout_undo_error_completion,
         negotiate_host_keyboard_protocol_with, outer_cursor_escape, outer_cursor_escape_if_changed,
         pane_area_projection_work, pane_context_menu_groups, pane_parts_for_rect,
@@ -18119,6 +18115,31 @@ mod tests {
         let status = rendered.lines().last().unwrap();
         assert!(status.contains("screens"), "{status}");
         assert!(status.contains("[session]"), "{status}");
+    }
+
+    #[test]
+    fn workspace_sidebar_skips_rendering_when_too_narrow() {
+        let mux = Mux::new("narrow-workspace-sidebar-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(41, false);
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_width = 1;
+
+        let mut terminal = Terminal::new(TestBackend::new(1, 6)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert!(app.hits.is_empty());
+    }
+
+    #[test]
+    fn agent_summary_units_follow_the_active_catalog() {
+        let messages = &localization::catalog_for_locale("ja_JP.UTF-8").agent;
+
+        assert_eq!(messages.state_label(AgentState::Blocked), "ブロック中");
+        assert_eq!(messages.jobs(2), "2件");
+        assert_eq!(messages.agents(4), "4体");
+        assert_eq!(format_elapsed(3_661, false, messages), "1時間01分");
+        assert_eq!(format_elapsed(61, false, messages), "1分01秒");
     }
 
     #[test]

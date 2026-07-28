@@ -96,6 +96,21 @@ fn require_capability(
     }
 }
 
+fn optional_agent_string(value: &Value, field: &str) -> Option<Option<String>> {
+    match value.get(field) {
+        None | Some(Value::Null) => Some(None),
+        Some(Value::String(value)) => Some(Some(value.clone())),
+        Some(_) => None,
+    }
+}
+
+fn optional_agent_u64(value: &Value, field: &str) -> Option<Option<u64>> {
+    match value.get(field) {
+        None | Some(Value::Null) => Some(None),
+        Some(value) => value.as_u64().map(Some),
+    }
+}
+
 pub(super) fn parse_agent_record(value: &Value) -> Option<AgentRecord> {
     let state = match value.get("state")?.as_str()? {
         "working" => AgentState::Working,
@@ -103,7 +118,8 @@ pub(super) fn parse_agent_record(value: &Value) -> Option<AgentRecord> {
         "idle" => AgentState::Idle,
         "done" => AgentState::Done,
         "error" => AgentState::Error,
-        _ => AgentState::Unknown,
+        "unknown" => AgentState::Unknown,
+        _ => return None,
     };
     let source = match value.get("source")?.as_str()? {
         "detected" => AgentSource::Detected,
@@ -111,21 +127,25 @@ pub(super) fn parse_agent_record(value: &Value) -> Option<AgentRecord> {
         "socket" => AgentSource::Socket,
         _ => return None,
     };
+    let updated_at_ms = match value.get("updated_at_ms") {
+        None => 0,
+        Some(value) => value.as_u64()?,
+    };
     Some(AgentRecord {
         surface: value.get("surface")?.as_u64()?,
         state,
         source,
-        session: value.get("session").and_then(Value::as_str).map(str::to_string),
+        session: optional_agent_string(value, "session")?,
         telemetry: AgentTelemetry {
-            label: value.get("label").and_then(Value::as_str).map(str::to_string),
-            detail: value.get("detail").and_then(Value::as_str).map(str::to_string),
-            started_at_ms: value.get("started_at_ms").and_then(Value::as_u64),
-            tasks_completed: value.get("tasks_completed").and_then(Value::as_u64),
-            tasks_total: value.get("tasks_total").and_then(Value::as_u64),
-            jobs_running: value.get("jobs_running").and_then(Value::as_u64),
-            agents_active: value.get("agents_active").and_then(Value::as_u64),
+            label: optional_agent_string(value, "label")?,
+            detail: optional_agent_string(value, "detail")?,
+            started_at_ms: optional_agent_u64(value, "started_at_ms")?,
+            tasks_completed: optional_agent_u64(value, "tasks_completed")?,
+            tasks_total: optional_agent_u64(value, "tasks_total")?,
+            jobs_running: optional_agent_u64(value, "jobs_running")?,
+            agents_active: optional_agent_u64(value, "agents_active")?,
         },
-        updated_at_ms: value.get("updated_at_ms").and_then(Value::as_u64).unwrap_or(0),
+        updated_at_ms,
     })
 }
 

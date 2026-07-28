@@ -1,7 +1,7 @@
 use std::io::{Cursor, Write};
 use std::sync::OnceLock;
 
-use cmux_tui_core::BrowserFailure;
+use cmux_tui_core::{AgentState, BrowserFailure};
 use cmux_tui_machine_protocol::provider_action_id;
 use unicode_width::UnicodeWidthStr;
 
@@ -294,6 +294,64 @@ impl AttachMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AgentMessages {
+    working: &'static str,
+    blocked: &'static str,
+    idle: &'static str,
+    done: &'static str,
+    error: &'static str,
+    unknown: &'static str,
+    jobs_suffix: &'static str,
+    agents_suffix: &'static str,
+    hours_suffix: &'static str,
+    minutes_suffix: &'static str,
+    seconds_suffix: &'static str,
+}
+
+impl AgentMessages {
+    pub(crate) fn state_label(&self, state: AgentState) -> &'static str {
+        match state {
+            AgentState::Working => self.working,
+            AgentState::Blocked => self.blocked,
+            AgentState::Idle => self.idle,
+            AgentState::Done => self.done,
+            AgentState::Error => self.error,
+            AgentState::Unknown => self.unknown,
+        }
+    }
+
+    pub(crate) fn jobs(&self, count: u64) -> String {
+        format!("{count}{}", self.jobs_suffix)
+    }
+
+    pub(crate) fn agents(&self, count: u64) -> String {
+        format!("{count}{}", self.agents_suffix)
+    }
+
+    pub(crate) fn elapsed(&self, seconds: u64, compact: bool) -> String {
+        if seconds >= 3_600 {
+            let hours = seconds / 3_600;
+            let minutes = (seconds % 3_600) / 60;
+            if compact {
+                format!("{hours}{}", self.hours_suffix)
+            } else {
+                format!("{hours}{}{minutes:02}{}", self.hours_suffix, self.minutes_suffix)
+            }
+        } else if seconds >= 60 {
+            let minutes = seconds / 60;
+            let remainder = seconds % 60;
+            if compact {
+                format!("{minutes}{}", self.minutes_suffix)
+            } else {
+                format!("{minutes}{}{remainder:02}{}", self.minutes_suffix, self.seconds_suffix)
+            }
+        } else {
+            format!("{seconds}{}", self.seconds_suffix)
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
@@ -465,6 +523,7 @@ pub(crate) struct Catalog {
     pub runtime: RuntimeMessages,
     pub config: ConfigMessages,
     pub attach: AttachMessages,
+    pub agent: AgentMessages,
     pub sidebar: SidebarMessages,
 }
 
@@ -629,6 +688,19 @@ edits shell files. Authenticate with the configured host before retrying.
         ambiguous_terminal_suffix: "; use an unambiguous id from `cmux-tui ids`",
         browser_terminal_prefix: "surface ",
         browser_terminal_suffix: " is a browser, not a terminal",
+    },
+    agent: AgentMessages {
+        working: "working",
+        blocked: "blocked",
+        idle: "idle",
+        done: "done",
+        error: "error",
+        unknown: "unknown",
+        jobs_suffix: "j",
+        agents_suffix: "a",
+        hours_suffix: "h",
+        minutes_suffix: "m",
+        seconds_suffix: "s",
     },
     sidebar: SidebarMessages {
         machines: "machines",
@@ -869,6 +941,19 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         ambiguous_terminal_suffix: " は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください",
         browser_terminal_prefix: "サーフェス ",
         browser_terminal_suffix: " はブラウザであり、ターミナルではありません",
+    },
+    agent: AgentMessages {
+        working: "作業中",
+        blocked: "ブロック中",
+        idle: "待機中",
+        done: "完了",
+        error: "エラー",
+        unknown: "不明",
+        jobs_suffix: "件",
+        agents_suffix: "体",
+        hours_suffix: "時間",
+        minutes_suffix: "分",
+        seconds_suffix: "秒",
     },
     sidebar: SidebarMessages {
         machines: "マシン",

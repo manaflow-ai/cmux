@@ -213,7 +213,7 @@ Example:
 {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345,"registry_id":"registry-1","generation":"generation-1","workspace_revision":7}}
 ```
 
-The current server reports protocol `12` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`; protocol 9 before decoding stack layouts, sending `new-pane`, or using capability-gated `clear-history`; protocol 10 before using per-surface client sizing; protocol 11 for upstream viewport/layout additions; and protocol 12 before using agent telemetry fields, `agent-state-changed`, or notification subtitles. `clear-history` additionally requires `clear-history-v1` and its structured fallback requires `clear-history-key-v1`.
+The current server reports protocol `12` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`; protocol 9 before decoding stack layouts, sending `new-pane`, or using capability-gated `clear-history`; protocol 10 before using per-surface client sizing; protocol 11 for upstream viewport/layout additions; and protocol 12 before using agent telemetry fields, the `error` agent state, `agent-state-changed`, or notification subtitles. `clear-history` additionally requires `clear-history-v1` and its structured fallback requires `clear-history-key-v1`.
 
 ### ping
 
@@ -3132,7 +3132,7 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `title` | `string` | required | Non-empty |
-| `subtitle` | `string` | default null | Optional concise notification category, rendered separately from title/body |
+| `subtitle` | `string|null` | default null | Optional concise notification category, rendered separately from title/body |
 | `body` | `string` | required | May be empty |
 | `level` | `string` | default `"info"` | `"info"`, `"warning"`, or `"error"` |
 | `surface` | `IdRef` | default null | Optional originating surface |
@@ -3195,13 +3195,13 @@ object{
     state: "working"|"blocked"|"idle"|"done"|"error"|"unknown",
     source: "detected"|"socket"|"hook",
     session: string|null,
-    label: string|null,
-    detail: string|null,
-    started_at_ms: uint64|null,
-    tasks_completed: uint64|null,
-    tasks_total: uint64|null,
-    jobs_running: uint64|null,
-    agents_active: uint64|null,
+    label?: string|null,
+    detail?: string|null,
+    started_at_ms?: uint64|null,
+    tasks_completed?: uint64|null,
+    tasks_total?: uint64|null,
+    jobs_running?: uint64|null,
+    agents_active?: uint64|null,
     updated_at_ms: uint64
   }>
 }
