@@ -11063,6 +11063,51 @@ mod tests {
     }
 
     #[test]
+    fn kitty_quota_worker_stops_after_persistent_update_failure() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let attempts = attempts.clone();
+            move |_surface, _limits, _deadline| {
+                attempts.fetch_add(1, Ordering::AcqRel);
+                anyhow::bail!("injected persistent Kitty quota failure")
+            }
+        }));
+
+        assert!(mux.close_surface(second.id).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while mux.kitty_image_budget.lock().unwrap().worker_running
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(
+            !mux.kitty_image_budget.lock().unwrap().worker_running,
+            "Kitty quota worker retried a permanent failure forever"
+        );
+        assert!(
+            attempts.load(Ordering::Acquire) <= 4,
+            "Kitty quota worker exceeded its retry budget"
+        );
+
+        let started = Instant::now();
+        let error = mux
+            .new_tab(Some(pane), None, Some((80, 24)))
+            .err()
+            .expect("a blocked Kitty quota transition admitted another terminal");
+        assert!(
+            started.elapsed() < Duration::from_millis(250),
+            "a blocked Kitty quota transition waited for the control timeout: {error}"
+        );
+    }
+
+    #[test]
     fn cell_pixel_fanout_runs_concurrently_with_one_shared_deadline() {
         let items = (0..8).collect::<Vec<_>>();
         let active = Arc::new(AtomicUsize::new(0));

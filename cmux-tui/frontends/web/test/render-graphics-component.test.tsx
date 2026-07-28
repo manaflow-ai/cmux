@@ -199,7 +199,76 @@ describe("RenderGraphics canvas resource policy", () => {
     expect(container.querySelector("[data-graphic-placement='2:2:0']")).toBeNull();
   });
 
-  it("bounds aggregate browser-thread decoding after worker failure", async () => {
+  it("retries a valid large image after a transient worker failure", async () => {
+    let workerCount = 0;
+    class RecoveringWorker {
+      onmessage: ((event: MessageEvent<RenderGraphicsDecodeResponse>) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      onmessageerror: ((event: MessageEvent) => void) | null = null;
+      private readonly fails: boolean;
+      private terminated = false;
+
+      constructor() {
+        workerCount += 1;
+        this.fails = workerCount === 1;
+      }
+
+      postMessage(request: RenderGraphicsDecodeRequest): void {
+        setTimeout(() => {
+          if (this.terminated) return;
+          if (this.fails) {
+            this.onerror?.(new ErrorEvent("error"));
+            return;
+          }
+          this.onmessage?.(new MessageEvent("message", {
+            data: {
+              requestId: request.requestId,
+              results: request.images.map((image) => {
+                const decoded = decodeRenderGraphicImage(image);
+                return {
+                  id: image.id,
+                  generation: image.generation,
+                  pixels: decoded?.pixels.buffer ?? null,
+                };
+              }),
+            },
+          }));
+        }, 0);
+      }
+
+      terminate(): void {
+        this.terminated = true;
+      }
+    }
+    vi.stubGlobal("Worker", RecoveringWorker);
+    const width = 257;
+    const height = 256;
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width,
+        height,
+        format: "rgba",
+        data: zeroBytesBase64(width * height * 4),
+      }],
+      placements: [placement(1, width, height)],
+    };
+
+    const { container } = render(
+      <RenderGraphics graphics={graphics}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(1);
+    });
+    expect(workerCount).toBe(2);
+  });
+
+  it("chunks aggregate browser-thread decoding after worker failure", async () => {
     class FailingWorker {
       onmessage: ((event: MessageEvent) => void) | null = null;
       onerror: ((event: ErrorEvent) => void) | null = null;
@@ -238,9 +307,8 @@ describe("RenderGraphics canvas resource policy", () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(2);
+      expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(3);
     });
-    expect(container.querySelector("[data-graphic-placement='3:3:0']")).toBeNull();
   });
 
   it("decodes asynchronously and bounds aggregate backing for repeated large placements", async () => {
