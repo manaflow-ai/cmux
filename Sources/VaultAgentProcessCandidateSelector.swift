@@ -55,6 +55,7 @@ struct VaultAgentProcessCandidateSelector {
         let executableCandidates = [
             process.name,
             process.path,
+            metadata.executableArgument,
             metadata.firstArgumentAfterExecutable,
         ].compactMap { $0 }
         return CachedAgentProcessIdentityValidator.liveProcessMatchesLaunchExecutableEnvironment(

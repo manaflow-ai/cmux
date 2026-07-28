@@ -108,12 +108,15 @@ public struct AgentProcessArgumentsParser: Sendable {
         var agentLaunchKind: String?
         var agentLaunchExecutable: String?
         var argumentIndex = 0
+        var executableArgumentRange: Range<Int>?
         var firstArgumentAfterExecutableRange: Range<Int>?
         let traversal = visitProcessArgumentsAndEnvironment(
             fromKernProcArgs: bytes,
             visitArgument: { baseAddress, length, byteOffset in
                 defer { argumentIndex += 1 }
-                if argumentIndex == 1 {
+                if argumentIndex == 0 {
+                    executableArgumentRange = byteOffset..<(byteOffset + length)
+                } else if argumentIndex == 1 {
                     firstArgumentAfterExecutableRange = byteOffset..<(byteOffset + length)
                 }
                 if !argumentsContainAnyNeedle {
@@ -163,12 +166,18 @@ public struct AgentProcessArgumentsParser: Sendable {
         )
         guard traversal != nil else { return nil }
 
+        let executableArgument: String?
         let firstArgumentAfterExecutable: String?
         if agentLaunchKind != nil,
-           agentLaunchExecutable != nil,
-           let range = firstArgumentAfterExecutableRange {
-            firstArgumentAfterExecutable = String(bytes: bytes[range], encoding: .utf8)
+           agentLaunchExecutable != nil {
+            executableArgument = executableArgumentRange.flatMap {
+                String(bytes: bytes[$0], encoding: .utf8)
+            }
+            firstArgumentAfterExecutable = firstArgumentAfterExecutableRange.flatMap {
+                String(bytes: bytes[$0], encoding: .utf8)
+            }
         } else {
+            executableArgument = nil
             firstArgumentAfterExecutable = nil
         }
 
@@ -177,6 +186,7 @@ public struct AgentProcessArgumentsParser: Sendable {
             argumentsContainAnyNeedle: argumentsContainAnyNeedle,
             agentLaunchKind: agentLaunchKind,
             agentLaunchExecutable: agentLaunchExecutable,
+            executableArgument: executableArgument,
             firstArgumentAfterExecutable: firstArgumentAfterExecutable
         )
     }

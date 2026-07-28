@@ -45,6 +45,7 @@ struct AgentProcessArgumentsParserTests {
         #expect(metadata.argumentsContainAnyNeedle)
         #expect(metadata.agentLaunchKind == "claude")
         #expect(metadata.agentLaunchExecutable == "/opt/tools/claude-custom")
+        #expect(metadata.executableArgument == "/usr/bin/python3")
         #expect(metadata.firstArgumentAfterExecutable == "/opt/tools/claude-custom")
     }
 
