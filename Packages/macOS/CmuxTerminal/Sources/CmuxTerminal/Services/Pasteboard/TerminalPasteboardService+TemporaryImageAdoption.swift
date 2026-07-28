@@ -6,7 +6,8 @@ extension TerminalPasteboardService {
     ///
     /// The source must be a non-empty regular image file directly inside
     /// `sourceDirectory`. Symlinks, nested paths, non-image extensions, and
-    /// files over ``maxClipboardImageSize`` are rejected before the move.
+    /// files over ``maxClipboardImageSize`` are rejected before the move. The
+    /// destination root must also be a real directory rather than a symlink.
     ///
     /// - Parameters:
     ///   - sourceURL: The worker-created image file to adopt.
@@ -33,6 +34,16 @@ extension TerminalPasteboardService {
             throw CocoaError(.fileReadInvalidFileName)
         }
 
+        let destinationDirectory = temporaryDirectory.standardizedFileURL
+        let destinationDirectoryValues = try destinationDirectory.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        )
+        guard destinationDirectory.isFileURL,
+              destinationDirectoryValues.isDirectory == true,
+              destinationDirectoryValues.isSymbolicLink != true else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+
         let sourceValues = try source.resourceValues(
             forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
         )
@@ -54,7 +65,10 @@ extension TerminalPasteboardService {
 
         let destination = temporaryImageFileURL(
             fileExtension: sanitizedImageFileExtension(fileExtension)
-        )
+        ).standardizedFileURL
+        guard destination.deletingLastPathComponent() == destinationDirectory else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
         do {
             try fileManager.moveItem(at: source, to: destination)
             try fileManager.setAttributes(
