@@ -405,6 +405,17 @@ extension SurfaceResumeApprovalStore {
             trustedBinding.approvalRecordId = nil
             return trustedBinding
         }
+        // User-configured allowlist (terminal.trustedResumeSources): auto-trust
+        // every resume command from a named agent source so new sessions never
+        // re-prompt, even though each session's command carries a unique
+        // per-session identifier (e.g. `rovo run --restore <session-id>`).
+        if AgentSessionTrustedSourcesSettings.isTrusted(source: binding.source, name: binding.name) {
+            var trustedBinding = binding
+            trustedBinding.autoResume = true
+            trustedBinding.approvalPolicy = .auto
+            trustedBinding.approvalRecordId = nil
+            return trustedBinding
+        }
         return nil
     }
 

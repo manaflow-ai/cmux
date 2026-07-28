@@ -803,6 +803,11 @@ enum SurfaceResumeApprovalStore {
         guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
             return false
         }
+        // User-configured allowlist (terminal.trustedResumeSources): sources named
+        // here are auto-trusted, so never surface the approval prompt for them.
+        guard !AgentSessionTrustedSourcesSettings.isTrusted(source: binding.source, name: binding.name) else {
+            return false
+        }
         guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
             return false
         }

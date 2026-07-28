@@ -230,6 +230,14 @@ enum TerminalSettingsFileMapping {
             invalidPath: "terminal.autoResumeAgentSessions"
         ),
     ]
+
+    static let stringArraySettings: [SettingsFileStringArrayMapping] = [
+        .init(
+            jsonKey: "trustedResumeSources",
+            defaultsKey: AgentSessionTrustedSourcesSettings.trustedResumeSourcesKey,
+            invalidPath: "terminal.trustedResumeSources"
+        ),
+    ]
 }
 
 enum SidebarSettingsFileMapping {
@@ -418,6 +426,7 @@ extension CmuxSettingsFileStore {
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.trustedResumeSources",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
         "terminal.textBoxDefaultSubmitAction",
