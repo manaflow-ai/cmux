@@ -134,6 +134,23 @@ public struct AgentLaunchInvocationClassifier {
         return false
     }
 
+    /// Whether Codex arguments select help or version output instead of launching a session.
+    ///
+    /// Codex accepts these flags after subcommands and positional arguments. The explicit `--`
+    /// delimiter is the only boundary after which a flag-shaped token belongs to provider input.
+    public func codexTeamsLaunchIsInformational(args: [String]) -> Bool {
+        for argument in args {
+            if argument == "--" { return false }
+            switch argument {
+            case "--help", "-h", "--version", "-V":
+                return true
+            default:
+                continue
+            }
+        }
+        return false
+    }
+
     private func claudeTeamsAgentsJSONInvocation(args: [String], startIndex: Int) -> Bool {
         var sawJSON = false
         for argument in args.dropFirst(startIndex) {

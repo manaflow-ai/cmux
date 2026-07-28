@@ -5,6 +5,28 @@ import Testing
 struct ManagedLauncherNonLaunchTests {
     private let classifier = AgentLaunchInvocationClassifier()
 
+    @Test("Codex Teams recognizes nested informational flags without crossing --")
+    func codexTeamsInformationalInvocations() {
+        for args in [
+            ["--help"],
+            ["resume", "--help"],
+            ["resume", "session-id", "--version"],
+            ["exec", "review", "-h"],
+            ["mcp", "list", "-V"],
+        ] {
+            #expect(classifier.codexTeamsLaunchIsInformational(args: args))
+        }
+        for args in [
+            [],
+            ["resume"],
+            ["exec", "prompt containing --help"],
+            ["resume", "--", "--help"],
+            ["--model=--help", "resume"],
+        ] {
+            #expect(!classifier.codexTeamsLaunchIsInformational(args: args))
+        }
+    }
+
     @Test("OMO preserves documented management commands")
     func omoManagementCommands() {
         for command in [
