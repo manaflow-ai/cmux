@@ -35,27 +35,19 @@ import {
   ohMyPiSeoCopy,
   pricingSeoCopy,
 } from "../i18n/audited-seo";
-import { englishFallbackContentLocales } from "../i18n/locale-availability";
+import {
+  authoredContentLocalesByPath,
+  englishFallbackContentLocales,
+  fallbackContentRequestForPathname,
+  featureWorkflowDocPaths,
+} from "../i18n/locale-availability";
 import { loadMessages } from "../i18n/messages";
 import { locales } from "../i18n/routing";
 
 const searchConsoleLocalizedRoutes = [
-  "/ios",
-  "/pricing",
-  "/enterprise",
-  "/docs/vault",
-  "/docs/task-manager",
+  ...Object.keys(authoredContentLocalesByPath),
+  ...featureWorkflowDocPaths,
   "/docs/remote-tmux",
-  "/docs/agent-integrations/claude-code-teams",
-  "/docs/agent-integrations/oh-my-opencode",
-  "/docs/agent-integrations/oh-my-codex",
-  "/docs/agent-integrations/oh-my-pi",
-  "/docs/agent-integrations/oh-my-claudecode",
-  "/blog/claude-code-best-worktree-manager",
-  "/blog/cmux-ssh",
-  "/blog/cmux-claude-teams",
-  "/blog/cmux-omo",
-  "/blog/gpl",
   "/terms-of-service",
   "/eula",
 ] as const;
@@ -97,6 +89,7 @@ describe("SEO metadata helpers", () => {
       "whatYouGet4",
       "whatYouGet5",
       "firstRunStep4",
+      "shimStep4",
       "shimStep5",
       "shadowStep4",
     ] as const;
@@ -1152,6 +1145,11 @@ describe("SEO middleware", () => {
     expect(japanese.headers.get("Link")).toContain('hreflang="de"');
   });
 
+  test("ignores inherited property names in the authored-route registry", () => {
+    expect(fallbackContentRequestForPathname("/__proto__")).toBeNull();
+    expect(fallbackContentRequestForPathname("/constructor")).toBeNull();
+  });
+
   test("serves and lists every translated Search Console route", () => {
     const entries = sitemap();
 
@@ -1170,7 +1168,7 @@ describe("SEO middleware", () => {
           ? `https://cmux.com${path}`
           : `https://cmux.com/${locale}${path}`,
       );
-      expect(urls).toEqual(expected);
+      expect(new Set(urls)).toEqual(new Set(expected));
 
       for (const locale of locales) {
         const localized = middleware(
@@ -1181,6 +1179,11 @@ describe("SEO middleware", () => {
         );
         expect(localized.status).toBe(200);
         expect(localized.headers.get("location")).toBeNull();
+        if (Object.hasOwn(authoredContentLocalesByPath, path)) {
+          expect(localized.headers.get("Link")).toContain(
+            `hreflang="${locale}"`,
+          );
+        }
       }
     }
   });
@@ -1192,27 +1195,6 @@ describe("SEO middleware", () => {
     expect(urls.some((url) => url.endsWith("/docs/nightly/base"))).toBe(false);
   });
 
-  test("serves formerly English-only blog posts in every locale", () => {
-    for (const canonicalPath of [
-      "/blog/cmux-claude-teams",
-      "/blog/cmux-omo",
-      "/blog/gpl",
-    ]) {
-      for (const locale of locales) {
-        const localized = middleware(
-          requestFor(
-            locale === "en" ? canonicalPath : `/${locale}${canonicalPath}`,
-            { "accept-language": locale },
-          ),
-        );
-        expect(localized.status).toBe(200);
-        expect(localized.headers.get("location")).toBeNull();
-        expect(localized.headers.get("Link")).toContain(
-          `hreflang="${locale}"`,
-        );
-      }
-    }
-  });
 });
 
 const wideSearchBaseCodePoint =
