@@ -217,26 +217,86 @@ extension Workspace {
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        sessionID: String? = nil
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+        let normalizedSessionID = normalizedAgentLifecycleSessionID(sessionID)
+        let previous = agentLifecycleRecordsByPanelId[targetPanelId]?[key]
+        let isReplacement = previous?.sessionID != nil
+            && normalizedSessionID != nil
+            && previous?.sessionID != normalizedSessionID
+
+        if let previous, isReplacement {
+            publishAgentLifecycleTransition(
+                previous,
+                state: .exit,
+                previousState: previous.publicState,
+                panelID: targetPanelId
+            )
+        }
+
+        var record: AgentLifecycleRecord
+        if let previous, !isReplacement {
+            record = previous
+            record.state = lifecycle
+            if record.sessionID == nil {
+                record.sessionID = normalizedSessionID
+            }
+        } else {
+            record = AgentLifecycleRecord(
+                agent: key,
+                state: lifecycle,
+                sessionID: normalizedSessionID,
+                revision: takeNextAgentLifecycleRevision()
+            )
+        }
+        agentLifecycleRecordsByPanelId[targetPanelId, default: [:]][key] = record
+
+        let isManual = AgentHibernationLifecycleStatusKeys.isManualKey(key)
+        if !isManual,
+           previous == nil || isReplacement || previous?.state != lifecycle ||
+               previous?.sessionID != record.sessionID {
+            publishAgentLifecycleTransition(
+                record,
+                state: record.publicState,
+                previousState: isReplacement ? nil : previous?.publicState,
+                panelID: targetPanelId
+            )
+        }
+        if !isManual {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
     }
 
     @discardableResult
-    func clearAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
+    func clearAgentLifecycle(
+        key: String,
+        panelId: UUID? = nil,
+        expectedSessionID: String? = nil
+    ) -> Bool {
         var didClear = false
         let recordsHibernationActivity = !AgentHibernationLifecycleStatusKeys.isManualKey(key)
-        let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
+        let normalizedExpectedSessionID = normalizedAgentLifecycleSessionID(expectedSessionID)
+        let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleRecordsByPanelId.keys)
         for panelId in panelIds {
-            guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
-            agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
-            if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
-                agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
+            guard let record = agentLifecycleRecordsByPanelId[panelId]?[key] else { continue }
+            if let normalizedExpectedSessionID,
+               record.sessionID != normalizedExpectedSessionID {
+                continue
+            }
+            if recordsHibernationActivity {
+                publishAgentLifecycleTransition(
+                    record,
+                    state: .exit,
+                    previousState: record.publicState,
+                    panelID: panelId
+                )
+            }
+            agentLifecycleRecordsByPanelId[panelId]?.removeValue(forKey: key)
+            if agentLifecycleRecordsByPanelId[panelId]?.isEmpty == true {
+                agentLifecycleRecordsByPanelId.removeValue(forKey: panelId)
             }
             didClear = true
             if recordsHibernationActivity {
@@ -248,15 +308,23 @@ extension Workspace {
 
     func hasRunningAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
         if let panelId {
-            return agentLifecycleStatesByPanelId[panelId]?[key] == .running
+            return agentLifecycleRecordsByPanelId[panelId]?[key]?.state == .running
         }
-        return agentLifecycleStatesByPanelId.values.contains { $0[key] == .running }
+        return agentLifecycleRecordsByPanelId.values.contains { $0[key]?.state == .running }
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
-        guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
-        let manualStates = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
-        if !manualStates.isEmpty {
+        guard let removed = agentLifecycleRecordsByPanelId.removeValue(forKey: panelId) else { return }
+        let manualRecords = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+        for (key, record) in removed where !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+            publishAgentLifecycleTransition(
+                record,
+                state: .exit,
+                previousState: record.publicState,
+                panelID: panelId
+            )
+        }
+        if !manualRecords.isEmpty {
             let host: UUID? = if panels[panelId] != nil {
                 panelId
             } else if let focused = focusedPanelId, focused != panelId, panels[focused] != nil {
@@ -265,8 +333,8 @@ extension Workspace {
                 panels.keys.first(where: { $0 != panelId })
             }
             if let host {
-                for (key, lifecycle) in manualStates {
-                    agentLifecycleStatesByPanelId[host, default: [:]][key] = lifecycle
+                for (key, record) in manualRecords {
+                    agentLifecycleRecordsByPanelId[host, default: [:]][key] = record
                 }
             }
         }
@@ -274,9 +342,20 @@ extension Workspace {
     }
 
     func clearAllAgentLifecycleStates() {
-        let panelIds = Array(agentLifecycleStatesByPanelId.keys)
+        let removed = agentLifecycleRecordsByPanelId
+        let panelIds = Array(removed.keys)
         guard !panelIds.isEmpty else { return }
-        agentLifecycleStatesByPanelId.removeAll()
+        agentLifecycleRecordsByPanelId.removeAll()
+        for (panelID, records) in removed {
+            for (key, record) in records where !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+                publishAgentLifecycleTransition(
+                    record,
+                    state: .exit,
+                    previousState: record.publicState,
+                    panelID: panelID
+                )
+            }
+        }
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
         }
@@ -286,9 +365,9 @@ extension Workspace {
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
-        let states = (agentLifecycleStatesByPanelId[panelId] ?? [:])
+        let states = (agentLifecycleRecordsByPanelId[panelId] ?? [:])
             .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
-            .map(\.value)
+            .map(\.value.state)
         guard !states.isEmpty else {
             return fallback ?? .unknown
         }
@@ -297,6 +376,44 @@ extension Workspace {
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }
         return fallback ?? .unknown
+    }
+
+    func agentWaitSurfaceSnapshot(panelID: UUID) -> AgentWaitSurfaceSnapshot? {
+        guard panels[panelID] != nil else { return nil }
+        let occupant = agentLifecycleRecordsByPanelId[panelID]?
+            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+            .map(\.value)
+            .max { $0.revision < $1.revision }
+        return AgentWaitSurfaceSnapshot(
+            workspaceID: id,
+            surfaceID: panelID,
+            paneID: paneId(forPanelId: panelID)?.id,
+            occupant: occupant
+        )
+    }
+
+    private func publishAgentLifecycleTransition(
+        _ record: AgentLifecycleRecord,
+        state: AgentLifecyclePublicState,
+        previousState: AgentLifecyclePublicState?,
+        panelID: UUID
+    ) {
+        CmuxEventBus.shared.publishAgentStateChanged(
+            workspaceID: id,
+            surfaceID: panelID,
+            paneID: paneId(forPanelId: panelID)?.id,
+            record: record,
+            state: state,
+            previousState: previousState
+        )
+    }
+
+    private func normalizedAgentLifecycleSessionID(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {

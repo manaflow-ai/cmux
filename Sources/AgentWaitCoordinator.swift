@@ -1,0 +1,205 @@
+import Foundation
+
+struct AgentWaitCoordinator {
+    private static let eventNames: Set<String> = [
+        "agent.state.changed",
+        "surface.closed",
+    ]
+    private static let peerCheckInterval: TimeInterval = 15
+
+    private let eventBus: CmuxEventBus
+    private let onSubscribe: (CmuxEventSubscription) -> Void
+    private let shouldContinue: () -> Bool
+    private let monotonicNow: () -> TimeInterval
+
+    init(
+        eventBus: CmuxEventBus,
+        onSubscribe: @escaping (CmuxEventSubscription) -> Void = { _ in },
+        shouldContinue: @escaping () -> Bool = { true },
+        monotonicNow: @escaping () -> TimeInterval = {
+            ProcessInfo.processInfo.systemUptime
+        }
+    ) {
+        self.eventBus = eventBus
+        self.onSubscribe = onSubscribe
+        self.shouldContinue = shouldContinue
+        self.monotonicNow = monotonicNow
+    }
+
+    func wait(
+        until: AgentWaitUntil,
+        timeoutMilliseconds: Int64?,
+        snapshot: () -> AgentWaitSurfaceSnapshot?
+    ) -> Result<AgentWaitResult, AgentWaitError> {
+        let subscriptionSnapshot = eventBus.subscribe(
+            afterSequence: nil,
+            names: Self.eventNames,
+            categories: []
+        )
+        onSubscribe(subscriptionSnapshot.subscription)
+        defer {
+            eventBus.unsubscribe(subscriptionSnapshot.subscription)
+        }
+
+        guard let surface = snapshot() else {
+            return .failure(.surfaceNotFound)
+        }
+        guard let occupant = surface.occupant else {
+            return .failure(.noAgent)
+        }
+
+        var pinnedState = occupant.publicState
+        if until.isSatisfied(by: pinnedState) {
+            return .success(
+                result(
+                    status: .satisfied,
+                    until: until,
+                    state: pinnedState,
+                    occupant: occupant,
+                    surface: surface
+                )
+            )
+        }
+
+        let deadline = timeoutMilliseconds.map {
+            monotonicNow() + Double($0) / 1_000
+        }
+        func timeoutResultIfExpired() -> AgentWaitResult? {
+            guard let deadline, monotonicNow() >= deadline else { return nil }
+            return result(
+                status: .timedOut,
+                until: until,
+                state: pinnedState,
+                occupant: occupant,
+                surface: surface
+            )
+        }
+        while true {
+            guard shouldContinue() else {
+                return .failure(.subscriptionClosed(nil))
+            }
+            let waitInterval: TimeInterval
+            if let deadline {
+                waitInterval = min(
+                    Self.peerCheckInterval,
+                    max(0, deadline - monotonicNow())
+                )
+            } else {
+                waitInterval = Self.peerCheckInterval
+            }
+
+            if let event = subscriptionSnapshot.subscription.next(timeout: waitInterval) {
+                guard event["surface_id"] as? String == surface.surfaceID.uuidString else {
+                    if let timeout = timeoutResultIfExpired() {
+                        return .success(timeout)
+                    }
+                    continue
+                }
+                if event["name"] as? String == "surface.closed" {
+                    return .success(
+                        result(
+                            status: .surfaceClosed,
+                            until: until,
+                            state: pinnedState,
+                            occupant: occupant,
+                            surface: surface
+                        )
+                    )
+                }
+                guard let transition = transition(from: event) else {
+                    if let timeout = timeoutResultIfExpired() {
+                        return .success(timeout)
+                    }
+                    continue
+                }
+                guard transition.record.identifiesSameOccupant(as: occupant) else {
+                    if let timeout = timeoutResultIfExpired() {
+                        return .success(timeout)
+                    }
+                    continue
+                }
+                pinnedState = transition.state
+                if until.isSatisfied(by: pinnedState) {
+                    return .success(
+                        result(
+                            status: .satisfied,
+                            until: until,
+                            state: pinnedState,
+                            occupant: occupant,
+                            surface: surface
+                        )
+                    )
+                }
+                if let timeout = timeoutResultIfExpired() {
+                    return .success(timeout)
+                }
+                continue
+            }
+
+            if subscriptionSnapshot.subscription.isClosed {
+                return .failure(
+                    .subscriptionClosed(subscriptionSnapshot.subscription.closeReason)
+                )
+            }
+            if let timeout = timeoutResultIfExpired() {
+                return .success(timeout)
+            }
+        }
+    }
+
+    private func transition(
+        from event: [String: Any]
+    ) -> (record: AgentLifecycleRecord, state: AgentLifecyclePublicState)? {
+        guard event["name"] as? String == "agent.state.changed",
+              let payload = event["payload"] as? [String: Any],
+              let agent = payload["agent"] as? String,
+              let stateRaw = payload["state"] as? String,
+              let state = AgentLifecyclePublicState(rawValue: stateRaw),
+              let revisionValue = CmuxEventBus.int64(payload["revision"]),
+              revisionValue >= 0 else {
+            return nil
+        }
+        let sessionID = payload["session_id"] as? String
+        let lifecycle: AgentHibernationLifecycleState
+        switch state {
+        case .unknown:
+            lifecycle = .unknown
+        case .running:
+            lifecycle = .running
+        case .idle:
+            lifecycle = .idle
+        case .needsInput:
+            lifecycle = .needsInput
+        case .exit:
+            lifecycle = .unknown
+        }
+        return (
+            AgentLifecycleRecord(
+                agent: agent,
+                state: lifecycle,
+                sessionID: sessionID,
+                revision: UInt64(revisionValue)
+            ),
+            state
+        )
+    }
+
+    private func result(
+        status: AgentWaitStatus,
+        until: AgentWaitUntil,
+        state: AgentLifecyclePublicState,
+        occupant: AgentLifecycleRecord,
+        surface: AgentWaitSurfaceSnapshot
+    ) -> AgentWaitResult {
+        AgentWaitResult(
+            status: status,
+            until: until,
+            state: state,
+            agent: occupant.agent,
+            sessionID: occupant.sessionID,
+            workspaceID: surface.workspaceID,
+            surfaceID: surface.surfaceID,
+            paneID: surface.paneID
+        )
+    }
+}

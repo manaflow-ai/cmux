@@ -86,11 +86,14 @@ public protocol ControlSidebarContext: AnyObject {
     ) -> Bool
 
     /// Enqueues the `set_agent_lifecycle` mutation.
+    ///
+    /// `sessionID` identifies the agent occupant that owns the lifecycle.
     nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        sessionID: String?
     )
 
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`
@@ -109,11 +112,15 @@ public protocol ControlSidebarContext: AnyObject {
     nonisolated func controlSidebarSetAgentHibernation(enabled: Bool)
 
     /// Enqueues the `clear_agent_pid` mutation.
+    ///
+    /// `expectedLifecycleSessionID` prevents an old hook from clearing a
+    /// replacement occupant's lifecycle.
     nonisolated func controlSidebarScheduleAgentPIDClear(
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        expectedLifecycleSessionID: String?
     )
 
     /// Enqueues the `report_meta_block` upsert mutation.

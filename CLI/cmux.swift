@@ -16,12 +16,19 @@ import Security
 struct CLIError: Error, CustomStringConvertible {
     let message: String
     let exitCode: Int32
+    let shouldPrint: Bool
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
 
-    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
+    init(
+        message: String,
+        exitCode: Int32 = 1,
+        shouldPrint: Bool = true,
+        v2Code: String? = nil
+    ) {
         self.message = message
         self.exitCode = exitCode
+        self.shouldPrint = shouldPrint
         self.v2Code = v2Code
     }
 
@@ -3019,7 +3026,7 @@ struct CMUXCLI {
     private static let persistentCloudVMWorkspaceName = "sshd"
     private static let claudeCodeStatusKey = "claude_code"
 
-    private static var allowedAgentLifecycleStatusKeys: Set<String> {
+    static var allowedAgentLifecycleStatusKeys: Set<String> {
         var keys = Set(agentDefs.map(\.statusKey))
         keys.formUnion(AgentHibernationLifecycleStatusKeys.allowedStatusKeys)
         keys.insert(claudeCodeStatusKey)
@@ -3229,7 +3236,7 @@ struct CMUXCLI {
         "--provider", "--relay-port", "--script", "--selector", "--session",
         "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane", "--team",
         "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
-        "--turn", "--type", "--url", "--url-contains", "--value", "--window",
+        "--turn", "--type", "--until", "--url", "--url-contains", "--value", "--window",
         "--workspace", "--checkpoint", "--checkpoint-id",
     ]
 
@@ -3825,6 +3832,14 @@ struct CMUXCLI {
 
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
+        case "wait":
+            try runAgentWaitCommand(
+                commandArgs: commandArgs,
+                client: client,
+                windowHandle: windowId,
+                jsonOutput: jsonOutput
+            )
 
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
@@ -15245,6 +15260,24 @@ struct CMUXCLI {
               cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
               cmux events --after 42 --name feed.item.received
             """
+        case "wait":
+            return String(localized: "cli.help.wait", defaultValue: """
+            Usage: cmux wait --surface <id|ref|index> --until <idle|needs-input|exit> [--timeout <ms>] [--json]
+
+            Wait for the agent currently occupying a surface to reach a lifecycle state.
+            The wait stays pinned to that agent session; a replacement agent cannot satisfy it.
+
+            Options:
+              --surface <id|ref|index>   Surface whose current agent should be observed
+              --until <state>            idle, needs-input, or exit
+              --timeout <ms>             Stop waiting after this many milliseconds
+              --json                     Print the terminal result as JSON
+
+            Exit codes:
+              0     Requested state reached
+              3     Surface closed
+              124   Timed out
+            """)
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>
@@ -17184,7 +17217,7 @@ struct CMUXCLI {
     /// so both must be escaped before wrapping in double quotes. Newlines and
     /// carriage returns must also be escaped since the socket protocol uses
     /// newline as the message terminator.
-    private func socketQuote(_ s: String) -> String {
+    func socketQuote(_ s: String) -> String {
         let escaped = s
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -24317,7 +24350,8 @@ struct CMUXCLI {
                     key: Self.claudeCodeStatusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionId: parsedInput.sessionId
                 )
                 try setClaudeStatus(
                     client: client,
@@ -24423,7 +24457,8 @@ struct CMUXCLI {
                     key: Self.claudeCodeStatusKey,
                     lifecycle: hasPendingBackgroundWork ? .running : .idle,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionId: parsedInput.sessionId
                 )
                 if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
@@ -24565,7 +24600,8 @@ struct CMUXCLI {
                 key: Self.claudeCodeStatusKey,
                 lifecycle: .running,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                sessionId: parsedInput.sessionId
             )
             try setClaudeStatus(
                 client: client,
@@ -24754,7 +24790,8 @@ struct CMUXCLI {
                     key: Self.claudeCodeStatusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionId: parsedInput.sessionId
                 )
                 _ = try? setClaudeStatus(
                     client: client,
@@ -24803,9 +24840,9 @@ struct CMUXCLI {
                        routing: hookRouting,
                        client: client
                    ),
-                   forkTarget.isAuthoritative {
+                    forkTarget.isAuthoritative {
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkTarget.workspaceId)\(socketPanelOption(forkTarget.surfaceId)) --clear-status",
+                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkTarget.workspaceId)\(socketPanelOption(forkTarget.surfaceId)) --clear-status --session-id=\(socketQuote(reportedSessionId))",
                         client: client
                     )
                 }
@@ -24892,7 +24929,7 @@ struct CMUXCLI {
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status",
+                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status --session-id=\(socketQuote(consumedSession.sessionId))",
                         client: client
                     )
                     try? sessionStore.clearAgentLifecycleIfPresent(
@@ -25020,7 +25057,8 @@ struct CMUXCLI {
                     key: Self.claudeCodeStatusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId
+                    surfaceId: existingSurfaceId,
+                    sessionId: parsedInput.sessionId
                 )
                 // In bypassPermissions (--dangerously-skip-permissions) mode no
                 // PermissionRequest or Notification hook follows, so this handler must
@@ -25085,7 +25123,8 @@ struct CMUXCLI {
                 key: Self.claudeCodeStatusKey,
                 lifecycle: .running,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                sessionId: parsedInput.sessionId
             )
 
             let statusValue: String
@@ -25168,27 +25207,6 @@ struct CMUXCLI {
             cmd += " --pid=\(pid)"
         }
         _ = try client.send(command: cmd)
-    }
-
-    private func setAgentLifecycle(
-        client: SocketClient,
-        key: String,
-        lifecycle: AgentHibernationLifecycleState,
-        workspaceId: String,
-        surfaceId: String?
-    ) {
-        guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
-            cliWriteStderr("Warning: unsupported agent lifecycle key\n")
-            return
-        }
-        do {
-            _ = try sendV1Command(
-                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                client: client
-            )
-        } catch {
-            cliWriteStderr("Warning: failed to set agent lifecycle\n")
-        }
     }
 
     private func runAgentHibernation(
@@ -25300,7 +25318,7 @@ struct CMUXCLI {
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
     }
 
-    private func socketPanelOption(_ surfaceId: String?) -> String {
+    func socketPanelOption(_ surfaceId: String?) -> String {
         guard let surfaceId = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !surfaceId.isEmpty,
               UUID(uuidString: surfaceId) != nil else {
@@ -30530,7 +30548,7 @@ export default CMUXSessionRestore;
                     sessionId: consumed.sessionId
                 )
                 _ = try? sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
+                    "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status --session-id=\(socketQuote(consumed.sessionId))",
                     client: client
                 )
             }
@@ -30902,7 +30920,8 @@ export default CMUXSessionRestore;
                 key: def.statusKey,
                 lifecycle: .unknown,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                sessionId: sessionId
             )
 
         case .promptSubmit:
@@ -30955,7 +30974,8 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: lifecycle,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
                     )
                 }
                 switch latest.runtimeStatus {
@@ -30965,7 +30985,8 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .running,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
@@ -30979,7 +31000,8 @@ export default CMUXSessionRestore;
                             key: def.statusKey,
                             lifecycle: .idle,
                             workspaceId: workspaceId,
-                            surfaceId: surfaceId
+                            surfaceId: surfaceId,
+                            sessionId: sessionId
                         )
                     }
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -30989,7 +31011,8 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -31005,7 +31028,8 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -31178,7 +31202,8 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -31512,7 +31537,8 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
                     )
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31524,7 +31550,8 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -31540,7 +31567,8 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .running,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     _ = try? sendV1Command(
@@ -31553,7 +31581,8 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .idle,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
                     )
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
@@ -31640,7 +31669,8 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
                 )
                 _ = try? sendV1Command(
                     "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31912,7 +31942,8 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -31928,7 +31959,8 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionId: sessionId
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -31945,7 +31977,8 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .idle,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
                     )
                 }
                 setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -35500,6 +35533,7 @@ export default CMUXSessionRestore;
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
+          wait --surface <id|ref|index> --until <idle|needs-input|exit> [--timeout <ms>]
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
@@ -35706,8 +35740,11 @@ struct CMUXTermMain {
         do {
             try cli.run()
         } catch {
-            CMUXCLIOutput.writeStandardError("Error: \(error)\n")
-            let exitCode = (error as? CLIError)?.exitCode ?? 1
+            let cliError = error as? CLIError
+            if cliError?.shouldPrint != false {
+                CMUXCLIOutput.writeStandardError("Error: \(error)\n")
+            }
+            let exitCode = cliError?.exitCode ?? 1
             exit(exitCode)
         }
     }

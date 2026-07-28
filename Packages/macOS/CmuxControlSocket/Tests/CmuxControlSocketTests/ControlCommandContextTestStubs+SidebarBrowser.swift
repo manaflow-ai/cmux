@@ -82,7 +82,8 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        sessionID: String?
     ) {}
 
     func controlSidebarSetWorkspaceLoading(
@@ -97,7 +98,8 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        expectedLifecycleSessionID: String?
     ) {}
 
     nonisolated func controlSidebarScheduleMetadataBlockUpsert(

@@ -1512,7 +1512,7 @@ class TerminalController {
 
             var shouldCloseSocket = false
             autoreleasepool {
-                if isEventsStreamRequest(trimmed) {
+                if isLongLivedSocketRequest(trimmed) {
                     if let response = authResponseIfNeeded(
                         for: trimmed,
                         passwordAuthorization: &passwordAuthorization
@@ -1522,13 +1522,23 @@ class TerminalController {
                         }
                         return
                     }
-                    handleEventsStreamRequest(
-                        trimmed,
-                        socket: socket,
-                        authorizationGeneration: authorizationGeneration,
-                        authorizationRevocationSignal: authorizationRevocationSignal,
-                        passwordAuthorization: passwordAuthorization
-                    )
+                    if isAgentWaitRequest(trimmed) {
+                        handleAgentWaitRequest(
+                            trimmed,
+                            socket: socket,
+                            authorizationGeneration: authorizationGeneration,
+                            authorizationRevocationSignal: authorizationRevocationSignal,
+                            passwordAuthorization: passwordAuthorization
+                        )
+                    } else {
+                        handleEventsStreamRequest(
+                            trimmed,
+                            socket: socket,
+                            authorizationGeneration: authorizationGeneration,
+                            authorizationRevocationSignal: authorizationRevocationSignal,
+                            passwordAuthorization: passwordAuthorization
+                        )
+                    }
                     shouldCloseSocket = true
                     return
                 }
@@ -2382,6 +2392,8 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "events.stream",
+            "agent.wait",
             "sidebar.custom.open",
             "system.top",
             "system.memory",
@@ -10962,7 +10974,7 @@ class TerminalController {
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
-          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
+          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--session-id=ID] - Report coding-agent lifecycle for hibernation
           agent_hibernation <on|off> - Enable or disable Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block

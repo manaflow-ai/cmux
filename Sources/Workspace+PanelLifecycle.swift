@@ -31,8 +31,18 @@ extension Workspace {
     }
 
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
-        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+        agentLifecycleRecordsByPanelId.mapValues { records in
+            records.mapValues(\.state)
+        }
+    }
+
+    var agentLifecycleRecordsByPanelId: [UUID: [String: AgentLifecycleRecord]] {
+        get { sidebarAgentRuntimeObservation.agentLifecycleRecordsByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentLifecycleRecordsByPanelId(newValue) }
+    }
+
+    func takeNextAgentLifecycleRevision() -> UInt64 {
+        sidebarAgentRuntimeObservation.takeNextAgentLifecycleRevision()
     }
 
     /// Returns exact-session runtime identities that still match their recorded process generation.
@@ -288,13 +298,20 @@ extension Workspace {
         key: String,
         panelId: UUID? = nil,
         clearStatus: Bool = false,
-        refreshPorts: Bool = true
+        refreshPorts: Bool = true,
+        expectedLifecycleSessionID: String? = nil
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
         if let panelId, let ownedPanelId, ownedPanelId != panelId {
             return false
         }
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
+        if let expectedLifecycleSessionID,
+           let lifecyclePanelID = ownedPanelId ?? panelId,
+           let lifecycleRecord = agentLifecycleRecordsByPanelId[lifecyclePanelID]?[agentStatusKey(forAgentPIDKey: key)],
+           lifecycleRecord.sessionID != expectedLifecycleSessionID {
+            return false
+        }
 
         var didChange = false
         if agentPIDs.removeValue(forKey: key) != nil {
@@ -310,7 +327,11 @@ extension Workspace {
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
+            if clearAgentLifecycle(
+                key: lifecycleStatusKey,
+                panelId: lifecyclePanelId,
+                expectedSessionID: expectedLifecycleSessionID
+            ) {
                 didChange = true
             }
         }

@@ -344,7 +344,7 @@ extension ControlCommandCoordinator {
     /// main and runs the registry disk IO on the calling thread.
     nonisolated func sidebarSetAgentLifecycle(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--session-id=<id>]"
         guard parsed.positional.count >= 2 else {
             return "ERROR: Usage: \(usage)"
         }
@@ -372,7 +372,8 @@ extension ControlCommandCoordinator {
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            sessionID: sidebarNormalizedOptionValue(parsed.options["session-id"])
         )
         return "OK"
     }
@@ -402,7 +403,7 @@ extension ControlCommandCoordinator {
     /// main hops).
     nonisolated func sidebarClearAgentPID(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]"
+        let usage = "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>]"
         guard let key = parsed.positional.first else {
             return "ERROR: Usage: \(usage)"
         }
@@ -418,7 +419,8 @@ extension ControlCommandCoordinator {
             target: target,
             key: key,
             panelID: panelResolution.panelId,
-            clearStatus: parsed.options["clear-status"] != nil
+            clearStatus: parsed.options["clear-status"] != nil,
+            expectedLifecycleSessionID: sidebarNormalizedOptionValue(parsed.options["session-id"])
         )
         return "OK"
     }

@@ -329,6 +329,7 @@ Feed and agent hooks:
 | `feed.item.received` | `feed.push` received a hook/workstream event. |
 | `feed.item.completed` | `feed.push` returned a hook decision, timeout, or no-op result. |
 | `feed.item.resolved` | A Feed reply command resolved a permission, question, or plan item. |
+| `agent.state.changed` | The authoritative lifecycle for a surface occupant changed to `unknown`, `running`, `idle`, `needs-input`, or `exit`. |
 | `agent.hook.<HookEventName>` | Agent hook event received through Feed. Examples include Claude Code and Codex permission requests when their hooks are installed. |
 
 App, browser, and config:
@@ -346,6 +347,31 @@ App, browser, and config:
 
 Agent integrations use `cmux hooks feed --source <agent>` or an equivalent
 plugin bridge. The event stream publishes both agent and Feed events:
+
+```json
+{
+  "name": "agent.state.changed",
+  "category": "agent",
+  "source": "agent.lifecycle",
+  "workspace_id": "9B6920C1-6C29-4D85-8CB3-083C8D927D95",
+  "surface_id": "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C",
+  "pane_id": "51D34B2A-094D-4E9E-A503-6B13D84E2431",
+  "payload": {
+    "agent": "codex",
+    "state": "needs-input",
+    "previous_state": "running",
+    "session_id": "session-123",
+    "revision": 42
+  }
+}
+```
+
+`revision` identifies one process-local surface occupant when an integration
+cannot provide a session id. A replacement publishes `exit` for the prior
+occupant before publishing the replacement's state. Consumers that need the
+race-free snapshot-plus-stream behavior should use the server-owned
+`agent.wait` method through `cmux wait`; subscribing to the event stream and
+then taking a separate snapshot is otherwise the consumer's responsibility.
 
 ```json
 {

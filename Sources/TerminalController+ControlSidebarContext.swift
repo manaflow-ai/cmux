@@ -153,14 +153,20 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        sessionID: String?
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
-            tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
+            tab.setAgentLifecycle(
+                key: key,
+                panelId: panelID,
+                lifecycle: lifecycle,
+                sessionID: sessionID
+            )
         }
     }
 
@@ -218,13 +224,15 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        expectedLifecycleSessionID: String?
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             tab.clearAgentPID(
                 key: key,
                 panelId: panelID,
-                clearStatus: clearStatus
+                clearStatus: clearStatus,
+                expectedLifecycleSessionID: expectedLifecycleSessionID
             )
         }
     }
