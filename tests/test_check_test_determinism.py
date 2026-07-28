@@ -170,6 +170,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    #expect(finished)\n"
                 "}\n"
             ),
+            "continuous-clock-assigned-capture.swift": (
+                "run { [clock = ContinuousClock()] in\n"
+                "    try await clock.sleep(until: deadline)\n"
+                "    #expect(finished)\n"
+                "}\n"
+            ),
             "continuous-clock-after-if-let-shadow.swift": (
                 "func verify(clock: ContinuousClock, candidate: TestClock?) async throws {\n"
                 "    if let clock = candidate {\n"
@@ -269,7 +275,22 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "await timers.setTimeout(1)\n"
                 "expect(finished).toBe(true)\n"
             ),
+            "timer-namespace-after-class-field.ts": (
+                'import * as timers from "node:timers/promises"\n'
+                "class Fixture {\n"
+                "    timers = fakeTimers\n"
+                "    async verify() {\n"
+                "        await timers.setTimeout(1)\n"
+                "        expect(finished).toBe(true)\n"
+                "    }\n"
+                "}\n"
+            ),
             "shell.sh": 'sleep 1\nassert "$actual" "$expected"\n',
+            "shell-after-subshell-function.sh": (
+                '( sleep() { advance_clock "$@"; } )\n'
+                "sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
             "shell-command-after-function.sh": (
                 "sleep() { advance_clock \"$@\"; }\n"
                 "command sleep 1\n"
@@ -612,7 +633,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 )
                 else
                 5
-                if relative_path == "timer-alias-after-var-shadow-function.ts"
+                if relative_path
+                in (
+                    "timer-alias-after-var-shadow-function.ts",
+                    "timer-namespace-after-class-field.ts",
+                )
                 else
                 8
                 if relative_path
@@ -657,6 +682,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "continuous-clock-parameter.swift",
                     "qualified-suspending-clock-parameter.swift",
                     "continuous-clock-closure-parameter.swift",
+                    "continuous-clock-assigned-capture.swift",
                     "node-timer-alias.ts",
                     "timer-delay-alias.ts",
                     "node-timer-namespace.ts",
@@ -673,6 +699,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "case-keyword-pattern-alternative.sh",
                     "esac-keyword-pattern-alternative.sh",
                     "shell-command-after-function.sh",
+                    "shell-after-subshell-function.sh",
                 )
                 else 1
             )
@@ -857,6 +884,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 ),
                 "shell-function-shadow.sh": (
                     "sleep() { advance_clock \"$@\"; }\n"
+                    "sleep \"$ticks\"\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "shell-function-shadow-after-subshell-unset.sh": (
+                    "sleep() { advance_clock \"$@\"; }\n"
+                    "( unset -f sleep )\n"
                     "sleep \"$ticks\"\n"
                     'assert "$actual" "$expected"\n'
                 ),
