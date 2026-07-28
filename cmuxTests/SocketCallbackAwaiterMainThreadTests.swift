@@ -56,6 +56,16 @@ import Testing
 }
 
 @Suite struct WindowScreenshotCaptureRoutingTests {
+    @Test func timeoutLatchPermanentlyDisablesCompositorCapture() {
+        var latch = WindowScreenshotCaptureTimeoutLatch()
+
+        #expect(latch.allowsCapture)
+        latch.recordTimeout()
+        #expect(!latch.allowsCapture)
+        latch.recordTimeout()
+        #expect(!latch.allowsCapture)
+    }
+
     @Test func onlyUnavailableCaptureFallsBackToAppKit() {
         let data = Data([0x89, 0x50, 0x4E, 0x47])
 
