@@ -1124,8 +1124,10 @@ def _swift_named_clock_sleep_positions(
     type_identities = _swift_type_scope_identities(text)
     type_scopes = set(type_identities)
     type_members = _swift_type_member_bindings(text, type_scopes)
-    known_type_members = _swift_standard_clock_members_by_type([text])
-    if indexed_type_members is not None:
+    if indexed_type_members is None:
+        known_type_members = _swift_standard_clock_members_by_type([text])
+    else:
+        known_type_members: dict[str, dict[str, bool]] = {}
         for identity, members in indexed_type_members.items():
             known_type_members.setdefault(identity, {}).update(members)
     for opening, (identity, _) in type_identities.items():
@@ -1678,22 +1680,32 @@ def _javascript_class_body_scopes(text: str) -> set[int]:
 
 def _javascript_timer_alias_positions(
     text: str,
-    aliases: set[str],
-    *,
-    member: Optional[str] = None,
+    alias_members: dict[str, Optional[str]],
 ) -> set[int]:
-    """Resolve imported timer aliases independently at each lexical call site."""
-    if not aliases:
+    """Resolve timer identifiers independently at each lexical call site."""
+    if not alias_members:
         return set()
 
+    aliases = set(alias_members)
     alias_pattern = "|".join(
         re.escape(alias)
         for alias in sorted(aliases, key=len, reverse=True)
     )
+    alias_token = re.compile(
+        rf"(?<![$\w])(?:{alias_pattern})(?![$\w])"
+    )
+    member_pattern = "|".join(
+        re.escape(member)
+        for member in sorted(
+            {
+                member
+                for member in alias_members.values()
+                if member is not None
+            }
+        )
+    )
     call_suffix = (
-        rf"\s*\.\s*(?P<member>{re.escape(member)})\s*\("
-        if member is not None
-        else r"\s*\("
+        rf"(?:\s*\.\s*(?P<member>{member_pattern}))?\s*\("
     )
     event_pattern = re.compile(
         "|".join(
@@ -1726,6 +1738,11 @@ def _javascript_timer_alias_positions(
     callable_parameter_bindings: dict[int, set[str]] = {}
     callable_parameter_ranges: list[tuple[int, int]] = []
     for body_opening in re.finditer(r"\{", text):
+        prefix = text[
+            max(0, body_opening.start() - 4096) : body_opening.start()
+        ]
+        if alias_token.search(prefix) is None:
+            continue
         shadowed, parameter_range = _javascript_callable_parameter_scope(
             text,
             body_opening.start(),
@@ -1890,6 +1907,9 @@ def _javascript_timer_alias_positions(
             continue
 
         alias = event.group("called")
+        member = event.group("member")
+        if member != alias_members[alias]:
+            continue
         previous = event.start("called") - 1
         while previous >= 0 and text[previous].isspace():
             previous -= 1
@@ -1935,32 +1955,20 @@ def _javascript_real_sleep_positions(
     # replaced by parameters or local fake-clock bindings. Resolve them with
     # the same scope model used for trusted timer imports instead of trusting
     # their spelling alone.
-    record(_javascript_timer_alias_positions(text, {"setTimeout"}))
-    record(
-        _javascript_timer_alias_positions(
-            text,
-            {"Bun"},
-            member="sleep",
-        )
-    )
-    record(
-        _javascript_timer_alias_positions(
-            text,
-            {"global", "globalThis", "self", "window"},
-            member="setTimeout",
-        )
-    )
-
-    timer_aliases = _javascript_timer_aliases(raw_text, text)
-    record(_javascript_timer_alias_positions(text, timer_aliases))
+    alias_members: dict[str, Optional[str]] = {
+        "setTimeout": None,
+        "Bun": "sleep",
+        "global": "setTimeout",
+        "globalThis": "setTimeout",
+        "self": "setTimeout",
+        "window": "setTimeout",
+    }
+    for alias in _javascript_timer_aliases(raw_text, text):
+        alias_members[alias] = None
     timer_namespaces = _javascript_timer_namespaces(raw_text, text)
-    record(
-        _javascript_timer_alias_positions(
-            text,
-            timer_namespaces,
-            member="setTimeout",
-        )
-    )
+    for namespace in timer_namespaces:
+        alias_members[namespace] = "setTimeout"
+    record(_javascript_timer_alias_positions(text, alias_members))
     return positions
 
 
@@ -6120,6 +6128,7 @@ def scan_text(
     rel_posix: str,
     text: str,
     swift_type_members: Optional[dict[str, dict[str, bool]]] = None,
+    precomputed_masked_lines: Optional[list[str]] = None,
 ) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
@@ -6135,7 +6144,11 @@ def scan_text(
     if suffix == ".sh":
         has_sleep_candidate = "sleep" in text
     masked_lines = (
-        _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
+        precomputed_masked_lines
+        if has_sleep_candidate and precomputed_masked_lines is not None
+        else _mask_noncode(raw_lines, suffix)
+        if has_sleep_candidate
+        else code_lines
     )
     known_sleep_positions: Optional[dict[int, set[int]]] = None
     known_sleep_end_positions: Optional[
@@ -6266,20 +6279,57 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
                 continue
             sources.append((rel_posix, text))
 
-    swift_sources_by_module: dict[str, list[str]] = {}
+    swift_masked_lines_by_path: dict[str, list[str]] = {}
+    swift_needed_types_by_module: dict[str, set[str]] = {}
     for rel_posix, text in sources:
         if (
             pathlib.PurePosixPath(rel_posix).suffix != ".swift"
+            or "extension" not in text
+            or "sleep" not in text
+        ):
+            continue
+        masked_lines = _mask_noncode(text.splitlines(), ".swift")
+        swift_masked_lines_by_path[rel_posix] = masked_lines
+        identities = _swift_type_scope_identities("\n".join(masked_lines))
+        extension_types = {
+            identity
+            for identity, is_extension in identities.values()
+            if is_extension
+        }
+        if extension_types:
+            swift_needed_types_by_module.setdefault(
+                _swift_candidate_module(rel_posix),
+                set(),
+            ).update(extension_types)
+
+    swift_sources_by_module: dict[str, list[str]] = {}
+    for rel_posix, text in sources:
+        module = _swift_candidate_module(rel_posix)
+        needed_types = swift_needed_types_by_module.get(module)
+        if (
+            not needed_types
+            or pathlib.PurePosixPath(rel_posix).suffix != ".swift"
             or (
                 "ContinuousClock" not in text
                 and "SuspendingClock" not in text
             )
+            or not any(identity in text for identity in needed_types)
+        ):
+            continue
+        masked_lines = swift_masked_lines_by_path.get(rel_posix)
+        if masked_lines is None:
+            masked_lines = _mask_noncode(text.splitlines(), ".swift")
+            swift_masked_lines_by_path[rel_posix] = masked_lines
+        identities = _swift_type_scope_identities("\n".join(masked_lines))
+        if not any(
+            not is_extension and identity in needed_types
+            for identity, is_extension in identities.values()
         ):
             continue
         swift_sources_by_module.setdefault(
-            _swift_candidate_module(rel_posix),
+            module,
             [],
-        ).append("\n".join(_mask_noncode(text.splitlines(), ".swift")))
+        ).append("\n".join(masked_lines))
     swift_type_members_by_module = {
         module: _swift_standard_clock_members_by_type(texts)
         for module, texts in swift_sources_by_module.items()
@@ -6292,6 +6342,7 @@ def collect_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Find
                 swift_type_members_by_module.get(
                     _swift_candidate_module(rel_posix),
                 ),
+                swift_masked_lines_by_path.get(rel_posix),
             )
         )
     findings.sort(key=lambda f: (f.path, f.line, f.rule))
