@@ -12,10 +12,10 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `13a8b53d3`, the head of
-https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless hidden-tab
-renderer reclamation and forced renderer rebuild transactions on top of the
-current `manaflow-ai/ghostty` `main` merge head, `0b1734f1e`.
+The submodule pinned by this branch is `facfef23a`, the reviewed head of the
+merged https://github.com/manaflow-ai/ghostty/pull/153. It adds lossless
+hidden-tab renderer reclamation and forced renderer rebuild transactions. The
+PR landed on `manaflow-ai/ghostty` `main` in merge commit `1e86b46e2`.
 
 ### Hidden macOS renderer reclamation
 
@@ -49,6 +49,14 @@ current `manaflow-ai/ghostty` `main` merge head, `0b1734f1e`.
   - `978e08759` (renderer: complete restore transaction semantics)
   - `970dbe093` (test: preserve forced renderer rebuild requests)
   - `13a8b53d3` (renderer: preserve forced rebuild transactions)
+  - `735157526` (test: stop retrying missing renderer surfaces)
+  - `1968317a3` (macos: stop retrying missing renderer surfaces)
+  - `2907a1959` (test: preserve compositor-owned targets during clear)
+  - `5495e912d` (renderer: preserve compositor-owned targets through clear)
+  - `ce4d4842b` (test: require nonpurging target release)
+  - `288fa8cac` (renderer: release presented targets without purge)
+  - `bef29c98f` (test: hand external renderer retries to loop owner)
+  - `facfef23a` (renderer: hand external retries to loop owner)
 - Files:
   - `include/ghostty.h`
   - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
@@ -76,17 +84,26 @@ current `manaflow-ai/ghostty` `main` merge head, `0b1734f1e`.
     transition cannot be coalesced away when a hidden surface becomes ready.
   - Drains outstanding frame leases and detaches the compositor layer before
     releasing teardown-only Metal resources.
+  - Stops retrying reclamation when a native macOS surface no longer exists,
+    instead of waking the renderer indefinitely for a surface that cannot
+    return.
+  - Keeps compositor-owned IOSurfaces alive until the queued layer clear has
+    finished, and releases presented targets without making shared IOSurfaces
+    purgeable.
+  - Hands external-render retry scheduling back to the xev loop owner instead
+    of mutating loop timers from the iOS external render queue.
   - Shares immutable standard shader pipelines by Metal device and pixel
     format while preserving renderer-owned resources and transactional cleanup.
   - Observes native tab selection conservatively and avoids synchronous
     renderer-to-main waits during teardown.
   - Conflict note: future renderer lifecycle work must preserve lossless
     realization publication, forced rebuild transactions, bounded recovery,
+    compositor-owned IOSurface lifetimes, loop-owned retry timers,
     conservative tab selection, and off-main teardown without synchronous
     main-queue waits.
 
-The pinned `13a8b53d3` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-13a8b53d3be375f70574f1b841f301ec0e9f922b-crashsubdir-cmux-crash-v1
+The pinned `facfef23a` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-facfef23a00ef87f7ce85a82170d619f28b60690-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### `os/open` stderr drain spin and zombie leak
