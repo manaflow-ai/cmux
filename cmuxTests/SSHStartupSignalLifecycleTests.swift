@@ -788,7 +788,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
     }
 
-    private func generatedVMSSHInitialStartupCommand() throws -> String {
+    func generatedVMSSHInitialStartupCommand() throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-ssh-startup")
         let listenerFD = try bindUnixSocket(at: socketPath)
