@@ -55,7 +55,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     @MainActor
     func sidebarResizerCursorReleaseSchedulerReleasesSupersededClosuresBeforeFinalDeadline() async {
         let clock = SidebarTestManualClock()
