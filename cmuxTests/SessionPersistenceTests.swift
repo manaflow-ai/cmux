@@ -4880,6 +4880,144 @@ extension SessionPersistenceTests {
         XCTAssertNil(binding.environment?["SERVICE_TOKEN"])
     }
 
+    func testSurfaceResumeGeneralizedApprovalPrefix() {
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "claude --resume 5f0c9e2a"
+            ),
+            ["claude", "--resume"]
+        )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "codex resume 01977abc --yolo"
+            ),
+            ["codex", "resume"]
+        )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "cd /x && claude --resume abc"
+            ),
+            ["cd", "/x", "&&", "claude", "--resume"]
+        )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "FOO=1 claude --resume abc"
+            ),
+            ["FOO=1", "claude", "--resume"]
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "claude"
+            )
+        )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "'claude' '--resume' 'session id'"
+            ),
+            ["claude", "--resume"]
+        )
+    }
+
+    func testSurfaceResumeGeneralizedApprovalMatchesDifferentSessionInSameFolder() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let firstBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume first-session",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let prefix = try XCTUnwrap(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: firstBinding.command
+            )
+        )
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: firstBinding,
+            policy: .auto,
+            commandPrefix: prefix,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        let secondBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume second-session",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let differentFolderBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume second-session",
+            cwd: "/tmp/other-project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        XCTAssertEqual(record.commandPrefix, ["claude", "--resume"])
+        XCTAssertTrue(record.matches(secondBinding))
+        XCTAssertFalse(record.matches(differentFolderBinding))
+    }
+
+    func testSurfaceResumeGeneralizedAutoApprovalDoesNotPromptForMatchingProposal() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let firstBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume first-session",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let prefix = try XCTUnwrap(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: firstBinding.command
+            )
+        )
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: firstBinding,
+            policy: .auto,
+            commandPrefix: prefix,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        let secondBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume second-session",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        XCTAssertTrue(record.matches(secondBinding))
+        XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
+            binding: secondBinding,
+            existingRecord: record,
+            isMainThread: true,
+            isRunningTests: false
+        ))
+    }
+
+    @MainActor
+    func testSurfaceResumeRunPromptBatchStickySemantics() {
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        defer { batch.reset() }
+
+        XCTAssertNil(batch.stickyDecision)
+
+        batch.stickyDecision = .runAll
+        guard case .runAll? = batch.stickyDecision else {
+            XCTFail("Expected run-all sticky decision")
+            return
+        }
+
+        batch.stickyDecision = .skipAll
+        guard case .skipAll? = batch.stickyDecision else {
+            XCTFail("Expected skip-all sticky decision")
+            return
+        }
+
+        batch.reset()
+        XCTAssertNil(batch.stickyDecision)
+    }
+
     func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
         let storeURL = try makeSurfaceResumeApprovalStoreURL()
         let secret = Data("approval-secret".utf8)
