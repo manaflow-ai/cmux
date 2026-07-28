@@ -4545,6 +4545,12 @@ struct WorkspaceForkConversationContextMenuTests {
                 liveAgentIndex: liveAgentIndex
             ) == .agentIndexRefreshing
         )
+        let refreshingSelection = workspace.forkAgentConversationContextMenuOpenSelection(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
+        )
+        #expect(refreshingSelection.availability == .agentIndexRefreshing)
+        #expect(refreshingSelection.validationFallbackSnapshot?.sessionId == snapshotWithExecutable.sessionId)
 
         await workspace.resolveForkAgentConversationContextMenuAvailability(
             forPanelId: panelId,

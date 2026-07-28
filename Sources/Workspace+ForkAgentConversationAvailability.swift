@@ -198,7 +198,11 @@ extension Workspace {
                     isRemoteContext: isRemoteContext,
                     fallbackSnapshot: snapshotSource.validationFallbackSnapshot
                 ) else {
-                    return (.agentIndexRefreshing, nil, nil)
+                    return (
+                        .agentIndexRefreshing,
+                        nil,
+                        snapshotSource.validationFallbackSnapshot
+                    )
                 }
                 if liveAgentIndex.forkSupportProbeAccepted(
                     workspaceId: id,
@@ -220,7 +224,11 @@ extension Workspace {
                 ) {
                     return (.unsupported, nil, nil)
                 }
-                return (.agentIndexRefreshing, nil, nil)
+                return (
+                    .agentIndexRefreshing,
+                    nil,
+                    snapshotSource.validationFallbackSnapshot
+                )
             }
         }
 
