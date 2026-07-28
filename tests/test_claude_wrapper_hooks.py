@@ -490,12 +490,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             failures,
         )
     expect(real_argv[-1] == "hello", f"live socket: expected original arg to pass through, got {real_argv}", failures)
-    expect(any(" ping" in line for line in cmux_log), f"live socket: expected cmux ping, got {cmux_log}", failures)
-    expect(
-        any("timeout=0.75" in line for line in cmux_log),
-        f"live socket: expected bounded ping timeout, got {cmux_log}",
-        failures,
-    )
+    expect(cmux_log == [], f"live socket: launch should not probe transient socket health: {cmux_log}", failures)
     expect(claudecode == "__UNSET__", f"live socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
     require_flag, _, remaining_flags = node_options.partition(" ")
     expect(
@@ -1105,9 +1100,8 @@ def test_live_socket_resume_self_heals_bare_legacy_subrouter_config_dir(failures
 
 def test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures: list[str]) -> None:
     # App restore can launch terminal startup commands before the cmux socket is
-    # accepting pings. Hook injection should be skipped in that window, but
-    # explicit `--resume` still has to select the config root that owns the
-    # transcript or Claude reports "No conversation found".
+    # accepting requests. Hook injection must survive that window, and explicit
+    # `--resume` still has to select the config root that owns the transcript.
     session_id = "5b5d0816-ef91-4a8d-8933-68a114787c40"
     expected: dict[str, str] = {}
 
@@ -1134,8 +1128,8 @@ def test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures: l
     )
     expect(code == 0, f"stale socket resume self-heal: wrapper exited {code}: {stderr}", failures)
     expect(
-        real_argv == ["--resume", session_id],
-        f"stale socket resume self-heal: expected passthrough resume argv, got {real_argv}",
+        "--settings" in real_argv and real_argv[-2:] == ["--resume", session_id],
+        f"stale socket resume self-heal: expected instrumented resume argv, got {real_argv}",
         failures,
     )
     expect(
@@ -1147,9 +1141,8 @@ def test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures: l
 
 
 def test_stale_socket_resume_self_heals_after_value_option(failures: list[str]) -> None:
-    # The stale-socket path runs before hook injection. Its resume parser still
-    # has to skip value-taking options that appear before `--resume`, including
-    # newer Claude options that are not in cmux's preserved-argument allowlists.
+    # Resume parsing still has to skip value-taking options before `--resume`,
+    # including newer Claude options outside cmux's preserved-argument lists.
     session_id = "017427ef-1828-43d9-ae1d-8ec6d4b2bdb7"
     expected: dict[str, str] = {}
 
@@ -1176,8 +1169,9 @@ def test_stale_socket_resume_self_heals_after_value_option(failures: list[str]) 
     )
     expect(code == 0, f"stale socket option resume self-heal: wrapper exited {code}: {stderr}", failures)
     expect(
-        real_argv == ["--permission-prompt-tool", "/tmp/cmux-permission-tool", "--resume", session_id],
-        f"stale socket option resume self-heal: expected passthrough argv, got {real_argv}",
+        "--settings" in real_argv
+        and real_argv[-4:] == ["--permission-prompt-tool", "/tmp/cmux-permission-tool", "--resume", session_id],
+        f"stale socket option resume self-heal: expected instrumented argv, got {real_argv}",
         failures,
     )
     expect(
@@ -1769,7 +1763,7 @@ def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[
     expect(code == 0, f"tmpdir failure: wrapper exited {code}: {stderr}", failures)
     expect("--settings" in real_argv, f"tmpdir failure: missing --settings in args: {real_argv}", failures)
     expect("--session-id" in real_argv, f"tmpdir failure: missing --session-id in args: {real_argv}", failures)
-    expect(any(" ping" in line for line in cmux_log), f"tmpdir failure: expected cmux ping, got {cmux_log}", failures)
+    expect(cmux_log == [], f"tmpdir failure: launch should not probe transient socket health: {cmux_log}", failures)
     expect(claudecode == "__UNSET__", f"tmpdir failure: expected CLAUDECODE unset, got {claudecode!r}", failures)
     expect(node_options == "__UNSET__", f"tmpdir failure: expected NODE_OPTIONS injection to be skipped, got {node_options!r}", failures)
     expect(runtime_node_options == "__UNSET__", f"tmpdir failure: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)

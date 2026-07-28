@@ -68,19 +68,6 @@ find_real_codex() {
     return 1
 }
 
-# Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
-cmux_socket_available() {
-    local socket="${CMUX_SOCKET_PATH:-}"
-    [[ -n "$socket" && -S "$socket" ]] || return 1
-
-    local cmux_bin
-    cmux_bin="$(resolve_hook_cmux_bin)"
-    [[ -n "$cmux_bin" ]] || return 1
-
-    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
-        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
-}
-
 resolve_hook_cmux_bin() {
     local self_dir bundled_cli
     bundled_cli="${CMUX_BUNDLED_CLI_PATH:-}"
@@ -252,11 +239,15 @@ exec_real_codex_passthrough() {
     exec "$REAL_CODEX" "$@"
 }
 
-# Opt-out, outside cmux, or stale/dead socket: pass straight through.
+# Hook ownership is a launch invariant, not a point-in-time socket-health
+# decision. During app restore the socket can briefly miss a ping while this
+# wrapper is starting; dropping injection then would remove every later Stop
+# notification for the lifetime of the resumed session. Each hook remains
+# best-effort and independently reconnects when its event fires.
 if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
     exec_real_codex_passthrough "$@"
 fi
-if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
+if [[ "$IN_CMUX" == "0" ]]; then
     exec_real_codex_passthrough "$@"
 fi
 
@@ -301,9 +292,11 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 # and pid from CMUX_CODEX_PID, re-binding the resumed session to its live pid and
 # flipping it back to idle/editable. Fire-and-forget (backgrounded + disowned) so
 # it never blocks the launch; best-effort so a failure can never break `codex`.
+unset CMUX_AGENT_RESUME_LAUNCH
 cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
 if [[ -n "$cmux_codex_resume_sid" \
       && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
+    export CMUX_AGENT_RESUME_LAUNCH=1
     cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\"}"
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
         ( printf '%s' "$cmux_codex_resume_payload" \

@@ -63,6 +63,7 @@ done
   printf 'CMUX_CODEX_PID=%s\\n' "${CMUX_CODEX_PID-__UNSET__}"
   printf 'CMUX_CODEX_HOOK_CMUX_BIN=%s\\n' "${CMUX_CODEX_HOOK_CMUX_BIN-__UNSET__}"
   printf 'CMUX_AGENT_LAUNCH_KIND=%s\\n' "${CMUX_AGENT_LAUNCH_KIND-__UNSET__}"
+  printf 'CMUX_AGENT_RESUME_LAUNCH=%s\\n' "${CMUX_AGENT_RESUME_LAUNCH-__UNSET__}"
 } > "$FAKE_REAL_ENV_LOG"
 """,
         )
@@ -163,6 +164,8 @@ def assert_resume_is_instrumented(socket_state: str, failures: list[str]) -> Non
            f"{label}: missing Codex process identity: {observed_env}", failures)
     expect(observed_env.get("CMUX_AGENT_LAUNCH_KIND") == "codex",
            f"{label}: missing launch kind: {observed_env}", failures)
+    expect(observed_env.get("CMUX_AGENT_RESUME_LAUNCH") == "1",
+           f"{label}: missing resume diagnostic marker: {observed_env}", failures)
 
 
 def test_resume_hook_injection_survives_transient_startup_outages(failures: list[str]) -> None:
