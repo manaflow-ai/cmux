@@ -18,10 +18,14 @@ extension GhosttyApp {
 
         Task { @MainActor [weak requestSurfaceView] in
             requestSurfaceView?.beginReservedClipboardRead(clipboardRequestID)
-            guard let requestSurfaceIdentity = TerminalClipboardRequestSurfaceIdentity(
-                terminalSurface: callbackContext.terminalSurface
-            ),
-                  let requestSurface = callbackContext.terminalSurface?.surface,
+            guard let requestTerminalSurface = callbackContext.terminalSurface,
+                  requestTerminalSurface.isActiveRuntimeCallbackContext(
+                    callbackContext
+                  ),
+                  let requestSurfaceIdentity = TerminalClipboardRequestSurfaceIdentity(
+                    terminalSurface: requestTerminalSurface
+                  ),
+                  let requestSurface = requestTerminalSurface.surface,
                   let preparationService = requestSurfaceView?
                     .imageTransferPreparation else {
                 requestSurfaceView?.completeClipboardRead(
@@ -38,7 +42,7 @@ extension GhosttyApp {
                             confirmed: false
                         )
                     }
-                    guard requestSurfaceIdentity.matches(callbackContext.terminalSurface) else { return }
+                    guard requestSurfaceIdentity.matches(requestTerminalSurface) else { return }
                     // Remote tmux mirror panes need tmux to bracket the paste
                     // because the local manual-I/O surface cannot know the
                     // remote pane's bracketed-paste mode.
@@ -57,7 +61,7 @@ extension GhosttyApp {
                             false
                         )
                     }
-                    callbackContext.terminalSurface?.noteClipboardReadCompleted()
+                    requestTerminalSurface.noteClipboardReadCompleted()
                 }
             }
 
@@ -75,7 +79,7 @@ extension GhosttyApp {
                 using: preparationService
             )
 
-            guard requestSurfaceIdentity.matches(callbackContext.terminalSurface) else {
+            guard requestSurfaceIdentity.matches(requestTerminalSurface) else {
                 if case .fileURLs(let fileURLs) = preparedContent {
                     terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                 }
@@ -98,15 +102,16 @@ extension GhosttyApp {
                 completeClipboardRequest(with: text)
             case .fileURLs(let fileURLs):
                 let operation = TerminalImageTransferOperation()
-                callbackContext.terminalSurface?.hostedView.beginImageTransferIndicator(
+                let indicatorView = requestTerminalSurface.hostedView
+                indicatorView.beginImageTransferIndicator(
                     for: operation,
                     onCancel: {
                         completeClipboardRequest(with: "")
                     }
                 )
 
-                let target = callbackContext.terminalSurface?
-                    .resolvedImageTransferTarget() ?? .local
+                let target = requestTerminalSurface
+                    .resolvedImageTransferTarget()
                 let plan = TerminalImageTransferPlanner.plan(
                     fileURLs: fileURLs,
                     target: target
@@ -117,6 +122,7 @@ extension GhosttyApp {
                     operation: operation,
                     callbackContext: callbackContext,
                     surfaceIdentity: requestSurfaceIdentity,
+                    indicatorView: indicatorView,
                     completeClipboardRequest: completeClipboardRequest
                 )
 
@@ -127,9 +133,9 @@ extension GhosttyApp {
                         uploadWorkspaceRemote: { fileURLs, operation, finish in
                             guard let workspace = MainActor.assumeIsolated({
                                 guard requestSurfaceIdentity.matches(
-                                    callbackContext.terminalSurface
+                                    requestTerminalSurface
                                 ) else { return nil }
-                                return callbackContext.terminalSurface?.owningWorkspace()
+                                return requestTerminalSurface.owningWorkspace()
                             }) else {
                                 finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
                                 terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
@@ -146,7 +152,7 @@ extension GhosttyApp {
                         },
                         uploadDetectedSSH: { session, fileURLs, operation, finish in
                             guard MainActor.assumeIsolated({
-                                requestSurfaceIdentity.matches(callbackContext.terminalSurface)
+                                requestSurfaceIdentity.matches(requestTerminalSurface)
                             }) else {
                                 finish(.failure(NSError(domain: "cmux.remote.paste", code: 4)))
                                 terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
@@ -163,10 +169,7 @@ extension GhosttyApp {
                         },
                         insertText: { text in
                             MainActor.assumeIsolated {
-                                guard requestSurfaceIdentity.matches(
-                                    callbackContext.terminalSurface
-                                ) else { return }
-                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                indicatorView.endImageTransferIndicator(
                                     for: operation
                                 )
                             }
@@ -174,13 +177,12 @@ extension GhosttyApp {
                         },
                         onFailure: { _ in
                             let shouldPresentFailure = MainActor.assumeIsolated {
-                                guard requestSurfaceIdentity.matches(
-                                    callbackContext.terminalSurface
-                                ) else { return false }
-                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                indicatorView.endImageTransferIndicator(
                                     for: operation
                                 )
-                                return true
+                                return requestSurfaceIdentity.matches(
+                                    requestTerminalSurface
+                                )
                             }
                             if shouldPresentFailure {
                                 NSSound.beep()

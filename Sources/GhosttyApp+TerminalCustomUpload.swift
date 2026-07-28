@@ -8,6 +8,7 @@ extension GhosttyApp {
         operation: TerminalImageTransferOperation,
         callbackContext: GhosttySurfaceCallbackContext,
         surfaceIdentity: TerminalClipboardRequestSurfaceIdentity,
+        indicatorView: GhosttySurfaceScrollView,
         completeClipboardRequest: @escaping (String) -> Void
     ) -> Bool {
         TerminalCustomUploadRunner().handleIfMatched(
@@ -16,10 +17,8 @@ extension GhosttyApp {
             cleanup: { terminalPasteboard.cleanupTransferredTemporaryImageFiles($0) },
             completion: { result in
                 let shouldDeliverResult = MainActor.assumeIsolated {
-                    guard surfaceIdentity.matches(callbackContext.terminalSurface) else { return false }
-                    callbackContext.terminalSurface?.hostedView
-                        .endImageTransferIndicator(for: operation)
-                    return true
+                    indicatorView.endImageTransferIndicator(for: operation)
+                    return surfaceIdentity.matches(callbackContext.terminalSurface)
                 }
                 guard shouldDeliverResult else {
                     completeClipboardRequest("")
