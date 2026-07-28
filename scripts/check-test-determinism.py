@@ -2430,27 +2430,34 @@ def _python_bindings_after_statement(
                 body_bindings,
             )
             body_states.append(body_bindings.copy())
+            if not _python_statement_may_complete(body_statement):
+                break
         handler_entry = _python_merge_binding_variants(body_states)
-        completion_states = [
-            _python_bindings_after_block(
+        completion_states: list[dict[str, str]] = []
+        if _python_block_may_complete(statement.body):
+            success_bindings = _python_bindings_after_block(
                 statement.orelse,
                 body_bindings,
             )
-        ]
+            if _python_block_may_complete(statement.orelse):
+                completion_states.append(success_bindings)
         for handler in statement.handlers:
             handler_bindings = handler_entry.copy()
             if handler.name is not None:
                 handler_bindings[
                     handler.name
                 ] = _PYTHON_SHADOWED_BINDING
-            completion_states.append(
-                _python_bindings_after_block(
-                    handler.body,
-                    handler_bindings,
-                )
+            completed_handler_bindings = _python_bindings_after_block(
+                handler.body,
+                handler_bindings,
             )
-        completion_states.append(handler_entry)
-        merged = _python_merge_binding_variants(completion_states)
+            if _python_block_may_complete(handler.body):
+                completion_states.append(completed_handler_bindings)
+        merged = (
+            _python_merge_binding_variants(completion_states)
+            if completion_states
+            else bindings.copy()
+        )
         return _python_bindings_after_block(
             statement.finalbody,
             merged,
@@ -2481,7 +2488,11 @@ def _python_bindings_after_statement(
                         case_bindings,
                     )
                 )
-        return _python_merge_binding_variants(variants)
+        return (
+            _python_merge_binding_variants(variants)
+            if variants
+            else subject_bindings
+        )
 
     result = bindings.copy()
     result.update(_python_binding_updates(statement))
@@ -2707,6 +2718,14 @@ def _python_statement_may_complete(statement: ast.stmt) -> bool:
             for handler in statement.handlers
         )
         return successful or handled
+    match_type = getattr(ast, "Match", None)
+    if match_type is not None and isinstance(statement, match_type):
+        if not _python_match_is_exhaustive(statement.cases):
+            return True
+        return any(
+            _python_block_may_complete(case.body)
+            for case in statement.cases
+        )
     return True
 
 
@@ -3237,6 +3256,8 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             self._bind(node.name)
         for statement in node.body:
             self.visit(statement)
+            if not _python_statement_may_complete(statement):
+                break
 
     def _visit_try(
         self,
@@ -3252,19 +3273,32 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         for statement in body:
             self.visit(statement)
             prefix_states.append(self._scope_state())
-        for statement in orelse:
-            self.visit(statement)
-        states = [base, self._scope_state()]
+            if not _python_statement_may_complete(statement):
+                break
+        states: list[_PythonScopeState] = []
+        if _python_block_may_complete(body):
+            for statement in orelse:
+                self.visit(statement)
+                if not _python_statement_may_complete(statement):
+                    break
+            if _python_block_may_complete(orelse):
+                states.append(self._scope_state())
 
         handler_entry = self._merged_scope_state(prefix_states)
         for handler in handlers:
             self._restore_scope_state(handler_entry)
             self.visit(handler)
-            states.append(self._scope_state())
+            if _python_block_may_complete(handler.body):
+                states.append(self._scope_state())
 
-        self._merge_scope_states(states)
+        if states:
+            self._merge_scope_states(states)
+        else:
+            self._restore_scope_state(base)
         for statement in finalbody:
             self.visit(statement)
+            if not _python_statement_may_complete(statement):
+                break
 
     def visit_Try(self, node: ast.Try) -> None:
         self._visit_try(
@@ -3309,7 +3343,10 @@ class _PythonSleepVisitor(ast.NodeVisitor):
                     break
             if _python_block_may_complete(case.body):
                 states.append(self._scope_state())
-        self._merge_scope_states(states)
+        if states:
+            self._merge_scope_states(states)
+        else:
+            self._restore_scope_state(base)
 
     def _visit_comprehension(
         self,
