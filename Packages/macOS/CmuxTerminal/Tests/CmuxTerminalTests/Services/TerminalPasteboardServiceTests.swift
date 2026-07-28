@@ -408,4 +408,51 @@ struct ImageMaterializationTests {
         #expect(FileManager.default.fileExists(atPath: symlink.path))
         #expect(FileManager.default.fileExists(atPath: text.path))
     }
+
+    @Test func adoptionRejectsSymbolicLinkDestinationDirectory() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let workerDir = scratchDir.appendingPathComponent(
+            "worker",
+            isDirectory: true
+        )
+        let destinationTarget = scratchDir.appendingPathComponent(
+            "destination-target",
+            isDirectory: true
+        )
+        let destinationLink = scratchDir.appendingPathComponent(
+            "owned",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: workerDir,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createDirectory(
+            at: destinationTarget,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createSymbolicLink(
+            at: destinationLink,
+            withDestinationURL: destinationTarget
+        )
+        let source = workerDir.appendingPathComponent("prepared.png")
+        try tinyPNGData().write(to: source)
+        let service = TerminalPasteboardService(
+            temporaryDirectory: destinationLink
+        )
+
+        #expect(throws: (any Error).self) {
+            try service.adoptTemporaryImageFile(
+                source,
+                from: workerDir
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                atPath: destinationTarget.path
+            ).isEmpty
+        )
+    }
 }
