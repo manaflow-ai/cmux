@@ -258,18 +258,121 @@ extension MobileHostIrohRuntime {
         // transitions. The in-flight activation already observes endpoint
         // changes and replays one pending registration refresh after startup.
         guard transitionTask == nil else { return }
-        if runtime != nil {
-            let revision = lifecycleRevision
-            Task { @MainActor [weak self] in
-                guard let self,
-                      self.desiredActive,
-                      self.runtime != nil,
-                      revision == self.lifecycleRevision else { return }
-                await self.synchronizeLANPublicationWithSettings()
-            }
+        guard let activeRuntime = runtime else {
+            scheduleReconcile(eraseAccountState: false)
             return
         }
-        scheduleReconcile(eraseAccountState: false)
+        let revision = lifecycleRevision
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.desiredActive,
+                  self.runtime === activeRuntime,
+                  revision == self.lifecycleRevision else { return }
+            if await activeRuntime.snapshot().state == .failed {
+                guard self.desiredActive,
+                      !self.signOutIntentActive,
+                      self.runtime === activeRuntime,
+                      revision == self.lifecycleRevision else { return }
+                // A fresh external signal rebuilds a failed runtime now and
+                // restarts the recovery backoff ladder.
+                self.cancelFailureRecovery(resetBackoff: true)
+                self.scheduleReconcile(
+                    eraseAccountState: false,
+                    restartActiveRuntime: true
+                )
+                return
+            }
+            guard self.runtime === activeRuntime,
+                  revision == self.lifecycleRevision else { return }
+            await self.synchronizeLANPublicationWithSettings()
+        }
+    }
+
+    /// Arms one pending rebuild after bounded exponential backoff.
+    ///
+    /// `CmxIrohHostRuntime` fails closed on a non-transient broker rejection
+    /// (for example 401/403/409): it tears the endpoint down into a terminal
+    /// `.failed` phase so a rejected binding can never keep accepting
+    /// connections. Recovery is owned here instead: every failure arms one
+    /// rebuild through the shared `reconcile` path, and any external wake
+    /// signal (`retryIfNeeded`, sign-in, settings) re-evaluates immediately,
+    /// so a rejected registration recovers without an app relaunch.
+    /// Idempotent while an attempt is pending, so overlapping failure signals
+    /// (an activation throw plus the runtime's deactivation callback) cannot
+    /// double-schedule.
+    func scheduleFailureRecovery() {
+        guard failureRecoveryTask == nil,
+              desiredActive,
+              !signOutIntentActive,
+              observedAccountID != nil else { return }
+        let delay = failureRecoverySchedule.delay(
+            failureCount: failureRecoveryFailureCount,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: Double.random(in: 0 ... 1)
+        )
+        failureRecoveryFailureCount = min(failureRecoveryFailureCount + 1, 20)
+        let clock = failureRecoveryClock
+        let deadline = clock.now().addingTimeInterval(delay)
+        mobileHostIrohLog.error(
+            "Iroh host runtime failed; rebuild attempt \(self.failureRecoveryFailureCount) in \(Int(delay))s"
+        )
+        failureRecoveryTask = Task { @MainActor [weak self] in
+            do {
+                try await clock.sleep(until: deadline)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.failureRecoveryTask = nil
+            await self.recoverFailedRuntimeIfNeeded()
+        }
+    }
+
+    /// Rebuilds the host runtime when it is absent or terminally failed.
+    /// Level-triggered: the action is re-derived from current state, so a
+    /// stale wake-up is a no-op rather than a disruption.
+    func recoverFailedRuntimeIfNeeded() async {
+        guard desiredActive,
+              !signOutIntentActive,
+              observedAccountID != nil,
+              transitionTask == nil else { return }
+        guard let activeRuntime = runtime else {
+            scheduleReconcile(eraseAccountState: false)
+            return
+        }
+        let state = await activeRuntime.snapshot().state
+        guard state == .failed,
+              runtime === activeRuntime,
+              transitionTask == nil,
+              desiredActive,
+              !signOutIntentActive else { return }
+        scheduleReconcile(eraseAccountState: false, restartActiveRuntime: true)
+    }
+
+    /// Invoked from the active runtime's deactivation handler. Deliberate
+    /// stops (reconcile, settings restart, sign-out) bump `lifecycleRevision`
+    /// before stopping, so a matching revision means the runtime tore itself
+    /// down after a registration-refresh failure. Failed cold starts throw
+    /// before `runtime` is assigned; `reconcile`'s failure path owns
+    /// scheduling for those.
+    func noteActiveRuntimeDeactivated(revision: UInt64) async {
+        guard revision == lifecycleRevision,
+              desiredActive,
+              !signOutIntentActive,
+              let activeRuntime = runtime else { return }
+        let state = await activeRuntime.snapshot().state
+        guard state == .failed,
+              revision == lifecycleRevision,
+              runtime === activeRuntime else { return }
+        scheduleFailureRecovery()
+    }
+
+    func cancelFailureRecovery(resetBackoff: Bool) {
+        failureRecoveryTask?.cancel()
+        failureRecoveryTask = nil
+        if resetBackoff {
+            failureRecoveryFailureCount = 0
+        }
     }
 
     /// Applies the legacy-listener setting only to account-private Bonjour

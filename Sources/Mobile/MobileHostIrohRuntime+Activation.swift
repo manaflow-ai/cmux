@@ -344,7 +344,7 @@ extension MobileHostIrohRuntime {
                     }
                 )
             },
-            handleDeactivation: { _ in
+            handleDeactivation: { [weak self] _ in
                 await lanPublisher.stop()
                 await MainActor.run {
                     // The runtime owns the local Mac binding, while admitted
@@ -354,6 +354,7 @@ extension MobileHostIrohRuntime {
                     MobileHostService.shared.closeAllIrohConnections()
                     MobileHostService.shared.updateIrohBinding(nil)
                 }
+                await self?.noteActiveRuntimeDeactivated(revision: revision)
             },
             handleRelayCredential: { [weak self] response, binding in
                 guard await self?.allowsPersistence(
