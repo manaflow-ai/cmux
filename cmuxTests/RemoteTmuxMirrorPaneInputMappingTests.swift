@@ -1,4 +1,5 @@
 import AppKit
+import CmuxRemoteSession
 import Foundation
 import Testing
 import CmuxTerminal
@@ -166,6 +167,36 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         try expectDistinctSurfacesPerPane(mirror)
     }
 
+    @Test
+    func staleCachedActivePaneFallsBackToFirstLivePane() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@paneinput"),
+            sessionName: "input-map"
+        )
+        connection.activePaneByWindow[2] = 99
+        let layout = RemoteTmuxLayoutNode(
+            width: 80,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 0, y: 0, content: .pane(4)),
+                RemoteTmuxLayoutNode(width: 40, height: 24, x: 40, y: 0, content: .pane(5)),
+            ])
+        )
+
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 2,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            appearance: .default,
+            makePanel: { _ in nil }
+        )
+
+        #expect(mirror.activePaneId == 4)
+    }
+
     /// The reported repro: a window cmux first saw as a single pane, then split.
     /// After the split + the `%window-pane-changed` event tmux emits (the new pane
     /// becomes active), the outer workspace tab must remain a container rather
@@ -205,11 +236,13 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         let containerPanel = try #require(
             harness.workspace.panels[containerPanelId] as? TerminalPanel
         )
-        let originalPanePanel = try #require(mirror.panel(forPane: 4))
-        #expect(
-            containerPanel !== originalPanePanel,
-            "The outer workspace container must never also own an inner tmux pane"
-        )
+        for paneId in mirror.paneIDsInOrder {
+            let panePanel = try #require(mirror.panel(forPane: paneId))
+            #expect(
+                containerPanel !== panePanel,
+                "The outer workspace container must never also own inner tmux pane \(paneId)"
+            )
+        }
 
         // The freshly split pane is the one the user is looking at; it must be the
         // mirror's active/input target immediately, not the original pane.

@@ -24,7 +24,8 @@ extension RemoteTmuxWindowMirror {
 
     func seedActivePaneIfNeeded() {
         let live = renderedLayout.paneIDsInOrder
-        let seed = connection?.activePaneByWindow[windowId] ?? live.first
+        let remoteActive = connection?.activePaneByWindow[windowId]
+        let seed = remoteActive.flatMap { live.contains($0) ? $0 : nil } ?? live.first
         if activePaneId.map({ live.contains($0) }) != true, let seed {
             setActivePane(seed, fromTmux: true)
         } else if let activePaneId {
