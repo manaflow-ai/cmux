@@ -10928,14 +10928,12 @@ struct VerticalTabsSidebar: View, Equatable {
             tabs: tabs,
             groupsById: workspaceGroupById
         )
-        let numberedWorkspaceIds = SidebarWorkspaceRenderItem.numberedWorkspaceIds(
-            from: workspaceRenderItems
-        )
-        let numberedWorkspaceIndexById = Dictionary(
-            uniqueKeysWithValues: numberedWorkspaceIds.enumerated().map {
-                ($0.element, $0.offset)
-            }
-        )
+        var numberedWorkspaceIndexById: [UUID: Int] = [:]
+        numberedWorkspaceIndexById.reserveCapacity(workspaceRenderItems.count)
+        for item in workspaceRenderItems {
+            guard case .workspace(let workspaceId) = item else { continue }
+            numberedWorkspaceIndexById[workspaceId] = numberedWorkspaceIndexById.count
+        }
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         let draggedSidebarTabId = dragState.draggedTabId
         let dropIndicatorScope = dragState.dropIndicatorScope
