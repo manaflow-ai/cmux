@@ -5084,6 +5084,45 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
     }
 
+    func testConfigurationReloadRemainsActiveUntilAsyncReconciliationCompletes()
+        throws {
+#if DEBUG
+        let app = GhosttyApp.shared
+        let retainedPanels = (0..<16).map { _ in
+            TerminalPanel(
+                workspaceId: UUID(),
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        }
+        let reloadCompleted = expectation(
+            description: "asynchronous configuration reload completed"
+        )
+
+        app.reloadConfiguration(
+            source: "test.reloadLifetime",
+            reloadSettingsFromFile: false
+        ) {
+            reloadCompleted.fulfill()
+        }
+
+        XCTAssertEqual(
+            configurationReloadDepth(of: app),
+            1,
+            "Appearance synchronization must stay deferred while incremental reconciliation is pending"
+        )
+        wait(for: [reloadCompleted], timeout: 5)
+        XCTAssertEqual(
+            configurationReloadDepth(of: app),
+            0
+        )
+        withExtendedLifetime(retainedPanels) {}
+#else
+        throw XCTSkip(
+            "Configuration reload lifetime requires DEBUG"
+        )
+#endif
+    }
+
     func testReloadConfigSocketReplyWaitsForConfigurationCommit()
         throws {
 #if DEBUG
@@ -5129,6 +5168,16 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             "Configuration generation requires DEBUG"
         )
 #endif
+    }
+
+    private func configurationReloadDepth(
+        of app: GhosttyApp
+    ) -> Int? {
+        Mirror(reflecting: app).children
+            .first {
+                $0.label == "reloadConfigurationDepth"
+            }?
+            .value as? Int
     }
 
     func testConfigurationFontReconcilerLateWorkCannotExtendCapture() {
