@@ -144,7 +144,7 @@ private struct WorkspaceShellRenderPresentation {
 
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
-    let signOut: () -> Void
+    let signOut: @MainActor @Sendable () -> Void
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
@@ -176,17 +176,14 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
-    @Environment(ToastCenter.self) var toasts
     /// Legacy fallback while the Toasts beta flag is off: the old dismissible
     /// bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
+    @Environment(ToastCenter.self) var toasts
     @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
-    /// True once this shell has held a live connection, so only genuine
-    /// reconnections toast (the expected first attach stays silent).
-    @State private var hasHeldConnection = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -430,21 +427,7 @@ struct WorkspaceShellView: View {
             )
         }
         #endif
-        // `initial: true` primes `hasHeldConnection` when the view mounts
-        // already connected, so the first genuine reconnect still toasts.
-        .onChange(of: store.connectionState, initial: true) { _, state in
-            guard state == .connected else { return }
-            if hasHeldConnection {
-                toasts.present(.success(
-                    L10n.string(
-                        "mobile.connection.reconnectedToast",
-                        defaultValue: "Reconnected to your Mac."
-                    ),
-                    coalescingKey: "connection.reconnected"
-                ))
-            }
-            hasHeldConnection = true
-        }
+        .connectionStatusToastPresenter(store: store)
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 
