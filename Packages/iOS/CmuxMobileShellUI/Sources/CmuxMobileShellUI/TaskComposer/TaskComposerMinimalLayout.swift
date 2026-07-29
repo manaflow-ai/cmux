@@ -197,11 +197,15 @@ struct TaskComposerMinimalLayout: View {
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.primary)
+            // A longer title must widen the capsule immediately; animating the
+            // frame clips the label against the stale width until it settles.
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
             .background(Color.primary.opacity(0.07), in: Capsule())
             .frame(minHeight: 44)
             .contentShape(Rectangle())
+            .id(selectedTemplate.map(agentPillTitle(for:)))
         }
         .tint(Color.primary)
         .disabled(isDisabled)
@@ -234,11 +238,15 @@ struct TaskComposerMinimalLayout: View {
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.primary)
+            // See agentPill: adopt the new title's width immediately instead
+            // of animating (and clipping) into it.
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
             .background(Color.primary.opacity(0.07), in: Capsule())
             .frame(minHeight: 44)
             .contentShape(Rectangle())
+            .id(selectedModelName)
         }
         .tint(Color.primary)
         .disabled(isDisabled)

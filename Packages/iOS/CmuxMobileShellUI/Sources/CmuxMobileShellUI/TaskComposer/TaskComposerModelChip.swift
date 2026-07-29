@@ -22,6 +22,9 @@ struct TaskComposerModelChip: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.primary)
                 .lineLimit(1)
+                // Adopt a longer model name's width immediately; animating the
+                // capsule clips the label against the stale width.
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 10)
                 .frame(minHeight: 28)
                 .background(Color.primary.opacity(0.06), in: Capsule())
