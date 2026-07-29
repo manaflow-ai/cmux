@@ -22,6 +22,7 @@ actor LivenessHostRouter {
         var method: String?
         var topics: [String]?
         var workspaceID: String?
+        var streamID: String?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -33,6 +34,7 @@ actor LivenessHostRouter {
     )] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
+    private var delayedHostStatusRequestNumbers: Set<Int> = []
     private var omittedHostIdentityResponsesRemaining = 0
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
@@ -96,11 +98,17 @@ actor LivenessHostRouter {
         heldSyncFetchRequestNumbers.insert(number)
     }
 
-    func record(method: String?, topics: [String]?, workspaceID: String? = nil) {
+    func record(
+        method: String?,
+        topics: [String]?,
+        workspaceID: String? = nil,
+        streamID: String? = nil
+    ) {
         recorded.append(RecordedRequest(
             method: method,
             topics: topics,
-            workspaceID: workspaceID
+            workspaceID: workspaceID,
+            streamID: streamID
         ))
         resumeSatisfiedCountWaiters()
     }
@@ -202,6 +210,10 @@ actor LivenessHostRouter {
         recorded.filter { $0.method == method }.map(\.workspaceID)
     }
 
+    func streamIDs(for method: String) -> [String?] {
+        recorded.filter { $0.method == method }.map(\.streamID)
+    }
+
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
     }
@@ -255,6 +267,13 @@ actor LivenessHostRouter {
     /// a host that stopped answering on a half-dead transport.
     func holdHostStatusRequest(number: Int) {
         heldHostStatusRequestNumbers.insert(number)
+    }
+
+    /// Delay the Nth status response until released, then return its ordinary
+    /// payload. Unlike ``holdHostStatusRequest``, this models a slow healthy
+    /// dial instead of a half-dead transport.
+    func delayHostStatusRequest(number: Int) {
+        delayedHostStatusRequestNumbers.insert(number)
     }
 
     /// Hold the Nth workspace-list response so tests can change persisted
@@ -339,6 +358,7 @@ actor LivenessHostRouter {
     func releaseAllHeld() {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
+        delayedHostStatusRequestNumbers = []
         heldWorkspaceListRequestNumbers = []
         heldSubscribeRequestNumbers = []
         heldUnsubscribeRequestNumbers = []
@@ -400,6 +420,11 @@ actor LivenessHostRouter {
             if heldHostStatusRequestNumbers.contains(hostStatusRequestCount) {
                 await park()
                 return nil
+            }
+            if delayedHostStatusRequestNumbers.contains(
+                hostStatusRequestCount
+            ) {
+                await park()
             }
             var result: [String: Any] = [
                 "terminal_fidelity": "render_grid",
@@ -643,7 +668,8 @@ actor LivenessTransport: CmxByteTransport {
             await router.record(
                 method: method,
                 topics: topics,
-                workspaceID: params?["workspace_id"] as? String
+                workspaceID: params?["workspace_id"] as? String,
+                streamID: streamID
             )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's

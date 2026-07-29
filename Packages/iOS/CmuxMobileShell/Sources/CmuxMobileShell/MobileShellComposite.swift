@@ -4137,17 +4137,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Filter exact saved instances by live presence before coalescing their
         // shared physical-Mac identity. Otherwise a fresher offline tag can win
         // coalescing and hide another paired tag that is online right now.
-        let onlineLoadedMacs = visibleLoadedMacs.filter { mac in
-            guard presence != nil else { return true }
-            let summary = if let instanceTag = mac.instanceTag {
-                presenceMap.instanceSummary(
-                    deviceId: mac.macDeviceID,
-                    tag: instanceTag
-                )
-            } else {
-                presenceMap.deviceSummary(deviceId: mac.macDeviceID)
-            }
-            return summary?.online == true
+        let onlineLoadedMacs = visibleLoadedMacs.filter {
+            isSecondaryMacOnlineInCurrentPresence(
+                $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            )
         }
         let physicalMacs = Self.coalescePairedMacsByCanonicalDeviceID(onlineLoadedMacs)
         let endpointDistinctMacs = Self.coalescePairedMacsByDialEndpoint(
@@ -4223,6 +4217,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }.prefix(Self.maximumWarmControlConnectionCount))
     }
 
+    private func isSecondaryMacOnlineInCurrentPresence(
+        _ macDeviceID: String,
+        instanceTag: String?
+    ) -> Bool {
+        guard presence != nil else { return true }
+        let summary = if let instanceTag {
+            presenceMap.instanceSummary(
+                deviceId: macDeviceID,
+                tag: instanceTag
+            )
+        } else {
+            presenceMap.deviceSummary(deviceId: macDeviceID)
+        }
+        return summary?.online == true
+    }
+
     /// Open a persistent read-only connection to `mac`, seed its workspace state,
     /// then run a live `workspace.updated` consumer that re-fetches its list on
     /// each change. Fully best-effort: on any failure the entry is torn down and
@@ -4294,6 +4304,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               ) else {
             await client.disconnect()
             return .permanentFailure
+        }
+        // Presence reconciliation may run while the client is dialing.
+        // Revalidate synchronously at publication so an offline edge that
+        // observed no owner cannot be overwritten by the old pass.
+        guard isSecondaryMacOnlineInCurrentPresence(
+            macID,
+            instanceTag: handle.storedInstanceTag
+        ) else {
+            markSecondaryMacUnavailable(macID)
+            await client.disconnect()
+            return .superseded
         }
         let subscription = SecondaryMacSubscription(
             macDeviceID: macID,
@@ -4682,7 +4703,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryControlKeepaliveTaskGeneration = UUID()
         secondaryControlKeepaliveTask = nil
         keepalive?.cancel()
-        await keepalive?.value
+        // The target's keyed operation is drained above. Do not await the
+        // shared timer owner because it may still be awaiting an unrelated
+        // Mac's reassertion; cancellation fences it from reaching the target.
         // Resume the shared owner for every other control connection. The
         // promoting target remains fenced and is skipped by each tick.
         if !secondaryMacSubscriptions.isEmpty {
@@ -8465,10 +8488,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 return
             }
-            // Promotion suppresses recovery only for its initial handoff
-            // handshake. Publish success before the event loop can end so every
-            // later stream closure resumes ordinary focused recovery.
-            await subscriptionReadiness?.resolve(true)
+            // Keep every MainActor mutation before publishing readiness. The
+            // cross-actor readiness hop can admit a cancellation or newer
+            // listener, and a stale acknowledgement must never mutate that
+            // replacement connection after it resumes.
             self.recordSuccessfulTerminalSubscription()
             self.markMacConnectionHealthy()
             didSubscribe = true
@@ -8482,6 +8505,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // stale until the next unrelated change.)
             self.beginStateSyncNegotiation(client: client)
             self.scheduleNotificationReconcile(client: client)
+            // Promotion suppresses recovery only for its initial handoff
+            // handshake. Publish success after the listener state is committed
+            // so every later stream closure resumes ordinary focused recovery.
+            await subscriptionReadiness?.resolve(true)
         }
     }
 
