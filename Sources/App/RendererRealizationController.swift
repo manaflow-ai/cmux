@@ -39,6 +39,7 @@ final class RendererRealizationController {
     private var scheduledReclaimDeadline: TimeInterval?
     private var settingsObserver: NSObjectProtocol?
     private var portalVisibilityObserver: NSObjectProtocol?
+    private var portalVisibilityEvaluationTask: Task<Void, Never>?
     private var systemMemoryPressureRetryTask: Task<Void, Never>?
 
     private init() {}
@@ -55,7 +56,7 @@ final class RendererRealizationController {
                 queue: .main
             ) { _ in
                 Task { @MainActor in
-                    RendererRealizationController.shared.evaluate(now: Date())
+                    RendererRealizationController.shared.schedulePortalVisibilityEvaluation()
                 }
             }
         }
@@ -82,6 +83,8 @@ final class RendererRealizationController {
         timer?.cancel()
         timer = nil
         cancelReclaimDeadlineTask()
+        portalVisibilityEvaluationTask?.cancel()
+        portalVisibilityEvaluationTask = nil
         systemMemoryPressureRetryTask?.cancel()
         systemMemoryPressureRetryTask = nil
         if let settingsObserver {
@@ -300,6 +303,20 @@ final class RendererRealizationController {
                   self.scheduledReclaimDeadline == deadline else { return }
             self.reclaimDeadlineTask = nil
             self.scheduledReclaimDeadline = nil
+            self.evaluate(now: Date())
+        }
+    }
+
+    /// A workspace transition can hide and reveal many portals synchronously.
+    /// Coalesce their notifications into one global planner pass after the
+    /// current actor batch instead of scanning and sorting the registry once
+    /// per surface.
+    private func schedulePortalVisibilityEvaluation() {
+        guard portalVisibilityEvaluationTask == nil else { return }
+        portalVisibilityEvaluationTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, !Task.isCancelled else { return }
+            self.portalVisibilityEvaluationTask = nil
             self.evaluate(now: Date())
         }
     }
