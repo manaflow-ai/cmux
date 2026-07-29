@@ -95,10 +95,9 @@ extension RemoteSessionCoordinator {
     /// back to its standalone transport without touching the unresolved
     /// master.
     private func resolvedReverseRelayControlMasterSSHOptionsLocked() -> [String]? {
-        if reverseRelayControlMasterResolutionAttempted {
+        if let reverseRelayResolvedControlMasterSSHOptions {
             return reverseRelayResolvedControlMasterSSHOptions
         }
-        reverseRelayControlMasterResolutionAttempted = true
 
         let effectiveOptions = reverseRelayControlMasterSSHOptions
         let sharingOptions = SSHConnectionSharingOptions()

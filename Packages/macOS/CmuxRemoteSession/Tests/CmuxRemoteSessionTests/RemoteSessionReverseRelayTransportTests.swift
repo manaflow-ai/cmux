@@ -124,6 +124,55 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(!runner.requests.contains(where: {
             Self.isControlCommand("forward", in: $0.arguments)
         }))
+        #expect(!runner.requests.contains(where: Self.isMetadataInstallRequest))
+
+        launcher.emitStartupReady()
+        coordinator.queue.sync {}
+
+        #expect(runner.requests.contains(where: Self.isMetadataInstallRequest))
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test("A transient ControlPath resolution failure is retried")
+    func transientControlPathResolutionFailureRetries() async throws {
+        let baseRunner = RecordingProcessRunner()
+        let runner = FlakyResolvedControlPathProcessRunner(
+            base: baseRunner,
+            failureCount: 1
+        )
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            runner: runner,
+            providesResolvedControlPath: false
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+        let forwardSpec = "127.0.0.1:64044:127.0.0.1:55001"
+
+        let first = coordinator.queue.sync {
+            coordinator.startReverseRelayViaControlMasterLocked(
+                forwardSpec: forwardSpec,
+                relayPort: 64_044
+            )
+        }
+        guard case .unavailable = first else {
+            Issue.record("Expected the transient resolution failure to fall back")
+            return
+        }
+        let second = coordinator.queue.sync {
+            coordinator.startReverseRelayViaControlMasterLocked(
+                forwardSpec: forwardSpec,
+                relayPort: 64_044
+            )
+        }
+
+        guard case .started = second else {
+            Issue.record("Expected the next attempt to retry ControlPath resolution")
+            return
+        }
+        #expect(runner.resolutionAttempts == 2)
+        #expect(baseRunner.requests.contains(where: {
+            Self.isControlCommand("forward", in: $0.arguments)
+        }))
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
@@ -308,12 +357,16 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(coordinator.queue.sync {
             coordinator.reverseRelayProcess === launcher.process
         })
+        #expect(!runner.requests.contains(where: Self.isMetadataInstallRequest))
 
         launcher.emitTermination(
             detail: "Error: remote port forwarding failed for listen port \(relayPort)"
         )
+        launcher.emitStartupReady()
 
         #expect(await clock.nextRequestedDelay() == 2_000)
+        coordinator.queue.sync {}
+        #expect(!runner.requests.contains(where: Self.isMetadataInstallRequest))
         #expect(runner.requests.contains(where: {
             Self.isControlCommand("exit", in: $0.arguments)
         }))
@@ -362,6 +415,42 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(process.terminationStatus == 255)
     }
 
+    @Test("Standalone termination bounds draining inherited stderr writers")
+    func standaloneTerminationBoundsInheritedStderr() async throws {
+        let process = Process()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            """
+            sleep 3 &
+            printf 'proxy diagnostic\n' >&2
+            exit 23
+            """,
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = stderrPipe
+        let relayProcess = FoundationRemoteReverseRelayProcess(
+            process: process,
+            stderrPipe: stderrPipe,
+            stderrDrainGracePeriod: 0.05
+        )
+        let (details, continuation) = AsyncStream<String?>.makeStream()
+        let startedAt = Date()
+
+        try process.run()
+        relayProcess.captureTermination { detail in
+            continuation.yield(detail)
+            continuation.finish()
+        }
+
+        var iterator = details.makeAsyncIterator()
+        #expect(await iterator.next() == "proxy diagnostic")
+        #expect(Date().timeIntervalSince(startedAt) < 1)
+        #expect(process.terminationStatus == 23)
+    }
+
     private static func isControlCommand(
         _ command: String,
         in arguments: [String]
@@ -379,5 +468,11 @@ struct RemoteSessionReverseRelayTransportTests {
         return arguments.indices.contains(valueIndex)
             ? arguments[valueIndex]
             : nil
+    }
+
+    private static func isMetadataInstallRequest(
+        _ request: RemoteProcessRequest
+    ) -> Bool {
+        request.arguments.last?.contains("CMUXRELAYAUTH") == true
     }
 }

@@ -84,7 +84,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var reverseRelayControlMasterForwardSpec: String?
     var reverseRelayResolvedControlMasterSSHOptions: [String]?
-    var reverseRelayControlMasterResolutionAttempted = false
     var conflictedControlMasterResetObservation: NativeSSHControlMasterResetObservation?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]

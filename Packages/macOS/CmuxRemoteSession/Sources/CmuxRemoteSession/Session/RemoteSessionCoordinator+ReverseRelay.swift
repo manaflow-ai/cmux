@@ -116,36 +116,32 @@ extension RemoteSessionCoordinator {
             )
             let process = try reverseRelayLauncher.launch(
                 arguments: relayArguments,
-                environment: configuration.sshProcessEnvironment
-            ) { [weak self] terminated, stderrDetail in
-                guard let coordinator = self else { return }
-                coordinator.queue.async {
-                    coordinator.handleReverseRelayTerminationLocked(
-                        process: terminated,
-                        stderrDetail: stderrDetail
-                    )
+                environment: configuration.sshProcessEnvironment,
+                startupHandler: { [weak self] readyProcess in
+                    guard let coordinator = self else { return }
+                    coordinator.queue.async {
+                        coordinator.handleStandaloneReverseRelayReadyLocked(
+                            process: readyProcess,
+                            remotePath: remotePath,
+                            relayPort: relayPort,
+                            localRelayPort: localRelayPort,
+                            relayID: relayID,
+                            relayToken: relayToken
+                        )
+                    }
+                },
+                terminationHandler: { [weak self] terminated, stderrDetail in
+                    guard let coordinator = self else { return }
+                    coordinator.queue.async {
+                        coordinator.handleReverseRelayTerminationLocked(
+                            process: terminated,
+                            stderrDetail: stderrDetail
+                        )
+                    }
                 }
-            }
+            )
             reverseRelayProcess = process
             cliRelayServer = relayServer
-            do {
-                try installRemoteRelayMetadataLocked(
-                    remotePath: remotePath,
-                    relayPort: relayPort,
-                    relayID: relayID,
-                    relayToken: relayToken
-                )
-            } catch {
-                debugLog("remote.relay.metadata.error \(error.localizedDescription)")
-                stopReverseRelayLocked()
-                scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
-                return
-            }
-            recordHeartbeatActivityLocked()
-            debugLog(
-                "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
-                "target=\(configuration.displayTarget) controlMaster=0"
-            )
         } catch {
             debugLog(
                 "remote.relay.startFailed relayPort=\(relayPort) " +
@@ -159,6 +155,40 @@ extension RemoteSessionCoordinator {
             }
             scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
         }
+    }
+
+    func handleStandaloneReverseRelayReadyLocked(
+        process: any RemoteReverseRelayProcess,
+        remotePath: String,
+        relayPort: Int,
+        localRelayPort: Int,
+        relayID: String,
+        relayToken: String
+    ) {
+        guard reverseRelayProcess === process,
+              process.isRunning,
+              !isStopping,
+              daemonReady else {
+            return
+        }
+        do {
+            try installRemoteRelayMetadataLocked(
+                remotePath: remotePath,
+                relayPort: relayPort,
+                relayID: relayID,
+                relayToken: relayToken
+            )
+        } catch {
+            debugLog("remote.relay.metadata.error \(error.localizedDescription)")
+            stopReverseRelayLocked()
+            scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+            return
+        }
+        recordHeartbeatActivityLocked()
+        debugLog(
+            "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
+            "target=\(configuration.displayTarget) controlMaster=0"
+        )
     }
 
     func handleReverseRelayTerminationLocked(

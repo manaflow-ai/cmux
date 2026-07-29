@@ -255,6 +255,7 @@ final class RecordingReverseRelayLauncher:
 
     private let lock = NSLock()
     private var _launchCount = 0
+    private var startupHandler: (@Sendable (any RemoteReverseRelayProcess) -> Void)?
     private var terminationHandler: (@Sendable (any RemoteReverseRelayProcess, String?) -> Void)?
     private let launchContinuation: AsyncStream<RecordedReverseRelayLaunch>.Continuation
 
@@ -265,6 +266,9 @@ final class RecordingReverseRelayLauncher:
     func launch(
         arguments: [String],
         environment: [String: String]?,
+        startupHandler: @escaping @Sendable (
+            any RemoteReverseRelayProcess
+        ) -> Void,
         terminationHandler: @escaping @Sendable (
             any RemoteReverseRelayProcess,
             String?
@@ -285,6 +289,7 @@ final class RecordingReverseRelayLauncher:
         ))
         lock.withLock {
             _launchCount += 1
+            self.startupHandler = startupHandler
             self.terminationHandler = terminationHandler
         }
         return process
@@ -292,6 +297,11 @@ final class RecordingReverseRelayLauncher:
 
     var launchCount: Int {
         lock.withLock { _launchCount }
+    }
+
+    func emitStartupReady() {
+        let handler = lock.withLock { startupHandler }
+        handler?(process)
     }
 
     func emitTermination(detail: String?) {

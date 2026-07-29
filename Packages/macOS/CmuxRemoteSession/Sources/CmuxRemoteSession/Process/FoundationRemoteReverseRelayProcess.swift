@@ -11,10 +11,16 @@ final class FoundationRemoteReverseRelayProcess:
 {
     private let process: Process
     private let stderrPipe: Pipe
+    private let stderrDrainGracePeriod: TimeInterval
 
-    init(process: Process, stderrPipe: Pipe) {
+    init(
+        process: Process,
+        stderrPipe: Pipe,
+        stderrDrainGracePeriod: TimeInterval = 0.5
+    ) {
         self.process = process
         self.stderrPipe = stderrPipe
+        self.stderrDrainGracePeriod = stderrDrainGracePeriod
     }
 
     var isRunning: Bool {
@@ -25,15 +31,16 @@ final class FoundationRemoteReverseRelayProcess:
         process.terminationStatus
     }
 
-    /// Drains stderr through EOF without parking one utility worker for the
-    /// lifetime of the relay. Completion waits for both EOF and termination,
-    /// so the final diagnostic bytes always precede the callback.
+    /// Drains stderr without parking one utility worker for the relay's
+    /// lifetime. EOF completes immediately after termination; an inherited
+    /// writer that outlives ssh is cut off after a bounded final grace period.
     func captureTermination(
         _ handler: @escaping @Sendable (String?) -> Void
     ) {
         let readHandle = stderrPipe.fileHandleForReading
         let capture = ReverseRelayStderrCapture(
             readHandle: readHandle,
+            drainGracePeriod: stderrDrainGracePeriod,
             handler: handler
         )
         readHandle.readabilityHandler = { handle in
@@ -52,7 +59,7 @@ final class FoundationRemoteReverseRelayProcess:
     }
 }
 
-/// Event-driven stderr tail and process-lifecycle rendezvous.
+/// Event-driven stderr tail with a bounded post-termination drain.
 private final class ReverseRelayStderrCapture: @unchecked Sendable {
     private struct Completion {
         let stderr: String
@@ -65,18 +72,22 @@ private final class ReverseRelayStderrCapture: @unchecked Sendable {
     private let readHandle: FileHandle
     private let handler: @Sendable (String?) -> Void
     private let byteLimit: Int
+    private let drainGracePeriod: TimeInterval
     private var tail = Data()
     private var sawEOF = false
     private var terminationStatus: Int32?
+    private var drainDeadlineScheduled = false
     private var completed = false
 
     init(
         readHandle: FileHandle,
         byteLimit: Int = 8192,
+        drainGracePeriod: TimeInterval,
         handler: @escaping @Sendable (String?) -> Void
     ) {
         self.readHandle = readHandle
         self.byteLimit = byteLimit
+        self.drainGracePeriod = drainGracePeriod
         self.handler = handler
     }
 
@@ -96,15 +107,44 @@ private final class ReverseRelayStderrCapture: @unchecked Sendable {
     }
 
     func processDidTerminate(status: Int32) {
-        let completion = lock.withLock { () -> Completion? in
+        let result = lock.withLock { () -> (
+            completion: Completion?,
+            scheduleDeadline: Bool
+        ) in
             terminationStatus = status
-            return takeCompletionIfReady()
+            let completion = takeCompletionIfReady()
+            if let completion {
+                return (completion, false)
+            }
+            guard !drainDeadlineScheduled else {
+                return (nil, false)
+            }
+            drainDeadlineScheduled = true
+            return (nil, true)
+        }
+        finish(result.completion)
+        if result.scheduleDeadline {
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + max(0, drainGracePeriod)
+            ) { [self] in
+                drainDeadlineElapsed()
+            }
+        }
+    }
+
+    private func drainDeadlineElapsed() {
+        let completion = lock.withLock {
+            takeCompletionIfReady(force: true)
         }
         finish(completion)
     }
 
-    private func takeCompletionIfReady() -> Completion? {
-        guard !completed, sawEOF, let terminationStatus else { return nil }
+    private func takeCompletionIfReady(force: Bool = false) -> Completion? {
+        guard !completed,
+              (sawEOF || force),
+              let terminationStatus else {
+            return nil
+        }
         completed = true
         return Completion(
             stderr: String(data: tail, encoding: .utf8) ?? "",
