@@ -4699,6 +4699,49 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )?.online == true
     }
 
+    /// Revalidate a selected physical Mac after its dial suspends. An exact
+    /// presence record wins, including a newer offline edge. When the
+    /// authenticated row has no exact record yet, accept an online stored row
+    /// in the same physical-route alias component.
+    private func isSecondaryMacOrPhysicalAliasOnlineInCurrentPresence(
+        _ macDeviceID: String,
+        instanceTag: String?,
+        scope: MobileShellScopeSnapshot
+    ) -> Bool {
+        guard presence != nil else { return true }
+        guard presenceMap.hasReceivedSnapshot else { return true }
+        let exactSummary = if let instanceTag {
+            presenceMap.instanceSummary(
+                deviceId: macDeviceID,
+                tag: instanceTag
+            )
+        } else {
+            presenceMap.deviceSummary(deviceId: macDeviceID)
+        }
+        if let exactSummary {
+            return exactSummary.online
+        }
+        guard storedPairedMacCacheScope == scope else { return false }
+        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
+        let aliasCanonicalIDs =
+            storedPairedMacAliasCanonicalIDsByCanonicalID[canonicalID]
+                ?? [canonicalID]
+        return aliasCanonicalIDs.contains { aliasCanonicalID in
+            (storedPairedMacsByCanonicalDeviceID[aliasCanonicalID] ?? [])
+                .contains { storedMac in
+                    if let storedTag = storedMac.instanceTag {
+                        return presenceMap.instanceSummary(
+                            deviceId: storedMac.macDeviceID,
+                            tag: storedTag
+                        )?.online == true
+                    }
+                    return presenceMap.deviceSummary(
+                        deviceId: storedMac.macDeviceID
+                    )?.online == true
+                }
+        }
+    }
+
     /// Open a persistent read-only connection to `mac`, seed its workspace state,
     /// then run a live `workspace.updated` consumer that re-fetches its list on
     /// each change. Fully best-effort: on any failure the entry is torn down and
@@ -4827,9 +4870,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Presence reconciliation may run while the client is dialing.
         // Revalidate synchronously at publication so an offline edge that
         // observed no owner cannot be overwritten by the old pass.
-        guard isSecondaryMacOnlineInCurrentPresence(
+        guard isSecondaryMacOrPhysicalAliasOnlineInCurrentPresence(
             macID,
-            instanceTag: handle.storedInstanceTag
+            instanceTag: handle.storedInstanceTag,
+            scope: scope
         ) else {
             markSecondaryMacUnavailableIfUnowned(macID)
             await client.disconnect()
@@ -5056,58 +5100,82 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> Bool {
         let subscriptions = Array(secondaryMacSubscriptions)
         guard !subscriptions.isEmpty else { return false }
-        for (macDeviceID, subscription) in subscriptions {
-            guard !Task.isCancelled,
-                  secondaryMacSubscriptions[macDeviceID] === subscription,
-                  !subscription.isTransitioningToFocus else {
-                continue
-            }
-            guard subscription.supportedHostCapabilities
-                    .contains("events.v1") else {
-                if refreshOnlyHealthCheckIsDue {
-                    enqueueSecondaryWorkspaceRefresh(
-                        subscription,
-                        displayName: subscription.displayName
-                    )
-                    scheduleSecondaryNotificationFeedRefresh(
-                        macDeviceID: macDeviceID,
-                        client: subscription.client,
-                        displayName: subscription.displayName
-                    )
-                }
-                continue
-            }
-            guard subscription.hasActivatedControlStream else { continue }
-            let activation = await enableOwnedSecondaryEventSubscription(
-                subscription
-            )
-            // Promotion may have fenced this subscription while the reassertion
-            // was awaiting its acknowledgement. It will drain this task and
-            // issue the final unsubscribe, so neither result owns teardown.
-            guard secondaryMacSubscriptions[macDeviceID] === subscription,
-                  !subscription.isTransitioningToFocus else {
-                continue
-            }
-            switch activation {
-            case .active, .superseded:
-                continue
-            case .transientFailure:
-                await handleSecondaryControlStreamEnded(
+        let reassertions = subscriptions.map { macDeviceID, subscription in
+            Task { @MainActor [weak self] in
+                await self?.reassertSecondaryControlSubscription(
                     macDeviceID: macDeviceID,
-                    subscriptionID: ObjectIdentifier(subscription),
-                    client: subscription.client,
-                    shouldRetry: true
-                )
-            case .permanentFailure:
-                await handleSecondaryControlStreamEnded(
-                    macDeviceID: macDeviceID,
-                    subscriptionID: ObjectIdentifier(subscription),
-                    client: subscription.client,
-                    shouldRetry: false
+                    subscription: subscription,
+                    refreshOnlyHealthCheckIsDue:
+                        refreshOnlyHealthCheckIsDue
                 )
             }
         }
+        await withTaskCancellationHandler {
+            for reassertion in reassertions {
+                await reassertion.value
+            }
+        } onCancel: {
+            for reassertion in reassertions {
+                reassertion.cancel()
+            }
+        }
         return !secondaryMacSubscriptions.isEmpty
+    }
+
+    private func reassertSecondaryControlSubscription(
+        macDeviceID: String,
+        subscription: SecondaryMacSubscription,
+        refreshOnlyHealthCheckIsDue: Bool
+    ) async {
+        guard !Task.isCancelled,
+              secondaryMacSubscriptions[macDeviceID] === subscription,
+              !subscription.isTransitioningToFocus else {
+            return
+        }
+        guard subscription.supportedHostCapabilities
+                .contains("events.v1") else {
+            if refreshOnlyHealthCheckIsDue {
+                enqueueSecondaryWorkspaceRefresh(
+                    subscription,
+                    displayName: subscription.displayName
+                )
+                scheduleSecondaryNotificationFeedRefresh(
+                    macDeviceID: macDeviceID,
+                    client: subscription.client,
+                    displayName: subscription.displayName
+                )
+            }
+            return
+        }
+        guard subscription.hasActivatedControlStream else { return }
+        let activation = await enableOwnedSecondaryEventSubscription(
+            subscription
+        )
+        // Promotion may have fenced this subscription while the reassertion
+        // was awaiting its acknowledgement. It will drain this task and issue
+        // the final unsubscribe, so neither result owns teardown.
+        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+              !subscription.isTransitioningToFocus else {
+            return
+        }
+        switch activation {
+        case .active, .superseded:
+            return
+        case .transientFailure:
+            await handleSecondaryControlStreamEnded(
+                macDeviceID: macDeviceID,
+                subscriptionID: ObjectIdentifier(subscription),
+                client: subscription.client,
+                shouldRetry: true
+            )
+        case .permanentFailure:
+            await handleSecondaryControlStreamEnded(
+                macDeviceID: macDeviceID,
+                subscriptionID: ObjectIdentifier(subscription),
+                client: subscription.client,
+                shouldRetry: false
+            )
+        }
     }
 
     /// Start or reassert one control stream only while this exact registry

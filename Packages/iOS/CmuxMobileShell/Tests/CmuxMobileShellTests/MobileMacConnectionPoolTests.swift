@@ -295,6 +295,103 @@ import Testing
         ])
     }
 
+    @Test func authenticatedIrohAliasPublishesAgainstHistoricalPresence()
+        async throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b", count: 64)
+        )
+        let route = try CmxAttachRoute(
+            id: "authenticated-renamed-iroh-route",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+        func paired(
+            id: String,
+            displayName: String,
+            instanceTag: String,
+            seenAt: Date
+        ) -> MobilePairedMac {
+            MobilePairedMac(
+                macDeviceID: id,
+                displayName: displayName,
+                routes: [route],
+                createdAt: .distantPast,
+                lastSeenAt: seenAt,
+                isActive: false,
+                stackUserID: "user-1",
+                teamID: "team-1",
+                instanceTag: instanceTag
+            )
+        }
+        let historicalAlias = paired(
+            id: "mac-auth-before-rename",
+            displayName: "Old Name",
+            instanceTag: "old-tag",
+            seenAt: .distantPast
+        )
+        let currentIdentity = paired(
+            id: "mac-auth-after-rename",
+            displayName: "New Name",
+            instanceTag: "new-tag",
+            seenAt: Date()
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-1": [historicalAlias, currentIdentity],
+            ],
+            blockedTeams: []
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: currentIdentity.macDeviceID,
+            instanceTag: currentIdentity.instanceTag,
+            displayName: currentIdentity.displayName
+        )
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox()
+                ),
+                now: { Date() },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        await shell.loadPairedMacs()
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: historicalAlias.macDeviceID,
+                    tag: historicalAlias.instanceTag ?? "",
+                    online: true
+                ),
+            ]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions[
+                currentIdentity.macDeviceID
+            ]?.authenticatedInstanceTag == currentIdentity.instanceTag
+                && shell.workspacesByMac[
+                    currentIdentity.macDeviceID
+                ]?.status == .connected
+        })
+
+        shell.secondaryMacSubscriptions[
+            currentIdentity.macDeviceID
+        ]?.cancel()
+    }
+
     @Test
     func targetedOfflineAliasRetiresRepresentativeControlConnection()
         async throws {
@@ -3765,6 +3862,87 @@ import Testing
         })
         #expect(await router.count(of: "mobile.events.subscribe") == 3)
 
+        first.detachKeepingClient()
+        second.detachKeepingClient()
+        shell.secondaryMacSubscriptions["mac-a"] = nil
+        shell.secondaryMacSubscriptions["mac-b"] = nil
+        await first.client.disconnect()
+        await second.client.disconnect()
+    }
+
+    @Test func stalledKeepaliveDoesNotDelayAnotherMac() async throws {
+        let clock = ControlPoolManualClock()
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "concurrent-keepalive",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        func subscription(_ macDeviceID: String) throws
+            -> SecondaryMacSubscription {
+            let ticket = try CmxAttachTicket(
+                workspaceID: "",
+                terminalID: nil,
+                macDeviceID: macDeviceID,
+                macDisplayName: macDeviceID,
+                routes: [route],
+                expiresAt: Date().addingTimeInterval(3_600)
+            )
+            return SecondaryMacSubscription(
+                macDeviceID: macDeviceID,
+                client: MobileCoreRPCClient(
+                    runtime: runtime,
+                    route: route,
+                    ticket: ticket,
+                    allowsStackAuthFallback: true
+                ),
+                route: route,
+                ticket: ticket,
+                supportedHostCapabilities: ["events.v1"],
+                actionCapabilities: .none
+            )
+        }
+        let first = try subscription("mac-a")
+        let second = try subscription("mac-b")
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            controlPlaneSchedulingClock: clock
+        )
+        shell.secondaryMacSubscriptions["mac-a"] = first
+        shell.startSecondaryEventConsumer(first, displayName: "Mac A")
+        shell.secondaryMacSubscriptions["mac-b"] = second
+        shell.startSecondaryEventConsumer(second, displayName: "Mac B")
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 2
+        ))
+        #expect(try await pollUntil {
+            first.hasActivatedControlStream
+                && second.hasActivatedControlStream
+                && clock.sleeperCount == 1
+        })
+
+        await router.holdSubscribeRequest(number: 3)
+        clock.advance(by: .seconds(20))
+
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 4,
+            timeoutNanoseconds: 500_000_000
+        ))
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
+
+        await router.releaseAllHeld()
         first.detachKeepingClient()
         second.detachKeepingClient()
         shell.secondaryMacSubscriptions["mac-a"] = nil
