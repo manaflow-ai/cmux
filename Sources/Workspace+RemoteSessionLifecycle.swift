@@ -207,12 +207,15 @@ extension Workspace {
             Self.normalizedForegroundAuthToken(token) else {
             return false
         }
+        let normalizedControlPath = resolvedControlPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let controlMasterAdoption:
             NativeSSHControlMasterAdoptionHandoff?
-        if let resolvedControlPath {
+        if let normalizedControlPath,
+           !normalizedControlPath.isEmpty {
             guard let adoption =
                 nativeSSHConnectionBroker.beginControlMasterAdoption(
-                    controlPath: resolvedControlPath,
+                    controlPath: normalizedControlPath,
                     ownerWorkspaceID: id
                 ) else {
                 return false

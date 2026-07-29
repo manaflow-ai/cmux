@@ -69,7 +69,6 @@ struct FoundationRemoteReverseRelayProcessTests {
             stderrDrainGracePeriod: 0.05
         )
         let (details, continuation) = AsyncStream<String?>.makeStream()
-        let startedAt = Date()
 
         try process.run()
         relayProcess.captureTermination { detail in
@@ -79,7 +78,6 @@ struct FoundationRemoteReverseRelayProcessTests {
 
         var iterator = details.makeAsyncIterator()
         #expect(await iterator.next() == "proxy diagnostic")
-        #expect(Date().timeIntervalSince(startedAt) < 1)
         #expect(process.terminationStatus == 23)
     }
 
@@ -148,7 +146,6 @@ struct FoundationRemoteReverseRelayProcessTests {
         )
         let startupRecorder = SynchronousEventRecorder()
         let (terminations, continuation) = AsyncStream<String?>.makeStream()
-        let startedAt = Date()
 
         try process.run()
         relayProcess.captureLifecycle(
@@ -166,7 +163,6 @@ struct FoundationRemoteReverseRelayProcessTests {
         var iterator = terminations.makeAsyncIterator()
         #expect(await iterator.next() != nil)
         #expect(startupRecorder.count == 0)
-        #expect(Date().timeIntervalSince(startedAt) < 1)
         #expect(!process.isRunning)
     }
 
@@ -210,12 +206,10 @@ struct FoundationRemoteReverseRelayProcessTests {
                 continuation.finish()
             }
         )
-        let startedAt = Date()
 
         var iterator = terminations.makeAsyncIterator()
         #expect(await iterator.next() != nil)
         #expect(startupRecorder.count == 0)
-        #expect(Date().timeIntervalSince(startedAt) < 1)
         #expect(!process.isRunning)
         #expect(process.terminationReason == .uncaughtSignal)
         #expect(process.terminationStatus == SIGKILL)

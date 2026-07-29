@@ -449,12 +449,9 @@ extension TerminalController: ControlWorkspaceContext {
         ) else {
             return .unavailable(
                 workspaceID: workspaceID,
-                message: String(
-                    localized:
-                        "remoteSession.controlMaster.ownershipUnavailable",
-                    defaultValue:
-                        "SSH connection is busy in another cmux process."
-                )
+                message:
+                    RemoteSessionStrings.appLocalized
+                    .controlMasterOwnershipUnavailable
             )
         }
         notifyRemotePTYControllerAvailabilityChanged()
@@ -674,12 +671,9 @@ extension TerminalController: ControlWorkspaceContext {
         ) else {
             return .err(
                 code: "unavailable",
-                message: String(
-                    localized:
-                        "remoteSession.controlMaster.ownershipUnavailable",
-                    defaultValue:
-                        "SSH connection is busy in another cmux process."
-                ),
+                message:
+                    RemoteSessionStrings.appLocalized
+                    .controlMasterOwnershipUnavailable,
                 data: nil
             )
         }

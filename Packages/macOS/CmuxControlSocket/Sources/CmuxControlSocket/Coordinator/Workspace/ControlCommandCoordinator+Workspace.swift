@@ -798,13 +798,17 @@ extension ControlCommandCoordinator {
         guard let workspaceID = resolution.workspaceID else {
             return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
         }
-        // Legacy `v2RawString(...)?.trimmingCharacters(...)`: trimmed, but an
-        // empty string stays "" (NOT nil), so use the raw-trim, not the
-        // empty-to-nil variant.
-        let token = rawString(params, "foreground_auth_token")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let controlPath = rawString(params, "control_path")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let token = optionalTrimmedRawString(
+            params,
+            "foreground_auth_token"
+        ) else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing foreground_auth_token",
+                data: nil
+            )
+        }
+        let controlPath = optionalTrimmedRawString(params, "control_path")
         return workspaceRemoteResult(context?.controlWorkspaceRemoteForegroundAuthReady(
             workspaceID: workspaceID,
             foregroundAuthToken: token,

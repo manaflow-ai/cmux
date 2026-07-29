@@ -4,6 +4,8 @@ internal import Foundation
 
 @MainActor
 extension NativeSSHConnectionBroker {
+    // A cross-process lock holder cannot signal this process when it exits, so
+    // cleanup retries use injected, capped deadlines instead of open-ended polling.
     private static let cleanupProcessTimeoutMilliseconds = 5_000
     private static let cleanupForcedTerminationDelayMilliseconds = 1_000
     private static let cleanupRetryDelayMilliseconds = 31_000
@@ -32,14 +34,9 @@ extension NativeSSHConnectionBroker {
         let arguments = RemoteControlMasterCleanup().cleanupArguments(
             configuration: previousConfiguration
         )
-        let authenticationLockPath =
-            sharingOptions.resolvedControlMasterAuthenticationLockPath(
-                controlPath: key.controlPath
-            )
         let request = NativeSSHControlMasterCleanupRequest(
             arguments: arguments,
-            environment: previousConfiguration.sshProcessEnvironment,
-            authenticationLockPath: authenticationLockPath
+            environment: previousConfiguration.sshProcessEnvironment
         )
         beginCleanup(request, for: key)
     }
@@ -90,11 +87,9 @@ extension NativeSSHConnectionBroker {
         }
         let cleanupID = UUID()
         let process = Process()
-        let invocation = NativeSSHControlMasterCleanupRequest(
-            arguments: request.arguments,
-            environment: request.environment,
-            authenticationLockPath: nil
-        ).processInvocation
+        // The registry authorization already holds the exact authentication
+        // and ownership locks; a second shell lock would deadlock itself.
+        let invocation = request.processInvocation
         process.executableURL = invocation.executableURL
         process.arguments = invocation.arguments
         process.environment = request.environment
@@ -190,7 +185,7 @@ extension NativeSSHConnectionBroker {
         cleanupAuthorizations.removeValue(forKey: cleanupID)?.release()
         let terminationWasRequested =
             cleanupTerminationRequested.remove(cleanupID) != nil
-        let process = cleanupProcesses.removeValue(forKey: cleanupID)
+        cleanupProcesses.removeValue(forKey: cleanupID)
         guard let key =
             cleanupControlMasterKeysByProcessID.removeValue(
                 forKey: cleanupID
@@ -204,9 +199,7 @@ extension NativeSSHConnectionBroker {
               ownersByControlMaster[key]?.isEmpty != false else {
             return
         }
-        if terminationWasRequested ||
-            process?.terminationStatus ==
-            NativeSSHControlMasterCleanupRequest.retryExitStatus {
+        if terminationWasRequested {
             scheduleCleanupRetry(for: key)
         } else {
             pendingCleanupsByControlMaster.removeValue(forKey: key)

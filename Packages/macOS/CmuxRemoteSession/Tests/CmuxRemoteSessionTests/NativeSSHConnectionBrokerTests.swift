@@ -41,12 +41,8 @@ struct NativeSSHConnectionBrokerTests {
         #expect(recorder.requests.count == 1)
         #expect(recorder.requests[0].arguments.contains(resolvedOwnedSSHOptions[2]))
         let request = recorder.requests[0]
-        let lockPath = request.authenticationLockPath
-        #expect(lockPath?.contains("cmux-ssh-501-resolved-auth-") == true)
-        #expect(request.processInvocation.executableURL.path == "/bin/zsh")
-        #expect(request.processInvocation.arguments.contains(lockPath.map { $0 + ".inflight" } ?? "") == true)
-        #expect(request.processInvocation.arguments[1].contains("zsystem flock -t 4 -e"))
-        #expect(request.processInvocation.arguments[1].contains("/bin/kill -0"))
+        #expect(request.processInvocation.executableURL.path == "/usr/bin/ssh")
+        #expect(request.processInvocation.arguments == request.arguments)
     }
 
     @Test("A custom user-managed control path is never closed")
@@ -204,64 +200,6 @@ struct NativeSSHConnectionBrokerTests {
         #expect(!arguments.contains("ControlMaster=auto"))
         #expect(!arguments.contains("ControlPersist=600"))
         #expect(arguments.suffix(3) == ["-O", "exit", "alice@example.test"])
-    }
-
-    @Test("Cleanup yields to a live foreground authentication marker")
-    func cleanupYieldsToLiveAuthentication() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-cleanup-test-\(UUID().uuidString)", isDirectory: true)
-        let lockPath = root.appendingPathComponent("auth.lock").path
-        let markerPath = lockPath + ".inflight"
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try "\(getpid())\n".write(toFile: markerPath, atomically: true, encoding: .utf8)
-
-        let request = NativeSSHControlMasterCleanupRequest(
-            arguments: ["-Z"],
-            environment: nil,
-            authenticationLockPath: lockPath
-        )
-        let invocation = request.processInvocation
-        let process = Process()
-        process.executableURL = invocation.executableURL
-        process.arguments = invocation.arguments
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-
-        #expect(process.terminationStatus == 75)
-        #expect(FileManager.default.fileExists(atPath: markerPath))
-    }
-
-    @Test("Cleanup requests a retry for a recent dead authentication marker")
-    func cleanupRequestsRetryForRecentDeadAuthentication() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-cleanup-test-\(UUID().uuidString)", isDirectory: true)
-        let lockPath = root.appendingPathComponent("auth.lock").path
-        let markerPath = lockPath + ".inflight"
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try "2147483647\n".write(toFile: markerPath, atomically: true, encoding: .utf8)
-
-        let request = NativeSSHControlMasterCleanupRequest(
-            arguments: ["-Z"],
-            environment: nil,
-            authenticationLockPath: lockPath
-        )
-        let invocation = request.processInvocation
-        let process = Process()
-        process.executableURL = invocation.executableURL
-        process.arguments = invocation.arguments
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-
-        #expect(process.terminationStatus == 75)
-        #expect(FileManager.default.fileExists(atPath: markerPath))
     }
 
     @Test("Ownership-blocked cleanup exhausts its bounded retry budget")

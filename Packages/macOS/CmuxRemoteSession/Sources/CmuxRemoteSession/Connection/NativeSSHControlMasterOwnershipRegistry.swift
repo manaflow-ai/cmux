@@ -188,6 +188,9 @@ final class NativeSSHControlMasterOwnershipRegistry:
         guard entry.exclusiveUseID == nil else {
             return false
         }
+        // The exact authentication lock remains exclusive across this
+        // non-atomic flock conversion, so no other cmux process can race an
+        // exclusive conversion into the unlock/reacquire window.
         _ = flock(entry.descriptor, LOCK_UN)
         guard flock(entry.descriptor, LOCK_EX | LOCK_NB) == 0 else {
             if flock(entry.descriptor, LOCK_SH | LOCK_NB) != 0 {

@@ -5565,6 +5565,14 @@ final class Workspace: Identifiable, ObservableObject {
             )
             nativeSSHConnectionBroker.releaseWorkspace(configuration)
             remoteForegroundAuthenticationPhase = nil
+            remoteConnectionState = .error
+            remoteConnectionDetail =
+                RemoteSessionStrings.appLocalized
+                .controlMasterOwnershipUnavailable
+            applyBrowserRemoteWorkspaceStatusToPanels()
+            postRemoteConnectionPresentationDidChange()
+            TerminalController.shared
+                .notifyRemotePTYControllerAvailabilityChanged()
             return false
         }
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }

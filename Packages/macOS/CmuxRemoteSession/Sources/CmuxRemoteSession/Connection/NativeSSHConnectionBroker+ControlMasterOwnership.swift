@@ -18,6 +18,14 @@ extension NativeSSHConnectionBroker {
         controlPath: String,
         ownerWorkspaceID: UUID
     ) -> NativeSSHControlMasterAdoptionHandoff? {
+        let normalizedControlPath =
+            controlPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedControlPath == controlPath,
+              sharingOptions.resolvedControlMasterOwnershipLockPath(
+                  controlPath: controlPath
+              ) != nil else {
+            return nil
+        }
         let lease = NativeSSHControlMasterLeaseIdentity(
             ownerWorkspaceID: ownerWorkspaceID,
             generation: UUID()
