@@ -38,6 +38,17 @@ public protocol SettingsHostActions: AnyObject {
     /// user can grant / revoke OS-level notification permission.
     func openSystemNotificationSettings()
 
+    /// Returns the host's current macOS notification authorization state.
+    func desktopNotificationAuthorizationStatus() -> DesktopNotificationAuthorizationState
+
+    /// Emits a fresh authorization state when the host observes a macOS
+    /// notification permission change.
+    func desktopNotificationAuthorizationStatusUpdates() -> AsyncStream<DesktopNotificationAuthorizationState>
+
+    /// Asks the host to refresh macOS notification permission from
+    /// `UNUserNotificationCenter`.
+    func refreshDesktopNotificationAuthorizationStatus()
+
     /// Restarts the cmux app. Used after the user changes the
     /// language picker, which requires a full process restart.
     func restartApp()
@@ -176,6 +187,9 @@ public protocol SettingsHostActions: AnyObject {
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
 
+    /// Publishes the committed auto-retry setting to live workspace coordinators.
+    func agentSessionAutoRetrySettingDidChange()
+
     /// Invalidates host-owned shortcut caches after Settings persists a shortcut change.
     func notifyShortcutSettingsDidChange()
 
@@ -199,6 +213,9 @@ public extension SettingsHostActions {
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default no-op for previews and tests without agent retry coordination.
+    func agentSessionAutoRetrySettingDidChange() {}
 
     /// Default no-op for hosts with no app-owned shortcut caches.
     func notifyShortcutSettingsDidChange() {}
@@ -229,6 +246,17 @@ public extension SettingsHostActions {
     func setMenuBarOnly(_ enabled: Bool) -> Bool { false }
 
     func browserHistoryEntryCount() -> Int? { nil }
+
+    /// Default: unknown permission state, for previews and tests without a host.
+    func desktopNotificationAuthorizationStatus() -> DesktopNotificationAuthorizationState { .unknown }
+
+    /// Default: no live permission updates, for previews and tests without a host.
+    func desktopNotificationAuthorizationStatusUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
+        AsyncStream { $0.finish() }
+    }
+
+    /// Default: no refresh hook, for previews and tests without a host.
+    func refreshDesktopNotificationAuthorizationStatus() {}
 
     /// Default: no status, for hosts without a live mobile service (previews/tests).
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? { nil }

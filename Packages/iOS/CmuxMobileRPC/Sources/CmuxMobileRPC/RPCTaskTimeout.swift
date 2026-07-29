@@ -1,7 +1,14 @@
 import Foundation
 
-struct RPCTaskTimeout: Sendable {
-    func value<T: Sendable>(
+/// Races asynchronous work against the mobile RPC deadline scheduler.
+///
+/// The scheduler owns settlement through an actor, so callers do not need
+/// timing tasks, polling, or manual synchronization.
+public struct RPCTaskTimeout: Sendable {
+    public init() {}
+
+    /// Returns a task's value or throws when its deadline expires.
+    public func value<T: Sendable>(
         _ task: Task<T, any Error>,
         timeoutNanoseconds: UInt64
     ) async throws -> T {

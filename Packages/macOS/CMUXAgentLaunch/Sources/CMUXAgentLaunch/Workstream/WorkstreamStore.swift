@@ -312,7 +312,7 @@ public final class WorkstreamStore {
         case .postToolUse:
             return (
                 .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: false)
+                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: event.isError ?? false)
             )
         case .preCompact:
             return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))

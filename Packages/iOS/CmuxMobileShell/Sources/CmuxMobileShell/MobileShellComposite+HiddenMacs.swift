@@ -146,6 +146,122 @@ extension MobileShellComposite {
         }
     }
 
+    /// Revokes a hidden computer's account bindings, then drops its local row.
+    ///
+    /// The revoke is the meaningful action: it removes the binding from every
+    /// device on the account. On success the paired-Mac row and its hidden
+    /// marker are cleared so the computer disappears from every section; a Mac
+    /// that is still online re-registers a fresh binding and reappears on its
+    /// next connect. Returns `false` (leaving the row untouched) when no forget
+    /// capability is wired or the revoke fails, so the caller can surface an
+    /// error instead of a silent no-op.
+    public func forgetHiddenComputer(_ computer: MobileHiddenComputer) async -> Bool {
+        guard let personalIrohForget else { return false }
+        // Capture the scope BEFORE the network revoke so local cleanup targets the
+        // account/team that owned the row, not whatever scope is current after the
+        // await (the user can sign out or switch accounts while the call is in
+        // flight).
+        guard let scope = await currentScopeSnapshot() else { return false }
+        do {
+            // Pin the revoke to the ROW's owning account, not the live session.
+            // A row owned by account A can still be on screen right after auth
+            // switches to account B (the list has not refreshed yet). The runtime
+            // forget checks this pinned account against the live session and fails
+            // closed on a mismatch, so passing the live account here would let it
+            // revoke B's matching device/tag while local cleanup deletes A's row.
+            // `computer.stackUserID` is the row's captured owner; fall back to the
+            // display scope only for a legacy row that never stored one.
+            try await personalIrohForget.forgetComputer(
+                macDeviceID: computer.macDeviceID,
+                instanceTag: computer.instanceTag,
+                expectedAccountID: computer.stackUserID ?? scope.userID
+            )
+        } catch {
+            hiddenMacsLog.error(
+                "forget hidden computer revoke failed: \(String(describing: error), privacy: .private)"
+            )
+            return false
+        }
+        // Always clear the durable row and hidden marker, even if the scope changed
+        // while the revoke was in flight. The row is deleted against ITS OWN stored
+        // scope (`computer.stackUserID`/`computer.teamID`), not the live display
+        // scope: a team-less row is visible under any selected team (legacy
+        // visibility), so deleting with the display team would miss the team-less
+        // row and it would resurface once the marker cleared. The hidden marker and
+        // on-screen refresh still gate on the captured display `scope` (that is how
+        // the marker was keyed when the row was hidden). Skipping this would report
+        // success while leaving the row behind, so returning to the old scope would
+        // show the supposedly forgotten computer.
+        return await removeStoredPairedMacRow(
+            macDeviceID: computer.macDeviceID,
+            instanceTag: computer.instanceTag,
+            rowStackUserID: computer.stackUserID ?? scope.userID,
+            rowTeamID: computer.teamID,
+            displayScope: scope
+        )
+    }
+
+    /// Drops one pairing's stored row and hidden marker so it fully disappears.
+    ///
+    /// Removes the durable row first (the only step that can fail): if it throws,
+    /// the hidden marker is left intact so the forgotten computer stays hidden
+    /// rather than resurfacing as a normal computer, and `false` is returned so the
+    /// caller surfaces a retryable error instead of a silent partial cleanup. The
+    /// marker is cleared only after the row is gone, so a still-online Mac that
+    /// re-registers a fresh row is not re-hidden by a stale marker.
+    private func removeStoredPairedMacRow(
+        macDeviceID: String,
+        instanceTag: String?,
+        rowStackUserID: String,
+        rowTeamID: String?,
+        displayScope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        if let pairedMacStore {
+            do {
+                // Delete the EXACT row scope, not `remove` (which re-resolves a
+                // nil/team-less `teamID` to the currently-selected team) and not the
+                // live display scope. `rowTeamID` is the row's OWN team (nil for a
+                // team-less pairing); passing it verbatim deletes exactly the row the
+                // user forgot. Using the display team here would miss a team-less row
+                // shown under a selected team, or delete the wrong team's row after a
+                // mid-revoke team switch.
+                //
+                // The server backup, however, lives in a per-team Durable Object, so
+                // a team-less row's tombstone must route to the team it was DISPLAYED
+                // under (`displayScope.teamID`), captured before the revoke. Reusing
+                // the nil local team for the backup would let the server resolve the
+                // delete to whatever team is selected at flush time and wipe a
+                // same-device record from the wrong team's backup.
+                try await pairedMacStore.removeExactScope(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    stackUserID: rowStackUserID,
+                    teamID: rowTeamID,
+                    backupTeamID: displayScope.teamID
+                )
+            } catch {
+                hiddenMacsLog.error(
+                    "forget hidden computer row removal failed: \(String(describing: error), privacy: .private)"
+                )
+                return false
+            }
+        }
+        // The hidden marker was keyed by the display scope when the row was hidden,
+        // so clear it (and gate the on-screen refresh) against that scope.
+        await clearHiddenMacDeviceID(
+            macDeviceID,
+            instanceTag: instanceTag,
+            scope: displayScope
+        )
+        guard await isScopeCurrent(displayScope) else { return true }
+        await loadPairedMacs()
+        await loadRegistryDevices()
+        // Mirror the hide path: once the last stored Mac is gone, drop the saved
+        // reconnect hint so the app does not keep trying to redial a forgotten Mac.
+        clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
+        return true
+    }
+
     /// Unhides one stored pairing immediately without requiring network access.
     public func unhideMacDeviceID(
         _ macDeviceID: String,
@@ -330,7 +446,9 @@ extension MobileShellComposite {
                 instanceTag: mac.instanceTag,
                 displayName: mac.resolvedName,
                 customColor: mac.customColor,
-                customIcon: mac.customIcon
+                customIcon: mac.customIcon,
+                stackUserID: mac.stackUserID,
+                teamID: mac.teamID
             )
         }
         hiddenComputers = entries.sorted {
