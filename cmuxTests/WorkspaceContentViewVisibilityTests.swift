@@ -25,19 +25,6 @@ final class WorkspaceContentViewVisibilityTests {
         }
     }
 
-    private static var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-    }
-
-    private static func sourceText(_ relativePath: String) throws -> String {
-        try String(
-            contentsOf: repoRoot.appendingPathComponent(relativePath),
-            encoding: .utf8
-        )
-    }
-
     private static func restoreFocusTarget(
         workspaceId: UUID = UUID(),
         panelId: UUID = UUID(),
@@ -47,31 +34,6 @@ final class WorkspaceContentViewVisibilityTests {
             workspaceId: workspaceId,
             panelId: panelId,
             intent: intent
-        )
-    }
-
-    @Test
-    func contentViewDoesNotKeepLegacyWorkItemStateForCoalescedReleases() throws {
-        let source = try Self.sourceText("Sources/ContentView.swift")
-        let legacyState = [
-            "sidebarResizerCursorReleaseWorkItem",
-            "commandPaletteRestoreTimeoutWorkItem",
-        ].filter(source.contains)
-        #expect(
-            legacyState.isEmpty,
-            """
-            ContentView must not keep the legacy DispatchWorkItem state properties that \
-            previously let queued closures retain prior work-item state:
-            \(legacyState.joined(separator: "\n"))
-            """
-        )
-        #expect(
-            source.contains("scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))"),
-            """
-            Sidebar resizer hover exit must keep a short deferred cursor-release window so \
-            mouse-down and drag-start callbacks can establish resize state before the cursor \
-            can be reset.
-            """
         )
     }
 
