@@ -456,9 +456,9 @@ enum KeyboardShortcutSettings {
                 // with "." as the collapse mnemonic. No-ops gracefully when the focused workspace isn't in a group.
                 return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
             case .reopenClosedWorkspace:
-                return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
-            case .reopenClosedBrowserPanel:
                 return .unbound
+            case .reopenClosedBrowserPanel:
+                return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:
                 return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
             case .focusRight:
