@@ -6266,14 +6266,20 @@ final class Workspace: Identifiable, ObservableObject {
                 return false
             }
         }
-        let removedPendingConnection: Bool
+        let endedPendingConnection: PendingWorkspaceRemoteTerminalConnection?
         if let terminalLifecycleID,
-           pendingRemoteTerminalConnectionsBySurfaceId[surfaceId]?.terminalLifecycleID ==
-            terminalLifecycleID {
+           let pendingConnection = pendingRemoteTerminalConnectionsBySurfaceId[surfaceId],
+           pendingConnection.terminalLifecycleID == terminalLifecycleID {
             pendingRemoteTerminalConnectionsBySurfaceId.removeValue(forKey: surfaceId)
-            removedPendingConnection = true
+            endedPendingConnection = pendingConnection
+            remoteTerminalSessionStatesBySurfaceId[surfaceId] =
+                WorkspaceRemoteTerminalSessionState(
+                    phase: .ended,
+                    authority: pendingConnection.authority,
+                    terminalLifecycleID: terminalLifecycleID
+                )
         } else {
-            removedPendingConnection = false
+            endedPendingConnection = nil
         }
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
             return true
@@ -6285,7 +6291,7 @@ final class Workspace: Identifiable, ObservableObject {
                 configuration: configuration,
                 allowUntracked: allowUntracked
               ) else {
-            return removedPendingConnection
+            return endedPendingConnection != nil
         }
         let preservesRemotePTYSession = configuration.preserveAfterTerminalExit
         let previousPresentedDirectory = presentedCurrentDirectory
@@ -9119,6 +9125,7 @@ final class Workspace: Identifiable, ObservableObject {
             restoreRemoteTerminalSessionPhase(
                 detached.remoteTerminalSessionPhase,
                 authority: detached.remoteTerminalAuthority,
+                terminalLifecycleID: detached.remoteTerminalLifecycleID,
                 surfaceId: detached.panelId
             )
             if let resumeBinding = surfaceResumeBindingsByPanelId[detached.panelId] {
@@ -11848,6 +11855,8 @@ extension Workspace: BonsplitDelegate {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteTerminalSessionPhase: remoteTerminalSessionStatesBySurfaceId[panelId]?.phase,
                 remoteTerminalAuthority: remoteTerminalSessionStatesBySurfaceId[panelId]?.authority,
+                remoteTerminalLifecycleID: remoteTerminalSessionStatesBySurfaceId[panelId]?
+                    .terminalLifecycleID,
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
                     ? remoteConfiguration?.relayPort
                     : nil,

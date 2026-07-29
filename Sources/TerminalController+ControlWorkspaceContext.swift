@@ -704,18 +704,11 @@ extension TerminalController: ControlWorkspaceContext {
         requestedWorkspaceID: UUID
     ) -> (tabManager: TabManager, workspace: Workspace?)? {
         guard let tabManager = app.dockReferenceTabManager(for: dock) else { return nil }
-        switch dock.scope {
-        case .workspace:
-            guard let workspaceOwner = app.tabManagerFor(tabId: dock.workspaceId),
-                  let workspace = workspaceOwner.workspacesById[dock.workspaceId] else {
-                return nil
-            }
-            return (tabManager, workspace)
-        case .global:
-            let workspace = app.tabManagerFor(tabId: requestedWorkspaceID)?
-                .workspacesById[requestedWorkspaceID]
-            return (tabManager, workspace)
-        }
+        // Presentation follows the launch workspace carried by the callback,
+        // while the result window follows the Dock that now owns the surface.
+        let workspace = app.tabManagerFor(tabId: requestedWorkspaceID)?
+            .workspacesById[requestedWorkspaceID]
+        return (tabManager, workspace)
     }
 
     nonisolated func controlCurrentRemotePTYLifecycleOwner(
@@ -774,7 +767,7 @@ extension TerminalController: ControlWorkspaceContext {
                     commitLease: commitLease,
                     dock: dock
                 )
-            } else if dock.scope == .global {
+            } else {
                 if let commitLease {
                     didConnect = commitLease.commitIfCurrent {
                         dock.markRemoteTerminalSessionConnected(
@@ -889,14 +882,12 @@ extension TerminalController: ControlWorkspaceContext {
                         terminalLifecycleID: terminalLifecycleID,
                         dock: dock
                     )
-                } else if dock.scope == .global {
+                } else {
                     didEnd = dock.markRemoteTerminalSessionEnded(
                         panelId: surfaceId,
                         authority: terminalAuthority,
                         terminalLifecycleID: terminalLifecycleID
                     )
-                } else {
-                    didEnd = false
                 }
                 guard didEnd else { return .notFound }
             }

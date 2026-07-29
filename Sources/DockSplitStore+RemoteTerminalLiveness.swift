@@ -24,8 +24,17 @@ extension DockSplitStore {
               ) else {
             return false
         }
+        if transfer.remoteTerminalSessionPhase == .ended {
+            guard let terminalLifecycleID,
+                  let endedLifecycleID = transfer.remoteTerminalLifecycleID,
+                  terminalLifecycleID != endedLifecycleID else {
+                return false
+            }
+        }
         transfer.remoteTerminalSessionPhase = .connected
         transfer.remoteTerminalAuthority = authority
+        transfer.remoteTerminalLifecycleID =
+            terminalLifecycleID ?? transfer.remoteTerminalLifecycleID
         detachedSurfaceTransfersByPanelId[panelId] = transfer
         return true
     }
@@ -60,12 +69,10 @@ extension DockSplitStore {
               transfer.isRemoteTerminal else {
             return false
         }
-        return switch scope {
-        case .workspace:
-            workspaceId == presentationWorkspaceID
-        case .global:
-            transfer.sessionRestoreWorkspaceId == presentationWorkspaceID
-        }
+        // The callback carries the workspace captured when the terminal
+        // launched. Container moves retarget `workspaceId`, but restore
+        // identity remains bound to that terminal process.
+        return transfer.sessionRestoreWorkspaceId == presentationWorkspaceID
     }
 
     func markRemoteTerminalSessionEnded(panelId: UUID, relayPort: Int?) -> Bool {
@@ -109,6 +116,8 @@ extension DockSplitStore {
         }
         transfer.remoteTerminalSessionPhase = .ended
         transfer.remoteTerminalAuthority = authority
+        transfer.remoteTerminalLifecycleID =
+            terminalLifecycleID ?? transfer.remoteTerminalLifecycleID
         detachedSurfaceTransfersByPanelId[panelId] = transfer
         return true
     }

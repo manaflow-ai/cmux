@@ -32,6 +32,7 @@ enum WorkspaceRemoteTerminalAuthority: Equatable, Sendable {
 struct WorkspaceRemoteTerminalSessionState: Equatable {
     let phase: WorkspaceRemoteTerminalSessionPhase
     let authority: WorkspaceRemoteTerminalAuthority
+    let terminalLifecycleID: UUID?
 }
 
 struct PendingWorkspaceRemoteTerminalConnection {
@@ -81,7 +82,9 @@ extension Workspace {
         }
         remoteTerminalSessionStatesBySurfaceId[surfaceId] = WorkspaceRemoteTerminalSessionState(
             phase: .launching,
-            authority: authority
+            authority: authority,
+            terminalLifecycleID: (panels[surfaceId] as? TerminalPanel)?
+                .surface.terminalLifecycleId
         )
     }
 
@@ -116,7 +119,8 @@ extension Workspace {
         guard let target = remoteTerminalConnectionTarget(
             surfaceId: surfaceId,
             authority: authority,
-            allowUntracked: allowUntracked
+            allowUntracked: allowUntracked,
+            terminalLifecycleID: terminalLifecycleID
         ) else {
             return false
         }
@@ -143,7 +147,8 @@ extension Workspace {
               let target = remoteTerminalConnectionTarget(
                   surfaceId: surfaceId,
                   authority: authority,
-                  allowUntracked: true
+                  allowUntracked: true,
+                  terminalLifecycleID: terminalLifecycleID
               ) else {
             return false
         }
@@ -197,8 +202,17 @@ extension Workspace {
     private func remoteTerminalConnectionTarget(
         surfaceId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
-        allowUntracked: Bool
+        allowUntracked: Bool,
+        terminalLifecycleID: UUID?
     ) -> WorkspaceRemoteTerminalConnectionTarget? {
+        if let endedState = remoteTerminalSessionStatesBySurfaceId[surfaceId],
+           endedState.phase == .ended {
+            guard let terminalLifecycleID,
+                  let endedLifecycleID = endedState.terminalLifecycleID,
+                  terminalLifecycleID != endedLifecycleID else {
+                return nil
+            }
+        }
         guard let configuration = remoteConfiguration else {
             guard panels[surfaceId] is TerminalPanel else { return nil }
             return .pending
@@ -238,7 +252,8 @@ extension Workspace {
                     self.remoteTerminalSessionStatesBySurfaceId[surfaceId] =
                         WorkspaceRemoteTerminalSessionState(
                             phase: .connected,
-                            authority: authority
+                            authority: authority,
+                            terminalLifecycleID: terminalLifecycleID
                         )
                 }
             }
@@ -286,6 +301,7 @@ extension Workspace {
     func restoreRemoteTerminalSessionPhase(
         _ phase: WorkspaceRemoteTerminalSessionPhase?,
         authority: WorkspaceRemoteTerminalAuthority?,
+        terminalLifecycleID: UUID?,
         surfaceId: UUID
     ) {
         guard let phase,
@@ -296,7 +312,11 @@ extension Workspace {
             return
         }
         remoteTerminalSessionStatesBySurfaceId[surfaceId] =
-            WorkspaceRemoteTerminalSessionState(phase: phase, authority: authority)
+            WorkspaceRemoteTerminalSessionState(
+                phase: phase,
+                authority: authority,
+                terminalLifecycleID: terminalLifecycleID
+            )
         if phase == .connected {
             applyRemoteTerminalConnectedPresentation()
         }

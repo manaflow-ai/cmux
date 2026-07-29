@@ -215,6 +215,7 @@ extension DockSplitStore {
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteTerminalSessionPhase: preservedTransfer?.remoteTerminalSessionPhase,
             remoteTerminalAuthority: preservedTransfer?.remoteTerminalAuthority,
+            remoteTerminalLifecycleID: preservedTransfer?.remoteTerminalLifecycleID,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration

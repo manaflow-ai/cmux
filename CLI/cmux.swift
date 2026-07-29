@@ -3011,6 +3011,7 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    private static let sshPTYTerminalConnectedResponseTimeoutSeconds: TimeInterval = 0.25
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
     // reconnect, session restore, and mobile attach targets the same provider VM once
@@ -12647,8 +12648,9 @@ struct CMUXCLI {
                let terminalLifecycleID = Self.normalizedEnvValue(
                    ProcessInfo.processInfo.environment["CMUX_TERMINAL_LIFECYCLE_ID"]
                ) {
-                _ = try? client.sendV2(
-                    method: "workspace.remote.terminal_session_connected",
+                reportSSHPTYTerminalConnected(
+                    socketPath: client.socketPath,
+                    explicitPassword: explicitPassword,
                     params: [
                         "workspace_id": workspaceId,
                         "surface_id": surfaceID,
@@ -12735,6 +12737,43 @@ struct CMUXCLI {
                 }
                 throw CLIError(message: "ssh-pty-attach: bridge read failed")
             }
+        }
+    }
+
+    /// Reports bridge readiness on a disposable socket so a delayed response
+    /// cannot block terminal forwarding or poison the attach control socket.
+    private func reportSSHPTYTerminalConnected(
+        socketPath: String,
+        explicitPassword: String?,
+        params: [String: Any]
+    ) {
+        let deadline = Date.now.addingTimeInterval(
+            Self.sshPTYTerminalConnectedResponseTimeoutSeconds
+        )
+        let reportingClient = SocketClient(path: socketPath)
+        defer { reportingClient.close() }
+        do {
+            try reportingClient.connectWithoutRetry(
+                responseTimeout: Self.sshPTYTerminalConnectedResponseTimeoutSeconds
+            )
+            let authenticationTimeout = deadline.timeIntervalSinceNow
+            guard authenticationTimeout > 0 else { return }
+            try authenticateClientIfNeeded(
+                reportingClient,
+                explicitPassword: explicitPassword,
+                socketPath: socketPath,
+                responseTimeout: authenticationTimeout,
+                deadline: deadline
+            )
+            let reportTimeout = deadline.timeIntervalSinceNow
+            guard reportTimeout > 0 else { return }
+            _ = try reportingClient.sendV2(
+                method: "workspace.remote.terminal_session_connected",
+                params: params,
+                responseTimeout: reportTimeout
+            )
+        } catch {
+            // Readiness reporting is best-effort; the live PTY must keep flowing.
         }
     }
 

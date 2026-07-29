@@ -51,6 +51,7 @@ extension Workspace {
         let isRemoteTerminal: Bool
         var remoteTerminalSessionPhase: WorkspaceRemoteTerminalSessionPhase? = nil
         var remoteTerminalAuthority: WorkspaceRemoteTerminalAuthority? = nil
+        var remoteTerminalLifecycleID: UUID? = nil
         let remoteRelayPort: Int?
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
@@ -91,6 +92,7 @@ extension Workspace {
                 isRemoteTerminal: isRemoteTerminal,
                 remoteTerminalSessionPhase: remoteTerminalSessionPhase,
                 remoteTerminalAuthority: remoteTerminalAuthority,
+                remoteTerminalLifecycleID: remoteTerminalLifecycleID,
                 remoteRelayPort: remoteRelayPort,
                 remotePTYSessionID: remotePTYSessionID,
                 remoteCleanupConfiguration: configuration
