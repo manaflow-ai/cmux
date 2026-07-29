@@ -289,6 +289,112 @@ def verify_stale_start_preserves_pending_clear_handoff(cli_path: str) -> None:
             )
 
 
+def verify_stale_turn_event_preserves_pending_clear_handoff(
+    cli_path: str,
+    stale_subcommand: str,
+) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    old_session_id = f"{stale_subcommand}-old-{uuid.uuid4().hex}"
+    clear_session_id = f"{stale_subcommand}-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / f"{stale_subcommand}-clear-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        if stale_subcommand == "stop":
+            stale_payload: dict[str, object] = {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "old turn completed late",
+                "background_tasks": [],
+                "session_crons": [],
+            }
+        elif stale_subcommand == "prompt-submit":
+            stale_payload = {
+                "session_id": old_session_id,
+                "turn_id": "turn-2",
+                "cwd": "/tmp",
+            }
+        else:
+            raise ValueError(f"Unsupported stale hook: {stale_subcommand}")
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            stale_subcommand,
+            stale_payload,
+            env,
+        )
+
+        clear_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
+            env,
+        )
+        clear_commands = server.commands[clear_start:]
+
+        if not has_command_with(
+            clear_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                f"A stale {stale_subcommand} erased the pending /clear handoff:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+        if has_command_with(
+            clear_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                f"A stale {stale_subcommand} made pending background work Idle:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        clear_record = state["sessions"][clear_session_id]
+        if clear_record.get("agentLifecycle") != "running":
+            raise RuntimeError(
+                f"The clear session did not survive a stale {stale_subcommand}:\n"
+                f"clear_record={clear_record!r}"
+            )
+
+
 def verify_failed_clear_store_preserves_visible_state(cli_path: str) -> None:
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
@@ -529,6 +635,11 @@ def main() -> int:
 
     try:
         verify_stale_start_preserves_pending_clear_handoff(cli_path)
+        verify_stale_turn_event_preserves_pending_clear_handoff(cli_path, "stop")
+        verify_stale_turn_event_preserves_pending_clear_handoff(
+            cli_path,
+            "prompt-submit",
+        )
         verify_failed_clear_store_preserves_visible_state(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
