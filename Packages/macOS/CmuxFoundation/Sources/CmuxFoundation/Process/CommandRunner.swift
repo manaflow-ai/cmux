@@ -27,8 +27,7 @@ private final class CommandTimer: @unchecked Sendable {
     }
 }
 
-/// Connects structured task cancellation to a process that is installed only
-/// after `Process.run()` succeeds.
+/// Serializes cancellation with suspended process-group launch.
 private final class CommandCancellationLatch: @unchecked Sendable {
     private struct State: Sendable {
         var isCancelled = false
@@ -38,15 +37,31 @@ private final class CommandCancellationLatch: @unchecked Sendable {
 
     private let state = OSAllocatedUnfairLock(initialState: State())
 
-    func install(_ action: @escaping @Sendable () -> Void) {
-        let runImmediately = state.withLock { state -> Bool in
-            guard !state.isFinished else { return false }
-            guard !state.isCancelled else { return true }
-            state.action = action
-            return false
+    /// Launches only while cancellation is inactive and installs the matching
+    /// group-termination action before cancellation can observe the child.
+    func launch(
+        _ operation: @Sendable () throws -> pid_t,
+        onCancel: @escaping @Sendable (pid_t) -> Void
+    ) rethrows -> pid_t? {
+        try state.withLock { state in
+            guard !state.isFinished, !state.isCancelled else { return nil }
+            let processIdentifier = try operation()
+            state.action = {
+                onCancel(processIdentifier)
+            }
+            return processIdentifier
         }
-        if runImmediately {
-            action()
+    }
+
+    /// Resumes a suspended launch while holding the same lock used by
+    /// cancellation. `nil` means cancellation already owns the process.
+    func resume(_ processIdentifier: pid_t) -> Int32? {
+        state.withLock { state in
+            guard !state.isFinished, !state.isCancelled else { return nil }
+            guard Darwin.kill(processIdentifier, SIGCONT) == 0 else {
+                return errno
+            }
+            return 0
         }
     }
 
@@ -69,8 +84,8 @@ private final class CommandCancellationLatch: @unchecked Sendable {
     }
 }
 
-/// Runs external commands with `Process`, capturing output and honoring an
-/// optional deadline.
+/// Runs external commands in dedicated POSIX process groups, capturing output
+/// and honoring an optional deadline.
 ///
 /// This is the production ``CommandRunning``. It resolves bare command names
 /// against `PATH`, a bundled `bin` directory, and a set of fallback directories
@@ -147,7 +162,6 @@ public struct CommandRunner: CommandRunning, Sendable {
         arguments: [String],
         timeout: TimeInterval?
     ) async -> CommandResult {
-        let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         let commandPath: String
@@ -159,29 +173,31 @@ public struct CommandRunner: CommandRunning, Sendable {
             commandPath = "/usr/bin/env"
             commandArguments = [executable] + arguments
         }
-        // Establish an owned process group before replacing the wrapper with
-        // the requested executable. Descendants inherit the group.
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [
-            "-c",
-            "set -m; exec \"$@\"",
-            "cmux-command-runner",
-            commandPath,
-        ] + commandArguments
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
 
-        let outFD = stdoutPipe.fileHandleForReading.fileDescriptor
-        let errFD = stderrPipe.fileHandleForReading.fileDescriptor
+        let stdoutReadHandle = stdoutPipe.fileHandleForReading
+        let stderrReadHandle = stderrPipe.fileHandleForReading
+        let stdoutWriteHandle = stdoutPipe.fileHandleForWriting
+        let stderrWriteHandle = stderrPipe.fileHandleForWriting
+        let outFD = Darwin.dup(stdoutReadHandle.fileDescriptor)
+        let errFD = Darwin.dup(stderrReadHandle.fileDescriptor)
+        guard outFD >= 0, errFD >= 0 else {
+            let errorCode = POSIXErrorCode(rawValue: errno) ?? .EIO
+            if outFD >= 0 { _ = Darwin.close(outFD) }
+            if errFD >= 0 { _ = Darwin.close(errFD) }
+            return CommandResult(
+                stdout: nil,
+                stderr: nil,
+                exitStatus: nil,
+                timedOut: false,
+                executionError: POSIXError(errorCode).localizedDescription
+            )
+        }
         let stderrCaptureLimit = standardErrorCaptureLimit
         let cancellation = CommandCancellationLatch()
 
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
-                // The two stdout/stderr readers, the termination handler, the deadline timer,
+                // The two stdout/stderr readers, the process reaper, the deadline timer,
                 // and the spawn-failure path race to resume this continuation exactly once.
                 // They run on synchronous, non-async callbacks, so a lock guards the small
                 // shared state (the captured streams, the termination flag, the resumed latch)
@@ -246,10 +262,12 @@ public struct CommandRunner: CommandRunning, Sendable {
                 // does not block on them. Keyed by the raw fd so no non-Sendable `FileHandle`
                 // crosses the task boundary.
                 Task.detached {
+                    defer { _ = Darwin.close(outFD) }
                     let data = Self.readToEnd(fileDescriptor: outFD, captureLimit: nil)
                     recordAndCompleteIfReady { $0.stdout = data }
                 }
                 Task.detached {
+                    defer { _ = Darwin.close(errFD) }
                     let data = Self.readToEnd(
                         fileDescriptor: errFD,
                         captureLimit: stderrCaptureLimit
@@ -257,56 +275,109 @@ public struct CommandRunner: CommandRunning, Sendable {
                     recordAndCompleteIfReady { $0.stderr = data }
                 }
 
-                process.terminationHandler = { finished in
-                    let status = finished.terminationStatus
-                    recordAndCompleteIfReady {
-                        $0.didTerminate = true
-                        $0.exitStatus = status
-                    }
+                func closeParentPipeHandles() {
+                    try? stdoutReadHandle.close()
+                    try? stderrReadHandle.close()
+                    try? stdoutWriteHandle.close()
+                    try? stderrWriteHandle.close()
                 }
 
+                let cancelledResult = CommandResult(
+                    stdout: nil,
+                    stderr: nil,
+                    exitStatus: nil,
+                    timedOut: false,
+                    executionError: nil,
+                    cancelled: true
+                )
+                let processGroupID: pid_t
                 do {
-                    try process.run()
+                    guard let launchedProcessIdentifier = try cancellation.launch({
+                        try Self.spawnCommand(
+                            executablePath: commandPath,
+                            arguments: commandArguments,
+                            environment: environment,
+                            directory: directory,
+                            stdoutFileDescriptor: stdoutWriteHandle.fileDescriptor,
+                            stderrFileDescriptor: stderrWriteHandle.fileDescriptor,
+                            fileDescriptorsToClose: [
+                                stdoutReadHandle.fileDescriptor,
+                                stdoutWriteHandle.fileDescriptor,
+                                stderrReadHandle.fileDescriptor,
+                                stderrWriteHandle.fileDescriptor,
+                            ]
+                        )
+                    }, onCancel: { processIdentifier in
+                        if claimImmediate(cancelledResult) {
+                            Self.terminateOwnedProcessTree(
+                                processGroupID: processIdentifier
+                            )
+                        }
+                    }) else {
+                        closeParentPipeHandles()
+                        _ = claimImmediate(cancelledResult)
+                        return
+                    }
+                    processGroupID = launchedProcessIdentifier
                 } catch {
                     let message = String(describing: error)
-                    try? stdoutPipe.fileHandleForWriting.close()
-                    try? stderrPipe.fileHandleForWriting.close()
+                    closeParentPipeHandles()
                     _ = claimImmediate(
                         CommandResult(
                             stdout: nil, stderr: nil, exitStatus: nil, timedOut: false, executionError: message
-                        ))
+                    ))
                     return
                 }
-                let processGroupID = process.processIdentifier
-                // Close the launch/cancellation race before the shell wrapper
-                // executes `set -m`. EACCES means it already execed; the wrapper
-                // then establishes the same group id.
-                _ = Darwin.setpgid(processGroupID, processGroupID)
+                closeParentPipeHandles()
 
-                // Close the parent's write ends so the readers see EOF once the child (and any
-                // descendants that inherited them) close their copies.
-                try? stdoutPipe.fileHandleForWriting.close()
-                try? stderrPipe.fileHandleForWriting.close()
+                DispatchQueue.global(qos: .utility).async {
+                    var rawStatus: Int32 = 0
+                    var waitResult: pid_t
+                    repeat {
+                        waitResult = Darwin.waitpid(processGroupID, &rawStatus, 0)
+                    } while waitResult == -1 && errno == EINTR
 
-                cancellation.install {
-                    let cancelled = CommandResult(
-                        stdout: nil,
-                        stderr: nil,
-                        exitStatus: nil,
-                        timedOut: false,
-                        executionError: nil,
-                        cancelled: true
-                    )
-                    if claimImmediate(cancelled) {
-                        Self.terminateOwnedProcessTree(
-                            process,
-                            processGroupID: processGroupID
+                    if waitResult == processGroupID {
+                        let completedRawStatus = rawStatus
+                        recordAndCompleteIfReady {
+                            $0.didTerminate = true
+                            $0.exitStatus = Self.exitStatus(from: completedRawStatus)
+                        }
+                    } else {
+                        let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+                        _ = claimImmediate(
+                            CommandResult(
+                                stdout: nil,
+                                stderr: nil,
+                                exitStatus: nil,
+                                timedOut: false,
+                                executionError: POSIXError(code).localizedDescription
+                            )
                         )
                     }
                 }
 
+                guard let resumeStatus = cancellation.resume(processGroupID) else {
+                    return
+                }
+                guard resumeStatus == 0 else {
+                    let code = POSIXErrorCode(rawValue: resumeStatus) ?? .EIO
+                    if claimImmediate(
+                        CommandResult(
+                            stdout: nil,
+                            stderr: nil,
+                            exitStatus: nil,
+                            timedOut: false,
+                            executionError: POSIXError(code).localizedDescription
+                        )
+                    ) {
+                        Self.terminateOwnedProcessTree(processGroupID: processGroupID)
+                    }
+                    return
+                }
+
                 // Arm the deadline only after a successful launch, so the timeout handler can
-                // never call `terminate()` on an unlaunched Process (which raises). The deadline
+                // never signal an unlaunched process group. The deadline
                 // bounds the WHOLE capture: it is cancelled only when the continuation resumes
                 // (see the two `claim`/`record` helpers), never on process exit, so a descendant
                 // that exits the immediate child but keeps a pipe open cannot strand `run`
@@ -322,7 +393,6 @@ public struct CommandRunner: CommandRunning, Sendable {
                         )
                         if claimImmediate(timedOut) {
                             Self.terminateOwnedProcessTree(
-                                process,
                                 processGroupID: processGroupID
                             )
                         }
@@ -347,7 +417,7 @@ public struct CommandRunner: CommandRunning, Sendable {
         }
     }
 
-    /// Mutable state shared across the stdout/stderr readers, termination handler, deadline
+    /// Mutable state shared across the stdout/stderr readers, process reaper, deadline
     /// timer, and spawn-failure path while one `run` resolves; guarded by a lock.
     private struct RunState: Sendable {
         var stdout: Data?
@@ -360,30 +430,149 @@ public struct CommandRunner: CommandRunning, Sendable {
     }
 
     private static func terminateOwnedProcessTree(
-        _ process: Process,
         processGroupID: pid_t
     ) {
-        if Darwin.kill(-processGroupID, SIGTERM) != 0, process.isRunning {
-            process.terminate()
+        if Darwin.killpg(processGroupID, SIGTERM) != 0, errno != ESRCH {
+            _ = Darwin.kill(processGroupID, SIGTERM)
         }
-        scheduleSigkill(process, processGroupID: processGroupID)
+        scheduleSigkill(processGroupID: processGroupID)
     }
 
     private static func scheduleSigkill(
-        _ process: Process,
         processGroupID: pid_t
     ) {
         let timer = CommandTimer(queue: timerQueue)
         timer.schedule(deadline: .now() + sigkillGraceSeconds)
         timer.setEventHandler {
-            if Darwin.kill(-processGroupID, 0) == 0 || errno == EPERM {
-                _ = Darwin.kill(-processGroupID, SIGKILL)
-            } else if process.isRunning {
-                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            if Darwin.killpg(processGroupID, 0) == 0 || errno == EPERM {
+                _ = Darwin.killpg(processGroupID, SIGKILL)
             }
             timer.cancel()
         }
         timer.resume()
+    }
+
+    private static func spawnCommand(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        directory: String,
+        stdoutFileDescriptor: Int32,
+        stderrFileDescriptor: Int32,
+        fileDescriptorsToClose: [Int32]
+    ) throws -> pid_t {
+        var fileActions: posix_spawn_file_actions_t?
+        try throwIfPOSIXError(posix_spawn_file_actions_init(&fileActions))
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        try "/dev/null".withCString { path in
+            try throwIfPOSIXError(
+                posix_spawn_file_actions_addopen(
+                    &fileActions,
+                    STDIN_FILENO,
+                    path,
+                    O_RDONLY,
+                    0
+                )
+            )
+        }
+        try directory.withCString { path in
+            try throwIfPOSIXError(
+                posix_spawn_file_actions_addchdir_np(&fileActions, path)
+            )
+        }
+        try throwIfPOSIXError(
+            posix_spawn_file_actions_adddup2(
+                &fileActions,
+                stdoutFileDescriptor,
+                STDOUT_FILENO
+            )
+        )
+        try throwIfPOSIXError(
+            posix_spawn_file_actions_adddup2(
+                &fileActions,
+                stderrFileDescriptor,
+                STDERR_FILENO
+            )
+        )
+        for descriptor in Set(fileDescriptorsToClose) where descriptor > STDERR_FILENO {
+            try throwIfPOSIXError(
+                posix_spawn_file_actions_addclose(&fileActions, descriptor)
+            )
+        }
+
+        var attributes: posix_spawnattr_t?
+        try throwIfPOSIXError(posix_spawnattr_init(&attributes))
+        defer { posix_spawnattr_destroy(&attributes) }
+        let flags = Int16(
+            POSIX_SPAWN_CLOEXEC_DEFAULT
+                | POSIX_SPAWN_SETPGROUP
+                | POSIX_SPAWN_START_SUSPENDED
+        )
+        try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0))
+        try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags))
+
+        let argumentStrings = [executablePath] + arguments
+        let environmentStrings = environment
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+        var processIdentifier: pid_t = 0
+        let spawnStatus = try withMutableCStringArray(argumentStrings) { argumentPointers in
+            try withMutableCStringArray(environmentStrings) { environmentPointers in
+                executablePath.withCString { executablePointer in
+                    posix_spawn(
+                        &processIdentifier,
+                        executablePointer,
+                        &fileActions,
+                        &attributes,
+                        argumentPointers,
+                        environmentPointers
+                    )
+                }
+            }
+        }
+        try throwIfPOSIXError(spawnStatus)
+        guard processIdentifier > 1 else { throw POSIXError(.ECHILD) }
+        return processIdentifier
+    }
+
+    private static func exitStatus(from rawStatus: Int32) -> Int32 {
+        let terminatingSignal = rawStatus & 0x7f
+        if terminatingSignal == 0 {
+            return (rawStatus >> 8) & 0xff
+        }
+        return terminatingSignal
+    }
+
+    private static func throwIfPOSIXError(_ status: Int32) throws {
+        guard status == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: status) ?? .EIO)
+        }
+    }
+
+    private static func withMutableCStringArray<Result>(
+        _ strings: [String],
+        _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> Result
+    ) throws -> Result {
+        guard strings.allSatisfy({ !$0.utf8.contains(0) }) else {
+            throw POSIXError(.EINVAL)
+        }
+        var pointers = try strings.map { string -> UnsafeMutablePointer<CChar>? in
+            guard let pointer = strdup(string) else { throw POSIXError(.ENOMEM) }
+            return pointer
+        }
+        pointers.append(nil)
+        defer {
+            for pointer in pointers.dropLast() {
+                free(pointer)
+            }
+        }
+        return try pointers.withUnsafeMutableBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else {
+                throw POSIXError(.EINVAL)
+            }
+            return try body(baseAddress)
+        }
     }
 
     private static func readToEnd(

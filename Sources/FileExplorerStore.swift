@@ -1092,10 +1092,11 @@ final class FileExplorerStore: ObservableObject {
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
         expandedPaths.insert(node.path)
-        if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
-            node.isLoading = true
-            node.error = nil
-            publishOutlineChange(.nodeChanged(node: node, reloadChildren: false))
+        guard node.children == nil else { return }
+        if loadTasks[node.path] != nil {
+            promoteLoadToVisible(node: node, path: node.path)
+        } else if !loadingPaths.contains(node.path) {
+            promoteLoadToVisible(node: node, path: node.path)
             startLoad(for: node, at: node.path)
         }
     }
@@ -1217,10 +1218,10 @@ final class FileExplorerStore: ObservableObject {
         }
 
         if !silent {
-            loadingPaths.insert(path)
-            parentNode?.error = nil
             if let parentNode {
-                publishOutlineChange(.nodeChanged(node: parentNode, reloadChildren: false))
+                promoteLoadToVisible(node: parentNode, path: path)
+            } else {
+                loadingPaths.insert(path)
             }
         }
 
@@ -1304,6 +1305,13 @@ final class FileExplorerStore: ObservableObject {
 
     private func ownsLoad(at path: String, identifier: UUID) -> Bool {
         loadTasks[path]?.identifier == identifier
+    }
+
+    private func promoteLoadToVisible(node: FileExplorerNode, path: String) {
+        guard loadingPaths.insert(path).inserted else { return }
+        node.isLoading = true
+        node.error = nil
+        publishOutlineChange(.nodeChanged(node: node, reloadChildren: false))
     }
 
     private func retireLoad(
