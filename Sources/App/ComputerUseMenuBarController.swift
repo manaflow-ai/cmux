@@ -117,12 +117,6 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
             return
         }
 
-        let sessionItem = NSMenuItem(title: row.title, action: nil, keyEquivalent: "")
-        sessionItem.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: row.title)
-        sessionItem.isEnabled = false
-        menu.addItem(sessionItem)
-        menu.addItem(NSMenuItem.separator())
-
         let driverSessionID = ComputerUseSessionScope.driverSessionID(
             surfaceID: row.surfaceID
         )
