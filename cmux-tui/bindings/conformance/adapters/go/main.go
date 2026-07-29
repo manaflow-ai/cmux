@@ -119,13 +119,13 @@ func dispatch(input request) (any, error) {
 
 	switch input.Op {
 	case "read":
-		document, err := session.Ping(ctx, cmux.SessionPingOptions{})
+		result, err := session.Ping(ctx, cmux.SessionPingOptions{})
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{
-			"alive":  document.Fields["alive"],
-			"cursor": normalize(document.Fields["cursor"]),
+			"alive":  result.Alive,
+			"cursor": cursorValue(&result.Cursor),
 		}, nil
 	case "mutation-replay":
 		options, err := renameOptions(input.Constants)
@@ -140,9 +140,17 @@ func dispatch(input request) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		firstValue, err := mutationValue(first)
+		if err != nil {
+			return nil, err
+		}
+		secondValue, err := mutationValue(second)
+		if err != nil {
+			return nil, err
+		}
 		return map[string]any{
-			"first":  mutationValue(first),
-			"second": mutationValue(second),
+			"first":  firstValue,
+			"second": secondValue,
 		}, nil
 	case "mutation-error":
 		options, err := renameOptions(input.Constants)
@@ -242,14 +250,14 @@ func dispatch(input request) (any, error) {
 		if _, err := receiveEnd(ctx, second); err != nil {
 			return nil, err
 		}
-		document, err := session.Ping(ctx, cmux.SessionPingOptions{})
+		result, err := session.Ping(ctx, cmux.SessionPingOptions{})
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{
 			"first_end":     firstEnd,
 			"second_kind":   secondItem.Value.Kind,
-			"control_alive": document.Fields["alive"],
+			"control_alive": result.Alive,
 		}, nil
 	case "live-setup":
 		return liveSetup(ctx, client, input)
@@ -292,14 +300,20 @@ func renameOptions(values constants) (cmux.WorkspaceRenameOptions, error) {
 	}, nil
 }
 
-func mutationValue(result cmux.MutationResult[cmux.WorkspaceSnapshot]) map[string]any {
+func mutationValue(
+	result cmux.MutationResult[*cmux.Workspace],
+) (map[string]any, error) {
+	snapshot, ok := result.Value.Cached()
+	if !ok {
+		return nil, errors.New("workspace mutation result handle omitted its snapshot")
+	}
 	return map[string]any{
-		"workspace_id": result.Value.ID,
-		"name":         result.Value.Name,
+		"workspace_id": snapshot.ID,
+		"name":         snapshot.Name,
 		"generation":   result.Generation,
 		"revision":     result.Revision.String(),
 		"replayed":     result.Replayed,
-	}
+	}, nil
 }
 
 func cursorValue(cursor *cmux.Cursor) any {
@@ -509,9 +523,9 @@ func liveSetup(ctx context.Context, client *cmux.Client, input request) (any, er
 		noMutation = noMutation && name != baseName+"-must-not-apply"
 	}
 	return map[string]any{
-		"pinged":                             ping.Fields["alive"],
+		"pinged":                             ping.Alive,
 		"stable_id":                          stableID,
-		"stable_renamed":                     renamed.Value.Name == stableRenamedName,
+		"stable_renamed":                     workspaceHasName(renamed.Value, stableRenamedName),
 		"duplicate_ids":                      duplicateIDs,
 		"ambiguity_code":                     resource.Code,
 		"ambiguity_preserved_all_candidates": preservedCandidates,
@@ -646,11 +660,16 @@ func liveFlow(ctx context.Context, client *cmux.Client, input request) (any, err
 		}
 	}
 	return map[string]any{
-		"pinged":      ping.Fields["alive"],
+		"pinged":      ping.Alive,
 		"created":     created.Value.Workspace != "",
-		"renamed":     renamed.Value.Name == renamedName,
+		"renamed":     workspaceHasName(renamed.Value, renamedName),
 		"listed":      listed,
 		"closed":      true,
 		"disappeared": disappeared,
 	}, nil
+}
+
+func workspaceHasName(workspace *cmux.Workspace, expected string) bool {
+	snapshot, ok := workspace.Cached()
+	return ok && snapshot.Name == expected
 }
