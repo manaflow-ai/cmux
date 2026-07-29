@@ -3136,6 +3136,10 @@ impl Mux {
         self.workspace_registry.lock().unwrap().terminal_snapshot()
     }
 
+    pub fn terminal_registry_revision(&self) -> anyhow::Result<u64> {
+        self.workspace_registry.lock().unwrap().terminal_revision()
+    }
+
     #[cfg(test)]
     pub(crate) fn reset_terminal_snapshot_count_for_test(&self) {
         self.workspace_registry.lock().unwrap().reset_terminal_snapshot_count_for_test();

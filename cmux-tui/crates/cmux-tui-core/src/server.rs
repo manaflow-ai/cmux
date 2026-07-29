@@ -4266,7 +4266,7 @@ fn handle_command_with_cancellation(
                 "registry_id": registry_id,
                 "generation": generation,
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),
-                "terminal_revision": mux.terminal_registry_snapshot()?.revision,
+                "terminal_revision": mux.terminal_registry_revision()?,
                 "daemon_handoff": 1,
                 "shutdown_cleanup": {
                     "pending": shutdown_cleanup.pending,
