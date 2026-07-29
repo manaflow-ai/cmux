@@ -322,6 +322,8 @@ struct ClosedMainWindowRoutingTests {
         let windowCId = UUID()
         let windowA = makeMainWindow(id: windowAId)
         let windowC = makeMainWindow(id: windowCId)
+        let managerA = TabManager()
+        let managerC = TabManager()
         defer {
             app.unregisterMainWindowContextForTesting(windowId: windowAId)
             app.unregisterMainWindowContextForTesting(windowId: windowCId)
@@ -331,8 +333,6 @@ struct ClosedMainWindowRoutingTests {
             windowC.orderOut(nil)
         }
 
-        let managerA = TabManager()
-        let managerC = TabManager()
         app.registerMainWindow(
             windowA,
             windowId: windowAId,
@@ -413,9 +413,8 @@ struct ClosedMainWindowRoutingTests {
         )
         #expect(
             TerminalController.shared.controlSurfaceFocus(
-                workspace: workspaceC,
-                surfaceID: terminalPanelC.id,
-                tabManager: managerC
+                routing: routingC,
+                surfaceID: terminalPanelC.id
             ) == .tabManagerUnavailable
         )
         #expect(app.tabManager === managerA)
