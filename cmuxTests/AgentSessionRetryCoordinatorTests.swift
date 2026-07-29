@@ -305,8 +305,13 @@ struct AgentSessionRetryCoordinatorTests {
                 forName: "AgentSessionRetryCoordinatorTests.timerActiveLifecycle"
             )
         }
-        activeLifecycle.workspace.agentLifecycleStatesByPanelId[activeLifecycle.panelId] = [
-            "claude_code": .running,
+        activeLifecycle.workspace.agentLifecycleRecordsByPanelId[activeLifecycle.panelId] = [
+            "claude_code": AgentLifecycleRecord(
+                agent: "claude_code",
+                state: .running,
+                sessionID: nil,
+                revision: activeLifecycle.workspace.takeNextAgentLifecycleRevision()
+            ),
         ]
         activeLifecycle.workspace.agentSessionRetryCoordinator.retryTimerFired(
             panelId: activeLifecycle.panelId
