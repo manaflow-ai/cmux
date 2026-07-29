@@ -119,7 +119,13 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("A late stdin write error wins over an earlier child exit")
     func lateStdinWriteErrorWinsOverChildExit() {
-        let runner = RemoteSessionProcessRunner(stdinWriter: DelayedFailingRemoteProcessStdinWriter())
+        let processDidExit = DispatchSemaphore(value: 0)
+        let runner = RemoteSessionProcessRunner(
+            processDidExit: { processDidExit.signal() },
+            stdinWriter: ExitGatedFailingRemoteProcessStdinWriter(
+                processDidExit: processDidExit
+            )
+        )
 
         #expect {
             try runner.run(

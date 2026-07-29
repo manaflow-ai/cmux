@@ -67,19 +67,55 @@ struct FileHandleProcessPipeReadingTests {
     @Test("A stopped end read drains buffered bytes without waiting for EOF")
     func stoppedEndReadDrainsBufferedBytesWithoutEOF() throws {
         let pipe = Pipe()
+        let stopSignal = try ProcessPipeStopSignal()
         defer {
             try? pipe.fileHandleForWriting.close()
             try? pipe.fileHandleForReading.close()
         }
         try pipe.fileHandleForWriting.write(contentsOf: Data("buffered".utf8))
+        stopSignal.signal()
 
         let result = ProcessPipeEndRead.reading(
             fileDescriptor: pipe.fileHandleForReading.fileDescriptor,
-            shouldStop: { true }
+            stopFileDescriptor: stopSignal.readFileDescriptor
         )
 
         #expect(result.data == Data("buffered".utf8))
         #expect(result.readError == nil)
+    }
+
+    @Test("One stop signal wakes every blocked pipe reader")
+    func stopSignalBroadcastsToBlockedReaders() throws {
+        let firstPipe = Pipe()
+        let secondPipe = Pipe()
+        let stopSignal = try ProcessPipeStopSignal()
+        defer {
+            try? firstPipe.fileHandleForWriting.close()
+            try? firstPipe.fileHandleForReading.close()
+            try? secondPipe.fileHandleForWriting.close()
+            try? secondPipe.fileHandleForReading.close()
+        }
+
+        stopSignal.signal()
+        let firstFinished = DispatchSemaphore(value: 0)
+        let secondFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            _ = ProcessPipeEndRead.reading(
+                fileDescriptor: firstPipe.fileHandleForReading.fileDescriptor,
+                stopFileDescriptor: stopSignal.readFileDescriptor
+            )
+            firstFinished.signal()
+        }
+        DispatchQueue.global(qos: .utility).async {
+            _ = ProcessPipeEndRead.reading(
+                fileDescriptor: secondPipe.fileHandleForReading.fileDescriptor,
+                stopFileDescriptor: stopSignal.readFileDescriptor
+            )
+            secondFinished.signal()
+        }
+
+        #expect(firstFinished.wait(timeout: .now() + 1) == .success)
+        #expect(secondFinished.wait(timeout: .now() + 1) == .success)
     }
 
     @Test("readDataToEndOfFileOrEmpty drains a closed pipe")

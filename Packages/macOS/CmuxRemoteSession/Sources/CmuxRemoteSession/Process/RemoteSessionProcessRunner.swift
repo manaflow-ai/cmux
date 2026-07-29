@@ -31,22 +31,28 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
     /// Test observation seam (package tests only): records the launched child
     /// identifier so tests can prove error cleanup reaped that exact process.
     let processDidLaunch: (@Sendable (pid_t) -> Void)?
+    /// Test observation seam (package tests only): runs after the child has
+    /// definitively exited, including the deadline reconciliation path.
+    let processDidExit: (@Sendable () -> Void)?
     private let stdinWriter: any RemoteProcessStdinWriting
 
     /// Creates the production runner.
     public init() {
         self.readHandlesDidInstall = nil
         self.processDidLaunch = nil
+        self.processDidExit = nil
         self.stdinWriter = RemoteProcessStdinWriter()
     }
 
     init(
         readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)? = nil,
         processDidLaunch: (@Sendable (pid_t) -> Void)? = nil,
+        processDidExit: (@Sendable () -> Void)? = nil,
         stdinWriter: any RemoteProcessStdinWriting = RemoteProcessStdinWriter()
     ) {
         self.readHandlesDidInstall = readHandlesDidInstall
         self.processDidLaunch = processDidLaunch
+        self.processDidExit = processDidExit
         self.stdinWriter = stdinWriter
     }
 
@@ -75,16 +81,17 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         private var stdinWriteError: (any Error)?
         private var stdinWriteFinished: Bool
         private var shouldStopStdinWrite = false
-        private var shouldStopCapture = false
 
         init(stdinWriteFinished: Bool) {
             self.stdinWriteFinished = stdinWriteFinished
         }
 
-        func markExited() {
+        @discardableResult
+        func markExited() -> Bool {
             lock.withLock {
+                guard !didExit else { return false }
                 didExit = true
-                shouldStopCapture = true
+                return true
             }
         }
 
@@ -109,12 +116,6 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         func stdinWriteShouldStop() -> Bool {
             lock.withLock {
                 shouldStopStdinWrite
-            }
-        }
-
-        func captureShouldStop() -> Bool {
-            lock.withLock {
-                shouldStopCapture
             }
         }
 
@@ -180,11 +181,19 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         let captureQueue = DispatchQueue(label: "cmux.remote.process.capture")
         let exitSemaphore = DispatchSemaphore(value: 0)
         let lifecycleSemaphore = DispatchSemaphore(value: 0)
+        let captureStopSignal = try ProcessPipeStopSignal()
         let completionState = ProcessCompletionState(stdinWriteFinished: !writesInlineStdin)
         let captureState = PipeCaptureState()
         let captureGroup = DispatchGroup()
+        let noteProcessExit: @Sendable () -> Void = {
+            let isFirstObservation = completionState.markExited()
+            captureStopSignal.signal()
+            if isFirstObservation {
+                processDidExit?()
+            }
+        }
         process.terminationHandler = { _ in
-            completionState.markExited()
+            noteProcessExit()
             exitSemaphore.signal()
             lifecycleSemaphore.signal()
         }
@@ -208,9 +217,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             defer { _ = Darwin.close(stdoutDescriptor) }
             let result = ProcessPipeEndRead.reading(
                 fileDescriptor: stdoutDescriptor,
-                shouldStop: {
-                    completionState.captureShouldStop()
-                }
+                stopFileDescriptor: captureStopSignal.readFileDescriptor
             )
             captureQueue.sync {
                 captureState.stdoutData = result.data
@@ -223,9 +230,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             defer { _ = Darwin.close(stderrDescriptor) }
             let result = ProcessPipeEndRead.reading(
                 fileDescriptor: stderrDescriptor,
-                shouldStop: {
-                    completionState.captureShouldStop()
-                }
+                stopFileDescriptor: captureStopSignal.readFileDescriptor
             )
             captureQueue.sync {
                 captureState.stderrData = result.data
@@ -264,6 +269,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         } catch {
             try? stdoutPipe.fileHandleForWriting.close()
             try? stderrPipe.fileHandleForWriting.close()
+            captureStopSignal.signal()
             finishCaptureAndCloseReadHandles()
             debugLog(
                 "remote.proc.launchFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
@@ -340,7 +346,12 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
                 break
             }
             if lifecycleSemaphore.wait(timeout: timeoutDeadline) == .timedOut {
-                let stateAtDeadline = completionState.snapshot()
+                var stateAtDeadline = completionState.snapshot()
+                if !stateAtDeadline.didExit, !process.isRunning {
+                    process.waitUntilExit()
+                    noteProcessExit()
+                    stateAtDeadline = completionState.snapshot()
+                }
                 didTimeOut = stateAtDeadline.stdinWriteError == nil
                     && !(stateAtDeadline.didExit && stateAtDeadline.stdinWriteFinished)
                 if didTimeOut {

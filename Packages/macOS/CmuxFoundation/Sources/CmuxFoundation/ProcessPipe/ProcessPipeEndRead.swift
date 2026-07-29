@@ -1,6 +1,51 @@
 import Darwin
 public import Foundation
 
+/// A one-shot signal that wakes process-pipe readers without periodic polling.
+///
+/// Closing the pipe's write end leaves the read end permanently hung up, so
+/// every reader polling the same signal wakes even when another reader returns
+/// first. The owner must retain the signal until all readers have stopped.
+public final class ProcessPipeStopSignal: @unchecked Sendable {
+    public let readFileDescriptor: Int32
+
+    private let lock = NSLock()
+    private var writeFileDescriptor: Int32
+
+    public init() throws {
+        var descriptors: [Int32] = [-1, -1]
+        guard Darwin.pipe(&descriptors) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+
+        readFileDescriptor = descriptors[0]
+        writeFileDescriptor = descriptors[1]
+        guard fcntl(readFileDescriptor, F_SETFD, FD_CLOEXEC) == 0,
+              fcntl(writeFileDescriptor, F_SETFD, FD_CLOEXEC) == 0 else {
+            let code = errno
+            Darwin.close(readFileDescriptor)
+            Darwin.close(writeFileDescriptor)
+            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+        }
+    }
+
+    public func signal() {
+        let descriptor = lock.withLock {
+            let descriptor = writeFileDescriptor
+            writeFileDescriptor = -1
+            return descriptor
+        }
+        if descriptor >= 0 {
+            Darwin.close(descriptor)
+        }
+    }
+
+    deinit {
+        signal()
+        Darwin.close(readFileDescriptor)
+    }
+}
+
 /// The outcome of draining a pipe to end-of-file: every byte read before the
 /// stream ended, plus the read error that interrupted the drain, if any.
 public struct ProcessPipeEndRead: Equatable, Sendable {
@@ -64,39 +109,32 @@ public struct ProcessPipeEndRead: Equatable, Sendable {
         }
     }
 
-    /// Drains a process pipe until EOF or until the owner requests a bounded
-    /// stop. While running, the reader polls so it can observe `shouldStop`
-    /// even when a descendant keeps the pipe's write end open. On stop it
-    /// preserves bytes already buffered in the pipe, then returns without
-    /// waiting for a future writer or an inherited descriptor to close.
+    /// Drains a process pipe until EOF or until `stopFileDescriptor` becomes
+    /// readable or hung up. On stop it preserves bytes already buffered in the
+    /// pipe, then returns without waiting for a future writer or an inherited
+    /// descriptor to close.
     public static func reading(
         fileDescriptor: Int32,
         chunkSize: Int = FileHandle.processPipeReadChunkSize,
-        pollIntervalMilliseconds: Int32 = 25,
-        shouldStop: @Sendable () -> Bool
+        stopFileDescriptor: Int32
     ) -> ProcessPipeEndRead {
         var data = Data()
-        var stopDrainCount = 0
         let maximumStopDrainCount = 16
 
         while true {
-            let isStopping = shouldStop()
-            var descriptor = pollfd(
-                fd: fileDescriptor,
-                events: Int16(POLLIN | POLLERR | POLLHUP),
-                revents: 0
-            )
-            let pollResult = Darwin.poll(
-                &descriptor,
-                1,
-                isStopping ? 0 : max(1, pollIntervalMilliseconds)
-            )
-            if pollResult == 0 {
-                if isStopping {
-                    return ProcessPipeEndRead(data: data, readError: nil)
-                }
-                continue
-            }
+            var descriptors = [
+                pollfd(
+                    fd: fileDescriptor,
+                    events: Int16(POLLIN | POLLERR | POLLHUP),
+                    revents: 0
+                ),
+                pollfd(
+                    fd: stopFileDescriptor,
+                    events: Int16(POLLIN | POLLERR | POLLHUP),
+                    revents: 0
+                ),
+            ]
+            let pollResult = Darwin.poll(&descriptors, nfds_t(descriptors.count), -1)
             if pollResult < 0 {
                 let code = errno
                 if code == EINTR {
@@ -110,7 +148,7 @@ public struct ProcessPipeEndRead: Equatable, Sendable {
                     )
                 )
             }
-            if (descriptor.revents & Int16(POLLNVAL)) != 0 {
+            if (descriptors[0].revents & Int16(POLLNVAL)) != 0 {
                 return ProcessPipeEndRead(
                     data: data,
                     readError: ProcessPipeReadError(
@@ -120,27 +158,33 @@ public struct ProcessPipeEndRead: Equatable, Sendable {
                 )
             }
 
-            switch ProcessPipeAvailableRead.readAvailableOnce(
-                fileDescriptor: fileDescriptor,
-                maxLength: chunkSize,
-                operation: "readDataToEndOfFile"
-            ) {
-            case .success(.data(let chunk)):
-                data.append(chunk)
-                if isStopping {
-                    stopDrainCount += 1
-                    if stopDrainCount >= maximumStopDrainCount {
+            let isStopping = descriptors[1].revents != 0
+            var stopDrainCount = 0
+            repeat {
+                switch ProcessPipeAvailableRead.readOnceIfReady(
+                    fileDescriptor: fileDescriptor,
+                    maxLength: chunkSize,
+                    operation: "readDataToEndOfFile"
+                ) {
+                case .success(.data(let chunk)):
+                    data.append(chunk)
+                    if isStopping {
+                        stopDrainCount += 1
+                    }
+                case .success(.wouldBlock):
+                    if isStopping {
                         return ProcessPipeEndRead(data: data, readError: nil)
                     }
-                }
-            case .success(.wouldBlock):
-                if isStopping {
+                    break
+                case .success(.endOfFile):
                     return ProcessPipeEndRead(data: data, readError: nil)
+                case .failure(let error):
+                    return ProcessPipeEndRead(data: data, readError: error)
                 }
-            case .success(.endOfFile):
+            } while isStopping && stopDrainCount < maximumStopDrainCount
+
+            if isStopping {
                 return ProcessPipeEndRead(data: data, readError: nil)
-            case .failure(let error):
-                return ProcessPipeEndRead(data: data, readError: error)
             }
         }
     }

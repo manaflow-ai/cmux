@@ -1,13 +1,17 @@
 import Foundation
 @testable import CmuxRemoteSession
 
-struct DelayedFailingRemoteProcessStdinWriter: RemoteProcessStdinWriting {
+struct ExitGatedFailingRemoteProcessStdinWriter: RemoteProcessStdinWriting {
+    let processDidExit: DispatchSemaphore
+
     func write(
         _ data: Data,
         to handle: FileHandle,
         shouldStop: @escaping @Sendable () -> Bool
     ) throws {
-        Thread.sleep(forTimeInterval: 0.1)
+        guard processDidExit.wait(timeout: .now() + 2) == .success else {
+            throw POSIXError(.ETIMEDOUT)
+        }
         throw POSIXError(.EIO)
     }
 }
