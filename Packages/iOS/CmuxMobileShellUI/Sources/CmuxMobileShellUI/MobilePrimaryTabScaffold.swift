@@ -43,17 +43,21 @@ struct MobilePrimaryTabScaffold<
                 primaryTabs
 
                 Tab(value: MobilePrimaryTab.search, role: .search) {
+                    // Scoped to the search tab's content: a TabView-level
+                    // searchable is inherited by every tab's navigation bar,
+                    // which rendered a second, top search field on the
+                    // workspaces and notifications tabs.
                     searchDestination
+                        .searchable(
+                            text: activeSearchText,
+                            isPresented: searchPresentation,
+                            prompt: activeSearchPrompt
+                        )
+                        .onSubmit(of: .search) {
+                            selection = searchCoordinator.commitSubmit()
+                        }
                 }
                 .accessibilityIdentifier("MobilePrimaryTabSearch")
-            }
-            .searchable(
-                text: activeSearchText,
-                isPresented: searchPresentation,
-                prompt: activeSearchPrompt
-            )
-            .onSubmit(of: .search) {
-                selection = searchCoordinator.commitSubmit()
             }
             .tabViewSearchActivation(.searchTabSelection)
             .accessibilityIdentifier("MobilePrimaryTabs")
