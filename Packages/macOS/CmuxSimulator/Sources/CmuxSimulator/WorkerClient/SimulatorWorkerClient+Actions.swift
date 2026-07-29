@@ -33,7 +33,7 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let succeeded: Bool = try await requestWorkerValue(
                 sending: .interactiveAction(requestID: requestID, action: interactiveAction),
-                timeout: .seconds(30)
+                timeout: interactiveAction.responseTimeout
             ) { message in
                 guard case let .interactiveAction(responseID, succeeded) = message,
                       responseID == requestID else { return nil }

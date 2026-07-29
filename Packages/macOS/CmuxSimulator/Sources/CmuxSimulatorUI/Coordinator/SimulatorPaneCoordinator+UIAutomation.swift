@@ -98,6 +98,13 @@ extension SimulatorPaneCoordinator {
         uiAutomationSession.clearSnapshot()
     }
 
+    /// Restores a still-valid record when an unchanged poll omits replacement refs.
+    public func restoreUIAutomationSnapshot(
+        _ record: SimulatorUIAutomationSnapshotRecord
+    ) {
+        uiAutomationSession.restoreSnapshot(record)
+    }
+
     /// Current generation of UI mutations observed by this pane.
     public var uiAutomationMutationGeneration: UInt64 {
         uiAutomationSession.mutationGeneration

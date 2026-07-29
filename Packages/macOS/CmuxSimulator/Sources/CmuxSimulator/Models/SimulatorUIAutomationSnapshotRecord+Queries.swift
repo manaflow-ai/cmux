@@ -21,7 +21,7 @@ extension SimulatorUIAutomationSnapshotRecord {
                     caseInsensitive: true
                 )
                 && accessibilityValue(
-                    node.id,
+                    node.identifier,
                     matches: identifier,
                     caseInsensitive: false
                 )

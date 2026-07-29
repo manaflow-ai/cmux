@@ -508,7 +508,7 @@ extension CMUXCLI {
             ),
             "poll_interval_milliseconds": try simulatorUIInteger(
                 arguments.option("poll-interval-ms"),
-                range: 1...10_000,
+                range: 100...10_000,
                 defaultValue: 250
             ),
             "settled_duration_milliseconds": try simulatorUIInteger(

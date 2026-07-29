@@ -47,6 +47,10 @@ struct SimulatorWebInspectorMessageStream: AsyncSequence, Sendable {
         storage.finish()
     }
 
+    var retainedBufferedBytesForTesting: Int {
+        storage.retainedBufferedBytes
+    }
+
     fileprivate final class Storage: @unchecked Sendable {
         private let lock = NSLock()
         private let maximumBufferedBytes: Int
@@ -66,9 +70,15 @@ struct SimulatorWebInspectorMessageStream: AsyncSequence, Sendable {
                 lock.lock()
                 if bufferedHead < bufferedMessages.count {
                     let message = bufferedMessages[bufferedHead]
+                    bufferedMessages[bufferedHead] = Data()
                     bufferedHead += 1
                     bufferedBytes -= message.count
-                    compactBufferIfNeeded()
+                    if bufferedHead == bufferedMessages.count {
+                        bufferedMessages.removeAll(keepingCapacity: false)
+                        bufferedHead = 0
+                    } else {
+                        compactBufferIfNeeded()
+                    }
                     lock.unlock()
                     continuation.resume(returning: message)
                     return
@@ -118,6 +128,12 @@ struct SimulatorWebInspectorMessageStream: AsyncSequence, Sendable {
             self.waiter = nil
             lock.unlock()
             waiter?.resume(returning: nil)
+        }
+
+        var retainedBufferedBytes: Int {
+            lock.withLock {
+                bufferedMessages.reduce(into: 0) { $0 += $1.count }
+            }
         }
 
         private func compactBufferIfNeeded() {

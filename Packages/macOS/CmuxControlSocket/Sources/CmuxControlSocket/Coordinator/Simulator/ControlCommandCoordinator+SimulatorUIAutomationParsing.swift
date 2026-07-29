@@ -238,7 +238,7 @@ extension ControlCommandCoordinator {
               ),
               let pollInterval = simulatorUIInteger(
                   params, "poll_interval_milliseconds", defaultValue: 250,
-                  range: 1...10_000
+                  range: 100...10_000
               ),
               let settledDuration = simulatorUIInteger(
                   params, "settled_duration_milliseconds", defaultValue: 500,

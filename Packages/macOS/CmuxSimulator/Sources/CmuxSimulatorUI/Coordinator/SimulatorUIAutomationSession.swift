@@ -102,6 +102,10 @@ final class SimulatorUIAutomationSession {
         mutationGeneration &+= 1
     }
 
+    func restoreSnapshot(_ record: SimulatorUIAutomationSnapshotRecord) {
+        self.record = record
+    }
+
     func reset() {
         record = nil
         retainedTouch = nil

@@ -6,6 +6,8 @@ import Foundation
 /// Executes serialized UI automation against one Simulator pane coordinator.
 @MainActor
 struct SimulatorUIAutomationExecutor {
+    static let postMutationAccessibilityQuiescenceMilliseconds = 750
+
     private struct ActionPreflight {
         let sourceRecord: SimulatorUIAutomationSnapshotRecord?
         let previousScreenHash: String?
@@ -26,12 +28,18 @@ struct SimulatorUIAutomationExecutor {
         switch operation {
         case let .uiSnapshot(sinceScreenHash):
             return try await coordinator.withUIAutomationTransaction {
+                let previousRecord = try? coordinator.currentUIAutomationSnapshot(
+                    nowMilliseconds: simulatorUINowMilliseconds()
+                )
                 let record = try await captureSimulatorUIAutomationSnapshot(
                     coordinator: coordinator,
                     retryingUntil: simulatorUINowMilliseconds() + 2_500
                 )
-                if sinceScreenHash == record.snapshot.screenHash {
-                    return simulatorUIUnchangedPayload(record.snapshot)
+                if sinceScreenHash == record.snapshot.screenHash,
+                   let previousRecord,
+                   previousRecord.snapshot.screenHash == record.snapshot.screenHash {
+                    coordinator.restoreUIAutomationSnapshot(previousRecord)
+                    return simulatorUIUnchangedPayload(previousRecord.snapshot)
                 }
                 return simulatorUISnapshotPayload(record.snapshot)
             }
@@ -154,7 +162,10 @@ struct SimulatorUIAutomationExecutor {
                 snapshotDisplay: record.display,
                 coordinator: coordinator
             )
-            try await simulatorUIDelay(postDelayMilliseconds)
+            try await simulatorUIDelay(max(
+                postDelayMilliseconds,
+                Self.postMutationAccessibilityQuiescenceMilliseconds
+            ))
             actionPayload = [
                 "type": .string("tap"),
                 "element_ref": .string(elementRef),
@@ -181,13 +192,23 @@ struct SimulatorUIAutomationExecutor {
                 point = target.activationPoint
                 snapshotDisplay = record.display
             }
-            let events = try simulatorUITouchEvents(
-                point: point,
-                down: down,
-                up: up,
-                snapshotDisplay: snapshotDisplay,
-                coordinator: coordinator
-            )
+            let events: [SimulatorPointerEvent]
+            do {
+                events = try simulatorUITouchEvents(
+                    point: point,
+                    down: down,
+                    up: up,
+                    snapshotDisplay: snapshotDisplay,
+                    coordinator: coordinator
+                )
+            } catch {
+                if !down, up,
+                   coordinator.heldUIAutomationTouch(elementRef: elementRef) != nil {
+                    coordinator.releaseInputs()
+                    coordinator.releaseHeldUIAutomationTouch(elementRef: elementRef)
+                }
+                throw error
+            }
             _ = try await coordinator.perform(.interactive(.touch(
                 events: events,
                 holdMilliseconds: delayMilliseconds
@@ -200,6 +221,8 @@ struct SimulatorUIAutomationExecutor {
                 )
             } else if !down, up {
                 coordinator.releaseHeldUIAutomationTouch(elementRef: elementRef)
+                postActionSettleDelayMilliseconds =
+                    Self.postMutationAccessibilityQuiescenceMilliseconds
             }
             actionPayload = [
                 "type": .string("touch"),
@@ -236,7 +259,10 @@ struct SimulatorUIAutomationExecutor {
                 snapshotDisplay: record.display,
                 coordinator: coordinator
             )
-            try await simulatorUIDelay(postDelayMilliseconds)
+            try await simulatorUIDelay(max(
+                postDelayMilliseconds,
+                Self.postMutationAccessibilityQuiescenceMilliseconds
+            ))
             actionPayload = simulatorUIGestureActionPayload(
                 type: "swipe",
                 elementRef: elementRef,
@@ -272,7 +298,10 @@ struct SimulatorUIAutomationExecutor {
                 snapshotDisplay: record.display,
                 coordinator: coordinator
             )
-            try await simulatorUIDelay(postDelayMilliseconds)
+            try await simulatorUIDelay(max(
+                postDelayMilliseconds,
+                Self.postMutationAccessibilityQuiescenceMilliseconds
+            ))
             actionPayload = simulatorUIGestureActionPayload(
                 type: "drag",
                 elementRef: elementRef,
@@ -300,6 +329,8 @@ struct SimulatorUIAutomationExecutor {
                 events: events,
                 holdMilliseconds: durationMilliseconds
             )))
+            postActionSettleDelayMilliseconds =
+                Self.postMutationAccessibilityQuiescenceMilliseconds
             actionPayload = [
                 "type": .string("long-press"),
                 "element_ref": .string(elementRef),
@@ -337,6 +368,9 @@ struct SimulatorUIAutomationExecutor {
                 snapshotDisplay: record.display,
                 coordinator: coordinator
             )
+            try await simulatorUIDelay(
+                Self.postMutationAccessibilityQuiescenceMilliseconds
+            )
             try await waitForSimulatorUITextFocus(
                 selector: focusSelector,
                 elementRef: elementRef,
@@ -349,6 +383,8 @@ struct SimulatorUIAutomationExecutor {
                 )))
             }
             _ = try await coordinator.perform(.interactive(.typeText(sequence)))
+            postActionSettleDelayMilliseconds =
+                Self.postMutationAccessibilityQuiescenceMilliseconds
             actionPayload = [
                 "type": .string("type-text"),
                 "element_ref": .string(elementRef),
@@ -362,6 +398,8 @@ struct SimulatorUIAutomationExecutor {
                 pressDurationMilliseconds: durationMilliseconds,
                 interKeyDelayMilliseconds: 0
             )))
+            postActionSettleDelayMilliseconds =
+                Self.postMutationAccessibilityQuiescenceMilliseconds
             actionPayload = [
                 "type": .string("key-press"),
                 "key_code": .int(Int64(keyCode)),
@@ -374,6 +412,8 @@ struct SimulatorUIAutomationExecutor {
                 pressDurationMilliseconds: 50,
                 interKeyDelayMilliseconds: delayMilliseconds
             )))
+            postActionSettleDelayMilliseconds =
+                Self.postMutationAccessibilityQuiescenceMilliseconds
             actionPayload = [
                 "type": .string("key-sequence"),
                 "key_codes": .array(keyCodes.map { .int(Int64($0)) }),
@@ -405,7 +445,8 @@ struct SimulatorUIAutomationExecutor {
                     .int(Int64($0))
                 } ?? .null,
             ]
-            postActionSettleDelayMilliseconds = 750
+            postActionSettleDelayMilliseconds =
+                Self.postMutationAccessibilityQuiescenceMilliseconds
         case let .gesturePreset(
             preset, durationMilliseconds, distance, steps,
             _, postDelayMilliseconds
@@ -424,7 +465,10 @@ struct SimulatorUIAutomationExecutor {
                 snapshotDisplay: snapshotDisplay,
                 coordinator: coordinator
             )
-            try await simulatorUIDelay(postDelayMilliseconds)
+            try await simulatorUIDelay(max(
+                postDelayMilliseconds,
+                Self.postMutationAccessibilityQuiescenceMilliseconds
+            ))
             actionPayload = [
                 "type": .string("gesture"),
                 "gesture": .string(preset),
@@ -457,7 +501,10 @@ struct SimulatorUIAutomationExecutor {
                     snapshotDisplay: record.display,
                     coordinator: coordinator
                 )
-                try await simulatorUIDelay(step.postDelayMilliseconds)
+                try await simulatorUIDelay(max(
+                    step.postDelayMilliseconds,
+                    Self.postMutationAccessibilityQuiescenceMilliseconds
+                ))
             }
             actionPayload = [
                 "type": .string("batch"),
