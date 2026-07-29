@@ -577,9 +577,9 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.agentSessionRetryCompletedAttempts == 2)
     }
 
-    @Test("Dock detach preserves a completed generation without a snapshot")
+    @Test("Dock detach preserves a completed tombstone after its binding clears")
     @MainActor
-    func dockDetachPreservesCompletedGenerationWithoutSnapshot() throws {
+    func dockDetachPreservesCompletedTombstoneAfterBindingClears() throws {
         let sourceWorkspaceId = UUID()
         let panel = DockTransferTestPanel()
         let store = DockSplitStore(
@@ -592,19 +592,45 @@ extension DockSocketLifecycleTests {
             completedAt: 1_888_888_888,
             processIdentities: []
         )
+        let sessionId = "omp-completed-binding-\(UUID().uuidString)"
+        let directory = "/tmp/cmux-omp-completed-binding"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: directory,
+            launchCommand: nil
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(sessionId)'",
+            cwd: directory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
         let detached = detachedTerminalTransfer(
             panel: panel,
             sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: agent,
             restorableAgentResumeState: .completedAgentExit,
-            restoredAgentCompletedGeneration: completedGeneration
+            restoredAgentCompletedGeneration: completedGeneration,
+            restoredResumeSessionWorkingDirectory: directory,
+            resumeBinding: binding,
+            agentSessionRetryCompletedAttempts: 2
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+        #expect(store.clearSurfaceResumeBinding(panelId: panel.id))
 
         let roundTripped = try #require(store.detachSurface(panelId: panel.id))
         #expect(roundTripped.restorableAgent == nil)
         #expect(roundTripped.restorableAgentResumeState == .completedAgentExit)
         #expect(roundTripped.restoredAgentCompletedGeneration?.completedAt == completedGeneration.completedAt)
         #expect(roundTripped.restoredAgentCompletedGeneration?.processIdentities.isEmpty == true)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+        #expect(roundTripped.resumeBinding == nil)
+        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Cleared Dock binding cannot fall back to the cached transfer")
