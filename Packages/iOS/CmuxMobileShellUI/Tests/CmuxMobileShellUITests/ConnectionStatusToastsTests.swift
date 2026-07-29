@@ -8,6 +8,15 @@ import Testing
 struct ConnectionStatusToastsTests {
     @Test func displayStateDerivesInPriorityOrder() {
         #expect(ConnectionStatusDisplayState.derive(
+            isSignedIn: false,
+            requiresReauth: false,
+            recoveryFailed: true,
+            isRecovering: true,
+            connectionState: .disconnected,
+            workspaceStatus: .unavailable
+        ) == .suppressed)
+        #expect(ConnectionStatusDisplayState.derive(
+            isSignedIn: true,
             requiresReauth: true,
             recoveryFailed: true,
             isRecovering: true,
@@ -15,15 +24,17 @@ struct ConnectionStatusToastsTests {
             workspaceStatus: .connected
         ) == .suppressed)
         #expect(ConnectionStatusDisplayState.derive(
+            isSignedIn: true,
             requiresReauth: false,
             recoveryFailed: true,
             isRecovering: true,
             connectionState: .connected,
             workspaceStatus: .connected
-        ) == .lost)
+        ) == .failed)
         // A same-client probe recovers while transport and workspace status
         // both stay connected; the recovery flag must still win.
         #expect(ConnectionStatusDisplayState.derive(
+            isSignedIn: true,
             requiresReauth: false,
             recoveryFailed: false,
             isRecovering: true,
@@ -31,6 +42,7 @@ struct ConnectionStatusToastsTests {
             workspaceStatus: .connected
         ) == .reconnecting)
         #expect(ConnectionStatusDisplayState.derive(
+            isSignedIn: true,
             requiresReauth: false,
             recoveryFailed: false,
             isRecovering: false,
@@ -38,6 +50,7 @@ struct ConnectionStatusToastsTests {
             workspaceStatus: .connected
         ) == .unavailable)
         #expect(ConnectionStatusDisplayState.derive(
+            isSignedIn: true,
             requiresReauth: false,
             recoveryFailed: false,
             isRecovering: false,
@@ -45,6 +58,7 @@ struct ConnectionStatusToastsTests {
             workspaceStatus: .reconnecting
         ) == .reconnecting)
         #expect(ConnectionStatusDisplayState.derive(
+            isSignedIn: true,
             requiresReauth: false,
             recoveryFailed: false,
             isRecovering: false,
@@ -52,6 +66,7 @@ struct ConnectionStatusToastsTests {
             workspaceStatus: .unavailable
         ) == .unavailable)
         #expect(ConnectionStatusDisplayState.derive(
+            isSignedIn: true,
             requiresReauth: false,
             recoveryFailed: false,
             isRecovering: false,
@@ -61,7 +76,10 @@ struct ConnectionStatusToastsTests {
     }
 
     @Test func sameWorkspaceRecoveryPresentsSuccess() {
-        for previous in [ConnectionStatusDisplayState.lost, .reconnecting, .unavailable] {
+        // .failed covers the banner's Retry succeeding; the capsule was
+        // dismissed while the banner owned the surface, so the success toast
+        // is the only recovery feedback.
+        for previous in [ConnectionStatusDisplayState.failed, .reconnecting, .unavailable] {
             #expect(ConnectionStatusToastTransition.decide(
                 from: .init(workspaceID: "ws-1", display: previous),
                 to: .init(workspaceID: "ws-1", display: .connected)
@@ -106,10 +124,6 @@ struct ConnectionStatusToastsTests {
             to: .init(workspaceID: "ws-1", display: .unavailable)
         ) == .unavailable)
         #expect(ConnectionStatusToastTransition.decide(
-            from: .init(workspaceID: "ws-1", display: .connected),
-            to: .init(workspaceID: "ws-1", display: .lost)
-        ) == .lost)
-        #expect(ConnectionStatusToastTransition.decide(
             from: .init(workspaceID: "ws-1", display: .unavailable),
             to: .init(workspaceID: "ws-1", display: .reconnecting)
         ) == .reconnecting)
@@ -121,23 +135,27 @@ struct ConnectionStatusToastsTests {
         ) == .unavailable)
     }
 
-    @Test func reauthSuppressionClearsTheCapsule() {
+    @Test func blockingConditionsClearTheCapsule() {
+        // Reauth / signed-out hand the surface to a durable owner.
         #expect(ConnectionStatusToastTransition.decide(
             from: .init(workspaceID: "ws-1", display: .reconnecting),
             to: .init(workspaceID: "ws-1", display: .suppressed)
+        ) == .dismiss)
+        // Failed recovery moves Retry to the durable banner.
+        #expect(ConnectionStatusToastTransition.decide(
+            from: .init(workspaceID: "ws-1", display: .reconnecting),
+            to: .init(workspaceID: "ws-1", display: .failed)
         ) == .dismiss)
     }
 
     @Test func connectionToastFactoriesShareVocabulary() {
         let reconnecting = Toast.connectionReconnecting()
         let unavailable = Toast.connectionUnavailable {}
-        let lost = Toast.connectionLost {}
         let reconnected = Toast.connectionReconnected()
 
         #expect([
             reconnecting.coalescingKey,
             unavailable.coalescingKey,
-            lost.coalescingKey,
             reconnected.coalescingKey,
         ].allSatisfy { $0 == Toast.connectionStatusKey })
         #expect(reconnecting.style == .info)
@@ -147,11 +165,6 @@ struct ConnectionStatusToastsTests {
         #expect(unavailable.action?.label == L10n.string(
             "mobile.workspace.reconnect",
             defaultValue: "Reconnect"
-        ))
-        #expect(lost.style == .failure)
-        #expect(lost.action?.label == L10n.string(
-            "mobile.recovery.retry",
-            defaultValue: "Retry"
         ))
         #expect(reconnected.style == .success)
         #expect(reconnected.autoDismiss == Toast.defaultAutoDismiss(for: .success, hasAction: false))

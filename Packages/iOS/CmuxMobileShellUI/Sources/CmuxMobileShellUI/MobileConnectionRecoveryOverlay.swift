@@ -12,17 +12,18 @@ private struct MobileConnectionRecoveryOverlay: ViewModifier {
         if toasts.isEnabled {
             // Transient statuses ride the toast capsule, owned solely by
             // ConnectionStatusToastPresenter in the always-mounted shell.
-            // Reauth is a blocking action, not a status: a toast can be
-            // swiped away and nothing re-presents while the condition is
-            // unchanged, so it keeps the durable banner.
+            // Reauth and failed recovery are blocking conditions, not
+            // statuses: a toast can be swiped away with nothing left to
+            // re-present it, so their Sign Out / Retry actions keep the
+            // durable banner.
             content.overlay(alignment: .top) {
-                if store.connectionRequiresReauth {
+                if store.connectionRequiresReauth || store.connectionRecoveryFailed {
                     MobileConnectionRecoveryBanner(
-                        connectionRequiresReauth: true,
-                        connectionRecoveryFailed: false,
+                        connectionRequiresReauth: store.connectionRequiresReauth,
+                        connectionRecoveryFailed: store.connectionRecoveryFailed,
                         isRecoveringConnection: false,
                         connectionError: store.connectionError,
-                        retry: nil,
+                        retry: { store.retryMobileConnection() },
                         signOut: signOut
                     )
                 }

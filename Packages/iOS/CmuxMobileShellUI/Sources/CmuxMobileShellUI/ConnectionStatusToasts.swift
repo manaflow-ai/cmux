@@ -32,23 +32,6 @@ extension Toast {
         )
     }
 
-    static func connectionLost(
-        retry: @escaping @MainActor @Sendable () -> Void
-    ) -> Toast {
-        .failure(
-            L10n.string(
-                "mobile.recovery.lostDescription",
-                defaultValue: "Retry to restore live terminal updates."
-            ),
-            title: L10n.string("mobile.recovery.lost", defaultValue: "Connection lost"),
-            action: Toast.Action(
-                label: L10n.string("mobile.recovery.retry", defaultValue: "Retry"),
-                handler: retry
-            ),
-            coalescingKey: Self.connectionStatusKey
-        )
-    }
-
     static func connectionReconnected() -> Toast {
         .success(
             L10n.string(
@@ -66,26 +49,32 @@ extension Toast {
 /// `markMacConnectionHealthy`) can cycle while both the transport state and
 /// the workspace's Mac status stay `.connected`.
 enum ConnectionStatusDisplayState: Equatable {
-    /// Reauth is a blocking action with a durable banner surface; the
-    /// transient capsule stays clear while it is active.
+    /// The capsule stays clear: the user is signed out, or reauth's durable
+    /// banner owns the surface. Both are blocking conditions, not statuses.
     case suppressed
-    case lost
+    /// Recovery failed: the durable banner owns Retry and the capsule clears,
+    /// but recovering back to connected still deserves a success toast.
+    case failed
     case reconnecting
     case unavailable
     case connected
 
     static func derive(
+        isSignedIn: Bool,
         requiresReauth: Bool,
         recoveryFailed: Bool,
         isRecovering: Bool,
         connectionState: MobileConnectionState,
         workspaceStatus: MobileMacConnectionStatus
     ) -> Self {
+        guard isSignedIn else {
+            return .suppressed
+        }
         if requiresReauth {
             return .suppressed
         }
         if recoveryFailed {
-            return .lost
+            return .failed
         }
         if isRecovering {
             return .reconnecting
@@ -117,7 +106,6 @@ enum ConnectionStatusToastTransition: Equatable {
     case dismiss
     case unavailable
     case reconnecting
-    case lost
     case reconnected
 
     static func decide(
@@ -125,11 +113,10 @@ enum ConnectionStatusToastTransition: Equatable {
         to current: ConnectionStatusSnapshot
     ) -> Self {
         switch current.display {
-        case .suppressed:
-            // The durable reauth banner takes over the surface.
+        case .suppressed, .failed:
+            // A durable banner (reauth, failed recovery) or the signed-out
+            // screen takes over the surface.
             return .dismiss
-        case .lost:
-            return .lost
         case .reconnecting:
             return .reconnecting
         case .unavailable:
@@ -142,7 +129,7 @@ enum ConnectionStatusToastTransition: Equatable {
                 return .dismiss
             }
             switch previous.display {
-            case .lost, .reconnecting, .unavailable:
+            case .failed, .reconnecting, .unavailable:
                 return .reconnected
             case .connected, .suppressed:
                 return .none

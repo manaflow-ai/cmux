@@ -612,8 +612,10 @@ struct CMUXMobileRootView: View {
             didAuthenticateWithAttachTicket = false
             didExceedStartupRestoringGate = false
             startupConnectionCoordinator.reset()
-            // Hard context switch: connection-status toasts (including the
-            // never-dismissing reauth one) must not outlive the session.
+            // Hard context switch: queued toasts must not outlive the
+            // session. The connection presenter also suppresses its capsule
+            // once isSignedIn flips, but that races the snapshot change
+            // store.signOut() makes; this clears everything up front.
             toasts.dismissAll()
             store.signOut()
             let serverTeardown = signOutHook.begin()

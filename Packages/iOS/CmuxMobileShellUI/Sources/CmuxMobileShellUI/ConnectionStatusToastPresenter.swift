@@ -16,17 +16,27 @@ import SwiftUI
 struct ConnectionStatusToastPresenter: ViewModifier {
     @Bindable var store: CMUXMobileShellStore
     @Environment(ToastCenter.self) private var toasts
+    /// True once this session has held a live connection. Startup restoration
+    /// commonly passes through disconnected snapshots, so a "Disconnected"
+    /// toast before the session ever connected would be a false alarm; the
+    /// expected first attach stays silent.
+    @State private var hasHeldConnection = false
 
     func body(content: Content) -> some View {
         let current = snapshot
         content
             .onChange(of: current, initial: true) { previous, current in
+                let hadHeldConnection = hasHeldConnection
+                if current.display == .connected {
+                    hasHeldConnection = true
+                }
+                guard hadHeldConnection else { return }
                 apply(ConnectionStatusToastTransition.decide(from: previous, to: current))
             }
             .onChange(of: toasts.isEnabled) { _, isEnabled in
                 // Flag flips don't re-fire the snapshot onChange; re-derive so
                 // enabling Toasts mid-disconnect still presents the capsule.
-                if isEnabled {
+                if isEnabled, hasHeldConnection {
                     apply(ConnectionStatusToastTransition.decide(from: current, to: current))
                 }
             }
@@ -36,6 +46,7 @@ struct ConnectionStatusToastPresenter: ViewModifier {
         ConnectionStatusSnapshot(
             workspaceID: store.selectedWorkspaceID,
             display: .derive(
+                isSignedIn: store.isSignedIn,
                 requiresReauth: store.connectionRequiresReauth,
                 recoveryFailed: store.connectionRecoveryFailed,
                 isRecovering: store.isRecoveringConnection,
@@ -59,10 +70,6 @@ struct ConnectionStatusToastPresenter: ViewModifier {
             })
         case .reconnecting:
             toasts.present(.connectionReconnecting())
-        case .lost:
-            toasts.present(.connectionLost {
-                store.retryMobileConnection()
-            })
         case .reconnected:
             toasts.present(.connectionReconnected())
         }
