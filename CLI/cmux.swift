@@ -675,6 +675,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    @discardableResult
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -694,12 +695,24 @@ final class ClaudeHookSessionStore {
         hadPendingBackgroundWorkAtStop: Bool? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
-        allowsNewSessionReplacement: Bool = false
-    ) throws {
+        allowsNewSessionReplacement: Bool = false,
+        inheritPendingBackgroundWorkFromActiveSession: Bool = false
+    ) throws -> AgentHibernationLifecycleState? {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
+        guard !normalized.isEmpty else { return nil }
+        return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let inheritedPendingBackgroundWork =
+                inheritPendingBackgroundWorkFromActiveSession
+                && activeSessionRecord(
+                    in: state,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )?.hadPendingBackgroundWorkAtStop == true
+            let effectiveAgentLifecycle =
+                inheritedPendingBackgroundWork ? .running : agentLifecycle
+            let effectivePendingBackgroundWork =
+                inheritedPendingBackgroundWork ? true : hadPendingBackgroundWorkAtStop
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
                 workspaceId: workspaceId,
@@ -733,14 +746,14 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: isRestorable,
-                agentLifecycle: agentLifecycle,
+                agentLifecycle: effectiveAgentLifecycle,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
                 updateLastNotificationStatus: updateLastNotificationStatus,
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
-                hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                hadPendingBackgroundWorkAtStop: effectivePendingBackgroundWork,
                 now: now
             )
             state.sessions[normalized] = record
@@ -758,6 +771,7 @@ final class ClaudeHookSessionStore {
                     state.activeSessionsBySurface[normalizedSurface] = activeRecord
                 }
             }
+            return record.agentLifecycle
         }
     }
 
@@ -1393,6 +1407,28 @@ final class ClaudeHookSessionStore {
             }
             return active.allowsNewSessionReplacement == true
         }
+    }
+
+    private func activeSessionRecord(
+        in state: ClaudeHookSessionStoreFile,
+        workspaceId: String,
+        surfaceId: String
+    ) -> ClaudeHookSessionRecord? {
+        let normalizedSurfaceId = normalizeOptional(surfaceId)
+        if let normalizedSurfaceId,
+           let surfaceActive = state.activeSessionsBySurface[normalizedSurfaceId] {
+            return state.sessions[surfaceActive.sessionId]
+        }
+        guard let normalizedWorkspace = normalizeOptional(workspaceId),
+              let workspaceActive = state.activeSessionsByWorkspace[normalizedWorkspace],
+              let record = state.sessions[workspaceActive.sessionId] else {
+            return nil
+        }
+        if let normalizedSurfaceId,
+           normalizeOptional(record.surfaceId) != normalizedSurfaceId {
+            return nil
+        }
+        return record
     }
 
     func consume(
@@ -24253,10 +24289,12 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
             let shouldEstablishActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
+            var establishedLifecycle: AgentHibernationLifecycleState = .idle
             if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
                 // Only /clear or replacement of a stopped owner establishes a
-                // boundary. SessionStart is idle; UserPromptSubmit starts a turn.
-                try? sessionStore.upsert(
+                // boundary. SessionStart does not start a turn; /clear carries
+                // independently observed background work that survives the boundary.
+                let updatedLifecycle = try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24267,9 +24305,11 @@ struct CMUXCLI {
                     isRestorable: false,
                     agentLifecycle: shouldEstablishActiveSession ? .idle : .unknown,
                     markActive: shouldEstablishActiveSession,
-                    turnId: parsedInput.turnId
+                    turnId: parsedInput.turnId,
+                    inheritPendingBackgroundWorkFromActiveSession: isClearSessionStart
                 )
                 if shouldEstablishActiveSession {
+                    establishedLifecycle = updatedLifecycle ?? .idle
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -24315,19 +24355,31 @@ struct CMUXCLI {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .idle,
+                    lifecycle: establishedLifecycle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                try setClaudeStatus(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
-                    icon: "pause.circle.fill",
-                    color: "#8E8E93",
-                    pid: claudePid
-                )
+                if establishedLifecycle == .running {
+                    try setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                        icon: "bolt.fill",
+                        color: "#4C8DFF",
+                        pid: claudePid
+                    )
+                } else {
+                    try setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                        icon: "pause.circle.fill",
+                        color: "#8E8E93",
+                        pid: claudePid
+                    )
+                }
             }
             printClaudeHookAck()
 
