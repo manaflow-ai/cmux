@@ -9184,40 +9184,21 @@ struct CMUXCLI {
             sshOptions.extraArguments.isEmpty &&
             sshOptions.initialCommand == nil &&
             sshOptions.terminalProfile.kind == .shell
-        // This lookup determines which program the user expects to run. Match
-        // exec rules can legitimately take longer than the two-second
-        // best-effort timeout used by connection sharing, but a broken rule
-        // must not hang every managed SSH launch indefinitely.
-        let configurationTimeout: TimeInterval = usesImplicitManagedInteractiveShell ? 15 : 2
+        // This lookup determines which program the user expects to run, but it
+        // remains best-effort: a broken or slow ssh_config rule must not block
+        // an otherwise-working managed SSH launch.
+        let configurationTimeout: TimeInterval = 2
         let configurationResult = resolvedSSHConfigurationResult(
             for: sshOptions,
             timeout: configurationTimeout
         )
         let resolvedUserSSHConfiguration =
             configurationResult.status == 0 ? configurationResult.stdout : nil
-        if usesImplicitManagedInteractiveShell, configurationResult.status != 0 {
-            if configurationResult.timedOut {
-                let format = String(
-                    localized: "cli.ssh.error.configResolutionTimedOut",
-                    defaultValue: "ssh: timed out after %1$d seconds while resolving SSH configuration for %2$@. Check Match exec directives in your SSH config."
-                )
-                throw CLIError(message: String(
-                    format: format,
-                    locale: Locale.current,
-                    Int(configurationTimeout),
-                    sshOptions.displayDestination
-                ))
-            }
-            let format = String(
-                localized: "cli.ssh.error.configResolutionFailed",
-                defaultValue: "ssh: failed to resolve SSH configuration for %1$@ (exit %2$d). Check your SSH config."
+        if configurationResult.status != 0 {
+            cliDebugLog(
+                "cli.ssh.config_resolution unavailable target=\(sshOptions.displayDestination) " +
+                "timedOut=\(configurationResult.timedOut ? 1 : 0) status=\(configurationResult.status)"
             )
-            throw CLIError(message: String(
-                format: format,
-                locale: Locale.current,
-                sshOptions.displayDestination,
-                configurationResult.status
-            ))
         }
         sshOptions.sshOptions = sharingOptions.mergingDefaults(
             into: inputSSHOptions.sshOptions,

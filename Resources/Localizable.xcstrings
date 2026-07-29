@@ -49463,40 +49463,6 @@
         }
       }
     },
-    "cli.ssh.error.configResolutionFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ssh: failed to resolve SSH configuration for %1$@ (exit %2$d). Check your SSH config."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ssh: %1$@ の SSH 構成を解決できませんでした（終了コード %2$d）。SSH 構成を確認してください。"
-          }
-        }
-      }
-    },
-    "cli.ssh.error.configResolutionTimedOut": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ssh: timed out after %1$d seconds while resolving SSH configuration for %2$@. Check Match exec directives in your SSH config."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ssh: %2$@ の SSH 構成の解決が %1$d 秒後にタイムアウトしました。SSH 構成の Match exec ディレクティブを確認してください。"
-          }
-        }
-      }
-    },
     "cli.ssh.manualReconnectPrompt.detail": {
       "extractionState": "manual",
       "localizations": {
