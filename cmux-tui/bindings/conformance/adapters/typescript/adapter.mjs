@@ -8,10 +8,15 @@ import {
   StreamError,
   decimalString,
   selectCurrent,
+  selectName,
   sessionId,
   terminalId,
   workspaceId,
 } from "../../../typescript/dist/src/index.js";
+import {
+  Client as ResourceClient,
+  WebSocketTransport,
+} from "../../../typescript/dist/src/browser.js";
 import { NodeClient } from "../../../typescript/dist/src/node.js";
 
 function errorValue(error) {
@@ -69,6 +74,151 @@ async function drainEnd(stream) {
   }
 }
 
+function makeClient(payload) {
+  if (payload.transport === "websocket") {
+    if (typeof payload.websocket_url !== "string") {
+      throw new TypeError("websocket_url must be a string");
+    }
+    if (typeof payload.websocket_token !== "string") {
+      throw new TypeError("websocket_token must be a string");
+    }
+    return new ResourceClient({
+      transport: new WebSocketTransport(payload.websocket_url, {
+        authToken: payload.websocket_token,
+      }),
+      timeoutMs: 15_000,
+      randomHex128: () => "a".repeat(32),
+    });
+  }
+  if (payload.transport !== undefined && payload.transport !== "unix") {
+    throw new TypeError(`unsupported transport ${String(payload.transport)}`);
+  }
+  return new NodeClient({
+    socketPath: payload.socket_path,
+    timeoutMs: 15_000,
+    randomHex128: () => "a".repeat(32),
+  });
+}
+
+function liveSession(client) {
+  return client.session(selectCurrent());
+}
+
+async function workspaceRows(current) {
+  const rows = new Map();
+  for (const item of await current.listWorkspaces()) {
+    const snapshot = item.snapshot ?? await item.refresh();
+    rows.set(snapshot.id, snapshot.name);
+  }
+  return rows;
+}
+
+function candidateIds(error) {
+  if (
+    !error.details
+    || typeof error.details !== "object"
+    || !Array.isArray(error.details.candidates)
+  ) {
+    return [];
+  }
+  return error.details.candidates.filter(
+    (candidate) => typeof candidate === "string",
+  );
+}
+
+async function liveSetup(client, baseName, keyPrefix) {
+  const current = liveSession(client);
+  const pinged = Boolean((await current.ping()).alive);
+  const stableCreated = await current.createWorkspace(
+    { name: baseName, initialContent: "empty" },
+    { idempotencyKey: `${keyPrefix}-stable-create` },
+  );
+  const stable = stableCreated.value.workspace;
+  if (!stable?.id) throw new Error("workspace.create omitted stable workspace handle");
+  const stableId = stable.id;
+  const stableRenamedName = `${baseName}-renamed`;
+  const renamed = await stable.rename(stableRenamedName, {
+    idempotencyKey: `${keyPrefix}-stable-rename`,
+  });
+
+  const duplicateName = `${baseName}-duplicate`;
+  const duplicateIds = [];
+  for (const suffix of ["a", "b"]) {
+    const created = await current.createWorkspace(
+      { name: duplicateName, initialContent: "empty" },
+      { idempotencyKey: `${keyPrefix}-duplicate-${suffix}` },
+    );
+    const duplicate = created.value.workspace;
+    if (!duplicate?.id) {
+      throw new Error("workspace.create omitted duplicate workspace handle");
+    }
+    duplicateIds.push(duplicate.id);
+  }
+
+  let ambiguityCode = "";
+  let ambiguityCandidates = [];
+  try {
+    await current.workspace(selectName(duplicateName)).rename(
+      `${baseName}-must-not-apply`,
+      { idempotencyKey: `${keyPrefix}-ambiguous-rename` },
+    );
+    throw new Error("duplicate workspace selector unexpectedly mutated");
+  } catch (error) {
+    if (!(error instanceof ResourceError)) throw error;
+    ambiguityCode = error.code;
+    ambiguityCandidates = candidateIds(error);
+  }
+  const rows = await workspaceRows(current);
+  return {
+    pinged,
+    stable_id: stableId,
+    stable_renamed: renamed.value.snapshot?.name === stableRenamedName,
+    duplicate_ids: duplicateIds,
+    ambiguity_code: ambiguityCode,
+    ambiguity_preserved_all_candidates:
+      ambiguityCandidates.length === duplicateIds.length
+      && duplicateIds.every((identifier) => ambiguityCandidates.includes(identifier)),
+    no_mutation:
+      duplicateIds.every((identifier) => rows.get(identifier) === duplicateName)
+      && ![...rows.values()].includes(`${baseName}-must-not-apply`),
+  };
+}
+
+async function liveRestart(
+  client,
+  baseName,
+  keyPrefix,
+  expectedStableId,
+  expectedDuplicateIds,
+) {
+  const current = liveSession(client);
+  const rows = await workspaceRows(current);
+  const expectedIds = [expectedStableId, ...expectedDuplicateIds];
+  const sameIds = expectedIds.every((identifier) => rows.has(identifier));
+  const stableNamePreserved =
+    rows.get(expectedStableId) === `${baseName}-renamed`;
+  const duplicatesPreserved = expectedDuplicateIds.every(
+    (identifier) => rows.get(identifier) === `${baseName}-duplicate`,
+  );
+
+  await current.workspace(workspaceId(expectedStableId)).close({
+    idempotencyKey: `${keyPrefix}-close-stable`,
+  });
+  for (const [index, identifier] of expectedDuplicateIds.entries()) {
+    await current.workspace(workspaceId(identifier)).close({
+      idempotencyKey: `${keyPrefix}-close-${index === 0 ? "a" : "b"}`,
+    });
+  }
+  const remaining = await workspaceRows(current);
+  return {
+    same_ids: sameIds,
+    stable_name_preserved: stableNamePreserved,
+    duplicates_preserved: duplicatesPreserved,
+    closed: true,
+    disappeared: expectedIds.every((identifier) => !remaining.has(identifier)),
+  };
+}
+
 async function run(payload) {
   const constants = payload.constants;
   if (payload.op === "redaction") {
@@ -92,11 +242,7 @@ async function run(payload) {
     };
   }
 
-  const client = new NodeClient({
-    socketPath: payload.socket_path,
-    timeoutMs: 15_000,
-    randomHex128: () => "a".repeat(32),
-  });
+  const client = makeClient(payload);
   try {
     if (payload.op === "read") {
       const result = await getSession(client, constants).ping();
@@ -167,33 +313,25 @@ async function run(payload) {
         control_alive: control.alive,
       };
     }
-    if (payload.op === "live-flow") {
-      const current = client.session(selectCurrent());
-      const pinged = Boolean((await current.ping()).alive);
-      const name = payload.workspace_name;
-      const created = await current.createWorkspace(
-        { name, initialContent: "empty" },
-        { idempotencyKey: "live-create" },
+    if (payload.op === "live-setup") {
+      return await liveSetup(client, payload.workspace_name, payload.key_prefix);
+    }
+    if (payload.op === "live-restart") {
+      if (
+        !Array.isArray(payload.expected_duplicate_ids)
+        || !payload.expected_duplicate_ids.every(
+          (identifier) => typeof identifier === "string",
+        )
+      ) {
+        throw new TypeError("expected_duplicate_ids must be a string array");
+      }
+      return await liveRestart(
+        client,
+        payload.workspace_name,
+        payload.key_prefix,
+        payload.expected_stable_id,
+        payload.expected_duplicate_ids,
       );
-      const target = created.value.workspace;
-      if (!target?.id) throw new Error("workspace.create omitted workspace handle");
-      const id = target.id;
-      const renamed = await target.rename(`${name}-renamed`, {
-        idempotencyKey: "live-rename",
-      });
-      const listed = (await current.listWorkspaces()).some((item) => item.id === id);
-      await target.close({ idempotencyKey: "live-close" });
-      const disappeared = (await current.listWorkspaces()).every(
-        (item) => item.id !== id,
-      );
-      return {
-        pinged,
-        created: true,
-        renamed: renamed.value.snapshot?.name === `${name}-renamed`,
-        listed,
-        closed: true,
-        disappeared,
-      };
     }
     throw new Error(`unknown adapter operation ${payload.op}`);
   } finally {

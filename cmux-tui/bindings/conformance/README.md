@@ -15,8 +15,15 @@ python3 cmux-tui/bindings/conformance/runner.py \
 ```
 
 Use `--no-build` to reuse adapter outputs. Pass
-`--cmux-tui-bin cmux-tui/target/debug/cmux-tui` to add the isolated live
-server lifecycle once the public router is available.
+`--cmux-tui-bin cmux-tui/target/debug/cmux-tui` to run each adapter against
+that exact executable in an isolated durable session. The live suite creates
+duplicate names, proves ambiguous selection cannot mutate either candidate,
+restarts the server against the same state root, verifies stable IDs and
+names, then closes and verifies every fixture. TypeScript runs the same
+lifecycle over Unix and authenticated WebSocket transports.
+
+The Zig adapter targets Zig 0.15.2. Set `CMUX_ZIG` when that compiler is not
+the `zig` on `PATH`.
 
 Generated protocol-10 compatibility tests are intentionally separate:
 

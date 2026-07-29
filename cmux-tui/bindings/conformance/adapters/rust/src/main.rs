@@ -1,10 +1,12 @@
 use cmux_client::{
     Client, Config, CreateWorkspaceOptions, Cursor, Document, Error, EventStreamOptions,
-    InitialContent, MachineConnectOptions, MutationOptions, RendererGrant, Session, SessionEvent,
-    SessionEventStream, SessionId, StreamEndReason, TerminalId, Workspace, WorkspaceId,
+    InitialContent, MachineConnectOptions, MutationOptions, RendererGrant, Selector, Session,
+    SessionEvent, SessionEventStream, SessionId, StreamEndReason, TerminalId, Workspace,
+    WorkspaceId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, BufRead};
 use std::time::Duration;
 
@@ -26,6 +28,9 @@ struct Request {
     op: String,
     socket_path: Option<String>,
     workspace_name: Option<String>,
+    key_prefix: Option<String>,
+    expected_stable_id: Option<String>,
+    expected_duplicate_ids: Option<Vec<String>>,
     constants: Constants,
 }
 
@@ -129,9 +134,21 @@ fn dispatch(request: Request) -> Result<Value, Box<dyn std::error::Error>> {
         "stream-unknown" => stream_unknown(session.events(EventStreamOptions::default())?)?,
         "stream-cancel" => stream_cancel(session.events(EventStreamOptions::default())?)?,
         "stream-overflow" => stream_overflow(&session)?,
-        "live-flow" => {
+        "live-setup" => {
             let name = request.workspace_name.as_deref().ok_or("workspace_name is required")?;
-            live_flow(&client, name)?
+            let key_prefix = request.key_prefix.as_deref().ok_or("key_prefix is required")?;
+            live_setup(&client, name, key_prefix)?
+        }
+        "live-restart" => {
+            let name = request.workspace_name.as_deref().ok_or("workspace_name is required")?;
+            let key_prefix = request.key_prefix.as_deref().ok_or("key_prefix is required")?;
+            let stable_id =
+                request.expected_stable_id.as_deref().ok_or("expected_stable_id is required")?;
+            let duplicate_ids = request
+                .expected_duplicate_ids
+                .as_deref()
+                .ok_or("expected_duplicate_ids is required")?;
+            live_restart(&client, name, key_prefix, stable_id, duplicate_ids)?
         }
         other => return Err(format!("unknown adapter operation {other:?}").into()),
     };
@@ -286,29 +303,148 @@ fn redaction() -> Result<Value, Box<dyn std::error::Error>> {
     }))
 }
 
-fn live_flow(client: &Client, name: &str) -> Result<Value, Box<dyn std::error::Error>> {
+fn workspace_rows(
+    session: &Session,
+) -> Result<BTreeMap<String, String>, Box<dyn std::error::Error>> {
+    let mut rows = BTreeMap::new();
+    for workspace in session.workspaces()? {
+        let snapshot = workspace.refresh()?;
+        rows.insert(snapshot.id.as_str().to_string(), snapshot.name.unwrap_or_default());
+    }
+    Ok(rows)
+}
+
+fn create_empty_workspace(
+    session: &Session,
+    name: &str,
+    key: String,
+) -> Result<Workspace, Box<dyn std::error::Error>> {
+    Ok(session
+        .create_workspace_with(
+            CreateWorkspaceOptions {
+                name: Some(name.to_string()),
+                initial_content: InitialContent::Empty,
+            },
+            MutationOptions::new(key)?,
+        )?
+        .resource)
+}
+
+fn live_setup(
+    client: &Client,
+    name: &str,
+    key_prefix: &str,
+) -> Result<Value, Box<dyn std::error::Error>> {
     let session = client.current_session();
     let pinged = document_value(&session.ping()?)?["alive"].as_bool().unwrap_or(false);
-    let created = session.create_workspace_with(
-        CreateWorkspaceOptions {
-            name: Some(name.to_string()),
-            initial_content: InitialContent::Empty,
-        },
-        MutationOptions::new("live-create")?,
+    let stable = create_empty_workspace(&session, name, format!("{key_prefix}-stable-create"))?;
+    let stable_id = stable.id().ok_or("created stable workspace lacks an exact ID")?.clone();
+    let stable_renamed_name = format!("{name}-renamed");
+    let renamed = stable.rename_with(
+        stable_renamed_name.clone(),
+        MutationOptions::new(format!("{key_prefix}-stable-rename"))?,
     )?;
-    let workspace = created.resource;
-    let created_id = workspace.id().ok_or("created workspace handle lacks an exact ID")?.clone();
-    let renamed =
-        workspace.rename_with(format!("{name}-renamed"), MutationOptions::new("live-rename")?)?;
-    let listed = session.workspaces()?.iter().any(|candidate| candidate.id() == Some(&created_id));
-    workspace.close_with(MutationOptions::new("live-close")?)?;
-    let disappeared =
-        session.workspaces()?.iter().all(|candidate| candidate.id() != Some(&created_id));
+
+    let duplicate_name = format!("{name}-duplicate");
+    let mut duplicate_ids = Vec::with_capacity(2);
+    for suffix in ["a", "b"] {
+        let workspace = create_empty_workspace(
+            &session,
+            &duplicate_name,
+            format!("{key_prefix}-duplicate-{suffix}"),
+        )?;
+        duplicate_ids
+            .push(workspace.id().ok_or("created duplicate workspace lacks an exact ID")?.clone());
+    }
+
+    let (ambiguity_code, ambiguity_candidates) =
+        match session.workspace(Selector::name(duplicate_name.clone())).rename_with(
+            format!("{name}-must-not-apply"),
+            MutationOptions::new(format!("{key_prefix}-ambiguous-rename"))?,
+        ) {
+            Err(Error::Protocol { code, details, .. }) => {
+                let candidates = details
+                    .get("candidates")
+                    .and_then(Value::as_array)
+                    .ok_or("selector ambiguity omitted candidates")?
+                    .iter()
+                    .map(|candidate| {
+                        candidate
+                            .as_str()
+                            .map(str::to_string)
+                            .ok_or("selector ambiguity candidate is not a string")
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                (code, candidates)
+            }
+            Err(error) => return Err(error.into()),
+            Ok(_) => return Err("duplicate workspace selector unexpectedly mutated".into()),
+        };
+    let expected_candidates = duplicate_ids
+        .iter()
+        .map(|identifier| identifier.as_str().to_string())
+        .collect::<BTreeSet<_>>();
+    let observed_candidates = ambiguity_candidates.iter().cloned().collect::<BTreeSet<_>>();
+    let preserved_candidates = ambiguity_candidates.len() == duplicate_ids.len()
+        && observed_candidates == expected_candidates;
+
+    let rows = workspace_rows(&session)?;
+    let no_mutation = duplicate_ids
+        .iter()
+        .all(|identifier| rows.get(identifier.as_str()) == Some(&duplicate_name))
+        && !rows.values().any(|value| value == &format!("{name}-must-not-apply"));
     Ok(json!({
         "pinged": pinged,
-        "created": true,
-        "renamed": renamed.value.name.as_deref() == Some(&format!("{name}-renamed")),
-        "listed": listed,
+        "stable_id": stable_id.as_str(),
+        "stable_renamed": renamed.value.name.as_deref() == Some(&stable_renamed_name),
+        "duplicate_ids": duplicate_ids.iter().map(|identifier| identifier.as_str()).collect::<Vec<_>>(),
+        "ambiguity_code": ambiguity_code,
+        "ambiguity_preserved_all_candidates": preserved_candidates,
+        "no_mutation": no_mutation,
+    }))
+}
+
+fn live_restart(
+    client: &Client,
+    name: &str,
+    key_prefix: &str,
+    expected_stable_id: &str,
+    expected_duplicate_ids: &[String],
+) -> Result<Value, Box<dyn std::error::Error>> {
+    if expected_duplicate_ids.len() != 2 {
+        return Err("expected_duplicate_ids must contain two IDs".into());
+    }
+    let stable_id = WorkspaceId::parse(expected_stable_id.to_string())?;
+    let duplicate_ids = expected_duplicate_ids
+        .iter()
+        .cloned()
+        .map(WorkspaceId::parse)
+        .collect::<cmux_client::Result<Vec<_>>>()?;
+    let session = client.current_session();
+    let rows = workspace_rows(&session)?;
+    let expected_ids = std::iter::once(&stable_id).chain(duplicate_ids.iter()).collect::<Vec<_>>();
+    let same_ids = expected_ids.iter().all(|identifier| rows.contains_key(identifier.as_str()));
+    let stable_name_preserved = rows.get(stable_id.as_str()) == Some(&format!("{name}-renamed"));
+    let duplicate_name = format!("{name}-duplicate");
+    let duplicates_preserved = duplicate_ids
+        .iter()
+        .all(|identifier| rows.get(identifier.as_str()) == Some(&duplicate_name));
+
+    session
+        .workspace(stable_id.clone())
+        .close_with(MutationOptions::new(format!("{key_prefix}-close-stable"))?)?;
+    for (suffix, identifier) in ["a", "b"].iter().zip(duplicate_ids.iter()) {
+        session
+            .workspace(identifier.clone())
+            .close_with(MutationOptions::new(format!("{key_prefix}-close-{suffix}"))?)?;
+    }
+    let remaining = workspace_rows(&session)?;
+    let disappeared =
+        expected_ids.iter().all(|identifier| !remaining.contains_key(identifier.as_str()));
+    Ok(json!({
+        "same_ids": same_ids,
+        "stable_name_preserved": stable_name_preserved,
+        "duplicates_preserved": duplicates_preserved,
         "closed": true,
         "disappeared": disappeared,
     }))

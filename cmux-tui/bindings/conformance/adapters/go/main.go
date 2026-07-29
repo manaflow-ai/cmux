@@ -25,13 +25,16 @@ type constants struct {
 }
 
 type request struct {
-	ContractVersion int       `json:"contract_version"`
-	ID              string    `json:"id"`
-	Op              string    `json:"op"`
-	SocketPath      string    `json:"socket_path"`
-	Dimension       string    `json:"dimension"`
-	WorkspaceName   string    `json:"workspace_name"`
-	Constants       constants `json:"constants"`
+	ContractVersion      int       `json:"contract_version"`
+	ID                   string    `json:"id"`
+	Op                   string    `json:"op"`
+	SocketPath           string    `json:"socket_path"`
+	Dimension            string    `json:"dimension"`
+	WorkspaceName        string    `json:"workspace_name"`
+	KeyPrefix            string    `json:"key_prefix"`
+	ExpectedStableID     string    `json:"expected_stable_id"`
+	ExpectedDuplicateIDs []string  `json:"expected_duplicate_ids"`
+	Constants            constants `json:"constants"`
 }
 
 type response struct {
@@ -248,8 +251,10 @@ func dispatch(input request) (any, error) {
 			"second_kind":   secondItem.Value.Kind,
 			"control_alive": document.Fields["alive"],
 		}, nil
-	case "live-flow":
-		return liveFlow(ctx, client, input)
+	case "live-setup":
+		return liveSetup(ctx, client, input)
+	case "live-restart":
+		return liveRestart(ctx, client, input)
 	default:
 		return nil, fmt.Errorf("unknown adapter operation %q", input.Op)
 	}
@@ -368,6 +373,223 @@ func redaction() (any, error) {
 	return map[string]any{
 		"specifier_redacted":      !strings.Contains(fmt.Sprintf("%v %#v", specifier, specifier), secret),
 		"renderer_token_redacted": !strings.Contains(fmt.Sprintf("%v %#v", grant, grant), token),
+	}, nil
+}
+
+func liveSession(client *cmux.Client) *cmux.Session {
+	return client.Machine(cmux.SelectCurrent[cmux.MachineID]()).
+		Session(cmux.SelectCurrent[cmux.SessionID]())
+}
+
+func workspaceRows(
+	ctx context.Context,
+	session *cmux.Session,
+) (map[string]string, error) {
+	values, err := session.ListWorkspaces(ctx, cmux.WorkspaceListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	rows := make(map[string]string, len(values))
+	for index := range values {
+		snapshot, ok := values[index].Cached()
+		if !ok {
+			snapshot, err = values[index].Refresh(ctx)
+			if err != nil {
+				return nil, err
+			}
+		}
+		rows[string(snapshot.ID)] = snapshot.Name
+	}
+	return rows, nil
+}
+
+func createEmptyWorkspace(
+	ctx context.Context,
+	session *cmux.Session,
+	name string,
+	key string,
+) (cmux.WorkspaceID, error) {
+	created, err := session.CreateWorkspace(ctx, cmux.WorkspaceCreateOptions{
+		MutationOptions: cmux.MutationOptions{IdempotencyKey: key},
+		Name:            &name,
+		InitialContent:  "empty",
+	})
+	if err != nil {
+		return "", err
+	}
+	if created.Value.Workspace == "" {
+		return "", errors.New("workspace.create omitted workspace id")
+	}
+	return created.Value.Workspace, nil
+}
+
+func liveSetup(ctx context.Context, client *cmux.Client, input request) (any, error) {
+	session := liveSession(client)
+	ping, err := session.Ping(ctx, cmux.SessionPingOptions{})
+	if err != nil {
+		return nil, err
+	}
+	baseName := input.WorkspaceName
+	keyPrefix := input.KeyPrefix
+	stableID, err := createEmptyWorkspace(
+		ctx,
+		session,
+		baseName,
+		keyPrefix+"-stable-create",
+	)
+	if err != nil {
+		return nil, err
+	}
+	stable := session.Workspace(cmux.SelectID(stableID))
+	stableRenamedName := baseName + "-renamed"
+	renamed, err := stable.Rename(ctx, cmux.WorkspaceRenameOptions{
+		MutationOptions: cmux.MutationOptions{
+			IdempotencyKey: keyPrefix + "-stable-rename",
+		},
+		Name: stableRenamedName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	duplicateName := baseName + "-duplicate"
+	duplicateIDs := make([]cmux.WorkspaceID, 0, 2)
+	for _, suffix := range []string{"a", "b"} {
+		identifier, err := createEmptyWorkspace(
+			ctx,
+			session,
+			duplicateName,
+			keyPrefix+"-duplicate-"+suffix,
+		)
+		if err != nil {
+			return nil, err
+		}
+		duplicateIDs = append(duplicateIDs, identifier)
+	}
+
+	_, ambiguityErr := session.Workspace(
+		cmux.SelectName[cmux.WorkspaceID](duplicateName),
+	).Rename(ctx, cmux.WorkspaceRenameOptions{
+		MutationOptions: cmux.MutationOptions{
+			IdempotencyKey: keyPrefix + "-ambiguous-rename",
+		},
+		Name: baseName + "-must-not-apply",
+	})
+	if ambiguityErr == nil {
+		return nil, errors.New("duplicate workspace selector unexpectedly mutated")
+	}
+	var resource *cmux.ResourceError
+	if !errors.As(ambiguityErr, &resource) {
+		return nil, ambiguityErr
+	}
+	var details struct {
+		Candidates []string `json:"candidates"`
+	}
+	if err := json.Unmarshal(resource.Details, &details); err != nil {
+		return nil, err
+	}
+	expectedCandidates := map[string]bool{
+		string(duplicateIDs[0]): true,
+		string(duplicateIDs[1]): true,
+	}
+	preservedCandidates := len(details.Candidates) == len(duplicateIDs)
+	for _, candidate := range details.Candidates {
+		preservedCandidates = preservedCandidates && expectedCandidates[candidate]
+	}
+
+	rows, err := workspaceRows(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	noMutation := true
+	for _, identifier := range duplicateIDs {
+		noMutation = noMutation && rows[string(identifier)] == duplicateName
+	}
+	for _, name := range rows {
+		noMutation = noMutation && name != baseName+"-must-not-apply"
+	}
+	return map[string]any{
+		"pinged":                             ping.Fields["alive"],
+		"stable_id":                          stableID,
+		"stable_renamed":                     renamed.Value.Name == stableRenamedName,
+		"duplicate_ids":                      duplicateIDs,
+		"ambiguity_code":                     resource.Code,
+		"ambiguity_preserved_all_candidates": preservedCandidates,
+		"no_mutation":                        noMutation,
+	}, nil
+}
+
+func liveRestart(ctx context.Context, client *cmux.Client, input request) (any, error) {
+	if len(input.ExpectedDuplicateIDs) != 2 {
+		return nil, errors.New("expected_duplicate_ids must contain two ids")
+	}
+	stableID, err := cmux.ParseWorkspaceID(input.ExpectedStableID)
+	if err != nil {
+		return nil, err
+	}
+	duplicateIDs := make([]cmux.WorkspaceID, 0, 2)
+	for _, raw := range input.ExpectedDuplicateIDs {
+		identifier, err := cmux.ParseWorkspaceID(raw)
+		if err != nil {
+			return nil, err
+		}
+		duplicateIDs = append(duplicateIDs, identifier)
+	}
+	session := liveSession(client)
+	rows, err := workspaceRows(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	expectedIDs := []cmux.WorkspaceID{stableID, duplicateIDs[0], duplicateIDs[1]}
+	sameIDs := true
+	for _, identifier := range expectedIDs {
+		_, found := rows[string(identifier)]
+		sameIDs = sameIDs && found
+	}
+	stableNamePreserved :=
+		rows[string(stableID)] == input.WorkspaceName+"-renamed"
+	duplicatesPreserved := true
+	for _, identifier := range duplicateIDs {
+		duplicatesPreserved = duplicatesPreserved &&
+			rows[string(identifier)] == input.WorkspaceName+"-duplicate"
+	}
+
+	closeTargets := []struct {
+		ID     cmux.WorkspaceID
+		Suffix string
+	}{
+		{stableID, "stable"},
+		{duplicateIDs[0], "a"},
+		{duplicateIDs[1], "b"},
+	}
+	for _, target := range closeTargets {
+		_, err := session.Workspace(cmux.SelectID(target.ID)).Close(
+			ctx,
+			cmux.WorkspaceCloseOptions{
+				MutationOptions: cmux.MutationOptions{
+					IdempotencyKey: input.KeyPrefix + "-close-" + target.Suffix,
+				},
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	remaining, err := workspaceRows(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	disappeared := true
+	for _, identifier := range expectedIDs {
+		_, found := remaining[string(identifier)]
+		disappeared = disappeared && !found
+	}
+	return map[string]any{
+		"same_ids":              sameIDs,
+		"stable_name_preserved": stableNamePreserved,
+		"duplicates_preserved":  duplicatesPreserved,
+		"closed":                true,
+		"disappeared":           disappeared,
 	}, nil
 }
 

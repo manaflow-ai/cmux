@@ -411,14 +411,20 @@ fn redaction(allocator: Allocator) !Value {
     return .{ .object = output };
 }
 
-fn containsWorkspace(value: Value, id: cmux.WorkspaceId) !bool {
-    const object = try asObject(value);
-    const workspaces_value = object.get("workspaces") orelse
-        return error.MissingField;
-    const workspaces = switch (workspaces_value) {
+fn workspaceItems(value: Value) !Array {
+    return switch (value) {
         .array => |items| items,
-        else => return error.ExpectedArray,
+        .object => |object| switch (object.get("workspaces") orelse
+            return error.MissingField) {
+            .array => |items| items,
+            else => return error.ExpectedArray,
+        },
+        else => error.ExpectedArray,
     };
+}
+
+fn containsWorkspace(value: Value, id: cmux.WorkspaceId) !bool {
+    const workspaces = try workspaceItems(value);
     for (workspaces.items) |candidate_value| {
         const candidate = try asObject(candidate_value);
         const encoded = switch (candidate.get("id") orelse continue) {
@@ -435,13 +441,7 @@ fn workspaceHasName(
     id: cmux.WorkspaceId,
     expected_name: []const u8,
 ) !bool {
-    const object = try asObject(value);
-    const workspaces_value = object.get("workspaces") orelse
-        return error.MissingField;
-    const workspaces = switch (workspaces_value) {
-        .array => |items| items,
-        else => return error.ExpectedArray,
-    };
+    const workspaces = try workspaceItems(value);
     for (workspaces.items) |candidate_value| {
         const candidate = try asObject(candidate_value);
         const encoded_id = switch (candidate.get("id") orelse continue) {

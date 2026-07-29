@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,7 +83,8 @@ public final class ResourceAdapter {
                 case "stream-unknown" -> streamUnknown(session);
                 case "stream-cancel" -> streamCancel(session);
                 case "stream-overflow" -> streamOverflow(session);
-                case "live-flow" -> liveFlow(client, request);
+                case "live-setup" -> liveSetup(client, request);
+                case "live-restart" -> liveRestart(client, request);
                 default -> throw new IllegalArgumentException(
                     "unknown adapter operation " + operation
                 );
@@ -251,48 +253,183 @@ public final class ResourceAdapter {
         );
     }
 
-    private static Object liveFlow(
-        Client client,
-        Map<String, Object> request
+    private static Session liveSession(Client client) {
+        return client.machine(Selector.current()).session(Selector.current());
+    }
+
+    private static Map<String, String> workspaceRows(Session session) {
+        Map<String, String> rows = new LinkedHashMap<>();
+        for (Workspace workspace :
+                session.listWorkspaces(Options.Read.defaults())) {
+            Snapshots.WorkspaceSnapshot snapshot =
+                workspace.cached().orElseGet(workspace::refresh);
+            rows.put(snapshot.id().value(), snapshot.name());
+        }
+        return rows;
+    }
+
+    private static Ids.WorkspaceId createEmptyWorkspace(
+        Session session,
+        String name,
+        String key
     ) {
-        Session session = client.machine(Selector.current())
-            .session(Selector.current());
-        boolean pinged = Boolean.TRUE.equals(
-            session.ping(Options.Read.defaults()).fields().get("alive")
-        );
-        String name = string(request.get("workspace_name"), "workspace_name");
-        MutationResult<com.cmux.CreatedPath> created = session.createWorkspace(
+        return session.createWorkspace(
             Options.WorkspaceCreate.builder()
-                .mutation(Options.Mutation.keyed("live-create"))
+                .mutation(Options.Mutation.keyed(key))
                 .name(name)
                 .initialContent(Options.InitialContent.EMPTY)
                 .build()
-        );
-        Ids.WorkspaceId id = created.value().workspace().orElseThrow(() ->
+        ).value().workspace().orElseThrow(() ->
             new IllegalStateException("workspace.create omitted workspace id")
         );
-        Workspace workspace = session.workspace(Selector.id(id));
-        String renamedName = name + "-renamed";
-        MutationResult<Snapshots.WorkspaceSnapshot> renamed = workspace.rename(
+    }
+
+    private static Object liveSetup(
+        Client client,
+        Map<String, Object> request
+    ) {
+        Session session = liveSession(client);
+        boolean pinged = Boolean.TRUE.equals(
+            session.ping(Options.Read.defaults()).fields().get("alive")
+        );
+        String baseName = string(
+            request.get("workspace_name"), "workspace_name"
+        );
+        String keyPrefix = string(request.get("key_prefix"), "key_prefix");
+        Ids.WorkspaceId stableId = createEmptyWorkspace(
+            session,
+            baseName,
+            keyPrefix + "-stable-create"
+        );
+        Workspace stable = session.workspace(Selector.id(stableId));
+        String stableRenamedName = baseName + "-renamed";
+        MutationResult<Snapshots.WorkspaceSnapshot> renamed = stable.rename(
             new Options.WorkspaceRename(
-                Options.Mutation.keyed("live-rename"),
-                renamedName
+                Options.Mutation.keyed(keyPrefix + "-stable-rename"),
+                stableRenamedName
             )
         );
-        boolean listed = session.listWorkspaces(Options.Read.defaults()).stream()
-            .anyMatch(item -> item.cached().map(snapshot ->
-                snapshot.id().equals(id)
-            ).orElse(false));
-        workspace.close(Options.Mutation.keyed("live-close"));
-        boolean disappeared = session.listWorkspaces(Options.Read.defaults()).stream()
-            .noneMatch(item -> item.cached().map(snapshot ->
-                snapshot.id().equals(id)
-            ).orElse(false));
+
+        String duplicateName = baseName + "-duplicate";
+        List<Ids.WorkspaceId> duplicateIds = new ArrayList<>();
+        duplicateIds.add(createEmptyWorkspace(
+            session,
+            duplicateName,
+            keyPrefix + "-duplicate-a"
+        ));
+        duplicateIds.add(createEmptyWorkspace(
+            session,
+            duplicateName,
+            keyPrefix + "-duplicate-b"
+        ));
+
+        String ambiguityCode;
+        List<String> ambiguityCandidates = new ArrayList<>();
+        try {
+            session.workspace(Selector.name(duplicateName)).rename(
+                new Options.WorkspaceRename(
+                    Options.Mutation.keyed(keyPrefix + "-ambiguous-rename"),
+                    baseName + "-must-not-apply"
+                )
+            );
+            throw new IllegalStateException(
+                "duplicate workspace selector unexpectedly mutated"
+            );
+        } catch (ResourceError error) {
+            ambiguityCode = error.code();
+            Object candidates = error.details().get("candidates");
+            if (candidates instanceof Iterable<?> iterable) {
+                for (Object candidate : iterable) {
+                    if (candidate instanceof String value) {
+                        ambiguityCandidates.add(value);
+                    }
+                }
+            }
+        }
+        List<String> duplicateValues = duplicateIds.stream()
+            .map(Ids.WorkspaceId::value)
+            .toList();
+        boolean preservedCandidates =
+            ambiguityCandidates.size() == duplicateValues.size()
+            && new LinkedHashSet<>(ambiguityCandidates)
+                .equals(new LinkedHashSet<>(duplicateValues));
+        Map<String, String> rows = workspaceRows(session);
+        boolean noMutation = duplicateValues.stream().allMatch(identifier ->
+            duplicateName.equals(rows.get(identifier))
+        ) && !rows.containsValue(baseName + "-must-not-apply");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("pinged", pinged);
+        result.put("stable_id", stableId.value());
+        result.put(
+            "stable_renamed",
+            renamed.value().name().equals(stableRenamedName)
+        );
+        result.put("duplicate_ids", duplicateValues);
+        result.put("ambiguity_code", ambiguityCode);
+        result.put(
+            "ambiguity_preserved_all_candidates",
+            preservedCandidates
+        );
+        result.put("no_mutation", noMutation);
+        return result;
+    }
+
+    private static Object liveRestart(
+        Client client,
+        Map<String, Object> request
+    ) {
+        String baseName = string(
+            request.get("workspace_name"), "workspace_name"
+        );
+        String keyPrefix = string(request.get("key_prefix"), "key_prefix");
+        Ids.WorkspaceId stableId = new Ids.WorkspaceId(string(
+            request.get("expected_stable_id"), "expected_stable_id"
+        ));
+        Object duplicateValue = request.get("expected_duplicate_ids");
+        if (!(duplicateValue instanceof List<?> duplicateList)
+                || duplicateList.size() != 2) {
+            throw new IllegalArgumentException(
+                "expected_duplicate_ids must contain two IDs"
+            );
+        }
+        List<Ids.WorkspaceId> duplicateIds = duplicateList.stream()
+            .map(value -> new Ids.WorkspaceId(
+                string(value, "expected_duplicate_id")
+            ))
+            .toList();
+        Session session = liveSession(client);
+        Map<String, String> rows = workspaceRows(session);
+        List<Ids.WorkspaceId> expectedIds = new ArrayList<>();
+        expectedIds.add(stableId);
+        expectedIds.addAll(duplicateIds);
+        boolean sameIds = expectedIds.stream()
+            .allMatch(identifier -> rows.containsKey(identifier.value()));
+        boolean stableNamePreserved =
+            (baseName + "-renamed").equals(rows.get(stableId.value()));
+        boolean duplicatesPreserved = duplicateIds.stream().allMatch(
+            identifier -> (baseName + "-duplicate").equals(
+                rows.get(identifier.value())
+            )
+        );
+
+        session.workspace(Selector.id(stableId)).close(
+            Options.Mutation.keyed(keyPrefix + "-close-stable")
+        );
+        session.workspace(Selector.id(duplicateIds.get(0))).close(
+            Options.Mutation.keyed(keyPrefix + "-close-a")
+        );
+        session.workspace(Selector.id(duplicateIds.get(1))).close(
+            Options.Mutation.keyed(keyPrefix + "-close-b")
+        );
+        Map<String, String> remaining = workspaceRows(session);
+        boolean disappeared = expectedIds.stream().noneMatch(
+            identifier -> remaining.containsKey(identifier.value())
+        );
         return Map.of(
-            "pinged", pinged,
-            "created", true,
-            "renamed", renamed.value().name().equals(renamedName),
-            "listed", listed,
+            "same_ids", sameIds,
+            "stable_name_preserved", stableNamePreserved,
+            "duplicates_preserved", duplicatesPreserved,
             "closed", true,
             "disappeared", disappeared
         );

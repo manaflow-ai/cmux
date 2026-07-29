@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import socket
 import unittest
+from pathlib import Path
 
 from runner import (
     FIXTURES,
@@ -13,7 +14,11 @@ from runner import (
     ConformanceFailure,
     ResourceV1Server,
     assert_response,
+    live_server_command,
+    live_transports,
     load_contract,
+    validate_live_restart,
+    validate_live_setup,
 )
 
 
@@ -66,6 +71,95 @@ class ContractTests(unittest.TestCase):
     def test_overflow_limits_are_the_normative_independent_bounds(self) -> None:
         self.assertEqual(MAX_STREAM_MESSAGES, 256)
         self.assertEqual(MAX_STREAM_BYTES, 16 * 1024 * 1024)
+
+    def test_live_matrix_adds_websocket_only_where_supported(self) -> None:
+        self.assertEqual(live_transports("typescript"), ("unix", "websocket"))
+        for language in set(LANGUAGES) - {"typescript"}:
+            self.assertEqual(live_transports(language), ("unix",))
+
+    def test_live_server_command_is_durable_and_uses_exact_binary(self) -> None:
+        command = live_server_command(
+            Path("/tmp/exact/cmux-tui"),
+            Path("/tmp/socket"),
+            Path("/tmp/state"),
+            "resource-v1-test",
+            43210,
+            "secret",
+        )
+        self.assertEqual(command[0], "/tmp/exact/cmux-tui")
+        self.assertNotIn("--ephemeral", command)
+        self.assertEqual(
+            command,
+            (
+                "/tmp/exact/cmux-tui",
+                "--headless",
+                "--session",
+                "resource-v1-test",
+                "--socket",
+                "/tmp/socket",
+                "--state",
+                "/tmp/state",
+                "--ws",
+                "127.0.0.1:43210",
+                "--ws-token",
+                "secret",
+            ),
+        )
+
+    def test_live_results_require_distinct_opaque_ids_and_exact_fields(self) -> None:
+        setup = {
+            "contract_version": 2,
+            "id": "live-unix-setup",
+            "ok": True,
+            "value": {
+                "pinged": True,
+                "stable_id": "ws_11111111111111111111111111111111",
+                "stable_renamed": True,
+                "duplicate_ids": [
+                    "ws_22222222222222222222222222222222",
+                    "ws_33333333333333333333333333333333",
+                ],
+                "ambiguity_code": "selector.ambiguous",
+                "ambiguity_preserved_all_candidates": True,
+                "no_mutation": True,
+            },
+        }
+        self.assertEqual(
+            validate_live_setup(setup, "unix"),
+            (
+                "ws_11111111111111111111111111111111",
+                [
+                    "ws_22222222222222222222222222222222",
+                    "ws_33333333333333333333333333333333",
+                ],
+            ),
+        )
+        duplicate = json.loads(json.dumps(setup))
+        duplicate["value"]["duplicate_ids"][1] = duplicate["value"]["stable_id"]
+        with self.assertRaisesRegex(ConformanceFailure, "three distinct"):
+            validate_live_setup(duplicate, "unix")
+        extra = json.loads(json.dumps(setup))
+        extra["value"]["unexpected"] = True
+        with self.assertRaisesRegex(ConformanceFailure, "fields must be exactly"):
+            validate_live_setup(extra, "unix")
+
+    def test_live_restart_requires_every_persistence_and_cleanup_assertion(self) -> None:
+        restart = {
+            "contract_version": 2,
+            "id": "live-unix-restart",
+            "ok": True,
+            "value": {
+                "same_ids": True,
+                "stable_name_preserved": True,
+                "duplicates_preserved": True,
+                "closed": True,
+                "disappeared": True,
+            },
+        }
+        validate_live_restart(restart, "unix")
+        restart["value"]["same_ids"] = False
+        with self.assertRaisesRegex(ConformanceFailure, "same_ids"):
+            validate_live_restart(restart, "unix")
 
 
 class EnvelopeServerTests(unittest.TestCase):

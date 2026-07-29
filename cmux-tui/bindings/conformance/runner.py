@@ -8,6 +8,7 @@ import dataclasses
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -32,6 +33,27 @@ MAX_REQUEST_BYTES = 4 * 1024 * 1024
 MAX_STREAM_MESSAGES = 256
 MAX_STREAM_BYTES = 16 * 1024 * 1024
 OPAQUE_STREAM = re.compile(r"^stream_[0-9a-f]{32}$")
+OPAQUE_WORKSPACE = re.compile(r"^ws_[0-9a-f]{32}$")
+LIVE_SETUP_FIELDS = frozenset(
+    {
+        "pinged",
+        "stable_id",
+        "stable_renamed",
+        "duplicate_ids",
+        "ambiguity_code",
+        "ambiguity_preserved_all_candidates",
+        "no_mutation",
+    }
+)
+LIVE_RESTART_FIELDS = frozenset(
+    {
+        "same_ids",
+        "stable_name_preserved",
+        "duplicates_preserved",
+        "closed",
+        "disappeared",
+    }
+)
 
 
 class ConformanceFailure(Exception):
@@ -866,19 +888,79 @@ def run_fake_case(
         assert_response(response, case["expect"])
 
 
-def run_live_case(adapter: Adapter, binary: Path, constants: Mapping[str, str]) -> None:
-    if not binary.exists():
-        raise ConformanceFailure(f"cmux-tui binary does not exist: {binary}")
-    directory = Path(tempfile.mkdtemp(prefix="cmux-resource-live-"))
-    socket_path = directory / "session.sock"
-    command = (
+def live_transports(language: str) -> tuple[str, ...]:
+    if language == "typescript":
+        return ("unix", "websocket")
+    return ("unix",)
+
+
+def reserve_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def live_server_command(
+    binary: Path,
+    socket_path: Path,
+    state_path: Path,
+    session_name: str,
+    websocket_port: int,
+    websocket_token: str,
+) -> tuple[str, ...]:
+    return (
         str(binary),
         "--headless",
-        "--ephemeral",
         "--session",
-        "resource-conformance",
+        session_name,
         "--socket",
         str(socket_path),
+        "--state",
+        str(state_path),
+        "--ws",
+        f"127.0.0.1:{websocket_port}",
+        "--ws-token",
+        websocket_token,
+    )
+
+
+def unix_socket_ready(path: Path) -> bool:
+    if not path.exists():
+        return False
+    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    connection.settimeout(0.2)
+    try:
+        connection.connect(str(path))
+    except OSError:
+        return False
+    finally:
+        connection.close()
+    return True
+
+
+def tcp_socket_ready(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+def start_live_server(
+    binary: Path,
+    socket_path: Path,
+    state_path: Path,
+    session_name: str,
+    websocket_token: str,
+) -> tuple[subprocess.Popen[str], str]:
+    websocket_port = reserve_loopback_port()
+    command = live_server_command(
+        binary,
+        socket_path,
+        state_path,
+        session_name,
+        websocket_port,
+        websocket_token,
     )
     process = subprocess.Popen(
         command,
@@ -887,47 +969,234 @@ def run_live_case(adapter: Adapter, binary: Path, constants: Mapping[str, str]) 
         stderr=subprocess.STDOUT,
         text=True,
     )
-    try:
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            if socket_path.exists():
-                break
-            if process.poll() is not None:
-                output = process.stdout.read() if process.stdout else ""
-                raise ConformanceFailure(
-                    f"live server exited {process.returncode}: {output}"
-                )
-            time.sleep(0.05)
-        else:
-            raise ConformanceFailure("live server did not create its socket")
-        payload = {
-            "contract_version": 2,
-            "id": "live-isolated-resource-lifecycle",
-            "op": "live-flow",
-            "socket_path": str(socket_path),
-            "constants": constants,
-            "workspace_name": f"conformance-{os.getpid()}",
-        }
-        response = adapter.request(payload, timeout=30)
-        expected = {
-            "ok": True,
-            "value": {
-                "pinged": True,
-                "created": True,
-                "renamed": True,
-                "listed": True,
-                "closed": True,
-                "disappeared": True,
-            },
-        }
-        assert_response(response, expected)
-    finally:
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            output = process.stdout.read() if process.stdout else ""
+            raise ConformanceFailure(
+                f"live server exited {process.returncode}: {output}"
+            )
+        if unix_socket_ready(socket_path) and tcp_socket_ready(websocket_port):
+            return process, f"ws://127.0.0.1:{websocket_port}"
+        time.sleep(0.05)
+    stop_live_server(process, socket_path)
+    raise ConformanceFailure(
+        "live server did not make both Unix and WebSocket listeners ready"
+    )
+
+
+def stop_live_server(
+    process: subprocess.Popen[str],
+    socket_path: Path,
+) -> None:
+    if process.poll() is None:
         process.terminate()
         try:
-            process.wait(timeout=3)
+            process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait(timeout=3)
+            process.wait(timeout=5)
+    deadline = time.monotonic() + 1
+    while socket_path.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    if socket_path.exists():
+        socket_path.unlink()
+
+
+def response_value(
+    response: Mapping[str, Any],
+    fields: frozenset[str],
+    phase: str,
+) -> dict[str, Any]:
+    if response.get("ok") is not True:
+        raise ConformanceFailure(
+            f"{phase} adapter request failed: "
+            f"{json.dumps(response.get('error'), ensure_ascii=False)}"
+        )
+    value = response.get("value")
+    if not isinstance(value, dict):
+        raise ConformanceFailure(f"{phase} result must be an object")
+    if set(value) != fields:
+        raise ConformanceFailure(
+            f"{phase} result fields must be exactly {sorted(fields)}, "
+            f"got {sorted(value)}"
+        )
+    return value
+
+
+def validate_live_setup(
+    response: Mapping[str, Any],
+    transport: str,
+) -> tuple[str, list[str]]:
+    value = response_value(response, LIVE_SETUP_FIELDS, f"{transport} setup")
+    stable_id = value["stable_id"]
+    duplicate_ids = value["duplicate_ids"]
+    if not isinstance(stable_id, str) or OPAQUE_WORKSPACE.fullmatch(stable_id) is None:
+        raise ConformanceFailure(
+            f"{transport} setup returned invalid stable workspace id {stable_id!r}"
+        )
+    if (
+        not isinstance(duplicate_ids, list)
+        or len(duplicate_ids) != 2
+        or any(
+            not isinstance(identifier, str)
+            or OPAQUE_WORKSPACE.fullmatch(identifier) is None
+            for identifier in duplicate_ids
+        )
+    ):
+        raise ConformanceFailure(
+            f"{transport} setup returned invalid duplicate ids {duplicate_ids!r}"
+        )
+    if len({stable_id, *duplicate_ids}) != 3:
+        raise ConformanceFailure(
+            f"{transport} setup did not create three distinct workspace ids"
+        )
+    expected_true = (
+        "pinged",
+        "stable_renamed",
+        "ambiguity_preserved_all_candidates",
+        "no_mutation",
+    )
+    failed = [field for field in expected_true if value[field] is not True]
+    if failed:
+        raise ConformanceFailure(
+            f"{transport} setup failed assertions: {', '.join(failed)}"
+        )
+    if value["ambiguity_code"] != "selector.ambiguous":
+        raise ConformanceFailure(
+            f"{transport} setup expected selector.ambiguous, "
+            f"got {value['ambiguity_code']!r}"
+        )
+    return stable_id, duplicate_ids
+
+
+def validate_live_restart(
+    response: Mapping[str, Any],
+    transport: str,
+) -> None:
+    value = response_value(response, LIVE_RESTART_FIELDS, f"{transport} restart")
+    failed = [field for field in LIVE_RESTART_FIELDS if value[field] is not True]
+    if failed:
+        raise ConformanceFailure(
+            f"{transport} restart failed assertions: {', '.join(sorted(failed))}"
+        )
+
+
+def live_payload(
+    *,
+    identifier: str,
+    operation: str,
+    transport: str,
+    socket_path: Path,
+    websocket_url: str,
+    websocket_token: str,
+    constants: Mapping[str, str],
+    workspace_name: str,
+    key_prefix: str,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "contract_version": 2,
+        "id": identifier,
+        "op": operation,
+        "transport": transport,
+        "socket_path": str(socket_path),
+        "constants": constants,
+        "workspace_name": workspace_name,
+        "key_prefix": key_prefix,
+    }
+    if transport == "websocket":
+        payload["websocket_url"] = websocket_url
+        payload["websocket_token"] = websocket_token
+    return payload
+
+
+def run_live_case(
+    adapter: Adapter,
+    binary: Path,
+    constants: Mapping[str, str],
+) -> tuple[str, ...]:
+    try:
+        exact_binary = binary.expanduser().resolve(strict=True)
+    except FileNotFoundError as error:
+        raise ConformanceFailure(
+            f"cmux-tui binary does not exist: {binary}"
+        ) from error
+    if not exact_binary.is_file() or not os.access(exact_binary, os.X_OK):
+        raise ConformanceFailure(
+            f"cmux-tui binary is not an executable file: {exact_binary}"
+        )
+
+    directory = Path(
+        tempfile.mkdtemp(prefix=f"cmux-resource-{adapter.spec.language}-")
+    )
+    socket_path = directory / "session.sock"
+    state_path = directory / "state"
+    nonce = secrets.token_hex(4)
+    session_name = f"resource-v1-{adapter.spec.language}-{nonce}"
+    websocket_token = f"conformance-{secrets.token_hex(16)}"
+    base_name = f"conformance-{adapter.spec.language}-{nonce}"
+    transports = live_transports(adapter.spec.language)
+    process: subprocess.Popen[str] | None = None
+    setup: dict[str, tuple[str, list[str]]] = {}
+    try:
+        process, websocket_url = start_live_server(
+            exact_binary,
+            socket_path,
+            state_path,
+            session_name,
+            websocket_token,
+        )
+        for transport in transports:
+            workspace_name = f"{base_name}-{transport}"
+            payload = live_payload(
+                identifier=f"live-{transport}-setup",
+                operation="live-setup",
+                transport=transport,
+                socket_path=socket_path,
+                websocket_url=websocket_url,
+                websocket_token=websocket_token,
+                constants=constants,
+                workspace_name=workspace_name,
+                key_prefix=transport,
+            )
+            setup[transport] = validate_live_setup(
+                adapter.request(payload, timeout=45),
+                transport,
+            )
+
+        stop_live_server(process, socket_path)
+        process = None
+        process, websocket_url = start_live_server(
+            exact_binary,
+            socket_path,
+            state_path,
+            session_name,
+            websocket_token,
+        )
+        for transport in transports:
+            stable_id, duplicate_ids = setup[transport]
+            workspace_name = f"{base_name}-{transport}"
+            payload = live_payload(
+                identifier=f"live-{transport}-restart",
+                operation="live-restart",
+                transport=transport,
+                socket_path=socket_path,
+                websocket_url=websocket_url,
+                websocket_token=websocket_token,
+                constants=constants,
+                workspace_name=workspace_name,
+                key_prefix=transport,
+            )
+            payload["expected_stable_id"] = stable_id
+            payload["expected_duplicate_ids"] = duplicate_ids
+            validate_live_restart(
+                adapter.request(payload, timeout=45),
+                transport,
+            )
+        return transports
+    finally:
+        if process is not None:
+            stop_live_server(process, socket_path)
         shutil.rmtree(directory, ignore_errors=True)
 
 
@@ -1014,16 +1283,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 results.append(CaseResult(language, str(case["name"]), "PASS"))
         if not args.fake_only and args.cmux_tui_bin is not None:
+            transports = live_transports(language)
             try:
                 run_live_case(adapter, args.cmux_tui_bin, constants)
             except BaseException as error:
-                results.append(
-                    CaseResult(language, "live-isolated-resource-lifecycle", "FAIL", str(error))
-                )
+                for transport in transports:
+                    results.append(
+                        CaseResult(
+                            language,
+                            f"live-durable-restart-{transport}",
+                            "FAIL",
+                            str(error),
+                        )
+                    )
             else:
-                results.append(
-                    CaseResult(language, "live-isolated-resource-lifecycle", "PASS")
-                )
+                for transport in transports:
+                    results.append(
+                        CaseResult(
+                            language,
+                            f"live-durable-restart-{transport}",
+                            "PASS",
+                        )
+                    )
 
     for result in results:
         suffix = f": {result.detail}" if result.detail else ""

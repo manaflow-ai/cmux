@@ -85,6 +85,133 @@ def drain_end(stream: Any) -> str:
         return end.reason if end is not None else "completed"
 
 
+def live_session(client: cmux.Client):
+    return client.session(cmux.Selector.current())
+
+
+def workspace_rows(current: Any) -> dict[str, str]:
+    rows: dict[str, str] = {}
+    for item in current.list_workspaces():
+        snapshot = item.snapshot
+        if snapshot is None:
+            snapshot = item.refresh()
+        rows[str(snapshot.id)] = snapshot.name
+    return rows
+
+
+def live_setup(
+    client: cmux.Client,
+    base_name: str,
+    key_prefix: str,
+) -> dict[str, Any]:
+    current = live_session(client)
+    pinged = bool(plain(current.ping())["alive"])
+    stable = current.create_workspace(
+        cmux.CreateWorkspaceOptions(
+            name=base_name,
+            initial_content="empty",
+        ),
+        idempotency_key=f"{key_prefix}-stable-create",
+    ).value.workspace
+    if stable is None or stable.id is None:
+        raise AssertionError("workspace.create omitted stable workspace handle")
+    stable_id = str(stable.id)
+    stable_renamed_name = f"{base_name}-renamed"
+    renamed = stable.rename(
+        stable_renamed_name,
+        idempotency_key=f"{key_prefix}-stable-rename",
+    )
+    renamed_snapshot = renamed.value.snapshot
+    if renamed_snapshot is None:
+        renamed_snapshot = renamed.value.refresh()
+
+    duplicate_name = f"{base_name}-duplicate"
+    duplicate_ids: list[str] = []
+    for suffix in ("a", "b"):
+        duplicate = current.create_workspace(
+            cmux.CreateWorkspaceOptions(
+                name=duplicate_name,
+                initial_content="empty",
+            ),
+            idempotency_key=f"{key_prefix}-duplicate-{suffix}",
+        ).value.workspace
+        if duplicate is None or duplicate.id is None:
+            raise AssertionError("workspace.create omitted duplicate workspace handle")
+        duplicate_ids.append(str(duplicate.id))
+
+    ambiguity_code = ""
+    ambiguity_candidates: list[str] = []
+    try:
+        current.workspace(cmux.Selector.name(duplicate_name)).rename(
+            f"{base_name}-must-not-apply",
+            idempotency_key=f"{key_prefix}-ambiguous-rename",
+        )
+    except cmux.ResourceError as error:
+        ambiguity_code = error.code
+        details = plain(error.details)
+        if isinstance(details, Mapping):
+            candidates = details.get("candidates")
+            if isinstance(candidates, list):
+                ambiguity_candidates = [
+                    str(candidate) for candidate in candidates
+                ]
+    else:
+        raise AssertionError("duplicate workspace selector unexpectedly mutated")
+
+    rows = workspace_rows(current)
+    return {
+        "pinged": pinged,
+        "stable_id": stable_id,
+        "stable_renamed": renamed_snapshot.name == stable_renamed_name,
+        "duplicate_ids": duplicate_ids,
+        "ambiguity_code": ambiguity_code,
+        "ambiguity_preserved_all_candidates": (
+            set(ambiguity_candidates) == set(duplicate_ids)
+            and len(ambiguity_candidates) == len(duplicate_ids)
+        ),
+        "no_mutation": (
+            all(rows.get(identifier) == duplicate_name for identifier in duplicate_ids)
+            and f"{base_name}-must-not-apply" not in rows.values()
+        ),
+    }
+
+
+def live_restart(
+    client: cmux.Client,
+    base_name: str,
+    key_prefix: str,
+    expected_stable_id: str,
+    expected_duplicate_ids: list[str],
+) -> dict[str, Any]:
+    current = live_session(client)
+    rows = workspace_rows(current)
+    expected_ids = {expected_stable_id, *expected_duplicate_ids}
+    same_ids = expected_ids.issubset(rows)
+    stable_name_preserved = (
+        rows.get(expected_stable_id) == f"{base_name}-renamed"
+    )
+    duplicates_preserved = all(
+        rows.get(identifier) == f"{base_name}-duplicate"
+        for identifier in expected_duplicate_ids
+    )
+
+    current.workspace(cmux.WorkspaceId(expected_stable_id)).close(
+        idempotency_key=f"{key_prefix}-close-stable"
+    )
+    for suffix, identifier in zip(("a", "b"), expected_duplicate_ids):
+        current.workspace(cmux.WorkspaceId(identifier)).close(
+            idempotency_key=f"{key_prefix}-close-{suffix}"
+        )
+    remaining = workspace_rows(current)
+    return {
+        "same_ids": same_ids,
+        "stable_name_preserved": stable_name_preserved,
+        "duplicates_preserved": duplicates_preserved,
+        "closed": True,
+        "disappeared": expected_ids.isdisjoint(remaining),
+    }
+
+
 def run(payload: Mapping[str, Any]) -> Any:
     operation = payload["op"]
     constants = payload["constants"]
@@ -189,38 +316,25 @@ def run(payload: Mapping[str, Any]) -> Any:
                 "second_kind": second_kind,
                 "control_alive": control["alive"],
             }
-        if operation == "live-flow":
-            current = client.session(cmux.Selector.current())
-            pinged = bool(plain(current.ping())["alive"])
-            name = payload["workspace_name"]
-            created = current.create_workspace(
-                cmux.CreateWorkspaceOptions(name=name, initial_content="empty"),
-                idempotency_key="live-create",
+        if operation == "live-setup":
+            return live_setup(
+                client,
+                str(payload["workspace_name"]),
+                str(payload["key_prefix"]),
             )
-            created_workspace = created.value.workspace
-            if created_workspace is None:
-                raise AssertionError("workspace.create omitted workspace handle")
-            created_id = created_workspace.id
-            renamed = created_workspace.rename(
-                name + "-renamed", idempotency_key="live-rename"
+        if operation == "live-restart":
+            duplicate_ids = payload["expected_duplicate_ids"]
+            if not isinstance(duplicate_ids, list) or not all(
+                isinstance(identifier, str) for identifier in duplicate_ids
+            ):
+                raise TypeError("expected_duplicate_ids must be a string list")
+            return live_restart(
+                client,
+                str(payload["workspace_name"]),
+                str(payload["key_prefix"]),
+                str(payload["expected_stable_id"]),
+                duplicate_ids,
             )
-            listed = any(
-                item.id == created_id
-                for item in current.list_workspaces()
-            )
-            created_workspace.close(idempotency_key="live-close")
-            disappeared = all(
-                item.id != created_id
-                for item in current.list_workspaces()
-            )
-            return {
-                "pinged": pinged,
-                "created": created_id is not None,
-                "renamed": renamed.value.snapshot.name == name + "-renamed",
-                "listed": listed,
-                "closed": True,
-                "disappeared": disappeared,
-            }
     raise AssertionError(f"unknown adapter operation {operation}")
 
 
