@@ -7,8 +7,10 @@ nonisolated private let remoteRelayLogger = Logger(subsystem: "com.cmuxterm.app"
 
 // The reverse CLI relay: a remote `127.0.0.1:<relayPort>` listener forwarded
 // back to the local CLI relay server by a dedicated `ssh -N -R` process. The
-// relay targets an in-process server, so its SSH transport must share the app
-// process's lifetime rather than a host-scoped ControlMaster's lifetime.
+// relay targets an in-process server, so its SSH transport is coordinator-owned
+// and standalone rather than attached to a host-scoped ControlMaster. Normal
+// stop terminates it; a later connection attempt reaps a PPID-1 orphan left by
+// a crash using its destination and pinned relay-port argv.
 // Stderr capture caps and restart cadence (2s) are pinned legacy behavior.
 extension RemoteSessionCoordinator {
     func startReverseRelayLocked(remotePath: String) {
@@ -62,29 +64,22 @@ extension RemoteSessionCoordinator {
                 persistentDaemonSlot: configuration.persistentDaemonSlot
             )
 
-            let process = Process()
-            let stderrPipe = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
             let relayArguments = reverseRelayArguments(
                 relayPort: relayPort,
                 localRelayPort: localRelayPort
             )
-            process.arguments = relayArguments
-            process.environment = configuration.sshProcessEnvironment
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = stderrPipe
-
-            process.terminationHandler = { [weak self] terminated in
-                self?.queue.async {
-                    self?.handleReverseRelayTerminationLocked(process: terminated)
+            let process = try reverseRelayLauncher.launch(
+                arguments: relayArguments,
+                environment: configuration.sshProcessEnvironment
+            ) { [weak self] terminated in
+                guard let coordinator = self else { return }
+                coordinator.queue.async {
+                    coordinator.handleReverseRelayTerminationLocked(process: terminated)
                 }
             }
-
-            try process.run()
-            if let startupFailure = Self.reverseRelayStartupFailureDetail(
-                process: process,
-                stderrPipe: stderrPipe
+            let stderrPipe = process.stderrPipe
+            if let startupFailure = process.startupFailureDetail(
+                gracePeriod: Self.reverseRelayStartupGracePeriod
             ) {
                 let retryDelay = 2.0
                 let retrySeconds = max(1, Int(retryDelay.rounded()))
@@ -174,7 +169,7 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    private func handleReverseRelayTerminationLocked(process: Process) {
+    private func handleReverseRelayTerminationLocked(process: any RemoteReverseRelayProcess) {
         guard reverseRelayProcess === process else { return }
         let stderrDetail = Self.bestErrorLine(stderr: reverseRelayStderrBuffer)
         reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
@@ -244,8 +239,9 @@ extension RemoteSessionCoordinator {
     }
 
     func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
-        // The relay's SSH process is deliberately app-owned. `-S none` also
-        // protects against a ControlPath inherited from the host's ssh_config.
+        // The relay's SSH process is deliberately standalone and coordinator
+        // owned. `-S none` also protects against a ControlPath inherited from
+        // the host's ssh_config and leaves argv that crash recovery can match.
         var args: [String] = ["-N", "-T", "-S", "none"]
         args += sshCommonArguments(batchMode: true, dropControlPath: true)
         args += [
@@ -399,23 +395,10 @@ extension RemoteSessionCoordinator {
         stderrPipe: Pipe,
         gracePeriod: TimeInterval = reverseRelayStartupGracePeriod
     ) -> String? {
-        if process.isRunning {
-            let originalTerminationHandler = process.terminationHandler
-            let exitSemaphore = DispatchSemaphore(value: 0)
-            process.terminationHandler = { terminated in
-                originalTerminationHandler?(terminated)
-                exitSemaphore.signal()
-            }
-            if !process.isRunning {
-                exitSemaphore.signal()
-            }
-            guard exitSemaphore.wait(timeout: .now() + max(0, gracePeriod)) == .success else {
-                return nil
-            }
-        }
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-        return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
+        FoundationRemoteReverseRelayProcess(
+            process: process,
+            stderrPipe: stderrPipe
+        ).startupFailureDetail(gracePeriod: gracePeriod)
     }
 
     /// Returns whether OpenSSH reported that this relay's remote listener is

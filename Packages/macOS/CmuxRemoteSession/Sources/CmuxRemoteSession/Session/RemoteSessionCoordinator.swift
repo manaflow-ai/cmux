@@ -58,6 +58,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let connectionBroker: NativeSSHConnectionBroker
     let manifestRepository: RemoteDaemonManifestRepository
     let processRunner: any RemoteSessionProcessRunning
+    let reverseRelayLauncher: any RemoteReverseRelayLaunching
     let reachabilityProbe: any RemoteHostReachabilityProbing
     let relayCommandRewriter: any RemoteRelayCommandRewriting
     let buildInfo: any RemoteSessionBuildInfoProviding
@@ -80,7 +81,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var daemonBootstrapVersion: String?
     var daemonRemotePath: String?
     var reverseRelayStartupPhase = ReverseRelayStartupPhase.recoveryAvailable
-    var reverseRelayProcess: Process?
+    var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
     /// Stable publication state for best-effort remote TTY attribution scans.
@@ -147,6 +148,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     ///     connection-attempt broker.
     ///   - manifestRepository: cmuxd-remote manifest/binary-cache repository.
     ///   - processRunner: Blocking subprocess seam (ssh/scp/dev go build).
+    ///   - reverseRelayLauncher: Standalone SSH reverse-relay launch seam.
     ///   - reachabilityProbe: SSH endpoint reachability seam for the
     ///     reconnect-suspend policy.
     ///   - relayCommandRewriter: Alias-aware CLI relay command rewriter.
@@ -162,6 +164,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         connectionBroker: NativeSSHConnectionBroker,
         manifestRepository: RemoteDaemonManifestRepository,
         processRunner: any RemoteSessionProcessRunning,
+        reverseRelayLauncher: any RemoteReverseRelayLaunching = RemoteReverseRelayLauncher(),
         reachabilityProbe: any RemoteHostReachabilityProbing,
         relayCommandRewriter: any RemoteRelayCommandRewriting,
         buildInfo: any RemoteSessionBuildInfoProviding,
@@ -175,6 +178,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.connectionBroker = connectionBroker
         self.manifestRepository = manifestRepository
         self.processRunner = processRunner
+        self.reverseRelayLauncher = reverseRelayLauncher
         self.reachabilityProbe = reachabilityProbe
         self.relayCommandRewriter = relayCommandRewriter
         self.buildInfo = buildInfo

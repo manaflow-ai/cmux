@@ -101,55 +101,58 @@ struct RemoteSessionReverseRelayStartupTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
-    @Test(
-        "Successful master exit retries the dedicated relay",
-        .timeLimit(.minutes(1))
-    )
+    @Test("Successful master exit retries the dedicated relay")
     func successfulMasterExitRetriesDedicatedRelay() async throws {
-        let host = ReverseRelayRecoveryHost()
         let runner = RecordingProcessRunner()
+        let launcher = RecordingReverseRelayLauncher()
+        let relayPort = 64_046
         let fixture = try Self.makeCoordinator(
-            host: host,
             runner: runner,
-            destination: "127.0.0.1",
-            port: 1,
-            relayPort: 64_046
+            reverseRelayLauncher: launcher,
+            relayPort: relayPort
         )
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
 
+        var launches = launcher.launches.makeAsyncIterator()
         coordinator.queue.async {
             coordinator.daemonReady = true
             _ = coordinator.beginConflictedControlMasterExitIfNeededLocked(
-                startupFailure: "Error: remote port forwarding failed for listen port 64046",
+                startupFailure: "Error: remote port forwarding failed for listen port \(relayPort)",
                 remotePath: "/tmp/cmuxd-remote",
-                relayPort: 64_046,
+                relayPort: relayPort,
                 relayID: "relay-successful-recovery",
                 relayToken: String(repeating: "b", count: 64),
                 localSocketPath: coordinator.configuration.localSocketPath ?? ""
             )
         }
 
-        var statuses = host.daemonStatuses.makeAsyncIterator()
-        let retryStatus = await statuses.next()
-        #expect(retryStatus?.detail?.contains("Remote SSH relay unavailable") == true)
+        let launch = try #require(await launches.next())
 
         let recoveryRequest = runner.requests.first
         #expect(recoveryRequest?.arguments.contains("-O") == true)
         #expect(recoveryRequest?.arguments.contains("exit") == true)
-        #expect(runner.requests.count == 1)
+        #expect(launch.arguments.starts(with: ["-N", "-T", "-S", "none"]))
+        #expect(launch.arguments.contains("-R"))
+        #expect(launch.arguments.contains(
+            "127.0.0.1:\(relayPort):127.0.0.1:\(launch.localRelayPort)"
+        ))
+        #expect(!launch.arguments.contains(where: { $0.hasPrefix("ControlPath=") }))
+
         let retriedAfterRecovery = coordinator.queue.sync {
             coordinator.reverseRelayStartupPhase.allowsRelayLaunch &&
-                coordinator.reverseRelayRestartTask != nil
+                coordinator.reverseRelayProcess === launcher.process
         }
         #expect(retriedAfterRecovery)
+        #expect(RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
+            psOutput: "909 1 /usr/bin/ssh \(launch.arguments.joined(separator: " "))",
+            destination: "user@example.test",
+            relayPort: relayPort
+        ) == [909])
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
-    @Test(
-        "Stop cancels conflicted-master exit without waiting on its timeout",
-        .timeLimit(.minutes(1))
-    )
+    @Test("Stop cancels conflicted-master exit without waiting on its timeout")
     func stopCancelsConflictedMasterExit() async throws {
         let runner = BlockingConflictedMasterExitRunner()
         let fixture = try Self.makeCoordinator(runner: runner)
@@ -185,8 +188,7 @@ struct RemoteSessionReverseRelayStartupTests {
     private static func makeCoordinator(
         host: any RemoteSessionHosting = NoopRemoteSessionHost(),
         runner: any RemoteSessionProcessRunning,
-        destination: String = "user@example.test",
-        port: Int? = nil,
+        reverseRelayLauncher: any RemoteReverseRelayLaunching = RemoteReverseRelayLauncher(),
         relayPort: Int = 64_044
     ) throws -> (coordinator: RemoteSessionCoordinator, scratchDirectory: URL) {
         let scratchDirectory = FileManager.default.temporaryDirectory
@@ -199,8 +201,8 @@ struct RemoteSessionReverseRelayStartupTests {
             withIntermediateDirectories: true
         )
         let configuration = WorkspaceRemoteConfiguration(
-            destination: destination,
-            port: port,
+            destination: "user@example.test",
+            port: nil,
             identityFile: nil,
             sshOptions: ["StrictHostKeyChecking=accept-new"],
             localProxyPort: nil,
@@ -221,6 +223,7 @@ struct RemoteSessionReverseRelayStartupTests {
                 homeDirectory: scratchDirectory
             ),
             processRunner: runner,
+            reverseRelayLauncher: reverseRelayLauncher,
             reachabilityProbe: SSHOverrideNoopReachabilityProbe(),
             relayCommandRewriter: SSHOverridePassthroughRelayCommandRewriter(),
             buildInfo: SSHOverrideStubBuildInfo(),
@@ -235,6 +238,63 @@ struct RemoteSessionReverseRelayStartupTests {
         )
         return (coordinator, scratchDirectory)
     }
+}
+
+private struct RecordedReverseRelayLaunch: Sendable {
+    let arguments: [String]
+    let localRelayPort: Int
+}
+
+/// Immutable recorder; `AsyncStream.Continuation` owns synchronized delivery.
+private final class RecordingReverseRelayLauncher:
+    RemoteReverseRelayLaunching,
+    @unchecked Sendable
+{
+    let launches: AsyncStream<RecordedReverseRelayLaunch>
+    let process = StubReverseRelayProcess()
+
+    private let launchContinuation: AsyncStream<RecordedReverseRelayLaunch>.Continuation
+
+    init() {
+        (launches, launchContinuation) = AsyncStream.makeStream()
+    }
+
+    func launch(
+        arguments: [String],
+        environment: [String: String]?,
+        terminationHandler: @escaping @Sendable (any RemoteReverseRelayProcess) -> Void
+    ) throws -> any RemoteReverseRelayProcess {
+        let reverseArgumentIndex = try #require(arguments.firstIndex(of: "-R"))
+        let reverseArgument = try #require(
+            arguments.indices.contains(arguments.index(after: reverseArgumentIndex))
+                ? arguments[arguments.index(after: reverseArgumentIndex)]
+                : nil
+        )
+        let localRelayPort = try #require(
+            Int(reverseArgument.split(separator: ":").last ?? "")
+        )
+        launchContinuation.yield(RecordedReverseRelayLaunch(
+            arguments: arguments,
+            localRelayPort: localRelayPort
+        ))
+        return process
+    }
+}
+
+/// Immutable fake process; the pipe is never concurrently read or written.
+private final class StubReverseRelayProcess:
+    RemoteReverseRelayProcess,
+    @unchecked Sendable
+{
+    let stderrPipe = Pipe()
+    let isRunning = true
+    let terminationStatus: Int32 = 0
+
+    func startupFailureDetail(gracePeriod: TimeInterval) -> String? {
+        nil
+    }
+
+    func terminate() {}
 }
 
 private final class BlockingConflictedMasterExitRunner:
