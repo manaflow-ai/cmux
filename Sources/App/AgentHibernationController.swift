@@ -27,9 +27,9 @@ final class AgentHibernationController {
 
     static let unableToProtectRetrySeconds: TimeInterval = 120
 
-    private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
+    var evaluationPhase: EvaluationPhase = .idle
     var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
@@ -131,24 +131,19 @@ final class AgentHibernationController {
             return
         }
         guard timer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + 5, repeating: 30)
         timer.setEventHandler {
             let now = Date()
-            Task.detached(priority: .utility) {
-                let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-                await MainActor.run {
-                    let settings = AgentHibernationSettings.values()
-                    guard settings.enabled else { return }
-                    AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
-                }
+            Task { @MainActor in
+                AgentHibernationController.shared.scheduleEvaluation(now: now)
             }
         }
         timer.resume()
         self.timer = timer
     }
 
-    private func evaluate(
+    func evaluate(
         index: RestorableAgentSessionIndex,
         settings: AgentHibernationSettings.Values,
         now: Date
@@ -415,6 +410,7 @@ final class AgentHibernationController {
     }
 
     private func clearTrackingState() {
+        cancelEvaluation()
         cancelPostTeardownRestoreTasks()
         teardownValidationGeneration = teardownValidationGeneration &+ 1
         activityByPanel.removeAll(keepingCapacity: false)
