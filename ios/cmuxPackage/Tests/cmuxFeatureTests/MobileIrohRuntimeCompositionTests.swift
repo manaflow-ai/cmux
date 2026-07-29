@@ -450,6 +450,20 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func disablingAutomaticRelayCredentialRefreshAlsoDisablesPolicyBootstrapRefresh() {
+        #expect(MobileIrohRuntimeComposition.shouldScheduleRelayPolicyRefresh(
+            automaticRelayCredentialRefreshEnabled: true,
+            serviceAvailable: true,
+            trustRootAvailable: true
+        ))
+        #expect(!MobileIrohRuntimeComposition.shouldScheduleRelayPolicyRefresh(
+            automaticRelayCredentialRefreshEnabled: false,
+            serviceAvailable: true,
+            trustRootAvailable: true
+        ))
+    }
+
+    @Test
     func terminalLaneFramesUTF8InputAndOwnsBothStreamHalves() async throws {
         let outputEnvelope = try CmxIrohTerminalOutputEnvelope(
             kind: .replay,
