@@ -68,6 +68,86 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         #expect(unexpectedTermination.wait(timeout: .now()) == .timedOut)
     }
 
+    @Test("a timed-out PTY attach does not wait for a blocked cancellation write")
+    func timedOutPTYAttachBoundsCancellationWrite() throws {
+        let executable = try makeTransport()
+        defer {
+            try? FileManager.default.removeItem(
+                at: URL(fileURLWithPath: executable).deletingLastPathComponent()
+            )
+        }
+
+        let stalledAttachRead = DispatchSemaphore(value: 0)
+        let unexpectedTermination = DispatchSemaphore(value: 0)
+        let client = RemoteDaemonRPCClient(
+            configuration: configuration(),
+            remotePath: "/fake/cmuxd-remote",
+            strings: RemoteDaemonStrings(
+                missingPersistentPTYCapability: "missing persistent PTY",
+                missingRequiredFunctionality: "missing functionality"
+            )
+        ) { _ in
+            unexpectedTermination.signal()
+        }
+        defer { client.stop() }
+        client.transportExecutableOverride = executable
+
+        try client.start()
+        _ = try client.attachPTY(
+            sessionID: "existing-session",
+            attachmentID: "existing-attachment",
+            cols: 80,
+            rows: 24,
+            command: nil,
+            requireExisting: true,
+            queue: .global()
+        ) { event in
+            if case .data(let data) = event, data == Data("attach-read".utf8) {
+                stalledAttachRead.signal()
+            }
+        }
+
+        let writeBlockEntered = DispatchSemaphore(value: 0)
+        let releaseWrite = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            guard stalledAttachRead.wait(timeout: .now() + 2) == .success else {
+                releaseWrite.signal()
+                return
+            }
+            client.writeQueue.async {
+                writeBlockEntered.signal()
+                releaseWrite.wait()
+            }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 4) {
+            releaseWrite.signal()
+        }
+
+        let startedAt = DispatchTime.now()
+        do {
+            _ = try client.call(
+                method: "pty.attach",
+                params: [
+                    "session_id": "stalled-session",
+                    "attachment_id": "stalled-attachment",
+                    "client_attachment_token": "stalled-token",
+                ],
+                timeout: 1
+            )
+            Issue.record("stalled pty.attach unexpectedly succeeded")
+        } catch {
+            let nsError = error as NSError
+            #expect(nsError.domain == "cmux.remote.daemon.rpc")
+            #expect(nsError.code == 11)
+        }
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000_000
+
+        #expect(writeBlockEntered.wait(timeout: .now()) == .success)
+        #expect(elapsed < 2)
+        #expect(unexpectedTermination.wait(timeout: .now() + 2) == .success)
+        releaseWrite.signal()
+    }
+
     private func configuration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "fake-host",
@@ -112,6 +192,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
           exit 1
         fi
         stalled_id=$(read_id "$stalled_attach")
+        printf '{"event":"pty.data","session_id":"existing-session","attachment_id":"existing-attachment","attachment_token":"%s","data_base64":"YXR0YWNoLXJlYWQ="}\\n' "$existing_token"
         if IFS= read -r line; then
           cancel_request_id=$(printf '%s\\n' "$line" | sed -n 's/.*"request_id":\\([0-9][0-9]*\\).*/\\1/p')
           cancel_session=$(printf '%s\\n' "$line" | sed -n 's/.*"session_id":"\\([^"]*\\)".*/\\1/p')

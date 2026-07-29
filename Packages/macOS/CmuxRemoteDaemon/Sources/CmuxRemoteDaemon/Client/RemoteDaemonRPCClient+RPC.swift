@@ -385,22 +385,6 @@ extension RemoteDaemonRPCClient {
         ])
     }
 
-    private func sendPTYAttachCancellation(
-        requestID: Int,
-        attachParams: [String: Any]
-    ) {
-        var cancellationParams: [String: Any] = ["request_id": requestID]
-        for key in ["session_id", "attachment_id", "client_attachment_token"] {
-            if let value = attachParams[key] as? String {
-                cancellationParams[key] = value
-            }
-        }
-        try? notify(
-            method: "pty.attach.cancel",
-            params: cancellationParams
-        )
-    }
-
     func notify(method: String, params: [String: Any]) throws {
         let payload: Data
         do {

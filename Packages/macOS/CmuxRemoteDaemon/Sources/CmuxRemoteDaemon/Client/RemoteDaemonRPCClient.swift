@@ -41,6 +41,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
     static let socketForwardStartupGracePeriod: TimeInterval = 0.75
     static let webSocketKeepaliveInterval: TimeInterval = 5.0
+    static let ptyAttachCancellationWriteTimeout: TimeInterval = 1.0
     /// Wire capability required for push-based proxy streaming
     /// (`proxy.stream.push`; value is test-pinned, do not change).
     public static let requiredProxyStreamCapability = RemoteDaemonCapability.proxyStreamPush.rawValue
@@ -59,6 +60,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Wire capability required for resize notifications
     /// (`pty.resize.notification`; value is test-pinned, do not change).
     public static let requiredPTYResizeNotificationCapability = RemoteDaemonCapability.ptyResizeNotification.rawValue
+    /// Wire capability required to cancel timed-out PTY attach requests
+    /// (`pty.attach.cancel`; value is test-pinned, do not change).
+    public static let requiredPTYAttachCancelCapability = RemoteDaemonCapability.ptyAttachCancel.rawValue
     /// Optional wire capability for sequenced, acked PTY input
     /// (`pty.input.seq_ack`; value is test-pinned, do not change).
     public static let optionalPTYInputSeqAckCapability = RemoteDaemonCapability.ptyInputSeqAck.rawValue
@@ -222,6 +226,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             capabilities.append(requiredPTYSessionTokenCapability)
             capabilities.append(requiredPTYWriteNotificationCapability)
             capabilities.append(requiredPTYResizeNotificationCapability)
+            capabilities.append(requiredPTYAttachCancelCapability)
         }
         if configuration.persistentDaemonSlot != nil {
             capabilities.append(requiredPTYPersistentDaemonCapability)
