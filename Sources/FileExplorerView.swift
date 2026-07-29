@@ -108,6 +108,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
+        private(set) var lastNodeChangeVisibleRowInspectionCount = 0
         private static let maximumPendingNodeChangeCount = 64
         let iconRenderContext: CmuxResolvedIconRenderContext
 
@@ -412,6 +413,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private func applyNodeChanges(
             _ changes: [(node: FileExplorerNode, reloadChildren: Bool, expansion: Bool?)]
         ) -> Bool {
+            lastNodeChangeVisibleRowInspectionCount = 0
             guard let outlineView else { return true }
             let requestedNodeIds = Set(changes.map { ObjectIdentifier($0.node) })
             let visibleRange = outlineView.rows(in: outlineView.visibleRect)
@@ -419,6 +421,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             var visibleRowsByNodeId: [ObjectIdentifier: Int] = [:]
             if visibleRange.location != NSNotFound, visibleRange.length > 0 {
                 for row in visibleRange.location..<(visibleRange.location + visibleRange.length) {
+                    lastNodeChangeVisibleRowInspectionCount += 1
                     guard let node = outlineView.item(atRow: row) as? FileExplorerNode else {
                         continue
                     }

@@ -297,7 +297,7 @@ struct FileExplorerStoreTests {
 
         #expect(outlineView.reloadRowsCallCount == 0)
         #expect(outlineView.reloadItemCallCount == 0)
-        #expect(outlineView.itemAtRowCallCount < 20)
+        #expect(coordinator.lastNodeChangeVisibleRowInspectionCount < 20)
     }
 
     @Test
@@ -416,7 +416,7 @@ struct FileExplorerStoreTests {
         )
 
         try await waitFor("offscreen structural change inspected") {
-            outlineView.itemAtRowCallCount > 0
+            coordinator.lastNodeChangeVisibleRowInspectionCount > 0
         }
         #expect(outlineView.reloadDataCallCount == 0)
         #expect(outlineView.reloadItemCallCount == 0)

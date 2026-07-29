@@ -46,7 +46,7 @@ struct FileExplorerGitStatusProviderTests {
         try "one\n".write(to: trackedURL, atomically: true, encoding: .utf8)
         try Self.runGit(["add", "."], in: repoURL)
         try Self.runGit(["commit", "-m", "initial"], in: repoURL)
-        try "two\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        try "modified contents\n".write(to: trackedURL, atomically: true, encoding: .utf8)
 
         let status = await GitStatusProvider().fetchStatus(directory: nestedURL.path)
 
@@ -70,8 +70,8 @@ struct FileExplorerGitStatusProviderTests {
         try "one\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
         try Self.runGit(["add", "."], in: repoURL)
         try Self.runGit(["commit", "-m", "initial"], in: repoURL)
-        try "two\n".write(to: visibleURL, atomically: true, encoding: .utf8)
-        try "two\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
+        try "visible modified contents\n".write(to: visibleURL, atomically: true, encoding: .utf8)
+        try "sibling modified contents\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
 
         let status = await GitStatusProvider().fetchStatus(directory: explorerRootURL.path)
 
