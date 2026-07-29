@@ -1,16 +1,5 @@
 import AppKit
 
-private func cmuxResolvedIconBundlesMatch(_ lhs: Bundle?, _ rhs: Bundle?) -> Bool {
-    switch (lhs, rhs) {
-    case (.none, .none):
-        return true
-    case let (lhs?, rhs?):
-        return lhs === rhs
-    default:
-        return false
-    }
-}
-
 /// Owns a renderer and a bounded raster cache for one icon-view hierarchy.
 @MainActor
 public final class CmuxResolvedIconRenderContext {
@@ -54,7 +43,7 @@ public final class CmuxResolvedIconRenderContext {
     ) -> NSImage? {
         guard let entry = entries[key],
               entry.appearance === renderKey.appearance,
-              cmuxResolvedIconBundlesMatch(entry.assetBundle, renderKey.assetBundle) else {
+              renderKey.matchesAssetBundle(entry.assetBundle) else {
             return nil
         }
         return entry.image

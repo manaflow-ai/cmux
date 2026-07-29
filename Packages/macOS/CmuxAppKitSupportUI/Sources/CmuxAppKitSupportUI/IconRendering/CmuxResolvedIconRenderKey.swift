@@ -1,16 +1,5 @@
 import AppKit
 
-private func cmuxResolvedIconColorsMatch(_ lhs: NSColor?, _ rhs: NSColor?) -> Bool {
-    switch (lhs, rhs) {
-    case (.none, .none):
-        return true
-    case let (lhs?, rhs?):
-        return lhs.isEqual(rhs)
-    default:
-        return false
-    }
-}
-
 /// Identity of one icon render request under one effective appearance.
 struct CmuxResolvedIconRenderKey {
     private let source: CmuxResolvedIconSourceKey
@@ -22,6 +11,28 @@ struct CmuxResolvedIconRenderKey {
     private let appearanceIdentity: ObjectIdentifier
     let appearance: NSAppearance
     let assetBundle: Bundle?
+
+    private func tintMatches(_ other: NSColor?) -> Bool {
+        switch (tint, other) {
+        case (.none, .none):
+            return true
+        case let (tint?, other?):
+            return tint.isEqual(other)
+        default:
+            return false
+        }
+    }
+
+    func matchesAssetBundle(_ other: Bundle?) -> Bool {
+        switch (assetBundle, other) {
+        case (.none, .none):
+            return true
+        case let (assetBundle?, other?):
+            return assetBundle === other
+        default:
+            return false
+        }
+    }
 
     init(request: CmuxResolvedIconRequest, appearance: NSAppearance) {
         source = CmuxResolvedIconSourceKey(request.source)
@@ -52,7 +63,7 @@ struct CmuxResolvedIconRenderKey {
             symbolWeight == other.symbolWeight &&
             appearanceName == other.appearanceName &&
             appearanceIdentity == other.appearanceIdentity &&
-            cmuxResolvedIconColorsMatch(tint, other.tint)
+            tintMatches(other.tint)
     }
 
     func shouldSkipBlankRetry(for other: CmuxResolvedIconRenderKey) -> Bool {
