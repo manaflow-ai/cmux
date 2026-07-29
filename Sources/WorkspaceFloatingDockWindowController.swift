@@ -1164,6 +1164,16 @@ private final class WorkspaceFloatingDockPanel: NSPanel {
         guard !presentsStashedWindow || sizeAuthority == .explicitMutation else { return }
         super.setFrameOrigin(point)
     }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        // Parking intentionally leaves only a narrow slice on-screen. AppKit's
+        // generic constrain pass treats that as a stranded titled window and
+        // moves every parked panel toward the same reachable titlebar origin.
+        // The presenter owns display migration for parked panels, so preserve
+        // its exact stack frame until the panel is restored.
+        guard !presentsStashedWindow else { return frameRect }
+        return super.constrainFrameRect(frameRect, to: screen)
+    }
 }
 
 /// Floating Dock controls should work on the first click even when another
