@@ -179,34 +179,36 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         pendingReasonsById[request.id] = request.reason
         switch executionLane {
         case .isolatedHibernation:
-            guard let isolatedHibernationReservation,
-                  let executionSlot = await isolatedHibernationAdmission.executionSlot(
-                      for: isolatedHibernationReservation
-                  ),
-                  isolatedHibernationQueues.indices.contains(executionSlot) else {
-                preconditionFailure(
-                    "isolated hibernation teardown requires an active reservation"
+            if let isolatedHibernationReservation,
+               let executionSlot = await isolatedHibernationAdmission.executionSlot(
+                   for: isolatedHibernationReservation
+               ),
+               isolatedHibernationQueues.indices.contains(executionSlot) {
+                // Each reservation exclusively owns one queue until its native free
+                // returns. Ghostty locks its shared surface registry, while renderer
+                // and IO joins are surface-owned, so separate surfaces may tear down
+                // concurrently. This bounds blocked native workers at two without
+                // letting one stuck pane strand another admitted pane.
+                Task {
+                    await self.observeTimeout(id: request.id)
+                }
+                isolatedHibernationQueues[executionSlot].async {
+                    self.freeNativeSurface(request)
+                    Task {
+                        await self.isolatedHibernationAdmission.release(
+                            isolatedHibernationReservation
+                        )
+                        await self.finishFree(request)
+                        await self.complete(id: request.id)
+                    }
+                }
+                return
+            }
+            if let isolatedHibernationReservation {
+                await isolatedHibernationAdmission.release(
+                    isolatedHibernationReservation
                 )
             }
-            // Each reservation exclusively owns one queue until its native free
-            // returns. Ghostty locks its shared surface registry, while renderer
-            // and IO joins are surface-owned, so separate surfaces may tear down
-            // concurrently. This bounds blocked native workers at two without
-            // letting one stuck pane strand another admitted pane.
-            Task {
-                await self.observeTimeout(id: request.id)
-            }
-            isolatedHibernationQueues[executionSlot].async {
-                self.freeNativeSurface(request)
-                Task {
-                    await self.isolatedHibernationAdmission.release(
-                        isolatedHibernationReservation
-                    )
-                    await self.finishFree(request)
-                    await self.complete(id: request.id)
-                }
-            }
-            return
         case .serializedClose:
             break
         }

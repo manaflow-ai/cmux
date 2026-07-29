@@ -72,8 +72,17 @@ extension AgentHibernationController {
             .cancel()
         let cleanupID = UUID()
         let cleanupTask = Task { @MainActor [weak self] in
-            guard await sleepUntilDeadline(cleanupDelay),
-                  let self,
+            let didReachDeadline = await sleepUntilDeadline(cleanupDelay)
+            guard let self else { return }
+            defer {
+                if self.committedTerminationCleanupByPanelID[panelID]?.requestID ==
+                    cleanupID {
+                    self.committedTerminationCleanupByPanelID.removeValue(
+                        forKey: panelID
+                    )
+                }
+            }
+            guard didReachDeadline,
                   !Task.isCancelled,
                   self.committedTerminationCleanupByPanelID[panelID]?.requestID ==
                     cleanupID,
@@ -84,7 +93,6 @@ extension AgentHibernationController {
                   ) else {
                 return
             }
-            self.committedTerminationCleanupByPanelID.removeValue(forKey: panelID)
             removed.task?.cancel()
             await removed.processExitCompletion.finish(false)
         }

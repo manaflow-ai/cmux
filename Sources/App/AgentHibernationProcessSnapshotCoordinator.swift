@@ -23,6 +23,10 @@ actor AgentHibernationProcessSnapshotCoordinator {
     private var captureTask: Task<Void, Never>?
     private var captureHasStarted = false
 
+    var queuedSnapshotWaiterCount: Int {
+        queuedSnapshotWaiters.count
+    }
+
     init(
         beforeCapture: @escaping CaptureScheduler = {
             await Task.yield()

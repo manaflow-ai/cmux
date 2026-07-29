@@ -35,7 +35,15 @@ struct AgentHibernationProcessSnapshotCoordinatorTests {
         var captureScheduledIterator = captureScheduled.stream.makeAsyncIterator()
         _ = await captureScheduledIterator.next()
         let second = Task { await coordinator.nextSnapshot() }
-        await Task.yield()
+        let clock = ContinuousClock()
+        let registrationDeadline = clock.now.advanced(by: .seconds(1))
+        while clock.now < registrationDeadline {
+            if await coordinator.queuedSnapshotWaiterCount == 2 {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(await coordinator.queuedSnapshotWaiterCount == 2)
 
         allowCapture.continuation.yield()
         allowCapture.continuation.finish()
