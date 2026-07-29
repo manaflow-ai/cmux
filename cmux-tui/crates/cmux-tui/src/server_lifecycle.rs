@@ -50,6 +50,8 @@ const LEGACY_HELPER_WAIT_MARGIN: Duration = Duration::from_millis(250);
 #[cfg(unix)]
 const LEGACY_HELPER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 #[cfg(unix)]
+const LEGACY_CLIENT_DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(10);
+#[cfg(unix)]
 const LEGACY_HELPER_CANCEL_MARGIN: Duration = Duration::from_millis(100);
 #[cfg(unix)]
 const LEGACY_HELPER_REAPER_CAPACITY: usize = 64;
@@ -871,31 +873,44 @@ impl ServerLifecycle {
         next_request_id: &mut u64,
         deadline: Instant,
     ) -> anyhow::Result<()> {
-        let request_id = take_legacy_request_id(next_request_id)?;
-        set_transport_deadline(self.reader.get_mut().as_ref(), deadline).map_err(|_| {
-            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-        })?;
-        write_json_line(self.reader.get_mut(), &json!({"id": request_id, "cmd": "list-clients"}))
-            .map_err(|_| {
-            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-        })?;
-        let response =
-            read_response_until(&mut self.reader, request_id, deadline).map_err(|_| {
+        loop {
+            ensure_legacy_helper_active()?;
+            if Instant::now() >= deadline {
+                anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
+            }
+            let request_id = take_legacy_request_id(next_request_id)?;
+            set_transport_deadline(self.reader.get_mut().as_ref(), deadline).map_err(|_| {
                 anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
             })?;
-        let clients = response_data(&response)?.as_array().ok_or_else(|| {
-            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-        })?;
-        let exclusive = clients.len() == 1
-            && clients[0].get("self").and_then(Value::as_bool) == Some(true)
-            && clients[0].get("transport").and_then(Value::as_str) == Some("unix");
-        // The public listener name is already quarantined. Refusing every
-        // previously accepted peer leaves this helper as the only process
-        // capable of mutating legacy topology before the final freeze.
-        if !exclusive {
-            anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
+            write_json_line(
+                self.reader.get_mut(),
+                &json!({"id": request_id, "cmd": "list-clients"}),
+            )
+            .map_err(|_| {
+                anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+            })?;
+            let response =
+                read_response_until(&mut self.reader, request_id, deadline).map_err(|_| {
+                    anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+                })?;
+            let clients = response_data(&response)?.as_array().ok_or_else(|| {
+                anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+            })?;
+            let exclusive = clients.len() == 1
+                && clients[0].get("self").and_then(Value::as_bool) == Some(true)
+                && clients[0].get("transport").and_then(Value::as_str) == Some("unix");
+            // The public listener name is already quarantined, so the set can
+            // only drain. The initiating client's EOF cleanup may lag behind
+            // helper startup; persistent peers still consume the same bounded
+            // deadline and fail closed.
+            if exclusive {
+                return Ok(());
+            }
+            std::thread::sleep(
+                LEGACY_CLIENT_DRAIN_POLL_INTERVAL
+                    .min(deadline.saturating_duration_since(Instant::now())),
+            );
         }
-        Ok(())
     }
 
     #[cfg(unix)]
