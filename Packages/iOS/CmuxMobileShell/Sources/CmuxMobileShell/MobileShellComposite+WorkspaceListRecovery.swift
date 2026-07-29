@@ -42,6 +42,23 @@ extension MobileShellComposite {
         return macConnectionStatus
     }
 
+    /// UI reconnect entry for a specific workspace's Mac (status pill, toast
+    /// Reconnect action). Switches the foreground connection when the Mac is
+    /// not the current foreground; otherwise goes straight to the recovery
+    /// redial. `switchToMac`'s already-foreground fast path returns true
+    /// without dialing, so routing an unavailable foreground Mac through it
+    /// would make the reconnect control a no-op (e.g. after the live event
+    /// stream fails while the RPC transport object survives).
+    public func reconnectToMac(macDeviceID: String?) async {
+        if let macDeviceID,
+           !macDeviceID.isEmpty,
+           macDeviceID != foregroundMacDeviceID,
+           await switchToMac(macDeviceID: macDeviceID) {
+            return
+        }
+        await reconnectOrRefresh()
+    }
+
     /// UI-facing recover action for the workspace list when it is showing an
     /// offline/disconnected state. Pull-to-refresh and the offline status row's
     /// Reconnect button both call this.

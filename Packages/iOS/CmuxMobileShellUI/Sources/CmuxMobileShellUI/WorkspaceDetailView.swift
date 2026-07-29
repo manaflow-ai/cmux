@@ -274,13 +274,15 @@ struct WorkspaceDetailView: View {
         // after this modifier and stay tappable.
         .allowsHitTesting(!toasts.isEnabled || connectionStatus == .connected)
         #if os(iOS)
-        .onChange(of: connectionStatus) { _, status in
-            // Hit-testing only blocks new touches: an already-focused
-            // terminal keeps its keyboard, and its keystrokes drain into the
-            // disconnected path silently. Release the input proxy too.
-            if toasts.isEnabled, status != .connected {
-                GhosttySurfaceView.resignActiveInput()
-            }
+        // Hit-testing only blocks new touches: a terminal focused before the
+        // drop (or autofocused on window attach) keeps its keyboard, and its
+        // keystrokes drain into the disconnected path silently. Release the
+        // input proxy on mount, on status changes, and on flag flips.
+        .onChange(of: connectionStatus, initial: true) { _, status in
+            resignDisconnectedTerminalInput(status: status)
+        }
+        .onChange(of: toasts.isEnabled) { _, _ in
+            resignDisconnectedTerminalInput(status: connectionStatus)
         }
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -355,14 +357,17 @@ struct WorkspaceDetailView: View {
 
     private func reconnectToWorkspaceMac() {
         Task {
-            if let macDeviceID = workspace.macDeviceID,
-               !macDeviceID.isEmpty,
-               await store.switchToMac(macDeviceID: macDeviceID) {
-                return
-            }
-            await store.reconnectOrRefresh()
+            await store.reconnectToMac(macDeviceID: workspace.macDeviceID)
         }
     }
+
+    #if os(iOS)
+    private func resignDisconnectedTerminalInput(status: MobileMacConnectionStatus) {
+        if toasts.isEnabled, status != .connected {
+            GhosttySurfaceView.resignActiveInput()
+        }
+    }
+    #endif
 
     #if os(iOS)
     private var terminalArtifactIsPresented: Binding<Bool> {

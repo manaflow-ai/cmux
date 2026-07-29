@@ -82,12 +82,7 @@ struct ConnectionStatusToastPresenter: ViewModifier {
     private func reconnectSelectedWorkspaceMac() {
         let macDeviceID = store.selectedWorkspace?.macDeviceID
         Task {
-            if let macDeviceID,
-               !macDeviceID.isEmpty,
-               await store.switchToMac(macDeviceID: macDeviceID) {
-                return
-            }
-            await store.reconnectOrRefresh()
+            await store.reconnectToMac(macDeviceID: macDeviceID)
         }
     }
 }
