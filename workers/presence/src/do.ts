@@ -495,13 +495,23 @@ export class TeamPresence extends DurableObject {
       });
     }
 
+    // The verified Stack user id, forwarded by the worker. Pinned on the socket
+    // so the per-user `pairedMacs` backup collection can be scoped to its owner.
+    // Absent for an old worker that does not forward it (the socket then never
+    // gets served `pairedMacs`).
+    const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
+
     // Split admission pools: every enabled Mac holds a directed socket, so
     // counting those against the presence pool would let a Mac fleet 429 the
-    // phones (see checkSubscriberAdmission in core.ts, where this is tested).
-    const counts = this.subscriberCounts();
+    // phones; the per-user slice keeps one member (who may subscribe to
+    // UNPINNED device ids) from parking sockets until co-members' wake-up
+    // channels 429 (see checkSubscriberAdmission in core.ts, where this is
+    // tested).
+    const counts = this.subscriberCounts(userId);
     const admission = checkSubscriberAdmission({
       directed: deviceScope.scope === "device",
       directedCount: counts.directed,
+      userDirectedCount: counts.userDirected,
       presenceCount: counts.presence,
     });
     if (!admission.ok) {
@@ -510,12 +520,6 @@ export class TeamPresence extends DurableObject {
         headers: { "content-type": "application/json" },
       });
     }
-
-    // The verified Stack user id, forwarded by the worker. Pinned on the socket
-    // so the per-user `pairedMacs` backup collection can be scoped to its owner.
-    // Absent for an old worker that does not forward it (the socket then never
-    // gets served `pairedMacs`).
-    const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
     if (deviceScope.scope === "device") {
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
         return new Response(JSON.stringify({ error: "device_scope_requires_websocket" }), {
@@ -892,18 +896,23 @@ export class TeamPresence extends DurableObject {
   }
 
   /** Connected subscribers split by pool: directed (device-scoped nudge)
-   * WebSockets vs presence/sync consumers (plain WebSockets + SSE). */
-  private subscriberCounts(): { directed: number; presence: number } {
+   * WebSockets vs presence/sync consumers (plain WebSockets + SSE), plus how
+   * many of the directed sockets `userId` already holds. */
+  private subscriberCounts(
+    userId: string | undefined,
+  ): { directed: number; userDirected: number; presence: number } {
     let directed = 0;
+    let userDirected = 0;
     let presence = 0;
     for (const ws of this.ctx.getWebSockets()) {
       if (wsDeviceScope(ws) !== null) {
         directed += 1;
+        if (userId !== undefined && wsUserId(ws) === userId) userDirected += 1;
       } else {
         presence += 1;
       }
     }
-    return { directed, presence: presence + this.sseSubscribers.size };
+    return { directed, userDirected, presence: presence + this.sseSubscribers.size };
   }
 
   private nextSubscriberDeadline(): number | null {

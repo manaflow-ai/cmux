@@ -198,6 +198,12 @@ final class PresenceNudgeSubscriber {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
         let task = URLSession.shared.webSocketTask(with: request)
+        // Enforce the nudge wire bound at the TRANSPORT: receive() fails with
+        // EMSGSIZE before an oversized message is buffered, so a legacy
+        // worker's team snapshot (megabytes at the service caps) never costs
+        // its size in memory, let alone a parse. The in-classifier length
+        // check below is second-layer defense.
+        task.maximumMessageSize = Self.maxNudgeFrameBytes
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
         let streamClock = ContinuousClock()
@@ -215,6 +221,11 @@ final class PresenceNudgeSubscriber {
                 do {
                     message = try await task.receive()
                 } catch {
+                    // An oversized message can only be a legacy worker's
+                    // snapshot/presence traffic (a nudge is ~200 bytes against
+                    // the 2 KiB transport bound), so it identifies the
+                    // endpoint as legacy just like a parsed foreign frame.
+                    if Self.isMessageTooLong(error) { return .legacyEndpoint }
                     // A directed stream is silent between nudges, so a healthy
                     // subscription routinely reaches the service's 15-minute
                     // deadline having delivered nothing. That close arrives as
@@ -261,10 +272,19 @@ final class PresenceNudgeSubscriber {
 
     /// Upper bound of a nudge frame on the wire: fixed keys plus a 36-char
     /// device id, a bounded (≤64) tag, an allowlisted kind, and an epoch —
-    /// roughly 200 bytes. The bound classifies oversized frames as foreign in
-    /// O(1), so a pre-nudge worker's team snapshot (up to megabytes) is never
-    /// JSON-parsed on the main actor.
+    /// roughly 200 bytes. Installed as the socket task's
+    /// `maximumMessageSize`, so a pre-nudge worker's team snapshot (up to
+    /// megabytes) fails the receive before it is buffered; the classifier's
+    /// own length check is a second layer.
     private static let maxNudgeFrameBytes = 2048
+
+    /// Whether a receive failure is URLSession rejecting a message larger
+    /// than `maximumMessageSize` (POSIX EMSGSIZE, "Message too long").
+    private static func isMessageTooLong(_ error: any Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == NSPOSIXErrorDomain
+            && nsError.code == Int(POSIXErrorCode.EMSGSIZE.rawValue)
+    }
 
     private enum FrameKind {
         case nudge

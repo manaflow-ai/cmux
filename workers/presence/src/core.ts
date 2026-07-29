@@ -303,6 +303,13 @@ export const MAX_SUBSCRIBERS_PER_TEAM = 64;
  * silent and hibernation-friendly, so the pool is wide; it exists only to
  * bound a runaway client, not to ration a scarce resource. */
 export const MAX_DIRECTED_SUBSCRIBERS_PER_TEAM = 256;
+/** Per-user slice of the directed pool. Directed subscribe deliberately
+ * admits UNPINNED devices (a Mac subscribes before its first heartbeat), so
+ * without this a single member could park sockets on arbitrary fresh UUIDs
+ * until the team pool is full and legitimate owners get 429. One user's
+ * ceiling is far above real use (32 concurrent Mac app instances) yet leaves
+ * 7/8 of the team pool out of any one member's reach. */
+export const MAX_DIRECTED_SUBSCRIBERS_PER_USER = 32;
 
 export type SubscriberAdmission =
   | { ok: true }
@@ -311,16 +318,20 @@ export type SubscriberAdmission =
 /** Admission decision for one incoming subscription, given the split counts
  * of already-connected subscribers. Each pool only ever rejects its own kind,
  * so directed Mac sockets can never starve presence subscribers and vice
- * versa. Pure for tests. */
+ * versa; the per-user directed cap keeps one member from starving
+ * co-members' wake-up channels. Pure for tests. */
 export function checkSubscriberAdmission(input: {
   directed: boolean;
-  /** Connected device-scoped (nudge) WebSockets. */
+  /** Connected device-scoped (nudge) WebSockets, team-wide. */
   directedCount: number;
+  /** Of those, connected sockets held by the requesting user. */
+  userDirectedCount: number;
   /** Connected presence/sync subscribers (WebSocket + SSE). */
   presenceCount: number;
 }): SubscriberAdmission {
   const overCap = input.directed
     ? input.directedCount >= MAX_DIRECTED_SUBSCRIBERS_PER_TEAM
+      || input.userDirectedCount >= MAX_DIRECTED_SUBSCRIBERS_PER_USER
     : input.presenceCount >= MAX_SUBSCRIBERS_PER_TEAM;
   return overCap ? { ok: false, error: "too_many_subscribers" } : { ok: true };
 }

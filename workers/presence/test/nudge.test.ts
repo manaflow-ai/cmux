@@ -3,6 +3,7 @@ import {
   checkDeviceOwner,
   checkSubscriberAdmission,
   MAX_DIRECTED_SUBSCRIBERS_PER_TEAM,
+  MAX_DIRECTED_SUBSCRIBERS_PER_USER,
   MAX_SUBSCRIBERS_PER_TEAM,
   shouldDeliverNudge,
   type NudgeSocketView,
@@ -154,21 +155,21 @@ describe("shouldDeliverNudge", () => {
 
 // Directed sockets draw from their own pool: a fleet of Macs (one directed
 // socket per enabled instance) must never 429 the phones' presence streams,
-// and a full presence pool must not block a Mac's wake-up channel.
+// a full presence pool must not block a Mac's wake-up channel, and one member
+// (who may subscribe to UNPINNED device ids) must not be able to park sockets
+// until co-members' channels 429.
 describe("checkSubscriberAdmission", () => {
+  const empty = { directedCount: 0, userDirectedCount: 0, presenceCount: 0 };
+
   it("admits each kind while its own pool has room", () => {
-    expect(
-      checkSubscriberAdmission({ directed: true, directedCount: 0, presenceCount: 0 }),
-    ).toEqual({ ok: true });
-    expect(
-      checkSubscriberAdmission({ directed: false, directedCount: 0, presenceCount: 0 }),
-    ).toEqual({ ok: true });
+    expect(checkSubscriberAdmission({ directed: true, ...empty })).toEqual({ ok: true });
+    expect(checkSubscriberAdmission({ directed: false, ...empty })).toEqual({ ok: true });
   });
 
   it("a full directed pool rejects directed sockets but not presence subscribers", () => {
     const directedFull = {
+      ...empty,
       directedCount: MAX_DIRECTED_SUBSCRIBERS_PER_TEAM,
-      presenceCount: 0,
     };
     expect(checkSubscriberAdmission({ directed: true, ...directedFull })).toEqual({
       ok: false,
@@ -181,7 +182,7 @@ describe("checkSubscriberAdmission", () => {
 
   it("a full presence pool rejects presence subscribers but not directed sockets", () => {
     const presenceFull = {
-      directedCount: 0,
+      ...empty,
       presenceCount: MAX_SUBSCRIBERS_PER_TEAM,
     };
     expect(checkSubscriberAdmission({ directed: false, ...presenceFull })).toEqual({
@@ -191,5 +192,25 @@ describe("checkSubscriberAdmission", () => {
     expect(checkSubscriberAdmission({ directed: true, ...presenceFull })).toEqual({
       ok: true,
     });
+  });
+
+  it("caps one user's directed sockets while the team pool still has room", () => {
+    const userAtCap = {
+      ...empty,
+      directedCount: MAX_DIRECTED_SUBSCRIBERS_PER_USER,
+      userDirectedCount: MAX_DIRECTED_SUBSCRIBERS_PER_USER,
+    };
+    expect(checkSubscriberAdmission({ directed: true, ...userAtCap })).toEqual({
+      ok: false,
+      error: "too_many_subscribers",
+    });
+    // A different member (zero directed sockets of their own) is unaffected.
+    expect(
+      checkSubscriberAdmission({ directed: true, ...userAtCap, userDirectedCount: 0 }),
+    ).toEqual({ ok: true });
+  });
+
+  it("one user at cap can never fill the team pool", () => {
+    expect(MAX_DIRECTED_SUBSCRIBERS_PER_USER).toBeLessThan(MAX_DIRECTED_SUBSCRIBERS_PER_TEAM);
   });
 });
