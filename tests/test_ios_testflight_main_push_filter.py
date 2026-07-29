@@ -172,6 +172,8 @@ def run_decision_scenario(
     changed_files: tuple[str, ...] = (),
     blocking_prior_run: bool = False,
     upload_job_starts_late: bool = False,
+    ordering_api_failure: Optional[str] = None,
+    compare_api_failure: bool = False,
 ) -> dict[str, object]:
     decision_job = mapping_block(workflow_text(), "decide", indent=2)
     decision_script = literal_block(decision_job, "script", indent=10)
@@ -182,6 +184,11 @@ def run_decision_scenario(
     assert not (
         prior_sha and prior_uploads
     ), "use prior_sha or prior_uploads, not both"
+    assert ordering_api_failure in (
+        None,
+        "runs",
+        "jobs",
+    ), "ordering_api_failure must be runs or jobs"
     upload_history = prior_uploads
     if prior_sha:
         upload_history = ((prior_sha, prior_artifact),)
@@ -203,6 +210,8 @@ def run_decision_scenario(
         "changedFiles": changed_files,
         "blockingPriorRun": blocking_prior_run,
         "uploadJobStartsLate": upload_job_starts_late,
+        "orderingApiFailure": ordering_api_failure,
+        "compareApiFailure": compare_api_failure,
     }
     harness = f"""
 const scenario = {json.dumps(scenario)};
@@ -216,6 +225,7 @@ let workflowRunCalls = 0;
 let uploadPhase = scenario.blockingPriorRun
   ? (scenario.uploadJobStartsLate ? 0 : 1)
   : 2;
+let orderingFailurePending = scenario.orderingApiFailure !== null;
 const priorRuns = () => scenario.priorRuns.map((run, index) => ({{
   id: run.id,
   status:
@@ -252,6 +262,13 @@ const github = {{
     actions: {{
       listWorkflowRuns: async () => {{
         workflowRunCalls += 1;
+        if (
+          orderingFailurePending &&
+          scenario.orderingApiFailure === 'runs'
+        ) {{
+          orderingFailurePending = false;
+          throw new Error('transient runs failure');
+        }}
         const workflowRuns = priorRuns();
         priorRunStatuses.push(...workflowRuns.map((run) => run.status));
         return {{
@@ -259,6 +276,13 @@ const github = {{
         }};
       }},
       listJobsForWorkflowRun: async (request) => {{
+        if (
+          orderingFailurePending &&
+          scenario.orderingApiFailure === 'jobs'
+        ) {{
+          orderingFailurePending = false;
+          throw new Error('transient jobs failure');
+        }}
         const priorRun = scenario.priorRuns.find(
           (run) => run.id === Number(request.run_id)
         );
@@ -296,6 +320,9 @@ const github = {{
     repos: {{
       compareCommits: async (request) => {{
         compareCalls.push(request);
+        if (scenario.compareApiFailure) {{
+          throw new Error('transient compare failure');
+        }}
         return {{
           data: {{
             files: scenario.changedFiles.map((filename) => ({{ filename }})),
