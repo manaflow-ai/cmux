@@ -182,6 +182,21 @@ extension CMUXCLI {
         }
     }
 
+    /// Whether cmux should render its own subcommand help before launching a provider.
+    ///
+    /// Claude and Codex own their help arguments. The legacy OMO/OMX/OMC wrappers
+    /// retain cmux's root `--help` contract while forwarding nested help unchanged.
+    func shouldDispatchCmuxSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
+        switch command {
+        case "claude-teams", "codex-teams":
+            return false
+        case "omo", "omx", "omc":
+            return commandArgs.count == 1 && ["--help", "-h"].contains(commandArgs[0])
+        default:
+            return true
+        }
+    }
+
     func codexTeamsIsInformationalInvocation(commandArgs: [String]) -> Bool {
         AgentLaunchInvocationClassifier().codexTeamsLaunchIsInformational(args: commandArgs)
     }
