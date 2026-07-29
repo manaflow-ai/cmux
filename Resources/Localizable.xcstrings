@@ -115847,6 +115847,57 @@
         }
       }
     },
+    "memory.attribution.multipleOwners": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "multiple owners"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数の帰属先"
+          }
+        }
+      }
+    },
+    "memory.attribution.multipleWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld ワークスペース"
+          }
+        }
+      }
+    },
+    "memory.attribution.partial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "partially attributed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のみ帰属"
+          }
+        }
+      }
+    },
     "memoryDiagnostic.summary.base": {
       "extractionState": "manual",
       "localizations": {
