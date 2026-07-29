@@ -293,26 +293,31 @@ describe("app session handoff", () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 
-  test("does not let User-Agent changes bypass the local safety limit", async () => {
+  test("does not let spoofed forwarding headers bypass the local safety limit", async () => {
+    const localPost = makeAppSessionHandoffHandler({
+      projectId: "12345678-1234-4123-8123-123456789abc",
+      stackServerApp: { getUser },
+      now: () => 1_721_955_600_000,
+      isVercel: () => false,
+    });
+
     for (let index = 0; index < 60; index += 1) {
-      const response = await POST(handoffRequest({
+      const response = await localPost(handoffRequest({
         refresh_token: "native-refresh",
         after: "/dashboard/testflight",
       }, {
-        "user-agent": `rotating-agent-${index}`,
-        "x-forwarded-for": "203.0.113.30",
+        "x-forwarded-for": `203.0.113.${index}`,
       }));
       expect(response.headers.get("location")).toBe(
         "https://cmux.test/dashboard/testflight",
       );
     }
 
-    const blocked = await POST(handoffRequest({
+    const blocked = await localPost(handoffRequest({
       refresh_token: "native-refresh",
       after: "/dashboard/testflight",
     }, {
-      "user-agent": "rotating-agent-60",
-      "x-forwarded-for": "203.0.113.30",
+      "x-forwarded-for": "198.51.100.200",
     }));
 
     expect(new URL(blocked.headers.get("location")!).pathname).toBe(

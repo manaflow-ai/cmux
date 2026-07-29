@@ -96,7 +96,9 @@ struct BrowserWebContentProcessTests {
         #expect(
             BrowserAppSessionRequestOutcome.notAuthenticated.recoveryAction == .beginSignIn
         )
-        #expect(BrowserAppSessionRequestOutcome.cancelled.recoveryAction == nil)
+        #expect(
+            BrowserAppSessionRequestOutcome.cancelled.recoveryAction == .isolatedBrowser
+        )
     }
 
     @Test

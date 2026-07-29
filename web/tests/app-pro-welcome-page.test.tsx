@@ -71,6 +71,15 @@ describe("app pro welcome page", () => {
       expect(html).toContain("Bienvenue dans cmux Pro");
       expect(html).toContain("L’accès au cloud arrive bientôt");
       expect(html).toContain("Rejoindre la bêta iOS");
+      expect(html).toContain(
+        'href="/fr/dashboard/testflight?cmux_open_in_browser=split-right"',
+      );
+      expect(html).toContain(
+        'href="/fr/dashboard/billing?cmux_open_in_browser=split-right"',
+      );
+      expect(html).toContain(
+        'href="/fr/dashboard?cmux_open_in_browser=split-right"',
+      );
     } finally {
       activeLocale = "en";
     }
