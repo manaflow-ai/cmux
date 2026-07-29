@@ -2756,7 +2756,13 @@ class GhosttyApp {
                           let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else { return false }
                     let result = tabManager.cycleSplitFocus(tabId: tabId, forward: forward)
 #if DEBUG
-                    app.recordGotoSplitCycleMoveIfNeeded(tabId: tabId, forward: forward)
+                    if result {
+                        GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
+                            tabManager: tabManager,
+                            tabId: tabId,
+                            forward: forward
+                        )
+                    }
 #endif
                     return result
                 }
@@ -2768,7 +2774,8 @@ class GhosttyApp {
                 return false
             }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                guard let app = AppDelegate.shared,
+                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else { return false }
                 return tabManager.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
             }
         case GHOSTTY_ACTION_RESIZE_SPLIT:
