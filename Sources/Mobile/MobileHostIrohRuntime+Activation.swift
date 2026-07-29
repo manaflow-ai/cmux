@@ -228,6 +228,17 @@ extension MobileHostIrohRuntime {
                     b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
                     c: diagnosticSessionID
                 ))
+                let connectionDiagnostics = CmxIrohConnectionDiagnosticRecorder(
+                    diagnosticLog: diagnosticLog,
+                    sessionID: diagnosticSessionID
+                )
+                let pathEvents = await session.observedPathEvents()
+                let pathEventTask = Task {
+                    for await event in pathEvents {
+                        guard !Task.isCancelled else { return }
+                        connectionDiagnostics.record(event)
+                    }
+                }
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
                 )
@@ -260,6 +271,8 @@ extension MobileHostIrohRuntime {
                 )
                 let observedExit = await connectionSupervisor.run()
                 let exit = await session.connectionExit(resolving: observedExit)
+                await pathEventTask.value
+                connectionDiagnostics.record(await session.closeAttribution())
                 diagnosticLog.record(DiagnosticEvent(
                     .transportSessionLifecycle,
                     a: exit.lifecycle.rawValue,
@@ -331,16 +344,21 @@ extension MobileHostIrohRuntime {
                     }
                 )
             },
-            handleDeactivation: { _ in
-                await lanPublisher.stop()
-                await MainActor.run {
-                    // The runtime owns the local Mac binding, while admitted
-                    // sessions carry remote iOS binding IDs. Endpoint teardown
-                    // therefore closes every Iroh-authorized connection and
-                    // leaves Tailscale/other private-network sessions intact.
-                    MobileHostService.shared.closeAllIrohConnections()
-                    MobileHostService.shared.updateIrohBinding(nil)
-                }
+            handleDeactivation: { [weak self] _ in
+                await self?.handleActiveRuntimeDeactivation(
+                    revision: revision,
+                    stopLANPublication: {
+                        await lanPublisher.stop()
+                    },
+                    clearHostRuntime: {
+                        // The runtime owns the local Mac binding, while admitted
+                        // sessions carry remote iOS binding IDs. Endpoint teardown
+                        // therefore closes every Iroh-authorized connection and
+                        // leaves Tailscale/other private-network sessions intact.
+                        MobileHostService.shared.closeAllIrohConnections()
+                        MobileHostService.shared.updateIrohBinding(nil)
+                    }
+                )
             },
             handleRelayCredential: { [weak self] response, binding in
                 guard await self?.allowsPersistence(
