@@ -2,18 +2,38 @@ public import CmuxTerminalCore
 public import Foundation
 internal import GhosttyKit
 
-enum GhosttyFontSizeBindingAction {
-    static func setFontSize(_ points: Float) -> String {
-        "set_font_size:" + String(points)
+func ghosttySetFontSizeBindingAction(_ points: Float) -> String {
+    "set_font_size:" + String(points)
+}
+
+/// Keeps projected request provenance live until its owner retires.
+@MainActor
+public func activateTerminalFontSizeChangeReconciliationToken(
+    _ token: UUID
+) {
+    TerminalSurface.activeTransferReconciliationTokens.insert(token)
+}
+
+/// Invalidates retired provenance without scanning live terminal surfaces.
+@MainActor
+public func retireTerminalFontSizeChangeReconciliationToken(
+    _ token: UUID
+) {
+    TerminalSurface
+        .debugLastTransferTokenRetirementSurfaceVisitCount = 0
+    if TerminalSurface.activeTransferReconciliationTokens
+        .remove(token) != nil {
+        TerminalSurface
+            .transferReconciliationRetirementGeneration &+= 1
     }
 }
 
 extension TerminalSurface {
     @MainActor
-    private static var activeTransferReconciliationTokens: Set<UUID> = []
+    fileprivate static var activeTransferReconciliationTokens: Set<UUID> = []
 
     @MainActor
-    private static var transferReconciliationRetirementGeneration: UInt64 = 0
+    fileprivate static var transferReconciliationRetirementGeneration: UInt64 = 0
 
     private static let transferReconciliationPruneInterval: UInt64 = 32
 
@@ -39,21 +59,8 @@ extension TerminalSurface {
     @MainActor
     public func markFontSizeChangeReconciledForTransfer(token: UUID) {
         pruneRetiredFontSizeTransferTokens(force: false)
-        Self.activateFontSizeChangeReconciliationToken(token)
+        activateTerminalFontSizeChangeReconciliationToken(token)
         transferReconciledFontSizeChangeTokens.insert(token)
-    }
-
-    /// Keeps projected request provenance live until its coordinator retires.
-    ///
-    /// A descendant can inherit an accepted request before the moved source
-    /// panel reaches that request. The coordinator activates the request token
-    /// when it enters the bounded ledger, and clears it when the request
-    /// retires. Individual surfaces still opt in by carrying the token.
-    @MainActor
-    public static func activateFontSizeChangeReconciliationToken(
-        _ token: UUID
-    ) {
-        activeTransferReconciliationTokens.insert(token)
     }
 
     /// Removes transient transfer provenance from this surface after its
@@ -61,18 +68,6 @@ extension TerminalSurface {
     @MainActor
     public func clearFontSizeChangeReconciledForTransfer(token: UUID) {
         transferReconciledFontSizeChangeTokens.remove(token)
-    }
-
-    /// Invalidates one retired token in constant time. Surfaces and descendants
-    /// discard inactive entries lazily when they next export provenance.
-    @MainActor
-    public static func clearFontSizeChangeReconciledForTransfer(
-        token: UUID
-    ) {
-        debugLastTransferTokenRetirementSurfaceVisitCount = 0
-        if activeTransferReconciliationTokens.remove(token) != nil {
-            transferReconciliationRetirementGeneration &+= 1
-        }
     }
 
     /// Tokens whose changes are already represented by this surface's lineage
@@ -218,8 +213,9 @@ extension TerminalSurface {
             }
             if runtimeSurface != nil {
                 guard performExplicitInputBindingAction(
-                    GhosttyFontSizeBindingAction
-                        .setFontSize(adjustedRuntimePoints)
+                    ghosttySetFontSizeBindingAction(
+                        adjustedRuntimePoints
+                    )
                 ) else {
                     return .failed
                 }

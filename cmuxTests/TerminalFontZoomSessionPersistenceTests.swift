@@ -422,7 +422,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
 
         #expect(
@@ -513,7 +513,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
 
         #expect(
@@ -613,7 +613,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
 
         let firstInheritedPanel = try #require(
@@ -884,7 +884,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
 
         let rootPane = try #require(

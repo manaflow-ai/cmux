@@ -685,8 +685,9 @@ extension TerminalSurface {
             let inheritedBaseFontPoints = inheritedFontSizeLineage.basePoints
             let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints, percent: globalFontMagnificationPercent())
             let action =
-                GhosttyFontSizeBindingAction
-                    .setFontSize(inheritedRuntimeFontPoints)
+                ghosttySetFontSizeBindingAction(
+                    inheritedRuntimeFontPoints
+                )
             _ = performInternalBindingAction(action)
         }
 

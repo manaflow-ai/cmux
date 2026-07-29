@@ -361,7 +361,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
             XCTAssertEqual(panel.surface.fontSizeLineageSnapshot(), beforeLineage)
-            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
 #else
             XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
             return
@@ -431,7 +431,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             "Separate run-loop turns must share one scheduled repeat batch"
         )
 #if DEBUG
-        XCTAssertEqual(coordinator.debugPendingRequestCount, 1)
+        XCTAssertEqual(coordinator.pendingRequestCountForVerification, 1)
 #endif
 
         scheduler.fire(at: 0)
@@ -473,6 +473,39 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertEqual(cancelledFireCount, 0)
     }
 
+    func testGhosttyConfigDoesNotRetainWorkspaceFontIncreaseEqualizeFallback() {
+        // cmux owns Cmd+Ctrl+= through KeyboardShortcutSettings. Ghostty's
+        // built-in super+ctrl+= fallback must be unbound so clearing the cmux
+        // shortcut releases the key to the terminal.
+        guard let ghosttyConfig = GhosttyApp.shared.config else {
+            XCTFail("Expected loaded Ghostty config")
+            return
+        }
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = 24
+        keyEvent.mods = ghostty_input_mods_e(
+            rawValue:
+                GHOSTTY_MODS_SUPER.rawValue
+                | GHOSTTY_MODS_CTRL.rawValue
+        )
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 61
+        keyEvent.composing = false
+        let isBinding = "=".withCString { pointer in
+            keyEvent.text = pointer
+            return ghostty_config_key_is_binding(
+                ghosttyConfig,
+                keyEvent
+            )
+        }
+
+        XCTAssertFalse(
+            isBinding,
+            "Ghostty must not retain its Cmd+Ctrl+= equalize_splits fallback"
+        )
+    }
+
     func testWorkspaceTerminalFontSizeResetRepeatDoesNotQueueFanout() {
         withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -496,10 +529,10 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
 
 #if DEBUG
-            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
             XCTAssertEqual(
-                appDelegate.debugPendingWorkspaceTerminalFontSizeChangeCount,
+                appDelegate.pendingWorkspaceTerminalFontSizeChangeCountForVerification,
                 0
             )
 #else
@@ -547,9 +580,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
 
 #if DEBUG
-            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
-            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
 #else
             XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
             return
@@ -622,9 +655,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
 
 #if DEBUG
-            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
-            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
 #else
             XCTFail("Workspace font-size drain hooks are only available in DEBUG")
             return
@@ -689,7 +722,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             )
 
 #if DEBUG
-            appDelegate.debugDrainAllPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate
+                .drainAllPendingWorkspaceTerminalFontSizeChangesForVerification()
 #endif
 
             XCTAssertEqual(
@@ -765,9 +799,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
 
 #if DEBUG
-            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
-            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
 #else
             XCTFail("Workspace font-size drain hooks are only available in DEBUG")
             return
@@ -792,7 +826,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             )
 
 #if DEBUG
-            appDelegate.debugDrainAllPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate
+                .drainAllPendingWorkspaceTerminalFontSizeChangesForVerification()
 #endif
             XCTAssertEqual(
                 latePanel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -859,7 +894,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 windowDock.panels[minimumPanel.id] = minimumPanel
 
 #if DEBUG
-                appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+                appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
                 XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: increaseEvent))
 
                 let secondWorkspace = manager.addTab(select: true)
@@ -867,7 +902,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
                 manager.selectTab(firstWorkspace)
                 XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: increaseEvent))
-                appDelegate.debugDrainAllPendingWorkspaceTerminalFontSizeChanges()
+                appDelegate
+                    .drainAllPendingWorkspaceTerminalFontSizeChangesForVerification()
 #else
                 XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
                 return
@@ -1045,7 +1081,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
         XCTAssertEqual(
             coordinator.debugLastPanelDiscoveryConstructionVisitCount,
             0,
@@ -1100,7 +1136,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
 #if DEBUG
         XCTAssertLessThanOrEqual(
-            coordinator.debugPendingRequestCount,
+            coordinator.pendingRequestCountForVerification,
             2,
             "Alternating live workspace ids must coalesce by workspace instead of retaining every event"
         )
@@ -1197,7 +1233,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
         return
@@ -1225,7 +1261,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
 
         XCTAssertTrue(
@@ -1301,7 +1337,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        sourceCoordinator.debugFlushOneDrain()
+        sourceCoordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
         return
@@ -1326,8 +1362,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: false
         )
 #if DEBUG
-        destinationCoordinator.debugDrainAll()
-        sourceCoordinator.debugDrainAll()
+        destinationCoordinator.drainAllForVerification()
+        sourceCoordinator.drainAllForVerification()
 #endif
 
         XCTAssertTrue(
@@ -1426,9 +1462,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             )
         )
 #if DEBUG
-        destinationCoordinator.debugDrainAll()
-        sourceCoordinator.debugDrainAll()
-        destinationCoordinator.debugDrainAll()
+        destinationCoordinator.drainAllForVerification()
+        sourceCoordinator.drainAllForVerification()
+        destinationCoordinator.drainAllForVerification()
 #endif
 
         XCTAssertEqual(
@@ -1521,7 +1557,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
         sourceCoordinator.cancelWindowOwnedWork()
 #if DEBUG
-        sourceCoordinator.debugDrainAll()
+        sourceCoordinator.drainAllForVerification()
 #endif
 
         XCTAssertEqual(
@@ -1635,9 +1671,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
         coordinator.cancelWindowOwnedWork()
 #if DEBUG
-        XCTAssertEqual(coordinator.debugOutstandingRequestCount, 1)
+        XCTAssertEqual(coordinator.outstandingRequestCountForVerification, 1)
         allowMovedPanelMutation = true
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -1709,7 +1745,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 #if DEBUG
         context.workspaceTerminalFontSizeCoordinator
-            .debugFlushOneDrain()
+            .flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -1738,7 +1774,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
         XCTAssertGreaterThan(
             context.workspaceTerminalFontSizeCoordinator
-                .debugOutstandingRequestCount,
+                .outstandingRequestCountForVerification,
             0,
             "The bounded mutation queue must keep draining normally after snapshotting"
         )
@@ -1812,7 +1848,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             )
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -1851,7 +1887,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 #if DEBUG
         XCTAssertGreaterThan(
-            coordinator.debugOutstandingRequestCount,
+            coordinator.outstandingRequestCountForVerification,
             0
         )
 #endif
@@ -2045,7 +2081,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         finishConfigurationBarrier?()
         finishConfigurationBarrier = nil
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -2144,7 +2180,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         finishConfigurationBarrier?()
         finishConfigurationBarrier = nil
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -2201,7 +2237,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             )
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -2248,7 +2284,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             workspace.terminalPanel(for: reopenedPanelId)
         )
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -2413,7 +2449,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 #if DEBUG
         activeContext.workspaceTerminalFontSizeCoordinator
-            .debugFlushOneDrain()
+            .flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -2447,7 +2483,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #if DEBUG
         XCTAssertGreaterThan(
             activeContext.workspaceTerminalFontSizeCoordinator
-                .debugOutstandingRequestCount,
+                .outstandingRequestCountForVerification,
             0
         )
 #endif
@@ -2534,7 +2570,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        sourceCoordinator.debugFlushOneDrain()
+        sourceCoordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -2553,8 +2589,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        sourceCoordinator.debugDrainAll()
-        destinationCoordinator.debugDrainAll()
+        sourceCoordinator.drainAllForVerification()
+        destinationCoordinator.drainAllForVerification()
 #endif
 
         XCTAssertEqual(
@@ -2824,8 +2860,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
 
 #if DEBUG
-        sourceCoordinator.debugDrainAll()
-        destinationCoordinator.debugDrainAll()
+        sourceCoordinator.drainAllForVerification()
+        destinationCoordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -2912,8 +2948,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        sourceCoordinator.debugFlushOneDrain()
-        destinationCoordinator.debugFlushOneDrain()
+        sourceCoordinator.flushOneDrainForVerification()
+        destinationCoordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -2934,9 +2970,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        sourceCoordinator.debugDrainAll()
-        destinationCoordinator.debugDrainAll()
-        sourceCoordinator.debugDrainAll()
+        sourceCoordinator.drainAllForVerification()
+        destinationCoordinator.drainAllForVerification()
+        sourceCoordinator.drainAllForVerification()
 #endif
         XCTAssertTrue(
             destinationDockPanels.allSatisfy {
@@ -3021,8 +3057,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        sourceCoordinator.debugFlushOneDrain()
-        destinationCoordinator.debugFlushOneDrain()
+        sourceCoordinator.flushOneDrainForVerification()
+        destinationCoordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -3048,9 +3084,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        sourceCoordinator.debugDrainAll()
-        destinationCoordinator.debugDrainAll()
-        sourceCoordinator.debugDrainAll()
+        sourceCoordinator.drainAllForVerification()
+        destinationCoordinator.drainAllForVerification()
+        sourceCoordinator.drainAllForVerification()
 #endif
         XCTAssertTrue(
             destinationDockPanels.allSatisfy {
@@ -3139,8 +3175,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        sourceCoordinator.debugFlushOneDrain()
-        destinationCoordinator.debugFlushOneDrain()
+        sourceCoordinator.flushOneDrainForVerification()
+        destinationCoordinator.flushOneDrainForVerification()
         sourceScheduler.fire(at: 1)
         destinationScheduler.fire(at: 1)
 #else
@@ -3261,7 +3297,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             )
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -3301,7 +3337,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             "The caller must observe sealed-ledger backpressure"
         )
 #if DEBUG
-        XCTAssertEqual(coordinator.debugOutstandingRequestCount, 4)
+        XCTAssertEqual(coordinator.outstandingRequestCountForVerification, 4)
 #endif
     }
 
@@ -3352,7 +3388,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #endif
         coordinator.enqueue(
             .relative([-1]),
@@ -3384,7 +3420,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             movedPanel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -3478,7 +3514,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        sourceCoordinator.debugDrainAll()
+        sourceCoordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -3538,7 +3574,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #endif
         guard let detached =
                 sourceManager.detachWorkspace(tabId: workspace.id) else {
@@ -3549,7 +3585,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
         sourceContext.teardownWindowDock()
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertTrue(
             testPanels.allSatisfy {
@@ -3665,8 +3701,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         finishConfigurationBarrier?()
         finishConfigurationBarrier = nil
 #if DEBUG
-        sourceCoordinator.debugDrainAll()
-        destinationCoordinator.debugDrainAll()
+        sourceCoordinator.drainAllForVerification()
+        destinationCoordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -3747,7 +3783,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #endif
 
         guard let unvisitedPanel = movablePanels.first(where: {
@@ -3766,7 +3802,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
 
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             unvisitedPanel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -3848,7 +3884,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #endif
 
         guard let detached = sourceWorkspace.detachSurface(
@@ -3864,7 +3900,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
 
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             enteringPanel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -3931,7 +3967,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #endif
 
         guard let movedPanel = movablePanels.first(where: {
@@ -3955,7 +3991,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             movedPanel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -4044,14 +4080,14 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             "A transfer callback must keep native work inside one drain budget"
         )
         let callbackApplyCount = enteringPanelApplyCount
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
         XCTAssertLessThanOrEqual(
             enteringPanelApplyCount - callbackApplyCount,
             WorkspaceTerminalFontSizeDrainBudget
                 .maximumLiveActionsPerDrain,
             "One drain must keep transfer actions inside its native-action budget"
         )
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -4179,7 +4215,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -4242,7 +4278,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -4289,7 +4325,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -4374,7 +4410,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             )
         )
 #if DEBUG
-        sourceCoordinator.debugFlushOneDrain()
+        sourceCoordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -4454,7 +4490,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -4521,7 +4557,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -4555,7 +4591,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
         XCTAssertFalse(successfulPanelIds.isEmpty)
 #if DEBUG
-        XCTAssertEqual(coordinator.debugPendingRequestCount, 0)
+        XCTAssertEqual(coordinator.pendingRequestCountForVerification, 0)
 #endif
     }
 
@@ -4599,7 +4635,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -4620,7 +4656,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
         XCTAssertTrue(successfulPanelIds.contains(workspacePanelId))
 #if DEBUG
-        XCTAssertEqual(coordinator.debugPendingRequestCount, 0)
+        XCTAssertEqual(coordinator.pendingRequestCountForVerification, 0)
 #endif
     }
 
@@ -4710,7 +4746,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -4754,7 +4790,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
         XCTAssertTrue(successfulPanelIds.contains(survivingPanel.id))
 #if DEBUG
-        XCTAssertEqual(coordinator.debugPendingRequestCount, 0)
+        XCTAssertEqual(coordinator.pendingRequestCountForVerification, 0)
 #endif
     }
 
@@ -4827,8 +4863,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
         closingCoordinator.cancelWindowOwnedWork()
 #if DEBUG
-        sourceCoordinator.debugDrainAll()
-        closingCoordinator.debugDrainAll()
+        sourceCoordinator.drainAllForVerification()
+        closingCoordinator.drainAllForVerification()
 #endif
 
         XCTAssertFalse(mutatedPanelIds.contains(movedPanel.id))
@@ -4866,8 +4902,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
-        XCTAssertGreaterThan(coordinator.debugPendingRequestCount, 0)
+        coordinator.flushOneDrainForVerification()
+        XCTAssertGreaterThan(coordinator.pendingRequestCountForVerification, 0)
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -4883,7 +4919,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertTrue(didRefreshConfiguration)
     }
@@ -5307,7 +5343,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -5386,8 +5422,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             )
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
-        XCTAssertGreaterThan(coordinator.debugPendingRequestCount, 0)
+        coordinator.flushOneDrainForVerification()
+        XCTAssertGreaterThan(coordinator.pendingRequestCountForVerification, 0)
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -5406,7 +5442,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             observedOrder,
@@ -5458,7 +5494,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -5526,7 +5562,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -5552,7 +5588,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
         XCTAssertLessThan(nextScheduledDrain, 10)
 #if DEBUG
-        XCTAssertEqual(coordinator.debugPendingRequestCount, 0)
+        XCTAssertEqual(coordinator.pendingRequestCountForVerification, 0)
 #endif
     }
 
@@ -5617,8 +5653,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
-        XCTAssertGreaterThan(coordinator.debugPendingRequestCount, 0)
+        coordinator.flushOneDrainForVerification()
+        XCTAssertGreaterThan(coordinator.pendingRequestCountForVerification, 0)
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -5630,7 +5666,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
         GhosttyConfig.invalidateLoadCache()
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
 
         XCTAssertTrue(
@@ -5803,7 +5839,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             return
         }
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -5859,7 +5895,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -5876,7 +5912,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             return
         }
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
 
         XCTAssertEqual(
@@ -6064,7 +6100,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #endif
 
         guard let detached = sourceWorkspace.detachSurface(
@@ -6080,7 +6116,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
 
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             enteringPanel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -6166,7 +6202,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #else
         XCTFail("Workspace font-size coalescer hooks require DEBUG")
         return
@@ -6195,7 +6231,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             "A finished Dock sibling must still prove the shared event was applied"
         )
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             dockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -6266,7 +6302,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             "The Dock must apply the second workspace's uncovered event"
         )
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             firstPanel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -6344,7 +6380,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             return
         }
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         withExtendedLifetime(detached) {}
 
@@ -6423,7 +6459,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: true
         )
 #if DEBUG
-        coordinator.debugFlushOneDrain()
+        coordinator.flushOneDrainForVerification()
 #endif
 
         guard let visitedDockPanel = dockPanels.first(where: {
@@ -6442,7 +6478,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
 
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             visitedDockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -6456,7 +6492,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             deferFlush: false
         )
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             visitedDockPanel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -6515,7 +6551,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
 
 #if DEBUG
-        coordinator.debugDrainAll()
+        coordinator.drainAllForVerification()
 #endif
         XCTAssertEqual(
             panel.surface.fontSizeLineageSnapshot()?.basePoints,
@@ -6563,11 +6599,11 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
 
 #if DEBUG
-            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
-            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            appDelegate.flushPendingWorkspaceTerminalFontSizeChangesForVerification()
             XCTAssertGreaterThan(
-                appDelegate.debugPendingWorkspaceTerminalFontSizeChangeCount,
+                appDelegate.pendingWorkspaceTerminalFontSizeChangeCountForVerification,
                 0
             )
 
@@ -6584,7 +6620,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             window.performClose(nil)
 
             XCTAssertEqual(
-                appDelegate.debugPendingWorkspaceTerminalFontSizeChangeCount,
+                appDelegate.pendingWorkspaceTerminalFontSizeChangeCountForVerification,
                 0,
                 "Window teardown must cancel its font-size coordinator"
             )

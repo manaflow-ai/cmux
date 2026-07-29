@@ -182,7 +182,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private static let repeatCoalescingInterval: TimeInterval = 0.05
     private static let mutationRetryBackoffInterval: TimeInterval = 0.05
 
-    private enum MutationRetryDisposition {
+    enum MutationRetryDisposition {
         case ready
         case backoff
         case awaitingSignal
@@ -943,7 +943,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private var activeTransferRequestTokens: Set<UUID> = []
     private var activeDeferredProjectionTokens: Set<UUID> = []
     private var isDraining = false
-    private var mutationRetryDisposition:
+    var mutationRetryDisposition:
         MutationRetryDisposition = .ready
     private var automaticMutationRetryAvailable = true
     private var isSettlingForFontSizeWorkIdleBarrier = false
@@ -1009,17 +1009,26 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 * 1_000_000_000.0
             ).rounded(.up)
         )
-        let workItem = DispatchWorkItem {
+        var timer: DispatchSourceTimer? =
+            DispatchSource.makeTimerSource(queue: .main)
+        timer?.schedule(
+            deadline: .now() + .nanoseconds(nanoseconds)
+        )
+        timer?.setEventHandler {
+            guard let firingTimer = timer else { return }
+            timer = nil
+            firingTimer.setEventHandler {}
+            firingTimer.cancel()
             MainActor.assumeIsolated {
                 action()
             }
         }
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + .nanoseconds(nanoseconds),
-            execute: workItem
-        )
+        timer?.resume()
         return {
-            workItem.cancel()
+            guard let pendingTimer = timer else { return }
+            timer = nil
+            pendingTimer.setEventHandler {}
+            pendingTimer.cancel()
         }
     }
 
@@ -1279,29 +1288,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private(set) var debugLastSynchronousTransferRequestVisitCount = 0
     private(set) var debugLastPanelDiscoveryConstructionVisitCount = 0
 
-    func debugFlushOneDrain() {
-        invalidateScheduledDrain()
-        signalMutationRetry(scheduleIfOutstanding: false)
-        drain()
-    }
-
-    func debugDrainAll() {
-        invalidateScheduledDrain()
-        signalMutationRetry(scheduleIfOutstanding: false)
-        while activeRequest != nil || hasPendingRequests {
-            if mutationRetryDisposition == .backoff {
-                mutationRetryDisposition = .ready
-            } else if mutationRetryDisposition == .awaitingSignal {
-                break
-            } else if mutationRetryDisposition
-                        == .awaitingPanelTransferStage {
-                break
-            }
-            drain(scheduleContinuation: false)
-        }
-    }
-
-    var debugPendingRequestCount: Int {
+    var pendingRequestCountForVerification: Int {
         let pendingWorkspaceCount =
             pendingEventBatch?.workspaceRequests.count ?? 0
         let sealedWorkspaceCount = sealedRequests.elements.count {
@@ -1320,9 +1307,6 @@ final class WorkspaceTerminalFontSizeCoordinator {
             + activeWorkspaceCount
     }
 
-    var debugOutstandingRequestCount: Int {
-        outstandingRequestCount
-    }
 #endif
 
     private var hasPendingRequests: Bool {
@@ -1334,7 +1318,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
         return 1 + pendingEventBatch.workspaceRequests.count
     }
 
-    private var outstandingRequestCount: Int {
+    var outstandingRequestCount: Int {
         (activeRequest == nil ? 0 : 1)
             + sealedRequests.count
             + pendingEventRequestCount
@@ -1952,10 +1936,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 request.token
             ).inserted
         )
-        TerminalSurface
-            .activateFontSizeChangeReconciliationToken(
-                request.token
-            )
+        activateTerminalFontSizeChangeReconciliationToken(
+            request.token
+        )
         state.appendRequest(
             TransferRequestRecord(
                 request: request,
@@ -1987,8 +1970,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
             activeDeferredProjectionTokens.insert(token)
                 .inserted
         )
-        TerminalSurface
-            .activateFontSizeChangeReconciliationToken(token)
+        activateTerminalFontSizeChangeReconciliationToken(token)
     }
 
     private func popPendingRequest() -> PendingRequest? {
@@ -2771,11 +2753,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     private func clearAllTransferReconciliationMarks() {
         for lineage in activeBatchLineages.values {
-            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-                token: lineage.windowDockTransferToken
+            retireTerminalFontSizeChangeReconciliationToken(
+                lineage.windowDockTransferToken
             )
-            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-                token: lineage.workspaceTransferToken
+            retireTerminalFontSizeChangeReconciliationToken(
+                lineage.workspaceTransferToken
             )
         }
         activeBatchLineages.removeAll(keepingCapacity: false)
@@ -2783,16 +2765,15 @@ final class WorkspaceTerminalFontSizeCoordinator {
             removeTransferObligation(obligation)
         }
         for token in activeTransferRequestTokens {
-            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-                token: token
+            retireTerminalFontSizeChangeReconciliationToken(
+                token
             )
         }
         activeTransferRequestTokens.removeAll(keepingCapacity: false)
         for token in activeDeferredProjectionTokens {
-            TerminalSurface
-                .clearFontSizeChangeReconciledForTransfer(
-                    token: token
-                )
+            retireTerminalFontSizeChangeReconciliationToken(
+                token
+            )
         }
         activeDeferredProjectionTokens.removeAll(
             keepingCapacity: false
@@ -2803,8 +2784,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
 
     private func retire(_ request: PendingRequest) {
         if activeTransferRequestTokens.remove(request.token) != nil {
-            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-                token: request.token
+            retireTerminalFontSizeChangeReconciliationToken(
+                request.token
             )
         }
         if let resourceState =
@@ -2852,16 +2833,15 @@ final class WorkspaceTerminalFontSizeCoordinator {
                 batchLineage.deferredProjectionToken,
            activeDeferredProjectionTokens.remove(token)
                 != nil {
-            TerminalSurface
-                .clearFontSizeChangeReconciledForTransfer(
-                    token: token
-                )
+            retireTerminalFontSizeChangeReconciliationToken(
+                token
+            )
         }
-        TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-            token: batchLineage.windowDockTransferToken
+        retireTerminalFontSizeChangeReconciliationToken(
+            batchLineage.windowDockTransferToken
         )
-        TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-            token: batchLineage.workspaceTransferToken
+        retireTerminalFontSizeChangeReconciliationToken(
+            batchLineage.workspaceTransferToken
         )
     }
 
@@ -3136,12 +3116,12 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
     }
 
-    private func invalidateScheduledDrain() {
+    func invalidateScheduledDrain() {
         cancelScheduledDrain?()
         cancelScheduledDrain = nil
     }
 
-    private func drain(scheduleContinuation: Bool = true) {
+    func drain(scheduleContinuation: Bool = true) {
         guard !isDraining else {
             if scheduleContinuation {
                 scheduleOutstandingContinuation()

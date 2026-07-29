@@ -14066,13 +14066,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let workspaceTerminalFontSizeAction,
            !matchingExplicitActionShouldPreemptFontSizeDefault {
             let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
-            let routedManager = routedContext?.tabManager ?? tabManager
-            if let selectedWorkspace = routedManager?.selectedWorkspace {
+            let routedTabs = routedContext?.tabManager ?? tabManager
+            if let selectedWorkspace = routedTabs?.selectedWorkspace {
                 let accepted =
                     enqueueWorkspaceTerminalFontSizeChange(
                         workspaceTerminalFontSizeAction,
                         workspace: selectedWorkspace,
-                        tabManager: routedManager,
+                        tabManager: routedTabs,
                         deferFlush: event.isARepeat
                     )
                 if !accepted {

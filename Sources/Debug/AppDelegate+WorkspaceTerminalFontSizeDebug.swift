@@ -1,21 +1,51 @@
 #if DEBUG
+extension WorkspaceTerminalFontSizeCoordinator {
+    func flushOneDrainForVerification() {
+        invalidateScheduledDrain()
+        signalMutationRetry(scheduleIfOutstanding: false)
+        drain()
+    }
+
+    func drainAllForVerification() {
+        invalidateScheduledDrain()
+        signalMutationRetry(scheduleIfOutstanding: false)
+        while outstandingRequestCount > 0 {
+            if mutationRetryDisposition == .backoff {
+                mutationRetryDisposition = .ready
+            } else if mutationRetryDisposition == .awaitingSignal {
+                break
+            } else if mutationRetryDisposition
+                        == .awaitingPanelTransferStage {
+                break
+            }
+            drain(scheduleContinuation: false)
+        }
+    }
+
+    var outstandingRequestCountForVerification: Int {
+        outstandingRequestCount
+    }
+}
+
 extension AppDelegate {
-    func debugFlushPendingWorkspaceTerminalFontSizeChanges() {
+    func flushPendingWorkspaceTerminalFontSizeChangesForVerification() {
         for context in mainWindowContexts.values {
-            context.workspaceTerminalFontSizeCoordinator.debugFlushOneDrain()
+            context.workspaceTerminalFontSizeCoordinator
+                .flushOneDrainForVerification()
         }
     }
 
-    func debugDrainAllPendingWorkspaceTerminalFontSizeChanges() {
+    func drainAllPendingWorkspaceTerminalFontSizeChangesForVerification() {
         for context in mainWindowContexts.values {
-            context.workspaceTerminalFontSizeCoordinator.debugDrainAll()
+            context.workspaceTerminalFontSizeCoordinator
+                .drainAllForVerification()
         }
     }
 
-    var debugPendingWorkspaceTerminalFontSizeChangeCount: Int {
+    var pendingWorkspaceTerminalFontSizeChangeCountForVerification: Int {
         mainWindowContexts.values.reduce(into: 0) {
             $0 += $1.workspaceTerminalFontSizeCoordinator
-                .debugPendingRequestCount
+                .pendingRequestCountForVerification
         }
     }
 }

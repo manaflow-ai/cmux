@@ -176,7 +176,7 @@ private func setFontBindingResult(_ result: Bool)
     @Test func ghosttyFontSizeActionUsesInvariantRoundTripEncoding() throws {
         let points = Float32(10.12345)
         let action =
-            GhosttyFontSizeBindingAction.setFontSize(points)
+            ghosttySetFontSizeBindingAction(points)
         let encodedPoints = try #require(
             Float32(
                 action.dropFirst(
@@ -1403,8 +1403,8 @@ private func setFontBindingResult(_ result: Bool)
     @Test func retiringTransferTokenClearsSourceAndDescendant() {
         let token = UUID()
         defer {
-            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-                token: token
+            retireTerminalFontSizeChangeReconciliationToken(
+                token
             )
         }
         let source = makeSurface(configTemplate: CmuxSurfaceConfigTemplate())
@@ -1416,8 +1416,8 @@ private func setFontBindingResult(_ result: Bool)
         #expect(source.hasAppliedFontSizeChange(token: token))
         #expect(descendant.hasAppliedFontSizeChange(token: token))
 
-        TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-            token: token
+        retireTerminalFontSizeChangeReconciliationToken(
+            token
         )
 
         #expect(!source.hasAppliedFontSizeChange(token: token))
@@ -1442,8 +1442,8 @@ private func setFontBindingResult(_ result: Bool)
             surface.markFontSizeChangeReconciledForTransfer(
                 token: token
             )
-            TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-                token: token
+            retireTerminalFontSizeChangeReconciliationToken(
+                token
             )
         }
 

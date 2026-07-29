@@ -977,8 +977,7 @@ final class WorkspaceTerminalFontSizeArbiter {
         precondition(
             activeDeferredProjectionTokens.insert(token).inserted
         )
-        TerminalSurface
-            .activateFontSizeChangeReconciliationToken(token)
+        activateTerminalFontSizeChangeReconciliationToken(token)
     }
 
     private func retireDeferredProjectionToken(
@@ -988,8 +987,8 @@ final class WorkspaceTerminalFontSizeArbiter {
         else {
             return
         }
-        TerminalSurface.clearFontSizeChangeReconciledForTransfer(
-            token: token
+        retireTerminalFontSizeChangeReconciliationToken(
+            token
         )
     }
 
