@@ -1274,6 +1274,39 @@ mod tests {
         assert!(!target.join("missing").exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn iroh_secret_rejects_a_fifo_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("iroh.key");
+        let fifo = CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let loader_path = path.clone();
+        let worker = std::thread::spawn(move || {
+            let _ = sender.send(load_or_create_iroh_secret(&loader_path));
+        });
+        let completed = receiver.recv_timeout(Duration::from_millis(250));
+        if completed.is_err() {
+            let mut writer = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&path)
+                .unwrap();
+            writer.write_all(&[0; 32]).unwrap();
+        }
+        worker.join().unwrap();
+
+        let result = completed.expect("Iroh secret loader blocked while opening a FIFO");
+        assert!(result.is_err(), "Iroh FIFO was accepted as a secret file");
+    }
+
     async fn wait_for_available_permits(semaphore: &Semaphore, expected: usize) {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
