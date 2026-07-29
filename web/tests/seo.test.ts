@@ -62,6 +62,9 @@ describe("SEO metadata helpers", () => {
     expect(japaneseSlugs).not.toContain("cmux-omo");
     expect(japaneseSlugs).not.toContain("gpl");
     expect(japaneseSlugs).not.toContain("cmux-claude-teams");
+    expect(englishSlugs).toContain("367-billion-tokens");
+    expect(japaneseSlugs).toContain("367-billion-tokens");
+    expect(germanSlugs).not.toContain("367-billion-tokens");
     expect(englishSlugs).toContain("claude-code-best-worktree-manager");
     expect(japaneseSlugs).toContain("claude-code-best-worktree-manager");
     expect(germanSlugs).not.toContain("claude-code-best-worktree-manager");
@@ -395,6 +398,7 @@ describe("SEO metadata helpers", () => {
       expect(new Set(compareTitles).size).toBe(comparePages.length);
 
       const auditedBlogPosts = [
+        ["367-billion-tokens", "tokenMultitasking"],
         ["cmux-omo", "cmuxOmo"],
         ["gpl", "gpl"],
         ["show-hn-launch", "showHnLaunch"],
@@ -409,6 +413,13 @@ describe("SEO metadata helpers", () => {
       ] as const;
       for (const [slug, postKey] of auditedBlogPosts) {
         if (locale !== "en" && (postKey === "cmuxOmo" || postKey === "gpl")) {
+          continue;
+        }
+        if (
+          postKey === "tokenMultitasking" &&
+          locale !== "en" &&
+          locale !== "ja"
+        ) {
           continue;
         }
         const metadata = messages.blog[postKey];
@@ -1161,6 +1172,7 @@ describe("SEO middleware", () => {
       .filter(
         (url) =>
           url.endsWith("/pricing") ||
+          url.endsWith("/blog/367-billion-tokens") ||
           url.endsWith("/blog/claude-code-best-worktree-manager") ||
           url.endsWith("/blog/cmux-ssh") ||
           url.endsWith("/docs/agent-integrations/oh-my-pi"),
@@ -1168,6 +1180,8 @@ describe("SEO middleware", () => {
     expect(urls).toEqual([
       "https://cmux.com/pricing",
       "https://cmux.com/ja/pricing",
+      "https://cmux.com/blog/367-billion-tokens",
+      "https://cmux.com/ja/blog/367-billion-tokens",
       "https://cmux.com/blog/claude-code-best-worktree-manager",
       "https://cmux.com/ja/blog/claude-code-best-worktree-manager",
       "https://cmux.com/blog/cmux-ssh",
@@ -1226,6 +1240,7 @@ describe("SEO middleware", () => {
 
   test("limits partially translated blog posts to authored locales", () => {
     for (const path of [
+      "/blog/367-billion-tokens",
       "/blog/claude-code-best-worktree-manager",
       "/blog/cmux-ssh",
     ]) {
