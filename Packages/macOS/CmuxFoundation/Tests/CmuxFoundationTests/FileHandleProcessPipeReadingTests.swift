@@ -75,10 +75,10 @@ struct FileHandleProcessPipeReadingTests {
         try pipe.fileHandleForWriting.write(contentsOf: Data("buffered".utf8))
         stopSignal.signal()
 
-        let result = ProcessPipeEndRead.reading(
+        let result = ProcessPipeStopAwareReader(
             fileDescriptor: pipe.fileHandleForReading.fileDescriptor,
             stopFileDescriptor: stopSignal.readFileDescriptor
-        )
+        ).readToEnd()
 
         #expect(result.data == Data("buffered".utf8))
         #expect(result.readError == nil)
@@ -96,11 +96,11 @@ struct FileHandleProcessPipeReadingTests {
         try pipe.fileHandleForWriting.write(contentsOf: payload)
         stopSignal.signal()
 
-        let result = ProcessPipeEndRead.reading(
+        let result = ProcessPipeStopAwareReader(
             fileDescriptor: pipe.fileHandleForReading.fileDescriptor,
             chunkSize: 1,
             stopFileDescriptor: stopSignal.readFileDescriptor
-        )
+        ).readToEnd()
 
         #expect(result.data == payload)
         #expect(result.readError == nil)
@@ -122,17 +122,17 @@ struct FileHandleProcessPipeReadingTests {
         let firstFinished = DispatchSemaphore(value: 0)
         let secondFinished = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
-            _ = ProcessPipeEndRead.reading(
+            _ = ProcessPipeStopAwareReader(
                 fileDescriptor: firstPipe.fileHandleForReading.fileDescriptor,
                 stopFileDescriptor: stopSignal.readFileDescriptor
-            )
+            ).readToEnd()
             firstFinished.signal()
         }
         DispatchQueue.global(qos: .utility).async {
-            _ = ProcessPipeEndRead.reading(
+            _ = ProcessPipeStopAwareReader(
                 fileDescriptor: secondPipe.fileHandleForReading.fileDescriptor,
                 stopFileDescriptor: stopSignal.readFileDescriptor
-            )
+            ).readToEnd()
             secondFinished.signal()
         }
 

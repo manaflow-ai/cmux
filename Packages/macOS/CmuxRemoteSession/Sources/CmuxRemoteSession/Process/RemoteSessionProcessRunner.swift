@@ -125,10 +125,10 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
             defer { _ = Darwin.close(stdoutDescriptor) }
-            let result = ProcessPipeEndRead.reading(
+            let result = ProcessPipeStopAwareReader(
                 fileDescriptor: stdoutDescriptor,
                 stopFileDescriptor: captureStopSignal.readFileDescriptor
-            )
+            ).readToEnd()
             captureQueue.sync {
                 captureState.stdoutData = result.data
                 captureState.stdoutReadError = result.readError
@@ -138,10 +138,10 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
             defer { _ = Darwin.close(stderrDescriptor) }
-            let result = ProcessPipeEndRead.reading(
+            let result = ProcessPipeStopAwareReader(
                 fileDescriptor: stderrDescriptor,
                 stopFileDescriptor: captureStopSignal.readFileDescriptor
-            )
+            ).readToEnd()
             captureQueue.sync {
                 captureState.stderrData = result.data
                 captureState.stderrReadError = result.readError
