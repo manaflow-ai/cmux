@@ -230,7 +230,7 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
-      RUSTUP_TOOLCHAIN: "1.88.0"
+      RUSTUP_TOOLCHAIN: "1.91.0"
     permissions:
       contents: read
     defaults:
@@ -259,7 +259,7 @@ jobs:
 
       - name: Install pinned Rust toolchain and Worker builder
         run: |
-          rustup toolchain install 1.88.0 --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup toolchain install 1.91.0 --profile minimal --component clippy --target wasm32-unknown-unknown
           cargo install --locked worker-build@0.8.5
 
       - name: Install pinned npm dependencies

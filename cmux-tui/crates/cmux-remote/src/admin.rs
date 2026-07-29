@@ -254,7 +254,7 @@ async fn call_admin_over_stream(
     let mut response = Vec::new();
     let size = timeout_admin_io(
         "reading admin response",
-        read_bounded_admin_line(&mut reader, &mut response),
+        read_bounded_admin_message(&mut reader, &mut response),
     )
     .await?;
     if size == 0 {
@@ -277,7 +277,7 @@ async fn serve_connection(
     let mut encoded = Vec::new();
     let size = timeout_admin_io(
         "reading admin request",
-        read_bounded_admin_line(&mut reader, &mut encoded),
+        read_bounded_admin_message(&mut reader, &mut encoded),
     )
     .await?;
     let response = if size == 0 {
@@ -302,12 +302,16 @@ async fn serve_connection(
     Ok(())
 }
 
-async fn read_bounded_admin_line<R>(reader: &mut R, encoded: &mut Vec<u8>) -> io::Result<usize>
+async fn read_bounded_admin_message<R>(reader: &mut R, encoded: &mut Vec<u8>) -> io::Result<usize>
 where
     R: AsyncBufRead + Unpin,
 {
     encoded.clear();
-    reader.take((MAX_ADMIN_MESSAGE_BYTES + 1) as u64).read_until(b'\n', encoded).await
+    let size = reader.take((MAX_ADMIN_MESSAGE_BYTES + 1) as u64).read_until(b'\n', encoded).await?;
+    if encoded.last() == Some(&b'\n') {
+        encoded.pop();
+    }
+    Ok(size)
 }
 
 async fn timeout_admin_io<T>(
