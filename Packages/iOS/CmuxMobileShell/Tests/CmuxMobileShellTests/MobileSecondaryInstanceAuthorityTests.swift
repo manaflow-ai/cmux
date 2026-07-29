@@ -277,6 +277,16 @@ import Testing
             teamID: "team-a",
             now: Date()
         )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Studio A",
+            routes: [route],
+            instanceTag: "feature-a",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date()
+        )
         let targetRouter = LivenessHostRouter()
         await targetRouter.setHostIdentity(
             deviceID: "mac-b",
@@ -297,9 +307,11 @@ import Testing
             ),
             now: { Date() }
         )
+        let oldRouter = LivenessHostRouter()
+        await oldRouter.holdUnsubscribeRequest(number: 1)
         let oldRuntime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(
-                router: LivenessHostRouter(),
+                router: oldRouter,
                 box: TransportBox()
             ),
             now: { Date() }
@@ -337,6 +349,7 @@ import Testing
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: pairedStore,
+            presence: SecondaryAuthorityIdlePresence(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             reachability: AlwaysOnlineReachability()
@@ -393,6 +406,14 @@ import Testing
             supportedHostCapabilities: ["terminal.render_grid.v1"],
             actionCapabilities: .none
         )
+        shell.applyPresenceUpdate(
+            secondaryAuthorityPresenceSnapshot(macAOnline: true),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-a",
+                generation: 0
+            )
+        )
 
         let switchTask = Task { @MainActor in
             await shell.switchToMac(
@@ -400,6 +421,22 @@ import Testing
                 instanceTag: "feature-b"
             )
         }
+        #expect(await oldRouter.waitForCount(
+            of: "mobile.events.unsubscribe",
+            atLeast: 1
+        ))
+        #expect(try await pollUntil {
+            await oldRouter.heldRequestCount() == 1
+        })
+        shell.applyPresenceUpdate(
+            secondaryAuthorityPresenceSnapshot(macAOnline: false),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-a",
+                generation: 0
+            )
+        )
+        await oldRouter.releaseAllHeld()
         #expect(await targetRouter.waitForCount(
             of: "workspace.list",
             atLeast: 2
@@ -428,6 +465,10 @@ import Testing
         })
         #expect(shell.workspacesByMac["mac-b"]?.workspaces.first?.name
             != "Stale Promotion Snapshot")
+        #expect(shell.secondaryMacSubscriptions["mac-a"] == nil)
+        #expect(!shell.liveMacConnections.contains {
+            $0.macDeviceID == "mac-a"
+        })
         await targetClient.disconnect()
     }
 
@@ -761,4 +802,59 @@ private func promotionWorkspaceUpdatedEventFrame() throws -> Data {
     return try MobileSyncFrameCodec.encodeFrame(
         JSONSerialization.data(withJSONObject: envelope)
     )
+}
+
+private struct SecondaryAuthorityIdlePresence: PresenceSubscribing {
+    func subscribe() async throws
+        -> AsyncThrowingStream<PresenceUpdate, any Error> {
+        AsyncThrowingStream { _ in }
+    }
+}
+
+private func secondaryAuthorityPresenceSnapshot(
+    macAOnline: Bool
+) -> PresenceUpdate {
+    func instance(
+        deviceID: String,
+        tag: String,
+        online: Bool
+    ) -> PresenceInstance {
+        PresenceInstance(
+            deviceId: deviceID,
+            tag: tag,
+            platform: "mac",
+            online: online,
+            lastSeenAt: 1_000
+        )
+    }
+    let instances = [
+        instance(
+            deviceID: "mac-a",
+            tag: "feature-a",
+            online: macAOnline
+        ),
+        instance(
+            deviceID: "mac-b",
+            tag: "feature-b",
+            online: true
+        ),
+    ]
+    let devices = Dictionary(grouping: instances, by: \.deviceId)
+        .map { deviceID, deviceInstances in
+            PresenceDevice(
+                deviceId: deviceID,
+                platform: "mac",
+                displayName: deviceID,
+                online: deviceInstances.contains(where: \.online),
+                lastSeenAt: 1_000,
+                instances: deviceInstances
+            )
+        }
+    return .snapshot(PresenceSnapshot(
+        teamId: "team-a",
+        now: 1_000,
+        heartbeatIntervalMs: 15_000,
+        offlineTimeoutMs: 45_000,
+        devices: devices
+    ))
 }

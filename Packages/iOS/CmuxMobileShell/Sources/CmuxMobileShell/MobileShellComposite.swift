@@ -929,6 +929,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// One timer owner for the whole online control pool. Each tick reasserts
     /// every lightweight subscription, avoiding one long-lived timer per Mac.
     private var secondaryControlKeepaliveTask: Task<Void, Never>?
+    private var secondaryControlKeepaliveTaskGeneration = UUID()
     /// Per-Mac RPCs in the current tick. Promotion waits only for its target,
     /// not every online Mac in the shared pass, before canceling the timer.
     private var secondaryControlReassertionTasksByMacID:
@@ -4313,7 +4314,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func ensureSecondaryControlKeepalive() {
         guard secondaryControlKeepaliveTask == nil else { return }
         let clock = controlPlaneSchedulingClock
+        let taskGeneration = UUID()
+        secondaryControlKeepaliveTaskGeneration = taskGeneration
         secondaryControlKeepaliveTask = Task { @MainActor [weak self] in
+            defer {
+                if let self,
+                   self.secondaryControlKeepaliveTaskGeneration
+                    == taskGeneration {
+                    self.secondaryControlKeepaliveTask = nil
+                }
+            }
             while !Task.isCancelled {
                 do {
                     // Controlled exception: CGNAT can silently expire otherwise
@@ -4330,7 +4340,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let stillHasControlConnections =
                     await self.reassertSecondaryControlSubscriptions()
                 guard !Task.isCancelled, stillHasControlConnections else {
-                    self.secondaryControlKeepaliveTask = nil
                     return
                 }
             }
@@ -4473,6 +4482,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               !subscription.isTransitioningToFocus else {
             return false
         }
+        let workspaceRefreshGeneration =
+            subscription.workspaceRefreshGeneration
         let previews = await fetchSecondaryWorkspaces(
             on: subscription.client,
             macDeviceID: macDeviceID
@@ -4487,13 +4498,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let previews else {
             return false
         }
-        workspacesByMac[macDeviceID] = MacWorkspaceState(
-            macDeviceID: macDeviceID,
-            displayName: subscription.displayName,
-            workspaces: previews,
-            status: .connected,
-            actionCapabilities: subscription.actionCapabilities
-        )
+        if subscription.workspaceRefreshGeneration
+            == workspaceRefreshGeneration {
+            workspacesByMac[macDeviceID] = MacWorkspaceState(
+                macDeviceID: macDeviceID,
+                displayName: subscription.displayName,
+                workspaces: previews,
+                status: .connected,
+                actionCapabilities: subscription.actionCapabilities
+            )
+        } else {
+            // A workspace event raced this independent catch-up request. Its
+            // leading/trailing refresh owns the newer snapshot, so drain it and
+            // leave this older response unapplied.
+            await subscription.refreshTask?.value
+            guard secondaryMacSubscriptions[macDeviceID] === subscription,
+                  !subscription.isTransitioningToFocus,
+                  await isSecondaryRefreshStillCurrent(
+                      macDeviceID: macDeviceID,
+                      subscription: subscription,
+                      scope: scope
+                  ) else {
+                return false
+            }
+        }
         guard await reconcileSecondaryNotificationFeedAfterControlGap(
             macDeviceID: macDeviceID,
             client: subscription.client,
@@ -4525,6 +4553,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             secondaryControlReassertionTasksByMacID[macDeviceID]
         _ = await reassertion?.value
         let keepalive = secondaryControlKeepaliveTask
+        secondaryControlKeepaliveTaskGeneration = UUID()
         secondaryControlKeepaliveTask = nil
         keepalive?.cancel()
         await keepalive?.value
@@ -4653,6 +4682,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         guard let subscription = secondaryMacSubscriptions[macID],
               subscription.client === client else { return }
+        subscription.workspaceRefreshGeneration &+= 1
         guard subscription.refreshTask == nil else {
             subscription.refreshPending = true
             return
@@ -4832,6 +4862,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryPresenceAggregationTaskGeneration = UUID()
         secondaryPresencePendingMacIDs = []
         cancelSecondaryAggregationRetry()
+        secondaryControlKeepaliveTaskGeneration = UUID()
         secondaryControlKeepaliveTask?.cancel()
         secondaryControlKeepaliveTask = nil
         for task in secondaryControlReassertionTasksByMacID.values {

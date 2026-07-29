@@ -159,13 +159,6 @@ extension MobileShellComposite {
         let unregisteredPreviousClient = previousForegroundConnection == nil
             ? remoteClient
             : nil
-        let previousForegroundIsPoolEligible = if let previousForegroundConnection {
-            await canRetainFocusedConnectionInControlPool(
-                previousForegroundConnection
-            )
-        } else {
-            false
-        }
         guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
         guard await prepareSecondarySubscriptionForPromotion(
             sub,
@@ -212,8 +205,15 @@ extension MobileShellComposite {
             let terminalStopped = await unsubscribeTerminalEventStream(
                 on: previousForegroundConnection.client
             )
-            previousForegroundCanStayWarm = terminalStopped
-                && previousForegroundIsPoolEligible
+            if terminalStopped {
+                // Presence, visibility, or account scope may change while the
+                // target and old terminal unsubscribe acknowledgements are in
+                // flight. Re-read membership immediately before demotion.
+                previousForegroundCanStayWarm =
+                    await canRetainFocusedConnectionInControlPool(
+                        previousForegroundConnection
+                    )
+            }
             if !previousForegroundCanStayWarm,
                isFocusedConnectionCurrent(previousForegroundConnection) {
                 await previousForegroundConnection.client.disconnect()

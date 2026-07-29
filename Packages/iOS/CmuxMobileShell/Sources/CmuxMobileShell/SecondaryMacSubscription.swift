@@ -60,6 +60,10 @@ final class SecondaryMacSubscription {
     /// Coalesces hot `workspace.updated` bursts to one leading and one trailing fetch.
     var refreshTask: Task<Void, Never>?
     var refreshPending = false
+    /// Increments for every workspace event, including events coalesced behind
+    /// an in-flight refresh, so independent catch-up fetches cannot overwrite
+    /// a newer event-driven result.
+    var workspaceRefreshGeneration: UInt64 = 0
     /// Set before promotion waits on any RPC. Keepalive reassertions skip this
     /// subscription until it either becomes focused or promotion is abandoned.
     var isTransitioningToFocus = false

@@ -8,6 +8,12 @@ private let notificationFeedLog = Logger(
     category: "notification-feed"
 )
 
+private enum NotificationFeedFetchOutcome {
+    case applied
+    case stale
+    case failed
+}
+
 nonisolated private let mobileShellNotificationFeedIdentifierByteLimit = 512
 nonisolated private let mobileShellNotificationFeedTitleByteLimit = 512
 nonisolated private let mobileShellNotificationFeedSubtitleByteLimit = 512
@@ -304,7 +310,7 @@ extension MobileShellComposite {
         ) else {
             return true
         }
-        return await fetchNotificationFeed(
+        let outcome = await fetchNotificationFeed(
             macDeviceID: macDeviceID,
             client: client,
             displayName: normalizedDisplayName(
@@ -312,6 +318,37 @@ extension MobileShellComposite {
                 fallback: macDeviceID
             )
         )
+        switch outcome {
+        case .applied:
+            return secondaryMacSubscriptions[macDeviceID] === subscription
+                && !subscription.isTransitioningToFocus
+        case .failed:
+            return false
+        case .stale:
+            // Revision churn is healthy. Drain a coalesced trailing fetch and
+            // verify it reached the newest invalidation observed while the
+            // first list request was in flight.
+            guard let task = scheduleNotificationFeedRefresh(
+                macDeviceID: macDeviceID,
+                client: client,
+                displayName: normalizedDisplayName(
+                    displayName,
+                    fallback: macDeviceID
+                )
+            ) else {
+                return false
+            }
+            await task.value
+            guard secondaryMacSubscriptions[macDeviceID] === subscription,
+                  !subscription.isTransitioningToFocus else {
+                return false
+            }
+            let appliedRevision =
+                notificationFeedSnapshotsByMac[macDeviceID]?.revision ?? -1
+            let knownRevision =
+                notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
+            return appliedRevision >= knownRevision
+        }
     }
 
     /// Cancels all feed work and removes account-scoped notification content.
@@ -554,7 +591,7 @@ extension MobileShellComposite {
         macDeviceID: String,
         client: MobileCoreRPCClient,
         displayName: String
-    ) async -> Bool {
+    ) async -> NotificationFeedFetchOutcome {
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.feed.list",
@@ -574,23 +611,23 @@ extension MobileShellComposite {
                 operation: { try await decoderTask.value },
                 onCancel: { decoderTask.cancel() }
             )
-            guard !Task.isCancelled else { return false }
+            guard !Task.isCancelled else { return .failed }
             guard notificationFeedClient(for: macDeviceID) === client else {
-                return false
+                return .failed
             }
             return applyNotificationFeedSnapshot(
                 response,
                 macDeviceID: macDeviceID,
                 displayName: displayName
-            )
+            ) ? .applied : .stale
         } catch {
             guard notificationFeedClient(for: macDeviceID) === client else {
-                return false
+                return .failed
             }
             notificationFeedLog.error(
                 "list failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
             )
-            return false
+            return .failed
         }
     }
 

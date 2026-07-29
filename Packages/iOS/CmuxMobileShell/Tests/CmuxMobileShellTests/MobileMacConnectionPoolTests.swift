@@ -967,13 +967,15 @@ import Testing
         let router = LivenessHostRouter()
         await router.scriptWorkspaceListTitles([
             "Initial Catch-up",
-            "Recreated Catch-up",
+            "Stale Recreated Catch-up",
+            "Event Fresh Catch-up",
             "Failed Catch-up",
         ])
+        let transportBox = TransportBox()
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(
                 router: router,
-                box: TransportBox()
+                box: transportBox
             ),
             now: { Date() }
         )
@@ -1028,6 +1030,9 @@ import Testing
             of: "notification.feed.list"
         )
 
+        await router.holdWorkspaceListRequest(number: 2)
+        await router.scriptNotificationFeedRevisions([2, 3])
+        shell.notificationFeedKnownRevisionsByMac["mac-b"] = 3
         await router.dropSubscription()
         clock.advance(by: .seconds(20))
 
@@ -1035,13 +1040,29 @@ import Testing
             of: "mobile.events.subscribe",
             atLeast: 2
         ))
+        #expect(await router.waitForCount(
+            of: "workspace.list",
+            atLeast: 2
+        ))
+        #expect(try await pollUntil {
+            await router.heldRequestCount() == 1
+        })
+        let transport = try #require(transportBox.get())
+        await transport.deliver(
+            try controlPoolWorkspaceUpdatedEventFrame()
+        )
+        #expect(await router.waitForCount(
+            of: "workspace.list",
+            atLeast: 3
+        ))
+        await router.releaseAllHeld()
         #expect(try await pollUntil {
             let feedFetchCount = await router.count(
                 of: "notification.feed.list"
             )
             return shell.workspacesByMac["mac-b"]?.workspaces.first?.name
-                == "Recreated Catch-up"
-                && feedFetchCount > feedFetchesBeforeGap
+                == "Event Fresh Catch-up"
+                && feedFetchCount >= feedFetchesBeforeGap + 2
         })
         #expect(shell.secondaryMacSubscriptions["mac-b"] === subscription)
 
@@ -1706,6 +1727,17 @@ private actor PromotionFenceCompletion {
     func finish() {
         isFinished = true
     }
+}
+
+private func controlPoolWorkspaceUpdatedEventFrame() throws -> Data {
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "workspace.updated",
+        "payload": [String: Any](),
+    ]
+    return try MobileSyncFrameCodec.encodeFrame(
+        JSONSerialization.data(withJSONObject: envelope)
+    )
 }
 
 private final class ControlPoolManualClock: Clock, @unchecked Sendable {

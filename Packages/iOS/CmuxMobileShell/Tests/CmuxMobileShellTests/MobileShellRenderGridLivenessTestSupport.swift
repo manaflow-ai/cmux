@@ -40,8 +40,10 @@ actor LivenessHostRouter {
     private var invalidSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
     private var unsubscribeRequestCount = 0
+    private var heldUnsubscribeRequestNumbers: Set<Int> = []
     private var invalidUnsubscribeRequestNumbers: Set<Int> = []
     private var notificationFeedRevision = 0
+    private var notificationFeedRevisions: [Int] = []
     private var notificationFeedFailuresRemaining = 0
     private var replayRequestCount = 0
     private var replayResponseCount = 0
@@ -259,6 +261,10 @@ actor LivenessHostRouter {
         workspaceListTitles.append(contentsOf: titles)
     }
 
+    func scriptNotificationFeedRevisions(_ revisions: [Int]) {
+        notificationFeedRevisions.append(contentsOf: revisions)
+    }
+
     /// Hold the next workspace-list responses relative to requests already seen.
     func holdNextWorkspaceListRequests(count: Int = 1) {
         guard count > 0 else { return }
@@ -281,6 +287,10 @@ actor LivenessHostRouter {
     /// Return a malformed acknowledgement for the Nth unsubscribe request.
     func invalidateUnsubscribeRequest(number: Int) {
         invalidUnsubscribeRequestNumbers.insert(number)
+    }
+
+    func holdUnsubscribeRequest(number: Int) {
+        heldUnsubscribeRequestNumbers.insert(number)
     }
 
     func failNextNotificationFeedLists(count: Int = 1) {
@@ -321,6 +331,7 @@ actor LivenessHostRouter {
         heldHostStatusRequestNumbers = []
         heldWorkspaceListRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        heldUnsubscribeRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
         heldSyncFetchRequestNumbers = []
@@ -444,6 +455,11 @@ actor LivenessHostRouter {
             ])
         case "mobile.events.unsubscribe":
             unsubscribeRequestCount += 1
+            if heldUnsubscribeRequestNumbers.contains(
+                unsubscribeRequestCount
+            ) {
+                await park()
+            }
             guard !invalidUnsubscribeRequestNumbers.contains(unsubscribeRequestCount) else {
                 return try? Self.resultFrame(id: id, result: [:])
             }
@@ -459,7 +475,12 @@ actor LivenessHostRouter {
                     message: "scripted notification feed failure"
                 )
             }
-            notificationFeedRevision += 1
+            if notificationFeedRevisions.isEmpty {
+                notificationFeedRevision += 1
+            } else {
+                notificationFeedRevision =
+                    notificationFeedRevisions.removeFirst()
+            }
             return try? Self.resultFrame(id: id, result: [
                 "revision": notificationFeedRevision,
                 "notifications": [],
