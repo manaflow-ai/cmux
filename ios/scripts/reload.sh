@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--no-launch]
+Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device-only [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
 
@@ -52,6 +52,7 @@ require_option_value() {
 
 TAG=""
 SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
+SIMULATOR_ID="${IOS_SIMULATOR_ID:-}"
 DEVICE_ID="${IOS_DEVICE_ID:-}"
 DEVICE_NAME="${IOS_DEVICE_NAME:-}"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-}"
@@ -85,6 +86,11 @@ while [[ $# -gt 0 ]]; do
     --simulator)
       require_option_value "$1" "${2:-}"
       SIMULATOR_NAME="${2:-}"
+      shift 2
+      ;;
+    --simulator-id)
+      require_option_value "$1" "${2:-}"
+      SIMULATOR_ID="${2:-}"
       shift 2
       ;;
     --device)
@@ -254,6 +260,12 @@ CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="$(cmux_ios_resolve_iroh_broker_base_url)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+IROH_RELAY_POLICY_BUILD_ARGS=()
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  IROH_RELAY_POLICY_BUILD_ARGS=(
+    -xcconfig "$IOS_DIR/../config/IrohRelayPolicyProduction.xcconfig"
+  )
+fi
 # Shared tag/identity + attach helpers; sanitize_tag() above delegates here so the
 # built bundle id matches the signed-launch bundle id. Sourced before any
 # sanitize_tag call below.
@@ -271,6 +283,9 @@ DISPLAY_NAME="cmux DEV $TAG"
 BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
 DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
 DESTINATION="platform=iOS Simulator,name=$SIMULATOR_NAME"
+if [[ -n "$SIMULATOR_ID" ]]; then
+  DESTINATION="platform=iOS Simulator,id=$SIMULATOR_ID"
+fi
 MOBILE_DEV_LAUNCH="$IOS_DIR/../scripts/mobile-dev-launch.sh"
 
 # Auto-setup launch: relaunch the just-installed app signed in (dogfood creds
@@ -551,7 +566,7 @@ PY
 }
 
 reload_simulator() {
-  echo "==> Building simulator app (tag: $TAG, simulator: $SIMULATOR_NAME)"
+  echo "==> Building simulator app (tag: $TAG, simulator: $SIMULATOR_NAME${SIMULATOR_ID:+, id: $SIMULATOR_ID})"
 
   # Build the Swift package + app target with -O / wholemodule even on
   # Debug. The VT parser + snapshot rehydration runs on every push from
@@ -565,6 +580,7 @@ reload_simulator() {
     -configuration Debug \
     -destination "$DESTINATION" \
     -derivedDataPath "$DERIVED_DATA" \
+    ${IROH_RELAY_POLICY_BUILD_ARGS[@]+"${IROH_RELAY_POLICY_BUILD_ARGS[@]}"} \
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
@@ -587,7 +603,10 @@ reload_simulator() {
     exit 1
   fi
 
-  SIM_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME" /usr/bin/python3 - <<'PY'
+  if [[ -n "$SIMULATOR_ID" ]]; then
+    SIM_ID="$SIMULATOR_ID"
+  else
+    SIM_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME" /usr/bin/python3 - <<'PY'
 import json
 import os
 import subprocess
@@ -603,7 +622,8 @@ for runtimes in data.get("devices", {}).values():
 print(f"error: simulator not found: {name}", file=sys.stderr)
 raise SystemExit(1)
 PY
-  )"
+    )"
+  fi
 
   xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
   xcrun simctl install "$SIM_ID" "$APP_PATH"
@@ -672,6 +692,7 @@ reload_device() {
     -destination "$device_destination"
     -derivedDataPath "$DERIVED_DATA"
   )
+  build_args+=(${IROH_RELAY_POLICY_BUILD_ARGS[@]+"${IROH_RELAY_POLICY_BUILD_ARGS[@]}"})
 
   if [[ "$ALLOW_PROVISIONING_UPDATES" -eq 1 ]]; then
     build_args+=(-allowProvisioningUpdates)

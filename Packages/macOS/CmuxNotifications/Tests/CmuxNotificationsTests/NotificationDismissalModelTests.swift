@@ -251,6 +251,28 @@ struct NotificationDismissalModelTests {
         #expect(host.log.contains("notificationFlash"))
     }
 
+    @Test func focusedWorkspaceDismissalUsesProjectedSurfaceIdentity() {
+        let workspaceId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let containerId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let projectedSurfaceId = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let host = FakeHost()
+        host.selectedWorkspaceId = workspaceId
+        host.focusedPanelIds[workspaceId] = containerId
+        host.focusedSurfaceIds[workspaceId] = projectedSurfaceId
+        host.panelIdsBySurface[projectedSurfaceId] = containerId
+        host.unreadNotificationSurfaces.insert(projectedSurfaceId)
+        let model = NotificationDismissalModel()
+        model.attach(host: host)
+
+        model.dismissFocusedPanelNotificationIfActive(
+            workspaceId: workspaceId,
+            context: .explicitWorkspaceResume
+        )
+
+        #expect(host.log.contains("markRead:3333"))
+        #expect(!host.log.contains("markRead:2222"))
+    }
+
     @Test func pendingSelectionContextTakeClearsIt() {
         let (model, _, _, _) = makeModel()
         #expect(model.takePendingSelectionContext() == nil)

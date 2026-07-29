@@ -40,6 +40,134 @@ struct TerminalArtifactChipCountStateTests {
         #expect(zeroCompletion.outcome == .reported(.init(count: 6, surfaceGeneration: 3)))
     }
 
+    @Test("a failed scan holds the last session total instead of regressing to the local count")
+    func failedScanHoldsLastSessionTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            first,
+            sessionTotal: 12,
+            sessionID: "session-a",
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+
+        // Production-shaped failure: the scan explicitly did NOT succeed, so
+        // neither the no-session clearing branch nor the success path runs.
+        let second = try request(from: state.trigger(
+            localCount: 1,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            second,
+            sessionTotal: nil,
+            sessionID: nil,
+            scanSucceeded: false,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 1
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+    }
+
+    @Test("a successful response with no session clears the held total")
+    func successfulNoSessionResponseClearsHeldTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            first,
+            sessionTotal: 12,
+            sessionID: "session-a",
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+
+        // The session moved off this surface: the scan SUCCEEDS but resolves
+        // no session. Unlike a transport failure, this proves the binding is
+        // gone, so the held 12 must yield to the local count.
+        let second = try request(from: state.trigger(
+            localCount: 2,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            second,
+            sessionTotal: nil,
+            sessionID: nil,
+            scanSucceeded: true,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 2
+        ).outcome == .reported(.init(count: 2, surfaceGeneration: 7)))
+    }
+
+    @Test("session-count triggers report the local count immediately and refine async")
+    func sessionTriggersReportProvisionally() throws {
+        var state = TerminalArtifactChipCountState()
+        guard case .reportAndRequest(let provisional, let request) = state.trigger(
+            localCount: 3,
+            surfaceGeneration: 5,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected a provisional report plus a session request")
+            throw UnexpectedAction()
+        }
+        #expect(provisional == .init(count: 3, surfaceGeneration: 5))
+        #expect(state.complete(
+            request,
+            sessionTotal: 12,
+            currentSurfaceGeneration: 5,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 5)))
+
+        // Once a session total is known, provisional reports hold it instead
+        // of regressing to the smaller viewport-only count.
+        guard case .reportAndRequest(let upgraded, _) = state.trigger(
+            localCount: 1,
+            surfaceGeneration: 5,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected a provisional report plus a session request")
+            throw UnexpectedAction()
+        }
+        #expect(upgraded == .init(count: 12, surfaceGeneration: 5))
+    }
+
+    @Test("reset forgets the remembered session total")
+    func resetForgetsSessionTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let seeded = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        _ = state.complete(
+            seeded,
+            sessionTotal: 12,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        )
+        state.reset()
+
+        let fresh = try request(from: state.trigger(
+            localCount: 2,
+            surfaceGeneration: 8,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            fresh,
+            sessionTotal: nil,
+            currentSurfaceGeneration: 8,
+            freshestLocalCount: 2
+        ).outcome == .reported(.init(count: 2, surfaceGeneration: 8)))
+    }
+
     @Test("responses from an old state or surface generation are dropped")
     func staleResponses() throws {
         var resetState = TerminalArtifactChipCountState()
@@ -99,6 +227,108 @@ struct TerminalArtifactChipCountStateTests {
         )
         #expect(reported.outcome == .reported(.init(count: 30, surfaceGeneration: 12)))
         #expect(reported.nextRequest == nil)
+    }
+
+    @Test("a new session binding invalidates the held total from the old session")
+    func sessionSwitchInvalidatesHeldTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            first,
+            sessionTotal: 12,
+            sessionID: "session-a",
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+
+        // The terminal binds a new session whose transcript is not indexed
+        // yet: the response carries the new session's ID with no total. The
+        // old session's 12 must not be shown for it.
+        let second = try request(from: state.trigger(
+            localCount: 2,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            second,
+            sessionTotal: nil,
+            sessionID: "session-b",
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 2
+        ).outcome == .reported(.init(count: 2, surfaceGeneration: 7)))
+    }
+
+    @Test("a dropped response naming a new session still invalidates the held total")
+    func droppedResponseWithNewSessionInvalidates() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        _ = state.complete(
+            first,
+            sessionTotal: 12,
+            sessionID: "session-a",
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        )
+
+        // Session B starts streaming: its response arrives after the viewport
+        // generation advanced, so the count is dropped — but the session
+        // identity is generation-independent and must clear A's total.
+        let second = try request(from: state.trigger(
+            localCount: 2,
+            surfaceGeneration: 8,
+            supportsSessionCount: true
+        ))
+        let dropped = state.complete(
+            second,
+            sessionTotal: nil,
+            sessionID: "session-b",
+            currentSurfaceGeneration: 9,
+            freshestLocalCount: 2
+        )
+        #expect(dropped.outcome == .droppedForSurfaceGenerationMismatch)
+
+        guard case .provisionalReport(let provisional) = state.trigger(
+            localCount: 2,
+            surfaceGeneration: 9,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected a provisional report while the re-arm is in flight")
+            throw UnexpectedAction()
+        }
+        #expect(provisional == .init(count: 2, surfaceGeneration: 9))
+    }
+
+    @Test("a dropped response's total does not seed provisional reports")
+    func droppedResponseDoesNotSeedProvisional() throws {
+        var state = TerminalArtifactChipCountState()
+        let request = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 11,
+            supportsSessionCount: true
+        ))
+        let dropped = state.complete(
+            request,
+            sessionTotal: 30,
+            currentSurfaceGeneration: 12,
+            freshestLocalCount: 8
+        )
+        #expect(dropped.outcome == .droppedForSurfaceGenerationMismatch)
+
+        // The re-armed request is in flight; a fresh viewport trigger must
+        // report the local count, not the dropped response's stale total.
+        #expect(state.trigger(
+            localCount: 8,
+            surfaceGeneration: 12,
+            supportsSessionCount: true
+        ) == .provisionalReport(.init(count: 8, surfaceGeneration: 12)))
     }
 
     @Test("surface-generation re-arms stop after the bounded retry count")
@@ -171,12 +401,12 @@ struct TerminalArtifactChipCountStateTests {
             localCount: 2,
             surfaceGeneration: 21,
             supportsSessionCount: true
-        ) == .none)
+        ) == .provisionalReport(.init(count: 2, surfaceGeneration: 21)))
         #expect(state.trigger(
             localCount: 3,
             surfaceGeneration: 22,
             supportsSessionCount: true
-        ) == .none)
+        ) == .provisionalReport(.init(count: 3, surfaceGeneration: 22)))
 
         let completion = state.complete(
             first,
@@ -192,11 +422,13 @@ struct TerminalArtifactChipCountStateTests {
     private func request(
         from action: TerminalArtifactChipCountState.TriggerAction
     ) throws -> TerminalArtifactChipCountState.Request {
-        guard case .request(let request) = action else {
+        switch action {
+        case .request(let request), .reportAndRequest(_, let request):
+            return request
+        case .none, .report, .provisionalReport:
             Issue.record("Expected a session-count request")
             throw UnexpectedAction()
         }
-        return request
     }
 
     private struct UnexpectedAction: Error {}

@@ -12,13 +12,14 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `982a723ff`, the current
-`manaflow-ai/ghostty` `main` head. It adds ordered-write backpressure recovery
-on top of the `os/open` stderr drain fix from `8f31fb57c`, the keyboard
-copy-mode selection, cursor geometry, bounded rich clipboard, and plain-text
-fallback fixes through `4a6c443c3`. Advancing from the previous `0b1734f1e`
-pin also includes the deferred-font guard and renderer-reclamation work already
-landed on the fork's `main`.
+The submodule pinned by this branch is `dfe719016` on the
+`manaflow-ai/ghostty` `issue-8969-large-paste-drops-chunk` branch. It merges
+ordered-write backpressure recovery from `982a723ff` with bounded app-mailbox
+turns from `2258bea96`, preserving both fixes from the formerly divergent
+submodule pins. It also includes the `os/open` stderr drain fix from
+`8f31fb57c`, keyboard copy-mode selection, cursor geometry, bounded rich
+clipboard, plain-text fallback fixes through `4a6c443c3`, the deferred-font
+guard, and renderer-reclamation work.
 
 ### Ordered writes survive transient backpressure
 
@@ -130,13 +131,39 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `982a723ff` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-982a723ffe5c239dd2d64e409366397135e3dab1-crashsubdir-cmux-crash-v1
+The pinned `dfe719016` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-dfe719016d70140f2f6ffad54021b254b120d13e-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
+The component `982a723ff` and `2258bea96` universal ReleaseFast GhosttyKit
+archives remain published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-982a723ffe5c239dd2d64e409366397135e3dab1-crashsubdir-cmux-crash-v1
+and
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2258bea96ddc005156beceb741b7dabb283ec615-crashsubdir-cmux-crash-v1,
+with their SHA-256 values retained in `scripts/ghosttykit-checksums.txt`.
+
 The previous `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1.
+
+### Bounded app mailbox turns
+
+- Commits:
+  - `6a8cdbc7a` (test: reproduce app mailbox drain starvation)
+  - `2258bea96` (fix: bound app mailbox drain turns)
+- File:
+  - `src/App.zig`
+- Summary:
+  - Limits one app-thread mailbox turn to the queue depth observed when the
+    turn begins, so concurrent renderer and terminal producers cannot keep a
+    runtime's main thread inside `App.drainMailbox` indefinitely.
+  - Preserves FIFO ordering and the existing bounded-queue backpressure while
+    explicitly waking another app tick when messages remain, including after
+    an early quit or message-handler failure.
+  - Covers the exact producer-refill mechanism with a deterministic test that
+    injects more app messages while the starting batch is being handled.
+  - Conflict note: future app-loop changes must preserve the finite
+    start-of-turn snapshot and an explicit continuation for messages left
+    behind. Do not restore a producer-refillable drain-until-empty loop.
 
 ### PTY reader and child lifecycle teardown
 
