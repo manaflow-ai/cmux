@@ -328,7 +328,7 @@ test("creates a browser tab with explicit correlation and idempotency", async ()
   assert.equal(creation.recovered, false);
   assert.equal(creation.replayed, false);
   assert.equal(creation.browser.id, BROWSER_ID);
-  assert.equal(creation.path.tab?.id, TAB_ID);
+  assert.equal(creation.path.tab.id, TAB_ID);
   const request = server.requests[0];
   assert.equal(request?.operation, "tab.create_browser");
   assert.equal(request?.idempotency_key, "browser-docs-attempt-1");

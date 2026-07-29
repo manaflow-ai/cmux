@@ -9,16 +9,15 @@
    queue bound, explicit `cancel`, and `AbortSignal` cancellation.
 3. Browser key modifiers are a closed union. Invalid modifier strings now fail
    during TypeScript compilation.
+4. Creation paths are a strict discriminated union. Fixed operations such as
+   `Pane.createBrowserTab` return their exact path variant, so browser, tab,
+   pane, and screen handles are required after successful decoding.
 
 ## Remaining SDK friction
 
-1. `Pane.createBrowserTab` returns a generic `CreatedPath` whose browser,
-   terminal, screen, pane, and tab fields are optional. This operation can
-   only create a browser path, so the consumer still needs a runtime kind and
-   presence check that should be encoded in its return type.
-2. `Session.listBrowsers` does not include workspace, screen, or pane ancestry.
+1. `Session.listBrowsers` does not include workspace, screen, or pane ancestry.
    Controllers that show topology must join a full session snapshot.
-3. WebSocket authentication accepts an existing token but does not expose the
+2. WebSocket authentication accepts an existing token but does not expose the
    pairing challenge and issued credential flow.
 
 ## Application concerns

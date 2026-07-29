@@ -54,6 +54,8 @@ import {
   screenId,
   selectCurrent,
   workspaceId,
+  type CreatedBrowserPath,
+  type MutationResult,
   type WebSocketConstructor,
 } from "cmux/browser";
 
@@ -68,13 +70,15 @@ const pane = session
   .workspace(workspaceId("ws_11111111111111111111111111111111"))
   .screen(screenId("screen_22222222222222222222222222222222"))
   .pane(paneId("pane_33333333333333333333333333333333"));
-void pane.createBrowserTab(
+const created: Promise<MutationResult<CreatedBrowserPath>> =
+  pane.createBrowserTab(
   { url: "https://example.com" },
   {
     correlationKey: "packaged-browser",
     idempotencyKey: "packaged-browser-attempt-1",
   },
 );
+void created.then((result) => result.value.browser.id);
 void session.creation.resolve("packaged-browser");
 const browser = session
   .browser(browserId("browser_ffffffffffffffffffffffffffffffff"));

@@ -14,7 +14,7 @@ import {
   type BrowserId,
   type BrowserMouseOptions,
   type BrowserSnapshot,
-  type CreatedPath,
+  type CreatedBrowserPath,
   type CreationResolution,
   type DecimalString,
   type PaneId,
@@ -102,7 +102,7 @@ export interface CreateBrowserTabInput {
 }
 
 export interface BrowserCreation {
-  readonly path: CreatedPath;
+  readonly path: CreatedBrowserPath;
   readonly browser: Browser;
   readonly generation: string;
   readonly revision: DecimalString;
@@ -224,6 +224,11 @@ export class BrowserController {
       ) {
         throw new CmuxProtocolError(
           `browser correlation resolved to ${resolution.operation}`,
+        );
+      }
+      if (resolution.createdPath.kind !== "browser") {
+        throw new CmuxProtocolError(
+          `tab.create_browser recovery returned a ${resolution.createdPath.kind} created path`,
         );
       }
       return browserCreation(
@@ -407,17 +412,12 @@ export class BrowserController {
 }
 
 function browserCreation(
-  path: CreatedPath,
+  path: CreatedBrowserPath,
   generation: string,
   revision: DecimalString,
   replayed: boolean | undefined,
   recovered: boolean,
 ): BrowserCreation {
-  if (path.kind !== "browser" || path.browser === undefined) {
-    throw new CmuxProtocolError(
-      `tab.create_browser returned a ${path.kind} created path`,
-    );
-  }
   return Object.freeze({
     path,
     browser: path.browser,

@@ -6,7 +6,8 @@ creates tabs with caller-owned correlation and idempotency keys, recovers an
 exact created path after a lost response, follows MIME-tagged frames and state,
 resyncs after stream gaps or bounded-queue overflow, cancels through
 `AbortSignal`, reconnects failed clients, and supports an injected WebSocket
-constructor.
+constructor. Direct browser creation returns `CreatedBrowserPath`, whose
+browser and ancestry handles are required without optional-field checks.
 
 From this directory:
 
