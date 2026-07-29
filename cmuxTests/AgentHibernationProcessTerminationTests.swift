@@ -939,7 +939,7 @@ struct AgentHibernationProcessTerminationTests {
                             processGroupLeaders: processGroupLeaders
                         )
                     }
-                    AgentHibernationProcessExitEpoch(
+                    return AgentHibernationProcessExitEpoch(
                         terminations: [
                             .init(
                                 processID: 202,
