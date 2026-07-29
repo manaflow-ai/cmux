@@ -47,6 +47,36 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(await fallback.readCount == 0)
     }
 
+    @Test(arguments: [RestorableAgentKind.opencode, .hermesAgent])
+    func providerTransferWithoutCapturedStorageIdentityFailsClosed(
+        kind: RestorableAgentKind
+    ) async {
+        let fallback = ReadRecordingSourceAdapter()
+        let providerAdapter: any AgentConversationSourceAdapter = switch kind {
+        case .opencode:
+            OpenCodeAgentConversationSourceAdapter()
+        case .hermesAgent:
+            HermesAgentConversationSourceAdapter()
+        default:
+            FailingSourceAdapter()
+        }
+        let registry = AgentConversationReaderRegistry(adapters: [
+            providerAdapter,
+            fallback,
+        ])
+        let source = AgentConversationSource(snapshot: SessionRestorableAgentSnapshot(
+            kind: kind,
+            sessionId: "uncaptured-storage-session"
+        ))
+
+        await #expect {
+            try await registry.read(source)
+        } throws: { error in
+            error as? AgentConversationExportError == .sourceUnavailable(kind.rawValue)
+        }
+        #expect(await fallback.readCount == 0)
+    }
+
     @Test
     func cancelledTransferStopsProviderDatabaseRead() async throws {
         let fixture = try makeTemporaryDirectory()
@@ -269,6 +299,82 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(turns.contains { $0.text.contains("Opening request") })
         #expect(turns.contains { $0.text.contains("LATEST-DIALOGUE-MARKER") })
         #expect(!turns.contains { $0.role == .tool })
+    }
+
+    @Test
+    func rovoTransferBudgetsLatestDialogueAfterTrailingToolRows() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("rovo-tool-heavy.json")
+        let toolMessages = (0..<1_001)
+            .map { index in
+                #"{"role":"tool","content":"excluded-\#(index)"}"#
+            }
+            .joined(separator: ",\n")
+        try """
+        {
+          "messages": [
+            {"role":"user","content":"Rovo opening request"},
+            {"role":"assistant","content":"LATEST-ROVO-DIALOGUE"},
+            \(toolMessages)
+          ]
+        }
+        """.write(to: transcript, atomically: true, encoding: .utf8)
+
+        let turns = try await SessionTranscriptLoader.load(source: .init(
+            agent: .rovodev,
+            sessionId: "rovo-tool-heavy",
+            fileURL: transcript,
+            retention: .transferOpeningUserAndLatest(
+                turnLimit: 2,
+                textByteLimit: 32 * 1_024
+            )
+        ))
+
+        #expect(turns.map(\.text) == [
+            "Rovo opening request",
+            "LATEST-ROVO-DIALOGUE",
+        ])
+        #expect(!turns.contains { $0.role == .tool })
+    }
+
+    @Test
+    func jsonlTransferFailsClosedWhenOpeningExceedsByteBound() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("generic-history.jsonl")
+        let paddingText = String(repeating: "x", count: 1_024)
+        let padding = (0..<5_000).map { _ in
+            #"{"role":"system","content":"\#(paddingText)"}"#
+        }
+        try (
+            padding
+                + [
+                    #"{"role":"user","content":"OUT-OF-BOUND-OPENING"}"#,
+                    #"{"role":"assistant","content":"LATEST-GENERIC-DIALOGUE"}"#,
+                ]
+        ).joined(separator: "\n").write(
+            to: transcript,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        await #expect {
+            try await SessionTranscriptLoader.load(source: .init(
+                agent: .registered(RegisteredSessionAgent(id: "generic")),
+                sessionId: "generic-bounded-opening",
+                fileURL: transcript,
+                retention: .transferOpeningUserAndLatest(
+                    turnLimit: 1,
+                    textByteLimit: 32 * 1_024
+                )
+            ))
+        } throws: { error in
+            guard case SessionTranscriptLoadError.incompleteSource = error else {
+                return false
+            }
+            return true
+        }
     }
 
     @Test
