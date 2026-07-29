@@ -11,10 +11,10 @@
 #include <variant>
 #include <vector>
 
-#include "cmux/field.hpp"
+#include "cmux/raw/field.hpp"
 #include "cmux/json.hpp"
 
-namespace cmux {
+namespace cmux::raw {
 
 template <typename T, typename Enable = void>
 struct Codec;
@@ -257,4 +257,4 @@ struct Codec<std::variant<T...>> {
     }
 };
 
-}  // namespace cmux
+}  // namespace cmux::raw

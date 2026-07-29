@@ -28,6 +28,9 @@ struct Error {
     ErrorCode code = ErrorCode::protocol;
     std::string message;
     std::shared_ptr<const Json> response;
+    std::string protocol_code;
+    std::shared_ptr<const Json> details;
+    bool retryable = false;
 
     [[nodiscard]] std::string code_name() const;
 };
@@ -134,7 +137,10 @@ private:
 };
 
 inline Error make_error(ErrorCode code, std::string message) {
-    return Error{code, std::move(message), {}};
+    Error error;
+    error.code = code;
+    error.message = std::move(message);
+    return error;
 }
 
 }  // namespace cmux

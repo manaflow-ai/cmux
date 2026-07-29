@@ -18,7 +18,7 @@
 #include <variant>
 #include <vector>
 
-#include "cmux/attachment.hpp"
+#include "cmux/raw/client.hpp"
 
 namespace {
 
@@ -30,30 +30,30 @@ struct FakeState {
     bool closed = false;
 };
 
-class FakeTransport final : public cmux::Transport {
+class FakeTransport final : public cmux::raw::Transport {
 public:
     explicit FakeTransport(std::shared_ptr<FakeState> state)
         : state_(std::move(state)) {}
 
-    cmux::Result<void> send(std::string_view message, cmux::Timeout) override {
+    cmux::raw::Result<void> send(std::string_view message, cmux::raw::Timeout) override {
         std::lock_guard lock(state_->mutex);
         if (state_->closed) {
-            return cmux::make_error(cmux::ErrorCode::closed, "fake closed");
+            return cmux::raw::make_error(cmux::raw::ErrorCode::closed, "fake closed");
         }
         state_->outgoing.emplace_back(message);
         state_->changed.notify_all();
         return {};
     }
 
-    cmux::Result<std::string> receive(cmux::Timeout timeout) override {
+    cmux::raw::Result<std::string> receive(cmux::raw::Timeout timeout) override {
         std::unique_lock lock(state_->mutex);
         if (!state_->changed.wait_for(lock, timeout, [this] {
                 return state_->closed || !state_->incoming.empty();
             })) {
-            return cmux::make_error(cmux::ErrorCode::timeout, "fake timeout");
+            return cmux::raw::make_error(cmux::raw::ErrorCode::timeout, "fake timeout");
         }
         if (state_->closed) {
-            return cmux::make_error(cmux::ErrorCode::closed, "fake closed");
+            return cmux::raw::make_error(cmux::raw::ErrorCode::closed, "fake closed");
         }
         std::string message = std::move(state_->incoming.front());
         state_->incoming.pop_front();
@@ -70,9 +70,9 @@ private:
     std::shared_ptr<FakeState> state_;
 };
 
-cmux::TransportFactory fake_factory(const std::shared_ptr<FakeState>& state) {
-    return [state]() -> cmux::Result<std::unique_ptr<cmux::Transport>> {
-        return std::unique_ptr<cmux::Transport>(new FakeTransport(state));
+cmux::raw::TransportFactory fake_factory(const std::shared_ptr<FakeState>& state) {
+    return [state]() -> cmux::raw::Result<std::unique_ptr<cmux::raw::Transport>> {
+        return std::unique_ptr<cmux::raw::Transport>(new FakeTransport(state));
     };
 }
 
@@ -125,8 +125,8 @@ bool respond_to_basic_bootstrap(const std::shared_ptr<FakeState>& state) {
     return true;
 }
 
-cmux::ClientOptions attachment_options(const std::shared_ptr<FakeState>& state) {
-    cmux::ClientOptions options;
+cmux::raw::ClientOptions attachment_options(const std::shared_ptr<FakeState>& state) {
+    cmux::raw::ClientOptions options;
     options.timeout = std::chrono::seconds(2);
     options.stream_transport_factory = fake_factory(state);
     return options;
@@ -134,11 +134,11 @@ cmux::ClientOptions attachment_options(const std::shared_ptr<FakeState>& state) 
 
 }  // namespace
 
-static_assert(!std::is_copy_constructible_v<cmux::SurfaceAttachment>);
-static_assert(!std::is_copy_assignable_v<cmux::SurfaceAttachment>);
-static_assert(std::is_nothrow_move_constructible_v<cmux::SurfaceAttachment>);
-static_assert(std::is_nothrow_move_assignable_v<cmux::SurfaceAttachment>);
-static_assert(std::is_same_v<cmux::RenderAttachment, cmux::SurfaceAttachment>);
+static_assert(!std::is_copy_constructible_v<cmux::raw::SurfaceAttachment>);
+static_assert(!std::is_copy_assignable_v<cmux::raw::SurfaceAttachment>);
+static_assert(std::is_nothrow_move_constructible_v<cmux::raw::SurfaceAttachment>);
+static_assert(std::is_nothrow_move_assignable_v<cmux::raw::SurfaceAttachment>);
+static_assert(std::is_same_v<cmux::raw::RenderAttachment, cmux::raw::SurfaceAttachment>);
 
 TEST("render attachment selects self without diffing concurrent external clients") {
     auto state = std::make_shared<FakeState>();
@@ -162,29 +162,29 @@ TEST("render attachment selects self without diffing concurrent external clients
             });
     });
 
-    cmux::AttachSurfaceRequest request{.surface = cmux::Id{7}};
+    cmux::raw::AttachSurfaceRequest request{.surface = cmux::raw::Id{7}};
     auto opened =
-        cmux::open_render_attachment(request, attachment_options(state));
+        cmux::raw::open_render_attachment(request, attachment_options(state));
     server.join();
     if (!opened) {
         test::fail("opened", __FILE__, __LINE__, opened.error().message);
     }
     auto attachment = std::move(opened).value();
-    CHECK_EQ(attachment.surface(), cmux::Id{7});
+    CHECK_EQ(attachment.surface(), cmux::raw::Id{7});
     CHECK_EQ(attachment.client_id(), 44U);
 
     auto external = attachment.next(std::chrono::milliseconds(20));
     CHECK(external);
     CHECK_EQ(external.value().name(), std::string_view("client-attached"));
     const auto* attached =
-        std::get_if<cmux::ClientAttachedEvent>(&external.value().value);
+        std::get_if<cmux::raw::ClientAttachedEvent>(&external.value().value);
     CHECK(attached != nullptr);
     CHECK_EQ(attached->client, 1000U);
 
     const auto sent = outgoing(state);
     CHECK_EQ(sent.size(), 2U);
-    auto discover = cmux::Json::parse(sent[0]);
-    auto attach = cmux::Json::parse(sent[1]);
+    auto discover = cmux::raw::Json::parse(sent[0]);
+    auto attach = cmux::raw::Json::parse(sent[1]);
     CHECK(discover);
     CHECK(attach);
     CHECK_EQ(
@@ -201,7 +201,7 @@ TEST("render attachment selects self without diffing concurrent external clients
 TEST("render attachment routes sizing commands and preserves event order") {
     auto decoy_control = std::make_shared<FakeState>();
     auto attachment_state = std::make_shared<FakeState>();
-    cmux::ClientOptions options = attachment_options(attachment_state);
+    cmux::raw::ClientOptions options = attachment_options(attachment_state);
     options.transport_factory = fake_factory(decoy_control);
 
     std::jthread server([attachment_state] {
@@ -242,12 +242,12 @@ TEST("render attachment routes sizing commands and preserves event order") {
         enqueue(attachment_state, {R"({"id":5,"ok":true,"data":{}})"});
     });
 
-    cmux::AttachSurfaceRequest request{
+    cmux::raw::AttachSurfaceRequest request{
         .cols = std::uint16_t{100},
         .rows = std::uint16_t{30},
-        .surface = cmux::Id{7},
+        .surface = cmux::raw::Id{7},
     };
-    auto opened = cmux::RenderAttachment::connect(request, std::move(options));
+    auto opened = cmux::raw::RenderAttachment::connect(request, std::move(options));
     CHECK(opened);
     auto attachment = std::move(opened).value();
 
@@ -269,9 +269,9 @@ TEST("render attachment routes sizing commands and preserves event order") {
     CHECK(outgoing(decoy_control).empty());
     const auto sent = outgoing(attachment_state);
     CHECK_EQ(sent.size(), 5U);
-    auto resize = cmux::Json::parse(sent[2]);
-    auto sizing = cmux::Json::parse(sent[3]);
-    auto release = cmux::Json::parse(sent[4]);
+    auto resize = cmux::raw::Json::parse(sent[2]);
+    auto sizing = cmux::raw::Json::parse(sent[3]);
+    auto release = cmux::raw::Json::parse(sent[4]);
     CHECK(resize);
     CHECK(sizing);
     CHECK(release);
@@ -316,12 +316,12 @@ TEST("render attachment enforces its buffer bound before attach acknowledgement"
             });
     });
 
-    auto opened = cmux::open_render_attachment(
-        cmux::AttachSurfaceRequest{.surface = cmux::Id{7}},
+    auto opened = cmux::raw::open_render_attachment(
+        cmux::raw::AttachSurfaceRequest{.surface = cmux::raw::Id{7}},
         std::move(options));
     server.join();
     CHECK(!opened);
-    CHECK_EQ(opened.error().code, cmux::ErrorCode::protocol);
+    CHECK_EQ(opened.error().code, cmux::raw::ErrorCode::protocol);
     CHECK_EQ(
         opened.error().message,
         std::string("attachment event buffer limit exceeded"));
@@ -350,15 +350,15 @@ TEST("render attachment enforces its buffer bound during commands") {
             });
     });
 
-    auto opened = cmux::open_render_attachment(
-        cmux::AttachSurfaceRequest{.surface = cmux::Id{7}},
+    auto opened = cmux::raw::open_render_attachment(
+        cmux::raw::AttachSurfaceRequest{.surface = cmux::raw::Id{7}},
         std::move(options));
     CHECK(opened);
     auto attachment = std::move(opened).value();
     auto resized = attachment.resize(80, 24);
     server.join();
     CHECK(!resized);
-    CHECK_EQ(resized.error().code, cmux::ErrorCode::protocol);
+    CHECK_EQ(resized.error().code, cmux::raw::ErrorCode::protocol);
     CHECK(attachment.closed());
 
     auto buffered = attachment.next(std::chrono::milliseconds(20));
@@ -366,23 +366,23 @@ TEST("render attachment enforces its buffer bound during commands") {
     CHECK_EQ(buffered.value().name(), std::string_view("first"));
     auto overflow = attachment.next(std::chrono::milliseconds(20));
     CHECK(!overflow);
-    CHECK_EQ(overflow.error().code, cmux::ErrorCode::protocol);
+    CHECK_EQ(overflow.error().code, cmux::raw::ErrorCode::protocol);
 }
 
 TEST("render attachment close unblocks event and command waiters") {
     auto state = std::make_shared<FakeState>();
     std::jthread server([state] { (void)respond_to_basic_bootstrap(state); });
-    auto opened = cmux::open_render_attachment(
-        cmux::AttachSurfaceRequest{.surface = cmux::Id{7}},
+    auto opened = cmux::raw::open_render_attachment(
+        cmux::raw::AttachSurfaceRequest{.surface = cmux::raw::Id{7}},
         attachment_options(state));
     server.join();
     CHECK(opened);
     auto attachment = std::move(opened).value();
 
-    cmux::Result<cmux::Event> event =
-        cmux::make_error(cmux::ErrorCode::protocol, "not started");
-    cmux::Result<cmux::ResizeSurfaceResult> resized =
-        cmux::make_error(cmux::ErrorCode::protocol, "not started");
+    cmux::raw::Result<cmux::raw::Event> event =
+        cmux::raw::make_error(cmux::raw::ErrorCode::protocol, "not started");
+    cmux::raw::Result<cmux::raw::ResizeSurfaceResult> resized =
+        cmux::raw::make_error(cmux::raw::ErrorCode::protocol, "not started");
     std::promise<void> event_started;
     auto event_ready = event_started.get_future();
     std::thread event_waiter([&] {
@@ -399,6 +399,6 @@ TEST("render attachment close unblocks event and command waiters") {
     CHECK(attachment.closed());
     CHECK(!event);
     CHECK(!resized);
-    CHECK_EQ(event.error().code, cmux::ErrorCode::closed);
-    CHECK_EQ(resized.error().code, cmux::ErrorCode::closed);
+    CHECK_EQ(event.error().code, cmux::raw::ErrorCode::closed);
+    CHECK_EQ(resized.error().code, cmux::raw::ErrorCode::closed);
 }

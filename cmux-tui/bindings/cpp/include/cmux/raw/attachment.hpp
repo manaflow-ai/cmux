@@ -3,10 +3,10 @@
 #include <cstdint>
 #include <memory>
 
-#include "cmux/client_core.hpp"
-#include "cmux/generated/events.hpp"
+#include "cmux/raw/client_core.hpp"
+#include "cmux/raw/generated/events.hpp"
 
-namespace cmux {
+namespace cmux::raw {
 
 // A render stream and its size lease on one dedicated protocol connection.
 //
@@ -58,4 +58,4 @@ using RenderAttachment = SurfaceAttachment;
     ClientOptions options = {},
     RequestOptions request_options = {});
 
-}  // namespace cmux
+}  // namespace cmux::raw

@@ -9,10 +9,10 @@
 #include <string_view>
 
 #include "cmux/json.hpp"
-#include "cmux/stream.hpp"
+#include "cmux/raw/stream.hpp"
 #include "cmux/transport.hpp"
 
-namespace cmux {
+namespace cmux::raw {
 
 struct RequestOptions {
     std::optional<Timeout> timeout;
@@ -96,4 +96,4 @@ inline Result<Json> decode_as<Json>(const Json& value) {
 }
 
 }  // namespace detail
-}  // namespace cmux
+}  // namespace cmux::raw

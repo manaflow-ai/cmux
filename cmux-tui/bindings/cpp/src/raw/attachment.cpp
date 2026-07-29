@@ -1,4 +1,4 @@
-#include "cmux/attachment.hpp"
+#include "cmux/raw/attachment.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -13,7 +13,7 @@
 #include <thread>
 #include <utility>
 
-namespace cmux {
+namespace cmux::raw {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -620,4 +620,4 @@ Result<RenderAttachment> open_render_attachment(
         request, std::move(options), std::move(request_options));
 }
 
-}  // namespace cmux
+}  // namespace cmux::raw

@@ -12,7 +12,7 @@
 #include "cmux/json.hpp"
 #include "cmux/transport.hpp"
 
-namespace cmux {
+namespace cmux::raw {
 namespace detail {
 
 struct StreamState {
@@ -150,4 +150,4 @@ private:
 
 using JsonStream = Stream<Json>;
 
-}  // namespace cmux
+}  // namespace cmux::raw

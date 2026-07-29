@@ -1,4 +1,4 @@
-#include "cmux/client_core.hpp"
+#include "cmux/raw/client_core.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -6,9 +6,9 @@
 #include <utility>
 #include <vector>
 
-#include "cmux/generated/commands.hpp"
+#include "cmux/raw/generated/commands.hpp"
 
-namespace cmux {
+namespace cmux::raw {
 namespace detail {
 namespace {
 
@@ -475,4 +475,4 @@ const ClientOptions& ClientCore::options() const noexcept {
 }
 
 }  // namespace detail
-}  // namespace cmux
+}  // namespace cmux::raw

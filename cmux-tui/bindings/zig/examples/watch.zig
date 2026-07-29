@@ -9,50 +9,29 @@ pub fn main() !void {
     var client = try cmux.Client.connect(allocator, .{});
     defer client.deinit();
 
-    var identity = try cmux.protocol.identify(&client, .{});
-    defer identity.deinit();
-    std.debug.print(
-        "cmux {s}, session {s}, protocol {d}\n",
-        .{
-            identity.value.version,
-            identity.value.session,
-            identity.value.protocol,
-        },
-    );
-
-    // Streams use their own connection so closing one cancels only that reader.
-    var stream_client = try cmux.Client.connect(allocator, .{});
-    defer stream_client.deinit();
-    var stream = try cmux.protocol.subscribe(
-        &stream_client,
-        .{ .tree_events = .{ .value = .deltas } },
-    );
-    defer stream.deinit();
-
-    while (try cmux.protocol.nextEvent(&stream, allocator)) |decoded_value| {
-        var event = decoded_value;
-        defer event.deinit();
-        switch (event.value) {
-            .workspace_added => |added| std.debug.print(
-                "workspace added: {d}\n",
-                .{added.workspace},
-            ),
-            .workspace_closed => |closed| std.debug.print(
-                "workspace closed: {d}\n",
-                .{closed.workspace},
-            ),
-            .overflow => break,
-            .unknown => |unknown| std.debug.print(
-                "new event from a newer server: {s}\n",
-                .{unknown.name},
-            ),
-            else => {},
-        }
-    }
+    var machines = try client.machines();
+    defer machines.deinit();
+    std.debug.print("machine inventory: {f}\n", .{machines.value});
 }
 
-test "package consumer sees generated protocol inventory" {
-    try std.testing.expectEqual(@as(usize, 83), cmux.protocol.command_count);
-    try std.testing.expectEqual(@as(usize, 44), cmux.protocol.event_count);
-    try std.testing.expectEqual(@as(u16, 10), cmux.protocol.mux_protocol);
+test "package consumer imports handwritten root and generated raw module" {
+    const workspace = try cmux.WorkspaceId.parse(
+        "ws_0123456789abcdef0123456789abcdef",
+    );
+    var selector = cmux.Selector(cmux.WorkspaceId){ .name = "current" };
+    const encoded = try selector.formatAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(encoded);
+    try std.testing.expectEqualStrings("name:current", encoded);
+    try std.testing.expectEqualStrings(
+        "ws_0123456789abcdef0123456789abcdef",
+        workspace.slice(),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 83),
+        cmux.raw.protocol.command_count,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 44),
+        cmux.raw.protocol.event_count,
+    );
 }

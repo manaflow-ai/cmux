@@ -5,10 +5,10 @@
 #include <string_view>
 #include <variant>
 
-#include "cmux/generated/models.hpp"
-#include "cmux/stream.hpp"
+#include "cmux/raw/generated/models.hpp"
+#include "cmux/raw/stream.hpp"
 
-namespace cmux {
+namespace cmux::raw {
 
 struct UnknownEvent {
     std::string name;
@@ -46,4 +46,4 @@ struct EventMetadata {
 
 [[nodiscard]] std::span<const EventMetadata> event_metadata() noexcept;
 
-}  // namespace cmux
+}  // namespace cmux::raw

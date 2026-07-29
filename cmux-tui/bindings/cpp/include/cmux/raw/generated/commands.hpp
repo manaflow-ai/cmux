@@ -5,10 +5,10 @@
 #include <string_view>
 #include <utility>
 
-#include "cmux/client_core.hpp"
-#include "cmux/generated/events.hpp"
+#include "cmux/raw/client_core.hpp"
+#include "cmux/raw/generated/events.hpp"
 
-namespace cmux {
+namespace cmux::raw {
 
 struct CommandFieldRequirement {
     std::string_view name;
@@ -142,4 +142,4 @@ private:
     detail::ClientCore core_;
 };
 
-}  // namespace cmux
+}  // namespace cmux::raw

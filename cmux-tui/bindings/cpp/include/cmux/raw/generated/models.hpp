@@ -9,9 +9,9 @@
 #include <variant>
 #include <vector>
 
-#include "cmux/codec.hpp"
+#include "cmux/raw/codec.hpp"
 
-namespace cmux {
+namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
 inline constexpr std::string_view kProtocolIrSha256 = "2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96";
@@ -3210,4 +3210,4 @@ struct Codec<ClientAttachedEventTransport> {
     static Result<ClientAttachedEventTransport> decode(const Json& value);
 };
 
-}  // namespace cmux
+}  // namespace cmux::raw

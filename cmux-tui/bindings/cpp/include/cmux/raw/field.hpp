@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace cmux {
+namespace cmux::raw {
 
 // Represents a wire field with three distinct states: omitted, explicit null,
 // and a concrete value.
@@ -58,4 +58,4 @@ private:
     std::optional<T> value_;
 };
 
-}  // namespace cmux
+}  // namespace cmux::raw

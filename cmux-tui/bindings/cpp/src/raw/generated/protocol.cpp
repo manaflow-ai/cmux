@@ -1,10 +1,10 @@
 // Generated from cmux-tui/spec/sdk-schema.json. Do not edit.
-#include "cmux/generated/commands.hpp"
+#include "cmux/raw/generated/commands.hpp"
 
 #include <array>
 #include <utility>
 
-namespace cmux {
+namespace cmux::raw {
 
 Result<Json> Codec<AgentRecord>::encode(const AgentRecord& value) {
     (void)value;
@@ -14038,4 +14038,4 @@ Result<BrowserStream> Client::attach_browser(
     return open_event_stream("attach-surface", *parameters.value(), "detached", options);
 }
 
-}  // namespace cmux
+}  // namespace cmux::raw

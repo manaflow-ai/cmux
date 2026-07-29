@@ -10,12 +10,13 @@ option(CMUX_BUILD_TESTS "Build the cmux-tui C++ SDK tests" ${PROJECT_IS_TOP_LEVE
 find_package(Threads REQUIRED)
 
 add_library(cmux_tui_sdk
-    src/attachment.cpp
     src/base64.cpp
-    src/client_core.cpp
     src/json.cpp
+    src/resource.cpp
+    src/raw/attachment.cpp
+    src/raw/client_core.cpp
+    src/raw/generated/protocol.cpp
     src/unix_transport.cpp
-    src/generated/protocol.cpp
 )
 add_library(cmux::sdk ALIAS cmux_tui_sdk)
 
@@ -78,6 +79,7 @@ if(CMUX_BUILD_TESTS)
         tests/test_generated.cpp
         tests/test_json.cpp
         tests/test_macro_collision.cpp
+        tests/test_resource.cpp
         tests/test_unix_transport.cpp
     )
     target_link_libraries(cmux_cpp_tests PRIVATE cmux::sdk Threads::Threads)

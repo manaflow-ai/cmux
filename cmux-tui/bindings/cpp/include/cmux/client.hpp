@@ -1,6 +1,5 @@
 #pragma once
 
-// The protocol-facing Client and all typed methods are generated from the
-// checked-in protocol-v10 schema.
-#include "cmux/generated/commands.hpp"
-#include "cmux/attachment.hpp"
+// Handwritten resource facade. Generated protocol-v10 symbols are intentionally
+// available only from <cmux/raw/client.hpp>.
+#include "cmux/resource.hpp"
