@@ -14,6 +14,12 @@ struct OnboardingPageViewport<PageContent: View>: View {
     @State private var scrolledStage: OnboardingStage?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Places the initial stage's page in view on first layout. The
+    /// scrollPosition seed alone is dropped when onboarding resumes on a later
+    /// page (the track is positioned before the pages take their final size),
+    /// so the anchor expresses the same page as a content fraction instead.
+    private let initialAnchor: UnitPoint
+
     init(
         stage: OnboardingStage,
         onNavigate: @escaping (OnboardingStage) -> Void,
@@ -23,6 +29,11 @@ struct OnboardingPageViewport<PageContent: View>: View {
         self.onNavigate = onNavigate
         self.pageContent = pageContent
         _scrolledStage = State(initialValue: stage)
+        let lastIndex = max(OnboardingStage.allCases.count - 1, 1)
+        initialAnchor = UnitPoint(
+            x: CGFloat(stage.rawValue) / CGFloat(lastIndex),
+            y: 0.5
+        )
     }
 
     var body: some View {
@@ -49,6 +60,7 @@ struct OnboardingPageViewport<PageContent: View>: View {
             .scrollTargetBehavior(.paging)
             .scrollIndicators(.hidden)
             .scrollPosition(id: $scrolledStage)
+            .defaultScrollAnchor(initialAnchor)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: stage) { _, newStage in
