@@ -52,7 +52,12 @@ class ScanRule:
 # members, and directories literally named raw/internal are outside this
 # public-boundary pass and have their own conformance coverage.
 SCAN_RULES = (
-    ScanRule("docs", "docs", frozenset({".md"})),
+    ScanRule(
+        "public docs",
+        "docs",
+        frozenset({".md"}),
+        frozenset({"README.md", "getting-started.md"}),
+    ),
     ScanRule(
         "public specs",
         "spec",
@@ -62,10 +67,11 @@ SCAN_RULES = (
                 "README.md",
                 "bindings.md",
                 "cli.md",
-                "plugins.md",
-                "programmability.md",
                 "resource-api-v1.md",
                 "resource-api-v1.json",
+                "resource-operations-v1.md",
+                "resource-operations-v1.json",
+                "resource-operations-v1.schema.json",
             }
         ),
     ),
@@ -170,11 +176,94 @@ MARKDOWN_ID_TYPES = (
     ("Provider notice", "provider_notice"),
 )
 
+TRANSPORT_OPERATION_CLASSES = (
+    "read",
+    "mutation",
+    "stream_open",
+    "connection_control",
+)
+ALL_OPERATION_CLASSES = TRANSPORT_OPERATION_CLASSES + ("local",)
+STRUCTURAL_SCOPES = frozenset({"workspace", "screen", "pane", "tab"})
+# These operations can cross cmux's durable transaction boundary before their
+# outcome is journaled. A daemon restart must never guess that repeating one is
+# safe. Keep this set explicit so a future catalog edit cannot silently promise
+# exactly-once delivery for an effect that cmux cannot prove completed.
+EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
+    {
+        "browser.activate",
+        "browser.back",
+        "browser.close",
+        "browser.forward",
+        "browser.input.key",
+        "browser.input.mouse",
+        "browser.input.text",
+        "browser.input.wheel",
+        "browser.navigate",
+        "browser.reload",
+        "machine.connect_external",
+        "machine.create",
+        "machine.delete",
+        "machine.purge",
+        "machine.restore",
+        "notification.create",
+        "pane.close",
+        "pane.create",
+        "pane.run",
+        "pane.split",
+        "provider_action.invoke",
+        "provider_workspace.close",
+        "provider_workspace.mark",
+        "provider_workspace.rename",
+        "screen.close",
+        "screen.create",
+        "screen.layout.undo",
+        "session.open",
+        "session.reload_config",
+        "session.shutdown",
+        "session.window.title.clear",
+        "session.window.title.set",
+        "sidebar_view.ensure",
+        "sidebar_view.input",
+        "sidebar_view.reload",
+        "tab.close",
+        "tab.create_browser",
+        "tab.create_terminal",
+        "terminal.close",
+        "terminal.history.clear",
+        "terminal.input.focus",
+        "terminal.input.keys",
+        "terminal.input.mouse",
+        "terminal.input.write",
+        "workspace.close",
+        "workspace.create",
+        "workspace.layout.apply",
+        "workspace.run",
+    }
+)
+FORBIDDEN_PUBLIC_IDENTITY_FIELDS = frozenset(
+    {
+        "key",
+        "workspace_key",
+        "requested_key",
+        "slot",
+        "numeric_id",
+        "short_id",
+        "surface",
+        "surface_id",
+        "incarnation",
+    }
+)
+FORBIDDEN_PUBLIC_FIELDS = FORBIDDEN_PUBLIC_IDENTITY_FIELDS - {"key"}
+SNAPSHOT_TYPE_RE = re.compile(r"(?:Snapshot|CreatedPath|CreatedWorkspace|CreatedTerminal|CreatedBrowser)$")
+
 
 OPERATION_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$")
 IDENTIFIER_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 SHORT_ID_RE = re.compile(
     r"(?i)(?:\bshort[ _-]*ids?\b|\bids?[ _-]*short\b|\bnumeric[ _-]*ids?\b)"
+)
+PRIVATE_IDENTITY_RE = re.compile(
+    r"(?i)\b(?:workspace[_-]?key|requested[_-]?key|slot|numeric[_-]?id|short[_-]?id|incarnation)\b"
 )
 COLON_ID_RE = re.compile(
     r"(?i)\b(?:machine|session|workspace|ws|screen|pane|tab|terminal|term|browser|"
@@ -582,6 +671,113 @@ def _runtime_operations(path: Path, diagnostics: list[Diagnostic]) -> dict[str, 
     return operations
 
 
+def _runtime_operation_classes(
+    path: Path,
+    diagnostics: list[Diagnostic],
+) -> tuple[dict[str, str], dict[str, str]]:
+    text = _read(path, diagnostics)
+    if text is None:
+        return {}, {}
+
+    def enum_registry(enum_name: str) -> tuple[dict[str, str], int]:
+        enum = _balanced_body(
+            text,
+            re.compile(rf"\bpub\s+enum\s+{re.escape(enum_name)}\s*\{{"),
+        )
+        if enum is None:
+            diagnostics.append(
+                Diagnostic(path, 1, 1, "boundary.operation", f"missing {enum_name} enum")
+            )
+            return {}, 0
+        body, body_offset = enum
+        return {
+            match.group(2): match.group(1)
+            for match in re.finditer(
+                r"#\[serde\(rename\s*=\s*\"([^\"]+)\"\)\]\s*"
+                r"([A-Z][A-Za-z0-9]*)\s*(?:,|\{|\()",
+                body,
+            )
+        }, body_offset
+
+    variants, _ = enum_registry("ResourceOperation")
+    local_variants, _ = enum_registry("LocalOperation")
+    class_method = _balanced_body(
+        text,
+        re.compile(
+            r"\bimpl\s+ResourceOperation\s*\{.*?"
+            r"\bpub\s+const\s+fn\s+class\s*\(\s*self\s*\)\s*->\s*OperationClass\s*\{",
+            re.DOTALL,
+        ),
+    )
+    if class_method is None:
+        diagnostics.append(
+            Diagnostic(path, 1, 1, "boundary.operation-class", "missing ResourceOperation::class")
+        )
+        return {}, {operation: "local" for operation in local_variants.values()}
+
+    body, body_offset = class_method
+    classes: dict[str, str] = {}
+    assigned_variants: set[str] = set()
+    branch_re = re.compile(
+        r"(?:\A\s*|\belse\s+)if\s+matches!\(\s*self\s*,(?P<variants>.*?)\)"
+        r"\s*\{\s*OperationClass::(?P<class>[A-Z][A-Za-z0-9]*)",
+        re.DOTALL,
+    )
+    for branch in branch_re.finditer(body):
+        wire_class = re.sub(r"(?<!^)(?=[A-Z])", "_", branch.group("class")).lower()
+        if wire_class not in TRANSPORT_OPERATION_CLASSES:
+            diagnostics.append(
+                _diagnostic_at(
+                    path,
+                    text,
+                    body_offset + branch.start("class"),
+                    "boundary.operation-class",
+                    f"unsupported runtime operation class {wire_class!r}",
+                )
+            )
+            continue
+        for variant in re.findall(r"\bSelf::([A-Z][A-Za-z0-9]*)\b", branch.group("variants")):
+            operation = variants.get(variant)
+            if operation is None:
+                diagnostics.append(
+                    _diagnostic_at(
+                        path,
+                        text,
+                        body_offset + branch.start("variants"),
+                        "boundary.operation-class",
+                        f"class registry references unknown ResourceOperation::{variant}",
+                    )
+                )
+                continue
+            if variant in assigned_variants:
+                diagnostics.append(
+                    _diagnostic_at(
+                        path,
+                        text,
+                        body_offset + branch.start("variants"),
+                        "boundary.operation-class",
+                        f"ResourceOperation::{variant} has more than one class",
+                    )
+                )
+            assigned_variants.add(variant)
+            classes[operation] = wire_class
+
+    if "OperationClass::Mutation" not in body:
+        diagnostics.append(
+            _diagnostic_at(
+                path,
+                text,
+                body_offset,
+                "boundary.operation-class",
+                "ResourceOperation::class must have a Mutation fallback",
+            )
+        )
+    for variant, operation in variants.items():
+        if variant not in assigned_variants:
+            classes[operation] = "mutation"
+    return classes, {operation: "local" for operation in local_variants.values()}
+
+
 def _inventory_operations(path: Path, diagnostics: list[Diagnostic]) -> dict[str, int]:
     document = _json_object(path, diagnostics)
     if document is None:
@@ -648,28 +844,36 @@ def _inventory_operations(path: Path, diagnostics: list[Diagnostic]) -> dict[str
     return operations
 
 
-def _markdown_operations(path: Path, diagnostics: list[Diagnostic]) -> dict[str, int]:
+def _markdown_operation_classes(
+    path: Path,
+    diagnostics: list[Diagnostic],
+) -> tuple[dict[str, int], dict[str, str]]:
     text = _read(path, diagnostics)
     if text is None:
-        return {}
+        return {}, {}
     lines = text.splitlines(keepends=True)
     section = next(
-        (index for index, line in enumerate(lines) if line.strip() == "## Operations"),
+        (
+            index
+            for index, line in enumerate(lines)
+            if line.strip() in {"## Operations", "## Typed operation catalog"}
+        ),
         None,
     )
     if section is None:
         diagnostics.append(
             Diagnostic(path, 1, 1, "boundary.operation", "missing Operations section")
         )
-        return {}
+        return {}, {}
     operations: dict[str, int] = {}
+    classes: dict[str, str] = {}
     absolute_offset = sum(len(line) for line in lines[: section + 1])
     in_table = False
     for index in range(section + 1, len(lines)):
         line = lines[index]
         if line.startswith("## "):
             break
-        if line.strip() == "| Scope | Operations |":
+        if line.strip() == "| Class | Operations |":
             in_table = True
             absolute_offset += len(line)
             continue
@@ -686,7 +890,17 @@ def _markdown_operations(path: Path, diagnostics: list[Diagnostic]) -> dict[str,
             )
             absolute_offset += len(line)
             continue
-        scope = re.sub(r"[ -]+", "_", cells[0].lower())
+        operation_class = cells[0].strip("`")
+        if operation_class not in ALL_OPERATION_CLASSES:
+            diagnostics.append(
+                Diagnostic(
+                    path,
+                    index + 1,
+                    1,
+                    "boundary.operation-class",
+                    f"invalid Markdown operation class {operation_class!r}",
+                )
+            )
         tokens = list(re.finditer(r"`([^`]+)`", cells[1]))
         if not tokens:
             diagnostics.append(
@@ -694,10 +908,9 @@ def _markdown_operations(path: Path, diagnostics: list[Diagnostic]) -> dict[str,
             )
         token_cursor = 0
         for token_match in tokens:
-            token = token_match.group(1)
-            operation = token if token.startswith(f"{scope}.") else f"{scope}.{token}"
-            token_in_line = line.find(f"`{token}`", token_cursor) + 1
-            token_cursor = token_in_line + len(token) + 1
+            operation = token_match.group(1)
+            token_in_line = line.find(f"`{operation}`", token_cursor) + 1
+            token_cursor = token_in_line + len(operation) + 1
             offset = absolute_offset + max(token_in_line, 0)
             if not OPERATION_RE.fullmatch(operation):
                 diagnostics.append(
@@ -720,12 +933,1848 @@ def _markdown_operations(path: Path, diagnostics: list[Diagnostic]) -> dict[str,
                     )
                 )
             operations[operation] = offset
+            classes[operation] = operation_class
         absolute_offset += len(line)
     if not in_table:
         diagnostics.append(
             Diagnostic(path, section + 1, 1, "boundary.operation", "missing operation table")
         )
+    return operations, classes
+
+
+def _markdown_operations(path: Path, diagnostics: list[Diagnostic]) -> dict[str, int]:
+    operations, _ = _markdown_operation_classes(path, diagnostics)
     return operations
+
+
+def _catalog_diagnostic(
+    diagnostics: list[Diagnostic],
+    path: Path,
+    text: str,
+    message: str,
+    token: str = "",
+    code: str = "boundary.catalog",
+) -> None:
+    offset = text.find(json.dumps(token)) if token else 0
+    diagnostics.append(
+        _diagnostic_at(path, text, max(offset, 0), code, message)
+    )
+
+
+def _validate_catalog_type(
+    expression: object,
+    *,
+    context: str,
+    path: Path,
+    text: str,
+    diagnostics: list[Diagnostic],
+    type_names: set[str],
+    generics: Mapping[str, object],
+    scopes: set[str],
+    parameters: set[str] = frozenset(),
+) -> None:
+    def fail(message: str, token: str = "") -> None:
+        _catalog_diagnostic(diagnostics, path, text, f"{context}: {message}", token)
+
+    if not isinstance(expression, dict):
+        fail("type expression must be an object")
+        return
+    kind = expression.get("kind")
+    allowed_by_kind = {
+        "primitive": {"kind", "name", "minimum", "maximum", "min_length", "max_length"},
+        "resource_id": {"kind", "resource"},
+        "selector": {"kind", "resource"},
+        "ref": {"kind", "name"},
+        "parameter": {"kind", "name"},
+        "apply": {"kind", "name", "arguments"},
+        "enum": {"kind", "values"},
+        "array": {"kind", "items", "min_items", "max_items"},
+        "map": {"kind", "values"},
+        "nullable": {"kind", "value"},
+        "union": {
+            "kind",
+            "variants",
+            "discriminator",
+            "unknown_variant",
+            "constraints",
+        },
+        "object": {"kind", "fields", "extra", "constraints"},
+    }
+    if kind not in allowed_by_kind:
+        fail(f"unknown type kind {kind!r}")
+        return
+    unknown = set(expression) - allowed_by_kind[kind]
+    if unknown:
+        fail(f"unknown {kind} properties {sorted(unknown)!r}")
+
+    if kind == "primitive":
+        name = expression.get("name")
+        primitives = {
+            "string",
+            "boolean",
+            "uint16",
+            "uint32",
+            "uint64",
+            "int32",
+            "float64",
+            "decimal",
+            "base64",
+            "json",
+        }
+        if name not in primitives:
+            fail(f"unknown primitive {name!r}")
+        if name == "json" and context != "types.JsonValue":
+            fail("vague json is allowed only in the named JsonValue type")
+        if name == "uint64":
+            fail("uint64 wire values must use decimal strings")
+        return
+    if kind in {"resource_id", "selector"}:
+        resource = expression.get("resource")
+        if resource not in scopes:
+            fail(f"unknown resource scope {resource!r}", str(resource))
+        return
+    if kind == "ref":
+        name = expression.get("name")
+        if name not in type_names:
+            fail(f"unknown type reference {name!r}", str(name))
+        if name == "JsonValue":
+            allowed_json_contexts = {
+                "types.FrontendProjectionSnapshot.fields.projection",
+                "types.StreamError.fields.details",
+                "errors.operation.failed.details.fields.extra.values",
+                "operations.frontend_projection.put.params.fields.projection",
+                "operations.provider_action.invoke.result.arguments[0]",
+            }
+            is_explicit_extra = (
+                context.startswith("types.")
+                and context.endswith(".fields.extra.values")
+            )
+            if context not in allowed_json_contexts and not is_explicit_extra:
+                fail("JsonValue reference is not an audited extension-point exception", "JsonValue")
+        return
+    if kind == "parameter":
+        name = expression.get("name")
+        if name not in parameters:
+            fail(f"undeclared generic parameter {name!r}", str(name))
+        return
+    if kind == "apply":
+        name = expression.get("name")
+        generic = generics.get(name) if isinstance(name, str) else None
+        arguments = expression.get("arguments")
+        if not isinstance(generic, dict):
+            fail(f"unknown generic {name!r}", str(name))
+        if not isinstance(arguments, list) or not arguments:
+            fail("generic application needs nonempty arguments")
+            return
+        declared = generic.get("parameters") if isinstance(generic, dict) else None
+        if isinstance(declared, list) and len(arguments) != len(declared):
+            fail(f"{name!r} expects {len(declared)} arguments, found {len(arguments)}")
+        for index, argument in enumerate(arguments):
+            _validate_catalog_type(
+                argument,
+                context=f"{context}.arguments[{index}]",
+                path=path,
+                text=text,
+                diagnostics=diagnostics,
+                type_names=type_names,
+                generics=generics,
+                scopes=scopes,
+                parameters=parameters,
+            )
+        return
+    if kind == "enum":
+        values = expression.get("values")
+        if (
+            not isinstance(values, list)
+            or not values
+            or len({json.dumps(value, sort_keys=True) for value in values}) != len(values)
+        ):
+            fail("enum values must be nonempty and unique")
+        return
+    if kind == "array":
+        _validate_catalog_type(
+            expression.get("items"),
+            context=f"{context}.items",
+            path=path,
+            text=text,
+            diagnostics=diagnostics,
+            type_names=type_names,
+            generics=generics,
+            scopes=scopes,
+            parameters=parameters,
+        )
+        return
+    if kind == "map":
+        _validate_catalog_type(
+            expression.get("values"),
+            context=f"{context}.values",
+            path=path,
+            text=text,
+            diagnostics=diagnostics,
+            type_names=type_names,
+            generics=generics,
+            scopes=scopes,
+            parameters=parameters,
+        )
+        return
+    if kind == "nullable":
+        _validate_catalog_type(
+            expression.get("value"),
+            context=f"{context}.value",
+            path=path,
+            text=text,
+            diagnostics=diagnostics,
+            type_names=type_names,
+            generics=generics,
+            scopes=scopes,
+            parameters=parameters,
+        )
+        return
+    if kind == "union":
+        variants = expression.get("variants")
+        unknown_variant = expression.get("unknown_variant")
+        minimum_variants = 1 if unknown_variant is not None else 2
+        if not isinstance(variants, list) or len(variants) < minimum_variants:
+            fail(
+                "open union needs at least one known variant"
+                if unknown_variant is not None
+                else "union needs at least two variants"
+            )
+            return
+        if unknown_variant is not None:
+            expected_unknown = {
+                "sdk_name": "Unknown",
+                "when": "unrecognized_discriminator",
+                "preserve_discriminator": True,
+                "preserve_raw_object": True,
+            }
+            if unknown_variant != expected_unknown:
+                fail("unknown_variant must preserve its discriminator and complete raw object")
+            if not isinstance(expression.get("discriminator"), str):
+                fail("unknown_variant requires a discriminator")
+        for index, variant in enumerate(variants):
+            _validate_catalog_type(
+                variant,
+                context=f"{context}.variants[{index}]",
+                path=path,
+                text=text,
+                diagnostics=diagnostics,
+                type_names=type_names,
+                generics=generics,
+                scopes=scopes,
+                parameters=parameters,
+            )
+        return
+
+    fields = expression.get("fields")
+    if not isinstance(fields, dict):
+        fail("object fields must be an object")
+        return
+    if expression.get("extra") is not False:
+        fail("object extra must be false; add an explicit extra field when needed")
+    for field_name, field in fields.items():
+        field_context = f"{context}.fields.{field_name}"
+        if (
+            field_name in FORBIDDEN_PUBLIC_FIELDS
+            or (field_name == "key" and SNAPSHOT_TYPE_RE.search(context.removeprefix("types.")))
+        ):
+            fail(f"forbidden public identity field {field_name!r}", field_name)
+        if not isinstance(field, dict):
+            fail(f"{field_context} must be a field descriptor", field_name)
+            continue
+        unknown_field_keys = set(field) - {
+            "required",
+            "type",
+            "default",
+            "sensitive",
+            "description",
+        }
+        if unknown_field_keys:
+            fail(f"{field_context} has unknown properties {sorted(unknown_field_keys)!r}", field_name)
+        if not isinstance(field.get("required"), bool) or "type" not in field:
+            fail(f"{field_context} requires boolean required and a type", field_name)
+        if field.get("sensitive") is True and not isinstance(field.get("description"), str):
+            fail(f"{field_context} sensitive fields require a redaction description", field_name)
+        _validate_catalog_type(
+            field.get("type"),
+            context=field_context,
+            path=path,
+            text=text,
+            diagnostics=diagnostics,
+            type_names=type_names,
+            generics=generics,
+            scopes=scopes,
+            parameters=parameters,
+        )
+
+
+def _operation_catalog(
+    path: Path,
+    diagnostics: list[Diagnostic],
+) -> tuple[dict[str, int], dict[str, str], dict[str, str]]:
+    document = _json_object(path, diagnostics)
+    if document is None:
+        return {}, {}, {}
+    text = path.read_text(encoding="utf-8")
+
+    expected_root = {
+        "$schema",
+        "schema_version",
+        "protocol",
+        "resource_scopes",
+        "types",
+        "generics",
+        "errors",
+        "operations",
+        "local_operations",
+    }
+    if set(document) != expected_root:
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            f"top-level keys must be exactly {sorted(expected_root)!r}",
+        )
+    if document.get("$schema") != "./resource-operations-v1.schema.json":
+        _catalog_diagnostic(diagnostics, path, text, "catalog must reference its checked-in schema")
+    if document.get("schema_version") != 1 or document.get("protocol") != "cmux.protocol/1":
+        _catalog_diagnostic(diagnostics, path, text, "catalog version/protocol must be v1")
+
+    scope_values = document.get("resource_scopes")
+    if (
+        not isinstance(scope_values, list)
+        or not scope_values
+        or not all(isinstance(value, str) for value in scope_values)
+        or len(set(scope_values)) != len(scope_values)
+    ):
+        _catalog_diagnostic(diagnostics, path, text, "resource_scopes must be unique strings")
+        scopes: set[str] = set()
+    else:
+        scopes = set(scope_values)
+
+    types = document.get("types")
+    generics = document.get("generics")
+    errors = document.get("errors")
+    operations = document.get("operations")
+    local_operations = document.get("local_operations")
+    if not isinstance(types, dict) or not types:
+        _catalog_diagnostic(diagnostics, path, text, "types must be a nonempty object")
+        types = {}
+    if not isinstance(generics, dict) or not generics:
+        _catalog_diagnostic(diagnostics, path, text, "generics must be a nonempty object")
+        generics = {}
+    if not isinstance(errors, dict) or not errors:
+        _catalog_diagnostic(diagnostics, path, text, "errors must be a nonempty object")
+        errors = {}
+    if not isinstance(operations, dict) or not operations:
+        _catalog_diagnostic(diagnostics, path, text, "operations must be a nonempty object")
+        operations = {}
+    if not isinstance(local_operations, dict) or not local_operations:
+        _catalog_diagnostic(diagnostics, path, text, "local_operations must be a nonempty object")
+        local_operations = {}
+
+    type_names = set(types)
+    for name, expression in types.items():
+        _validate_catalog_type(
+            expression,
+            context=f"types.{name}",
+            path=path,
+            text=text,
+            diagnostics=diagnostics,
+            type_names=type_names,
+            generics=generics,
+            scopes=scopes,
+        )
+    expected_unknown_variant = {
+        "sdk_name": "Unknown",
+        "when": "unrecognized_discriminator",
+        "preserve_discriminator": True,
+        "preserve_raw_object": True,
+    }
+    open_union_types = (
+        "SessionEventItem",
+        "TerminalAttachItem",
+        "BrowserAttachItem",
+        "SidebarAttachItem",
+        "ProviderNoticeItem",
+        "ResourceChange",
+    )
+    for name in open_union_types:
+        expression = types.get(name)
+        if expression is None:
+            continue
+        variants = expression.get("variants") if isinstance(expression, dict) else None
+        constraints = expression.get("constraints") if isinstance(expression, dict) else None
+        if (
+            not isinstance(expression, dict)
+            or expression.get("kind") != "union"
+            or expression.get("discriminator") != "kind"
+            or expression.get("unknown_variant") != expected_unknown_variant
+            or not isinstance(constraints, list)
+            or not any("malformed" in value and "never Unknown" in value for value in constraints)
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{name} must preserve unknown discriminators without accepting malformed known variants",
+                name,
+            )
+            continue
+        known_discriminators: set[object] = set()
+        for variant in variants if isinstance(variants, list) else []:
+            referenced = (
+                types.get(variant.get("name"))
+                if isinstance(variant, dict) and variant.get("kind") == "ref"
+                else None
+            )
+            discriminator_field = (
+                referenced.get("fields", {}).get("kind")
+                if isinstance(referenced, dict)
+                else None
+            )
+            values = (
+                discriminator_field.get("type", {}).get("values")
+                if isinstance(discriminator_field, dict)
+                else None
+            )
+            if (
+                not isinstance(referenced, dict)
+                or referenced.get("kind") != "object"
+                or not isinstance(discriminator_field, dict)
+                or discriminator_field.get("required") is not True
+                or not isinstance(values, list)
+                or len(values) != 1
+                or values[0] in known_discriminators
+            ):
+                _catalog_diagnostic(
+                    diagnostics,
+                    path,
+                    text,
+                    f"{name} known variants need unique required literal kind fields",
+                    name,
+                )
+                break
+            known_discriminators.add(values[0])
+    for name, generic in generics.items():
+        if not isinstance(generic, dict) or set(generic) != {"parameters", "body"}:
+            _catalog_diagnostic(
+                diagnostics, path, text, f"generics.{name} needs parameters and body", name
+            )
+            continue
+        parameters = generic.get("parameters")
+        if (
+            not isinstance(parameters, list)
+            or not parameters
+            or not all(isinstance(value, str) for value in parameters)
+            or len(set(parameters)) != len(parameters)
+        ):
+            _catalog_diagnostic(
+                diagnostics, path, text, f"generics.{name}.parameters must be unique strings", name
+            )
+            parameters = []
+        _validate_catalog_type(
+            generic.get("body"),
+            context=f"generics.{name}.body",
+            path=path,
+            text=text,
+            diagnostics=diagnostics,
+            type_names=type_names,
+            generics=generics,
+            scopes=scopes,
+            parameters=set(parameters),
+        )
+    for code, descriptor in errors.items():
+        if not OPERATION_RE.fullmatch(code):
+            _catalog_diagnostic(diagnostics, path, text, f"invalid error code {code!r}", code)
+        if not isinstance(descriptor, dict) or set(descriptor) != {"retryable", "details"}:
+            _catalog_diagnostic(
+                diagnostics, path, text, f"errors.{code} needs retryable and details", code
+            )
+            continue
+        if not isinstance(descriptor.get("retryable"), bool):
+            _catalog_diagnostic(
+                diagnostics, path, text, f"errors.{code}.retryable must be boolean", code
+            )
+        _validate_catalog_type(
+            descriptor.get("details"),
+            context=f"errors.{code}.details",
+            path=path,
+            text=text,
+            diagnostics=diagnostics,
+            type_names=type_names,
+            generics=generics,
+            scopes=scopes,
+        )
+
+    def validate_params(operation: str, descriptor: Mapping[str, object]) -> None:
+        value = descriptor.get("params")
+        if not isinstance(value, dict):
+            _catalog_diagnostic(
+                diagnostics, path, text, f"{operation}.params must be an object", operation
+            )
+            return
+        allowed = {"selectors", "fields", "extra", "constraints", "one_of"}
+        if set(value) - allowed or not {"selectors", "fields", "extra"} <= set(value):
+            _catalog_diagnostic(
+                diagnostics, path, text, f"{operation}.params has a schema hole", operation
+            )
+        if value.get("extra") is not False:
+            _catalog_diagnostic(
+                diagnostics, path, text, f"{operation}.params.extra must be false", operation
+            )
+        selector_map = value.get("selectors")
+        if not isinstance(selector_map, dict):
+            _catalog_diagnostic(
+                diagnostics, path, text, f"{operation}.params.selectors must be an object", operation
+            )
+            selector_map = {}
+        for scope, presence in selector_map.items():
+            if scope not in scopes or presence not in {"required", "optional"}:
+                _catalog_diagnostic(
+                    diagnostics,
+                    path,
+                    text,
+                    f"{operation} has invalid selector {scope!r}: {presence!r}",
+                    operation,
+                )
+        for ancestor in descriptor.get("ancestors", []):
+            expected_presence = "optional" if ancestor in STRUCTURAL_SCOPES else "required"
+            if selector_map.get(ancestor) != expected_presence:
+                _catalog_diagnostic(
+                    diagnostics,
+                    path,
+                    text,
+                    f"{operation} ancestor selector {ancestor!r} must be {expected_presence}",
+                    operation,
+                )
+        target = descriptor.get("target")
+        if target in selector_map and selector_map.get(target) != "required":
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} target selector {target!r} must be required",
+                operation,
+            )
+        fields = value.get("fields")
+        synthetic = {"kind": "object", "fields": fields, "extra": False}
+        _validate_catalog_type(
+            synthetic,
+            context=f"operations.{operation}.params",
+            path=path,
+            text=text,
+            diagnostics=diagnostics,
+            type_names=type_names,
+            generics=generics,
+            scopes=scopes,
+        )
+        one_of = value.get("one_of")
+        if one_of is not None:
+            if not isinstance(one_of, list) or len(one_of) < 2:
+                _catalog_diagnostic(
+                    diagnostics, path, text, f"{operation}.params.one_of needs variants", operation
+                )
+            else:
+                field_names = set(fields) if isinstance(fields, dict) else set()
+                for variant in one_of:
+                    if not isinstance(variant, dict) or set(variant) != {"required", "forbidden"}:
+                        _catalog_diagnostic(
+                            diagnostics,
+                            path,
+                            text,
+                            f"{operation}.params.one_of variants need required/forbidden",
+                            operation,
+                        )
+                        continue
+                    names = set(variant.get("required", [])) | set(variant.get("forbidden", []))
+                    if not names <= field_names:
+                        _catalog_diagnostic(
+                            diagnostics,
+                            path,
+                            text,
+                            f"{operation}.params.one_of references unknown fields {sorted(names - field_names)!r}",
+                            operation,
+                        )
+
+    operation_offsets: dict[str, int] = {}
+    classes: dict[str, str] = {}
+    if list(operations) != sorted(operations):
+        _catalog_diagnostic(diagnostics, path, text, "operations must be lexicographically sorted")
+    for operation, descriptor in operations.items():
+        offset = text.find(json.dumps(operation))
+        operation_offsets[operation] = max(offset, 0) + 1
+        if not OPERATION_RE.fullmatch(operation):
+            _catalog_diagnostic(diagnostics, path, text, f"invalid operation {operation!r}", operation)
+        if not isinstance(descriptor, dict):
+            _catalog_diagnostic(diagnostics, path, text, f"{operation} descriptor must be an object")
+            continue
+        required = {"class", "idempotency", "target", "ancestors", "params", "result", "errors"}
+        allowed = required | {"stream", "constraints"}
+        if not required <= set(descriptor) or set(descriptor) - allowed:
+            _catalog_diagnostic(
+                diagnostics, path, text, f"{operation} descriptor has a schema hole", operation
+            )
+        operation_class = descriptor.get("class")
+        classes[operation] = str(operation_class)
+        if operation_class not in TRANSPORT_OPERATION_CLASSES:
+            _catalog_diagnostic(
+                diagnostics, path, text, f"{operation} has invalid class {operation_class!r}", operation
+            )
+        expected_idempotency = "required" if operation_class == "mutation" else "forbidden"
+        if descriptor.get("idempotency") != expected_idempotency:
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} {operation_class} idempotency must be {expected_idempotency}",
+                operation,
+            )
+        target = descriptor.get("target")
+        ancestors = descriptor.get("ancestors")
+        if target not in scopes:
+            _catalog_diagnostic(diagnostics, path, text, f"{operation} has invalid target {target!r}")
+        if (
+            not isinstance(ancestors, list)
+            or len(set(ancestors)) != len(ancestors)
+            or any(ancestor not in scopes for ancestor in ancestors)
+        ):
+            _catalog_diagnostic(
+                diagnostics, path, text, f"{operation} has invalid ancestor scopes", operation
+            )
+        validate_params(operation, descriptor)
+        _validate_catalog_type(
+            descriptor.get("result"),
+            context=f"operations.{operation}.result",
+            path=path,
+            text=text,
+            diagnostics=diagnostics,
+            type_names=type_names,
+            generics=generics,
+            scopes=scopes,
+        )
+        result = descriptor.get("result")
+        is_mutation_result = (
+            isinstance(result, dict)
+            and result.get("kind") == "apply"
+            and result.get("name") == "MutationResult"
+        )
+        if (operation_class == "mutation") != is_mutation_result:
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} mutation result wrapping does not match its class",
+                operation,
+            )
+        stream = descriptor.get("stream")
+        if operation_class == "stream_open":
+            if not isinstance(stream, dict) or not {"item", "end"} <= set(stream):
+                _catalog_diagnostic(
+                    diagnostics, path, text, f"{operation} stream schema is incomplete", operation
+                )
+            else:
+                for member in ("item", "end"):
+                    _validate_catalog_type(
+                        stream.get(member),
+                        context=f"operations.{operation}.stream.{member}",
+                        path=path,
+                        text=text,
+                        diagnostics=diagnostics,
+                        type_names=type_names,
+                        generics=generics,
+                        scopes=scopes,
+                    )
+                fields = descriptor.get("params", {}).get("fields", {})
+                stream_field = fields.get("stream_id") if isinstance(fields, dict) else None
+                if (
+                    not isinstance(stream_field, dict)
+                    or stream_field.get("required") is not True
+                    or stream_field.get("type") != {"kind": "resource_id", "resource": "stream"}
+                ):
+                    _catalog_diagnostic(
+                        diagnostics,
+                        path,
+                        text,
+                        f"{operation} must require a typed stream_id",
+                        operation,
+                    )
+        elif stream is not None:
+            _catalog_diagnostic(
+                diagnostics, path, text, f"{operation} non-stream operation has stream schema", operation
+            )
+        error_codes = descriptor.get("errors")
+        if (
+            not isinstance(error_codes, list)
+            or not error_codes
+            or len(set(error_codes)) != len(error_codes)
+            or any(code not in errors for code in error_codes)
+        ):
+            _catalog_diagnostic(
+                diagnostics, path, text, f"{operation} has invalid structured errors", operation
+            )
+        selector_map = descriptor.get("params", {}).get("selectors", {})
+        if (
+            isinstance(selector_map, dict)
+            and any(
+                scope in STRUCTURAL_SCOPES and presence == "optional"
+                for scope, presence in selector_map.items()
+            )
+            and isinstance(error_codes, list)
+            and "selector.wrong_parent" not in error_codes
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} optional structural scopes require selector.wrong_parent",
+                operation,
+            )
+
+    local_classes: dict[str, str] = {}
+    if list(local_operations) != sorted(local_operations):
+        _catalog_diagnostic(
+            diagnostics, path, text, "local_operations must be lexicographically sorted"
+        )
+    for operation, descriptor in local_operations.items():
+        local_classes[operation] = "local"
+        if (
+            not isinstance(descriptor, dict)
+            or descriptor.get("class") != "local"
+            or descriptor.get("idempotency") != "forbidden"
+            or descriptor.get("target") != "sidebar_plugin"
+            or descriptor.get("ancestors") != []
+            or "stream" in descriptor
+        ):
+            _catalog_diagnostic(
+                diagnostics, path, text, f"{operation} is not a valid LocalOperation", operation
+            )
+            continue
+        validate_params(operation, descriptor)
+        _validate_catalog_type(
+            descriptor.get("result"),
+            context=f"local_operations.{operation}.result",
+            path=path,
+            text=text,
+            diagnostics=diagnostics,
+            type_names=type_names,
+            generics=generics,
+            scopes=scopes,
+        )
+
+    mutation_result = generics.get("MutationResult")
+    if mutation_result is not None:
+        expected_mutation_result = {
+            "parameters": ["T"],
+            "body": {
+                "kind": "object",
+                "fields": {
+                    "value": {
+                        "required": True,
+                        "type": {"kind": "parameter", "name": "T"},
+                    },
+                    "generation": {
+                        "required": True,
+                        "type": {
+                            "kind": "primitive",
+                            "name": "string",
+                            "min_length": 1,
+                            "max_length": 128,
+                        },
+                    },
+                    "revision": {
+                        "required": True,
+                        "type": {"kind": "primitive", "name": "decimal"},
+                    },
+                    "replayed": {
+                        "required": True,
+                        "type": {"kind": "primitive", "name": "boolean"},
+                    },
+                },
+                "extra": False,
+            },
+        }
+        if mutation_result != expected_mutation_result or "MutationReceipt" in types:
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "MutationResult must be flat value/generation/revision/replayed without a receipt",
+                "MutationResult",
+            )
+
+    command_spec = types.get("CommandSpec")
+    if isinstance(command_spec, dict):
+        variants = command_spec.get("variants", [])
+        argv_type = (
+            variants[0].get("fields", {}).get("argv", {}).get("type")
+            if isinstance(variants, list) and variants and isinstance(variants[0], dict)
+            else None
+        )
+        command_constraints = command_spec.get("constraints", [])
+        if (
+            argv_type
+            != {
+                "kind": "array",
+                "items": {"kind": "primitive", "name": "string"},
+                "min_items": 1,
+            }
+            or not any(
+                "argv[0] is non-empty" in value and "including empty" in value
+                for value in command_constraints
+            )
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "CommandSpec must allow empty later argv values while requiring nonempty argv[0]",
+                "CommandSpec",
+            )
+
+    plugin_install = local_operations.get("sidebar_plugin.install")
+    if isinstance(plugin_install, dict):
+        plugin_name = plugin_install.get("params", {}).get("fields", {}).get("name")
+        if (
+            not isinstance(plugin_name, dict)
+            or plugin_name.get("type")
+            != {"kind": "primitive", "name": "string", "min_length": 1}
+            or "[a-z0-9-_]+" not in plugin_name.get("description", "")
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "sidebar plugin install name must be a nonempty [a-z0-9-_]+ filesystem slug",
+                "sidebar_plugin.install",
+            )
+
+    for operation in ("workspace.run", "pane.run"):
+        if operation not in operations:
+            continue
+        descriptor = operations.get(operation)
+        params_value = descriptor.get("params") if isinstance(descriptor, dict) else None
+        fields = params_value.get("fields") if isinstance(params_value, dict) else None
+        one_of = params_value.get("one_of") if isinstance(params_value, dict) else None
+        expected_one_of = [
+            {"required": ["argv"], "forbidden": ["shell"]},
+            {"required": ["shell"], "forbidden": ["argv"]},
+        ]
+        if not isinstance(fields, dict) or one_of != expected_one_of:
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} must model exact argv/shell one-of",
+                operation,
+            )
+        else:
+            argv = fields.get("argv", {}).get("type")
+            shell = fields.get("shell", {}).get("type")
+            if (
+                not isinstance(argv, dict)
+                or argv.get("kind") != "array"
+                or argv.get("min_items") != 1
+                or argv.get("items") != {"kind": "primitive", "name": "string"}
+                or shell != {"kind": "primitive", "name": "string", "min_length": 1}
+                or not any(
+                    "argv[0] is non-empty" in value and "including empty" in value
+                    for value in params_value.get("constraints", [])
+                )
+            ):
+                _catalog_diagnostic(
+                    diagnostics,
+                    path,
+                    text,
+                    f"{operation} argv/shell types are not exact",
+                    operation,
+                )
+
+    workspace_create = operations.get("workspace.create")
+    if isinstance(workspace_create, dict):
+        create_fields = workspace_create.get("params", {}).get("fields")
+        expected_initial_content = {
+            "kind": "enum",
+            "values": ["terminal", "empty"],
+        }
+        if (
+            not isinstance(create_fields, dict)
+            or set(create_fields) != {"name", "initial_content"}
+            or create_fields.get("name", {}).get("required") is not False
+            or create_fields.get("name", {}).get("type")
+            != {"kind": "primitive", "name": "string"}
+            or create_fields.get("initial_content", {}).get("required") is not True
+            or create_fields.get("initial_content", {}).get("type") != expected_initial_content
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "workspace.create params must be exactly optional name plus required initial_content",
+                "workspace.create",
+            )
+
+    machine_create = operations.get("machine.create")
+    if isinstance(machine_create, dict) and (
+        machine_create.get("ancestors") != ["provider_scope"]
+        or machine_create.get("params", {}).get("selectors")
+        != {"provider_scope": "required"}
+        or machine_create.get("params", {}).get("fields") != {}
+    ):
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "machine.create must select only provider_scope and carry no transport credentials",
+            "machine.create",
+        )
+    connect_external = operations.get("machine.connect_external")
+    if isinstance(connect_external, dict):
+        connect_params = connect_external.get("params", {})
+        specifier = connect_params.get("fields", {}).get("specifier")
+        expected_specifier_type = {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512,
+        }
+        if (
+            connect_external.get("ancestors") != ["provider_scope"]
+            or connect_params.get("selectors") != {"provider_scope": "required"}
+            or set(connect_params.get("fields", {})) != {"specifier"}
+            or not isinstance(specifier, dict)
+            or specifier.get("required") is not True
+            or specifier.get("type") != expected_specifier_type
+            or specifier.get("sensitive") is not True
+            or not any(
+                "no control characters" in constraint
+                for constraint in connect_params.get("constraints", [])
+            )
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "machine.connect_external must select provider_scope and require one sensitive bounded specifier",
+                "machine.connect_external",
+            )
+
+    required_sensitive_paths = (
+        ("types", "RendererGrantResult", "fields", "token"),
+        ("types", "PairingRequestSnapshot", "fields", "code"),
+        ("operations", "machine.connect_external", "params", "fields", "specifier"),
+    )
+    for parts in required_sensitive_paths:
+        owner = document.get(parts[0])
+        if not isinstance(owner, dict) or parts[1] not in owner:
+            continue
+        value: object = document
+        for part in parts:
+            value = value.get(part) if isinstance(value, dict) else None
+        if not isinstance(value, dict) or value.get("sensitive") is not True:
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{'.'.join(parts)} must be sensitive",
+                parts[-1],
+            )
+
+    client_name = (
+        operations.get("client.metadata.update", {})
+        .get("params", {})
+        .get("fields", {})
+        .get("name")
+    )
+    expected_three_state = {
+        "kind": "nullable",
+        "value": {"kind": "primitive", "name": "string"},
+    }
+    if "client.metadata.update" in operations and (
+        not isinstance(client_name, dict)
+        or client_name.get("required") is not False
+        or client_name.get("type") != expected_three_state
+    ):
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "client.metadata.update name must encode omitted/string/null distinctly",
+            "client.metadata.update",
+        )
+    for operation in (
+        "machine.rename",
+        "workspace.rename",
+        "provider_workspace.rename",
+    ):
+        if operation not in operations:
+            continue
+        name_field = (
+            operations.get(operation, {}).get("params", {}).get("fields", {}).get("name")
+        )
+        if (
+            not isinstance(name_field, dict)
+            or name_field.get("required") is not True
+            or name_field.get("type") != {"kind": "primitive", "name": "string"}
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} name must be a required unrestricted string",
+                operation,
+            )
+    nullable_name = {
+        "kind": "nullable",
+        "value": {"kind": "primitive", "name": "string"},
+    }
+    for operation in ("screen.rename", "pane.rename", "tab.rename"):
+        if operation not in operations:
+            continue
+        name_field = (
+            operations.get(operation, {}).get("params", {}).get("fields", {}).get("name")
+        )
+        if (
+            not isinstance(name_field, dict)
+            or name_field.get("required") is not True
+            or name_field.get("type") != nullable_name
+            or "null clears" not in name_field.get("description", "")
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} name must distinguish null clear from exact strings",
+                operation,
+            )
+    for type_name in ("ScreenSnapshot", "PaneSnapshot", "TabSnapshot", "ClientSnapshot"):
+        if type_name not in types:
+            continue
+        name_field = types.get(type_name, {}).get("fields", {}).get("name")
+        if (
+            not isinstance(name_field, dict)
+            or name_field.get("required") is not True
+            or name_field.get("type") != nullable_name
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{type_name}.name must be a required nullable string field",
+                type_name,
+            )
+    expected_agent_state = {
+        "kind": "enum",
+        "values": ["working", "blocked", "idle", "done", "unknown"],
+    }
+    if "agent.list" in operations and types.get("AgentState") != expected_agent_state:
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "AgentState must match the runtime working|blocked|idle|done|unknown set",
+            "AgentState",
+        )
+    agent_state_ref = {"kind": "ref", "name": "AgentState"}
+    agent_state_uses = (
+        types.get("AgentSnapshot", {}).get("fields", {}).get("state", {}).get("type"),
+        operations.get("agent.list", {})
+        .get("params", {})
+        .get("fields", {})
+        .get("state", {})
+        .get("type"),
+        operations.get("agent.report", {})
+        .get("params", {})
+        .get("fields", {})
+        .get("state", {})
+        .get("type"),
+    )
+    if "agent.list" in operations and any(value != agent_state_ref for value in agent_state_uses):
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "agent snapshot, report, and list filter must reference AgentState",
+            "AgentState",
+        )
+
+    expected_notification_level = {
+        "kind": "enum",
+        "values": ["info", "warning", "error"],
+    }
+    notification_level_ref = {"kind": "ref", "name": "NotificationLevel"}
+    if (
+        "notification.create" in operations
+        and types.get("NotificationLevel") != expected_notification_level
+    ):
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "NotificationLevel must match the runtime info|warning|error set",
+            "NotificationLevel",
+        )
+    notification_uses = (
+        types.get("NotificationSnapshot", {}).get("fields", {}).get("level", {}).get("type"),
+        operations.get("notification.create", {})
+        .get("params", {})
+        .get("fields", {})
+        .get("level", {})
+        .get("type"),
+    )
+    if "notification.create" in operations and any(
+        value != notification_level_ref for value in notification_uses
+    ):
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "notification snapshot and create must reference NotificationLevel",
+            "NotificationLevel",
+        )
+
+    browser_snapshot = types.get("BrowserSnapshot")
+    if isinstance(browser_snapshot, dict):
+        browser_fields = browser_snapshot.get("fields", {})
+        expected_browser_fields = {
+            "id",
+            "tab_id",
+            "url",
+            "title",
+            "loading",
+            "source",
+            "status",
+            "error",
+            "frames_stalled",
+            "size",
+            "extra",
+        }
+        browser_constraints = browser_snapshot.get("constraints", [])
+        if (
+            set(browser_fields) != expected_browser_fields
+            or types.get("BrowserSource")
+            != {"kind": "enum", "values": ["external", "launched"]}
+            or types.get("BrowserStatus")
+            != {"kind": "enum", "values": ["starting", "live", "failed"]}
+            or browser_fields.get("source", {}).get("type")
+            != {"kind": "ref", "name": "BrowserSource"}
+            or browser_fields.get("status", {}).get("type")
+            != {"kind": "ref", "name": "BrowserStatus"}
+            or browser_fields.get("error", {}).get("type")
+            != {
+                "kind": "nullable",
+                "value": {"kind": "primitive", "name": "string"},
+            }
+            or browser_fields.get("frames_stalled", {}).get("type")
+            != {"kind": "primitive", "name": "boolean"}
+            or browser_fields.get("size", {}).get("type")
+            != {"kind": "ref", "name": "Size"}
+            or not any("target IDs" in value and "transport secrets" in value for value in browser_constraints)
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "BrowserSnapshot must expose only safe cached browser state and no CDP identity or secrets",
+                "BrowserSnapshot",
+            )
+
+    nullable_string = {
+        "kind": "nullable",
+        "value": {"kind": "primitive", "name": "string"},
+    }
+    client_snapshot = types.get("ClientSnapshot")
+    if isinstance(client_snapshot, dict):
+        client_fields = client_snapshot.get("fields", {})
+        size_fields = types.get("ClientTerminalSize", {}).get("fields", {})
+        if (
+            client_fields.get("client_kind", {}).get("required") is not True
+            or client_fields.get("client_kind", {}).get("type") != nullable_string
+            or client_fields.get("transport", {}).get("type")
+            != {"kind": "ref", "name": "ClientTransport"}
+            or types.get("ClientTransport")
+            != {"kind": "enum", "values": ["unix", "websocket"]}
+            or client_fields.get("connected_seconds", {}).get("type")
+            != {"kind": "primitive", "name": "decimal"}
+            or client_fields.get("attached_terminal_ids", {}).get("type", {}).get("items")
+            != {"kind": "resource_id", "resource": "terminal"}
+            or client_fields.get("sizes", {}).get("type", {}).get("items")
+            != {"kind": "ref", "name": "ClientTerminalSize"}
+            or client_fields.get("self", {}).get("type")
+            != {"kind": "primitive", "name": "boolean"}
+            or "sizing_terminal_id" in client_fields
+            or set(size_fields) != {"terminal_id", "cols", "rows", "participating"}
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "ClientSnapshot must preserve per-terminal attachment, size, participation, transport, and self metadata",
+                "ClientSnapshot",
+            )
+
+    if "AgentSnapshot" in types:
+        agent_fields = types.get("AgentSnapshot", {}).get("fields", {})
+        source_values = agent_fields.get("source", {}).get("type", {}).get("values")
+        report_source_values = (
+            operations.get("agent.report", {})
+            .get("params", {})
+            .get("fields", {})
+            .get("source", {})
+            .get("type", {})
+            .get("values")
+        )
+        if (
+            agent_fields.get("updated_at_ms", {}).get("type")
+            != {"kind": "primitive", "name": "decimal"}
+            or agent_fields.get("source_session", {}).get("type") != nullable_string
+            or source_values != ["hook", "socket", "detected"]
+            or report_source_values != ["hook", "socket"]
+            or "reported_at" in agent_fields
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "AgentSnapshot must use exact decimal time, nullable source session, and detected-only snapshot source",
+                "AgentSnapshot",
+            )
+
+    if "NotificationSnapshot" in types:
+        notification_fields = types.get("NotificationSnapshot", {}).get("fields", {})
+        if (
+            notification_fields.get("created_at_ms", {}).get("type")
+            != {"kind": "primitive", "name": "decimal"}
+            or notification_fields.get("unread", {}).get("type")
+            != {"kind": "primitive", "name": "boolean"}
+            or "created_at" in notification_fields
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "NotificationSnapshot must expose decimal created_at_ms and unread state",
+                "NotificationSnapshot",
+            )
+
+    if "PairingRequestSnapshot" in types:
+        pairing_fields = types.get("PairingRequestSnapshot", {}).get("fields", {})
+        pairing_code = pairing_fields.get("code")
+        if (
+            not {"peer", "code", "expires_in_seconds"} <= set(pairing_fields)
+            or {"created_at", "client_name"} & set(pairing_fields)
+            or pairing_fields.get("expires_in_seconds", {}).get("type")
+            != {"kind": "primitive", "name": "decimal"}
+            or not isinstance(pairing_code, dict)
+            or pairing_code.get("sensitive") is not True
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "PairingRequestSnapshot must model peer/code/expiry and redact the authorization code",
+                "PairingRequestSnapshot",
+            )
+
+    if "RenderSnapshot" in types:
+        render_snapshot_fields = types.get("RenderSnapshot", {}).get("fields", {})
+        render_patch_fields = types.get("RenderPatch", {}).get("fields", {})
+        render_run_fields = types.get("RenderRun", {}).get("fields", {})
+        render_cursor_fields = types.get("RenderCursor", {}).get("fields", {})
+        terminal_variants = [
+            value.get("name")
+            for value in types.get("TerminalAttachItem", {}).get("variants", [])
+            if isinstance(value, dict)
+        ]
+        sidebar_variants = [
+            value.get("name")
+            for value in types.get("SidebarAttachItem", {}).get("variants", [])
+            if isinstance(value, dict)
+        ]
+        history_rows = (
+            types.get("TerminalHistoryResult", {})
+            .get("fields", {})
+            .get("rows", {})
+            .get("type", {})
+            .get("items")
+        )
+        if (
+            set(render_snapshot_fields)
+            != {"size", "cursor", "default_fg", "default_bg", "scrollback_rows", "rows"}
+            or set(render_patch_fields)
+            != {
+                "cursor",
+                "full_reset",
+                "size",
+                "default_fg",
+                "default_bg",
+                "scrollback_rows",
+                "rows",
+            }
+            or set(render_run_fields)
+            != {"text", "fg", "bg", "attrs", "underline", "width_hint"}
+            or render_run_fields.get("attrs", {}).get("type")
+            != {"kind": "primitive", "name": "uint32"}
+            or set(render_cursor_fields)
+            != {"x", "y", "style", "blink", "visible", "color"}
+            or terminal_variants
+            != ["TerminalAttachSnapshot", "TerminalAttachPatch", "TerminalAttachScroll"]
+            or sidebar_variants
+            != ["SidebarAttachSnapshot", "SidebarAttachPatch", "SidebarAttachScroll"]
+            or history_rows != {"kind": "ref", "name": "RenderRow"}
+            or {
+                "TerminalAttachOutput",
+                "TerminalAttachResize",
+                "TerminalAttachDefaults",
+                "StyledSegment",
+                "StyledLine",
+            }
+            & set(types)
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "terminal, sidebar, and history rendering must share the lossless protocol-v7 render model",
+                "RenderSnapshot",
+            )
+
+    if "LayoutDocument" in types:
+        layout_variants = [
+            value.get("name")
+            for value in types.get("LayoutNode", {}).get("variants", [])
+            if isinstance(value, dict)
+        ]
+        layout_fields = types.get("LayoutDocument", {}).get("fields", {})
+        screen_layout = (
+            types.get("ScreenSnapshot", {}).get("fields", {}).get("layout", {}).get("type")
+        )
+        screen_create_result = operations.get("screen.create", {}).get("result")
+        if (
+            layout_variants
+            != ["LayoutLeaf", "LayoutSplit", "LayoutStack", "LayoutViewport"]
+            or not {"active_pane_id", "zoomed_pane_id", "root"} <= set(layout_fields)
+            or layout_fields.get("zoomed_pane_id", {}).get("type")
+            != {
+                "kind": "nullable",
+                "value": {"kind": "resource_id", "resource": "pane"},
+            }
+            or set(types.get("LayoutColumn", {}).get("fields", {}))
+            != {"column_id", "width", "root"}
+            or screen_layout != {"kind": "ref", "name": "LayoutDocument"}
+            or (
+                "screen.create" in operations
+                and screen_create_result
+                != {
+                    "kind": "apply",
+                    "name": "MutationResult",
+                    "arguments": [{"kind": "ref", "name": "CreatedTerminalPath"}],
+                }
+            )
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "layout documents must round-trip splits, stacks, viewport columns, focus, and zoom",
+                "LayoutDocument",
+            )
+
+    if "MachineSnapshot" in types:
+        machine_fields = types.get("MachineSnapshot", {}).get("fields", {})
+        expected_machine_fields = {
+            "id",
+            "name",
+            "origin",
+            "status",
+            "connectable",
+            "provider_scope_id",
+            "deleted",
+            "recoverable",
+            "extra",
+        }
+        if (
+            set(machine_fields) != expected_machine_fields
+            or machine_fields.get("name", {}).get("required") is not True
+            or machine_fields.get("origin", {}).get("type", {}).get("values")
+            != ["local", "external"]
+            or machine_fields.get("status", {}).get("type", {}).get("values")
+            != ["running", "connecting", "sleeping", "stopped", "unavailable"]
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "MachineSnapshot must separate origin, lifecycle, connectability, and recovery metadata",
+                "MachineSnapshot",
+            )
+
+    if "ProviderScopeSnapshot" in types:
+        provider_scope_fields = types.get("ProviderScopeSnapshot", {}).get("fields", {})
+        if set(provider_scope_fields) != {
+            "id",
+            "name",
+            "kind",
+            "can_admin",
+            "selected",
+            "extra",
+        }:
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "ProviderScopeSnapshot must match provider descriptor scope metadata without singular machine state",
+                "ProviderScopeSnapshot",
+            )
+
+    if "ProviderActionSnapshot" in types:
+        provider_action_fields = types.get("ProviderActionSnapshot", {}).get("fields", {})
+        action_form_fields = types.get("ProviderActionField", {}).get("fields", {})
+        invoke_values = (
+            operations.get("provider_action.invoke", {})
+            .get("params", {})
+            .get("fields", {})
+            .get("parameters", {})
+            .get("type", {})
+            .get("values")
+        )
+        if (
+            not {"target", "destructive", "fields"} <= set(provider_action_fields)
+            or "parameters" in provider_action_fields
+            or set(action_form_fields)
+            != {
+                "id",
+                "label",
+                "kind",
+                "required",
+                "max_length",
+                "minimum",
+                "maximum",
+                "placeholder",
+            }
+            or invoke_values != {"kind": "ref", "name": "ProviderActionValue"}
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "provider actions must carry typed renderable form descriptors and typed invocation values",
+                "ProviderActionSnapshot",
+            )
+
+    if "ProviderNoticeSnapshot" in types:
+        notice_fields = types.get("ProviderNoticeSnapshot", {}).get("fields", {})
+        acknowledge = operations.get("provider_notice.acknowledge")
+        acknowledge_fields = (
+            acknowledge.get("params", {}).get("fields", {})
+            if isinstance(acknowledge, dict)
+            else {}
+        )
+        if (
+            "created_at" in notice_fields
+            or not isinstance(acknowledge, dict)
+            or acknowledge.get("class") != "connection_control"
+            or acknowledge.get("params", {}).get("selectors")
+            != {
+                "machine": "required",
+                "provider_scope": "required",
+                "provider_notice": "required",
+            }
+            or acknowledge_fields
+            != {
+                "sequence": {
+                    "required": True,
+                    "type": {"kind": "primitive", "name": "decimal"},
+                }
+            }
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "provider notices require explicit post-paint decimal-sequence acknowledgment",
+                "provider_notice.acknowledge",
+            )
+
+    if "SidebarViewSnapshot" in types:
+        sidebar_fields = types.get("SidebarViewSnapshot", {}).get("fields", {})
+        ensure_fields = (
+            operations.get("sidebar_view.ensure", {}).get("params", {}).get("fields", {})
+        )
+        if "plugin_id" in sidebar_fields or "plugin_id" in ensure_fields:
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "transported sidebar view types must not expose local sidebar plugin identities",
+                "SidebarViewSnapshot",
+            )
+
+    if (
+        "RendererGrantResult" in types
+        and "terminal.renderer_grant.create" in operations
+    ):
+        grant_fields = types.get("RendererGrantResult", {}).get("fields", {})
+        if (
+            set(grant_fields) != {"endpoint", "terminal_id", "token", "rights", "ttl_ms"}
+            or "incarnation" in grant_fields
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "renderer grants must bind lifecycle internally without exposing incarnation",
+                "RendererGrantResult",
+            )
+
+    if "StreamEnd" in types:
+        stream_end_fields = types.get("StreamEnd", {}).get("fields", {})
+        stream_error_fields = types.get("StreamError", {}).get("fields", {})
+        resource_source = path.parent.parent / "crates/cmux-tui-core/src/resource.rs"
+        resource_text = (
+            resource_source.read_text(encoding="utf-8") if resource_source.exists() else ""
+        )
+        if (
+            stream_end_fields.get("error", {}).get("type")
+            != {"kind": "ref", "name": "StreamError"}
+            or "error_code" in stream_end_fields
+            or set(stream_error_fields) != {"code", "message", "details", "retryable"}
+            or (
+                resource_text
+                and not re.search(
+                    r"struct StreamEndEnvelope\s*\{(?:(?!\n\}).)*"
+                    r"error:\s*Option<ResourceError>",
+                    resource_text,
+                    re.DOTALL,
+                )
+            )
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "StreamEnd must match core's optional full structured ResourceError",
+                "StreamEnd",
+            )
+
+    if "ResourceChange" in types:
+        session_changes = (
+            types.get("SessionDelta", {})
+            .get("fields", {})
+            .get("changes", {})
+            .get("type", {})
+            .get("items")
+        )
+        screen_value = (
+            types.get("ScreenSnapshot", {}).get("fields", {}).get("layout", {}).get("type")
+        )
+        if (
+            "ResourceDelta" in types
+            or session_changes != {"kind": "ref", "name": "ResourceChange"}
+            or types.get("ResourceUpsert", {}).get("fields", {}).get("value", {}).get("type")
+            != {"kind": "ref", "name": "ResourceEntitySnapshot"}
+            or screen_value != {"kind": "ref", "name": "LayoutDocument"}
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "session events must use typed upsert/delete changes with complete screen layouts",
+                "ResourceChange",
+            )
+
+    input_modifier = types.get("InputModifier")
+    if input_modifier is not None:
+        browser_key_modifiers = (
+            operations.get("browser.input.key", {})
+            .get("params", {})
+            .get("fields", {})
+            .get("modifiers", {})
+            .get("type", {})
+            .get("items")
+        )
+        terminal_mouse = operations.get("terminal.input.mouse", {}).get("params", {})
+        terminal_modifiers = (
+            terminal_mouse.get("fields", {})
+            .get("modifiers", {})
+            .get("type", {})
+            .get("items")
+        )
+        browser_mouse = operations.get("browser.input.mouse", {}).get("params", {})
+        browser_wheel = operations.get("browser.input.wheel", {}).get("params", {})
+        wheel_fields = browser_wheel.get("fields", {})
+        if (
+            input_modifier
+            != {"kind": "enum", "values": ["shift", "control", "alt", "meta"]}
+            or browser_key_modifiers != {"kind": "ref", "name": "InputModifier"}
+            or terminal_modifiers != {"kind": "ref", "name": "InputModifier"}
+            or browser_mouse.get("fields", {}).get("button", {}).get("type", {}).get("values")
+            != ["left", "middle", "right", "back", "forward"]
+            or any(wheel_fields.get(name, {}).get("required") is not True for name in (
+                "x_px",
+                "y_px",
+                "delta_x",
+                "delta_y",
+            ))
+            or not any("nonzero delta_rows" in value for value in terminal_mouse.get("constraints", []))
+            or not any("must all be finite" in value for value in browser_wheel.get("constraints", []))
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "input operations must share modifiers and enforce exact finite mouse variants",
+                "InputModifier",
+            )
+
+    undo = operations.get("screen.layout.undo")
+    if isinstance(undo, dict):
+        undo_fields = undo.get("params", {}).get("fields", {})
+        confirmation = undo_fields.get("confirm_close")
+        confirmation_error = errors.get("confirmation.required")
+        confirmation_type = types.get("ConfirmationRequiredDetails")
+        constraints = undo.get("constraints", [])
+        if (
+            not isinstance(confirmation, dict)
+            or confirmation.get("required") is not False
+            or confirmation.get("type") != {"kind": "primitive", "name": "boolean"}
+            or confirmation.get("default") is not False
+            or "confirmation.required" not in undo.get("errors", [])
+            or confirmation_error
+            != {
+                "retryable": False,
+                "details": {"kind": "ref", "name": "ConfirmationRequiredDetails"},
+            }
+            or not isinstance(confirmation_type, dict)
+            or not any("before journaling or idempotency commit" in value for value in constraints)
+            or not any("new idempotency key" in value for value in constraints)
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "screen.layout.undo must require explicit close confirmation without committing a rejected attempt",
+                "screen.layout.undo",
+            )
+
+    indeterminate_error = errors.get("mutation.indeterminate")
+    expected_indeterminate_error = {
+        "retryable": False,
+        "details": {
+            "kind": "object",
+            "fields": {
+                "idempotency_key": {
+                    "required": True,
+                    "type": {"kind": "primitive", "name": "string"},
+                },
+                "operation": {
+                    "required": True,
+                    "type": {"kind": "primitive", "name": "string"},
+                },
+                "recovery": {
+                    "required": True,
+                    "type": {
+                        "kind": "enum",
+                        "values": ["inspect_state_then_retry_with_new_key"],
+                    },
+                },
+            },
+            "extra": False,
+        },
+    }
+    actual_indeterminate_operations = {
+        operation
+        for operation, descriptor in operations.items()
+        if isinstance(descriptor, dict)
+        and isinstance(descriptor.get("errors"), list)
+        and "mutation.indeterminate" in descriptor["errors"]
+    }
+    expected_indeterminate_operations = (
+        EXTERNALLY_EFFECTFUL_MUTATIONS & set(operations)
+    )
+    if (
+        expected_indeterminate_operations or indeterminate_error is not None
+    ) and indeterminate_error != expected_indeterminate_error:
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "mutation.indeterminate must be a stable non-retryable recovery result",
+            "mutation.indeterminate",
+        )
+    if actual_indeterminate_operations != expected_indeterminate_operations:
+        missing = sorted(expected_indeterminate_operations - actual_indeterminate_operations)
+        unexpected = sorted(actual_indeterminate_operations - expected_indeterminate_operations)
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "mutation.indeterminate coverage must match external effects"
+            f" (missing={missing!r}, unexpected={unexpected!r})",
+            "mutation.indeterminate",
+        )
+    for operation in sorted(expected_indeterminate_operations):
+        descriptor = operations.get(operation)
+        if not isinstance(descriptor, dict) or descriptor.get("class") != "mutation":
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"external-effect operation {operation!r} must remain a mutation",
+                operation,
+            )
+
+    selector_constraints = (
+        types.get("Selector", {}).get("constraints")
+        if isinstance(types.get("Selector"), dict)
+        else None
+    )
+    if "Selector" in types and (
+        not isinstance(selector_constraints, list)
+        or not any("complete contiguous" in value for value in selector_constraints)
+        or not any("before reads or mutations run" in value for value in selector_constraints)
+    ):
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "Selector must define contiguous ancestor resolution and pre-execution wrong-parent rejection",
+            "Selector",
+        )
+    return operation_offsets, classes, local_classes
+
+
+def _schema_operation_classes(
+    path: Path,
+    diagnostics: list[Diagnostic],
+) -> tuple[dict[str, int], dict[str, str]]:
+    document = _json_object(path, diagnostics)
+    if document is None:
+        return {}, {}
+    text = path.read_text(encoding="utf-8")
+    try:
+        operation = document["$defs"]["operation"]
+        values = operation["enum"]
+        class_groups = operation["x-operation-classes"]
+    except (KeyError, TypeError):
+        diagnostics.append(
+            Diagnostic(path, 1, 1, "boundary.operation", "missing typed operation registry")
+        )
+        return {}, {}
+    if not isinstance(values, list) or values != sorted(values):
+        diagnostics.append(
+            Diagnostic(path, 1, 1, "boundary.operation", "operation enum must be sorted")
+        )
+        values = values if isinstance(values, list) else []
+    if not isinstance(class_groups, dict) or set(class_groups) != set(TRANSPORT_OPERATION_CLASSES):
+        diagnostics.append(
+            Diagnostic(
+                path,
+                1,
+                1,
+                "boundary.operation-class",
+                "x-operation-classes must define the four transported classes",
+            )
+        )
+        class_groups = {}
+    classes: dict[str, str] = {}
+    for class_name, members in class_groups.items():
+        if not isinstance(members, list) or members != sorted(members):
+            diagnostics.append(
+                Diagnostic(
+                    path,
+                    1,
+                    1,
+                    "boundary.operation-class",
+                    f"{class_name} operation class must be a sorted array",
+                )
+            )
+            continue
+        for name in members:
+            if name in classes:
+                diagnostics.append(
+                    Diagnostic(
+                        path,
+                        1,
+                        1,
+                        "boundary.operation-class",
+                        f"{name!r} appears in more than one operation class",
+                    )
+                )
+            classes[name] = class_name
+    try:
+        idempotency_rule = document["$defs"]["request"]["allOf"][0]
+        mutation_enum = idempotency_rule["if"]["properties"]["operation"]["enum"]
+        requires_key = idempotency_rule["then"]["required"] == ["idempotency_key"]
+        forbids_key = idempotency_rule["else"]["not"]["required"] == ["idempotency_key"]
+    except (KeyError, IndexError, TypeError):
+        mutation_enum = None
+        requires_key = False
+        forbids_key = False
+    if (
+        mutation_enum != class_groups.get("mutation")
+        or not requires_key
+        or not forbids_key
+    ):
+        diagnostics.append(
+            Diagnostic(
+                path,
+                1,
+                1,
+                "boundary.operation-class",
+                "request idempotency condition must use the exact mutation operation class",
+            )
+        )
+    offsets = {
+        name: max(text.find(json.dumps(name)), 0) + 1
+        for name in values
+        if isinstance(name, str)
+    }
+    return offsets, classes
+
+
+def _sdk_descriptor_classes(
+    tui: Path,
+    diagnostics: list[Diagnostic],
+) -> list[tuple[Path, dict[str, str]]]:
+    descriptors: list[tuple[Path, dict[str, str]]] = []
+    bindings = tui / "bindings"
+    if not bindings.exists():
+        return descriptors
+    for path in sorted(bindings.rglob(".cmux-resource-api.json")):
+        document = _json_object(path, diagnostics)
+        if document is None:
+            continue
+        if document.get("protocol") != "cmux.protocol/1":
+            diagnostics.append(
+                Diagnostic(path, 1, 1, "boundary.sdk-descriptor", "protocol must be cmux.protocol/1")
+            )
+        value = document.get("operations")
+        classes: dict[str, str] = {}
+        if isinstance(value, dict):
+            for name, descriptor in value.items():
+                if isinstance(descriptor, dict) and isinstance(descriptor.get("class"), str):
+                    classes[name] = descriptor["class"]
+        elif isinstance(value, list):
+            for descriptor in value:
+                if (
+                    isinstance(descriptor, dict)
+                    and isinstance(descriptor.get("name"), str)
+                    and isinstance(descriptor.get("class"), str)
+                ):
+                    classes[descriptor["name"]] = descriptor["class"]
+        else:
+            diagnostics.append(
+                Diagnostic(
+                    path,
+                    1,
+                    1,
+                    "boundary.sdk-descriptor",
+                    "operations must carry operation names and classes",
+                )
+            )
+        descriptors.append((path, classes))
+    return descriptors
 
 
 def _compare_operations(
@@ -760,10 +2809,34 @@ def _compare_operations(
         )
 
 
+def _compare_operation_classes(
+    diagnostics: list[Diagnostic],
+    canonical_path: Path,
+    canonical: Mapping[str, str],
+    other_path: Path,
+    other: Mapping[str, str],
+    label: str,
+) -> None:
+    for operation in sorted(set(canonical) & set(other)):
+        if canonical[operation] != other[operation]:
+            diagnostics.append(
+                Diagnostic(
+                    other_path,
+                    1,
+                    1,
+                    "boundary.operation-class",
+                    f"{operation!r} is {other[operation]!r} in {label}, "
+                    f"expected {canonical[operation]!r} from {canonical_path.name}",
+                )
+            )
+
+
 def check_contracts(tui: Path) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     markdown = tui / "spec/resource-api-v1.md"
     schema = tui / "spec/resource-api-v1.json"
+    catalog_schema = tui / "spec/resource-operations-v1.schema.json"
+    catalog = tui / "spec/resource-operations-v1.json"
     inventory = tui / "spec/inventory.json"
     resource = tui / "crates/cmux-tui-core/src/resource.rs"
 
@@ -779,16 +2852,67 @@ def check_contracts(tui: Path) -> list[Diagnostic]:
             Diagnostic(resource, 1, 1, "boundary.prefix", "Rust and Markdown prefixes differ")
         )
 
-    canonical = _inventory_operations(inventory, diagnostics)
+    inventory_operations = _inventory_operations(inventory, diagnostics)
+    canonical, catalog_classes, local_classes = _operation_catalog(catalog, diagnostics)
     runtime = _runtime_operations(resource, diagnostics)
-    normative = _markdown_operations(markdown, diagnostics)
+    runtime_classes, runtime_local_classes = _runtime_operation_classes(resource, diagnostics)
+    normative, markdown_classes = _markdown_operation_classes(markdown, diagnostics)
+    schema_operations, schema_classes = _schema_operation_classes(schema, diagnostics)
+
+    catalog_schema_document = _json_object(catalog_schema, diagnostics)
+    try:
+        field_properties = catalog_schema_document["$defs"]["field"]["properties"]
+        params_properties = catalog_schema_document["$defs"]["params"]["properties"]
+        union_properties = catalog_schema_document["$defs"]["unionType"]["properties"]
+        unknown_variant = catalog_schema_document["$defs"]["unknownVariant"]
+        if field_properties.get("sensitive") != {"type": "boolean"}:
+            raise KeyError("field.sensitive")
+        if "one_of" not in params_properties:
+            raise KeyError("params.one_of")
+        if union_properties.get("unknown_variant") != {"$ref": "#/$defs/unknownVariant"}:
+            raise KeyError("unionType.unknown_variant")
+        if unknown_variant.get("additionalProperties") is not False:
+            raise KeyError("unknownVariant.additionalProperties")
+    except (KeyError, TypeError, AttributeError):
+        diagnostics.append(
+            Diagnostic(
+                catalog_schema,
+                1,
+                1,
+                "boundary.catalog",
+                "catalog schema must type sensitive fields, parameter one-of groups, and open-union unknown variants",
+            )
+        )
+
     if canonical:
-        canonical_text = inventory.read_text(encoding="utf-8")
+        canonical_text = catalog.read_text(encoding="utf-8")
+        inventory_text = inventory.read_text(encoding="utf-8")
         resource_text = resource.read_text(encoding="utf-8")
         markdown_text = markdown.read_text(encoding="utf-8")
+        schema_text = schema.read_text(encoding="utf-8")
+        transported_normative = {
+            operation: offset
+            for operation, offset in normative.items()
+            if markdown_classes.get(operation) != "local"
+        }
+        local_normative = {
+            operation: offset
+            for operation, offset in normative.items()
+            if markdown_classes.get(operation) == "local"
+        }
         _compare_operations(
             diagnostics,
+            catalog,
+            canonical_text,
+            canonical,
             inventory,
+            inventory_text,
+            inventory_operations,
+            "inventory.resource_operations",
+        )
+        _compare_operations(
+            diagnostics,
+            catalog,
             canonical_text,
             canonical,
             resource,
@@ -803,9 +2927,98 @@ def check_contracts(tui: Path) -> list[Diagnostic]:
             canonical,
             markdown,
             markdown_text,
-            normative,
+            transported_normative,
             "the normative operation table",
         )
+        _compare_operations(
+            diagnostics,
+            catalog,
+            canonical_text,
+            canonical,
+            schema,
+            schema_text,
+            schema_operations,
+            "the envelope operation enum",
+        )
+        local_offsets = {
+            operation: max(canonical_text.find(json.dumps(operation)), 0) + 1
+            for operation in local_classes
+        }
+        runtime_local_offsets = {
+            operation: max(resource_text.find(json.dumps(operation)), 0) + 1
+            for operation in runtime_local_classes
+        }
+        _compare_operations(
+            diagnostics,
+            catalog,
+            canonical_text,
+            local_offsets,
+            resource,
+            resource_text,
+            runtime_local_offsets,
+            "the Rust LocalOperation registry",
+        )
+        _compare_operations(
+            diagnostics,
+            catalog,
+            canonical_text,
+            local_offsets,
+            markdown,
+            markdown_text,
+            local_normative,
+            "the normative local operation table",
+        )
+        _compare_operation_classes(
+            diagnostics,
+            catalog,
+            catalog_classes,
+            resource,
+            runtime_classes,
+            "the Rust ResourceOperation registry",
+        )
+        _compare_operation_classes(
+            diagnostics,
+            catalog,
+            catalog_classes,
+            schema,
+            schema_classes,
+            "the envelope schema",
+        )
+        _compare_operation_classes(
+            diagnostics,
+            catalog,
+            {**catalog_classes, **local_classes},
+            markdown,
+            markdown_classes,
+            "the normative operation table",
+        )
+        _compare_operation_classes(
+            diagnostics,
+            catalog,
+            local_classes,
+            resource,
+            runtime_local_classes,
+            "the Rust LocalOperation registry",
+        )
+        for descriptor_path, descriptor_classes in _sdk_descriptor_classes(tui, diagnostics):
+            _compare_operation_classes(
+                diagnostics,
+                catalog,
+                catalog_classes,
+                descriptor_path,
+                descriptor_classes,
+                "the SDK descriptor",
+            )
+            if set(descriptor_classes) != set(catalog_classes):
+                diagnostics.append(
+                    Diagnostic(
+                        descriptor_path,
+                        1,
+                        1,
+                        "boundary.sdk-descriptor",
+                        "SDK descriptor operation set differs from the typed catalog",
+                    )
+                )
     return sorted(set(diagnostics))
 
 
@@ -956,6 +3169,18 @@ def _scan_region(path: Path, text: str, start: int, end: int) -> list[Diagnostic
                 offset,
                 "boundary.short-id",
                 "public resource IDs cannot have numeric or short forms",
+            )
+        )
+
+    for match in PRIVATE_IDENTITY_RE.finditer(region):
+        offset = start + match.start()
+        diagnostics.append(
+            _diagnostic_at(
+                path,
+                text,
+                offset,
+                "boundary.private-identity",
+                f"private resource identity field {match.group(0)!r} cannot cross resource v1",
             )
         )
 

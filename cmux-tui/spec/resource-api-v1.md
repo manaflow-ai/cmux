@@ -19,8 +19,7 @@ Machine
     ├── Notification
     ├── Agent
     ├── Projection
-    ├── SidebarView
-    └── SidebarPlugin
+    └── SidebarView
 ```
 
 A tab owns exactly one terminal or browser. Sidebar extensions are
@@ -54,7 +53,7 @@ lowercase hexadecimal entropy:
 
 IDs are immutable and never reused. A durable session stores IDs with the
 logical resource and restores every ID for every resource that remains alive
-after daemon restart. Mux slot numbers are private and cannot appear in a v1
+after daemon restart. Mux implementation indexes are private and cannot appear in a v1
 request, response, event, error, CLI value, or high-level SDK.
 
 Names are labels. They are preserved byte-for-byte, may be empty, and need
@@ -77,6 +76,18 @@ match returns `selector.ambiguous` with every candidate ID. Resolution and
 mutation use one snapshot, so an ambiguous request cannot partially mutate.
 SDK `find_by_name` methods always return a list.
 
+Session-resource requests always carry `machine` and `session` routing
+selectors. Structural selectors after the session are flat fields named
+`workspace`, `screen`, `pane`, and `tab`. An opaque nested target ID may omit
+those ancestors. A `current` or name target requires the complete contiguous
+structural chain through its parent, supplied by CLI or SDK context.
+
+Every supplied ancestor must contain the resolved descendant. A mismatch
+returns `selector.wrong_parent` with the expected and actual parent before a
+read or mutation runs. Selector resolution, containment validation, revision
+validation, and mutation commit use one snapshot, so a failed containment
+check cannot partially mutate.
+
 ## Protocol
 
 Unix sockets use one UTF-8 JSON object per line. WebSockets use one UTF-8 JSON
@@ -90,7 +101,10 @@ Request:
   "type": "request",
   "id": "request-owned-bounded-string",
   "operation": "workspace.list",
-  "params": {}
+  "params": {
+    "machine": "machine_…",
+    "session": "session_…"
+  }
 }
 ```
 
@@ -102,7 +116,7 @@ Success:
   "type": "response",
   "id": "request-owned-bounded-string",
   "ok": true,
-  "result": {}
+  "result": []
 }
 ```
 
@@ -167,39 +181,142 @@ Terminal and browser attachments have independent decimal-string sequences.
 Their initial snapshot is delivered after the open response. Overflow
 requires a fresh attachment snapshot.
 
-## Operations
+Every domain stream item union is open for SDK decoding. `session.events`,
+`terminal.attach`, `browser.attach`, `sidebar_view.attach`, and
+`provider_notice.events` expose an `Unknown` variant that retains the
+unrecognized discriminator and complete raw object. A recognized
+discriminator must decode against its exact known schema; malformed known
+payloads are errors and never become `Unknown`. Servers emit only cataloged
+known variants.
 
-All mutations below require `idempotency_key`.
+`terminal.attach` is the public server-rendered stream. Its snapshot and
+patches contain styled rows and runs, cursor state, resolved default colors,
+scrollback counts, resize metadata, and an atomic `full_reset` marker. Raw PTY
+bytes remain in the raw protocol; `terminal.state.read` supplies VT replay for
+raw clients. `sidebar_view.attach` reuses the same `RenderSnapshot`,
+`RenderPatch`, and `RenderScroll` types so Ratatui/plugin sidebars preserve
+styles, cursor state, wide-cell width hints, and palette changes. Styled
+terminal history uses the same `RenderRow` and `RenderRun` model.
 
-| Scope | Operations |
+`session.events` sends typed ordered `ResourceChange` values. Upserts carry a
+typed resource ID and matching snapshot; deletes carry the typed ID and no
+value. A screen snapshot includes its complete typed layout. One transaction
+produces one batch bounded by `previous_revision` and `revision`, so frontends
+can apply it without parsing provider JSON or refetching layout.
+
+`stream_end.error`, when present, is the full structured error object with
+`code`, `message`, `details`, and `retryable`. End reasons retain optional
+cursor and recovery instructions.
+
+## Typed operation catalog
+
+`resource-operations-v1.json` is normative for every transported operation's
+class, flat selector scopes, parameter fields and requiredness, result type,
+structured errors, and stream item/end types. `resource-operations-v1.schema.json`
+defines the catalog format. Unknown parameter and result fields are rejected.
+
+| Class | Semantics |
 | --- | --- |
-| machine | `list`, `show`, `session_list`, `session_open` |
-| session | `get`, `snapshot`, `events`, `ping`, `shutdown`, `reload_config` |
-| client | `list`, `show`, `label`, `detach`, `set_sizing`, `release_sizing` |
-| window | `title_set`, `title_clear`, `colors_set` |
-| pairing | `list`, `respond` |
-| projection | `get`, `put` |
-| workspace | `list`, `get`, `create`, `rename`, `move`, `focus`, `close`, `run`, `layout_apply` |
-| screen | `list`, `get`, `create`, `rename`, `focus`, `close`, `layout_export`, `layout_undo` |
-| pane | `list`, `get`, `create`, `split`, `rename`, `focus`, `focus_direction`, `neighbor`, `swap`, `zoom`, `split_ratio_set`, `viewport_width_set`, `close`, `run` |
-| tab | `list`, `get`, `create_terminal`, `create_browser`, `rename`, `focus`, `move`, `close` |
-| terminal | `create`, `get`, `list`, `run`, `input_write`, `input_keys`, `input_mouse`, `input_focus`, `screen_read`, `history_read`, `history_clear`, `copy`, `wait`, `process_get`, `viewer_sizing_set`, `viewer_resize`, `viewer_release`, `viewport_scroll`, `move`, `attach`, `close` |
-| browser | `show`, `navigate`, `back`, `forward`, `reload`, `activate`, `key`, `text`, `mouse`, `wheel`, `attach`, `close` |
-| notification | `list`, `create` |
-| agent | `list`, `report` |
-| sidebar view | `show`, `ensure`, `attach`, `input`, `resize`, `reload`, `use_builtin` |
-| sidebar_plugin | `list`, `install`, `use`, `update`, `remove` |
-| provider | `scope_list`, `action_invoke`, `notice_watch`, `authority_install`, `workspace_mark`, `workspace_rename`, `workspace_close` |
-| stream | `cancel` |
+| `read` | Read only. No idempotency key. |
+| `mutation` | Durable mutation. A non-empty idempotency key is required. |
+| `stream_open` | Opens a stream. The client supplies stream_id. No idempotency key. |
+| `connection_control` | Connection-local control. No idempotency key. |
+| `local` | Filesystem-only sidebar plugin action. It never uses a protocol request envelope. |
 
-`workspace.create`, `workspace.run`, `pane.run`, `tab.create_terminal`, and
-`tab.create_browser` return the complete created path: workspace, screen,
-pane, tab, and terminal or browser IDs.
+| Class | Operations |
+| --- | --- |
+| read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `frontend_projection.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `provider_scope.list`, `screen.get`, `screen.layout.export`, `screen.list`, `session.get`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `workspace.get`, `workspace.list` |
+| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `machine.connect_external`, `machine.create`, `machine.delete`, `machine.purge`, `machine.rename`, `machine.restore`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `provider_action.invoke`, `provider_workspace.close`, `provider_workspace.mark`, `provider_workspace.rename`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
+| stream_open | `browser.attach`, `provider_notice.events`, `session.events`, `sidebar_view.attach`, `terminal.attach` |
+| connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `provider_notice.acknowledge`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
+| local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
 
-`workspace.run` creates a terminal tab in the active pane. `pane.run` creates
-a terminal tab in that pane. `argv` is an exact string array. Shell evaluation
-is available only through an explicit `shell` helper that expands to the
-platform shell plus `-lc`.
+A selector is a flat object of scope strings. A nested target includes every
+ancestor scope alongside its target scope. Names are exact labels and are not
+unique. Workspace names are required strings. Screen, pane, tab, and client
+snapshots always carry `name`, using null for unnamed. Their rename parameter
+uses null to clear and a string, including empty, whitespace, or Unicode, to
+set that exact value. Create operations keep an optional non-null string.
+Client metadata updates use omission for no change, null to clear, and a string
+to set.
+
+`Cursor` contains a generation string and decimal-string revision.
+`MutationResult<T>` is the flat
+`{value,generation,revision,replayed}` result. Every committed mutation
+returns generation and revision; `replayed` reports an idempotency replay.
+The request already owns its idempotency key, so results do not echo it.
+
+External effects use a durable three-state intent record. The server persists
+the intent, marks it executing before invoking the effect, then records the
+outcome. After restart, a persisted pre-execution intent may resume. An
+executing intent without a recorded outcome returns the same non-retryable
+`mutation.indeterminate` error for every request with that key and is never
+repeated automatically. Its details contain `idempotency_key`, `operation`,
+and `recovery: inspect_state_then_retry_with_new_key`. The caller inspects
+resource state, then uses a new key only when repeating the effect is
+appropriate.
+
+`CreatedPath` has explicit workspace-only, terminal-path, and browser-path
+variants. Snapshots use only opaque resource IDs, exact names, positions, and
+revision metadata. They never expose private workspace identity data, mux
+positions as identity, alternate ID forms, or internal storage nouns.
+
+Client snapshots carry required nullable `name` and `client_kind`, transport,
+self status, attached terminal IDs, and one size/participation record per
+terminal. All `uint64` runtime values use decimal strings. Notification and
+agent timestamps are decimal millisecond values. Pairing requests carry peer,
+sensitive code, and remaining seconds; SDK string rendering and logs redact
+the code.
+
+Layout documents round-trip leaf, split, stack, and horizontal viewport
+structures. Viewport columns retain stable IDs and widths. The document also
+retains active and zoomed pane IDs. Nested same-direction splits are not
+flattened. `screen.create` returns the complete created terminal path.
+
+`workspace.create` requires `initial_content: terminal|empty`.
+`workspace.run` and `pane.run` accept exactly one of a nonempty `argv`
+array or a `shell` script. Only `argv[0]` must be nonempty; later values,
+including empty strings, preserve exact bytes. The server runs `shell` with
+its platform default shell and `-lc`; SDKs never inspect or expand `$SHELL`.
+To choose a specific executable, callers send
+`argv: [executable, "-lc", script]`.
+
+`machine.create` selects one provider scope and carries no provider transport
+or credential fields. `machine.connect_external` selects a provider scope and
+sends one sensitive, bounded `specifier`. Provider authentication and tickets
+remain inside the provider.
+
+Provider scopes contain display metadata and one selected flag, not a
+singular machine. Machine snapshots separate local/external origin from
+lifecycle status and recovery metadata. Provider actions include target,
+destructive status, and typed form fields. Provider notice delivery is
+durable: consumers call `provider_notice.acknowledge` with its decimal
+sequence only after painting the notice. Iterators never acknowledge on
+delivery.
+
+Sidebar plugin installation and selection are local filesystem operations.
+Transported sidebar view operations never send a `sidebar_plugin_` ID.
+Optional install names are filesystem slugs matching `[a-z0-9-_]+`.
+
+`screen.layout.undo` accepts `confirm_close`, default false. If the undo would
+close panes, false returns `confirmation.required` with the revision and pane
+IDs before journaling or idempotency commit. A confirmed retry uses that
+revision and a new mutation key.
+
+Fields marked `sensitive: true` must be redacted from SDK Debug, `toString`,
+exceptions, and logs. External-machine specifiers and renderer grant tokens
+are sensitive. Renderer grants expose endpoint, terminal ID, token, rights,
+and TTL. They are connection-bound, one-use capabilities.
+
+`JsonValue` is limited to audited extension points: explicit snapshot `extra`
+maps, frontend projection payloads, structured error details, and
+provider-defined action results. Core resource, stream, layout, render, and
+session change shapes never use generic JSON.
+
+Input modifiers are `shift|control|alt|meta`; terminal transport maps public
+`meta` to its raw `super` bit. Browser coordinates and wheel deltas must be
+finite. Browser down/up require a typed button and move omits it. Terminal
+mouse down/up, move, and wheel enforce their distinct button/delta fields.
 
 ## CLI
 
@@ -212,13 +329,15 @@ cmux workspace create --name api
 cmux workspace api show
 cmux workspace ws_… run -- cargo test
 cmux workspace ws_… screen current pane current split --right
-cmux terminal term_… read
+cmux terminal term_… screen read
 cmux terminal term_… keys ctrl-c
+cmux sidebar plugin list
 ```
 
 Root control scopes are `machine`, `session`, `client`, `workspace`, `screen`,
 `pane`, `tab`, `terminal`, `browser`, `notification`, `agent`, `sidebar`,
-`sidebar-plugin`, `pairing`, `projection`, `provider`, `stream`, and `raw`.
+`pairing`, `projection`, `provider`, `stream`, and `raw`. Sidebar resources
+use the nested `sidebar view` and `sidebar plugin` grammars.
 Hyphenated action-first commands are usage errors with exit code 2.
 
 Global routing flags are `--machine`, `--session`, and advanced `--socket`.
@@ -231,7 +350,7 @@ event. `--quiet` suppresses success output. Results use stdout. Diagnostics
 use stderr. Exit codes are 0 success, 1 operation failure, 2 usage, and 3
 transport.
 
-Local filesystem actions are `sidebar-plugin install|update|remove` and
+Local filesystem actions are `sidebar plugin install|update|remove|use` and
 configuration discovery. Their results use the same output modes but they do
 not cross the session protocol.
 

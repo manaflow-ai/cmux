@@ -6,6 +6,7 @@
   "required": [
     "schema_version",
     "mux_protocol",
+    "resource_operations",
     "profiles",
     "commands",
     "events",
