@@ -1,6 +1,7 @@
 internal import CmuxFoundation
 internal import Darwin
-public import Foundation
+internal import Foundation
+internal import os
 #if DEBUG
 internal import CMUXDebugLog
 #endif
@@ -28,31 +29,19 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
     /// The capture-survives-teardown regression test uses that to prove
     /// `run` still completes; production constructs the runner without a hook.
     let readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)?
-    /// Test observation seam (package tests only): records the launched child
-    /// identifier so tests can prove error cleanup reaped that exact process.
-    let processDidLaunch: (@Sendable (pid_t) -> Void)?
-    /// Test observation seam (package tests only): runs after the child has
-    /// definitively exited, including the deadline reconciliation path.
-    let processDidExit: (@Sendable () -> Void)?
     private let stdinWriter: any RemoteProcessStdinWriting
 
     /// Creates the production runner.
     public init() {
         self.readHandlesDidInstall = nil
-        self.processDidLaunch = nil
-        self.processDidExit = nil
         self.stdinWriter = RemoteProcessStdinWriter()
     }
 
     init(
         readHandlesDidInstall: (@Sendable (FileHandle, FileHandle) -> Bool)? = nil,
-        processDidLaunch: (@Sendable (pid_t) -> Void)? = nil,
-        processDidExit: (@Sendable () -> Void)? = nil,
         stdinWriter: any RemoteProcessStdinWriting = RemoteProcessStdinWriter()
     ) {
         self.readHandlesDidInstall = readHandlesDidInstall
-        self.processDidLaunch = processDidLaunch
-        self.processDidExit = processDidExit
         self.stdinWriter = stdinWriter
     }
 
@@ -69,64 +58,31 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         var stderrReadError: (any Error)?
     }
 
-    private final class ProcessCompletionState: @unchecked Sendable {
+    private struct ProcessCompletionState {
         struct Snapshot {
             let didExit: Bool
             let stdinWriteError: (any Error)?
             let stdinWriteFinished: Bool
         }
 
-        private let lock = NSLock()
-        private var didExit = false
-        private var stdinWriteError: (any Error)?
-        private var stdinWriteFinished: Bool
-        private var shouldStopStdinWrite = false
+        var didExit = false
+        var stdinWriteError: (any Error)?
+        var stdinWriteFinished: Bool
 
         init(stdinWriteFinished: Bool) {
             self.stdinWriteFinished = stdinWriteFinished
         }
 
-        @discardableResult
-        func markExited() -> Bool {
-            lock.withLock {
-                guard !didExit else { return false }
-                didExit = true
-                return true
-            }
+        mutating func markExited() {
+            didExit = true
         }
 
-        func markStdinWriteFailed(_ error: any Error) {
-            lock.withLock {
-                stdinWriteError = error
-            }
-        }
-
-        func markStdinWriteFinished() {
-            lock.withLock {
-                stdinWriteFinished = true
-            }
-        }
-
-        func requestStdinWriteStop() {
-            lock.withLock {
-                shouldStopStdinWrite = true
-            }
-        }
-
-        func stdinWriteShouldStop() -> Bool {
-            lock.withLock {
-                shouldStopStdinWrite
-            }
-        }
-
-        func snapshot() -> Snapshot {
-            lock.withLock {
-                Snapshot(
-                    didExit: didExit,
-                    stdinWriteError: stdinWriteError,
-                    stdinWriteFinished: stdinWriteFinished
-                )
-            }
+        var snapshot: Snapshot {
+            Snapshot(
+                didExit: didExit,
+                stdinWriteError: stdinWriteError,
+                stdinWriteFinished: stdinWriteFinished
+            )
         }
     }
 
@@ -182,15 +138,19 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         let exitSemaphore = DispatchSemaphore(value: 0)
         let lifecycleSemaphore = DispatchSemaphore(value: 0)
         let captureStopSignal = try ProcessPipeStopSignal()
-        let completionState = ProcessCompletionState(stdinWriteFinished: !writesInlineStdin)
+        let stdinStopSignal = try ProcessPipeStopSignal()
+        // Process termination, the stdin writer, and the blocking caller use
+        // synchronous callbacks on different threads. This lock protects only
+        // their small completion snapshot; an actor would require unstructured
+        // tasks merely to bridge those non-async callbacks.
+        let completionState = OSAllocatedUnfairLock(
+            initialState: ProcessCompletionState(stdinWriteFinished: !writesInlineStdin)
+        )
         let captureState = PipeCaptureState()
         let captureGroup = DispatchGroup()
         let noteProcessExit: @Sendable () -> Void = {
-            let isFirstObservation = completionState.markExited()
+            completionState.withLock { $0.markExited() }
             captureStopSignal.signal()
-            if isFirstObservation {
-                processDidExit?()
-            }
         }
         process.terminationHandler = { _ in
             noteProcessExit()
@@ -265,7 +225,6 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         do {
             try operation?.throwIfCancelled()
             try process.run()
-            processDidLaunch?(process.processIdentifier)
         } catch {
             try? stdoutPipe.fileHandleForWriting.close()
             try? stderrPipe.fileHandleForWriting.close()
@@ -282,7 +241,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         try? stdoutPipe.fileHandleForWriting.close()
         try? stderrPipe.fileHandleForWriting.close()
         operation?.installCancellationHandler {
-            completionState.requestStdinWriteStop()
+            stdinStopSignal.signal()
             lifecycleSemaphore.signal()
             if process.isRunning {
                 process.terminate()
@@ -317,7 +276,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             DispatchQueue.global(qos: .utility).async {
                 defer {
                     try? inputHandle.close()
-                    completionState.markStdinWriteFinished()
+                    completionState.withLock { $0.stdinWriteFinished = true }
                     stdinWriteGroup.leave()
                     lifecycleSemaphore.signal()
                 }
@@ -325,15 +284,13 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
                     try stdinWriter.write(
                         stdin,
                         to: inputHandle,
-                        shouldStop: {
-                            completionState.stdinWriteShouldStop()
-                        }
+                        stopFileDescriptor: stdinStopSignal.readFileDescriptor
                     )
                 } catch let error as POSIXError where error.code == .EPIPE {
                     // A child may exit before consuming optional stdin. The
                     // POSIX helper turns that race into EPIPE instead of SIGPIPE.
                 } catch {
-                    completionState.markStdinWriteFailed(error)
+                    completionState.withLock { $0.stdinWriteError = error }
                 }
             }
         }
@@ -341,27 +298,27 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         let timeoutDeadline = DispatchTime.now() + max(0, timeout)
         var didTimeOut = false
         while true {
-            let state = completionState.snapshot()
+            let state = completionState.withLock { $0.snapshot }
             if state.stdinWriteError != nil || (state.didExit && state.stdinWriteFinished) {
                 break
             }
             if lifecycleSemaphore.wait(timeout: timeoutDeadline) == .timedOut {
-                var stateAtDeadline = completionState.snapshot()
+                var stateAtDeadline = completionState.withLock { $0.snapshot }
                 if !stateAtDeadline.didExit, !process.isRunning {
                     process.waitUntilExit()
                     noteProcessExit()
-                    stateAtDeadline = completionState.snapshot()
+                    stateAtDeadline = completionState.withLock { $0.snapshot }
                 }
                 didTimeOut = stateAtDeadline.stdinWriteError == nil
                     && !(stateAtDeadline.didExit && stateAtDeadline.stdinWriteFinished)
                 if didTimeOut {
-                    completionState.requestStdinWriteStop()
+                    stdinStopSignal.signal()
                 }
                 break
             }
         }
 
-        if let stdinWriteError = completionState.snapshot().stdinWriteError {
+        if let stdinWriteError = completionState.withLock({ $0.snapshot }).stdinWriteError {
             if process.isRunning {
                 terminateProcessAndWait()
             }
@@ -394,7 +351,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         }
 
         stdinWriteGroup.wait()
-        if let stdinWriteError = completionState.snapshot().stdinWriteError {
+        if let stdinWriteError = completionState.withLock({ $0.snapshot }).stdinWriteError {
             finishCaptureAndCloseReadHandles()
             throw stdinWriteFailure(stdinWriteError)
         }

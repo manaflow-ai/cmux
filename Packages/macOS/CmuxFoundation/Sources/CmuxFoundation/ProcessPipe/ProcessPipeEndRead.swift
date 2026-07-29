@@ -1,54 +1,16 @@
 import Darwin
 public import Foundation
 
-/// A one-shot signal that wakes process-pipe readers without periodic polling.
-///
-/// Closing the pipe's write end leaves the read end permanently hung up, so
-/// every reader polling the same signal wakes even when another reader returns
-/// first. The owner must retain the signal until all readers have stopped.
-public final class ProcessPipeStopSignal: @unchecked Sendable {
-    public let readFileDescriptor: Int32
-
-    private let lock = NSLock()
-    private var writeFileDescriptor: Int32
-
-    public init() throws {
-        var descriptors: [Int32] = [-1, -1]
-        guard Darwin.pipe(&descriptors) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-
-        readFileDescriptor = descriptors[0]
-        writeFileDescriptor = descriptors[1]
-        guard fcntl(readFileDescriptor, F_SETFD, FD_CLOEXEC) == 0,
-              fcntl(writeFileDescriptor, F_SETFD, FD_CLOEXEC) == 0 else {
-            let code = errno
-            Darwin.close(readFileDescriptor)
-            Darwin.close(writeFileDescriptor)
-            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
-        }
-    }
-
-    public func signal() {
-        let descriptor = lock.withLock {
-            let descriptor = writeFileDescriptor
-            writeFileDescriptor = -1
-            return descriptor
-        }
-        if descriptor >= 0 {
-            Darwin.close(descriptor)
-        }
-    }
-
-    deinit {
-        signal()
-        Darwin.close(readFileDescriptor)
-    }
-}
-
 /// The outcome of draining a pipe to end-of-file: every byte read before the
 /// stream ended, plus the read error that interrupted the drain, if any.
 public struct ProcessPipeEndRead: Equatable, Sendable {
+    // Darwin's FIONREAD macro is not imported into Swift because it expands
+    // through `_IOR`. This is `_IOR('f', 127, Int32)` from sys/filio.h.
+    private static let bytesAvailableIOControlRequest =
+        UInt(0x4000_0000)
+        | (UInt(MemoryLayout<Int32>.size) << 16)
+        | UInt(0x66_7f)
+
     /// The bytes successfully read before EOF or the failure.
     public let data: Data
     /// The error that ended the drain early, or `nil` on a clean EOF.
@@ -119,7 +81,6 @@ public struct ProcessPipeEndRead: Equatable, Sendable {
         stopFileDescriptor: Int32
     ) -> ProcessPipeEndRead {
         var data = Data()
-        let maximumStopDrainCount = 16
 
         while true {
             var descriptors = [
@@ -159,17 +120,44 @@ public struct ProcessPipeEndRead: Equatable, Sendable {
             }
 
             let isStopping = descriptors[1].revents != 0
-            var stopDrainCount = 0
+            var bytesRemainingAtStop: Int?
+            if isStopping {
+                var availableBytes: Int32 = 0
+                guard Darwin.ioctl(
+                    fileDescriptor,
+                    Self.bytesAvailableIOControlRequest,
+                    &availableBytes
+                ) == 0 else {
+                    return ProcessPipeEndRead(
+                        data: data,
+                        readError: ProcessPipeReadError(
+                            operation: "readDataToEndOfFile.ioctl",
+                            errnoCode: errno
+                        )
+                    )
+                }
+                bytesRemainingAtStop = Int(availableBytes)
+                if availableBytes == 0 {
+                    return ProcessPipeEndRead(data: data, readError: nil)
+                }
+            }
+
             repeat {
+                let maximumReadLength = bytesRemainingAtStop.map {
+                    min(chunkSize, $0)
+                } ?? chunkSize
                 switch ProcessPipeAvailableRead.readOnceIfReady(
                     fileDescriptor: fileDescriptor,
-                    maxLength: chunkSize,
+                    maxLength: maximumReadLength,
                     operation: "readDataToEndOfFile"
                 ) {
                 case .success(.data(let chunk)):
                     data.append(chunk)
-                    if isStopping {
-                        stopDrainCount += 1
+                    if let remaining = bytesRemainingAtStop.map({ $0 - chunk.count }) {
+                        if remaining <= 0 {
+                            return ProcessPipeEndRead(data: data, readError: nil)
+                        }
+                        bytesRemainingAtStop = remaining
                     }
                 case .success(.wouldBlock):
                     if isStopping {
@@ -181,7 +169,7 @@ public struct ProcessPipeEndRead: Equatable, Sendable {
                 case .failure(let error):
                     return ProcessPipeEndRead(data: data, readError: error)
                 }
-            } while isStopping && stopDrainCount < maximumStopDrainCount
+            } while isStopping
 
             if isStopping {
                 return ProcessPipeEndRead(data: data, readError: nil)

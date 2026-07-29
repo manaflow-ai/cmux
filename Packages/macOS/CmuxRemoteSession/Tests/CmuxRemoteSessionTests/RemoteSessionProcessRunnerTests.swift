@@ -89,17 +89,24 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("An unexpected stdin write error terminates the child and keeps the pinned runner error")
     func unexpectedStdinWriteErrorTerminatesChildAndKeepsPinnedRunnerError() throws {
-        let launchedProcess = LaunchedProcessRecorder()
+        let markerURL = processMarkerURL()
+        defer { try? FileManager.default.removeItem(at: markerURL) }
         let runner = RemoteSessionProcessRunner(
-            processDidLaunch: { launchedProcess.record($0) },
-            stdinWriter: FailingRemoteProcessStdinWriter()
+            stdinWriter: MarkerGatedFailingRemoteProcessStdinWriter(
+                markerURL: markerURL,
+                gate: .launched
+            )
         )
 
         #expect {
             try runner.run(
                 RemoteProcessRequest(
-                    executable: "/bin/sleep",
-                    arguments: ["30"],
+                    executable: "/bin/sh",
+                    arguments: [
+                        "-c",
+                        "echo $$ > \"$CMUX_TEST_PROCESS_MARKER\"; exec /bin/sleep 30",
+                    ],
+                    environment: ["CMUX_TEST_PROCESS_MARKER": markerURL.path],
                     stdin: Data("payload".utf8),
                     timeout: 5
                 ),
@@ -110,28 +117,33 @@ struct RemoteSessionProcessRunnerTests {
             let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? POSIXError
             return nsError.domain == "cmux.remote.process"
                 && nsError.code == 3
-                && nsError.localizedDescription.hasPrefix("Failed to write stdin for sleep:")
+                && nsError.localizedDescription.hasPrefix("Failed to write stdin for sh:")
                 && underlyingError?.code == .EIO
         }
-        let processIdentifier = try #require(launchedProcess.processIdentifier)
+        let processIdentifier = try recordedProcessIdentifier(at: markerURL)
         #expect(waitForProcessExit(processIdentifier, timeout: 2))
     }
 
     @Test("A late stdin write error wins over an earlier child exit")
-    func lateStdinWriteErrorWinsOverChildExit() {
-        let processDidExit = DispatchSemaphore(value: 0)
+    func lateStdinWriteErrorWinsOverChildExit() throws {
+        let markerURL = processMarkerURL()
+        defer { try? FileManager.default.removeItem(at: markerURL) }
         let runner = RemoteSessionProcessRunner(
-            processDidExit: { processDidExit.signal() },
-            stdinWriter: ExitGatedFailingRemoteProcessStdinWriter(
-                processDidExit: processDidExit
+            stdinWriter: MarkerGatedFailingRemoteProcessStdinWriter(
+                markerURL: markerURL,
+                gate: .exited
             )
         )
 
         #expect {
             try runner.run(
                 RemoteProcessRequest(
-                    executable: "/usr/bin/true",
-                    arguments: [],
+                    executable: "/bin/sh",
+                    arguments: [
+                        "-c",
+                        "echo $$ > \"$CMUX_TEST_PROCESS_MARKER\"; exit 0",
+                    ],
+                    environment: ["CMUX_TEST_PROCESS_MARKER": markerURL.path],
                     stdin: Data("payload".utf8),
                     timeout: 5
                 ),
@@ -147,27 +159,30 @@ struct RemoteSessionProcessRunnerTests {
     }
 
     @Test("A child retaining unread stdin cannot delay the process timeout")
-    func unreadStdinCannotDelayProcessTimeout() {
+    func unreadStdinCannotDelayProcessTimeout() throws {
         let runner = RemoteSessionProcessRunner()
-        let startedAt = ProcessInfo.processInfo.systemUptime
+        let outcome = try #require(runProcess(
+            runner,
+            request: RemoteProcessRequest(
+                executable: "/bin/sleep",
+                arguments: ["5"],
+                stdin: Data(repeating: 0x41, count: 1_048_576),
+                timeout: 1
+            ),
+            completingWithin: 4
+        ))
 
-        #expect {
-            try runner.run(
-                RemoteProcessRequest(
-                    executable: "/bin/sleep",
-                    arguments: ["5"],
-                    stdin: Data(repeating: 0x41, count: 1_048_576),
-                    timeout: 1
-                ),
-                operation: nil
-            )
-        } throws: { error in
+        switch outcome {
+        case .success:
+            Issue.record("Expected the unread stdin request to time out")
+        case .failure(let error):
             let nsError = error as NSError
-            return nsError.domain == "cmux.remote.process"
+            #expect(
+                nsError.domain == "cmux.remote.process"
                 && nsError.code == 2
                 && nsError.localizedDescription == "sleep timed out after 1s"
+            )
         }
-        #expect(ProcessInfo.processInfo.systemUptime - startedAt < 4)
     }
 
     @Test("A descendant retaining unread stdin cannot outlive the process timeout")
@@ -264,19 +279,18 @@ struct RemoteSessionProcessRunnerTests {
 }
 }
 
-private final class LaunchedProcessRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedProcessIdentifier: pid_t?
+private func processMarkerURL() -> URL {
+    FileManager.default.temporaryDirectory.appendingPathComponent(
+        "cmux-remote-process-\(UUID().uuidString).pid",
+        isDirectory: false
+    )
+}
 
-    var processIdentifier: pid_t? {
-        lock.withLock { storedProcessIdentifier }
-    }
-
-    func record(_ processIdentifier: pid_t) {
-        lock.withLock {
-            storedProcessIdentifier = processIdentifier
-        }
-    }
+private func recordedProcessIdentifier(at markerURL: URL) throws -> pid_t {
+    let contents = try String(contentsOf: markerURL, encoding: .utf8)
+    return try #require(
+        pid_t(contents.trimmingCharacters(in: .whitespacesAndNewlines))
+    )
 }
 
 private func waitForProcessExit(_ processIdentifier: pid_t, timeout: TimeInterval) -> Bool {

@@ -84,6 +84,28 @@ struct FileHandleProcessPipeReadingTests {
         #expect(result.readError == nil)
     }
 
+    @Test("A stopped end read drains every byte present at the stop snapshot")
+    func stoppedEndReadDrainsSnapshotLargerThanSixteenChunks() throws {
+        let pipe = Pipe()
+        let stopSignal = try ProcessPipeStopSignal()
+        let payload = Data((0..<128).map { UInt8($0) })
+        defer {
+            try? pipe.fileHandleForWriting.close()
+            try? pipe.fileHandleForReading.close()
+        }
+        try pipe.fileHandleForWriting.write(contentsOf: payload)
+        stopSignal.signal()
+
+        let result = ProcessPipeEndRead.reading(
+            fileDescriptor: pipe.fileHandleForReading.fileDescriptor,
+            chunkSize: 1,
+            stopFileDescriptor: stopSignal.readFileDescriptor
+        )
+
+        #expect(result.data == payload)
+        #expect(result.readError == nil)
+    }
+
     @Test("One stop signal wakes every blocked pipe reader")
     func stopSignalBroadcastsToBlockedReaders() throws {
         let firstPipe = Pipe()
