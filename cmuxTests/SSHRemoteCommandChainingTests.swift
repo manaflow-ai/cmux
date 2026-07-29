@@ -99,6 +99,66 @@ struct SSHRemoteCommandChainingTests {
     }
 
     @Test
+    func approvedInitialCommandTakesPrecedenceOverConfiguredRemoteCommand() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-resume-command-\(UUID().uuidString)", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let helper = root.appendingPathComponent("persistent-pty-exec-helper")
+        let resumeMarker = home.appendingPathComponent("resume-command-result")
+        let configuredMarker = home.appendingPathComponent("configured-command-result")
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        [ "${1:-}" = "--internal-persistent-pty-exec" ] || exit 2
+        shift
+        executable="${1:-}"
+        [ -n "$executable" ] || exit 2
+        shift
+        [ "${1:-}" = "$executable" ] || exit 2
+        shift
+        exec "$executable" "$@"
+        """
+        .write(to: helper, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_124,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialCommand: #"printf 'resumed\n' > "$HOME/resume-command-result"; exit 0"#,
+            configuredRemoteCommand: #"printf 'configured\n' > "$HOME/configured-command-result""#
+        )
+        let result = processSupport.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(home.path)",
+                "SHELL=/bin/zsh",
+                "PATH=/usr/bin:/bin",
+                "USER=\(NSUserName())",
+                "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(helper.path)",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(try String(contentsOf: resumeMarker, encoding: .utf8) == "resumed\n")
+        #expect(!fileManager.fileExists(atPath: configuredMarker.path))
+        let shellStateDirectory = home
+            .appendingPathComponent(".cmux/relay/64124.shell", isDirectory: true)
+        let remainingPayloads = try fileManager.contentsOfDirectory(atPath: shellStateDirectory.path)
+            .filter { $0.hasPrefix(".initial-command.payload.") }
+        #expect(remainingPayloads.isEmpty, "\(remainingPayloads)")
+    }
+
+    @Test
     func persistentWorkspaceRestoreKeepsConfiguredRemoteCommandInNewPaneBootstrap() throws {
         let configuredRemoteCommand = #"cd "/srv/project dir" && exec fish"#
         let liveConfiguration = WorkspaceRemoteConfiguration(

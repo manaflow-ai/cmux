@@ -208,7 +208,7 @@ struct SSHConfiguredRemoteCommandHostTests {
     }
 
     @Test
-    func sshStartupContinuesWhenConfigurationResolutionIsUnavailable() throws {
+    func sshStartupPreservesExplicitRemoteCommandWhenConfigurationResolutionIsUnavailable() throws {
         let cliPath = try processSupport.bundledCLIPath()
         let socketPath = processSupport.makeSocketPath("ssh-config-unavailable")
         let listenerFD = try processSupport.bindUnixSocket(at: socketPath)
@@ -258,6 +258,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             arguments: [
                 "ssh",
                 "--no-focus",
+                "--ssh-option", "RemoteCommand=printf explicit-fallback",
                 "--ssh-option", "CmuxTestInvalidOption=yes",
                 "cmux-config-unavailable-host",
             ],
@@ -268,11 +269,15 @@ struct SSHConfiguredRemoteCommandHostTests {
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        let methods = state.commands.compactMap {
-            processSupport.jsonObject($0)?["method"] as? String
-        }
+        let requests = state.commands.compactMap(processSupport.jsonObject)
+        let methods = requests.compactMap { $0["method"] as? String }
         #expect(methods.contains("workspace.create"), "\(methods)")
         #expect(methods.contains("workspace.remote.configure"), "\(methods)")
+        let configureParams = try #require(
+            requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"]
+                as? [String: Any]
+        )
+        #expect(configureParams["configured_remote_command"] as? String == "printf explicit-fallback")
     }
 
     /// `cmux ssh` bootstrap-install flow (ControlMaster disabled → staged
