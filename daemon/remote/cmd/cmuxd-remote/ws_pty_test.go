@@ -531,6 +531,18 @@ func TestAttachRPCFastExitCoalescedWaitersShareGeneration(t *testing.T) {
 		close(releaseWaiter)
 		t.Fatalf("fast-exit generation phase = %d, want finished-before-initial-attachment", initialPhase)
 	}
+	if snapshots := hub.sessionSnapshots(); len(snapshots) != 0 {
+		close(releaseWaiter)
+		t.Fatalf("fast-exit generation remained visible as running: %+v", snapshots)
+	}
+	if status := hub.writeInputByID("coalesced-fast-exit", "first", "", nil); status != wsPTYInputWriteNotFound {
+		close(releaseWaiter)
+		t.Fatalf("fast-exit generation input status = %v, want not found", status)
+	}
+	if hub.resizeByID("coalesced-fast-exit", "first", "", 100, 30) {
+		close(releaseWaiter)
+		t.Fatal("fast-exit generation remained resizable")
+	}
 
 	close(releaseWaiter)
 	second := <-secondResult
