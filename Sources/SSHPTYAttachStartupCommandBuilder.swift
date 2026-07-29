@@ -70,7 +70,9 @@ enum SSHPTYAttachStartupCommandBuilder {
     private static func retryingAttachLines(command: String, reauthenticates: Bool) -> [String] {
         // Retryable 254|255 is owned by SSHPTYAttachExitCode in the CLI target; keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines.
         let reauthenticate = reauthenticates ? "cmux_ssh_attach_reauth_required=1" : ":"
-        let authRetryLimit = SSHForegroundAuthenticationRetryPolicy().maximumConsecutiveTransientFailures
+        let authPolicy = SSHForegroundAuthenticationRetryPolicy()
+        let authRetryLimit = authPolicy.maximumConsecutiveTransientFailures
+        let unclassifiedAuthFailure = authPolicy.unclassifiedFailureExitStatus
         // Initial transient foreground-auth failures are a reconnect phase, so boot-time outages share this loop.
         let initialReauthentication = reauthenticates ? 1 : 0
         return [
@@ -85,12 +87,13 @@ enum SSHPTYAttachStartupCommandBuilder {
             "cmux_ssh_attach_retry=0",
             "cmux_ssh_attach_auth_retry=0",
             "cmux_ssh_attach_auth_retry_limit=\(authRetryLimit)",
+            "cmux_ssh_attach_auth_established=0",
             "cmux_ssh_attach_reauth_required=\(initialReauthentication)",
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
             "    cmux_ssh_attach_foreground_auth",
             "    cmux_ssh_attach_status=$?",
-            "    if [ \"$cmux_ssh_attach_status\" -eq 0 ]; then cmux_ssh_attach_reauth_required=0; cmux_ssh_attach_auth_retry=0; elif [ \"$cmux_ssh_attach_status\" -eq 254 ]; then if [ \"$cmux_ssh_attach_auth_retry\" -ge \"$cmux_ssh_attach_auth_retry_limit\" ]; then exit 255; fi; cmux_ssh_attach_auth_retry=$((cmux_ssh_attach_auth_retry + 1)); else exit \"$cmux_ssh_attach_status\"; fi",
+            "    if [ \"$cmux_ssh_attach_status\" -eq 0 ]; then cmux_ssh_attach_reauth_required=0; cmux_ssh_attach_auth_retry=0; cmux_ssh_attach_auth_established=1; else case \"$cmux_ssh_attach_status:$cmux_ssh_attach_auth_established\" in 254:*|\(unclassifiedAuthFailure):1) cmux_ssh_attach_auth_retry=$((cmux_ssh_attach_auth_retry + 1)); if [ \"$cmux_ssh_attach_auth_retry\" -ge \"$cmux_ssh_attach_auth_retry_limit\" ]; then exit 255; fi ;; *) if [ \"$cmux_ssh_attach_status\" -eq \(unclassifiedAuthFailure) ]; then exit 255; fi; exit \"$cmux_ssh_attach_status\" ;; esac; fi",
             "  fi",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",

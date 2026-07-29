@@ -118,7 +118,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "Foreground authentication must not retain unbounded remote-controlled stderr"
         )
         process.waitUntilExit()
-        #expect(process.terminationStatus == 255)
+        #expect(process.terminationStatus == 252)
     }
 
     private func run(_ command: String) throws -> (

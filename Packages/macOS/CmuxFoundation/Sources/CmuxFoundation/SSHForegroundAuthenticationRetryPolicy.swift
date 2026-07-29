@@ -9,6 +9,13 @@ internal import Foundation
 public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// Maximum consecutive transport failures before foreground auth surfaces the outage.
     public let maximumConsecutiveTransientFailures = 20
+
+    /// Internal shell status for a status-255 failure with no recognized diagnostic.
+    ///
+    /// Callers surface this as 255 during initial authentication, but may retry
+    /// it after a previously established connection is interrupted.
+    public let unclassifiedFailureExitStatus = 252
+
     private let transientFailurePattern: String
     private let permanentFailurePattern: String
 
@@ -39,8 +46,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         ].joined(separator: "|")
     }
 
-    /// Wraps a zsh command so transient transport failures exit 254 while every
-    /// other exit status is preserved.
+    /// Wraps a zsh command so status-255 failures become transient (254),
+    /// unclassified (``unclassifiedFailureExitStatus``), or permanent (255).
+    /// Every other exit status is preserved.
     ///
     /// Stderr is copied live through private FIFOs while an incremental
     /// classifier retains only a bounded result marker. This keeps password,
@@ -102,9 +110,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "cmux_ssh_auth_capture_tee_pid=",
             "wait \"$cmux_ssh_auth_classifier_pid\" 2>/dev/null || true",
             "cmux_ssh_auth_classifier_pid=",
-            "if [ \"$cmux_ssh_auth_capture_status\" -eq 255 ] \\",
-            "  && [ \"$(/bin/cat -- \"$cmux_ssh_auth_capture_state\" 2>/dev/null || true)\" = transient ]; then",
-            "  cmux_ssh_auth_capture_status=254",
+            "if [ \"$cmux_ssh_auth_capture_status\" -eq 255 ]; then",
+            "  case \"$(/bin/cat -- \"$cmux_ssh_auth_capture_state\" 2>/dev/null || true)\" in",
+            "    transient) cmux_ssh_auth_capture_status=254 ;;",
+            "    permanent) ;;",
+            "    *) cmux_ssh_auth_capture_status=\(unclassifiedFailureExitStatus) ;;",
+            "  esac",
             "fi",
             "trap - EXIT HUP INT TERM",
             "cmux_ssh_auth_capture_cleanup",
