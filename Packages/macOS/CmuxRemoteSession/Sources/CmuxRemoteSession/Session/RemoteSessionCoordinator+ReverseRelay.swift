@@ -45,7 +45,12 @@ extension RemoteSessionCoordinator {
             let process = Process()
             let stderrPipe = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            process.arguments = reverseRelayArguments(relayPort: relayPort, localRelayPort: localRelayPort)
+            let relayArguments = reverseRelayArguments(
+                relayPort: relayPort,
+                localRelayPort: localRelayPort
+            )
+            process.arguments = relayArguments
+            reverseRelayLaunchObserver?(relayArguments)
             process.environment = configuration.sshProcessEnvironment
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.nullDevice

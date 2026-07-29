@@ -63,6 +63,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let buildInfo: any RemoteSessionBuildInfoProviding
     let daemonStrings: RemoteDaemonStrings
     let strings: RemoteSessionStrings
+    /// Optional launch observer used by integration tests to verify the exact
+    /// argv of the long-lived reverse-relay process.
+    let reverseRelayLaunchObserver: (@Sendable ([String]) -> Void)?
     /// Sleep seam for every legacy `asyncAfter` delay (reconnect backoff,
     /// relay restart, bootstrap-TTY retry, port-scan coalesce and burst).
     let clock: any RemoteProxyRetryClock
@@ -166,6 +169,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         buildInfo: any RemoteSessionBuildInfoProviding,
         daemonStrings: RemoteDaemonStrings,
         strings: RemoteSessionStrings,
+        reverseRelayLaunchObserver: (@Sendable ([String]) -> Void)? = nil,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
     ) {
         self.host = host
@@ -179,6 +183,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.buildInfo = buildInfo
         self.daemonStrings = daemonStrings
         self.strings = strings
+        self.reverseRelayLaunchObserver = reverseRelayLaunchObserver
         self.clock = clock
         queue.setSpecific(key: queueKey, value: ())
     }
