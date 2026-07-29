@@ -241,27 +241,33 @@ struct AgentWaitCoordinatorTests {
     @Test
     func unrelatedSurfaceBurstCannotOverflowTargetWait() throws {
         let fixture = Fixture(state: .running, maxPendingEvents: 2)
-
-        let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
-            until: .idle,
-            timeoutMilliseconds: 0,
-            prepare: {
-                fixture.preparation(occupant: fixture.original) {
-                    for _ in 0..<16 {
-                        fixture.bus.publish(
-                            name: "agent.state.changed",
-                            category: "agent",
-                            source: "test",
-                            surfaceId: UUID().uuidString
-                        )
-                    }
-                    fixture.publish(
-                        record: fixture.original,
-                        state: .idle,
-                        previous: .running
-                    )
+        let publishUnrelatedEvent = {
+            fixture.bus.publish(
+                name: "agent.state.changed",
+                category: "agent",
+                source: "test",
+                surfaceId: UUID().uuidString
+            )
+        }
+        let coordinator = AgentWaitCoordinator(
+            eventBus: fixture.bus,
+            onSubscribe: { _ in
+                publishUnrelatedEvent()
+                fixture.publish(
+                    record: fixture.original,
+                    state: .idle,
+                    previous: .running
+                )
+                for _ in 0..<16 {
+                    publishUnrelatedEvent()
                 }
             }
+        )
+
+        let result = coordinator.wait(
+            until: .idle,
+            timeoutMilliseconds: 0,
+            prepare: { fixture.preparation(occupant: fixture.original) }
         )
 
         let value = try result.get()
