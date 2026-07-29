@@ -493,6 +493,24 @@ def test_schedule_comparison_failure_fails_open() -> None:
     ]
 
 
+def test_unchanged_scheduled_head_skips_without_comparing() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="head-sha",
+        head_sha="head-sha",
+        compare_api_failure=True,
+    )
+
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "head-sha",
+        "variant": "internal",
+    }
+    assert result["compareCalls"] == []
+    assert result["warnings"] == []
+
+
 def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
     first_run = run_decision_scenario(
         event_name="schedule",
@@ -611,6 +629,30 @@ def test_scheduled_run_waits_for_an_earlier_upload() -> None:
 
     assert result["waitCalls"] == [60_000]
     assert result["workflowRunCalls"] == 3
+    assert result["workflowRunRequests"] == [
+        {
+            "owner": "manaflow-ai",
+            "repo": "cmux",
+            "workflow_id": "ios-testflight.yml",
+            "branch": "main",
+            "per_page": 100,
+        },
+        {
+            "owner": "manaflow-ai",
+            "repo": "cmux",
+            "workflow_id": "ios-testflight.yml",
+            "branch": "main",
+            "per_page": 100,
+        },
+        {
+            "owner": "manaflow-ai",
+            "repo": "cmux",
+            "workflow_id": "ios-testflight.yml",
+            "branch": "main",
+            "per_page": 100,
+            "page": 1,
+        },
+    ]
     assert result["priorRunStatuses"] == [
         "in_progress",
         "in_progress",
@@ -851,6 +893,7 @@ if __name__ == "__main__":
     test_schedule_decision_executes_ios_path_filter()
     test_truncated_schedule_comparison_fails_open()
     test_schedule_comparison_failure_fails_open()
+    test_unchanged_scheduled_head_skips_without_comparing()
     test_schedule_decision_routes_demo_cron_to_demo_history()
     test_schedule_decision_routes_internal_cron_to_internal_history()
     test_demo_history_skips_newer_internal_artifact()
