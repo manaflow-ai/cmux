@@ -185,13 +185,17 @@ struct RendererRealizationPlannerTests {
         harness.controller.start()
         defer { harness.controller.stop() }
 
-        for surface in harness.surfaces.dropFirst() {
+        let hiddenSurfaces = Array(harness.surfaces.dropFirst())
+        harness.hide(hiddenSurfaces[0])
+        harness.postVisibilityChange(for: hiddenSurfaces[0])
+        await harness.sleeper.waitUntilSleeping(for: 0.016)
+        for surface in hiddenSurfaces.dropFirst() {
+            await harness.advance(by: 0.004)
             harness.hide(surface)
             harness.postVisibilityChange(for: surface)
         }
 
-        await harness.sleeper.waitUntilSleeping(for: 0.016)
-        await harness.advance(by: 0.016)
+        await harness.advance(by: 0.004)
         await harness.evaluations.wait(until: 2)
         await harness.sleeper.waitUntilAnySleep()
 
@@ -199,7 +203,14 @@ struct RendererRealizationPlannerTests {
         #expect(harness.snapshotCount == 2)
         #expect(harness.surfaces.reduce(0) { $0 + $1.releaseCount } == 0)
 
+        // The four hide timestamps span 12 ms. Their idle deadlines remain one
+        // reclaim batch, so the earliest timestamp cannot fan back out into an
+        // app-wide evaluation before the batch's latest timestamp is eligible.
         await harness.advance(by: 4.984)
+        #expect(await harness.sleeper.isSleeping(for: 0.012))
+        #expect(harness.surfaces.reduce(0) { $0 + $1.releaseCount } == 0)
+
+        await harness.advance(by: 0.012)
         await harness.evaluations.wait(until: 3)
 
         #expect(harness.surfaces.dropFirst().allSatisfy { $0.releaseCount == 1 })
@@ -504,6 +515,10 @@ private actor RendererRealizationManualSleeper {
         await withCheckedContinuation { continuation in
             waiters.append(SleepWaiter(duration: nil, continuation: continuation))
         }
+    }
+
+    func isSleeping(for duration: TimeInterval) -> Bool {
+        hasPendingSleep(for: duration)
     }
 
     func waitUntilIdle() async {
