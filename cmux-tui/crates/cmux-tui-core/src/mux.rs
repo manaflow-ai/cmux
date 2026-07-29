@@ -11341,7 +11341,7 @@ mod tests {
     }
 
     #[test]
-    fn kitty_quota_worker_stops_after_persistent_update_failure() {
+    fn kitty_quota_worker_disables_graphics_but_admits_terminals_after_persistent_failure() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
@@ -11373,12 +11373,24 @@ mod tests {
         );
 
         let started = Instant::now();
-        let error = mux
+        let replacement = mux
             .new_tab(Some(pane), None, Some((80, 24)))
-            .expect_err("a blocked Kitty quota transition admitted another terminal");
+            .expect("an optional Kitty quota failure blocked terminal creation");
         assert!(
             started.elapsed() < Duration::from_millis(250),
-            "a blocked Kitty quota transition waited for the control timeout: {error}"
+            "a blocked Kitty quota transition waited for the control timeout"
+        );
+        assert_eq!(
+            replacement
+                .with_terminal(|terminal| terminal.kitty_image_count_limit().unwrap())
+                .unwrap(),
+            0,
+            "a terminal admitted during a blocked quota transition retained graphics quota"
+        );
+        let budget = mux.kitty_image_budget.lock().unwrap();
+        assert!(
+            !budget.entries.get(&replacement.id).unwrap().owns_quota,
+            "a terminal admitted during a blocked quota transition became a quota owner"
         );
     }
 
