@@ -187,7 +187,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 browserPanel.canvasInlineHostingActive = false
                 browserPanel.noteWebViewVisibility(false, reason: "canvas.unmount")
             } else if let applicationPanel = panel as? ApplicationPanel {
-                applicationPanel.setCanvasRendering(false)
+                applicationPanel.setCanvasRendering(nil)
             }
             view.removeFromSuperview()
         }

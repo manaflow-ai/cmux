@@ -18,8 +18,15 @@ private enum ComputerUseFinalHelperCleanupState: Equatable {
 /// LaunchServices, and reads permission status exclusively over the daemon UDS.
 @MainActor
 final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
+    enum ApplicationSurfaceRequestLane {
+        case health
+        case input
+    }
+
     static let helperAppName = "cmux Computer Use"
     nonisolated private static let helperExecutableName = "cmux Computer Use"
+    nonisolated private static let maximumApplicationWindowDimension =
+        1_000_000.0
 
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
@@ -493,7 +500,10 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             timeout: 3,
             expectedPeerIdentity: identity,
             socketURL: paths.daemonSocketURL,
-            persistentConnection: applicationSurfaceInputConnection
+            persistentConnection: Self.applicationSurfacePersistentConnection(
+                for: .health,
+                inputConnection: applicationSurfaceInputConnection
+            )
         ) else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
@@ -545,7 +555,10 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             timeout: 3,
             expectedPeerIdentity: identity,
             socketURL: paths.daemonSocketURL,
-            persistentConnection: applicationSurfaceInputConnection
+            persistentConnection: Self.applicationSurfacePersistentConnection(
+                for: .input,
+                inputConnection: applicationSurfaceInputConnection
+            )
         ) else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
@@ -839,19 +852,42 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
     }
 
-    nonisolated private static func applicationWindowDescriptor(
+    nonisolated static func applicationSurfacePersistentConnection(
+        for lane: ApplicationSurfaceRequestLane,
+        inputConnection: PersistentSocketLineConnection
+    ) -> PersistentSocketLineConnection? {
+        switch lane {
+        case .health:
+            nil
+        case .input:
+            inputConnection
+        }
+    }
+
+    nonisolated static func applicationWindowDescriptor(
         _ value: [String: Any]
     ) -> ApplicationWindowDescriptor? {
         guard
             let rawWindowID = value["window_id"] as? NSNumber,
             let rawProcessID = value["process_id"] as? NSNumber,
+            rawWindowID.uint64Value > 0,
             rawWindowID.uint64Value <= UInt32.max,
             rawProcessID.int64Value > 0,
             rawProcessID.int64Value <= Int32.max,
             let owner = value["owner"] as? String,
             let title = value["title"] as? String,
-            let width = value["width"] as? NSNumber,
-            let height = value["height"] as? NSNumber
+            let rawWidth = value["width"] as? NSNumber,
+            let rawHeight = value["height"] as? NSNumber
+        else {
+            return nil
+        }
+        let width = rawWidth.doubleValue
+        let height = rawHeight.doubleValue
+        guard
+            width.isFinite,
+            height.isFinite,
+            (1...maximumApplicationWindowDimension).contains(width),
+            (1...maximumApplicationWindowDimension).contains(height)
         else {
             return nil
         }
@@ -860,8 +896,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             processID: rawProcessID.int32Value,
             owner: owner,
             title: title,
-            width: width.doubleValue,
-            height: height.doubleValue
+            width: width,
+            height: height
         )
     }
 

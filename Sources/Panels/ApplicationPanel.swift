@@ -31,7 +31,7 @@ final class ApplicationPanel: Panel {
     @ObservationIgnored
     private var captureVisibleInUI = false
     @ObservationIgnored
-    private var canvasRendering = true
+    private var canvasRendering: Bool?
     @ObservationIgnored
     private var runtimeLease: ApplicationSurfaceRuntimeLease?
     @ObservationIgnored
@@ -321,7 +321,11 @@ final class ApplicationPanel: Panel {
         applyCaptureVisibility()
     }
 
-    func setCanvasRendering(_ rendering: Bool) {
+    var captureEligibleForCurrentVisibility: Bool {
+        captureVisibleInUI && (canvasRendering ?? true)
+    }
+
+    func setCanvasRendering(_ rendering: Bool?) {
         canvasRendering = rendering
         applyCaptureVisibility()
     }
@@ -381,9 +385,9 @@ final class ApplicationPanel: Panel {
     }
 
     func retryCaptureAfterPermissions() {
-        setCaptureState(captureVisibleInUI && canvasRendering
-            ? .starting
-            : .suspended)
+        setCaptureState(
+            captureEligibleForCurrentVisibility ? .starting : .suspended
+        )
         applyCaptureVisibility()
     }
 
@@ -409,7 +413,7 @@ final class ApplicationPanel: Panel {
     }
 
     private func applyCaptureVisibility() {
-        let shouldCapture = captureVisibleInUI && canvasRendering
+        let shouldCapture = captureEligibleForCurrentVisibility
         if !shouldCapture, captureTarget != nil {
             switch captureState {
             case .starting, .streaming:
