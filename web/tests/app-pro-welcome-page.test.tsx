@@ -51,7 +51,7 @@ describe("app pro welcome page", () => {
     expect(html).toContain(
       'href="/dashboard?cmux_open_in_browser=split-right"',
     );
-    expect(html).toContain('rel="noopener" target="_blank"');
+    expect(html).not.toContain('target="_blank"');
     expect(html).toContain(
       'class="mt-2 text-sm leading-5 text-muted">See your plan, invoices, and cancellation.',
     );
@@ -80,6 +80,7 @@ describe("app pro welcome page", () => {
       expect(html).toContain(
         'href="/fr/dashboard?cmux_open_in_browser=split-right"',
       );
+      expect(html).not.toContain('target="_blank"');
     } finally {
       activeLocale = "en";
     }

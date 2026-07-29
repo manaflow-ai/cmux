@@ -1001,6 +1001,20 @@ describe("SEO middleware", () => {
     ).toBe("fr");
   });
 
+  test("strips the native browser-split marker when a web request reaches the server", () => {
+    const response = middleware(
+      requestFor(
+        "/dashboard/testflight?cmux_open_in_browser=split-right&source=welcome",
+      ),
+    );
+    const location = new URL(response.headers.get("location")!);
+
+    expect(response.status).toBe(307);
+    expect(location.pathname).toBe("/dashboard/testflight");
+    expect(location.searchParams.get("source")).toBe("welcome");
+    expect(location.searchParams.has("cmux_open_in_browser")).toBe(false);
+  });
+
   test("does not advertise unsupported locale variants globally", () => {
     const response = middleware(requestFor("/ja/docs/remote-tmux"));
 
