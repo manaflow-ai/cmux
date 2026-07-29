@@ -55,6 +55,12 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         record("terminal.paste", params)
     }
 
+    func controlMobileTaskAttachmentUpload(
+        params: [String: JSONValue]
+    ) -> ControlCallResult {
+        record("task.attachment.upload", params)
+    }
+
     func controlMobileChatSessionsDump() -> ControlCallResult {
         record("chat.sessions.dump", [:])
     }
@@ -87,6 +93,12 @@ struct ControlCommandCoordinatorMobileHostTests {
         let (coordinator, context) = makeCoordinator()
         #expect(coordinator.handle(request("chat.sessions.dump")) != nil)
         #expect(context.lastMarker == "chat.sessions.dump")
+    }
+
+    @Test func v2SurfaceRoutesTaskAttachmentUploadThroughSeam() {
+        let (coordinator, context) = makeCoordinator()
+        #expect(coordinator.handle(request("mobile.task.attachment.upload")) != nil)
+        #expect(context.lastMarker == "task.attachment.upload")
     }
 
     @Test func v2SurfaceUsesPrivateHostStatusVariant() {

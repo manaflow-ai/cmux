@@ -2388,6 +2388,7 @@ class TerminalController {
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
+            "mobile.task.attachment.upload",
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
@@ -14138,6 +14139,8 @@ class TerminalController {
             )
         case "workspace.create":
             result = await v2MobileWorkspaceCreate(params: request.params)
+        case "mobile.task.attachment.upload":
+            result = v2MobileTaskAttachmentUpload(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":

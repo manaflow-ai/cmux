@@ -27,6 +27,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public let trimmedDirectory: String
     /// Whether the user edited the template's suggested working directory.
     public let didEditDirectory: Bool
+    /// Value-only attachment identities captured for request equivalence.
+    public let attachments: [MobileTaskSubmissionAttachment]
     /// Stable idempotency key used for every attempt to submit this snapshot.
     public let operationID: UUID
     /// Command and environment derived from the captured template and prompt.
@@ -48,6 +50,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     ///   - directory: Working-directory text shown in the composer.
     ///   - workspaceName: Optional workspace name shown in the composer.
     ///   - didEditDirectory: Whether the user changed the suggested directory.
+    ///   - attachments: Attachment upload identifiers and staged byte counts.
     ///   - operationID: Stable idempotency key for submission retries.
     public init(
         template: MobileTaskTemplate,
@@ -58,6 +61,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         directory: String,
         workspaceName: String = "",
         didEditDirectory: Bool,
+        attachments: [MobileTaskSubmissionAttachment] = [],
         operationID: UUID
     ) {
         self.templateID = template.id
@@ -70,6 +74,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.directory = directory
         self.trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         self.didEditDirectory = didEditDirectory
+        self.attachments = attachments
         self.operationID = operationID
         self.composition = MobileTaskCommandComposer().compose(
             template: template,
@@ -91,6 +96,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             && Self.hasEqualUTF8(composition.initialEnv, other.composition.initialEnv)
             && Self.hasEqualUTF8(workspaceTitle, other.workspaceTitle)
             && Self.hasEqualUTF8(trimmedDirectory, other.trimmedDirectory)
+            && attachments == other.attachments
     }
 
     /// Rebinds an already-composed request to its resolved idempotency key.
@@ -106,10 +112,22 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             workspaceName: workspaceName,
             directory: directory,
             didEditDirectory: didEditDirectory,
+            attachments: attachments,
             operationID: operationID,
             composition: composition,
             trimmedWorkspaceName: trimmedWorkspaceName,
             trimmedDirectory: trimmedDirectory
+        )
+    }
+
+    /// Applies absolute paths returned by attachment uploads to the captured composition.
+    ///
+    /// - Parameter attachmentPaths: Absolute Mac paths in attachment order.
+    /// - Returns: A composition with attachment environment and prompt suffix.
+    public func composition(attachmentPaths: [String]) -> MobileTaskComposition {
+        MobileTaskCommandComposer().addingAttachmentPaths(
+            attachmentPaths,
+            to: composition
         )
     }
 
@@ -165,6 +183,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         workspaceName: String,
         directory: String,
         didEditDirectory: Bool,
+        attachments: [MobileTaskSubmissionAttachment],
         operationID: UUID,
         composition: MobileTaskComposition,
         trimmedWorkspaceName: String,
@@ -180,6 +199,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.directory = directory
         self.trimmedDirectory = trimmedDirectory
         self.didEditDirectory = didEditDirectory
+        self.attachments = attachments
         self.operationID = operationID
         self.composition = composition
     }

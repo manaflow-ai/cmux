@@ -57,7 +57,8 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "workspace.create", "browser.url.get",
             "browser.open_split", "browser.get.title", "browser.frame.main",
-            "mobile.terminal.create", "feed.jump", "vmx.create", "",
+            "mobile.terminal.create", "mobile.task.attachment.upload",
+            "feed.jump", "vmx.create", "",
             // Focus-intent verbs stay on the main lane until the mutations
             // tranche decides them deliberately.
             "surface.focus", "workspace.select", "pane.focus", "window.focus",

@@ -4,6 +4,7 @@ import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -34,6 +35,12 @@ struct TaskComposerSheet: View {
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
     @State var completedOperationRecovery: TaskComposerCompletedOperationRecovery?
     @State var isStartAgainConfirmationPresented = false
+    @State var attachments: [TaskComposerAttachment] = []
+    @State var isAttachmentPhotoPickerPresented = false
+    @State var attachmentPhotoSelection: [PhotosPickerItem] = []
+    @State var isAttachmentFileImporterPresented = false
+    @State var attachmentStagingTask: Task<Void, Never>?
+    @State var attachmentAlertMessage: String?
 
     let sessionGeneration: Int
     private let availableMachines: [MobilePairedMac]?
@@ -251,6 +258,8 @@ struct TaskComposerSheet: View {
             .onDisappear {
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
+                attachmentStagingTask?.cancel()
+                removeStagedAttachmentFiles()
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
                 }
@@ -266,6 +275,34 @@ struct TaskComposerSheet: View {
                 isPresented: $isStartAgainConfirmationPresented,
                 confirm: confirmStartAgain
             ))
+            .modifier(TaskComposerAttachmentPickerModifier(
+                isPhotoPickerPresented: $isAttachmentPhotoPickerPresented,
+                photoSelection: $attachmentPhotoSelection,
+                isFileImporterPresented: $isAttachmentFileImporterPresented,
+                remainingCount: remainingAttachmentCount,
+                selectedPhotos: stageSelectedPhotos,
+                selectedFiles: stageSelectedFiles
+            ))
+            .alert(
+                L10n.string(
+                    "mobile.taskComposer.attachments.alert.title",
+                    defaultValue: "Couldn’t Add Attachment"
+                ),
+                isPresented: Binding(
+                    get: { attachmentAlertMessage != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            attachmentAlertMessage = nil
+                        }
+                    }
+                )
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK")) {
+                    attachmentAlertMessage = nil
+                }
+            } message: {
+                Text(attachmentAlertMessage ?? "")
+            }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -292,10 +329,15 @@ struct TaskComposerSheet: View {
                         modelPickerVariant: displaySettings.taskComposerModelPickerVariant,
                         models: availableModels,
                         selectedModelID: selectedModelID,
+                        attachments: attachments,
+                        showsAttachmentButton: showsAttachmentButton,
                         selectTemplate: selectTemplateFromPicker,
                         selectTemplateAndModel: selectTemplateAndModelFromPicker,
                         selectModel: selectModel,
-                        editTemplates: presentTemplateEditor
+                        editTemplates: presentTemplateEditor,
+                        chooseAttachmentPhotos: presentAttachmentPhotoPicker,
+                        chooseAttachmentFiles: presentAttachmentFileImporter,
+                        removeAttachment: removeAttachment
                     )
 
                     TaskComposerContextSection(
@@ -326,7 +368,9 @@ struct TaskComposerSheet: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             TaskComposerPrimaryAction(
                 isSubmitting: submissionPhase.showsProgress,
-                isEnabled: selectedMachine != nil && canLaunchSelectedTemplate,
+                isEnabled: selectedMachine != nil
+                    && canLaunchSelectedTemplate
+                    && attachmentStagingTask == nil,
                 templateIcon: selectedTemplate?.icon,
                 actionTitle: primaryActionTitle,
                 progressTitle: primaryActionProgressTitle,
@@ -371,10 +415,13 @@ struct TaskComposerSheet: View {
             isSubmitEnabled: selectedMachine != nil
                 && canLaunchSelectedTemplate
                 && submissionPhase.allowsSubmission
+                && attachmentStagingTask == nil
                 && blockingCompletedOperationRecovery == nil,
             failureTitle: failureTitleStyle.title,
             failureText: failureText,
             completedOperationRecovery: blockingCompletedOperationRecovery,
+            attachments: attachments,
+            showsAttachmentButton: showsAttachmentButton,
             optionsSheet: { minimalOptionsSheet },
             endEditing: resolveCompletedOperationRecoveryAfterEditing,
             selectTemplate: selectTemplateFromPicker,
@@ -384,7 +431,10 @@ struct TaskComposerSheet: View {
             cancel: cancelComposer,
             submit: startSubmission,
             refreshCompletedOperation: startCompletedOperationReconciliation,
-            requestStartAgain: { isStartAgainConfirmationPresented = true }
+            requestStartAgain: { isStartAgainConfirmationPresented = true },
+            chooseAttachmentPhotos: presentAttachmentPhotoPicker,
+            chooseAttachmentFiles: presentAttachmentFileImporter,
+            removeAttachment: removeAttachment
         )
     }
 
@@ -646,6 +696,7 @@ struct TaskComposerSheet: View {
     func startSubmission() {
         resolveCompletedOperationRecoveryAfterEditing()
         guard submitTask == nil,
+              attachmentStagingTask == nil,
               blockingCompletedOperationRecovery == nil,
               submissionPhase.allowsSubmission else { return }
         // Once the user sends a genuinely different request, the prior
@@ -676,7 +727,35 @@ struct TaskComposerSheet: View {
         submissionPhase = .preparing
         activeSubmissionSnapshot = snapshot
         failureText = nil
-        let spec = workspaceCreateSpec(for: snapshot)
+        let attachmentPaths: [String]
+        switch await uploadAttachments(for: snapshot) {
+        case .success(let paths):
+            attachmentPaths = paths
+        case .failure(let failure):
+            submissionPhase = .idle
+            activeSubmissionSnapshot = nil
+            guard !Task.isCancelled else { return }
+            restoreSubmittedDraft(snapshot)
+            _ = store.persistTaskComposerDraft(
+                snapshot.draft,
+                ifSessionGeneration: sessionGeneration
+            )
+            submissionPhase = .retryReady
+            failureTitleStyle = .launchFailed
+            let message = Self.attachmentUploadFailureMessage(failure)
+            failureText = message
+            announceFailure(message)
+            return
+        }
+        guard !Task.isCancelled else {
+            submissionPhase = .idle
+            activeSubmissionSnapshot = nil
+            return
+        }
+        let spec = workspaceCreateSpec(
+            for: snapshot,
+            attachmentPaths: attachmentPaths
+        )
         let result = await submitTaskComposer(
             snapshot.macDeviceID,
             snapshot.macInstanceTag,

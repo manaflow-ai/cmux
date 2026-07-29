@@ -117,6 +117,14 @@ public protocol ControlMobileHostContext: AnyObject {
     /// - Returns: The fully-built command result.
     func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult
 
+    /// `mobile.task.attachment.upload` — stage or finalize one task file chunk.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileTaskAttachmentUpload(
+        params: [String: JSONValue]
+    ) -> ControlCallResult
+
     /// `chat.sessions.dump` (local debug socket) — the full chat-session registry
     /// dump, for diagnosing inconsistent phone-side chat state.
     ///

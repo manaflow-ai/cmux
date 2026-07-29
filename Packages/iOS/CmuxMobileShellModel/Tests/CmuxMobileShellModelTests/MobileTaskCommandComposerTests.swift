@@ -111,6 +111,59 @@ import Testing
         #expect(result.title == "Run diagnostics")
     }
 
+    @Test func attachmentPathsPopulateEnvironmentAndPromptSuffix() {
+        let template = MobileTaskTemplate(
+            name: "Codex",
+            icon: "agent:codex",
+            command: "codex -- \"$CMUX_TASK_PROMPT\""
+        )
+        let result = composer.compose(
+            template: template,
+            prompt: "  Investigate the failure  ",
+            attachmentPaths: ["/tmp/one.png", "/tmp/two notes.txt"]
+        )
+
+        #expect(result.initialCommand == template.command)
+        #expect(result.initialEnv == [
+            "CMUX_TASK_ATTACHMENTS": "/tmp/one.png\n/tmp/two notes.txt",
+            "CMUX_TASK_PROMPT": """
+            Investigate the failure
+
+            Attached files (absolute paths on this machine):
+            - /tmp/one.png
+            - /tmp/two notes.txt
+            """,
+        ])
+    }
+
+    @Test func emptyAttachmentPathsPreservePreviousCompositionExactly() {
+        let template = MobileTaskTemplate(
+            name: "Codex",
+            icon: "agent:codex",
+            command: "codex -- \"$CMUX_TASK_PROMPT\""
+        )
+        let baseline = composer.compose(template: template, prompt: "Ship it")
+        let explicitEmpty = composer.compose(
+            template: template,
+            prompt: "Ship it",
+            attachmentPaths: []
+        )
+
+        #expect(explicitEmpty == baseline)
+    }
+
+    @Test func plainShellIgnoresAttachmentPaths() {
+        let template = MobileTaskTemplate(name: "Shell", icon: "terminal", command: "")
+        let result = composer.compose(
+            template: template,
+            prompt: "Inspect this",
+            attachmentPaths: ["/tmp/evidence.txt"]
+        )
+
+        #expect(result.initialCommand == nil)
+        #expect(result.initialEnv.isEmpty)
+    }
+
     @Test func selectedModelKeepsUnknownCommandVerbatim() {
         let command = "custom-agent -- \"$CMUX_TASK_PROMPT\""
         let template = MobileTaskTemplate(name: "Custom", icon: "terminal", command: command)

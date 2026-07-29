@@ -61,6 +61,14 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileTerminalPaste(params: foundationParams(params)))
     }
 
+    func controlMobileTaskAttachmentUpload(
+        params: [String: JSONValue]
+    ) -> ControlCallResult {
+        bridgeMobileResult(
+            v2MobileTaskAttachmentUpload(params: foundationParams(params))
+        )
+    }
+
     func controlMobileChatSessionsDump() -> ControlCallResult {
         bridgeMobileResult(v2ChatSessionsDump())
     }

@@ -10,6 +10,10 @@ extension TaskComposerSheet {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedTemplateID = template.id
             selectedModelID = validatedModelID
+            if template.isPlainShell {
+                removeStagedAttachmentFiles()
+                attachments.removeAll()
+            }
             syncSuggestedDirectory()
         }
     }
@@ -162,6 +166,7 @@ extension TaskComposerSheet {
             directory: directory,
             workspaceName: workspaceName,
             didEditDirectory: didEditDirectory,
+            attachments: attachments.map(\.submissionAttachment),
             operationID: operationID
         )
     }

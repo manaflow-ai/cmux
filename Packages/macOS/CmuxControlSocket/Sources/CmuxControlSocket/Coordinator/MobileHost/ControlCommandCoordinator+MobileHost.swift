@@ -51,6 +51,8 @@ extension ControlCommandCoordinator {
             return context?.controlMobileTerminalMouse(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
             return context?.controlMobileTerminalPaste(params: request.params)
+        case "mobile.task.attachment.upload":
+            return context?.controlMobileTaskAttachmentUpload(params: request.params)
         case "chat.sessions.dump":
             return context?.controlMobileChatSessionsDump()
         default:

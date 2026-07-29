@@ -21,6 +21,8 @@ struct TaskComposerMinimalLayout: View {
     let failureTitle: String
     let failureText: String?
     let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
+    let attachments: [TaskComposerAttachment]
+    let showsAttachmentButton: Bool
     /// Deferred builder: constructing the options sheet walks workspaces for
     /// directory candidates, so it must not run on every keystroke's body
     /// rebuild, only when Task Options is actually presented.
@@ -34,6 +36,9 @@ struct TaskComposerMinimalLayout: View {
     let submit: () -> Void
     let refreshCompletedOperation: () -> Void
     let requestStartAgain: () -> Void
+    let chooseAttachmentPhotos: () -> Void
+    let chooseAttachmentFiles: () -> Void
+    let removeAttachment: (UUID) -> Void
 
     @FocusState private var isPromptFocused: Bool
     @State private var isOptionsPresented = false
@@ -114,7 +119,25 @@ struct TaskComposerMinimalLayout: View {
                 .padding(.horizontal, 16)
             }
 
+            if !attachments.isEmpty {
+                TaskComposerAttachmentStrip(
+                    attachments: attachments,
+                    isDisabled: isDisabled,
+                    remove: removeAttachment
+                )
+                .padding(.horizontal, 16)
+            }
+
             HStack(spacing: 10) {
+                if showsAttachmentButton {
+                    TaskComposerAttachmentPickerMenu(
+                        style: .circularPlus,
+                        isDisabled: isDisabled,
+                        choosePhotos: chooseAttachmentPhotos,
+                        chooseFiles: chooseAttachmentFiles
+                    )
+                }
+
                 optionsButton
 
                 ScrollView(.horizontal) {

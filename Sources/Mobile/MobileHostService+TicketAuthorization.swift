@@ -62,6 +62,10 @@ extension MobileHostService {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
             }
             return nil
+        case "mobile.task.attachment.upload":
+            // Task uploads share the Mac-scoped authorization class of the
+            // workspace.create operation they precede.
+            return nil
         case "workspace.move":
             return ticketMacScopedWorkspaceMutationAuthorizationError(
                 authorization: authorization,

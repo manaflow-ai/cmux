@@ -9300,6 +9300,111 @@
         }
       }
     },
+    "mobile.taskComposer.attachments.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加" } }
+      }
+    },
+    "mobile.taskComposer.attachments.alert.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Add Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加できませんでした" } }
+      }
+    },
+    "mobile.taskComposer.attachments.chooseFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose Files" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを選択" } }
+      }
+    },
+    "mobile.taskComposer.attachments.fileTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a file smaller than 32 MB." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "32 MB未満のファイルを選択してください。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.imageRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That image couldn’t be compressed below 8 MB." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画像を8 MB未満に圧縮できませんでした。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.limit.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "You can attach up to 10 items to a task." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1つのタスクに添付できる項目は10件までです。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.limit.totalSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Task attachments can use up to 64 MB in total." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクの添付ファイルは合計64 MBまでです。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.photoLibrary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Photo Library" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "写真ライブラリ" } }
+      }
+    },
+    "mobile.taskComposer.attachments.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを削除" } }
+      }
+    },
+    "mobile.taskComposer.attachments.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That file couldn’t be read. Choose another file." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを読み込めませんでした。別のファイルを選択してください。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.upload.authorization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That Mac did not authorize the attachment upload." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macが添付ファイルのアップロードを承認しませんでした。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.upload.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The attachments couldn’t be uploaded. Check the files and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルをアップロードできませんでした。ファイルを確認して、もう一度お試しください。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.upload.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The attachments couldn’t be uploaded because that Mac is not connected." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macが接続されていないため、添付ファイルをアップロードできませんでした。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.upload.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac did not finish uploading the attachments in time." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでの添付ファイルのアップロードが時間内に完了しませんでした。" } }
+      }
+    },
+    "mobile.taskComposer.attachments.upload.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That Mac does not support task attachments." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "そのMacはタスクの添付ファイルに対応していません。" } }
+      }
+    },
     "mobile.taskComposer.agent": {
       "extractionState": "manual",
       "localizations": {

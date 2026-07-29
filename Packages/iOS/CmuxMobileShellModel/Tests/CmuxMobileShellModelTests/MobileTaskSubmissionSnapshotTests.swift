@@ -372,6 +372,59 @@ import Testing
         #expect(!defaultModel.isRequestEquivalent(to: selectedModel))
     }
 
+    @Test func attachmentChangesRotateRequestIdentity() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let uploadID = UUID()
+        let withoutAttachment = snapshot(template: template)
+        let withAttachment = snapshot(
+            template: template,
+            attachments: [
+                MobileTaskSubmissionAttachment(uploadID: uploadID, byteCount: 42),
+            ]
+        )
+        let changedBytes = snapshot(
+            template: template,
+            attachments: [
+                MobileTaskSubmissionAttachment(uploadID: uploadID, byteCount: 43),
+            ]
+        )
+
+        #expect(!withoutAttachment.isRequestEquivalent(to: withAttachment))
+        #expect(!withAttachment.isRequestEquivalent(to: changedBytes))
+        expectIdentityRotated(from: withoutAttachment, to: withAttachment)
+    }
+
+    @Test func identicalAttachmentListsPreserveRequestIdentity() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let attachments = [
+            MobileTaskSubmissionAttachment(uploadID: UUID(), byteCount: 42),
+            MobileTaskSubmissionAttachment(uploadID: UUID(), byteCount: 99),
+        ]
+        let before = snapshot(template: template, attachments: attachments)
+        let after = snapshot(template: template, attachments: attachments)
+
+        #expect(before.isRequestEquivalent(to: after))
+        expectIdentityPreserved(from: before, to: after)
+    }
+
+    @Test(arguments: [
+        (0, 3, [0..<0]),
+        (6, 3, [0..<3, 3..<6]),
+        (7, 3, [0..<3, 3..<6, 6..<7]),
+    ])
+    func attachmentChunkPlanBoundaries(
+        totalBytes: Int,
+        chunkBytes: Int,
+        expected: [Range<Int>]
+    ) {
+        let plan = MobileTaskAttachmentChunkPlan(
+            totalByteCount: totalBytes,
+            chunkByteCount: chunkBytes
+        )
+
+        #expect(plan.ranges == expected)
+    }
+
     private func expectIdentityPreserved(
         from before: MobileTaskSubmissionSnapshot?,
         to after: MobileTaskSubmissionSnapshot?
@@ -455,7 +508,8 @@ import Testing
         macInstanceTag: String? = nil,
         directory: String = "~/cmux",
         workspaceName: String = "",
-        modelID: String? = nil
+        modelID: String? = nil,
+        attachments: [MobileTaskSubmissionAttachment] = []
     ) -> MobileTaskSubmissionSnapshot {
         MobileTaskSubmissionSnapshot(
             template: template,
@@ -466,6 +520,7 @@ import Testing
             directory: directory,
             workspaceName: workspaceName,
             didEditDirectory: false,
+            attachments: attachments,
             operationID: UUID()
         )
     }

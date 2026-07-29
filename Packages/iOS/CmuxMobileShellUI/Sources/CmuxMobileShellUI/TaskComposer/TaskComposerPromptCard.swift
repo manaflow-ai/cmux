@@ -16,10 +16,15 @@ struct TaskComposerPromptCard: View {
     let modelPickerVariant: TaskComposerModelPickerVariant
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
+    let attachments: [TaskComposerAttachment]
+    let showsAttachmentButton: Bool
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
     let selectTemplateAndModel: (MobileTaskTemplate.ID, String?) -> Void
     let selectModel: (String?) -> Void
     let editTemplates: () -> Void
+    let chooseAttachmentPhotos: () -> Void
+    let chooseAttachmentFiles: () -> Void
+    let removeAttachment: (UUID) -> Void
 
     @FocusState private var isFocused: Bool
 
@@ -63,6 +68,13 @@ struct TaskComposerPromptCard: View {
                     endEditing: endEditing
                 )
 
+            if !attachments.isEmpty {
+                TaskComposerAttachmentStrip(
+                    attachments: attachments,
+                    isDisabled: isDisabled,
+                    remove: removeAttachment
+                )
+            }
         }
         .padding(14)
         .mobileGlassField(cornerRadius: 26)
@@ -70,9 +82,9 @@ struct TaskComposerPromptCard: View {
 
     @ViewBuilder
     private var agentRow: some View {
-        if !models.isEmpty,
-           modelPickerVariant.renderedVariant == .trailingChip {
-            HStack(spacing: 8) {
+        HStack(spacing: 8) {
+            if !models.isEmpty,
+               modelPickerVariant.renderedVariant == .trailingChip {
                 agentMenu
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -82,10 +94,19 @@ struct TaskComposerPromptCard: View {
                     isDisabled: isDisabled,
                     selectModel: selectModel
                 )
+            } else {
+                agentMenu
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } else {
-            agentMenu
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if showsAttachmentButton {
+                TaskComposerAttachmentPickerMenu(
+                    style: .paperclip,
+                    isDisabled: isDisabled,
+                    choosePhotos: chooseAttachmentPhotos,
+                    chooseFiles: chooseAttachmentFiles
+                )
+            }
         }
     }
 

@@ -73,6 +73,39 @@ extension TaskComposerSheet {
         )
     }
 
+    static func attachmentUploadFailureMessage(
+        _ failure: MobileWorkspaceMutationFailure
+    ) -> String {
+        switch failure {
+        case .unsupported:
+            return L10n.string(
+                "mobile.taskComposer.attachments.upload.unsupported",
+                defaultValue: "That Mac does not support task attachments."
+            )
+        case .notConnected:
+            return L10n.string(
+                "mobile.taskComposer.attachments.upload.notConnected",
+                defaultValue: "The attachments couldn’t be uploaded because that Mac is not connected."
+            )
+        case .requestTimedOut:
+            return L10n.string(
+                "mobile.taskComposer.attachments.upload.timedOut",
+                defaultValue: "The Mac did not finish uploading the attachments in time."
+            )
+        case .authorizationFailed:
+            return L10n.string(
+                "mobile.taskComposer.attachments.upload.authorization",
+                defaultValue: "That Mac did not authorize the attachment upload."
+            )
+        case .busy, .rejected, .invalidWorkingDirectory,
+             .persistenceUnavailable, .alreadyCompleted:
+            return L10n.string(
+                "mobile.taskComposer.attachments.upload.failed",
+                defaultValue: "The attachments couldn’t be uploaded. Check the files and try again."
+            )
+        }
+    }
+
     static func failureMessage(_ failure: MobileWorkspaceMutationFailure) -> String {
         switch failure {
         case .notConnected:

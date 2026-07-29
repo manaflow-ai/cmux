@@ -75,13 +75,17 @@ extension TaskComposerSheet {
     }
 
     func workspaceCreateSpec(
-        for snapshot: MobileTaskSubmissionSnapshot
+        for snapshot: MobileTaskSubmissionSnapshot,
+        attachmentPaths: [String] = []
     ) -> MobileWorkspaceCreateSpec {
-        MobileWorkspaceCreateSpec(
+        let composition = snapshot.composition(
+            attachmentPaths: attachmentPaths
+        )
+        return MobileWorkspaceCreateSpec(
             title: snapshot.workspaceTitle,
             workingDirectory: snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
-            initialCommand: snapshot.composition.initialCommand,
-            initialEnv: snapshot.composition.initialEnv.isEmpty ? nil : snapshot.composition.initialEnv,
+            initialCommand: composition.initialCommand,
+            initialEnv: composition.initialEnv.isEmpty ? nil : composition.initialEnv,
             operationID: snapshot.operationID
         )
     }
