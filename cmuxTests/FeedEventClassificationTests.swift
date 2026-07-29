@@ -90,6 +90,36 @@ struct FeedEventClassificationTests {
         }
     }
 
+    // MARK: OMP (observational telemetry only)
+
+    /// OMP reports tool and subagent execution after its own decisions have
+    /// already been made. Feed must observe these events without turning a
+    /// lowercase `task` dispatch or a mutating tool into an approval request.
+    @Test func ompToolAndSubagentEventsStayTelemetry() {
+        let cases = [
+            ("PreToolUse", "PreToolUse", "bash"),
+            ("PostToolUse", "PostToolUse", "bash"),
+            ("SubagentStart", "SubagentStart", "task"),
+            ("SubagentStop", "SubagentStop", "task"),
+        ]
+        for (event, expectedName, tool) in cases {
+            let classification = classify("omp", event, tool: tool)
+            #expect(classification.name == expectedName)
+            #expect(classification.actionable == false)
+        }
+    }
+
+    /// Compact, approval-notification, and shutdown events are status
+    /// telemetry. OMP approval handlers are observational and must never make
+    /// the Feed bridge block for a second decision.
+    @Test func ompLifecycleAndApprovalNotificationsStayTelemetry() {
+        for event in ["PreCompact", "PostCompact", "Notification", "SessionStart", "SessionEnd", "Stop"] {
+            let classification = classify("omp", event, tool: "bash")
+            #expect(classification.name == event)
+            #expect(classification.actionable == false)
+        }
+    }
+
     // MARK: Explicit approval-capable agents
 
     /// Gemini has a verified PreToolUse decision contract and explicitly
