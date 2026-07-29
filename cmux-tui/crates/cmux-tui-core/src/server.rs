@@ -1194,6 +1194,8 @@ const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
+const OUTBOUND_CONNECTION_CAPACITY: usize = OUTBOUND_CAPACITY * 16;
+const OUTBOUND_CONNECTION_BYTE_CAPACITY: usize = OUTBOUND_BYTE_CAPACITY * 8;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 const CONNECTION_SURFACE_QUEUE_CAPACITY: usize = 256;
 const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
@@ -1772,9 +1774,16 @@ struct BoundedOutboundState {
     initial: VecDeque<RegularOutbound>,
     control: VecDeque<String>,
     regular: VecDeque<RegularOutbound>,
+    stream_usage: HashMap<u64, StreamOutboundUsage>,
     control_bytes: usize,
     regular_bytes: usize,
     closed: bool,
+}
+
+struct StreamOutboundUsage {
+    messages: usize,
+    bytes: usize,
+    stream: OutboundStream,
 }
 
 struct RegularOutbound {
@@ -1835,9 +1844,26 @@ impl BoundedOutbound {
                 "outbound queue overflowed",
             ));
         }
+        let (stream_messages, stream_bytes) = state
+            .stream_usage
+            .get(&stream.id)
+            .map(|usage| (usage.messages, usage.bytes))
+            .unwrap_or_default();
+        if stream_messages >= OUTBOUND_CAPACITY
+            || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(stream_bytes)
+        {
+            Self::terminate_stream_locked(&mut state, stream)?;
+            self.changed.notify_one();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "outbound stream queue overflowed",
+            ));
+        }
         loop {
-            let byte_full = bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
-            let count_full = state.initial.len() + state.regular.len() >= OUTBOUND_CAPACITY;
+            let byte_full =
+                bytes > OUTBOUND_CONNECTION_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
+            let count_full =
+                state.initial.len() + state.regular.len() >= OUTBOUND_CONNECTION_CAPACITY;
             if !byte_full && !count_full {
                 break;
             }
@@ -1860,6 +1886,13 @@ impl BoundedOutbound {
             }
         }
         state.regular_bytes += bytes;
+        let usage = state.stream_usage.entry(stream.id).or_insert_with(|| StreamOutboundUsage {
+            messages: 0,
+            bytes: 0,
+            stream: stream.clone(),
+        });
+        usage.messages += 1;
+        usage.bytes += bytes;
         let message = RegularOutbound { text, stream: stream.clone() };
         if initial {
             state.initial.push_back(message);
@@ -1909,38 +1942,19 @@ impl BoundedOutbound {
     }
 
     fn purge_stream_locked(state: &mut BoundedOutboundState, stream_id: u64) {
-        let mut removed_bytes = 0;
-        state.initial.retain(|message| {
-            if message.stream.id == stream_id {
-                removed_bytes += message.text.len();
-                false
-            } else {
-                true
-            }
-        });
-        state.regular.retain(|message| {
-            if message.stream.id == stream_id {
-                removed_bytes += message.text.len();
-                false
-            } else {
-                true
-            }
-        });
-        state.regular_bytes -= removed_bytes;
+        state.initial.retain(|message| if message.stream.id == stream_id { false } else { true });
+        state.regular.retain(|message| if message.stream.id == stream_id { false } else { true });
+        if let Some(usage) = state.stream_usage.remove(&stream_id) {
+            state.regular_bytes = state.regular_bytes.saturating_sub(usage.bytes);
+        }
     }
 
     fn largest_stream(state: &BoundedOutboundState, by_bytes: bool) -> Option<OutboundStream> {
-        let mut usage = HashMap::<u64, (usize, usize, OutboundStream)>::new();
-        for message in state.initial.iter().chain(&state.regular) {
-            let entry =
-                usage.entry(message.stream.id).or_insert_with(|| (0, 0, message.stream.clone()));
-            entry.0 += 1;
-            entry.1 += message.text.len();
-        }
-        usage
-            .into_values()
-            .max_by_key(|(messages, bytes, _)| if by_bytes { *bytes } else { *messages })
-            .map(|(_, _, stream)| stream)
+        state
+            .stream_usage
+            .values()
+            .max_by_key(|usage| if by_bytes { usage.bytes } else { usage.messages })
+            .map(|usage| usage.stream.clone())
     }
 
     fn push_control_locked(state: &mut BoundedOutboundState, text: String) -> std::io::Result<()> {
@@ -1982,7 +1996,7 @@ impl BoundedOutbound {
 
     fn pop_locked(state: &mut BoundedOutboundState) -> Option<String> {
         if let Some(message) = state.initial.pop_front() {
-            state.regular_bytes -= message.text.len();
+            Self::record_stream_pop(state, &message);
             return Some(message.text);
         }
         if let Some(text) = state.control.pop_front() {
@@ -1990,8 +2004,21 @@ impl BoundedOutbound {
             return Some(text);
         }
         let message = state.regular.pop_front()?;
-        state.regular_bytes -= message.text.len();
+        Self::record_stream_pop(state, &message);
         Some(message.text)
+    }
+
+    fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
+        let bytes = message.text.len();
+        state.regular_bytes = state.regular_bytes.saturating_sub(bytes);
+        let remove = state.stream_usage.get_mut(&message.stream.id).is_some_and(|usage| {
+            usage.messages = usage.messages.saturating_sub(1);
+            usage.bytes = usage.bytes.saturating_sub(bytes);
+            usage.messages == 0
+        });
+        if remove {
+            state.stream_usage.remove(&message.stream.id);
+        }
     }
 
     fn is_open(&self) -> bool {
@@ -6623,7 +6650,7 @@ mod tests {
     }
 
     #[test]
-    fn global_pressure_terminates_the_stream_occupying_the_backlog() {
+    fn each_stream_has_an_independent_message_budget() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         let noisy = writer.start_stream(&json!({"event": "overflow", "stream": "noisy"})).unwrap();
@@ -6633,6 +6660,10 @@ mod tests {
             writer.send_stream(&json!({"event": "output", "sequence": sequence}), &noisy).unwrap();
         }
         writer.send_stream(&json!({"event": "tree-changed"}), &quiet).unwrap();
+        assert_eq!(
+            writer.send_stream(&json!({"event": "one-too-many"}), &noisy).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
 
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(terminal["stream"], "noisy");
