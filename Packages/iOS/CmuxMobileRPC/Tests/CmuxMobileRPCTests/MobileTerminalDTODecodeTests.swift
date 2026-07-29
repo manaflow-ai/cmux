@@ -40,6 +40,36 @@ import Testing
         #expect(response.terminalFidelity == nil)
         #expect(response.macInstanceTag == nil)
         #expect(response.theme == nil)
+        #expect(response.privateNetworkAddresses.isEmpty)
+    }
+
+    @Test func hostStatusDecodesPrivateNetworkAddresses() throws {
+        let response = try MobileHostStatusResponse.decode(Data(
+            #"{"private_network_addresses":[{"address":"10.8.0.1","family":"ipv4","interface":"utun4","kind":"vpn_tunnel"},{"address":"fd00:0:0:0:0:0:0:8","family":"ipv6","interface":"en0","kind":"local_network"}]}"#.utf8
+        ))
+
+        #expect(response.privateNetworkAddresses.map(\.address) == [
+            "10.8.0.1", "fd00::8",
+        ])
+        #expect(response.privateNetworkAddresses.map(\.interfaceName) == [
+            "utun4", "en0",
+        ])
+    }
+
+    @Test func hostStatusDropsMalformedPrivateNetworkAddressEntries() throws {
+        let response = try MobileHostStatusResponse.decode(Data(
+            #"{"capabilities":["terminal.render_grid.v1"],"private_network_addresses":[{"address":"10.8.0.1","family":"ipv4","interface":"utun4","kind":"vpn_tunnel"},{"address":"not-an-ip","family":"ipv4","interface":"utun5","kind":"vpn_tunnel"},{"address":"192.168.1.4","family":"ipv6","interface":"en0","kind":"local_network"},42]}"#.utf8
+        ))
+
+        #expect(response.capabilities == ["terminal.render_grid.v1"])
+        #expect(response.privateNetworkAddresses.map(\.address) == ["10.8.0.1"])
+    }
+
+    @Test func hostStatusTreatsMalformedPrivateNetworkAddressFieldAsEmpty() throws {
+        let response = try MobileHostStatusResponse.decode(Data(
+            #"{"private_network_addresses":"not-an-array"}"#.utf8
+        ))
+        #expect(response.privateNetworkAddresses.isEmpty)
     }
 
     @Test func hostStatusDecodesMacInstanceTag() throws {

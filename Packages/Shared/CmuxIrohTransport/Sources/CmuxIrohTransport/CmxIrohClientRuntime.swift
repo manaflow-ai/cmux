@@ -96,6 +96,7 @@ public actor CmxIrohClientRuntime {
     var liveDiscoveryGeneration: UInt64 = 0
     var localBinding: CmxIrohBrokerBinding?
     var registryContextProvider: CmxIrohRegistryContextProvider?
+    var privatePathProbeActive = false
     var currentSnapshot = CmxIrohClientRuntimeSnapshot(
         state: .inactive,
         endpointID: nil,

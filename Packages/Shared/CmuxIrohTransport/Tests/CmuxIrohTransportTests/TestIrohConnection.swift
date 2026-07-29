@@ -27,6 +27,7 @@ actor TestIrohConnection: CmxIrohConnection,
     private let reportsClosureToWaiters: Bool
     private let reportedCloseAttribution: CmxIrohConnectionCloseAttribution
     private var selectedPath: CmxIrohObservedConnectionPath
+    private var pathSnapshots: [CmxIrohConnectionPathSnapshot]
     private let selectedPathStream: AsyncStream<CmxIrohObservedConnectionPath>
     private let selectedPathContinuation: AsyncStream<CmxIrohObservedConnectionPath>.Continuation
     private let pathEventStream: AsyncStream<CmxIrohConnectionPathEvent>
@@ -53,6 +54,7 @@ actor TestIrohConnection: CmxIrohConnection,
         natTraversalAuthorizationError: TestIrohTransportError? = nil,
         eventRecorder: TestIrohEventRecorder? = nil,
         selectedPath: CmxIrohObservedConnectionPath = .unavailable,
+        pathSnapshots: [CmxIrohConnectionPathSnapshot] = [],
         bidirectionalStreamFailureNumber: Int? = nil,
         reportsClosureToWaiters: Bool = true,
         closeAttribution: CmxIrohConnectionCloseAttribution = .init(
@@ -71,6 +73,7 @@ actor TestIrohConnection: CmxIrohConnection,
         self.reportsClosureToWaiters = reportsClosureToWaiters
         reportedCloseAttribution = closeAttribution
         self.selectedPath = selectedPath
+        self.pathSnapshots = pathSnapshots
         let pathChanges = AsyncStream<CmxIrohObservedConnectionPath>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
@@ -97,6 +100,10 @@ actor TestIrohConnection: CmxIrohConnection,
         selectedPath
     }
 
+    func connectionPathSnapshots() -> [CmxIrohConnectionPathSnapshot] {
+        pathSnapshots
+    }
+
     func observedSelectedPathChanges() -> AsyncStream<CmxIrohObservedConnectionPath> {
         selectedPathStream
     }
@@ -104,6 +111,10 @@ actor TestIrohConnection: CmxIrohConnection,
     func setObservedSelectedPath(_ path: CmxIrohObservedConnectionPath) {
         selectedPath = path
         selectedPathContinuation.yield(path)
+    }
+
+    func setConnectionPathSnapshots(_ snapshots: [CmxIrohConnectionPathSnapshot]) {
+        pathSnapshots = snapshots
     }
 
     func observedPathEvents() -> AsyncStream<CmxIrohConnectionPathEvent> {

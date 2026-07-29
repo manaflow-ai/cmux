@@ -6,8 +6,12 @@ import Observation
 @Observable
 final class IrohSettingsModel {
     private let controller: (any CmxIrohSettingsControlling)?
+    private let privateNetworkAddressProvider: @MainActor () -> [CmxPrivateNetworkAddress]
+    private let mobileDirectPortProvider: @MainActor () -> Int
 
     private(set) var snapshot = CmxIrohSettingsSnapshot.unavailable
+    private(set) var localPrivateNetworkAddresses: [CmxPrivateNetworkAddress]
+    private(set) var mobileDirectPort: Int
     private(set) var isMutating = false
     private(set) var showsSaveError = false
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
@@ -15,26 +19,38 @@ final class IrohSettingsModel {
     private(set) var diagnosticExportText = ""
     private var diagnosticReloadGeneration: UInt64 = 0
 
-    init(controller: (any CmxIrohSettingsControlling)?) {
+    init(
+        controller: (any CmxIrohSettingsControlling)?,
+        privateNetworkAddressProvider: @escaping @MainActor () -> [CmxPrivateNetworkAddress] = { [] },
+        mobileDirectPortProvider: @escaping @MainActor () -> Int = { 0 }
+    ) {
         self.controller = controller
+        self.privateNetworkAddressProvider = privateNetworkAddressProvider
+        self.mobileDirectPortProvider = mobileDirectPortProvider
+        localPrivateNetworkAddresses = privateNetworkAddressProvider()
+        mobileDirectPort = mobileDirectPortProvider()
     }
 
     func observe() async {
+        refreshHostSnapshot()
         guard let controller else { return }
         snapshot = await controller.irohSettingsSnapshot()
         await reloadDiagnostics(using: controller)
         for await next in controller.irohSettingsUpdates() {
             guard !Task.isCancelled else { return }
             snapshot = next
+            refreshHostSnapshot()
             await reloadDiagnostics(using: controller)
         }
     }
 
     func refresh() {
+        refreshHostSnapshot()
         guard let controller else { return }
         Task {
             await controller.refreshIrohSettings()
             snapshot = await controller.irohSettingsSnapshot()
+            refreshHostSnapshot()
             await reloadDiagnostics(using: controller)
         }
     }
@@ -115,5 +131,12 @@ final class IrohSettingsModel {
         diagnosticExportText = report.events.isEmpty
             ? ""
             : String(decoding: report.compactExport(), as: UTF8.self)
+    }
+
+    private func refreshHostSnapshot() {
+        localPrivateNetworkAddresses = CmxPrivateNetworkAddress.sorted(
+            privateNetworkAddressProvider()
+        )
+        mobileDirectPort = mobileDirectPortProvider()
     }
 }

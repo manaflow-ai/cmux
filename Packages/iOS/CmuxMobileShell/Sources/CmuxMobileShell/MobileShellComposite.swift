@@ -650,6 +650,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
+    let privateNetworkSuggestionStore: MobilePrivateNetworkSuggestionStore
     /// Single compatibility authority shared by registry, persistence, and live connections.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     private let pairedMacRestoreBoundary: PairedMacRestoreBoundary?
@@ -1055,6 +1056,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Create a mobile shell store with injectable runtime services for app
     /// composition, previews, and package tests.
+    ///
+    /// Share `privateNetworkSuggestionStore` with the Iroh settings composition
+    /// so authenticated status updates remain process-local but reach the editor.
     public init(
         runtime: (any MobileSyncRuntime)? = nil,
         isSignedIn: Bool = false,
@@ -1063,6 +1067,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingCode: String = "",
         workspaces: [MobileWorkspacePreview] = [],
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
+        privateNetworkSuggestionStore: MobilePrivateNetworkSuggestionStore =
+            MobilePrivateNetworkSuggestionStore(),
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
@@ -1098,6 +1104,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.taskTemplateStore = taskTemplateStore
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
+        self.privateNetworkSuggestionStore = privateNetworkSuggestionStore
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
@@ -1295,6 +1302,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // not survive an account boundary or leak into the next session's
         // projections.
         resetStateSyncForAccountBoundary()
+        privateNetworkSuggestionStore.removeAll()
         lastPresenceReconnectEvidence = nil
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
@@ -3091,6 +3099,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Records address suggestions only when authenticated status names its Mac.
+    func recordPrivateNetworkSuggestions(
+        from status: MobileHostStatusResponse
+    ) {
+        guard let macDeviceID = status.macDeviceID else { return }
+        privateNetworkSuggestionStore.record(
+            status.privateNetworkAddresses,
+            forMacDeviceID: macDeviceID
+        )
+    }
+
     /// Adopts the identity (`mac_device_id`, `mac_display_name`) reported by
     /// `mobile.host.status`. The minimal pairing QR carries neither, so this
     /// post-handshake report is what makes a QR-paired Mac identifiable: the
@@ -3590,6 +3609,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
             return nil
         }
+        recordPrivateNetworkSuggestions(from: status)
         let capabilities = Set(status.capabilities)
         return SecondaryClientHandle(
             client: client,
@@ -5607,6 +5627,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
                         continue routeLoop
                     }
+                    recordPrivateNetworkSuggestions(from: status)
                     let resolvedTicket = Self.ticket(
                         ticket,
                         adoptingReportedDeviceID: reportedDeviceID
@@ -7025,6 +7046,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ) else {
                 return .rawBytes
             }
+            recordPrivateNetworkSuggestions(from: payload)
             supportedHostCapabilities = Set(payload.capabilities)
             prepareTerminalThemeRevisionAuthority(
                 macInstanceTag: payload.macInstanceTag, producerEpoch: payload.terminalThemeRevisionEpoch,

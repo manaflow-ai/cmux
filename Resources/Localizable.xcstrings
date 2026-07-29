@@ -257369,6 +257369,74 @@
         }
       }
     },
+    "settings.networking.private.address.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスをコピー"
+          }
+        }
+      }
+    },
+    "settings.networking.private.address.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "settings.networking.private.addresses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's Private Addresses"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のプライベートアドレス"
+          }
+        }
+      }
+    },
+    "settings.networking.private.addresses.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No VPN or local addresses detected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN またはローカルアドレスが検出されませんでした"
+          }
+        }
+      }
+    },
     "settings.networking.private.add": {
       "extractionState": "manual",
       "localizations": {
@@ -257416,6 +257484,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "プライベートネットワークを編集"
+          }
+        }
+      }
+    },
+    "settings.networking.private.directPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct Connection UDP Port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接接続 UDP ポート"
+          }
+        }
+      }
+    },
+    "settings.networking.private.directPort.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your iPhone learns the live port automatically. Allow this UDP port through VPN and firewall ACLs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone は稼働中のポートを自動的に取得します。VPN とファイアウォールの ACL でこの UDP ポートを許可してください。"
           }
         }
       }
@@ -257471,6 +257573,57 @@
         }
       }
     },
+    "settings.networking.private.kind.local": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local network"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルネットワーク"
+          }
+        }
+      }
+    },
+    "settings.networking.private.kind.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private network"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートネットワーク"
+          }
+        }
+      }
+    },
+    "settings.networking.private.kind.vpn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN tunnel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN トンネル"
+          }
+        }
+      }
+    },
     "settings.networking.private.note": {
       "extractionState": "manual",
       "localizations": {
@@ -257494,13 +257647,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+            "value": "Use your own VPN when relays are blocked, on restricted corporate networks, or when you prefer a private route. Keep the VPN active on both devices, then add one of this Mac's suggested addresses on iPhone. Connections remain end-to-end encrypted and verify this Mac's Iroh identity."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
+            "value": "リレーがブロックされている場合、制限のある社内ネットワークを使う場合、またはプライベート経路を優先する場合は、ご自身のVPNを使用してください。両方のデバイスでVPNを有効にしてから、iPhoneでこのMacが提案するアドレスのいずれかを追加します。接続は引き続きエンドツーエンドで暗号化され、このMacのIroh IDが検証されます。"
           }
         }
       }

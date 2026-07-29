@@ -27,6 +27,11 @@ struct CmxIrohLibConnection:
     }
 
     @concurrent
+    func connectionPathSnapshots() async -> [CmxIrohConnectionPathSnapshot] {
+        driver.paths().map(CmxIrohConnectionPathSnapshot.init)
+    }
+
+    @concurrent
     func observedSelectedPath() async -> CmxIrohObservedConnectionPath {
         CmxIrohObservedConnectionPath(
             snapshots: driver.paths().map(CmxIrohConnectionPathSnapshot.init)

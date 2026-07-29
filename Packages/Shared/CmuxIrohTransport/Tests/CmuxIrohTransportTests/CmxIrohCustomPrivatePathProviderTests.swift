@@ -5,6 +5,110 @@ import Testing
 
 extension CmxIrohRegistryContextProviderTests {
     @Test
+    func probeContextUsesExactlyOneAuthenticatedCustomAddress() async throws {
+        let fixture = try RegistryFixture()
+        let profile = try CmxIrohNetworkProfileKey(
+            source: .customVPN,
+            profileID: opaqueProfileID("custom-private-probe")
+        )
+        let probePath = try CmxIrohCustomPrivatePathBootstrap(
+            address: CmxIrohCustomPrivateAddress("10.0.0.9"),
+            networkProfile: profile
+        )
+        let configuredPath = try CmxIrohCustomPrivatePathBootstrap(
+            address: CmxIrohCustomPrivateAddress("10.0.0.8"),
+            networkProfile: profile
+        )
+        let relay = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: fixture.relayURL,
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: TestIrohRegistryBroker(
+                discovery: try fixture.discovery(
+                    targetHints: [],
+                    targetDirectPorts: ["ipv4": 50_909]
+                ),
+                pairGrantResponses: [try fixture.pairGrantResponse(
+                    issuedAt: fixture.nowSeconds,
+                    expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+                )]
+            ),
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            networkPathSnapshot: {
+                CmxIrohNetworkPathSnapshot(
+                    generation: 7,
+                    activeNetworkProfiles: []
+                )
+            },
+            customPrivateFallback: { _ in
+                [configuredPath]
+            },
+            now: { fixture.now }
+        )
+
+        let context = try await provider.privatePathProbeContext(
+            for: fixture.request(hints: [relay]),
+            path: probePath
+        )
+
+        #expect(context.dialPlan.publicPaths.isEmpty)
+        #expect(context.dialPlan.privateFallbackPaths.map(\.value) == [
+            "10.0.0.9:50909",
+        ])
+        #expect(context.dialPlan.privateFallbackPaths.first?.networkProfile == profile)
+    }
+
+    @Test
+    func probeContextRejectsStaleAuthenticatedPort() async throws {
+        let fixture = try RegistryFixture()
+        let profile = try CmxIrohNetworkProfileKey(
+            source: .customVPN,
+            profileID: opaqueProfileID("custom-private-probe")
+        )
+        let path = try CmxIrohCustomPrivatePathBootstrap(
+            address: CmxIrohCustomPrivateAddress("10.0.0.9"),
+            networkProfile: profile
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: TestIrohRegistryBroker(
+                discovery: try fixture.discovery(
+                    targetHints: [],
+                    targetDirectPorts: ["ipv4": 50_909],
+                    targetLastSeenAt: fixture.now.addingTimeInterval(
+                        -(CmxIrohPathHint.maximumPrivateHintTTL + 1)
+                    )
+                ),
+                pairGrantResponses: [try fixture.pairGrantResponse(
+                    issuedAt: fixture.nowSeconds,
+                    expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+                )]
+            ),
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            networkPathSnapshot: {
+                CmxIrohNetworkPathSnapshot(
+                    generation: 7,
+                    activeNetworkProfiles: []
+                )
+            },
+            now: { fixture.now }
+        )
+
+        await #expect(throws: CmxIrohPrivatePathProbeDialError.stalePort) {
+            try await provider.privatePathProbeContext(
+                for: fixture.request(hints: []),
+                path: path
+            )
+        }
+    }
+
+    @Test
     func customPrivateAddressesUseAuthenticatedMacPortsAndIdentity() async throws {
         let fixture = try RegistryFixture()
         let profile = try CmxIrohNetworkProfileKey(

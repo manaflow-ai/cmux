@@ -7,6 +7,9 @@ import SwiftUI
 struct MobileIrohPrivateNetworksSection: View {
     let configurations: [CmxIrohSettingsSnapshot.CustomPrivateNetwork]
     let availableMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac]
+    let probePresentation: (String, String) -> MobileIrohPrivatePathProbePresentation
+    let isProbeInFlight: Bool
+    let testAddress: (String, String) -> Void
     let edit: (String) -> Void
     let add: () -> Void
     let setEnabled: (CmxIrohSettingsSnapshot.CustomPrivateNetwork, Bool) -> Void
@@ -33,35 +36,50 @@ struct MobileIrohPrivateNetworksSection: View {
             )
 
             ForEach(configurations) { configuration in
-                HStack {
-                    Toggle(isOn: Binding(
-                        get: { configuration.isEnabled },
-                        set: { setEnabled(configuration, $0) }
-                    )) {
-                        VStack(alignment: .leading) {
-                            Text(displayName(configuration))
-                            Text(configuration.addresses.joined(separator: ", "))
-                                .font(.caption)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Toggle(
+                            displayName(configuration),
+                            isOn: Binding(
+                                get: { configuration.isEnabled },
+                                set: { setEnabled(configuration, $0) }
+                            )
+                        )
+                        Menu {
+                            Button(L10n.string("mobile.common.edit", defaultValue: "Edit")) {
+                                edit(configuration.macDeviceID)
+                            }
+                            Button(
+                                L10n.string("mobile.common.remove", defaultValue: "Remove"),
+                                role: .destructive
+                            ) {
+                                requestRemoval(configuration.macDeviceID)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel(
+                            L10n.string("mobile.common.actions", defaultValue: "Actions")
+                        )
+                    }
+                    ForEach(configuration.addresses, id: \.self) { address in
+                        HStack {
+                            Text(address)
+                                .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
-                                .lineLimit(2)
+                                .lineLimit(1)
+                            Spacer()
+                            MobileIrohPrivatePathTestButton(
+                                presentation: probePresentation(
+                                    configuration.macDeviceID,
+                                    address
+                                ),
+                                isAnotherProbeInFlight: isProbeInFlight
+                            ) {
+                                testAddress(configuration.macDeviceID, address)
+                            }
                         }
                     }
-                    Menu {
-                        Button(L10n.string("mobile.common.edit", defaultValue: "Edit")) {
-                            edit(configuration.macDeviceID)
-                        }
-                        Button(
-                            L10n.string("mobile.common.remove", defaultValue: "Remove"),
-                            role: .destructive
-                        ) {
-                            requestRemoval(configuration.macDeviceID)
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .accessibilityLabel(
-                        L10n.string("mobile.common.actions", defaultValue: "Actions")
-                    )
                 }
             }
 
@@ -81,7 +99,7 @@ struct MobileIrohPrivateNetworksSection: View {
         } footer: {
             Text(L10n.string(
                 "mobile.iroh.private.footer",
-                defaultValue: "Private addresses stay on this device and are fallback paths only. cmux pins the Mac's broker-authenticated Iroh EndpointID and current UDP port; an address never proves identity."
+                defaultValue: "Use your own VPN when relays are blocked, on restricted corporate networks, or when you prefer a private route. Keep the VPN active on both devices, then add one of the Mac's suggested addresses. Connections remain end-to-end encrypted and verify the Mac's Iroh identity."
             ))
         }
     }
