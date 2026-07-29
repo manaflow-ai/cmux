@@ -1,7 +1,12 @@
 import Foundation
 
-enum MobileRPCConnectRouteState {
-    case active(id: UUID, abandonedAttempts: Int)
-    case released(id: UUID, abandonedAttempts: Int)
-    case hardGated(id: UUID, abandonedAttempts: Int)
+enum MobileRPCConnectAdmission: Sendable, Equatable {
+    case granted(MobileRPCConnectAttemptLease)
+    case busy
+    case cleanupBlocked
+}
+
+struct MobileRPCConnectRouteState {
+    var activeLeaseID: UUID?
+    var physicalCleanupTasks: [UUID: Task<Void, Never>] = [:]
 }

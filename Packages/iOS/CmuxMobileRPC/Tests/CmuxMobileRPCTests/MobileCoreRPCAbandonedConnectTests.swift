@@ -334,11 +334,15 @@ import Testing
         #expect(await transport.waitUntilCloseCount(2))
     }
 
-    @Test func abandonedConnectCleanupAllowsOneRecoveryThenHardGates()
+    @Test func abandonedConnectCleanupAllowsOneRecoveryThenCapsDebt()
         async throws {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = "debugLoopback|test|127.0.0.1:59135"
-        let lease = try #require(await registry.beginConnect(key: key))
+        guard case let .granted(lease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected initial route admission")
+            return
+        }
         let transport = HangingCloseTransport()
         let session = MobileCoreRPCSession(
             connectAttemptKey: key,
@@ -349,7 +353,6 @@ import Testing
         await session.startAbandonedConnectionCleanup(
             task: Task { transport },
             lease: lease,
-            tracksRouteGate: true,
             cleanupTimeoutNanoseconds: 1_000_000_000,
             lateCloseTimeoutNanoseconds: 1_000_000
         )
@@ -357,16 +360,21 @@ import Testing
 
         var recoveryLease: MobileRPCConnectAttemptLease?
         for _ in 0..<20 {
-            if let lease = await registry.beginConnect(key: key) {
+            if case let .granted(lease) =
+                await registry.beginConnect(key: key) {
                 recoveryLease = lease
                 break
             }
             try await Task.sleep(nanoseconds: 1_000_000)
         }
         let retryLease = try #require(recoveryLease)
-        await registry.markAbandoned(lease: retryLease)
-        await registry.clearTimedOutAbandonedCleanup(lease: retryLease)
-        #expect(await registry.beginConnect(key: key) == nil)
+        let secondCleanup = PhysicalCleanupGate()
+        await registry.handOffPhysicalCleanup(lease: retryLease) {
+            await secondCleanup.wait()
+        }
+        #expect(
+            await registry.beginConnect(key: key) == .cleanupBlocked
+        )
         var sessionCleanupDrained = false
         for _ in 0..<20 {
             if await session.abandonedConnectionCleanupTasks.isEmpty {
@@ -380,81 +388,135 @@ import Testing
         await transport.releaseClose()
         await session.waitForTransportDrain()
         #expect(await session.abandonedConnectionCleanupTasks.isEmpty)
-        await registry.clearFinishedConnect(lease: retryLease)
-        #expect(await registry.beginConnect(key: key) != nil)
+        var reopenedLease: MobileRPCConnectAttemptLease?
+        for _ in 0..<20 {
+            if case let .granted(lease) =
+                await registry.beginConnect(key: key) {
+                reopenedLease = lease
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(reopenedLease != nil)
+        await registry.finishConnect(lease: reopenedLease)
+        await secondCleanup.release()
     }
 
-    @Test func abandonedConnectGateCapsTimedOutCleanupRetries() async {
+    @Test func successfulRecoveryPreservesOlderPhysicalCleanupDebt()
+        async {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = "debugLoopback|test|127.0.0.1:59129"
+        let firstCleanup = PhysicalCleanupGate()
+        let secondCleanup = PhysicalCleanupGate()
 
-        let firstLease = await registry.beginConnect(key: key)
-        #expect(firstLease != nil)
-        #expect(await registry.beginConnect(key: key) == nil)
-        await registry.markAbandoned(lease: firstLease)
-        await registry.clearTimedOutAbandonedCleanup(lease: firstLease)
+        guard case let .granted(firstLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected first route admission")
+            return
+        }
+        await registry.handOffPhysicalCleanup(lease: firstLease) {
+            await firstCleanup.wait()
+        }
+        guard case let .granted(recoveryLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected one recovery admission")
+            return
+        }
+        await registry.recordSuccessfulConnect(lease: recoveryLease)
+        guard case let .granted(laterLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected later admission with one cleanup debt")
+            return
+        }
+        await registry.handOffPhysicalCleanup(lease: laterLease) {
+            await secondCleanup.wait()
+        }
 
-        let secondLease = await registry.beginConnect(key: key)
-        #expect(secondLease != nil)
-        await registry.markAbandoned(lease: secondLease)
-        await registry.clearTimedOutAbandonedCleanup(lease: secondLease)
-        #expect(await registry.beginConnect(key: key) == nil)
-
-        await registry.clearFinishedConnect(lease: secondLease)
-        #expect(await registry.beginConnect(key: key) != nil)
-    }
-
-    @Test func abandonedConnectHardGatePersistsUntilPhysicalCompletion()
-        async throws {
-        let registry = MobileRPCConnectAttemptRegistry()
-        let key = "debugLoopback|test|127.0.0.1:59133"
-
-        let firstLease = await registry.beginConnect(key: key)
-        #expect(firstLease != nil)
-        await registry.markAbandoned(lease: firstLease)
-        await registry.clearTimedOutAbandonedCleanup(lease: firstLease)
-
-        let secondLease = await registry.beginConnect(key: key)
-        #expect(secondLease != nil)
-        await registry.markAbandoned(lease: secondLease)
-        await registry.clearTimedOutAbandonedCleanup(lease: secondLease)
-        #expect(await registry.beginConnect(key: key) == nil)
-        await registry.clearFinishedConnect(lease: secondLease)
-        #expect(await registry.beginConnect(key: key) != nil)
-    }
-
-    @Test func finishedReleasedConnectResetsRetryBudgetBeforeNextAttempt() async {
-        let registry = MobileRPCConnectAttemptRegistry()
-        let key = "debugLoopback|test|127.0.0.1:59132"
-
-        let firstLease = await registry.beginConnect(key: key)
-        #expect(firstLease != nil)
-        await registry.markAbandoned(lease: firstLease)
-        await registry.clearTimedOutAbandonedCleanup(lease: firstLease)
-        await registry.clearFinishedConnect(lease: firstLease)
-
-        let secondLease = await registry.beginConnect(key: key)
-        #expect(secondLease != nil)
-        await registry.markAbandoned(lease: secondLease)
-        await registry.clearTimedOutAbandonedCleanup(lease: secondLease)
-
-        #expect(await registry.beginConnect(key: key) != nil)
+        #expect(
+            await registry.beginConnect(key: key) == .cleanupBlocked
+        )
+        await firstCleanup.release()
+        await secondCleanup.release()
     }
 
     @Test func connectAttemptLeaseOnlyReleasesMatchingRouteReservation() async {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = "debugLoopback|test|127.0.0.1:59130"
 
-        let firstLease = await registry.beginConnect(key: key)
-        #expect(firstLease != nil)
-        #expect(await registry.beginConnect(key: key) == nil)
+        guard case let .granted(firstLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected first route admission")
+            return
+        }
+        #expect(await registry.beginConnect(key: key) == .busy)
 
-        let otherLease = await registry.beginConnect(key: "\(key)-other")
-        await registry.clearFinishedConnect(lease: otherLease)
-        #expect(await registry.beginConnect(key: key) == nil)
+        guard case let .granted(otherLease) =
+                await registry.beginConnect(key: "\(key)-other") else {
+            Issue.record("Expected unrelated route admission")
+            return
+        }
+        await registry.finishConnect(lease: otherLease)
+        #expect(await registry.beginConnect(key: key) == .busy)
 
         await registry.recordSuccessfulConnect(lease: firstLease)
-        #expect(await registry.beginConnect(key: key) != nil)
+        guard case let .granted(nextLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected released route admission")
+            return
+        }
+        await registry.finishConnect(lease: nextLease)
+    }
+
+    @Test func cleanupDebtCapSurfacesRestartRequiredError() async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
+        let key = "debugLoopback|test|127.0.0.1:59133"
+        let firstCleanup = PhysicalCleanupGate()
+        let secondCleanup = PhysicalCleanupGate()
+
+        guard case let .granted(firstLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected first route admission")
+            return
+        }
+        await registry.handOffPhysicalCleanup(lease: firstLease) {
+            await firstCleanup.wait()
+        }
+        guard case let .granted(secondLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected recovery route admission")
+            return
+        }
+        await registry.handOffPhysicalCleanup(lease: secondLease) {
+            await secondCleanup.wait()
+        }
+        let session = MobileCoreRPCSession(
+            connectAttemptKey: key,
+            connectAttemptRegistry: registry,
+            makeTransport: {
+                Issue.record("Cleanup-blocked route must not allocate transport")
+                return SlowConnectTimeoutTransport()
+            }
+        )
+
+        do {
+            _ = try await session.send(
+                payload: MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    id: "cleanup-debt-cap"
+                ),
+                requestID: "cleanup-debt-cap",
+                deadlineUptimeNanoseconds:
+                    DispatchTime.now().uptimeNanoseconds
+                    + 60_000_000_000
+            )
+            Issue.record("Expected cleanup-blocked admission to throw")
+        } catch MobileShellConnectionError.routeCleanupBlocked {
+        } catch {
+            Issue.record("Expected routeCleanupBlocked, got \(error)")
+        }
+
+        await firstCleanup.release()
+        await secondCleanup.release()
     }
 
     @Test func callerCancelledRPCClosesSlowConnectionBeforeSendingAuthenticatedRequest() async throws {
@@ -505,4 +567,25 @@ import Testing
         #expect(try await transport.sentRequests().isEmpty)
     }
 
+}
+
+private actor PhysicalCleanupGate {
+    private var isReleased = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation {
+            waiters.append($0)
+        }
+    }
+
+    func release() {
+        isReleased = true
+        let pending = waiters
+        waiters.removeAll()
+        for waiter in pending {
+            waiter.resume()
+        }
+    }
 }

@@ -4063,7 +4063,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case .connectionClosed, .requestTimedOut, .transportWriteTimedOut:
             return true
         case .invalidResponse, .insecureManualRoute, .attachTicketExpired,
-             .authorizationFailed, .accountMismatch:
+             .authorizationFailed, .accountMismatch, .routeCleanupBlocked:
             return false
         case let .rpcError(code, _):
             let normalizedCode = code?.lowercased()
@@ -7079,8 +7079,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let displacedControlDrain {
                     // A deadline only bounds the user-visible switch. Preserve
                     // this retired same-peer owner until its bounded transport
-                    // drain settles. The shared route registry continues any
-                    // late cleanup and hard-gates a twice-wedged route.
+                    // drain settles. The shared route registry retains each
+                    // late physical cleanup and blocks further admission once
+                    // two remain unresolved.
                     Task { @MainActor [weak self] in
                         _ = await displacedControlDrain.value
                         guard let self,
@@ -10730,7 +10731,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 || normalizedMessage.contains("expired token")
                 || normalizedMessage.contains("token expired")
         case .invalidResponse, .connectionClosed, .requestTimedOut,
-             .transportWriteTimedOut, .insecureManualRoute:
+             .transportWriteTimedOut, .routeCleanupBlocked,
+             .insecureManualRoute:
             return false
         }
     }

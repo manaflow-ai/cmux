@@ -318,10 +318,16 @@ actor MobileCoreRPCSession {
             connectionTask?.waiters.insert(waiterID)
         } else {
             if let connectAttemptKey {
-                guard let lease = await connectAttemptRegistry.beginConnect(key: connectAttemptKey) else {
+                switch await connectAttemptRegistry.beginConnect(
+                    key: connectAttemptKey
+                ) {
+                case .granted(let lease):
+                    connectLease = lease
+                case .busy:
                     throw MobileShellConnectionError.requestTimedOut
+                case .cleanupBlocked:
+                    throw MobileShellConnectionError.routeCleanupBlocked
                 }
-                connectLease = lease
             } else {
                 connectLease = .untracked
             }
@@ -342,7 +348,7 @@ actor MobileCoreRPCSession {
             do {
                 candidate = try makeTransport()
             } catch {
-                await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
+                await connectAttemptRegistry.finishConnect(lease: connectLease)
                 if error is CancellationError || Task.isCancelled {
                     throw CancellationError()
                 }
@@ -448,11 +454,11 @@ actor MobileCoreRPCSession {
             } else if error is CancellationError {
                 if connectionTask?.id == connectionID {
                     connectionTask = nil
-                    await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
+                    await connectAttemptRegistry.finishConnect(lease: connectLease)
                 }
             } else if connectionTask?.id == connectionID {
                 connectionTask = nil
-                await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
+                await connectAttemptRegistry.finishConnect(lease: connectLease)
             }
             throw error
         }
@@ -579,7 +585,6 @@ actor MobileCoreRPCSession {
             startAbandonedConnectionCleanup(
                 task: task,
                 lease: lease,
-                tracksRouteGate: true,
                 cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
                 lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
             )
@@ -590,7 +595,6 @@ actor MobileCoreRPCSession {
         startAbandonedConnectionCleanup(
             task: task,
             lease: lease,
-            tracksRouteGate: true,
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )
@@ -607,7 +611,6 @@ actor MobileCoreRPCSession {
             startAbandonedConnectionCleanup(
                 task: task,
                 lease: lease,
-                tracksRouteGate: true,
                 cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
                 lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
             )
@@ -618,7 +621,6 @@ actor MobileCoreRPCSession {
         startAbandonedConnectionCleanup(
             task: task,
             lease: lease,
-            tracksRouteGate: true,
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )

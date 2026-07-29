@@ -66,6 +66,9 @@ import Testing
         #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
             CancellationError()
         ))
+        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+            MobileShellConnectionError.routeCleanupBlocked
+        ))
     }
 
     @Test func networkTransportFailuresRemainRetryable() {
