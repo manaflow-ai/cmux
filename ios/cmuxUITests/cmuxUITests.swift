@@ -338,6 +338,59 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// Regression: the iOS 26 workspace table must keep its boundary rows
+    /// outside both toolbar hit regions. Otherwise vertical safe-area underlap
+    /// hides the first row at rest and the last row at the bottom.
+    @MainActor
+    func testWorkspaceListBoundaryRowsClearToolbars() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The workspace toolbar layout regression requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let table = app.tables["MobileWorkspaceList"]
+        let firstRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-0"
+        ]
+        let lastRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-59"
+        ]
+        let settingsButton = app.buttons["MobileWorkspaceSettingsMenu"]
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 8))
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            firstRow.isHittable,
+            "The first workspace row must be tappable at the top scroll position."
+        )
+        XCTAssertGreaterThanOrEqual(
+            firstRow.frame.minY,
+            settingsButton.frame.maxY - 1,
+            "The first workspace row \(firstRow.frame) must clear the top toolbar \(settingsButton.frame)."
+        )
+
+        for _ in 0..<20 where !lastRow.isHittable {
+            table.swipeUp(velocity: .fast)
+        }
+        table.swipeUp(velocity: .fast)
+        XCTAssertTrue(
+            lastRow.isHittable,
+            "The last workspace row must be tappable at the bottom scroll position."
+        )
+        XCTAssertLessThanOrEqual(
+            lastRow.frame.maxY,
+            workspacesTab.frame.minY + 1,
+            "The last workspace row \(lastRow.frame) must clear the bottom toolbar \(workspacesTab.frame)."
+        )
+    }
+
     @MainActor
     func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
         let app = launchApp(mockData: false, environment: [
