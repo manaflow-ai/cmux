@@ -192,6 +192,7 @@ struct RendererRealizationPlannerTests {
 
         await harness.sleeper.waitUntilSleeping(for: 0.016)
         await harness.advance(by: 0.016)
+        await harness.evaluations.wait(until: 2)
         await harness.sleeper.waitUntilAnySleep()
 
         // One initial pass plus one coalesced pass for all four notifications.
@@ -199,7 +200,7 @@ struct RendererRealizationPlannerTests {
         #expect(harness.surfaces.reduce(0) { $0 + $1.releaseCount } == 0)
 
         await harness.advance(by: 4.984)
-        await harness.drain()
+        await harness.evaluations.wait(until: 3)
 
         #expect(harness.surfaces.dropFirst().allSatisfy { $0.releaseCount == 1 })
         #expect(harness.surfaces.first?.releaseCount == 0)
@@ -216,16 +217,17 @@ struct RendererRealizationPlannerTests {
         harness.postVisibilityChange(for: hidden)
         await harness.sleeper.waitUntilSleeping(for: 0.016)
         await harness.advance(by: 0.016)
+        await harness.evaluations.wait(until: 2)
         await harness.sleeper.waitUntilAnySleep()
 
         harness.reveal(hidden)
         harness.postVisibilityChange(for: hidden)
         await harness.sleeper.waitUntilSleeping(for: 0.016)
         await harness.advance(by: 0.016)
+        await harness.evaluations.wait(until: 3)
         await harness.sleeper.waitUntilIdle()
 
         await harness.advance(by: 10)
-        await harness.drain()
         #expect(hidden.releaseCount == 0)
     }
 
@@ -239,12 +241,12 @@ struct RendererRealizationPlannerTests {
         harness.postVisibilityChange(for: hidden)
         await harness.sleeper.waitUntilSleeping(for: 0.016)
         await harness.advance(by: 0.016)
+        await harness.evaluations.wait(until: 2)
         await harness.sleeper.waitUntilAnySleep()
 
         harness.controller.stop()
         await harness.sleeper.waitUntilIdle()
         await harness.advance(by: 10)
-        await harness.drain()
         #expect(hidden.releaseCount == 0)
     }
 
@@ -340,6 +342,7 @@ struct RendererRealizationPlannerTests {
 private final class RendererRealizationSchedulerHarness {
     let notificationCenter = NotificationCenter()
     let sleeper = RendererRealizationManualSleeper()
+    let evaluations = RendererRealizationEvaluationProbe()
     let surfaces: [RendererRealizationTestSurface]
     var now: TimeInterval = 1_000
     var snapshotCount = 0
@@ -361,6 +364,9 @@ private final class RendererRealizationSchedulerHarness {
         },
         sleepFor: { [sleeper] duration in
             try await sleeper.sleep(for: duration)
+        },
+        onEvaluationCompleted: { [evaluations] in
+            evaluations.record()
         }
     )
 
@@ -392,11 +398,32 @@ private final class RendererRealizationSchedulerHarness {
     func advance(by seconds: TimeInterval) async {
         now += seconds
         await sleeper.advance(by: seconds)
-        await drain()
+    }
+}
+
+@MainActor
+private final class RendererRealizationEvaluationProbe {
+    private var count = 0
+    private var waiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func record() {
+        count += 1
+        var completed: [CheckedContinuation<Void, Never>] = []
+        waiters.removeAll { waiter in
+            if count >= waiter.target {
+                completed.append(waiter.continuation)
+                return true
+            }
+            return false
+        }
+        for continuation in completed { continuation.resume() }
     }
 
-    func drain() async {
-        for _ in 0..<20 { await Task.yield() }
+    func wait(until target: Int) async {
+        guard count < target else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((target, continuation))
+        }
     }
 }
 

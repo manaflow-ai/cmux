@@ -59,6 +59,7 @@ final class RendererRealizationController {
     private let nowProvider: () -> Date
     private let sleepFor: @MainActor (Duration) async throws -> Void
     private let visibilityCoalescingWindow: Duration
+    private let onEvaluationCompleted: () -> Void
     private let safetyTimerEnabled: Bool
     private let timerQueue = DispatchQueue(label: "com.cmux.renderer-realization", qos: .utility)
     private let systemMemoryPressureRetryPasses = 2
@@ -88,6 +89,7 @@ final class RendererRealizationController {
                 try await ContinuousClock().sleep(for: duration)
             },
             visibilityCoalescingWindow: .milliseconds(16),
+            onEvaluationCompleted: {},
             safetyTimerEnabled: true
         )
     }
@@ -101,6 +103,7 @@ final class RendererRealizationController {
         nowProvider: @escaping () -> Date,
         sleepFor: @escaping @MainActor (Duration) async throws -> Void,
         visibilityCoalescingWindow: Duration = .milliseconds(16),
+        onEvaluationCompleted: @escaping () -> Void = {},
         safetyTimerEnabled: Bool = false
     ) {
         self.notificationCenter = notificationCenter
@@ -110,6 +113,7 @@ final class RendererRealizationController {
         self.nowProvider = nowProvider
         self.sleepFor = sleepFor
         self.visibilityCoalescingWindow = visibilityCoalescingWindow
+        self.onEvaluationCompleted = onEvaluationCompleted
         self.safetyTimerEnabled = safetyTimerEnabled
     }
 
@@ -140,7 +144,7 @@ final class RendererRealizationController {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.schedulePortalVisibilityEvaluation()
                 }
             }
@@ -239,6 +243,7 @@ final class RendererRealizationController {
         remainingSystemMemoryPressureRetries: Int = 0,
         onSystemMemoryPressureRetryResult: (@MainActor (RendererRealizationMemoryPressureReclaimResult, Date) -> Void)? = nil
     ) -> RendererRealizationMemoryPressureReclaimResult {
+        defer { onEvaluationCompleted() }
         // Iterate the global registry rather than re-deriving per-workspace
         // visibility: each TerminalSurface carries its own authoritative
         // on-screen flag (driven by setVisibleInUI, the same signal that drives
