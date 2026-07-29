@@ -3338,6 +3338,8 @@ final class Workspace: Identifiable, ObservableObject {
                 self.objectWillChange.send()
             }
         }
+
+        startAgentTabBrandingObservation()
         featureFlagsObserver = NotificationCenter.default.addObserver(
             forName: .cmuxFeatureFlagsDidChange,
             object: CmuxFeatureFlags.shared,
@@ -3351,7 +3353,16 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
+    /// Keeps terminal-tab agent branding in sync with the agent runtime maps;
+    /// started by `startAgentTabBrandingObservation()`.
+    var agentTabBrandingObservationTask: Task<Void, Never>?
+
+    /// Per-panel attach-time snapshots for agent tab branding, maintained by
+    /// `refreshAgentTabBranding(panelId:)`.
+    var agentTabBrandingAttachState: [UUID: AgentTabBrandingAttachState] = [:]
+
     deinit {
+        agentTabBrandingObservationTask?.cancel()
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
@@ -4129,6 +4140,13 @@ final class Workspace: Identifiable, ObservableObject {
         if let custom = panelCustomTitles[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !custom.isEmpty {
             return custom
+        }
+        if let definition = currentCodingAgentDefinition(panelId: panelId) {
+            return AgentTabBrandingResolver().displayTitle(
+                processTitle: trimmedFallback,
+                titleAtAgentAttach: agentTabBrandingAttachState[panelId]?.processTitleAtAttach,
+                for: definition
+            )
         }
         return fallbackTitle
     }
