@@ -153,6 +153,7 @@ public struct CommandRunner: CommandRunning, Sendable {
             process.arguments = [executable] + arguments
         }
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
+        process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -297,7 +298,10 @@ public struct CommandRunner: CommandRunning, Sendable {
                         }
                         timer.cancel()
                     }
-                    // If the command already resumed before we armed the timer, drop it.
+                    // Dispatch sources must be activated before cancellation. Resume before
+                    // publishing the timer so a pre-cancelled task cannot win the continuation,
+                    // then leave a never-activated source for this path to cancel.
+                    timer.resume()
                     let alreadyResumed = state.withLock { s -> Bool in
                         if s.resumed { return true }
                         s.deadlineTimer = timer
@@ -305,8 +309,6 @@ public struct CommandRunner: CommandRunning, Sendable {
                     }
                     if alreadyResumed {
                         timer.cancel()
-                    } else {
-                        timer.resume()
                     }
                 }
             }
