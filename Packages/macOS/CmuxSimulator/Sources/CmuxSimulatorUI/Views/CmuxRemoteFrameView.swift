@@ -2,6 +2,14 @@ import AppKit
 import CmuxSimulator
 import QuartzCore
 
+/// Stable failure kinds reported by the remote-frame transport.
+///
+/// The embedding app owns user-facing localization.
+public enum CmuxRemoteFrameTransportFailure: Sendable, Equatable {
+    case invalidTransport
+    case producerFailed
+}
+
 /// A read-only host for the versioned packed-BGRA frame-ring protocol.
 ///
 /// Capture producers stay outside the cmux process. This view maps the ring
@@ -16,7 +24,7 @@ public final class CmuxRemoteFrameView: NSView {
     /// Called when the hosting window starts or stops being visible.
     public var onHostVisibilityChanged: ((Bool) -> Void)?
     /// Called when an adopted frame transport cannot be opened or read.
-    public var onTransportFailure: ((Error) -> Void)?
+    public var onTransportFailure: ((CmuxRemoteFrameTransportFailure) -> Void)?
 
     /// Pixel dimensions of the currently adopted frame transport.
     public private(set) var framePixelSize = CGSize.zero
@@ -59,7 +67,7 @@ public final class CmuxRemoteFrameView: NSView {
         do {
             source = try SimulatorFrameSurfaceSource(descriptor: descriptor)
         } catch {
-            onTransportFailure?(error)
+            onTransportFailure?(.invalidTransport)
             return false
         }
 
@@ -80,11 +88,7 @@ public final class CmuxRemoteFrameView: NSView {
                 self?.renderLatestFrame()
             },
             sourceFailureDidOccur: { [weak self] in
-                self?.onTransportFailure?(
-                    SimulatorFrameLayoutError(
-                        "The frame producer reported a capture failure."
-                    )
-                )
+                self?.onTransportFailure?(.producerFailed)
             }
         )
         frameTransportDescriptor = descriptor

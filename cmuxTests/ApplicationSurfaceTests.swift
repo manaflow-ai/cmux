@@ -139,6 +139,58 @@ struct ApplicationSurfaceTests {
         ))
     }
 
+    @Test func inputWaitsForAttachmentAndFirstPresentedFrame() {
+        func ready(
+            attachmentAcknowledged: Bool,
+            firstFramePresented: Bool
+        ) -> Bool {
+            ApplicationCaptureView.inputIsReady(
+                shouldCaptureNow: true,
+                hasSession: true,
+                hasLease: true,
+                attachmentAcknowledged: attachmentAcknowledged,
+                firstFramePresented: firstFramePresented,
+                isReleasingInput: false,
+                isStopping: false
+            )
+        }
+
+        #expect(!ready(
+            attachmentAcknowledged: false,
+            firstFramePresented: false
+        ))
+        #expect(!ready(
+            attachmentAcknowledged: true,
+            firstFramePresented: false
+        ))
+        #expect(!ready(
+            attachmentAcknowledged: false,
+            firstFramePresented: true
+        ))
+        #expect(ready(
+            attachmentAcknowledged: true,
+            firstFramePresented: true
+        ))
+    }
+
+    @Test func frameTransportFailuresResolveThroughTheAppStringCatalog() {
+        let expected = String(
+            localized: "panel.application.captureFailed.detail",
+            defaultValue: "cmux could not capture this window. Try again or choose another window."
+        )
+
+        #expect(
+            ApplicationCaptureView.localizedTransportFailureDetail(
+                .invalidTransport
+            ) == expected
+        )
+        #expect(
+            ApplicationCaptureView.localizedTransportFailureDetail(
+                .producerFailed
+            ) == expected
+        )
+    }
+
     @Test func captureLivenessAllowsStaticContentAfterFirstFrame() {
         var state = ApplicationCaptureLivenessState(startedAt: 10)
 

@@ -100,6 +100,9 @@ final class ApplicationCaptureView: NSView {
     private var runtimeFailureTask: Task<Void, Never>?
     private var livenessState: ApplicationCaptureLivenessState?
     private var captureGeneration = UUID()
+    private var attachmentAcknowledged = false
+    private var firstFramePresented = false
+    private var captureReadinessPublished = false
     private var inputReleaseGeneration = UUID()
     private var captureDesired = false
     private var hostWindowVisible = false
@@ -167,7 +170,8 @@ final class ApplicationCaptureView: NSView {
         addSubview(remoteFrameView)
         remoteFrameView.onFirstFrame = { [weak self] in
             guard let self, self.shouldCaptureNow, self.session != nil else { return }
-            self.onStateChanged(.streaming, nil)
+            self.firstFramePresented = true
+            self.publishCaptureReadinessIfReady()
         }
         remoteFrameView.onFramePresented = { [weak self] in
             self?.recordPresentedFrame()
@@ -177,16 +181,16 @@ final class ApplicationCaptureView: NSView {
             self.hostWindowVisible = visible
             self.reconcileCaptureActivity()
         }
-        remoteFrameView.onTransportFailure = { [weak self] error in
+        remoteFrameView.onTransportFailure = { [weak self] failure in
             guard let self else { return }
             cmuxDebugLog(
                 "applicationSurface.transport.failed"
                     + " window=\(self.sourceWindowID)"
-                    + " error=\(error.localizedDescription)"
+                    + " failure=\(String(describing: failure))"
             )
             self.handleRuntimeFailure(
                 .failed,
-                failureDetail: error.localizedDescription
+                failureDetail: Self.localizedTransportFailureDetail(failure)
             )
         }
     }
@@ -262,6 +266,9 @@ final class ApplicationCaptureView: NSView {
         }
         let generation = UUID()
         captureGeneration = generation
+        attachmentAcknowledged = false
+        firstFramePresented = false
+        captureReadinessPublished = false
         onStateChanged(.starting, nil)
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -336,9 +343,6 @@ final class ApplicationCaptureView: NSView {
                     )
                     return
                 }
-                if self.window?.firstResponder === self {
-                    self.synchronizeForwardedModifierKeys()
-                }
                 guard
                     self.shouldCaptureNow,
                     self.captureGeneration == generation,
@@ -346,7 +350,9 @@ final class ApplicationCaptureView: NSView {
                 else {
                     return
                 }
+                self.attachmentAcknowledged = true
                 self.remoteFrameView.setActive(true)
+                self.publishCaptureReadinessIfReady()
             } catch ApplicationSurfaceRuntimeError.permissionRequired {
                 self.captureDesired = false
                 self.remoteFrameView.setActive(false)
@@ -384,6 +390,9 @@ final class ApplicationCaptureView: NSView {
 
     private func suspendCapture(reportState: Bool) {
         captureGeneration = UUID()
+        attachmentAcknowledged = false
+        firstFramePresented = false
+        captureReadinessPublished = false
         captureTask?.cancel()
         runtimeFailureTask?.cancel()
         runtimeFailureTask = nil
@@ -644,11 +653,33 @@ final class ApplicationCaptureView: NSView {
     }
 
     private var canForwardInput: Bool {
+        Self.inputIsReady(
+            shouldCaptureNow: shouldCaptureNow,
+            hasSession: session != nil,
+            hasLease: lease != nil,
+            attachmentAcknowledged: attachmentAcknowledged,
+            firstFramePresented: firstFramePresented,
+            isReleasingInput: inputReleaseTask != nil,
+            isStopping: stopTask != nil
+        )
+    }
+
+    static func inputIsReady(
+        shouldCaptureNow: Bool,
+        hasSession: Bool,
+        hasLease: Bool,
+        attachmentAcknowledged: Bool,
+        firstFramePresented: Bool,
+        isReleasingInput: Bool,
+        isStopping: Bool
+    ) -> Bool {
         shouldCaptureNow
-            && session != nil
-            && lease != nil
-            && inputReleaseTask == nil
-            && stopTask == nil
+            && hasSession
+            && hasLease
+            && attachmentAcknowledged
+            && firstFramePresented
+            && !isReleasingInput
+            && !isStopping
     }
 
     private func reconcileCaptureActivity() {
@@ -809,6 +840,21 @@ final class ApplicationCaptureView: NSView {
         stopLivenessWatchdog()
     }
 
+    private func publishCaptureReadinessIfReady() {
+        guard
+            attachmentAcknowledged,
+            firstFramePresented,
+            !captureReadinessPublished
+        else {
+            return
+        }
+        captureReadinessPublished = true
+        onStateChanged(.streaming, nil)
+        if window?.firstResponder === self {
+            synchronizeForwardedModifierKeys()
+        }
+    }
+
     @objc private func hostWindowDidResignKey(_ notification: Notification) {
         guard notification.object as? NSWindow === window else { return }
         releaseForwardedInputs()
@@ -842,6 +888,15 @@ final class ApplicationCaptureView: NSView {
             localized: "panel.application.captureFailed.detail",
             defaultValue: "cmux could not capture this window. Try again or choose another window."
         )
+    }
+
+    static func localizedTransportFailureDetail(
+        _ failure: CmuxRemoteFrameTransportFailure
+    ) -> String {
+        switch failure {
+        case .invalidTransport, .producerFailed:
+            genericCaptureFailureDetail
+        }
     }
 
     static func shouldCapture(
