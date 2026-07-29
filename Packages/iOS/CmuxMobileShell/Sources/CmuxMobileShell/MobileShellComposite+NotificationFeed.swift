@@ -287,6 +287,38 @@ extension MobileShellComposite {
         )
     }
 
+    /// Await the notification half of a control-stream missed-window repair.
+    /// Hosts without the feed capability have nothing to reconcile.
+    func reconcileSecondaryNotificationFeedAfterControlGap(
+        macDeviceID: String,
+        client: MobileCoreRPCClient,
+        displayName: String?
+    ) async -> Bool {
+        guard let subscription = secondaryMacSubscriptions[macDeviceID],
+              subscription.client === client,
+              !subscription.isTransitioningToFocus else {
+            return false
+        }
+        guard subscription.supportedHostCapabilities.contains(
+            Self.notificationFeedCapability
+        ) else {
+            return true
+        }
+        guard let task = scheduleNotificationFeedRefresh(
+            macDeviceID: macDeviceID,
+            client: client,
+            displayName: normalizedDisplayName(
+                displayName,
+                fallback: macDeviceID
+            )
+        ) else {
+            return false
+        }
+        await task.value
+        return secondaryMacSubscriptions[macDeviceID] === subscription
+            && !subscription.isTransitioningToFocus
+    }
+
     /// Cancels all feed work and removes account-scoped notification content.
     func resetNotificationFeed() {
         cancelPendingNotificationFeedOpen()

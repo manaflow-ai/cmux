@@ -38,3 +38,10 @@ enum SecondaryMacEstablishmentOutcome {
     /// Scope or ownership changed while the attempt was in flight.
     case superseded
 }
+
+enum SecondaryEventSubscriptionActivation {
+    case failed
+    /// `requiresCatchUp` is true when the host installed a missing
+    /// registration and events emitted before the acknowledgement were lost.
+    case active(requiresCatchUp: Bool)
+}

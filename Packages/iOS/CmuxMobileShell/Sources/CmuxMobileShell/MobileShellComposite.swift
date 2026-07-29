@@ -4412,11 +4412,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // No suspension occurs between the ownership guard and publishing this
         // task. Promotion therefore either fences us out or can await the exact
         // RPC that already owns activation.
+        let requiresInitialCatchUp =
+            !subscription.hasActivatedControlStream
         let operation = Task { @MainActor [weak self] in
-            await self?.enableSecondaryEventSubscription(
+            guard let self else { return false }
+            let activation = await self.enableSecondaryEventSubscription(
                 on: subscription.client,
                 streamID: subscription.streamID
-            ) == true
+            )
+            guard self.secondaryMacSubscriptions[macDeviceID] === subscription,
+                  !subscription.isTransitioningToFocus else {
+                return false
+            }
+            switch activation {
+            case .failed:
+                return false
+            case let .active(requiresCatchUp):
+                guard requiresInitialCatchUp || requiresCatchUp else {
+                    return true
+                }
+                return await self.reconcileSecondaryControlGap(
+                    subscription
+                )
+            }
         }
         let operationToken = UUID()
         secondaryControlReassertionTasksByMacID[macDeviceID] = operation
@@ -4438,6 +4456,53 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             subscription.hasActivatedControlStream = true
         }
         return enabled
+    }
+
+    /// Repair workspace and notification events emitted before the host
+    /// recreated this control registration. The activation task owns this work,
+    /// so promotion drains the complete subscribe-plus-catch-up operation.
+    private func reconcileSecondaryControlGap(
+        _ subscription: SecondaryMacSubscription
+    ) async -> Bool {
+        let macDeviceID = subscription.macDeviceID
+        // Direct unit fixtures can install a subscription without the
+        // account-scoped paired store. Production pool entries always have it.
+        guard pairedMacStore != nil else { return true }
+        guard let scope = await currentScopeSnapshot(),
+              secondaryMacSubscriptions[macDeviceID] === subscription,
+              !subscription.isTransitioningToFocus else {
+            return false
+        }
+        let previews = await fetchSecondaryWorkspaces(
+            on: subscription.client,
+            macDeviceID: macDeviceID
+        )
+        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+              !subscription.isTransitioningToFocus,
+              await isSecondaryRefreshStillCurrent(
+                  macDeviceID: macDeviceID,
+                  subscription: subscription,
+                  scope: scope
+              ),
+              let previews else {
+            return false
+        }
+        workspacesByMac[macDeviceID] = MacWorkspaceState(
+            macDeviceID: macDeviceID,
+            displayName: subscription.displayName,
+            workspaces: previews,
+            status: .connected,
+            actionCapabilities: subscription.actionCapabilities
+        )
+        guard await reconcileSecondaryNotificationFeedAfterControlGap(
+            macDeviceID: macDeviceID,
+            client: subscription.client,
+            displayName: subscription.displayName
+        ) else {
+            return false
+        }
+        return secondaryMacSubscriptions[macDeviceID] === subscription
+            && !subscription.isTransitioningToFocus
     }
 
     /// Fence a control subscription out of the shared keepalive before
@@ -4729,14 +4794,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func enableSecondaryEventSubscription(
         on client: MobileCoreRPCClient,
         streamID: String
-    ) async -> Bool {
+    ) async -> SecondaryEventSubscriptionActivation {
         guard let request = try? MobileCoreRPCClient.requestData(
             method: "mobile.events.subscribe",
             params: [
                 "stream_id": streamID,
                 "topics": Array(SecondaryMacSubscription.eventTopics).sorted(),
             ]
-        ) else { return false }
+        ) else { return .failed }
         do {
             let responseData = try await client.sendRequest(
                 request,
@@ -4746,11 +4811,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       responseData
                   ),
                   response.streamID == streamID else {
-                return false
+                return .failed
             }
-            return true
+            return .active(requiresCatchUp: response.alreadySubscribed == false)
         } catch {
-            return false
+            return .failed
         }
     }
 

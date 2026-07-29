@@ -937,6 +937,118 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func recreatedControlRegistrationCatchesUpAggregateState() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "control-gap",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-b",
+            displayName: "Mac B",
+            routes: [route],
+            instanceTag: "mmpool",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let clock = ControlPoolManualClock()
+        let router = LivenessHostRouter()
+        await router.scriptWorkspaceListTitles([
+            "Initial Catch-up",
+            "Recreated Catch-up",
+        ])
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "mmpool",
+            authenticatedInstanceTag: "mmpool",
+            supportedHostCapabilities: ["notification.feed.v1"],
+            actionCapabilities: .none,
+            displayName: "Mac B"
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = subscription
+        shell.startSecondaryEventConsumer(subscription, displayName: "Mac B")
+
+        #expect(try await pollUntil {
+            let feedFetchCount = await router.count(
+                of: "notification.feed.list"
+            )
+            return subscription.hasActivatedControlStream
+                && shell.workspacesByMac["mac-b"]?.workspaces.first?.name
+                    == "Initial Catch-up"
+                && feedFetchCount >= 1
+                && clock.sleeperCount == 1
+        })
+        let feedFetchesBeforeGap = await router.count(
+            of: "notification.feed.list"
+        )
+
+        await router.dropSubscription()
+        clock.advance(by: .seconds(20))
+
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 2
+        ))
+        #expect(try await pollUntil {
+            let feedFetchCount = await router.count(
+                of: "notification.feed.list"
+            )
+            return shell.workspacesByMac["mac-b"]?.workspaces.first?.name
+                == "Recreated Catch-up"
+                && feedFetchCount > feedFetchesBeforeGap
+        })
+        #expect(shell.secondaryMacSubscriptions["mac-b"] === subscription)
+
+        subscription.cancel()
+        shell.secondaryMacSubscriptions["mac-b"] = nil
+        await client.disconnect()
+    }
+
     @Test func promotionFenceDrainsInitialControlActivation() async throws {
         let router = LivenessHostRouter()
         await router.holdSubscribeRequest(number: 1)

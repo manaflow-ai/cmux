@@ -41,6 +41,7 @@ actor LivenessHostRouter {
     private var holdSubscribe = false
     private var unsubscribeRequestCount = 0
     private var invalidUnsubscribeRequestNumbers: Set<Int> = []
+    private var notificationFeedRevision = 0
     private var replayRequestCount = 0
     private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
@@ -444,6 +445,12 @@ actor LivenessHostRouter {
             return try? Self.resultFrame(id: id, result: [
                 "stream_id": streamID ?? "",
                 "removed": true,
+            ])
+        case "notification.feed.list":
+            notificationFeedRevision += 1
+            return try? Self.resultFrame(id: id, result: [
+                "revision": notificationFeedRevision,
+                "notifications": [],
             ])
         case "mobile.sync.fetch":
             syncFetchRequestCount += 1
