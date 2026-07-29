@@ -1295,9 +1295,25 @@ extension Workspace {
                 locatedResumeBinding,
                 restorableAgent: restorableAgent
             )
+            // "Resume Agents on First Focus" candidate: the agent itself is
+            // resumable, so any startup resume — the agent's own command AND
+            // a local agent-hook binding for the same session — can be
+            // deferred into the synthetic hibernation state below.
+            // `restorableAgent` is already validated against the binding
+            // (`restorableAgentForSessionRestore`), and the hibernation wake
+            // rebuilds the command from the captured launch argv, so
+            // suppressing the binding here replays the same session later.
+            // Non-agent-hook bindings (tmux attach) and remote/persistent-SSH
+            // bindings are never deferred.
+            let deferAgentResumeCandidate = AgentSessionDeferredResumeSettings.isEnabled(
+                defaults: agentSessionAutoResumeDefaults
+            ) && shouldAutoResumeAgent && restoredHibernation == nil
+                && restorableAgent?.resumeCommand != nil
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
-                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
+                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true) ||
+                (deferAgentResumeCandidate && resumeBinding?.isAgentHookBinding == true
+                    && resumeBinding?.launchFlavor == .local)
                     ? nil
                     : resumeBinding
             let effectiveResumeBindingForStartup = sessionRestorePolicy.approvedSurfaceResumeBinding(
@@ -1398,10 +1414,11 @@ extension Workspace {
             // the existing synthetic-hibernation state below so the
             // focus/visibility-triggered resume fires it lazily (avoids a
             // startup thundering herd of concurrent agent resumes).
-            let deferAgentResumeUntilFocus = AgentSessionDeferredResumeSettings.isEnabled(
-                defaults: agentSessionAutoResumeDefaults
-            ) && shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
-                && !agentSessionAlreadyActive && restorableAgent?.resumeCommand != nil
+            // `restoredBindingLaunch` is nil for deferred local agent-hook
+            // bindings (suppressed above) but still set for tmux/SSH
+            // bindings, which keep their immediate startup launch.
+            let deferAgentResumeUntilFocus = deferAgentResumeCandidate
+                && restoredBindingLaunch == nil && !agentSessionAlreadyActive
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive && !deferAgentResumeUntilFocus {

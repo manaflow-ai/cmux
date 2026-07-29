@@ -137,8 +137,22 @@ extension DockSplitStore {
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
         ) && agentWasRunning
+        // "Resume Agents on First Focus" candidate: the agent itself is
+        // resumable, so any startup resume — the agent's own command AND an
+        // agent-hook binding for the same session — can be deferred into the
+        // synthetic hibernation state below. `restorableAgent` is already
+        // validated against the binding (`restorableAgentForSessionRestore`),
+        // and the hibernation wake rebuilds the command from the captured
+        // launch argv, so suppressing the binding here replays the same
+        // session later. Non-agent-hook bindings (tmux attach, persistent
+        // SSH) are never deferred.
+        let deferAgentResumeCandidate = AgentSessionDeferredResumeSettings.isEnabled(
+            defaults: agentSessionAutoResumeDefaults
+        ) && shouldAutoResumeAgent && hibernation == nil && restorableAgent?.resumeCommand != nil
         let resumeBindingForStartup = hibernation != nil ||
-            (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
+            (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true) ||
+            (deferAgentResumeCandidate && resumeBinding?.isAgentHookBinding == true
+                && resumeBinding?.launchFlavor == .local)
             ? nil
             : resumeBinding
         let approvedResumeBinding = policy.approvedSurfaceResumeBinding(
@@ -194,11 +208,11 @@ extension DockSplitStore {
         // startup doesn't fire dozens of concurrent resume commands. The
         // existing focus/visibility-triggered resume (`resumeAgentHibernation`)
         // then fires it lazily the first time the user actually looks at the
-        // panel.
-        let deferAgentResumeUntilFocus = AgentSessionDeferredResumeSettings.isEnabled(
-            defaults: agentSessionAutoResumeDefaults
-        ) && shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
-            && !agentSessionAlreadyActive && restorableAgent?.resumeCommand != nil
+        // panel. `bindingLaunch` is nil for deferred agent-hook bindings
+        // (suppressed above) but still set for tmux/SSH bindings, which keep
+        // their immediate startup launch.
+        let deferAgentResumeUntilFocus = deferAgentResumeCandidate && bindingLaunch == nil
+            && !agentSessionAlreadyActive
         let agentLaunch = shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive && !deferAgentResumeUntilFocus
             ? restorableAgent?.resumeStartupInput(requireLauncherScript: true).map {
