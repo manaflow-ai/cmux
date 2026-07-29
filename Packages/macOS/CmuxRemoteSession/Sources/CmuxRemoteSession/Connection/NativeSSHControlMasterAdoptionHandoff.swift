@@ -4,7 +4,8 @@ internal import Foundation
 /// A temporary ownership lease that bridges foreground SSH authentication to
 /// installation of the workspace's durable ControlMaster lease. Unconsumed
 /// handoffs expire so an interrupted restore cannot retain ownership forever.
-// SAFETY: `lock` serializes the release closure and expiration task.
+///
+/// The synchronous lock serializes the release closure and expiration task.
 public final class NativeSSHControlMasterAdoptionHandoff:
     @unchecked Sendable,
     Equatable

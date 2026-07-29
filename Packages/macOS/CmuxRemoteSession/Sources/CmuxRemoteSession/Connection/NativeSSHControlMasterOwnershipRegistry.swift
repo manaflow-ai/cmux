@@ -14,28 +14,22 @@ final class NativeSSHControlMasterOwnershipRegistry:
     NativeSSHControlMasterOwnershipTracking,
     @unchecked Sendable
 {
-    private struct Entry {
-        let descriptor: Int32
-        var leases: Set<NativeSSHControlMasterLeaseIdentity>
-        var exclusiveUseID: UUID?
-    }
-
-    private enum ExclusiveUsePurpose {
-        case reverseForwardRecovery
-        case ordinaryCleanup
-    }
-
+    private let sharingOptions: SSHConnectionSharingOptions
     // lint:allow lock - registry operations are short nonblocking fd updates.
     private let lock = NSLock()
-    private let sharingOptions: SSHConnectionSharingOptions
-    private var entries: [String: Entry] = [:]
+    private var entries: [
+        String: NativeSSHControlMasterOwnershipEntry
+    ] = [:]
     private var controlPathByLease: [
         NativeSSHControlMasterLeaseIdentity: String
     ] = [:]
 
-    init(sharingOptions: SSHConnectionSharingOptions) {
+    init(
+        sharingOptions: SSHConnectionSharingOptions,
+        fileManager: FileManager = .default
+    ) {
         self.sharingOptions = sharingOptions
-        try? FileManager.default.createDirectory(
+        try? fileManager.createDirectory(
             atPath: sharingOptions.controlMasterLockDirectoryPath,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
@@ -82,7 +76,8 @@ final class NativeSSHControlMasterOwnershipRegistry:
                 _ = Darwin.close(descriptor)
                 return false
             }
-            entries[controlPath] = Entry(
+            entries[controlPath] =
+                NativeSSHControlMasterOwnershipEntry(
                 descriptor: descriptor,
                 leases: [lease],
                 exclusiveUseID: nil
@@ -118,7 +113,7 @@ final class NativeSSHControlMasterOwnershipRegistry:
 
     private func beginExclusiveUse(
         controlPath: String,
-        purpose: ExclusiveUsePurpose
+        purpose: NativeSSHControlMasterExclusiveUsePurpose
     ) -> NativeSSHControlMasterExclusiveUseAuthorization? {
         let exclusiveUseID = UUID()
         let authenticationDescriptor = lock.withLock { () -> Int32? in
@@ -220,7 +215,8 @@ final class NativeSSHControlMasterOwnershipRegistry:
             _ = Darwin.close(descriptor)
             return false
         }
-        entries[controlPath] = Entry(
+        entries[controlPath] =
+            NativeSSHControlMasterOwnershipEntry(
             descriptor: descriptor,
             leases: [],
             exclusiveUseID: exclusiveUseID
