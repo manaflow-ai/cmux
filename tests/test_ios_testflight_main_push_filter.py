@@ -389,6 +389,22 @@ def test_schedule_decision_executes_ios_path_filter() -> None:
     assert non_ios_change["compareCalls"] == expected_compare
 
 
+def test_truncated_schedule_comparison_fails_open() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=tuple(f"docs/generated-{index}.md" for index in range(300)),
+    )
+
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
+    }
+
+
 def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
     first_run = run_decision_scenario(
         event_name="schedule",
@@ -418,6 +434,33 @@ def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
         "last_uploaded_sha": "demo-base-sha",
         "variant": "demo",
     }
+
+
+def test_demo_history_skips_newer_internal_artifact() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[1],
+        input_variant="",
+        prior_uploads=(
+            ("newer-internal-sha", "ios-testflight-build-metadata"),
+            ("demo-base-sha", "ios-testflight-build-metadata-demo"),
+        ),
+        changed_files=("docs/cli-contract.md",),
+    )
+
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "demo-base-sha",
+        "variant": "demo",
+    }
+    assert result["compareCalls"] == [
+        {
+            "owner": "manaflow-ai",
+            "repo": "cmux",
+            "base": "demo-base-sha",
+            "head": "head-sha",
+        }
+    ]
 
 
 def test_manual_demo_dispatch_builds_even_when_head_already_uploaded() -> None:
@@ -455,6 +498,31 @@ def test_scheduled_run_waits_for_an_earlier_upload() -> None:
         "in_progress",
     ]
     assert result["uploadJobStatuses"] == [
+        "in_progress",
+        "completed",
+        "completed",
+    ]
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
+    }
+
+
+def test_scheduled_run_waits_before_upload_job_exists() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        blocking_prior_run=True,
+        upload_job_starts_late=True,
+    )
+
+    assert result["waitCalls"] == [60_000, 60_000]
+    assert result["uploadJobStatuses"] == [
+        None,
         "in_progress",
         "completed",
         "completed",
@@ -601,9 +669,12 @@ if __name__ == "__main__":
     test_literal_block_accepts_whitespace_only_lines()
     test_scheduled_uploads_filter_for_ios_affecting_main_changes()
     test_schedule_decision_executes_ios_path_filter()
+    test_truncated_schedule_comparison_fails_open()
     test_schedule_decision_routes_demo_cron_to_demo_history()
+    test_demo_history_skips_newer_internal_artifact()
     test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
     test_scheduled_run_waits_for_an_earlier_upload()
+    test_scheduled_run_waits_before_upload_job_exists()
     test_ordering_includes_manual_current_and_prior_runs()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
