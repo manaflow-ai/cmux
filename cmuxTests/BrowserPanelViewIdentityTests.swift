@@ -5,7 +5,6 @@ import Observation
 import SwiftUI
 import Testing
 import WebKit
-import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -61,7 +60,7 @@ import XCTest
         )
     }
 
-    @Test func closeReleasesLoadedWebViewFromLocalInlineHostWhilePanelRemainsRetained() {
+    @Test func closeReleasesLoadedWebViewFromLocalInlineHostWhilePanelRemainsRetained() async {
         let panel = BrowserPanel(workspaceId: UUID())
         let originalWebView = panel.webView
         let originalPresentationView = originalWebView.cmuxBrowserViewportPresentationView
@@ -78,16 +77,16 @@ import XCTest
         slot.pinHostedWebView(originalWebView)
         let loadProbe = BrowserPanelLoadProbe()
         originalWebView.navigationDelegate = loadProbe
-        originalWebView.loadHTMLString("<html><body>loaded</body></html>", baseURL: nil)
         window.makeKeyAndOrderFront(nil)
-        let loadResult = XCTWaiter.wait(for: [loadProbe.didFinish], timeout: 5)
+        originalWebView.loadHTMLString("<html><body>loaded</body></html>", baseURL: nil)
+        let didCompleteLoad = await waitForWebViewLoad(loadProbe)
 
         defer {
             window.orderOut(nil)
             window.contentView = nil
         }
 
-        #expect(loadResult == .completed)
+        #expect(didCompleteLoad)
         #expect(loadProbe.error == nil)
         #expect(discardManager.delegate === panel)
         #expect(originalPresentationView.superview === slot)
@@ -102,6 +101,20 @@ import XCTest
         #expect(originalWebView.uiDelegate == nil)
         #expect(originalPresentationView.superview == nil)
         #expect(originalWebView.superview == nil)
+    }
+
+    private func waitForWebViewLoad(
+        _ probe: BrowserPanelLoadProbe,
+        timeout: TimeInterval = 5
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if probe.didComplete {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        } while Date() < deadline
+        return probe.didComplete
     }
 
     private func waitForOmnibarField(
@@ -127,16 +140,16 @@ import XCTest
 }
 
 private final class BrowserPanelLoadProbe: NSObject, WKNavigationDelegate {
-    let didFinish = XCTestExpectation(description: "browser page finished loading")
+    private(set) var didComplete = false
     private(set) var error: Error?
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        didFinish.fulfill()
+        didComplete = true
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         self.error = error
-        didFinish.fulfill()
+        didComplete = true
     }
 
     func webView(
@@ -145,7 +158,7 @@ private final class BrowserPanelLoadProbe: NSObject, WKNavigationDelegate {
         withError error: Error
     ) {
         self.error = error
-        didFinish.fulfill()
+        didComplete = true
     }
 }
 

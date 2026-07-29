@@ -92,7 +92,6 @@ struct BrowserPortalFirstRevealScrollTests {
         defer {
             webView.stopLoading()
             window.orderOut(nil)
-            window.close()
         }
 
         #expect(webView.window === window)
@@ -117,7 +116,6 @@ struct BrowserPortalFirstRevealScrollTests {
         defer {
             webView.stopLoading()
             fixture.window.orderOut(nil)
-            fixture.window.close()
         }
 
         #expect(webView.window === fixture.window)
@@ -141,7 +139,6 @@ struct BrowserPortalFirstRevealScrollTests {
         defer {
             webView.stopLoading()
             fixture.window.orderOut(nil)
-            fixture.window.close()
         }
 
         #expect(webView.window === fixture.window)
@@ -161,7 +158,6 @@ struct BrowserPortalFirstRevealScrollTests {
         let fixture = makeWindowFixture()
         defer {
             fixture.window.orderOut(nil)
-            fixture.window.close()
         }
         let webView = RecordingWebView(
             frame: NSRect(x: 0, y: 0, width: 300, height: 180),
