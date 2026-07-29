@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -17,8 +18,8 @@ use serde_json::Value;
 
 use crate::platform;
 use crate::resource::{
-    BrowserPublicId, ContentPublicId, PanePublicId, ScreenPublicId, SessionPublicId, SplitPublicId,
-    TabPublicId, TerminalPublicId, WorkspacePublicId,
+    BrowserPublicId, ContentPublicId, MachinePublicId, PanePublicId, ScreenPublicId,
+    SessionPublicId, SplitPublicId, TabPublicId, TerminalPublicId, WorkspacePublicId,
 };
 
 mod resource_store;
@@ -196,6 +197,7 @@ pub struct WorkspaceRegistry {
     registry_id: String,
     generation: String,
     session_name: String,
+    machine_id: MachinePublicId,
     session_id: SessionPublicId,
     _lease: Option<SessionLease>,
 }
@@ -213,10 +215,11 @@ impl std::fmt::Debug for WorkspaceRegistry {
 impl WorkspaceRegistry {
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
-        Self::initialize(connection, session_name.to_string(), None)
+        Self::initialize(connection, session_name.to_string(), MachinePublicId::random()?, None)
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        let machine_id = load_or_create_machine_id(root)?;
         let session_dir = root.join(session_storage_component(session_name));
         fs::create_dir_all(&session_dir).with_context(|| {
             format!("create workspace state directory {}", session_dir.display())
@@ -227,12 +230,13 @@ impl WorkspaceRegistry {
         let connection = Connection::open(&db_path)
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         platform::restrict_file(&db_path)?;
-        Self::initialize(connection, session_name.to_string(), Some(lease))
+        Self::initialize(connection, session_name.to_string(), machine_id, Some(lease))
     }
 
     fn initialize(
         connection: Connection,
         session_name: String,
+        machine_id: MachinePublicId,
         lease: Option<SessionLease>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -358,6 +362,7 @@ impl WorkspaceRegistry {
             registry_id,
             generation: try_new_uuid_v4()?,
             session_name,
+            machine_id,
             session_id,
             _lease: lease,
         })
@@ -420,6 +425,10 @@ impl WorkspaceRegistry {
 
     pub fn session_id(&self) -> &SessionPublicId {
         &self.session_id
+    }
+
+    pub fn machine_id(&self) -> &MachinePublicId {
+        &self.machine_id
     }
 
     /// Returns the canonical, non-tombstoned terminal placement projection.
@@ -2043,6 +2052,76 @@ fn transaction_terminal_revision(transaction: &Transaction<'_>) -> anyhow::Resul
         |row| row.get(0),
     )?;
     value.parse().context("terminal registry revision is invalid")
+}
+
+const MACHINE_ID_FILE: &str = "machine-id";
+const MACHINE_ID_LOCK_FILE: &str = "machine-id.lock";
+
+fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
+    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
+    platform::restrict_directory(root)?;
+    let lock_path = root.join(MACHINE_ID_LOCK_FILE);
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .with_context(|| format!("open machine identity lock {}", lock_path.display()))?;
+    platform::restrict_file(&lock_path)?;
+    FileExt::lock(&lock)
+        .with_context(|| format!("lock machine identity {}", lock_path.display()))?;
+
+    let path = root.join(MACHINE_ID_FILE);
+    let result = match fs::read(&path) {
+        Ok(bytes) => {
+            platform::restrict_file(&path)?;
+            parse_machine_id_file(&path, &bytes)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let id = MachinePublicId::random()?;
+            let mut options = OpenOptions::new();
+            options.create_new(true).write(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options
+                .open(&path)
+                .with_context(|| format!("create machine identity {}", path.display()))?;
+            platform::restrict_file(&path)?;
+            file.write_all(id.as_str().as_bytes())
+                .and_then(|()| file.write_all(b"\n"))
+                .with_context(|| format!("write machine identity {}", path.display()))?;
+            file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
+            File::open(root)
+                .and_then(|directory| directory.sync_all())
+                .with_context(|| format!("sync state root {}", root.display()))?;
+            Ok(id)
+        }
+        Err(error) => {
+            Err(error).with_context(|| format!("read machine identity {}", path.display()))
+        }
+    };
+    let _ = FileExt::unlock(&lock);
+    result
+}
+
+fn parse_machine_id_file(path: &Path, bytes: &[u8]) -> anyhow::Result<MachinePublicId> {
+    let content = std::str::from_utf8(bytes)
+        .with_context(|| format!("machine identity is not UTF-8: {}", path.display()))?;
+    let value = content.strip_suffix('\n').unwrap_or(content);
+    anyhow::ensure!(
+        !value.is_empty()
+            && !value.contains('\n')
+            && !value.contains('\r')
+            && value.trim() == value,
+        "machine identity file is corrupt: {}",
+        path.display()
+    );
+    MachinePublicId::parse(value)
+        .with_context(|| format!("machine identity file is corrupt: {}", path.display()))
 }
 
 fn session_storage_component(session: &str) -> String {

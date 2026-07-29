@@ -2247,7 +2247,6 @@ impl Mux {
     pub(crate) fn resource_create_empty_workspace(
         &self,
         name: Option<String>,
-        requested_key: Option<String>,
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
@@ -2255,20 +2254,12 @@ impl Mux {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
-        if let Some(key) = requested_key.as_deref() {
-            Self::validate_workspace_key(key)?;
-            anyhow::ensure!(
-                crate::workspace_registry::is_canonical_workspace_key(key),
-                "workspace key must be a lowercase UUID"
-            );
-        }
         let workspace_slot = self.next_id();
         let public_id = WorkspacePublicId::random()?;
         let generated_key = Self::new_workspace_key()?;
         let fingerprint = serde_json::json!({
             "operation": "workspace.create",
             "name": name,
-            "requested_key": requested_key,
             "initial_content": "empty",
         });
         self.commit_resource_mutation_plan(
@@ -2282,11 +2273,7 @@ impl Mux {
                     state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
                     "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
                 );
-                let key = requested_key.clone().unwrap_or_else(|| generated_key.clone());
-                anyhow::ensure!(
-                    state.workspace_by_key(&key).is_none(),
-                    "workspace key already exists: {key}"
-                );
+                let key = generated_key.clone();
                 let name = name.clone().unwrap_or_else(|| Self::default_workspace_name(state));
                 let index = state.workspaces.len();
                 let workspace = Workspace {
@@ -2307,7 +2294,6 @@ impl Mux {
                 state.resource_indexes.workspace_ids.reserve(1);
                 let result = serde_json::json!({
                     "workspace": public_id.as_str(),
-                    "key": key,
                     "name": name,
                     "index": index,
                 });
@@ -10180,7 +10166,7 @@ mod tests {
         let mux = test_mux();
         let mutation = WorkspaceMutation::new("create-once", "test-client").unwrap();
         let first = mux
-            .resource_create_empty_workspace(Some("API".into()), None, None, Some(0), &mutation)
+            .resource_create_empty_workspace(Some("API".into()), None, Some(0), &mutation)
             .unwrap();
         assert_eq!(first.revision, 1);
         assert!(!first.replayed);
@@ -10197,7 +10183,7 @@ mod tests {
         assert_eq!(durable.active_workspace, Some(public_id.clone()));
 
         let replay = mux
-            .resource_create_empty_workspace(Some("API".into()), None, None, Some(0), &mutation)
+            .resource_create_empty_workspace(Some("API".into()), None, Some(0), &mutation)
             .unwrap();
         assert!(replay.replayed);
         assert_eq!(replay.revision, 1);
@@ -10215,7 +10201,6 @@ mod tests {
         let error = mux
             .resource_create_empty_workspace(
                 Some("Never visible".into()),
-                None,
                 None,
                 Some(0),
                 &WorkspaceMutation::new("fail-create", "test-client").unwrap(),
@@ -10236,11 +10221,10 @@ mod tests {
     fn resource_idempotency_is_session_global_and_rejects_changed_input() {
         let mux = test_mux();
         let first = WorkspaceMutation::new("global-key", "client-a").unwrap();
-        mux.resource_create_empty_workspace(Some("One".into()), None, None, Some(0), &first)
-            .unwrap();
+        mux.resource_create_empty_workspace(Some("One".into()), None, Some(0), &first).unwrap();
         let reused = WorkspaceMutation::new("global-key", "client-b").unwrap();
         let error = mux
-            .resource_create_empty_workspace(Some("Two".into()), None, None, Some(1), &reused)
+            .resource_create_empty_workspace(Some("Two".into()), None, Some(1), &reused)
             .unwrap_err();
         assert!(error.to_string().contains("idempotency.conflict"));
         mux.with_state(|state| {
@@ -10256,7 +10240,6 @@ mod tests {
             .resource_create_empty_workspace(
                 Some("Public".into()),
                 None,
-                None,
                 Some(0),
                 &WorkspaceMutation::new("public-only", "test").unwrap(),
             )
@@ -10265,12 +10248,13 @@ mod tests {
         let object = result.as_object().unwrap();
         assert_eq!(
             object.keys().map(String::as_str).collect::<HashSet<_>>(),
-            HashSet::from(["workspace", "key", "name", "index"])
+            HashSet::from(["workspace", "name", "index"])
         );
         assert!(WorkspacePublicId::parse(object["workspace"].as_str().unwrap()).is_ok());
         let encoded = serde_json::to_string(&result).unwrap();
-        assert!(!encoded.contains("slot"));
-        assert!(!encoded.contains("numeric"));
+        for forbidden in ["key", "workspace_key", "slot", "numeric_id", "short_id", "surface"] {
+            assert!(!encoded.contains(forbidden), "leaked {forbidden}: {encoded}");
+        }
     }
 
     #[test]

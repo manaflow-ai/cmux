@@ -70,6 +70,76 @@ fn browser_id(value: u128) -> BrowserPublicId {
     BrowserPublicId::parse(format!("browser_{value:032x}")).unwrap()
 }
 
+#[test]
+fn machine_identity_is_state_root_global_and_survives_restart() {
+    let root = temp_root("machine-identity");
+    let first = WorkspaceRegistry::open(&root, "alpha").unwrap();
+    let machine = first.machine_id().clone();
+    let session = first.session_id().clone();
+    let second = WorkspaceRegistry::open(&root, "beta").unwrap();
+    assert_eq!(second.machine_id(), &machine);
+    assert_ne!(second.session_id(), &session);
+    drop(first);
+    let restarted = WorkspaceRegistry::open(&root, "alpha").unwrap();
+    assert_eq!(restarted.machine_id(), &machine);
+    assert_eq!(restarted.session_id(), &session);
+    drop(second);
+    drop(restarted);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn concurrent_first_open_converges_on_one_machine_identity() {
+    let root = temp_root("machine-race");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(12));
+    let threads = (0..12)
+        .map(|index| {
+            let root = root.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                WorkspaceRegistry::open(&root, &format!("session-{index}"))
+                    .unwrap()
+                    .machine_id()
+                    .clone()
+            })
+        })
+        .collect::<Vec<_>>();
+    let identities =
+        threads.into_iter().map(|thread| thread.join().unwrap()).collect::<HashSet<_>>();
+    assert_eq!(identities.len(), 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn corrupt_machine_identity_fails_closed() {
+    let root = temp_root("machine-corrupt");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join(MACHINE_ID_FILE), b"machine_not-an-id\n").unwrap();
+    let error = WorkspaceRegistry::open(&root, "alpha").unwrap_err();
+    assert!(error.to_string().contains("machine identity file is corrupt"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn machine_identity_files_are_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("machine-mode");
+    let registry = WorkspaceRegistry::open(&root, "alpha").unwrap();
+    assert_eq!(
+        fs::metadata(root.join(MACHINE_ID_FILE)).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(root.join(MACHINE_ID_LOCK_FILE)).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn viewport_screen() -> RegistryScreen {
     let workspace = workspace(1, "one", "One").public_id;
     let screen = screen_id(1);
