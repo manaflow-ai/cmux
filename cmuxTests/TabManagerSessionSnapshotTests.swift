@@ -3517,11 +3517,23 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.preserveAfterTerminalExit, false)
         XCTAssertNil(configuration.foregroundAuthToken)
         XCTAssertNil(configuration.persistentDaemonSlot)
-        XCTAssertNil(configuration.relayPort)
-        XCTAssertNil(configuration.localSocketPath)
+        XCTAssertEqual(configuration.relayPort, 64003)
+        XCTAssertEqual(configuration.localSocketPath, "/tmp/cmux-restore.sock")
         XCTAssertFalse(configuration.sshOptions.contains { $0.hasPrefix("ControlPath") })
-        XCTAssertFalse(configuration.terminalStartupCommand?.contains("ssh-pty-attach") == true)
-        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
+        let startupCommand = try XCTUnwrap(configuration.terminalStartupCommand)
+        XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
+        XCTAssertTrue(
+            startupCommand.contains(
+                "ssh -o RemoteCommand=none -p 2222 -o StrictHostKeyChecking=accept-new"
+            ),
+            startupCommand
+        )
+        XCTAssertTrue(
+            startupCommand.contains(
+                "rpc workspace.remote.terminal_session_connected"
+            ),
+            startupCommand
+        )
     }
 
     func testSessionRemoteWorkspaceSnapshotRestoresOrdinarySSHWithLifecycleReporting() throws {
@@ -3683,10 +3695,22 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.preserveAfterTerminalExit, false)
         XCTAssertNil(configuration.foregroundAuthToken)
         XCTAssertNil(configuration.persistentDaemonSlot)
-        XCTAssertNil(configuration.relayPort)
-        XCTAssertNil(configuration.localSocketPath)
-        XCTAssertFalse(configuration.terminalStartupCommand?.contains("ssh-pty-attach") == true)
-        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
+        XCTAssertEqual(configuration.relayPort, 64003)
+        XCTAssertEqual(configuration.localSocketPath, "/tmp/cmux-restore.sock")
+        let startupCommand = try XCTUnwrap(configuration.terminalStartupCommand)
+        XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
+        XCTAssertTrue(
+            startupCommand.contains(
+                "ssh -o RemoteCommand=none -p 2222 -o StrictHostKeyChecking=accept-new"
+            ),
+            startupCommand
+        )
+        XCTAssertTrue(
+            startupCommand.contains(
+                "rpc workspace.remote.terminal_session_connected"
+            ),
+            startupCommand
+        )
     }
 
     func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {
