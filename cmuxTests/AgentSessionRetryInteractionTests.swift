@@ -291,6 +291,30 @@ struct AgentSessionRetryInteractionTests {
     }
 
     @MainActor
+    @Test("replacement-session hooks cancel a retry awaiting launch")
+    func replacementSessionHooksCancelAwaitingLaunch() throws {
+        let fixture = try scheduledRetry(
+            suiteName: "AgentSessionRetryInteractionTests.replacementHook"
+        )
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        fixture.workspace.agentSessionRetryCoordinator.retryTimerFired(
+            panelId: fixture.panelId
+        )
+        #expect(
+            fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId]?.phase ==
+                .awaitingLaunch(attempt: 1, maximumAttempts: 3)
+        )
+
+        #expect(fixture.workspace.setSurfaceResumeBinding(
+            managedBinding(sessionId: "replacement-session"),
+            panelId: fixture.panelId
+        ))
+
+        #expect(fixture.workspace.agentSessionRetryCoordinator.statesByPanelId[fixture.panelId] == nil)
+        #expect(fixture.workspace.statusEntries[fixture.statusKey] == nil)
+    }
+
+    @MainActor
     @Test("prompt-idle binding cleanup preserves the ended command for classification")
     func bindingOnlyCleanupPreservesEndedCandidate() throws {
         let suiteName = "AgentSessionRetryInteractionTests.bindingCleanup"
