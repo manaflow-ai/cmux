@@ -1644,8 +1644,16 @@ final class ClaudeHookSessionStore {
         let normalizedSurface = normalizeOptional(surfaceId)
         return try withLockedState { state in
             let record: ClaudeHookSessionRecord
-            if let normalizedSessionId,
-               let existing = state.sessions[normalizedSessionId] {
+            if preservePendingBackgroundWorkForClear {
+                // A clear handoff is an ownership transfer, so it requires an
+                // exact source ID and never consumes a pane fallback.
+                guard let normalizedSessionId,
+                      let existing = state.sessions[normalizedSessionId] else {
+                    return nil
+                }
+                record = existing
+            } else if let normalizedSessionId,
+                      let existing = state.sessions[normalizedSessionId] {
                 record = existing
             } else {
                 guard let fallback = fallbackRecord(
