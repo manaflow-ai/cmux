@@ -252,10 +252,12 @@ struct TerminalLinkOpenCoordinatorTests {
         )
     }
 
-    @Test("Dock command-click CWD avoids live process inspection")
+    @Test("Dock link-open CWD refreshes from the foreground process")
     @MainActor
-    func dockCommandClickCWDAvoidsLiveProcessInspection() throws {
+    func dockLinkOpenCWDRefreshesFromForegroundProcess() throws {
         var liveDirectoryQueries = 0
+        let liveDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
@@ -263,7 +265,7 @@ struct TerminalLinkOpenCoordinatorTests {
             terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver(
                 liveDirectoryProvider: { _ in
                     liveDirectoryQueries += 1
-                    return nil
+                    return liveDirectory.path
                 }
             )
         )
@@ -274,8 +276,8 @@ struct TerminalLinkOpenCoordinatorTests {
             store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
         )
 
-        #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) != nil)
-        #expect(liveDirectoryQueries == 0)
+        #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) == liveDirectory.path)
+        #expect(liveDirectoryQueries == 1)
     }
 
     @Test("Deferred HTML routing revalidates remote state")

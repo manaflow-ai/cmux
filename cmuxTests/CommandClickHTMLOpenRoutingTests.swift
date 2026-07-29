@@ -450,6 +450,60 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func restrictedHTMLSavedLayoutsPreserveFileOnlyReadAccess() throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+        }
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let htmlURL = fixtureDirectory.appendingPathComponent("saved-layout.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>saved restricted browser</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        let sourcePanelId = try #require(source.focusedPanelId)
+        let sourcePaneId = try #require(source.paneId(forPanelId: sourcePanelId))
+        _ = try #require(source.newBrowserSurface(
+            inPane: sourcePaneId,
+            url: htmlURL,
+            focus: true,
+            localFileReadAccessPolicy: .fileOnly
+        ))
+
+        let capturedLayouts = [
+            try #require(source.captureLayoutDefinition().workspace.layout),
+            try #require(source.captureConfigActionSnapshot().definition.layout),
+        ]
+        for layout in capturedLayouts {
+            let restored = Workspace()
+            restored.applyCustomLayout(layout, baseCwd: fixtureDirectory.path)
+            defer { restored.teardownAllPanels() }
+
+            let browser = try #require(
+                restored.panels.values.compactMap { $0 as? BrowserPanel }.first
+            )
+            #expect(browser.localFileReadAccessPolicy == .fileOnly)
+            #expect(browser.bypassesRemoteWorkspaceProxyForTabDuplication)
+            #expect(
+                browser.webView.configuration.websiteDataStore ===
+                    BrowserProfileStore.shared.websiteDataStore(for: browser.profileID)
+            )
+        }
+    }
+
+    @Test
     func provisionalNavigationPreventsStaleHTMLBrowserReuse() throws {
         _ = NSApplication.shared
 
