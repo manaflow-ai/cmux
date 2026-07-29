@@ -2799,7 +2799,7 @@ func TestPTYRPCTokenRejectsStaleAttachmentControl(t *testing.T) {
 	}
 }
 
-func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
+func TestPTYRPCRequiresAttachmentIdentity(t *testing.T) {
 	eventOutput := newNotifyingBuffer()
 	server := &rpcServer{
 		nextStreamID:  1,
@@ -2817,17 +2817,29 @@ func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
 	}
 	defer server.closeAll()
 
-	expectMissingToken := func(method string, resp rpcResponse) {
+	expectInvalidParams := func(method string, resp rpcResponse, expectedMessage string) {
 		t.Helper()
 		if resp.OK || resp.Error == nil || resp.Error.Code != "invalid_params" {
 			t.Fatalf("%s response = %+v, want invalid_params", method, resp)
 		}
-		if !strings.Contains(resp.Error.Message, method+" requires client_attachment_token") {
-			t.Fatalf("%s message = %q, want client_attachment_token requirement", method, resp.Error.Message)
+		if !strings.Contains(resp.Error.Message, expectedMessage) {
+			t.Fatalf("%s message = %q, want %q", method, resp.Error.Message, expectedMessage)
 		}
 	}
 
-	expectMissingToken("pty.attach", server.handleRequest(rpcRequest{
+	expectInvalidParams("pty.attach", server.handleRequest(rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "id-required",
+			"client_attachment_token": "id-required-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 60",
+		},
+	}), "pty.attach requires attachment_id")
+
+	expectInvalidParams("pty.attach", server.handleRequest(rpcRequest{
 		ID:     1,
 		Method: "pty.attach",
 		Params: map[string]any{
@@ -2837,7 +2849,7 @@ func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
 			"rows":          24,
 			"command":       "sleep 60",
 		},
-	}))
+	}), "pty.attach requires client_attachment_token")
 
 	attach := server.handleRequest(rpcRequest{
 		ID:     2,
@@ -2861,7 +2873,7 @@ func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
 			event["attachment_token"] == "fresh-token"
 	})
 
-	expectMissingToken("pty.write", server.handleRequest(rpcRequest{
+	expectInvalidParams("pty.write", server.handleRequest(rpcRequest{
 		ID:     3,
 		Method: "pty.write",
 		Params: map[string]any{
@@ -2869,8 +2881,8 @@ func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
 			"attachment_id": "same",
 			"data_base64":   base64.StdEncoding.EncodeToString([]byte("missing token")),
 		},
-	}))
-	expectMissingToken("pty.resize", server.handleRequest(rpcRequest{
+	}), "pty.write requires client_attachment_token")
+	expectInvalidParams("pty.resize", server.handleRequest(rpcRequest{
 		ID:     4,
 		Method: "pty.resize",
 		Params: map[string]any{
@@ -2880,15 +2892,15 @@ func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
 			"cols":                    100,
 			"rows":                    30,
 		},
-	}))
-	expectMissingToken("pty.detach", server.handleRequest(rpcRequest{
+	}), "pty.resize requires client_attachment_token")
+	expectInvalidParams("pty.detach", server.handleRequest(rpcRequest{
 		ID:     5,
 		Method: "pty.detach",
 		Params: map[string]any{
 			"session_id":    "token-required",
 			"attachment_id": "same",
 		},
-	}))
+	}), "pty.detach requires client_attachment_token")
 
 	detach := server.handleRequest(rpcRequest{
 		ID:     6,
