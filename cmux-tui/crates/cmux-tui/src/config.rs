@@ -125,10 +125,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
-use cmux_tui_core::SurfaceOptions;
 use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
 use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
+use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
@@ -1681,6 +1681,7 @@ pub struct Config {
     pub terminal_defaults: DefaultColors,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
+    scrollback_limit_bytes: Option<usize>,
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
@@ -1710,6 +1711,10 @@ pub struct ThemeOverrides {
 }
 
 impl Config {
+    pub fn scrollback_limit_bytes(&self) -> usize {
+        self.scrollback_limit_bytes.unwrap_or(DEFAULT_SCROLLBACK_LIMIT_BYTES)
+    }
+
     pub fn apply_chrome_defaults(&mut self, chrome: ChromeTheme) {
         if !self.theme_overrides.selection {
             self.theme.selection_bg = chrome.selection_bg;
@@ -1729,8 +1734,10 @@ pub struct SidebarPluginConfig {
 pub fn load() -> Config {
     let mut config = Config::default();
 
-    let defaults = ghostty_defaults();
+    let ghostty = ghostty_defaults();
+    let defaults = ghostty.colors;
     config.terminal_defaults = defaults;
+    config.scrollback_limit_bytes = ghostty.scrollback_limit_bytes;
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
         config.theme_overrides.selection = true;
@@ -2126,16 +2133,30 @@ fn parse_color(s: &str) -> Option<Color> {
 
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
-fn ghostty_defaults() -> DefaultColors {
-    let parsed = resolved_ghostty_defaults()
-        .or_else(|| {
-            let text = platform::ghostty_config_paths()
-                .iter()
-                .find_map(|path| std::fs::read_to_string(path).ok())?;
-            Some(parse_ghostty_defaults(&text))
-        })
-        .unwrap_or_default();
-    resolve_ghostty_application_defaults(parsed)
+fn ghostty_defaults() -> GhosttyApplicationDefaults {
+    let parsed = if let Some(mut resolved) = resolved_ghostty_defaults() {
+        if resolved.scrollback_limit_bytes.is_none() {
+            resolved.scrollback_limit_bytes =
+                ghostty_file_defaults().and_then(|defaults| defaults.scrollback_limit_bytes);
+        }
+        resolved
+    } else {
+        ghostty_file_defaults().unwrap_or_default()
+    };
+    GhosttyApplicationDefaults {
+        colors: resolve_ghostty_application_defaults(parsed.colors),
+        ..parsed
+    }
+}
+
+fn ghostty_file_defaults() -> Option<GhosttyApplicationDefaults> {
+    let text = platform::ghostty_config_paths()
+        .iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())?;
+    Some(GhosttyApplicationDefaults {
+        colors: parse_ghostty_defaults(&text),
+        scrollback_limit_bytes: parse_scrollback_limit_bytes(&text),
+    })
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
@@ -2147,31 +2168,62 @@ fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultC
     defaults
 }
 
+#[derive(Default)]
+struct GhosttyApplicationDefaults {
+    colors: DefaultColors,
+    scrollback_limit_bytes: Option<usize>,
+}
+
 /// Ask Ghostty to resolve its configuration so cmux-tui inherits precisely the
-/// same theme-loading behavior as the graphical terminal. A failed or slow
-/// invocation is deliberately ignored; startup then uses the file fallback.
-fn resolved_ghostty_defaults() -> Option<DefaultColors> {
+/// same settings as the graphical terminal. A failed or slow invocation is
+/// deliberately ignored; startup then uses the file fallback.
+fn resolved_ghostty_defaults() -> Option<GhosttyApplicationDefaults> {
     resolved_ghostty_defaults_from(&platform::ghostty_installations())
 }
 
 fn resolved_ghostty_defaults_from(
     installations: &[platform::GhosttyInstallation],
-) -> Option<DefaultColors> {
+) -> Option<GhosttyApplicationDefaults> {
     installations.iter().find_map(|installation| {
-        let text = run_ghostty_show_config(installation)?;
-        let defaults = parse_resolved_ghostty_defaults(&text);
-        // `+show-config` serializes Ghostty's effective application defaults,
-        // including both colors. An executable that exits successfully but
-        // emits no resolved config (for example a packaging stub) is not a
-        // usable resolver and must not suppress later pinned candidates.
-        (defaults.fg.is_some() && defaults.bg.is_some()).then_some(defaults)
+        let text = run_ghostty_show_config(installation, false)?;
+        let colors = parse_resolved_ghostty_defaults(&text);
+        // `+show-config` serializes Ghostty's effective application colors.
+        // An executable that exits successfully but emits no resolved config
+        // (for example a packaging stub) is not a usable resolver and must
+        // not suppress later pinned candidates.
+        (colors.fg.is_some() && colors.bg.is_some()).then(|| {
+            let scrollback_limit_bytes = parse_scrollback_limit_bytes(&text).or_else(|| {
+                run_ghostty_show_config(installation, true)
+                    .as_deref()
+                    .and_then(parse_scrollback_limit_bytes)
+            });
+            GhosttyApplicationDefaults { colors, scrollback_limit_bytes }
+        })
     })
 }
 
-fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
+fn parse_scrollback_limit_bytes(text: &str) -> Option<usize> {
+    text.lines()
+        .filter_map(|line| {
+            let (key, value) = line.trim().split_once('=')?;
+            (key.trim() == "scrollback-limit")
+                .then(|| value.trim().trim_matches('"').replace('_', "").parse::<usize>().ok())
+                .flatten()
+        })
+        .last()
+}
+
+fn run_ghostty_show_config(
+    installation: &platform::GhosttyInstallation,
+    show_defaults: bool,
+) -> Option<String> {
     let mut command = Command::new(&installation.binary);
+    command.arg("+show-config");
+    if show_defaults {
+        command.arg("--default");
+    }
     command
-        .args(["+show-config", "--no-pager"])
+        .arg("--no-pager")
         .env_remove("GHOSTTY_RESOURCES_DIR")
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
@@ -2435,6 +2487,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_ghostty_scrollback_limit_with_later_valid_entry_wins() {
+        assert_eq!(
+            parse_scrollback_limit_bytes(
+                "scrollback-limit = 4_000_000\n\
+                 scrollback-limit = invalid\n\
+                 scrollback-limit = 50_000_000\n"
+            ),
+            Some(50_000_000)
+        );
+        assert_eq!(parse_scrollback_limit_bytes("scrollback-limit = -1\n"), None);
+        assert_eq!(Config::default().scrollback_limit_bytes(), DEFAULT_SCROLLBACK_LIMIT_BYTES);
+    }
+
+    #[test]
     fn parses_resolved_ghostty_show_config_output() {
         let defaults = parse_resolved_ghostty_defaults(
             "# Ghostty resolved configuration\n\
@@ -2485,10 +2551,10 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-        let output = run_ghostty_show_config(&platform::GhosttyInstallation {
-            binary,
-            resources_dir: Some(resources.clone()),
-        })
+        let output = run_ghostty_show_config(
+            &platform::GhosttyInstallation { binary, resources_dir: Some(resources.clone()) },
+            false,
+        )
         .unwrap();
         assert!(output.contains(&format!("resource-path = {}", resources.display())));
         let defaults = parse_resolved_ghostty_defaults(&output);
@@ -2513,10 +2579,9 @@ mod tests {
         std::fs::write(&broken, "#!/bin/sh\nexit 0\n").unwrap();
         std::fs::write(
             &working,
-            "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+            "#!/bin/sh\nif [ \"$2\" = \"--default\" ]; then\n  printf 'scrollback-limit = 4000000\\n'\nelse\n  printf 'background = #272822\\nforeground = #fdfff1\\n'\nfi\n",
         )
         .unwrap();
-        std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::set_permissions(&working, std::fs::Permissions::from_mode(0o700)).unwrap();
 
         let defaults = resolved_ghostty_defaults_from(&[
@@ -2524,9 +2589,50 @@ mod tests {
             platform::GhosttyInstallation { binary: working, resources_dir: None },
         ])
         .unwrap();
-        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
-        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.colors.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.colors.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.scrollback_limit_bytes, Some(4_000_000));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolver_without_scrollback_preserves_file_configured_limit() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let root = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-scrollback-fallback-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = root.join("ghostty");
+        let binary = root.join("ghostty-config-helper");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(ghostty_dir.join("config"), "scrollback-limit = 8_000_000\n").unwrap();
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe {
+            std::env::set_var("GHOSTTY_BIN", &binary);
+            std::env::remove_var("CMUX_MUX_CONFIG");
+            std::env::set_var("XDG_CONFIG_HOME", &root);
+        }
+
+        let config = load();
+
+        restore_env_var("GHOSTTY_BIN", old_ghostty_bin);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        let _ = std::fs::remove_dir_all(root);
+        assert_eq!(config.scrollback_limit_bytes(), 8_000_000);
     }
 
     #[test]
