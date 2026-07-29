@@ -883,6 +883,20 @@ mod tests {
     }
 
     #[test]
+    fn focused_column_uses_cmux_tui_rail_divider() {
+        let mut app = long_conversation_app();
+        app.focus = Focus::Machines;
+        let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();
+        terminal.draw(|frame| draw(&mut app, frame)).unwrap();
+
+        let x = app.columns.machines.x + app.columns.machines.width - 1;
+        let divider = &terminal.backend().buffer()[(x, app.columns.machines.y)];
+        assert_eq!(divider.symbol(), "┃");
+        assert_eq!(divider.fg, ACTIVE_BORDER_FG);
+        assert!(divider.modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
     fn conversation_mouse_wheel_scroll_survives_redraw() {
         let mut app = long_conversation_app();
         let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();

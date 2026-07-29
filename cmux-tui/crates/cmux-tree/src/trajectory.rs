@@ -546,6 +546,19 @@ mod tests {
     }
 
     #[test]
+    fn codex_response_has_a_blank_separator_above_it() {
+        let view = build_trajectory(
+            &stopped_conversation(),
+            80,
+            Catalog::new(crate::localization::Locale::English),
+            &ExpansionState::default(),
+        );
+        let codex = view.lines.iter().position(|line| line.text == "codex").unwrap();
+
+        assert_eq!(view.lines[codex - 1].text, "");
+    }
+
+    #[test]
     fn running_tool_is_expanded_incrementally() {
         let mut conversation = stopped_conversation();
         conversation.status = json!({"type": "active", "activeFlags": []});
