@@ -173,6 +173,13 @@ private func setFontBindingResult(_ result: Bool)
         #expect(surface.sessionFontSizeOverrideBasePoints() == 510)
     }
 
+    @Test func ghosttyFontSizeActionUsesProtocolDecimalSeparator() {
+        #expect(
+            GhosttyFontSizeBindingAction.setFontSize(24.5)
+                == "set_font_size:24.500"
+        )
+    }
+
     @Test func dormantSurfaceAdjustsDurableFontSizeAtRuntimeScale() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(6, isExplicitOverride: false)
