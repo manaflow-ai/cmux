@@ -6,6 +6,23 @@ import CmuxWorkspaces
 import Foundation
 
 extension RemotePTYLifecycleCommitLease: @retroactive ControlRemotePTYLifecycleCommitLease {
+    public func beginReadinessDelivery() -> ControlRemotePTYReadinessDeliveryAdmission {
+        switch beginReadinessDeliveryAdmission() {
+        case .acquired:
+            .acquired
+        case .inFlight:
+            .inFlight
+        case .alreadyCompleted:
+            .alreadyCompleted
+        case .stale:
+            .stale
+        }
+    }
+
+    public func finishReadinessDelivery(succeeded: Bool) {
+        finishReadinessDeliveryAdmission(succeeded: succeeded)
+    }
+
     @MainActor
     public func commitIfCurrent(
         _ operation: @MainActor @Sendable () -> Bool

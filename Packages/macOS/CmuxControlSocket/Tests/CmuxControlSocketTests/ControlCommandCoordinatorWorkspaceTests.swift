@@ -455,6 +455,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         let secondFinished = DispatchSemaphore(value: 0)
         let firstResult = SimulatorResultBox()
         let secondResult = SimulatorResultBox()
+        let mainHopCount = OSAllocatedUnfairLock(initialState: 0)
         let setup = await MainActor.run {
             let context = FakeWorkspaceControlCommandContext(
                 currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner(
@@ -463,6 +464,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
                     commitLease: FixedRemotePTYLifecycleCommitLease(isCurrent: true)
                 ),
                 beforeMainResolution: {
+                    mainHopCount.withLock { $0 += 1 }
                     firstMainHopEntered.signal()
                     _ = releaseMainHop.wait(timeout: .now() + 2)
                 }
@@ -534,6 +536,14 @@ struct ControlCommandCoordinatorWorkspaceTests {
             Issue.record("the admitted readiness report did not complete")
             return
         }
+        guard case .ok = setup.0.handleSocketWorkerV2(request, context: setup.1) else {
+            Issue.record("completed readiness was not acknowledged idempotently")
+            return
+        }
+        #expect(
+            mainHopCount.withLock { $0 } == 1,
+            "Completed readiness must not re-enter the main actor"
+        )
     }
 
     @Test(arguments: [

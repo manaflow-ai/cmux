@@ -135,17 +135,46 @@ extension ControlCommandCoordinator {
                       lifecycleID: lifecycleID
                   ),
                   UUID(uuidString: owner.attachmentID) == surfaceID {
-            authority = .persistentTransport(
-                owner.transportKey,
-                terminalLifecycleID: terminalLifecycleID
-            )
-            persistentOwner = owner
+            switch owner.commitLease.beginReadinessDelivery() {
+            case .acquired:
+                authority = .persistentTransport(
+                    owner.transportKey,
+                    terminalLifecycleID: terminalLifecycleID
+                )
+                persistentOwner = owner
+            case .inFlight:
+                return .err(
+                    code: "busy",
+                    message: "Terminal readiness delivery is already in progress",
+                    data: .object([
+                        "workspace_id": .string(workspaceID.uuidString),
+                        "surface_id": .string(surfaceID.uuidString),
+                        "attempt_id": .string(attemptID.uuidString),
+                    ])
+                )
+            case .alreadyCompleted:
+                return .ok(.object([
+                    "workspace_id": .string(workspaceID.uuidString),
+                    "surface_id": .string(surfaceID.uuidString),
+                    "relay_port": .null,
+                    "readiness_already_completed": .bool(true),
+                ]))
+            case .stale:
+                return .err(
+                    code: "not_found",
+                    message: "Workspace not found",
+                    data: .object([
+                        "workspace_id": .string(workspaceID.uuidString),
+                        "surface_id": .string(surfaceID.uuidString),
+                    ])
+                )
+            }
         } else {
             authority = nil
             persistentOwner = nil
         }
 
-        return context.controlResolveOnMain { seam in
+        let result: ControlCallResult = context.controlResolveOnMain { seam -> ControlCallResult in
             let resolution: ControlWorkspaceRemoteTerminalSessionConnectedResolution
             if let authority {
                 switch authority {
@@ -195,6 +224,16 @@ extension ControlCommandCoordinator {
                 ]))
             }
         }
+        if let persistentOwner {
+            let succeeded: Bool
+            if case .ok = result {
+                succeeded = true
+            } else {
+                succeeded = false
+            }
+            persistentOwner.commitLease.finishReadinessDelivery(succeeded: succeeded)
+        }
+        return result
     }
 
     /// `workspace.remote.terminal_session_end` — retire any persistent PTY

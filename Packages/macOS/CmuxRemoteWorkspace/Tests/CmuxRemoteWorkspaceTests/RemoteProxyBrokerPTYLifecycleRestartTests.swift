@@ -326,7 +326,33 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         ))
 
         #expect(oldOwner.commitLease.commitIfCurrent { true } == nil)
+        #expect(
+            oldOwner.commitLease.beginReadinessDeliveryAdmission() ==
+                .stale
+        )
         #expect(newOwner.commitLease.commitIfCurrent { true } == true)
+    }
+
+    @Test("readiness delivery admission coalesces one lifecycle generation")
+    func readinessDeliveryAdmissionCoalescesOneGeneration() {
+        let commitLease = RemotePTYLifecycleCommitLease()
+
+        #expect(commitLease.beginReadinessDeliveryAdmission() == .acquired)
+        #expect(commitLease.beginReadinessDeliveryAdmission() == .inFlight)
+
+        commitLease.finishReadinessDeliveryAdmission(succeeded: true)
+
+        #expect(commitLease.beginReadinessDeliveryAdmission() == .alreadyCompleted)
+    }
+
+    @Test("failed readiness delivery reopens lifecycle admission")
+    func failedReadinessDeliveryReopensAdmission() {
+        let commitLease = RemotePTYLifecycleCommitLease()
+        #expect(commitLease.beginReadinessDeliveryAdmission() == .acquired)
+
+        commitLease.finishReadinessDeliveryAdmission(succeeded: false)
+
+        #expect(commitLease.beginReadinessDeliveryAdmission() == .acquired)
     }
 
     @Test("ended lifecycle removes its broker owner index")
