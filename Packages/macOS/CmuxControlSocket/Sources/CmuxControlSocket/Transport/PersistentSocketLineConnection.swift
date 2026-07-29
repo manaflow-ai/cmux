@@ -7,19 +7,10 @@ internal import Darwin
 /// The connection validates the kernel-reported peer before every write. It
 /// never retries a command after an I/O failure because the server may already
 /// have performed the side effect before the response was lost.
-public final class PersistentSocketLineConnection: @unchecked Sendable {
-    private struct State {
-        let socket: Int32
-        let path: String
-        let timeout: TimeInterval
-        let peerProcessID: pid_t?
-        var responseBuffer = Data()
-    }
-
+public actor PersistentSocketLineConnection {
     private let transport: SocketTransport
     private let maximumResponseByteCount: Int
-    private let lock = NSLock()
-    private var state: State?
+    private var state: PersistentSocketLineConnectionState?
 
     /// Creates a persistent line-oriented connection.
     ///
@@ -37,9 +28,9 @@ public final class PersistentSocketLineConnection: @unchecked Sendable {
     }
 
     deinit {
-        lock.lock()
-        closeConnection()
-        lock.unlock()
+        if let state {
+            Darwin.close(state.socket)
+        }
     }
 
     /// Sends one command and reads its corresponding response line.
@@ -55,8 +46,6 @@ public final class PersistentSocketLineConnection: @unchecked Sendable {
         guard !command.contains("\n"), !command.contains("\r") else {
             return nil
         }
-        lock.lock()
-        defer { lock.unlock() }
 
         guard ensureConnection(
             at: socketPath,
@@ -87,9 +76,7 @@ public final class PersistentSocketLineConnection: @unchecked Sendable {
     /// Closes the cached connection. The next command reconnects and
     /// revalidates the peer.
     public func invalidate() {
-        lock.lock()
         closeConnection()
-        lock.unlock()
     }
 
     private func ensureConnection(
@@ -123,7 +110,7 @@ public final class PersistentSocketLineConnection: @unchecked Sendable {
         to socketPath: String,
         timeout: TimeInterval,
         validatingPeer: @Sendable (pid_t?) -> Bool
-    ) -> State? {
+    ) -> PersistentSocketLineConnectionState? {
         let socket = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard socket >= 0 else { return nil }
         var shouldClose = true
@@ -172,7 +159,7 @@ public final class PersistentSocketLineConnection: @unchecked Sendable {
         guard validatingPeer(peerProcessID) else { return nil }
 
         shouldClose = false
-        return State(
+        return PersistentSocketLineConnectionState(
             socket: socket,
             path: socketPath,
             timeout: timeout,
@@ -180,7 +167,9 @@ public final class PersistentSocketLineConnection: @unchecked Sendable {
         )
     }
 
-    private func readResponseLine(from state: inout State) -> String? {
+    private func readResponseLine(
+        from state: inout PersistentSocketLineConnectionState
+    ) -> String? {
         while true {
             if let newline = state.responseBuffer.firstIndex(of: 0x0A) {
                 let line = state.responseBuffer[..<newline]

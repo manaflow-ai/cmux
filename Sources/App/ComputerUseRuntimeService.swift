@@ -5,12 +5,6 @@ import Darwin
 import Foundation
 import Security
 
-private enum ComputerUseFinalHelperCleanupState: Equatable {
-    case idle
-    case retrying
-    case awaitingTermination
-}
-
 /// The single app-side owner of the standalone Computer Use helper lifecycle.
 ///
 /// The main cmux process never calls TCC-protected APIs and never executes the
@@ -18,11 +12,6 @@ private enum ComputerUseFinalHelperCleanupState: Equatable {
 /// LaunchServices, and reads permission status exclusively over the daemon UDS.
 @MainActor
 final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
-    enum ApplicationSurfaceRequestLane {
-        case health
-        case input
-    }
-
     static let helperAppName = "cmux Computer Use"
     nonisolated private static let helperExecutableName = "cmux Computer Use"
     nonisolated private static let maximumApplicationWindowDimension =
@@ -2210,7 +2199,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         persistentConnection: PersistentSocketLineConnection? = nil
     ) async -> [String: Any]? {
         await Task.detached(priority: .userInitiated) {
-            sendDaemonRequestSynchronously(
+            await performDaemonRequest(
                 request,
                 paths: paths,
                 transport: transport,
@@ -2222,7 +2211,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }.value
     }
 
-    nonisolated private static func sendDaemonRequestSynchronously(
+    nonisolated private static func performDaemonRequest(
         _ request: [String: Any],
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
@@ -2230,7 +2219,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         expectedPeerIdentity: AgentPIDProcessIdentity? = nil,
         socketURL: URL,
         persistentConnection: PersistentSocketLineConnection? = nil
-    ) -> [String: Any]? {
+    ) async -> [String: Any]? {
         var authenticatedRequest: [String: Any] = [
             "auth_token": paths.authenticationToken,
             "request": request,
@@ -2262,7 +2251,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
         let probe: (response: String, peerProcessID: pid_t?)?
         if let persistentConnection {
-            probe = persistentConnection.command(
+            probe = await persistentConnection.command(
                 line,
                 at: socketPath,
                 timeout: timeout,
