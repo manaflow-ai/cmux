@@ -3268,6 +3268,28 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test]
+    async fn client_socket_lease_never_unlinks_a_bound_successor() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mux.sock");
+        let mut previous = ClientSocketLease::bind(path.clone()).unwrap();
+
+        previous.unlink().unwrap();
+        let successor = tokio::net::UnixListener::bind(&path).unwrap();
+        drop(previous);
+
+        assert!(path.exists(), "old client lease unlinked the successor socket");
+        let connect = tokio::net::UnixStream::connect(&path);
+        let accept = successor.accept();
+        let (connected, accepted) =
+            tokio::time::timeout(Duration::from_secs(1), async { tokio::join!(connect, accept) })
+                .await
+                .expect("successor socket was unreachable");
+        connected.unwrap();
+        accepted.unwrap();
+    }
+
+    #[cfg(unix)]
     #[test]
     fn client_socket_rejects_a_parent_owned_by_another_user() {
         use std::os::unix::fs::MetadataExt;
