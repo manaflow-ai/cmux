@@ -4610,16 +4610,12 @@ impl Mux {
             let mut budget = self.kitty_image_budget.lock().unwrap();
             Self::prune_dead_kitty_image_surfaces(&mut budget);
             anyhow::ensure!(
-                budget.blocked_surfaces.is_empty(),
-                "Kitty image quota updates are blocked after a terminal rejected the previous \
-                 limit update"
-            );
-            anyhow::ensure!(
                 !budget.entries.contains_key(&surface),
                 "Kitty image budget already reserved for surface {surface}"
             );
             let owner_count = Self::kitty_image_budget_owner_count(&budget);
-            let owns_quota = owner_count < KITTY_IMAGE_BUDGET_OWNER_LIMIT;
+            let owns_quota = budget.blocked_surfaces.is_empty()
+                && owner_count < KITTY_IMAGE_BUDGET_OWNER_LIMIT;
             if owns_quota {
                 budget.capacity = kitty_image_budget_capacity(owner_count + 1, budget.capacity);
             }
@@ -4638,12 +4634,14 @@ impl Mux {
         let initial_limits = loop {
             let mut budget = self.kitty_image_budget.lock().unwrap();
             if !budget.blocked_surfaces.is_empty() {
-                drop(budget);
-                self.cancel_kitty_image_surface_reservation(surface);
-                anyhow::bail!(
-                    "Kitty image quota updates are blocked after a terminal rejected the \
-                     previous limit update"
-                );
+                let entry = budget
+                    .entries
+                    .get_mut(&surface)
+                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?;
+                entry.owns_quota = false;
+                entry.applied = KittyGraphicsLimits::disabled();
+                Self::rebalance_kitty_image_budget_owners(&mut budget);
+                break KittyGraphicsLimits::disabled();
             }
             let owns_quota = budget
                 .entries
@@ -4821,7 +4819,10 @@ impl Mux {
         let owner_count = Self::kitty_image_budget_owner_count(budget);
         debug_assert!(owner_count <= KITTY_IMAGE_BUDGET_OWNER_LIMIT);
         let available = KITTY_IMAGE_BUDGET_OWNER_LIMIT.saturating_sub(owner_count);
-        if available > 0 && owner_count < budget.entries.len() {
+        if budget.blocked_surfaces.is_empty()
+            && available > 0
+            && owner_count < budget.entries.len()
+        {
             let mut candidates = budget
                 .entries
                 .iter()
