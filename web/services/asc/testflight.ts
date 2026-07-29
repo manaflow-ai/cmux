@@ -4,13 +4,17 @@ import {
 } from "./client";
 import {
   FOUNDER_TESTFLIGHT_GROUP_ID,
+  proTestflightRemovalTargets,
 } from "./testflightOwnership";
 import { env } from "../../app/env";
 
 export {
   FOUNDER_TESTFLIGHT_GROUP_ID,
+  proOwnedLegacyTestflightEmails,
   proOwnedLegacyTestflightGroupIDs,
+  proTestflightRemovalTargets,
   recordProOwnedLegacyTestflightGroup,
+  type ProTestflightRemovalTarget,
   type ProTestflightOwnershipUser,
 } from "./testflightOwnership";
 
@@ -137,6 +141,20 @@ export async function removeTester(
   for (const groupID of new Set(groupIDs)) {
     await removeTesterFromGroup(tester.id, groupID);
   }
+}
+
+export async function removeProTesterAccess(
+  currentEmail: string | null | undefined,
+  metadata: unknown,
+  remover: typeof removeTester = removeTester,
+): Promise<number> {
+  const targets = proTestflightRemovalTargets(currentEmail, metadata);
+  for (const target of targets) {
+    await remover(target.email, {
+      ownedLegacyGroupIDs: target.ownedLegacyGroupIDs,
+    });
+  }
+  return targets.length;
 }
 
 async function removeTesterFromGroup(

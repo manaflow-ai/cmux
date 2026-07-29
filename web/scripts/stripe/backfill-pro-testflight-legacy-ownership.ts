@@ -1,8 +1,10 @@
 import { StackServerApp } from "@stackframe/stack";
 
 import {
+  proOwnedLegacyTestflightEmails,
   proOwnedLegacyTestflightGroupIDs,
   recordProOwnedLegacyTestflightGroup,
+  type ProTestflightOwnershipUser,
 } from "../../services/asc/testflightOwnership";
 
 const CUTOVER_AT = "2026-07-24T09:13:32.106Z";
@@ -35,23 +37,23 @@ const stack = new StackServerApp({
   noAutomaticPrefetch: true,
 });
 
-const candidates = [];
+const candidates: { user: ProTestflightOwnershipUser; email: string }[] = [];
 for (const entry of manifest.users) {
   const user = await stack.getUser(entry.stackUserId);
   if (!user) throw new Error("Backfill manifest references a missing Stack user");
-  if (normalizeEmail(user.primaryEmail) !== entry.email) {
-    throw new Error("Backfill manifest email does not match the Stack user");
-  }
-  candidates.push(user);
+  candidates.push({ user, email: entry.email });
 }
 
 let alreadyRecorded = 0;
 let updated = 0;
-for (const user of candidates) {
-  if (proOwnedLegacyTestflightGroupIDs(user.clientReadOnlyMetadata).length > 0) {
+for (const { user, email } of candidates) {
+  const metadata = user.clientReadOnlyMetadata;
+  const hasGroup = proOwnedLegacyTestflightGroupIDs(metadata).length > 0;
+  const hasEmail = proOwnedLegacyTestflightEmails(metadata).includes(email);
+  if (hasGroup && hasEmail) {
     alreadyRecorded += 1;
   } else if (apply) {
-    if (await recordProOwnedLegacyTestflightGroup(user)) updated += 1;
+    if (await recordProOwnedLegacyTestflightGroup(user, email)) updated += 1;
   }
 }
 

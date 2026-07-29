@@ -347,6 +347,31 @@ describe("TestFlight ASC service", () => {
       },
     ]);
   });
+
+  test("does not infer legacy Founder ownership from group metadata alone", () => {
+    expect(proTestflightRemovalTargets("current@example.com", {
+      cmuxProTestflightOwnedLegacyGroupIDs: [
+        "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+      ],
+    })).toEqual([{
+      email: "current@example.com",
+      ownedLegacyGroupIDs: [],
+    }]);
+  });
+
+  test("removes a recorded legacy enrollment when the current email is absent", () => {
+    expect(proTestflightRemovalTargets(null, {
+      cmuxProTestflightOwnedLegacyGroupIDs: [
+        "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+      ],
+      cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
+    })).toEqual([{
+      email: "legacy@example.com",
+      ownedLegacyGroupIDs: [
+        "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+      ],
+    }]);
+  });
 });
 
 function betaTesterList(id: string, state?: string) {

@@ -5,7 +5,7 @@ import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { locales, routing } from "../../../i18n/routing";
 import {
   enrollTester,
-  proOwnedLegacyTestflightGroupIDs,
+  removeProTesterAccess,
   removeTester,
 } from "../../../services/asc/testflight";
 import { isAscConfigured } from "../../../services/asc/client";
@@ -60,11 +60,11 @@ export async function POST(request: NextRequest) {
       return testflightRedirect(request, "joined");
     }
 
-    await removeTester(email, {
-      ownedLegacyGroupIDs: proOwnedLegacyTestflightGroupIDs(
-        user.clientReadOnlyMetadata,
-      ),
-    });
+    await removeProTesterAccess(
+      email,
+      user.clientReadOnlyMetadata,
+      removeTester,
+    );
     return testflightRedirect(request, "left");
   } catch (error) {
     captureAscError(error, {

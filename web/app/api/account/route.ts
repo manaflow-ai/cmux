@@ -39,7 +39,7 @@ import {
 } from "../../../services/billing/pro";
 import { isAscConfigured } from "../../../services/asc/client";
 import {
-  proOwnedLegacyTestflightGroupIDs,
+  removeProTesterAccess,
   removeTester,
 } from "../../../services/asc/testflight";
 import { captureAscError } from "../../../services/errors";
@@ -939,18 +939,19 @@ async function removeTestFlightAccessForAccountDeletion(
   options: { readonly afterExternalMutation?: () => void } = {},
 ): Promise<void> {
   if (!isAscConfigured()) return;
-  const email = user.primaryEmail?.trim();
-  if (!email) return;
+  const email = user.primaryEmail?.trim() ?? null;
   try {
-    await removeTester(email, {
-      ownedLegacyGroupIDs: proOwnedLegacyTestflightGroupIDs(ownershipMetadata),
-    });
-    options.afterExternalMutation?.();
+    const targetCount = await removeProTesterAccess(
+      email,
+      ownershipMetadata,
+      removeTester,
+    );
+    if (targetCount > 0) options.afterExternalMutation?.();
   } catch (error) {
     captureAscError(error, {
       route: "/api/account",
       stackUserId: user.id,
-      email,
+      email: email ?? undefined,
     });
   }
 }

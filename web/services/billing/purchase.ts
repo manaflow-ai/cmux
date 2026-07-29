@@ -24,7 +24,7 @@ import {
 import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
 import {
-  proOwnedLegacyTestflightGroupIDs,
+  removeProTesterAccess,
   removeTester,
   type RemoveTesterOptions,
 } from "../asc/testflight";
@@ -605,16 +605,12 @@ async function removeUserFromTestflightOnLapse(
 ): Promise<void> {
   const configured = dependencies.testflight?.isAscConfigured ?? isAscConfigured;
   if (!configured()) return;
-  if (!user.primaryEmail) return;
 
   try {
-    await (dependencies.testflight?.removeTester ?? removeTester)(
+    await removeProTesterAccess(
       user.primaryEmail,
-      {
-        ownedLegacyGroupIDs: proOwnedLegacyTestflightGroupIDs(
-          user.clientReadOnlyMetadata,
-        ),
-      },
+      user.clientReadOnlyMetadata,
+      dependencies.testflight?.removeTester ?? removeTester,
     );
   } catch (error) {
     (dependencies.testflight?.captureAscError ?? captureAscError)(error, {
