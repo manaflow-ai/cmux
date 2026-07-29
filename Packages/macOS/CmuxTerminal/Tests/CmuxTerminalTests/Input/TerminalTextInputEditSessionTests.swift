@@ -41,6 +41,21 @@ import Testing
         #expect(!session.hasMarkedText)
     }
 
+    @Test(arguments: ["\u{001B}", "\u{0008}", "\u{007F}"])
+    func controlCallbacksNeverBecomeProvisionalText(_ controlText: String) {
+        var session = TerminalTextInputEditSession()
+        session.beginEvent(translatedText: "~")
+        #expect(session.insertText(
+            controlText,
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        ).isEmpty)
+
+        #expect(
+            session.finishEvent(consumedByTextInput: true) == [controlText]
+        )
+        #expect(!session.hasMarkedText)
+    }
+
     @Test func consumedReplacementEditsRemainProvisionalUntilCommit() {
         var session = TerminalTextInputEditSession()
 
