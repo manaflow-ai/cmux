@@ -17456,9 +17456,12 @@ private extension NSWindow {
         if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
         if let firstResponderApplicationCaptureView,
            shouldRouteApplicationCommandEquivalentThroughContentFirst(event) {
-            return firstResponderApplicationCaptureView.performKeyEquivalent(
+            if firstResponderApplicationCaptureView.performKeyEquivalent(
                 with: event
-            )
+            ) {
+                return true
+            }
+            return NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
         }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
