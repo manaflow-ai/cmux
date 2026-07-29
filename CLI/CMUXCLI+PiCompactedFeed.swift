@@ -1,7 +1,7 @@
 import Foundation
 
 extension CMUXCLI {
-    /// Reduces any Pi tool result to structural metadata at the CLI trust boundary.
+    /// Reduces any Pi or OMP tool result to structural metadata at the CLI trust boundary.
     ///
     /// Generated extensions project results before dispatch, but installed older
     /// versions can still send raw output. Treat both forms as untrusted so a cmux

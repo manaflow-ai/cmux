@@ -340,7 +340,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "pi":
             return withOption("pi", executable: "pi", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "omp":
-            return withOption("omp", executable: "omp", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "omp")
+            guard let preserved = Self.preservedOmpLaunchArguments(parts.tail) else { return nil }
+            return [parts.executable, "--resume", sessionId] + preserved
         case "campfire":
             return withOption("campfire", executable: "campfire", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "amp":
@@ -413,6 +415,61 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return nil
         }
         return ["claude", "--resume", sessionId] + preserved
+    }
+
+    /// Preserves OMP's profile selector through the shared Pi sanitizer.
+    ///
+    /// The Pi policy predates OMP profiles, so an ordinary two-token `--profile value`
+    /// looks like an unknown boolean followed by a prompt boundary. Protecting the
+    /// validated pair as one option lets the sanitizer continue through later options,
+    /// then restores the captured spelling and order.
+    static func preservedOmpLaunchArguments(_ arguments: [String]) -> [String]? {
+        let markerPrefix = "--cmux-protected-omp-profile-"
+        guard !arguments.contains(where: { $0.hasPrefix(markerPrefix) }) else { return nil }
+
+        var protected: [String] = []
+        var replacements: [String: [String]] = [:]
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            let original: [String]
+            if argument == "--profile" {
+                guard index + 1 < arguments.count,
+                      !arguments[index + 1].hasPrefix("-")
+                else {
+                    return nil
+                }
+                original = [argument, arguments[index + 1]]
+                index += 2
+            } else if argument.hasPrefix("--profile=") {
+                original = [argument]
+                index += 1
+            } else {
+                protected.append(argument)
+                index += 1
+                continue
+            }
+
+            guard (try? OmpDirectoryResolver().resolve(
+                arguments: ["omp"] + original,
+                environment: [:],
+                homeDirectory: "/",
+                currentDirectory: "/"
+            )) != nil else {
+                return nil
+            }
+            let marker = markerPrefix + String(replacements.count)
+            protected.append(marker)
+            replacements[marker] = original
+        }
+
+        guard let sanitized = AgentLaunchSanitizer.preservedArguments(
+            kind: "omp",
+            args: protected
+        ) else {
+            return nil
+        }
+        return sanitized.flatMap { replacements[$0] ?? [$0] }
     }
 
     private func withOption(

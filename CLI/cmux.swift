@@ -34043,13 +34043,13 @@ export default CMUXSessionRestore;
         let commandEvent = optionValue(commandArgs, name: "--event")
 
         // Read stdin. Claude, Codex, and the other agents all pipe hook JSON
-        // through stdin; unknown inputs fall through to `{}`. Codex lifecycle
-        // payloads and Pi's compacted terminal batches are bounded before JSON
-        // decoding without changing other agents' actionable hook reads.
+        // through stdin; unknown inputs fall through to `{}`. Codex lifecycle,
+        // OMP telemetry, and Pi's compacted terminal batches are bounded before
+        // JSON decoding without changing other agents' actionable hook reads.
         let stdinData: Data
         let feedHookStdinLimit: Int? = switch source {
         case "codex": Self.feedHookMaxStdinBytes
-        case "pi": Self.piFeedHookMaxStdinBytes
+        case "pi", "omp": Self.piFeedHookMaxStdinBytes
         default: nil
         }
         if let feedHookStdinLimit {
@@ -34140,10 +34140,10 @@ export default CMUXSessionRestore;
         let shouldUseCodexPostToolUseResponse = source == "codex"
             && hookEventName == "PostToolUse"
             && postToolUseResponseInput != nil
-        let shouldUsePiPostToolUseResult = source == "pi"
+        let shouldUseStructurallySanitizedPostToolUseResult = (source == "pi" || source == "omp")
             && hookEventName == "PostToolUse"
             && postToolUseResponseInput != nil
-        let feedToolInput = shouldUseCodexPostToolUseResponse || shouldUsePiPostToolUseResult
+        let feedToolInput = shouldUseCodexPostToolUseResponse || shouldUseStructurallySanitizedPostToolUseResult
             ? postToolUseResponseInput
             : toolRequestInput
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
@@ -34152,6 +34152,16 @@ export default CMUXSessionRestore;
             eventDict["cwd"] = cwd
         }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
+        if let toolCallId = firstString(
+            in: stdinObj,
+            keys: ["tool_call_id", "toolCallId", "tool_use_id", "toolUseID"]
+        ) {
+            eventDict["tool_call_id"] = toolCallId
+        }
+        let transcriptPath = firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"])
+        if let transcriptPath {
+            eventDict["transcript_path"] = transcriptPath
+        }
         if let isError = stdinObj["is_error"] as? Bool ?? stdinObj["isError"] as? Bool {
             eventDict["is_error"] = isError
         }
@@ -34159,7 +34169,7 @@ export default CMUXSessionRestore;
         if let feedToolInput {
             if shouldUseCodexPostToolUseResponse {
                 eventDict["tool_input"] = Self.sanitizedPostToolUseFeedValue(feedToolInput)
-            } else if shouldUsePiPostToolUseResult {
+            } else if shouldUseStructurallySanitizedPostToolUseResult {
                 eventDict["tool_input"] = Self.sanitizedPiPostToolUseFeedValue(feedToolInput)
             } else {
                 eventDict["tool_input"] = feedToolInput
@@ -34171,7 +34181,7 @@ export default CMUXSessionRestore;
             toolName: toolName.isEmpty ? nil : toolName,
             toolInput: eventDict["tool_input"],
             rawObject: stdinObj,
-            transcriptPath: firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"])
+            transcriptPath: transcriptPath
         ) {
             eventDict["context"] = context
         }
@@ -34196,7 +34206,7 @@ export default CMUXSessionRestore;
         // timeout, so a stalled daemon still returns neutral output before
         // the agent kills (and may deny) the hook subprocess.
         let waitTimeout = isActionable ? Self.feedHookDecisionWaitSeconds : 0
-        let shouldAwaitTelemetryIngestion = source == "pi"
+        let shouldAwaitTelemetryIngestion = source == "pi" || source == "omp"
         let params: [String: Any] = [
             "event": eventDict,
             "wait_timeout_seconds": waitTimeout,
@@ -34256,7 +34266,7 @@ export default CMUXSessionRestore;
                 )
             } catch {
                 feedClient.close()
-                if source == "pi" {
+                if shouldAwaitTelemetryIngestion {
                     throw error
                 }
                 print("{}")
@@ -34269,7 +34279,7 @@ export default CMUXSessionRestore;
             return
         }
 
-        if shouldAwaitTelemetryIngestion {
+        if source == "pi" {
             if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {
                 if let workspaceId = target.workspaceId {
                     eventDict["workspace_id"] = workspaceId
@@ -34300,7 +34310,7 @@ export default CMUXSessionRestore;
 
         if shouldAwaitTelemetryIngestion {
             let acknowledgedTarget = try validatePiFeedAcknowledgment(response)
-            print(piHookResolvedTargetOutput(acknowledgedTarget))
+            print(source == "pi" ? piHookResolvedTargetOutput(acknowledgedTarget) : "{}")
             return
         }
         guard let respData = response.data(using: .utf8),

@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 struct GrokSessionRoot: Sendable, Hashable {
@@ -247,6 +248,20 @@ extension SessionIndexStore {
         var branch: String?
     }
 
+    private struct RegisteredSessionRoot {
+        let path: String
+        let registration: CmuxVaultAgentRegistration
+    }
+
+    private struct RegisteredJSONLCandidate {
+        let url: URL
+        let modified: Date
+        let prefilteredByRipgrep: Bool
+        let root: RegisteredSessionRoot
+        let rootIndex: Int
+        let canonicalPath: String
+    }
+
     nonisolated static func loadGrokEntries(
         registration: CmuxVaultAgentRegistration,
         needle: String,
@@ -371,7 +386,10 @@ extension SessionIndexStore {
         needle: String,
         cwdFilter: String?,
         offset: Int,
-        limit: Int
+        limit: Int,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
     ) async -> [SessionEntry] {
         if registration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
             return loadAntigravityHistoryEntries(
@@ -379,7 +397,9 @@ extension SessionIndexStore {
                 needle: needle,
                 cwdFilter: cwdFilter,
                 offset: offset,
-                limit: limit
+                limit: limit,
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
             )
         }
 
@@ -390,20 +410,43 @@ extension SessionIndexStore {
                 cwdFilter: cwdFilter,
                 offset: offset,
                 limit: limit,
-                agent: .registered(RegisteredSessionAgent(registration: registration))
+                agent: .registered(RegisteredSessionAgent(registration: registration)),
+                environment: environment,
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
             )
         }
-        let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
+        let roots = registeredSessionRoots(
+            registration: registration,
+            cwdFilter: cwdFilter,
+            environment: environment,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
         guard !roots.isEmpty else { return [] }
-        let fm = FileManager.default
+        let fm = fileManager
 
-        var candidates: [(url: URL, modified: Date, prefilteredByRipgrep: Bool)] = []
+        var candidates: [RegisteredJSONLCandidate] = []
         if !needle.isEmpty {
-            for root in roots {
-                guard let rgPaths = await ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") else {
+            for (rootIndex, root) in roots.enumerated() {
+                guard let rgPaths = await ripgrepMatchingPaths(
+                    needle: needle,
+                    root: root.path,
+                    fileGlob: "*.jsonl"
+                ) else {
                     candidates.append(
-                        contentsOf: enumerateRegisteredJSONLCandidates(root: root).map {
-                            (url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
+                        contentsOf: enumerateRegisteredJSONLCandidates(
+                            root: root.path,
+                            fileManager: fileManager
+                        ).map {
+                            RegisteredJSONLCandidate(
+                                url: $0.0,
+                                modified: $0.1,
+                                prefilteredByRipgrep: false,
+                                root: root,
+                                rootIndex: rootIndex,
+                                canonicalPath: canonicalRegisteredPath($0.0.path)
+                            )
                         }
                     )
                     continue
@@ -413,20 +456,58 @@ extension SessionIndexStore {
                           let modified = attrs[.modificationDate] as? Date else {
                         continue
                     }
-                    candidates.append((url, modified, true))
+                    candidates.append(RegisteredJSONLCandidate(
+                        url: url,
+                        modified: modified,
+                        prefilteredByRipgrep: true,
+                        root: root,
+                        rootIndex: rootIndex,
+                        canonicalPath: canonicalRegisteredPath(url.path)
+                    ))
                 }
             }
         } else {
-            for root in roots {
+            for (rootIndex, root) in roots.enumerated() {
                 candidates.append(
-                    contentsOf: enumerateRegisteredJSONLCandidates(root: root).map {
-                        (url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
+                    contentsOf: enumerateRegisteredJSONLCandidates(
+                        root: root.path,
+                        fileManager: fileManager
+                    ).map {
+                        RegisteredJSONLCandidate(
+                            url: $0.0,
+                            modified: $0.1,
+                            prefilteredByRipgrep: false,
+                            root: root,
+                            rootIndex: rootIndex,
+                            canonicalPath: canonicalRegisteredPath($0.0.path)
+                        )
                     }
                 )
             }
         }
 
-        candidates.sort { $0.modified > $1.modified }
+        candidates.sort {
+            if $0.rootIndex != $1.rootIndex {
+                return $0.rootIndex < $1.rootIndex
+            }
+            if $0.canonicalPath != $1.canonicalPath {
+                return $0.canonicalPath < $1.canonicalPath
+            }
+            return $0.url.path < $1.url.path
+        }
+        var seenCanonicalPaths = Set<String>()
+        candidates = candidates.filter {
+            seenCanonicalPaths.insert($0.canonicalPath).inserted
+        }
+        candidates.sort {
+            if $0.modified != $1.modified {
+                return $0.modified > $1.modified
+            }
+            if $0.rootIndex != $1.rootIndex {
+                return $0.rootIndex < $1.rootIndex
+            }
+            return $0.canonicalPath < $1.canonicalPath
+        }
         let target = offset + limit
         var matches: [SessionEntry] = []
         var scanned = 0
@@ -440,10 +521,12 @@ extension SessionIndexStore {
                 guard fileContains(candidate.url, needle: needle) else { continue }
             }
 
+            let candidateRegistration = candidate.root.registration
             let metadata = extractRegisteredJSONLMetadata(
                 url: candidate.url,
-                registration: registration,
-                fallbackCWD: cwdFilter
+                registration: candidateRegistration,
+                fallbackCWD: cwdFilter,
+                fileManager: fileManager
             )
             if let cwdFilter, metadata.cwd != cwdFilter { continue }
             let sessionId = metadata.sessionId ?? candidate.url.path
@@ -457,7 +540,7 @@ extension SessionIndexStore {
                 pullRequest: nil,
                 modified: candidate.modified,
                 fileURL: candidate.url,
-                specifics: .registered(registration)
+                specifics: .registered(candidateRegistration)
             ))
         }
         return Array(matches.dropFirst(offset).prefix(limit))
@@ -468,15 +551,17 @@ extension SessionIndexStore {
         needle: String,
         cwdFilter: String?,
         offset: Int,
-        limit: Int
+        limit: Int,
+        homeDirectory: String,
+        fileManager: FileManager
     ) -> [SessionEntry] {
         guard limit > 0, let configuredRoot = registration.sessionDirectory else { return [] }
 
-        let fm = FileManager.default
+        let fm = fileManager
         var seenSessionIDs = Set<String>()
         var entriesInReverseAppendOrder: [AntigravityHistoryMetadata] = []
         let target = max(0, offset) + max(0, limit)
-        let root = (configuredRoot as NSString).expandingTildeInPath
+        let root = expandedRegisteredPath(configuredRoot, homeDirectory: homeDirectory)
         let historyURL = URL(fileURLWithPath: root, isDirectory: true)
             .appendingPathComponent("history.jsonl", isDirectory: false)
         var isDirectory: ObjCBool = false
@@ -538,21 +623,134 @@ extension SessionIndexStore {
 
     nonisolated private static func registeredSessionRoots(
         registration: CmuxVaultAgentRegistration,
-        cwdFilter: String?
-    ) -> [String] {
-        if case .grokSessionDirectory = registration.sessionIdSource {
-            return GrokSessionLocator.sessionRoots(registration: registration, cwdFilter: cwdFilter)
-                .map(\.sessionsRoot)
+        cwdFilter: String?,
+        environment: [String: String],
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> [RegisteredSessionRoot] {
+        if registration == .builtInOmp {
+            return ompRegisteredSessionRoots(
+                registration: registration,
+                cwdFilter: cwdFilter,
+                environment: environment,
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
+            )
         }
-        guard let root = registration.sessionDirectory.map({ ($0 as NSString).expandingTildeInPath }) else {
+        if case .grokSessionDirectory = registration.sessionIdSource {
+            return GrokSessionLocator.sessionRoots(
+                registration: registration,
+                cwdFilter: cwdFilter,
+                environment: environment,
+                homeDirectory: homeDirectory
+            ).map {
+                RegisteredSessionRoot(path: $0.sessionsRoot, registration: registration)
+            }
+        }
+        guard let configuredRoot = registration.sessionDirectory else {
             return []
         }
+        let root = expandedRegisteredPath(configuredRoot, homeDirectory: homeDirectory)
         if case .piSessionFile = registration.sessionIdSource,
            let cwdFilter,
            let projectDirectory = PiSessionLocator.projectDirectoryName(for: cwdFilter) {
-            return [(root as NSString).appendingPathComponent(projectDirectory)]
+            return [RegisteredSessionRoot(
+                path: (root as NSString).appendingPathComponent(projectDirectory),
+                registration: registration
+            )]
         }
-        return [root]
+        return [RegisteredSessionRoot(path: root, registration: registration)]
+    }
+
+    nonisolated private static func ompRegisteredSessionRoots(
+        registration: CmuxVaultAgentRegistration,
+        cwdFilter: String?,
+        environment: [String: String],
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> [RegisteredSessionRoot] {
+        let currentDirectory = cwdFilter
+            ?? ["CMUX_AGENT_LAUNCH_CWD", "PWD"].compactMap { name -> String? in
+                guard let value = environment[name], !value.isEmpty else { return nil }
+                return value
+            }.first
+            ?? homeDirectory
+        let resolver = OmpDirectoryResolver()
+        let sessionRoots = resolver.sessionRoots(
+            environment: environment,
+            homeDirectory: homeDirectory,
+            currentDirectory: currentDirectory,
+            fileManager: fileManager
+        )
+        let cwdBuckets = cwdFilter.map {
+            resolver.cwdBucketNames(
+                currentDirectory: $0,
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
+            ).searchOrder
+        }
+
+        var roots: [RegisteredSessionRoot] = []
+        for sessionRoot in sessionRoots {
+            let rootRegistration = registrationWithOmpProfilePrefix(
+                registration,
+                profile: sessionRoot.profile
+            )
+            if sessionRoot.usesCwdBuckets, let cwdBuckets {
+                roots.append(contentsOf: cwdBuckets.map {
+                    RegisteredSessionRoot(
+                        path: (sessionRoot.path as NSString).appendingPathComponent($0),
+                        registration: rootRegistration
+                    )
+                })
+            } else {
+                roots.append(RegisteredSessionRoot(
+                    path: sessionRoot.path,
+                    registration: rootRegistration
+                ))
+            }
+        }
+        return deduplicatedRegisteredSessionRoots(roots)
+    }
+
+    nonisolated private static func registrationWithOmpProfilePrefix(
+        _ registration: CmuxVaultAgentRegistration,
+        profile: String?
+    ) -> CmuxVaultAgentRegistration {
+        guard let profile else { return registration }
+        let prefix = "env OMP_PROFILE=\(TerminalStartupShellQuoting.singleQuoted(profile)) "
+        var copy = registration
+        copy.resumeCommand = prefix + registration.resumeCommand
+        copy.forkCommand = registration.forkCommand.map { prefix + $0 }
+        return copy
+    }
+
+    nonisolated private static func deduplicatedRegisteredSessionRoots(
+        _ roots: [RegisteredSessionRoot]
+    ) -> [RegisteredSessionRoot] {
+        var seen = Set<String>()
+        return roots.filter {
+            seen.insert(canonicalRegisteredPath($0.path)).inserted
+        }
+    }
+
+    nonisolated private static func canonicalRegisteredPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    nonisolated private static func expandedRegisteredPath(
+        _ path: String,
+        homeDirectory: String
+    ) -> String {
+        let home = (homeDirectory as NSString).standardizingPath
+        if path == "~" {
+            return home
+        }
+        if path.hasPrefix("~/") {
+            return ((home as NSString).appendingPathComponent(String(path.dropFirst(2))) as NSString)
+                .standardizingPath
+        }
+        return (path as NSString).expandingTildeInPath
     }
 
     nonisolated private static func registrationWithGrokHomePrefix(
@@ -593,8 +791,11 @@ extension SessionIndexStore {
         return candidates
     }
 
-    nonisolated private static func enumerateRegisteredJSONLCandidates(root: String) -> [(URL, Date)] {
-        let fm = FileManager.default
+    nonisolated private static func enumerateRegisteredJSONLCandidates(
+        root: String,
+        fileManager: FileManager
+    ) -> [(URL, Date)] {
+        let fm = fileManager
         var isDirectory: ObjCBool = false
         guard fm.fileExists(atPath: root, isDirectory: &isDirectory),
               isDirectory.boolValue,
@@ -607,8 +808,13 @@ extension SessionIndexStore {
         }
         var candidates: [(URL, Date)] = []
         for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
+            var candidateIsDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: url.path, isDirectory: &candidateIsDirectory),
+                  !candidateIsDirectory.boolValue,
+                  let attributes = try? fm.attributesOfItem(atPath: url.path),
+                  let modified = attributes[.modificationDate] as? Date else {
+                continue
+            }
             candidates.append((url, modified))
         }
         return candidates
@@ -661,7 +867,8 @@ extension SessionIndexStore {
     nonisolated private static func extractRegisteredJSONLMetadata(
         url: URL,
         registration: CmuxVaultAgentRegistration,
-        fallbackCWD: String?
+        fallbackCWD: String?,
+        fileManager: FileManager
     ) -> RegisteredAgentJSONLMetadata {
         var metadata = RegisteredAgentJSONLMetadata()
         let needsNativeSessionID: Bool
@@ -705,7 +912,7 @@ extension SessionIndexStore {
                 && (!needsNativeSessionID || metadata.sessionId != nil)
         }
         if case .piSessionFile = registration.sessionIdSource, metadata.cwd == nil {
-            metadata.cwd = fallbackCWD ?? piCWDInferred(from: url)
+            metadata.cwd = fallbackCWD ?? piCWDInferred(from: url, fileManager: fileManager)
         }
         return metadata
     }
@@ -914,7 +1121,10 @@ extension SessionIndexStore {
         role?.caseInsensitiveCompare("user") == .orderedSame
     }
 
-    nonisolated private static func piCWDInferred(from url: URL) -> String? {
+    nonisolated private static func piCWDInferred(
+        from url: URL,
+        fileManager: FileManager
+    ) -> String? {
         let directoryName = url.deletingLastPathComponent().lastPathComponent
         guard directoryName.hasPrefix("--"), directoryName.hasSuffix("--"), directoryName.count > 4 else {
             return nil
@@ -923,7 +1133,7 @@ extension SessionIndexStore {
         guard !body.isEmpty else { return nil }
         let candidate = "/" + body.replacingOccurrences(of: "-", with: "/")
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+        guard fileManager.fileExists(atPath: candidate, isDirectory: &isDirectory),
               isDirectory.boolValue else {
             return nil
         }

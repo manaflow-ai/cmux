@@ -20,8 +20,10 @@ public enum RegisteredAgentResumeKind: String, Sendable {
     /// The canonical Vault `resumeCommand` template for this built-in agent.
     public var commandTemplate: String {
         switch self {
-        case .pi, .omp, .campfire:
+        case .pi, .campfire:
             "{{executable}} --session {{sessionId}}"
+        case .omp:
+            "{{executable}} --resume {{sessionId}}"
         case .antigravity:
             "{{executable}} --conversation {{sessionId}}"
         case .grok:

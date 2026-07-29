@@ -250,6 +250,248 @@ struct OmpDirectoryResolverTests {
         #expect(resolution.sessionsDirectory == explicitSessions.path)
     }
 
+    @Test("Launch selectors follow OMP argv boundaries and last-value precedence")
+    func launchSelectorsMatchOmpArgumentParsing() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let resolver = OmpDirectoryResolver()
+        let defaultSessions = fixture.home.appendingPathComponent(".omp/agent/sessions", isDirectory: true)
+
+        let repeated = try resolver.resolve(
+            arguments: [
+                "omp", "launch", "hello",
+                "--profile", "personal",
+                "--session-dir", "first",
+                "--profile=work",
+                "--session-dir=second",
+            ],
+            environment: [:],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path
+        )
+        #expect(repeated.profile == "work")
+        #expect(repeated.sessionsDirectory == fixture.currentDirectory.appendingPathComponent("second").path)
+
+        let consumedProfile = try resolver.resolve(
+            arguments: [
+                "omp",
+                "--system-prompt", "--profile",
+                "work",
+                "--session-dir", "actual",
+            ],
+            environment: [:],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path
+        )
+        #expect(consumedProfile.profile == nil)
+        #expect(consumedProfile.sessionsDirectory == fixture.currentDirectory.appendingPathComponent("actual").path)
+
+        let afterSeparator = try resolver.resolve(
+            arguments: ["omp", "--", "--profile", "work", "--session-dir", "ignored"],
+            environment: [:],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path
+        )
+        #expect(afterSeparator.profile == nil)
+        #expect(afterSeparator.sessionsDirectory == defaultSessions.path)
+
+        let subcommand = try resolver.resolve(
+            arguments: ["omp", "grep", "--profile", "work", "--session-dir", "ignored"],
+            environment: [:],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path
+        )
+        #expect(subcommand.profile == nil)
+        #expect(subcommand.sessionsDirectory == defaultSessions.path)
+
+        let shadowedPlan = try resolver.resolve(
+            arguments: ["omp", "--plan", "--profile", "work"],
+            environment: [:],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path
+        )
+        #expect(shadowedPlan.profile == "work")
+    }
+
+    @Test("Session directory accepts raw flag-looking values and empty last values")
+    func sessionDirectoryMatchesOmpStringFlagSemantics() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let resolver = OmpDirectoryResolver()
+
+        let flagLooking = try resolver.resolve(
+            arguments: [
+                "omp",
+                "--session-dir", "first",
+                "--session-dir", "--literal-directory",
+            ],
+            environment: [:],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path
+        )
+        #expect(
+            flagLooking.sessionsDirectory
+                == fixture.currentDirectory.appendingPathComponent("--literal-directory").path
+        )
+
+        let emptyLastValue = try resolver.resolve(
+            arguments: ["omp", "--session-dir", "first", "--session-dir="],
+            environment: [:],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path
+        )
+        #expect(
+            emptyLastValue.sessionsDirectory
+                == fixture.home.appendingPathComponent(".omp/agent/sessions", isDirectory: true).path
+        )
+    }
+
+    @Test("Default agent path remains eligible for XDG sessions")
+    func defaultAgentOverrideKeepsXdgPrecedence() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let defaultAgent = fixture.home.appendingPathComponent(".omp/agent", isDirectory: true)
+        let xdgData = fixture.root.appendingPathComponent("xdg", isDirectory: true)
+        let xdgOmp = xdgData.appendingPathComponent("omp", isDirectory: true)
+        try FileManager.default.createDirectory(at: xdgOmp, withIntermediateDirectories: true)
+
+        let resolution = try OmpDirectoryResolver().resolve(
+            arguments: ["omp"],
+            environment: [
+                "PI_CODING_AGENT_DIR": defaultAgent.path,
+                "XDG_DATA_HOME": xdgData.path,
+            ],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path
+        )
+
+        #expect(resolution.agentDirectory == defaultAgent.path)
+        #expect(resolution.sessionsDirectory == xdgOmp.appendingPathComponent("sessions").path)
+    }
+
+    @Test("Inherited profile suppression uses OMP raw path equality")
+    func inheritedProfileAgentDirectoryComparisonIsRaw() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let profileAgent = fixture.home.appendingPathComponent(
+            ".omp/profiles/work/agent",
+            isDirectory: true
+        )
+
+        let resolution = try OmpDirectoryResolver().resolve(
+            arguments: ["omp", "--profile", "default"],
+            environment: [
+                "PI_PROFILE": "work",
+                "PI_CODING_AGENT_DIR": ".omp/profiles/work/agent",
+            ],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.home.path
+        )
+
+        #expect(resolution.agentDirectory == profileAgent.path)
+        #expect(resolution.sessionsDirectory == profileAgent.appendingPathComponent("sessions").path)
+    }
+
+    @Test("Directory overrides preserve raw whitespace")
+    func directoryOverridesDoNotTrimPaths() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let resolution = try OmpDirectoryResolver().resolve(
+            arguments: ["omp"],
+            environment: [
+                "PI_CONFIG_DIR": " omp config ",
+                "PI_CODING_AGENT_DIR": " agents/custom ",
+            ],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path
+        )
+
+        #expect(
+            resolution.configDirectory
+                == fixture.home.appendingPathComponent(" omp config ", isDirectory: true).path
+        )
+        #expect(
+            resolution.agentDirectory
+                == fixture.currentDirectory.appendingPathComponent(" agents/custom ", isDirectory: true).path
+        )
+    }
+
+    @Test("Relative session directory follows OMP startup cwd")
+    func relativeSessionDirectoryUsesEffectiveStartupDirectory() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let explicitCwd = fixture.currentDirectory.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: explicitCwd, withIntermediateDirectories: true)
+
+        let explicit = try OmpDirectoryResolver().resolve(
+            arguments: ["omp", "--cwd", "nested", "--session-dir", "sessions"],
+            environment: [:],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path
+        )
+        #expect(explicit.currentDirectory == explicitCwd.path)
+        #expect(explicit.sessionsDirectory == explicitCwd.appendingPathComponent("sessions").path)
+
+        let homeTemporary = fixture.home.appendingPathComponent("tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeTemporary, withIntermediateDirectories: true)
+        let autoMoved = try OmpDirectoryResolver().resolve(
+            arguments: ["omp", "--session-dir", "sessions"],
+            environment: [:],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.home.path
+        )
+        #expect(autoMoved.currentDirectory == homeTemporary.path)
+        #expect(autoMoved.sessionsDirectory == homeTemporary.appendingPathComponent("sessions").path)
+
+        let allowedHome = try OmpDirectoryResolver().resolve(
+            arguments: ["omp", "--allow-home", "--session-dir", "sessions"],
+            environment: [:],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.home.path
+        )
+        #expect(allowedHome.currentDirectory == fixture.home.path)
+        #expect(allowedHome.sessionsDirectory == fixture.home.appendingPathComponent("sessions").path)
+    }
+
+    @Test("Historical roots retain distinct config and XDG session stores")
+    func sessionRootsIncludeCurrentAndLegacyStores() throws {
+        let fixture = try Self.makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let configDefault = fixture.home.appendingPathComponent(
+            ".omp/agent/sessions",
+            isDirectory: true
+        )
+        let configProfile = fixture.home.appendingPathComponent(
+            ".omp/profiles/work/agent/sessions",
+            isDirectory: true
+        )
+        let xdgData = fixture.root.appendingPathComponent("xdg", isDirectory: true)
+        let xdgDefault = xdgData.appendingPathComponent("omp/sessions", isDirectory: true)
+        let xdgProfile = xdgData.appendingPathComponent(
+            "omp/profiles/work/sessions",
+            isDirectory: true
+        )
+        for directory in [configDefault, configProfile, xdgDefault, xdgProfile] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        let roots = OmpDirectoryResolver().sessionRoots(
+            environment: ["XDG_DATA_HOME": xdgData.path],
+            homeDirectory: fixture.home.path,
+            currentDirectory: fixture.currentDirectory.path,
+            fileManager: .default
+        )
+
+        #expect(roots.map(\.path) == [
+            xdgDefault.path,
+            configDefault.path,
+            xdgProfile.path,
+            configProfile.path,
+        ])
+        #expect(roots.map(\.profile) == [nil, nil, "work", "work"])
+    }
+
     @Test("Invalid CLI and environment profile names are rejected")
     func rejectsInvalidProfileNames() throws {
         let fixture = try Self.makeFixture()

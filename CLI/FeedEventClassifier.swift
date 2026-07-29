@@ -209,6 +209,22 @@ struct FeedEventClassifier {
             "Notification": .statusNotification,
             "notification": .statusNotification,
         ],
+        // OMP owns every approval decision internally. Its extension emits
+        // lifecycle and tool events only as observational telemetry, so no
+        // OMP event may opt into Feed's blocking decision path.
+        "omp": [
+            "PreToolUse": .toolStart,
+            "PostToolUse": .toolEnd,
+            "PreCompact": .preCompact,
+            "PostCompact": .postCompact,
+            "UserPromptSubmit": .promptSubmit,
+            "SessionStart": .sessionStart,
+            "SessionEnd": .sessionEnd,
+            "Stop": .response,
+            "SubagentStart": .subagentStart,
+            "SubagentStop": .subagentResponse,
+            "Notification": .statusNotification,
+        ],
         "hermes-agent": [
             // `pre_tool_call` is a tool *starting* — Hermes raises a
             // separate `pre_approval_request` for real approvals, so this

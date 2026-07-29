@@ -813,7 +813,12 @@ enum PiSessionLocator {
         registration: CmuxVaultAgentRegistration,
         fileManager: FileManager
     ) -> String? {
-        newestJSONLFile(in: candidateSessionDirectory(for: process, registration: registration), fileManager: fileManager)?.path
+        let directories = candidateSessionDirectories(
+            for: process,
+            registration: registration,
+            fileManager: fileManager
+        )
+        return newestJSONLFile(in: directories, fileManager: fileManager)?.path
     }
 
     fileprivate static func resolvedSessionPath(
@@ -829,31 +834,49 @@ enum PiSessionLocator {
             return fileManager.fileExists(atPath: expanded) ? expanded : trimmed
         }
 
-        let directory = candidateSessionDirectory(for: process, registration: registration)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fileManager.enumerator(
-                  at: URL(fileURLWithPath: directory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
+        let directories = candidateSessionDirectories(
+            for: process,
+            registration: registration,
+            fileManager: fileManager
+        )
+        var exactNewest: (url: URL, modified: Date, directoryIndex: Int)?
+        var partialNewest: (url: URL, modified: Date, directoryIndex: Int)?
+        for (directoryIndex, directory) in directories.enumerated() {
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  let enumerator = fileManager.enumerator(
+                      at: URL(fileURLWithPath: directory, isDirectory: true),
+                      includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                      options: [.skipsHiddenFiles]
+                  ) else {
+                continue
+            }
 
-        var exactNewest: (url: URL, modified: Date)?
-        var partialNewest: (url: URL, modified: Date)?
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let basename = url.deletingPathExtension().lastPathComponent
-            guard basename == trimmed || basename.contains(trimmed) else { continue }
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if basename == trimmed {
-                if exactNewest == nil || modified > exactNewest!.modified {
-                    exactNewest = (url, modified)
+            for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+                let basename = url.deletingPathExtension().lastPathComponent
+                guard basename == trimmed || basename.contains(trimmed) else { continue }
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+                guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
+                if basename == trimmed {
+                    if exactNewest == nil
+                        || modified > exactNewest!.modified
+                        || (modified == exactNewest!.modified
+                            && directoryIndex < exactNewest!.directoryIndex)
+                        || (modified == exactNewest!.modified
+                            && directoryIndex == exactNewest!.directoryIndex
+                            && url.path < exactNewest!.url.path) {
+                        exactNewest = (url, modified, directoryIndex)
+                    }
+                } else if partialNewest == nil
+                    || modified > partialNewest!.modified
+                    || (modified == partialNewest!.modified
+                        && directoryIndex < partialNewest!.directoryIndex)
+                    || (modified == partialNewest!.modified
+                        && directoryIndex == partialNewest!.directoryIndex
+                        && url.path < partialNewest!.url.path) {
+                    partialNewest = (url, modified, directoryIndex)
                 }
-            } else if partialNewest == nil || modified > partialNewest!.modified {
-                partialNewest = (url, modified)
             }
         }
         return exactNewest?.url.path ?? partialNewest?.url.path

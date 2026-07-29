@@ -6,7 +6,7 @@ struct RegisteredAgentResumeKindTests {
     @Test("Registered built-in kinds expose their canonical templates")
     func canonicalTemplates() {
         #expect(RegisteredAgentResumeKind.pi.commandTemplate == "{{executable}} --session {{sessionId}}")
-        #expect(RegisteredAgentResumeKind.omp.commandTemplate == "{{executable}} --session {{sessionId}}")
+        #expect(RegisteredAgentResumeKind.omp.commandTemplate == "{{executable}} --resume {{sessionId}}")
         #expect(RegisteredAgentResumeKind.campfire.commandTemplate == "{{executable}} --session {{sessionId}}")
         #expect(RegisteredAgentResumeKind.antigravity.commandTemplate == "{{executable}} --conversation {{sessionId}}")
         #expect(RegisteredAgentResumeKind.grok.commandTemplate == "{{executable}} -r {{sessionId}}")
@@ -50,7 +50,7 @@ struct RegisteredAgentResumeKindTests {
                 ]
             ) == [
                 "/usr/local/bin/omp",
-                "--session", "new-session",
+                "--resume", "new-session",
                 "--session-dir", "/tmp/omp sessions",
             ]
         )

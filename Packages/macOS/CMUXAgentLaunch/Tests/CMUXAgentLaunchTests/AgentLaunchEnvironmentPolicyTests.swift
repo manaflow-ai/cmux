@@ -28,6 +28,20 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
     }
 
+    @Test("Does not leak OMP-only profile roots into other agents")
+    func omitsOmpOnlyRootsForOtherAgents() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "OMP_PROFILE": "work",
+                "PI_PROFILE": "legacy",
+                "XDG_DATA_HOME": "/tmp/omp-data",
+            ],
+            kind: "claude"
+        )
+
+        #expect(selected.isEmpty)
+    }
+
     @Test("Preserves Campfire config roots and drops Pi-managed env")
     func preservesCampfireConfigRootsAndDropsManagedPackageDir() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(

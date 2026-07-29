@@ -525,8 +525,11 @@ struct OmpSupportTests {
                 modifiedAt: Date(timeIntervalSince1970: 1_000)
             )
 
+            let arguments = fixture.workspace == home
+                ? ["/Users/example/.bun/bin/omp", "--allow-home"]
+                : ["/Users/example/.bun/bin/omp"]
             let detected = try #require(Self.detectedOmpSnapshot(
-                arguments: ["/Users/example/.bun/bin/omp"],
+                arguments: arguments,
                 environment: [
                     "HOME": home.path,
                     "PWD": fixture.workspace.path,
@@ -583,7 +586,7 @@ struct OmpSupportTests {
         let workSessions = home
             .appendingPathComponent(".omp/profiles/work/agent/sessions/-project", isDirectory: true)
         let invalidSessions = home
-            .appendingPathComponent(".omp/profiles/WORK/agent/sessions/-project", isDirectory: true)
+            .appendingPathComponent(".omp/profiles/INVALID PROFILE/agent/sessions/-project", isDirectory: true)
         let xdgProfileSessions = xdgDataHome
             .appendingPathComponent("omp/profiles/data/sessions/-project", isDirectory: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
@@ -709,6 +712,42 @@ struct OmpSupportTests {
             return
         }
         #expect(retainedRegistration == registration)
+    }
+
+    @Test func historicalVaultResolvesRelativeOmpAgentRootFromFilteredWorkspace() async throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-relative-omp-history-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let workspace = home.appendingPathComponent("project", isDirectory: true)
+        let sessions = workspace
+            .appendingPathComponent("agents/omp/sessions/-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let transcript = try Self.writeOmpTranscript(
+            id: "relative-omp-history",
+            title: "Resume relative OMP",
+            cwd: workspace.path,
+            in: sessions,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        )
+
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: .builtInOmp,
+            needle: "",
+            cwdFilter: workspace.path,
+            offset: 0,
+            limit: 10,
+            environment: [
+                "HOME": home.path,
+                "PWD": home.appendingPathComponent("unrelated").path,
+                "PI_CODING_AGENT_DIR": "agents/omp",
+            ],
+            homeDirectory: home.path,
+            fileManager: .default
+        )
+
+        #expect(entries.contains {
+            $0.fileURL?.resolvingSymlinksInPath() == transcript.resolvingSymlinksInPath()
+        })
     }
 
     private static func detectedOmpSnapshot(

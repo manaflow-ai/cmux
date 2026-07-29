@@ -310,7 +310,7 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
         print(f"FAIL: surface.resume.set had wrong OMP binding params: {params!r}")
         return False
     command = params.get("command")
-    if not isinstance(command, str) or "--session" not in command or session_id not in command:
+    if not isinstance(command, str) or "--resume" not in command or session_id not in command:
         print(f"FAIL: surface.resume.set command cannot resume OMP session: {params!r}")
         return False
     return True
@@ -1019,6 +1019,9 @@ if (
 ) {
   throw new Error(`approval request had the wrong lifecycle payload: ${JSON.stringify(approvalRequested.payload)}`);
 }
+if (approvalRequested.payload.message !== "write a generated fixture") {
+  throw new Error(`approval request lost its reason message: ${JSON.stringify(approvalRequested.payload)}`);
+}
 
 await invoke("tool_approval_resolved", {
   type: "tool_approval_resolved",
@@ -1143,6 +1146,26 @@ if (stopCount() !== stopCountBeforeContinuations + 1) {
 }
 assertTranscript(finalStop, currentSessionFile);
 
+await invoke("before_agent_start", {
+  type: "before_agent_start",
+  prompt: "follow-up turn",
+});
+await invoke("agent_end", {
+  type: "agent_end",
+  messages: [{ role: "assistant", content: "follow-up answer" }],
+  willContinue: false,
+});
+const followUpStop = await completedCommand(
+  stopCommand,
+  (payload) => payload.session_id === currentSessionId
+    && payload.last_assistant_message === "follow-up answer",
+  "follow-up turn Stop",
+);
+assertTranscript(followUpStop, currentSessionFile);
+if (stopCount() !== stopCountBeforeContinuations + 2) {
+  throw new Error(`follow-up turn did not re-arm Stop: ${JSON.stringify(records())}`);
+}
+
 await invoke("session_shutdown", { type: "session_shutdown" });
 const sessionEnd = await completedCommand(
   ["hooks", "omp", "session-end"],
@@ -1155,7 +1178,7 @@ if (
 ) {
   throw new Error(`shutdown emitted fake completion instead of SessionEnd: ${JSON.stringify(sessionEnd.payload)}`);
 }
-if (stopCount() !== stopCountBeforeContinuations + 1) {
+if (stopCount() !== stopCountBeforeContinuations + 2) {
   throw new Error(`shutdown emitted a duplicate Stop: ${JSON.stringify(records())}`);
 }
 assertTranscript(sessionEnd, currentSessionFile);
@@ -1338,9 +1361,9 @@ assertTranscript(sessionEnd, currentSessionFile);
             env=config_env,
             timeout=20,
         )
-        config_extension_path = config_override / "agent" / "extensions" / "cmux-omp-session.ts"
+        config_extension_path = home / str(config_override).lstrip(os.sep) / "agent" / "extensions" / "cmux-omp-session.ts"
         if config_install.returncode != 0 or not config_extension_path.exists():
-            print("FAIL: omp extension install did not respect absolute PI_CONFIG_DIR")
+            print("FAIL: omp extension install did not match OMP PI_CONFIG_DIR path joining")
             print(f"exit={config_install.returncode}")
             print(f"stdout={config_install.stdout.strip()}")
             print(f"stderr={config_install.stderr.strip()}")
@@ -1354,7 +1377,7 @@ assertTranscript(sessionEnd, currentSessionFile);
             timeout=20,
         )
         if config_uninstall.returncode != 0 or config_extension_path.exists():
-            print("FAIL: omp extension uninstall did not respect absolute PI_CONFIG_DIR")
+            print("FAIL: omp extension uninstall did not match OMP PI_CONFIG_DIR path joining")
             print(f"exit={config_uninstall.returncode}")
             print(f"stdout={config_uninstall.stdout.strip()}")
             print(f"stderr={config_uninstall.stderr.strip()}")
