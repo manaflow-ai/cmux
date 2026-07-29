@@ -182,7 +182,7 @@ extension TerminalSurface {
     @MainActor
     public func releaseRenderer() -> Bool {
 #if os(macOS)
-        guard rendererPresentationPhase != .released else { return false }
+        guard !rendererPresentationPhase.isReleased else { return false }
         // A visible portal is protected once it is actually attached. Before
         // that point (including the hidden bootstrap window), release is the
         // normalization step that makes first presentation safe and retryable.
@@ -193,12 +193,14 @@ extension TerminalSurface {
         // This self-heals a stale wrapper whose runtime surface was freed
         // out-of-band rather than passing a dangling pointer to Ghostty.
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.release") else { return false }
-        // Only advance our mirror state when the message was actually enqueued
-        // (the non-blocking push drops when the mailbox is full). If it dropped,
-        // keep the current phase so the
-        // controller retries rather than desyncing from Ghostty's live renderer.
+        // Only advance our mirror after Ghostty accepts the latest-value request.
+        // Production Ghostty accepts this unconditionally and retries native GPU
+        // work internally; preserving the return check keeps the test seam and
+        // older compatible runtimes from desynchronizing cmux's lifecycle state.
         if ghostty_surface_set_renderer_realized(surface, false) {
-            rendererPresentationPhase = .released
+            rendererPresentationPhase = rendererPresentationPhase == .awaitingFirstPresentation
+                ? .releasedBeforeFirstPresentation
+                : .released
             surfaceCallbackContext?.takeUnretainedValue().cancelRendererPresentationRepair()
             return true
         }
@@ -210,11 +212,10 @@ extension TerminalSurface {
 
     /// Ensures the runtime renderer is ready for presentation in a visible portal.
     ///
-    /// Reclaimed renderers are realized directly. A renderer born hidden first
-    /// transitions through the released state, then uses that same realization
-    /// path; this forces Ghostty to build the drawable it could not create while
-    /// the view had no real presentation window. Native messages strictly
-    /// alternate, so Ghostty's `displayRealized` defunct assertion remains valid.
+    /// Reclaimed renderers are realized directly. A renderer that has never
+    /// reached a real presentation window uses Ghostty's atomic rebuild command,
+    /// which replaces any pending release instead of relying on two ordered
+    /// latest-value realization writes.
     @MainActor
     public func ensureRendererPresented() {
         ensureRendererPresented(
@@ -238,25 +239,24 @@ extension TerminalSurface {
         // lift it only after the realization enqueue succeeds.
         setOcclusion(false)
 
-        if rendererPresentationPhase == .awaitingFirstPresentation {
-            // Ghostty starts with a live renderer even if its view was born
-            // hidden. Release it once so first presentation can take the exact
-            // same proven restore path as a renderer reclaimed later.
-            // Arm before the non-blocking enqueue so a concurrent renderer
-            // drain cannot race past the signal that makes this retryable.
+        if rendererPresentationPhase == .awaitingFirstPresentation
+            || rendererPresentationPhase == .releasedBeforeFirstPresentation {
+            // Ghostty's realization mailbox keeps the latest requested value.
+            // A false→true pair can therefore collapse to true and skip the
+            // rebuild needed by a renderer born without a drawable. The atomic
+            // command rebuilds once regardless of a pending release.
             callbackContext?.armRendererPresentationRepair()
-            guard ghostty_surface_set_renderer_realized(surface, false) else { return }
-            callbackContext?.cancelRendererPresentationRepair()
-            rendererPresentationPhase = .released
+            if ghostty_surface_rebuild_renderer(surface) {
+                callbackContext?.cancelRendererPresentationRepair()
+                rendererPresentationPhase = .presented
+                setOcclusion(true)
+            }
+            return
         }
 
-        // Non-blocking enqueue (the C API pushes `.instant`): advance our mirror
-        // state only on success. On re-show the renderer mailbox is normally
-        // empty, so the realize enqueues immediately and the surface is never
-        // presented against a defunct swap chain. In the rare full-mailbox case
-        // the push drops and the armed callback targets this surface after the
-        // renderer drains that mailbox. We never block the main actor waiting on
-        // the renderer thread.
+        // Reclaimed renderers need only the latest realized=true state. Advance
+        // our mirror after Ghostty accepts it; the native renderer owns any GPU
+        // recreation retry without blocking the main actor.
         callbackContext?.armRendererPresentationRepair()
         if ghostty_surface_set_renderer_realized(surface, true) {
             callbackContext?.cancelRendererPresentationRepair()
