@@ -224,9 +224,6 @@ struct WorkspaceDetailView: View {
     }
 
     private var workspaceTitleToolbarMenu: some View {
-        let openTextSheet: (() -> Void)? = activeSurface == .terminal
-            ? { openTextSheetFromMenu() }
-            : nil
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
@@ -255,10 +252,7 @@ struct WorkspaceDetailView: View {
                     presentCustomization: presentCustomizationFromMenu,
                     presentRename: presentRenameFromMenu,
                     toggleReadState: toggleWorkspaceReadStateFromMenu,
-                    requestClose: requestCloseWorkspaceFromMenu,
-                    openTextSheet: openTextSheet,
-                    copyDebugLogs: copyDebugLogsMenuAction,
-                    sendFeedback: openFeedbackComposerFromMenu
+                    requestClose: requestCloseWorkspaceFromMenu
                 )
             },
             label: {
