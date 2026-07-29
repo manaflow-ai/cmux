@@ -115,6 +115,45 @@ struct ClosedMainWindowRoutingTests {
         #expect(!window.isKeyWindow)
     }
 
+    @Test("Close commitment removes registered window from command routing")
+    func closeCommitmentRemovesRegisteredWindowFromCommandRouting() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        window.isReleasedWhenClosed = false
+
+        AppDelegate.shared = app
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            window.close()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(app.tabManagerFor(windowId: windowId) === manager)
+
+        app.markMainWindowCloseCommitted(window)
+
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(app.tabManagerFor(windowId: windowId) == nil)
+        #expect(app.registeredMainWindowTabManager(windowId: windowId) == nil)
+    }
+
     @Test("Production close teardown cannot re-register and refocus its window")
     func productionCloseTeardownCannotReRegisterAndRefocusItsWindow() {
         _ = NSApplication.shared
