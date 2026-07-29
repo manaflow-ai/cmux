@@ -3,9 +3,9 @@ import Foundation
 /// Coalesces deferred main-actor work without linking replacement closures.
 ///
 /// The stored task captures this scheduler weakly. Replacing an action cancels
-/// and releases the previous task before storing its successor, so an owner
-/// captured by an action cannot create a recursive release chain through prior
-/// queued work.
+/// and drops the scheduler's reference to the previous task before storing its
+/// successor. The executor may retain canceled tasks until they drain, but they
+/// cannot create a recursive release chain through prior queued work.
 @MainActor
 final class MainActorDeferredActionScheduler {
     private let clock: any Clock<Duration>
@@ -41,7 +41,6 @@ final class MainActorDeferredActionScheduler {
                     return
                 }
             } else {
-                await Task.yield()
                 guard !Task.isCancelled else { return }
             }
 
