@@ -328,6 +328,13 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/cmux-tui/bindings/python
         run: python3 -m unittest discover -s tests -v
 
+      - name: Test Python development orchestrator
+        if: matrix.language == 'python'
+        working-directory: cmux-tui/bindings/examples/python-dev-orchestrator
+        env:
+          PYTHONPATH: ${{ github.workspace }}/cmux-tui/bindings/python:${{ github.workspace }}/cmux-tui/bindings/examples/python-dev-orchestrator
+        run: python3 -m unittest discover -s tests -v
+
       - name: Test TypeScript browser controller
         if: matrix.language == 'typescript'
         working-directory: cmux-tui/bindings/examples/typescript-browser-controller
