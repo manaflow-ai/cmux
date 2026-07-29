@@ -175,6 +175,9 @@ extension Workspace {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+        let previousSuppressesHibernationResume = suppressesHibernationResumeDuringRestore
+        suppressesHibernationResumeDuringRestore = true
+        defer { suppressesHibernationResumeDuringRestore = previousSuppressesHibernationResume }
         sessionRestoreIdentityExclusions.beginRestore(excluding: excludingStableIdentities)
         defer { sessionRestoreIdentityExclusions.endRestore() }
 
@@ -3472,6 +3475,14 @@ final class Workspace: Identifiable, ObservableObject {
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
     private var suppressClosedPanelHistory = false
+    /// True while `restoreSessionSnapshot` runs. Tab creation during restore
+    /// emits transient bonsplit selection, focus, and portal-visibility
+    /// events; without this guard those events immediately resume agents the
+    /// restore just put into (deferred) hibernation. Actual visibility-driven
+    /// resume stays with the post-restore render passes and the view layer
+    /// (`onAutoResumeAgentHibernation`), which only fire for panels the user
+    /// really sees.
+    private var suppressesHibernationResumeDuringRestore = false
     /// Stable identities not re-adopted by the in-flight snapshot restore.
     let sessionRestoreIdentityExclusions = SessionRestoreIdentityExclusions()
     private var tabStripCloseButtonByTabId: [TabID: Bool] = [:]
@@ -4790,7 +4801,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func resumeAgentHibernation(panelId: UUID, focus: Bool) -> Bool {
-        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+        guard !suppressesHibernationResumeDuringRestore,
+              let terminalPanel = panels[panelId] as? TerminalPanel,
               terminalPanel.isAgentHibernated else {
             return false
         }
