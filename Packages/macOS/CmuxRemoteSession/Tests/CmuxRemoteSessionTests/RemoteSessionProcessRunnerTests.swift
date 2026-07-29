@@ -89,11 +89,12 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("An unexpected stdin write error terminates the child and keeps the pinned runner error")
     func unexpectedStdinWriteErrorTerminatesChildAndKeepsPinnedRunnerError() throws {
-        let markerURL = processMarkerURL()
-        defer { try? FileManager.default.removeItem(at: markerURL) }
+        let marker = try ProcessMarkerFixture()
         let runner = RemoteSessionProcessRunner(
             stdinWriter: MarkerGatedFailingRemoteProcessStdinWriter(
-                markerURL: markerURL,
+                readyFIFOURL: marker.readyFIFOURL,
+                exitFIFOURL: marker.exitFIFOURL,
+                markerURL: marker.markerURL,
                 gate: .launched
             )
         )
@@ -104,9 +105,11 @@ struct RemoteSessionProcessRunnerTests {
                     executable: "/bin/sh",
                     arguments: [
                         "-c",
-                        "echo $$ > \"$CMUX_TEST_PROCESS_MARKER\"; exec /bin/sleep 30",
+                        "echo $$ > \"$CMUX_TEST_PROCESS_READY\"; exec /bin/sleep 30",
                     ],
-                    environment: ["CMUX_TEST_PROCESS_MARKER": markerURL.path],
+                    environment: [
+                        "CMUX_TEST_PROCESS_READY": marker.readyFIFOURL.path,
+                    ],
                     stdin: Data("payload".utf8),
                     timeout: 5
                 ),
@@ -120,30 +123,32 @@ struct RemoteSessionProcessRunnerTests {
                 && nsError.localizedDescription.hasPrefix("Failed to write stdin for sh:")
                 && underlyingError?.code == .EIO
         }
-        let processIdentifier = try recordedProcessIdentifier(at: markerURL)
-        #expect(waitForProcessExit(processIdentifier, timeout: 2))
+        #expect(try marker.recordedProcessHasExited())
     }
 
     @Test("A stdin write error wins when the child ignores termination")
-    func stdinWriteErrorWinsWhenChildIgnoresTermination() throws {
-        let markerURL = processMarkerURL()
-        defer { try? FileManager.default.removeItem(at: markerURL) }
+    func stdinWriteErrorWinsWhenChildIgnoresTermination() async throws {
+        let marker = try ProcessMarkerFixture()
         let runner = RemoteSessionProcessRunner(
             stdinWriter: MarkerGatedFailingRemoteProcessStdinWriter(
-                markerURL: markerURL,
+                readyFIFOURL: marker.readyFIFOURL,
+                exitFIFOURL: marker.exitFIFOURL,
+                markerURL: marker.markerURL,
                 gate: .launched
             )
         )
 
-        let outcome = try #require(runProcess(
+        let outcome = try #require(await runProcess(
             runner,
             request: RemoteProcessRequest(
                 executable: "/bin/sh",
                 arguments: [
                     "-c",
-                    "trap '' TERM; echo $$ > \"$CMUX_TEST_PROCESS_MARKER\"; exec /bin/sleep 30",
+                    "trap '' TERM; echo $$ > \"$CMUX_TEST_PROCESS_READY\"; exec /bin/sleep 30",
                 ],
-                environment: ["CMUX_TEST_PROCESS_MARKER": markerURL.path],
+                environment: [
+                    "CMUX_TEST_PROCESS_READY": marker.readyFIFOURL.path,
+                ],
                 stdin: Data("payload".utf8),
                 timeout: 10
             ),
@@ -163,11 +168,12 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("A late stdin write error wins over an earlier child exit")
     func lateStdinWriteErrorWinsOverChildExit() throws {
-        let markerURL = processMarkerURL()
-        defer { try? FileManager.default.removeItem(at: markerURL) }
+        let marker = try ProcessMarkerFixture()
         let runner = RemoteSessionProcessRunner(
             stdinWriter: MarkerGatedFailingRemoteProcessStdinWriter(
-                markerURL: markerURL,
+                readyFIFOURL: marker.readyFIFOURL,
+                exitFIFOURL: marker.exitFIFOURL,
+                markerURL: marker.markerURL,
                 gate: .exited
             )
         )
@@ -178,9 +184,12 @@ struct RemoteSessionProcessRunnerTests {
                     executable: "/bin/sh",
                     arguments: [
                         "-c",
-                        "echo $$ > \"$CMUX_TEST_PROCESS_MARKER\"; exit 0",
+                        "echo $$ > \"$CMUX_TEST_PROCESS_READY\"; exec 3>\"$CMUX_TEST_PROCESS_EXIT\"; exit 0",
                     ],
-                    environment: ["CMUX_TEST_PROCESS_MARKER": markerURL.path],
+                    environment: [
+                        "CMUX_TEST_PROCESS_READY": marker.readyFIFOURL.path,
+                        "CMUX_TEST_PROCESS_EXIT": marker.exitFIFOURL.path,
+                    ],
                     stdin: Data("payload".utf8),
                     timeout: 5
                 ),
@@ -196,9 +205,9 @@ struct RemoteSessionProcessRunnerTests {
     }
 
     @Test("A child retaining unread stdin cannot delay the process timeout")
-    func unreadStdinCannotDelayProcessTimeout() throws {
+    func unreadStdinCannotDelayProcessTimeout() async throws {
         let runner = RemoteSessionProcessRunner()
-        let outcome = try #require(runProcess(
+        let outcome = try #require(await runProcess(
             runner,
             request: RemoteProcessRequest(
                 executable: "/bin/sleep",
@@ -223,9 +232,9 @@ struct RemoteSessionProcessRunnerTests {
     }
 
     @Test("A descendant retaining unread stdin cannot outlive the process timeout")
-    func inheritedUnreadStdinCannotOutliveProcessTimeout() throws {
+    func inheritedUnreadStdinCannotOutliveProcessTimeout() async throws {
         let runner = RemoteSessionProcessRunner()
-        let outcome = try #require(runProcess(
+        let outcome = try #require(await runProcess(
             runner,
             request: RemoteProcessRequest(
                 executable: "/bin/sh",
@@ -313,54 +322,91 @@ struct RemoteSessionProcessRunnerTests {
                 && nsError.localizedDescription == "sh timed out after 1s"
         }
     }
-}
-}
 
-private func processMarkerURL() -> URL {
-    FileManager.default.temporaryDirectory.appendingPathComponent(
-        "cmux-remote-process-\(UUID().uuidString).pid",
-        isDirectory: false
-    )
-}
+    private final class ProcessMarkerFixture {
+        let readyFIFOURL: URL
+        let exitFIFOURL: URL
+        let markerURL: URL
 
-private func recordedProcessIdentifier(at markerURL: URL) throws -> pid_t {
-    let contents = try String(contentsOf: markerURL, encoding: .utf8)
-    return try #require(
-        pid_t(contents.trimmingCharacters(in: .whitespacesAndNewlines))
-    )
-}
+        init() throws {
+            let temporaryDirectory = FileManager.default.temporaryDirectory
+            let identifier = UUID().uuidString
+            readyFIFOURL = temporaryDirectory.appendingPathComponent(
+                "cmux-remote-process-\(identifier).ready",
+                isDirectory: false
+            )
+            exitFIFOURL = temporaryDirectory.appendingPathComponent(
+                "cmux-remote-process-\(identifier).exit",
+                isDirectory: false
+            )
+            markerURL = temporaryDirectory.appendingPathComponent(
+                "cmux-remote-process-\(identifier).pid",
+                isDirectory: false
+            )
 
-private func waitForProcessExit(_ processIdentifier: pid_t, timeout: TimeInterval) -> Bool {
-    let deadline = DispatchTime.now() + timeout
-    repeat {
-        errno = 0
-        if kill(processIdentifier, 0) == -1, errno == ESRCH {
-            return true
+            guard Darwin.mkfifo(readyFIFOURL.path, 0o600) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            guard Darwin.mkfifo(exitFIFOURL.path, 0o600) == 0 else {
+                let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+                try? FileManager.default.removeItem(at: readyFIFOURL)
+                throw POSIXError(code)
+            }
         }
-        Thread.sleep(forTimeInterval: 0.01)
-    } while DispatchTime.now() < deadline
-    return false
+
+        deinit {
+            try? FileManager.default.removeItem(at: readyFIFOURL)
+            try? FileManager.default.removeItem(at: exitFIFOURL)
+            try? FileManager.default.removeItem(at: markerURL)
+        }
+
+        func recordedProcessHasExited() throws -> Bool {
+            let contents = try String(contentsOf: markerURL, encoding: .utf8)
+            let processIdentifier = try #require(
+                pid_t(contents.trimmingCharacters(in: .whitespacesAndNewlines))
+            )
+            errno = 0
+            return Darwin.kill(processIdentifier, 0) == -1 && errno == ESRCH
+        }
+    }
+
+    private enum ProcessRunEvent: Sendable {
+        case completed(Result<RemoteCommandResult, any Error>)
+        case deadline
+    }
+
+    private func runProcess(
+        _ runner: RemoteSessionProcessRunner,
+        request: RemoteProcessRequest,
+        completingWithin timeout: TimeInterval
+    ) async -> Result<RemoteCommandResult, any Error>? {
+        await withTaskGroup(
+            of: ProcessRunEvent.self,
+            returning: Result<RemoteCommandResult, any Error>?.self
+        ) { group in
+            group.addTask {
+                .completed(Result {
+                    try runner.run(request, operation: nil)
+                })
+            }
+            group.addTask {
+                try? await Task<Never, Never>.sleep(for: .seconds(timeout))
+                return .deadline
+            }
+
+            guard let firstEvent = await group.next() else {
+                return nil
+            }
+            group.cancelAll()
+            switch firstEvent {
+            case .completed(let result):
+                return result
+            case .deadline:
+                // Structured concurrency reaps the test-owned blocking task
+                // before leaving this scope and starting another subprocess.
+                return nil
+            }
+        }
+    }
 }
-
-private func runProcess(
-    _ runner: RemoteSessionProcessRunner,
-    request: RemoteProcessRequest,
-    completingWithin timeout: TimeInterval
-) -> Result<RemoteCommandResult, any Error>? {
-    let recorder = RemoteProcessRunRecorder()
-    let completed = DispatchSemaphore(value: 0)
-    DispatchQueue.global(qos: .userInitiated).async {
-        recorder.record(Result {
-            try runner.run(request, operation: nil)
-        })
-        completed.signal()
-    }
-
-    guard completed.wait(timeout: .now() + timeout) == .success else {
-        // The fixture exits after five seconds, so reap the test-owned work
-        // before returning a failure and starting another subprocess test.
-        completed.wait()
-        return nil
-    }
-    return recorder.result
 }
