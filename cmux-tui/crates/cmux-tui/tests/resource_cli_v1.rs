@@ -381,16 +381,23 @@ fn duplicate_name_ambiguity_is_structured_and_never_retried() {
 fn indeterminate_mutation_is_preserved_exactly_and_never_retried() {
     let error = json!({
         "code": "mutation.indeterminate",
-        "message": "the provider may have created the machine before the connection closed",
+        "message": "the workspace may have been created before the connection closed",
         "details": {
-            "idempotency_key": "create-machine-1",
-            "operation": "machine.create",
+            "idempotency_key": "create-workspace-1",
+            "operation": "workspace.create",
             "recovery": "inspect_state_then_retry_with_new_key"
         },
         "retryable": false
     });
     let (output, requests) = fake_resource_cli(
-        &["machine", "create", "--idempotency-key", "create-machine-1"],
+        &[
+            "workspace",
+            "create",
+            "--name",
+            "maybe-created",
+            "--idempotency-key",
+            "create-workspace-1",
+        ],
         FakeReply::Failure(error.clone()),
     );
 
@@ -404,8 +411,8 @@ fn indeterminate_mutation_is_preserved_exactly_and_never_retried() {
     assert!(output.stdout.is_empty(), "indeterminate mutation wrote success output");
     assert_eq!(parse_single_json(&output.stderr), error);
     assert_eq!(requests.len(), 1, "indeterminate mutation was retried: {requests:?}");
-    assert_eq!(requests[0]["operation"], "machine.create");
-    assert_eq!(requests[0]["idempotency_key"], "create-machine-1");
+    assert_eq!(requests[0]["operation"], "workspace.create");
+    assert_eq!(requests[0]["idempotency_key"], "create-workspace-1");
 }
 
 #[cfg(unix)]
