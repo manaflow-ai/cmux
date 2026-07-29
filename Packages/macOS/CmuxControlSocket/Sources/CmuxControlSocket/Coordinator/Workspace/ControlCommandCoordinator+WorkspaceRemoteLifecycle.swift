@@ -89,14 +89,25 @@ extension ControlCommandCoordinator {
         ).flatMap(UUID.init(uuidString:))
         let sessionID = optionalTrimmedRawString(params, "session_id")
         let lifecycleID = optionalTrimmedRawString(params, "lifecycle_id")
+        guard let terminalLifecycleID else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid terminal_lifecycle_id",
+                data: nil
+            )
+        }
+        guard let attemptID else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid attempt_id",
+                data: nil
+            )
+        }
         let invalidRelayPort = relayPort.map { $0 <= 0 || $0 > 65535 } ?? false
         let hasRelayAuthority = relayPort != nil
         let hasPersistentAuthority = sessionID != nil && lifecycleID != nil
         if invalidRelayPort ||
             (params["relay_port"] != nil && relayPort == nil) ||
-            (params["terminal_lifecycle_id"] != nil && terminalLifecycleID == nil) ||
-            (params["attempt_id"] != nil && attemptID == nil) ||
-            terminalLifecycleID == nil ||
             (sessionID == nil) != (lifecycleID == nil) ||
             hasRelayAuthority == hasPersistentAuthority {
             return .err(
@@ -111,7 +122,7 @@ extension ControlCommandCoordinator {
         }
         let authority: ControlWorkspaceRemoteTerminalAuthority?
         let persistentOwner: ControlRemotePTYLifecycleOwner?
-        if let relayPort, let terminalLifecycleID {
+        if let relayPort {
             authority = .relayPort(
                 relayPort,
                 terminalLifecycleID: terminalLifecycleID
@@ -119,7 +130,6 @@ extension ControlCommandCoordinator {
             persistentOwner = nil
         } else if let sessionID,
                   let lifecycleID,
-                  let terminalLifecycleID,
                   let owner = context.controlCurrentRemotePTYLifecycleOwner(
                       sessionID: sessionID,
                       lifecycleID: lifecycleID

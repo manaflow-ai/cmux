@@ -1120,6 +1120,7 @@ final class TerminalControllerSocketSecurityTests {
                 "surface_id": surfaceID.uuidString,
                 "relay_port": 64_011,
                 "terminal_lifecycle_id": UUID().uuidString,
+                "attempt_id": UUID().uuidString,
             ],
             to: socketPath
         )

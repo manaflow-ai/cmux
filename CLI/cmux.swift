@@ -12792,19 +12792,18 @@ struct CMUXCLI {
             if let surfaceID,
                let terminalLifecycleID = Self.normalizedEnvValue(
                    ProcessInfo.processInfo.environment["CMUX_TERMINAL_LIFECYCLE_ID"]
+               ),
+               let attemptID = Self.normalizedEnvValue(
+                   ProcessInfo.processInfo.environment["CMUX_SSH_ATTEMPT_ID"]
                ) {
-                var readinessParams: [String: String] = [
+                let readinessParams: [String: String] = [
                     "workspace_id": workspaceId,
                     "surface_id": surfaceID,
                     "session_id": sessionID,
                     "lifecycle_id": lifecycleID,
                     "terminal_lifecycle_id": terminalLifecycleID,
+                    "attempt_id": attemptID,
                 ]
-                if let attemptID = Self.normalizedEnvValue(
-                    ProcessInfo.processInfo.environment["CMUX_SSH_ATTEMPT_ID"]
-                ) {
-                    readinessParams["attempt_id"] = attemptID
-                }
                 reportSSHPTYTerminalConnected(
                     socketPath: client.socketPath,
                     explicitPassword: explicitPassword,

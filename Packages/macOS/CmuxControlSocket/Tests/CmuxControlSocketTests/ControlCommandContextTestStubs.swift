@@ -380,7 +380,7 @@ extension ControlWorkspaceContext {
         workspaceID: UUID,
         surfaceID: UUID,
         authority: ControlWorkspaceRemoteTerminalAuthority,
-        attemptID: UUID?,
+        attemptID: UUID,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution { .notFound }
 

@@ -800,7 +800,7 @@ extension TerminalController: ControlWorkspaceContext {
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
         authority: ControlWorkspaceRemoteTerminalAuthority,
-        attemptID: UUID? = nil,
+        attemptID: UUID,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)? = nil
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
         let (terminalAuthority, terminalLifecycleID) = switch authority {

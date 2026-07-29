@@ -303,6 +303,7 @@ public protocol ControlWorkspaceContext: AnyObject {
     ///   - surfaceID: The connected terminal surface id.
     ///   - authority: The relay or broker transport authority already validated
     ///     on the socket worker.
+    ///   - attemptID: The registered reconnect generation claiming readiness.
     ///   - commitLease: The persistent broker lease. The context must hold it
     ///     only across the bounded model mutation, retain it if configuration
     ///     has not reached the workspace yet, and perform presentation effects
@@ -312,7 +313,7 @@ public protocol ControlWorkspaceContext: AnyObject {
         workspaceID: UUID,
         surfaceID: UUID,
         authority: ControlWorkspaceRemoteTerminalAuthority,
-        attemptID: UUID?,
+        attemptID: UUID,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
 

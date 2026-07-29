@@ -34,7 +34,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         workspaceID: UUID,
         surfaceID: UUID,
         authority: ControlWorkspaceRemoteTerminalAuthority,
-        attemptID: UUID?
+        attemptID: UUID
     )?
 
     init(
@@ -141,7 +141,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         workspaceID: UUID,
         surfaceID: UUID,
         authority: ControlWorkspaceRemoteTerminalAuthority,
-        attemptID: UUID?,
+        attemptID: UUID,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
         if let commitLease, !commitLease.commitIfCurrent({ true }) {

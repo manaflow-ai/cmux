@@ -318,6 +318,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         let sessionID = "ssh-session"
         let lifecycleID = UUID().uuidString.lowercased()
         let terminalLifecycleID = UUID()
+        let attemptID = UUID()
         let context = FakeWorkspaceControlCommandContext(
             currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner(
                 transportKey: "persistent-transport",
@@ -339,6 +340,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
                 "session_id": .string(sessionID),
                 "lifecycle_id": .string(lifecycleID),
                 "terminal_lifecycle_id": .string(terminalLifecycleID.uuidString),
+                "attempt_id": .string(attemptID.uuidString),
             ]),
             context: context
         ) else {
@@ -353,6 +355,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
                     terminalLifecycleID: terminalLifecycleID
                 )
         )
+        #expect(context.terminalSessionConnectedCall?.attemptID == attemptID)
     }
 
     @Test func persistentTerminalSessionConnectedRejectsAnotherSurfaceOwner() throws {
@@ -374,6 +377,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
                 "session_id": .string("ssh-session"),
                 "lifecycle_id": .string("current-lifecycle"),
                 "terminal_lifecycle_id": .string(UUID().uuidString),
+                "attempt_id": .string(UUID().uuidString),
             ]),
             context: context
         ) else {
@@ -419,6 +423,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
                 "session_id": .string(sessionID),
                 "lifecycle_id": .string(lifecycleID),
                 "terminal_lifecycle_id": .string(terminalLifecycleID.uuidString),
+                "attempt_id": .string(UUID().uuidString),
             ]),
             context: context
         ) else {
@@ -435,9 +440,9 @@ struct ControlCommandCoordinatorWorkspaceTests {
         ["relay_port": JSONValue.int(64007)],
         ["relay_port": JSONValue.int(64007), "terminal_lifecycle_id": .string("invalid")],
         ["relay_port": JSONValue.int(64007), "terminal_lifecycle_id": .string(UUID().uuidString), "session_id": .string("session"), "lifecycle_id": .string("lifecycle")],
-        ["session_id": JSONValue.string("session")],
-        ["lifecycle_id": JSONValue.string("lifecycle")],
-        [:],
+        ["session_id": JSONValue.string("session"), "terminal_lifecycle_id": .string(UUID().uuidString)],
+        ["lifecycle_id": JSONValue.string("lifecycle"), "terminal_lifecycle_id": .string(UUID().uuidString)],
+        ["terminal_lifecycle_id": JSONValue.string(UUID().uuidString)],
     ])
     func terminalSessionConnectedRejectsAmbiguousAuthority(
         authority: [String: JSONValue]
@@ -446,6 +451,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         var params = authority
         params["workspace_id"] = .string(UUID().uuidString)
         params["surface_id"] = .string(UUID().uuidString)
+        params["attempt_id"] = .string(UUID().uuidString)
 
         guard case .err(let code, _, _) = coordinator.handleSocketWorkerV2(
             request("workspace.remote.terminal_session_connected", params),
