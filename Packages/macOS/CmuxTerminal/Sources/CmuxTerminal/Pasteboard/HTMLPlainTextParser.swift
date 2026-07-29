@@ -171,12 +171,14 @@ struct HTMLPlainTextParser: Sendable {
             )
         case .element:
             let name = node.name?.lowercased() ?? ""
+            let element = node as? XMLElement
             let isNormalizedTemplate = name == "div"
-                && (node as? XMLElement)?.attribute(
+                && element?.attribute(
                     forName: hiddenTemplateAttributeName
                 ) != nil
             guard !Self.hiddenBlockTags.contains(name),
-                  !isNormalizedTemplate else {
+                  !isNormalizedTemplate,
+                  !Self.isHidden(element) else {
                 return true
             }
 
@@ -221,6 +223,55 @@ struct HTMLPlainTextParser: Sendable {
         default:
             return true
         }
+    }
+
+    private static func isHidden(_ element: XMLElement?) -> Bool {
+        guard let attributes = element?.attributes else { return false }
+        if attributes.contains(where: {
+            $0.name?.caseInsensitiveCompare("hidden") == .orderedSame
+        }) {
+            return true
+        }
+        guard let style = attributes.first(where: {
+            $0.name?.caseInsensitiveCompare("style") == .orderedSame
+        })?.stringValue else {
+            return false
+        }
+        return inlineStyleHidesElement(style)
+    }
+
+    private static func inlineStyleHidesElement(_ style: String) -> Bool {
+        var display: (value: String, important: Bool)?
+        var visibility: (value: String, important: Bool)?
+        for declaration in style.split(separator: ";") {
+            guard let separator = declaration.firstIndex(of: ":") else {
+                continue
+            }
+            let property = declaration[..<separator]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard property == "display" || property == "visibility" else {
+                continue
+            }
+            var value = declaration[declaration.index(after: separator)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let importantSuffix = "!important"
+            let isImportant = value.hasSuffix(importantSuffix)
+            if isImportant {
+                value.removeLast(importantSuffix.count)
+                value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let candidate = (value: value, important: isImportant)
+            if property == "display" {
+                if display?.important != true || isImportant {
+                    display = candidate
+                }
+            } else if visibility?.important != true || isImportant {
+                visibility = candidate
+            }
+        }
+        return display?.value == "none" || visibility?.value == "hidden"
     }
 
     private func appendText(

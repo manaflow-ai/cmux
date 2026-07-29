@@ -120,13 +120,15 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
     }
 
     @Test @MainActor
-    func runtimeClipboardInvalidationCancelsOwnedTaskExactlyOnce() async {
+    func runtimeClipboardInvalidationCancelsOwnedTaskExactlyOnce() async throws {
         let controller = FakeSurfaceController()
         let host = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
             surfaceController: controller
         )
+        let surface = try #require(ghostty_surface_t(bitPattern: 0x11))
+        #expect(context.bindRuntimeClipboardSurface(surface))
         let invalidationCount = AtomicUInt64Generation()
         let taskObservedCancellation = AtomicBooleanGate(false)
         let task = Task {
@@ -163,13 +165,15 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
     }
 
     @Test @MainActor
-    func completedRuntimeClipboardRequestIsNotInvalidated() {
+    func completedRuntimeClipboardRequestIsNotInvalidated() throws {
         let controller = FakeSurfaceController()
         let host = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
             surfaceController: controller
         )
+        let surface = try #require(ghostty_surface_t(bitPattern: 0x17))
+        #expect(context.bindRuntimeClipboardSurface(surface))
         let invalidationCount = AtomicUInt64Generation()
 
         #expect(context.registerRuntimeClipboardRequest(
@@ -189,13 +193,15 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
     }
 
     @Test @MainActor
-    func invalidatingUncommittedRequestLeavesNativeReclamationToCallback() {
+    func invalidatingUncommittedRequestLeavesNativeReclamationToCallback() throws {
         let controller = FakeSurfaceController()
         let host = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
             surfaceController: controller
         )
+        let surface = try #require(ghostty_surface_t(bitPattern: 0x1f))
+        #expect(context.bindRuntimeClipboardSurface(surface))
         let completedNativeRequest = AtomicBooleanGate(true)
 
         #expect(context.registerRuntimeClipboardRequest(
@@ -232,6 +238,10 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         )
         #expect(context.bindRuntimeClipboardSurface(originalSurface))
         originalController = nil
+        let boundSurfaceAddress = try #require(
+            context.runtimeClipboardSurfaceAddress
+        )
+        #expect(boundSurfaceAddress == UInt(bitPattern: originalSurface))
 
         var reservedAdmissionCount = 0
         var invalidatedSurfaceAddress: UInt?
@@ -240,8 +250,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
             reserveAdmission: {
                 reservedAdmissionCount += 1
             },
-            onInvalidation: { surfaceAddress, _, _ in
-                invalidatedSurfaceAddress = surfaceAddress
+            onInvalidation: { _, _ in
+                invalidatedSurfaceAddress = boundSurfaceAddress
             }
         ))
         #expect(context.commitRuntimeClipboardRequest(37))
@@ -272,7 +282,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
             reserveAdmission: {
                 reservedAdmissionCount += 1
             },
-            onInvalidation: { _, _, _ in }
+            onInvalidation: { _, _ in }
         ))
 
         #expect(reservedAdmissionCount == 0)

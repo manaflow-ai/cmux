@@ -1,7 +1,107 @@
+import AppKit
 import CmuxTerminal
 import CmuxTerminalCore
+import GhosttyKit
 
 extension GhosttySurfaceCallbackContext {
+    func registerRuntimeClipboardRead(
+        id: UInt,
+        stateAddress: UInt,
+        operation: TerminalImageTransferOperation,
+        surfaceView: GhosttyNSView?
+    ) -> UInt? {
+        guard let surfaceAddress = runtimeClipboardSurfaceAddress else {
+            return nil
+        }
+        guard registerRuntimeClipboardRequest(
+            id: id,
+            reserveAdmission: { [weak surfaceView] in
+                surfaceView?.reserveClipboardReadAdmission()
+            },
+            onInvalidation: { @MainActor [weak surfaceView] wasAdmitted, completesNativeRequest in
+                _ = operation.cancel()
+                surfaceView?.terminalSurface?.hostedView
+                    .endImageTransferIndicator(for: operation)
+                if completesNativeRequest,
+                   let surface = ghostty_surface_t(
+                    bitPattern: surfaceAddress
+                   ) {
+                    // Teardown cannot present a confirmation prompt; approving
+                    // empty text guarantees libghostty destroys its request.
+                    "".withCString { pointer in
+                        ghostty_surface_complete_clipboard_request(
+                            surface,
+                            pointer,
+                            UnsafeMutableRawPointer(
+                                bitPattern: stateAddress
+                            ),
+                            true
+                        )
+                    }
+                }
+
+                let currentEpoch = surfaceView?.terminalSurface?
+                    .runtimeSurfaceGeneration ?? .max
+                if wasAdmitted {
+                    surfaceView?.cancelClipboardRead(
+                        id,
+                        currentEpoch: currentEpoch
+                    )
+                } else {
+                    surfaceView?.cancelReservedClipboardRead(
+                        currentEpoch: currentEpoch
+                    )
+                }
+            }
+        ) else {
+            return nil
+        }
+        return surfaceAddress
+    }
+
+    @MainActor
+    func completeRuntimeClipboardRead(
+        _ text: String,
+        requestID: UInt,
+        stateAddress: UInt,
+        surfaceAddress: UInt,
+        surfaceIdentity: TerminalClipboardRequestSurfaceIdentity
+    ) {
+        guard let terminalSurface,
+              surfaceIdentity.matches(terminalSurface),
+              surfaceIdentity.surfaceAddress == surfaceAddress,
+              let surface = ghostty_surface_t(
+                bitPattern: surfaceAddress
+              ) else {
+            invalidateRuntimeClipboardRequest(
+                requestID,
+                completingNativeRequest: true
+            )
+            return
+        }
+        guard completeRuntimeClipboardRequest(requestID) else { return }
+
+        // Remote tmux mirror panes need tmux to bracket the paste because the
+        // local manual-I/O surface cannot know the remote pane's mode.
+        let handledByMirror = !text.isEmpty && (
+            AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
+                surfaceId: surfaceId,
+                text: text
+            ) ?? false
+        )
+        let completionText = handledByMirror ? "" : text
+        completionText.withCString { pointer in
+            ghostty_surface_complete_clipboard_request(
+                surface,
+                pointer,
+                UnsafeMutableRawPointer(bitPattern: stateAddress),
+                false
+            )
+        }
+        terminalSurface.noteClipboardReadCompleted()
+        surfaceView?.completeClipboardRead(requestID, confirmed: false)
+    }
+
     @MainActor
     func confirmClipboardRead(
         _ text: String,

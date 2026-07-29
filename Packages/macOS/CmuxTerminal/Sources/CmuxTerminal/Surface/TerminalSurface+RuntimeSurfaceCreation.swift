@@ -42,6 +42,7 @@ extension TerminalSurface {
         ))
         surfaceConfig.userdata = callbackContext.toOpaque()
         surfaceConfig.renderer_event_cb = terminalRendererEventCallback
+        invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
@@ -280,6 +281,10 @@ extension TerminalSurface {
                     return makeGhosttySurface(app: app, config: &surfaceConfig, envVars: &envVars)
                 }
             }
+        }
+        if let createdSurface {
+            _ = callbackContext.takeUnretainedValue()
+                .bindRuntimeClipboardSurface(createdSurface)
         }
 
         return (createdSurface, runtimeInitialInput)

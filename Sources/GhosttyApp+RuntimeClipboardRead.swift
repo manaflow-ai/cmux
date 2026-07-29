@@ -14,11 +14,28 @@ extension GhosttyApp {
         }
         let clipboardRequestID = UInt(bitPattern: state)
         let requestSurfaceView = callbackContext.surfaceView
-        requestSurfaceView?.reserveClipboardReadAdmission()
+        let operation = TerminalImageTransferOperation()
+        guard let requestSurfaceAddress = callbackContext.registerRuntimeClipboardRead(
+            id: clipboardRequestID,
+            stateAddress: clipboardRequestID,
+            operation: operation,
+            surfaceView: requestSurfaceView
+        ) else {
+            return false
+        }
 
-        Task { @MainActor [weak requestSurfaceView] in
-            let currentEpoch = requestSurfaceView?.terminalSurface?
-                .runtimeSurfaceGeneration ?? .max
+        let (startEvents, startContinuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let preparationTask = Task {
+            @MainActor [weak callbackContext, weak requestSurfaceView] in
+            var startIterator = startEvents.makeAsyncIterator()
+            guard await startIterator.next() != nil,
+                  !Task.isCancelled else {
+                return
+            }
+            guard let callbackContext else { return }
             guard let requestSurfaceView,
                   let requestTerminalSurface = callbackContext.terminalSurface,
                   requestTerminalSurface.isActiveRuntimeCallbackContext(
@@ -27,57 +44,42 @@ extension GhosttyApp {
                   let requestSurfaceIdentity = TerminalClipboardRequestSurfaceIdentity(
                     terminalSurface: requestTerminalSurface
                   ),
-                  let requestSurface = requestTerminalSurface.surface,
+                  requestSurfaceIdentity.surfaceAddress == requestSurfaceAddress,
                   let preparationService = requestSurfaceView
                     .imageTransferPreparation else {
-                requestSurfaceView?.cancelReservedClipboardRead(
-                    currentEpoch: currentEpoch
+                callbackContext.invalidateRuntimeClipboardRequest(
+                    clipboardRequestID,
+                    completingNativeRequest: true
                 )
                 return
             }
-            let operation = TerminalImageTransferOperation()
+            guard callbackContext.markRuntimeClipboardRequestAdmitted(
+                clipboardRequestID
+            ) else {
+                return
+            }
             var overflowCleanup: () -> Void = {}
 
             @MainActor
             func completeClipboardRequestOnMain(with text: String) {
-                guard requestSurfaceIdentity.matches(
-                    requestTerminalSurface
-                ) else {
-                    requestSurfaceView.cancelClipboardRead(
-                        clipboardRequestID,
-                        currentEpoch: requestSurfaceView.terminalSurface?
-                            .runtimeSurfaceGeneration ?? .max
-                    )
-                    return
-                }
-                // Remote tmux mirror panes need tmux to bracket the paste
-                // because the local manual-I/O surface cannot know the
-                // remote pane's bracketed-paste mode.
-                let handledByMirror = !text.isEmpty && (
-                    AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
-                        surfaceId: callbackContext.surfaceId,
-                        text: text
-                    ) ?? false
-                )
-                let completionText = handledByMirror ? "" : text
-                completionText.withCString { pointer in
-                    ghostty_surface_complete_clipboard_request(
-                        requestSurface,
-                        pointer,
-                        state,
-                        false
-                    )
-                }
-                requestTerminalSurface.noteClipboardReadCompleted()
-                requestSurfaceView.completeClipboardRead(
-                    clipboardRequestID,
-                    confirmed: false
+                callbackContext.completeRuntimeClipboardRead(
+                    text,
+                    requestID: clipboardRequestID,
+                    stateAddress: clipboardRequestID,
+                    surfaceAddress: requestSurfaceAddress,
+                    surfaceIdentity: requestSurfaceIdentity
                 )
             }
 
             func completeClipboardRequest(with text: String) {
-                Task { @MainActor in
-                    completeClipboardRequestOnMain(with: text)
+                Task { @MainActor [weak callbackContext] in
+                    callbackContext?.completeRuntimeClipboardRead(
+                        text,
+                        requestID: clipboardRequestID,
+                        stateAddress: clipboardRequestID,
+                        surfaceAddress: requestSurfaceAddress,
+                        surfaceIdentity: requestSurfaceIdentity
+                    )
                 }
             }
 
@@ -234,7 +236,19 @@ extension GhosttyApp {
                 }
             }
         }
+        let attached = callbackContext.attachRuntimeClipboardTask(
+            preparationTask,
+            requestID: clipboardRequestID
+        )
+        let committed = attached && callbackContext
+            .commitRuntimeClipboardRequest(clipboardRequestID)
+        if committed {
+            startContinuation.yield()
+        } else {
+            preparationTask.cancel()
+        }
+        startContinuation.finish()
 
-        return true
+        return committed
     }
 }

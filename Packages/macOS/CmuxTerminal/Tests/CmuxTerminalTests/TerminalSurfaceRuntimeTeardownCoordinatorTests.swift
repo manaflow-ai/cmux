@@ -157,6 +157,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             alignment: 8
         )
         defer { surface.deallocate() }
+        #expect(context.bindRuntimeClipboardSurface(surface))
 
         #expect(context.registerRuntimeClipboardRequest(
             id: 29,

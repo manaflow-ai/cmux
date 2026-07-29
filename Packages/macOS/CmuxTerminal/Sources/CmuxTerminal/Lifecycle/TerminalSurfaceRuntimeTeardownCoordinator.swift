@@ -150,6 +150,14 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     }
 
     private nonisolated static func free(_ request: TerminalSurfaceRuntimeTeardownRequest) async {
+        if request.callbackContext != nil {
+            await MainActor.run {
+                request.callbackContext?.takeUnretainedValue()
+                    .invalidateRuntimeClipboardRequests(
+                        completingNativeRequests: true
+                    )
+            }
+        }
 #if DEBUG
         logDebugEvent(
             "surface.lifecycle.nativeFree.begin surface=\(request.surfaceToken) " +
