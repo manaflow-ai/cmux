@@ -1775,7 +1775,7 @@ impl Surface {
         drop(pty.slave);
         let killer = child.clone_killer();
         let process = LocalPtyProcess::new(pid, killer);
-        #[cfg(test)]
+        #[cfg(all(test, unix))]
         crate::process_session::fail_after_pty_spawn_for_test()?;
         let reader_process = process.clone();
         let mut reader = pty.master.try_clone_reader()?;
