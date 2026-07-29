@@ -928,8 +928,9 @@ struct ParsedTerminalProbe {
 }
 
 /// Probe terminal capabilities in one exchange and return any user input read
-/// alongside the replies. The final DA1 request acts as an ordering marker,
-/// while a complete Kitty reply lets supporting terminals finish immediately.
+/// alongside the replies. The final DA1 request acts as an ordering marker:
+/// any preceding Kitty reply advertises support, while its absence does not
+/// make terminals that ignore the Kitty APC wait for the full timeout.
 pub fn probe_terminal(known_cell_pixels: Option<(u16, u16)>) -> StartupTerminalProbe {
     let ioctl_pixels = ioctl_cell_pixels();
     let terminal_size = crossterm::terminal::size().ok();
@@ -1054,8 +1055,7 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 fn terminal_probe_complete(bytes: &[u8]) -> bool {
-    let parsed = parse_terminal_probe(bytes);
-    parsed.primary_device_attributes && parsed.kitty_supported.is_some()
+    parse_terminal_probe(bytes).primary_device_attributes
 }
 
 fn parse_terminal_probe(bytes: &[u8]) -> ParsedTerminalProbe {
