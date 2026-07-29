@@ -263,7 +263,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -s "$CMUX_TEST_LEAF_PID" || exit 98
-        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root"
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
         test "$(/bin/cat "$CMUX_TEST_SIGNAL_LOG" 2>/dev/null || true)" = term
         """
@@ -297,6 +297,132 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
         #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
         #expect(Darwin.kill(leafPID, 0) != 0)
+    }
+
+    @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-root-parent-\(UUID().uuidString)", isDirectory: true)
+        let readyMarker = root.appendingPathComponent("ready")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( trap '' HUP INT TERM; : > "$CMUX_TEST_READY_MARKER"; while :; do /bin/sleep 30; done ) &
+        cmux_test_auth_root=$!
+        trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        cmux_test_ready_attempt=0
+        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" 1
+        /bin/kill -0 "$cmux_test_auth_root" >/dev/null 2>&1 || exit 97
+        /bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        trap - EXIT
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_READY_MARKER": readyMarker.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        #expect(process.terminationStatus == 0)
+    }
+
+    @Test func processTreeTerminationUsesOneOverallDeadline() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-deadline-\(UUID().uuidString)", isDirectory: true)
+        let chainScript = root.appendingPathComponent("chain.sh")
+        let readyMarker = root.appendingPathComponent("ready")
+        let pidLog = root.appendingPathComponent("pids")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        trap '' HUP INT TERM
+        printf '%s\\n' "$$" >> "$CMUX_TEST_PID_LOG"
+        cmux_test_depth="${CMUX_TEST_CHAIN_DEPTH:-0}"
+        if [ "$cmux_test_depth" -gt 0 ]; then
+          CMUX_TEST_CHAIN_DEPTH=$((cmux_test_depth - 1)) /bin/sh "$0" &
+        else
+          : > "$CMUX_TEST_READY_MARKER"
+        fi
+        while :; do /bin/sleep 30; done
+        """.write(to: chainScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: chainScript.path)
+        defer {
+            let processIDs = (try? String(contentsOf: pidLog, encoding: .utf8))?
+                .split(separator: "\n")
+                .compactMap { Int32($0) } ?? []
+            for processID in processIDs {
+                Darwin.kill(processID, SIGKILL)
+            }
+        }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        CMUX_TEST_CHAIN_DEPTH=24 /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
+        cmux_test_auth_root=$!
+        cmux_test_ready_attempt=0
+        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
+            "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_PID_LOG": pidLog.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        let startedAt = Date.now
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture, timeout: 8)
+        let elapsed = Date.now.timeIntervalSince(startedAt)
+
+        let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { Int32($0) }
+        let exitDeadline = Date.now.addingTimeInterval(1)
+        while processIDs.contains(where: { Darwin.kill($0, 0) == 0 }), Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+
+        #expect(process.terminationStatus == 0)
+        #expect(processIDs.count == 25)
+        #expect(
+            elapsed < 3,
+            "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
+        )
+        #expect(!processIDs.contains(where: { Darwin.kill($0, 0) == 0 }))
     }
 
     @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
@@ -335,7 +461,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
-        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root"
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
         cmux_test_replacement_attempt=0
         while [ ! -s "$CMUX_TEST_REPLACEMENT_PID" ] && [ "$cmux_test_replacement_attempt" -lt 100 ]; do
@@ -406,7 +532,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
-        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root"
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
         cmux_test_terminal_mode_after=$(/bin/stty -g) || exit 99
         test "$cmux_test_terminal_mode_after" = "$cmux_test_terminal_mode_before"
