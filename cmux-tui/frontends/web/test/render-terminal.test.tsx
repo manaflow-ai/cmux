@@ -59,6 +59,8 @@ const model: RenderModel = {
         viewport_col: 1,
         viewport_row: -1,
         viewport_visible: true,
+        anchor_col: 1,
+        anchor_row: 9,
         z: -1,
       },
       {
@@ -253,17 +255,16 @@ describe("RenderTerminal DOM grid", () => {
     );
   });
 
-  it("hides live Kitty placements while displaying scrollback history", () => {
+  it("renders history-anchored Kitty placements while displaying scrollback", async () => {
     renderHook.historyActive = true;
     const { container } = render(
       <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
     );
 
-    expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(0);
-    expect(container.querySelectorAll(".render-row-background")).toHaveLength(0);
-    expect(container.querySelector(".render-row .render-run")).toHaveStyle({
-      backgroundColor: "#111111",
+    await waitFor(() => {
+      expect(container.querySelector("[data-graphic-placement='9:3:0']")).not.toBeNull();
     });
+    expect(container.querySelectorAll(".render-row-background")).toHaveLength(1);
   });
 
   it("draws source crops and releases canvas backing stores on unmount", async () => {

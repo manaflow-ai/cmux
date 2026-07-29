@@ -79,6 +79,22 @@ fn chunked_rgb_transmission_is_snapshotted_as_owned_pixels() {
 }
 
 #[test]
+fn snapshots_expose_absolute_anchors_for_scrollback_placements() {
+    let mut terminal = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+    terminal.resize(12, 4, 10, 20).unwrap();
+    terminal.vt_write(&kitty("a=T,t=d,f=24,i=8,p=1,s=1,v=1,c=1,r=1,C=1,q=2", "/wAA"));
+    for row in 0..8 {
+        terminal.vt_write(format!("row-{row}\r\n").as_bytes());
+    }
+
+    let snapshot = terminal.kitty_graphics_snapshot().unwrap();
+    let placement = snapshot.placements.first().expect("scrollback placement");
+
+    assert!(!placement.viewport_visible);
+    assert_eq!(placement.anchor.map(|anchor| (anchor.col, anchor.row)), Some((0, 0)));
+}
+
+#[test]
 fn unsupported_grayscale_transmissions_are_ignored_and_parser_recovers() {
     let grayscale = [0x10, 0x80];
     let grayscale_alpha = [0x20, 0x40, 0xa0, 0xc0];

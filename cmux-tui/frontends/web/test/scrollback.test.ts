@@ -6,6 +6,7 @@ import {
   mergeScrollbackPage,
   nextScrollbackRequest,
   previousScrollbackRequest,
+  projectRenderGraphicsToRows,
   reconcileScrollbackWindow,
   scrollbackAnchorDelta,
 } from "../src/lib/scrollback";
@@ -119,5 +120,50 @@ describe("scrollback window", () => {
     expect(reset.total).toBe(4);
     expect(reset.rows.map((candidate) => candidate.row)).toEqual([0, 1, 2, 3]);
     expect(previousScrollbackRequest(reset)).toBeNull();
+  });
+
+  it("projects absolute Kitty anchors onto cached history rows", () => {
+    const projected = projectRenderGraphicsToRows({
+      generation: 1,
+      images: [{
+        id: 9,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgb",
+        data: "/wAA",
+      }],
+      placements: [{
+        image_id: 9,
+        placement_id: 3,
+        ordinal: 0,
+        x_offset: 0,
+        y_offset: 0,
+        source_x: 0,
+        source_y: 0,
+        source_width: 1,
+        source_height: 1,
+        columns: 1,
+        rows: 2,
+        grid_cols: 1,
+        grid_rows: 2,
+        pixel_width: 8,
+        pixel_height: 32,
+        viewport_col: 0,
+        viewport_row: 0,
+        viewport_visible: false,
+        anchor_col: 2,
+        anchor_row: 7,
+        z: -1,
+      }],
+    }, [row(8), row(9)]);
+
+    expect(projected?.placements).toEqual([
+      expect.objectContaining({
+        viewport_col: 2,
+        viewport_row: -1,
+        viewport_visible: true,
+      }),
+    ]);
   });
 });
