@@ -713,7 +713,7 @@ final class ClaudeHookSessionStore {
             let superseded: [ClaudeHookSessionRecord]
             if supersedesSameProcessSession {
                 superseded = supersededSessionCleanupCandidates(
-                    in: state,
+                    in: &state,
                     keepingSessionId: normalized,
                     owner: record
                 )
@@ -1564,6 +1564,9 @@ final class ClaudeHookSessionStore {
         let now = Date().timeIntervalSince1970
         let cutoff = now - Self.maxStateAgeSeconds
         state.sessions = state.sessions.filter { _, record in
+            record.updatedAt >= cutoff
+        }
+        state.pendingSupersededSessionCleanup = state.pendingSupersededSessionCleanup.filter { _, record in
             record.updatedAt >= cutoff
         }
         state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { workspaceId, active in

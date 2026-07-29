@@ -4,20 +4,41 @@ extension ClaudeHookSessionStore {
     private static let maxSupersededCleanupBatchSize = 4
 
     func supersededSessionCleanupCandidates(
-        in state: ClaudeHookSessionStoreFile,
+        in state: inout ClaudeHookSessionStoreFile,
         keepingSessionId: String,
         owner: ClaudeHookSessionRecord
     ) -> [ClaudeHookSessionRecord] {
+        state.pendingSupersededSessionCleanup.removeValue(forKey: keepingSessionId)
         guard let pid = owner.pid,
               let startSeconds = owner.pidStartSeconds,
               let startMicroseconds = owner.pidStartMicroseconds else {
             return []
         }
+        // Demote every superseded claimant in the locked store transaction;
+        // only the external socket cleanup is deliberately batch-limited.
+        let superseded = state.sessions.values.filter {
+            $0.sessionId != keepingSessionId
+                && $0.pid == pid
+                && $0.pidStartSeconds == startSeconds
+                && $0.pidStartMicroseconds == startMicroseconds
+        }
+        let supersededIDs = Set(superseded.map(\.sessionId))
+        for record in superseded {
+            state.sessions.removeValue(forKey: record.sessionId)
+            state.pendingSupersededSessionCleanup[record.sessionId] = record
+        }
+        if !supersededIDs.isEmpty {
+            state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter {
+                !supersededIDs.contains($0.value.sessionId)
+            }
+            state.activeSessionsBySurface = state.activeSessionsBySurface.filter {
+                !supersededIDs.contains($0.value.sessionId)
+            }
+        }
         return Array(
-            state.sessions.values
+            state.pendingSupersededSessionCleanup.values
                 .filter {
-                    $0.sessionId != keepingSessionId
-                        && $0.pid == pid
+                    $0.pid == pid
                         && $0.pidStartSeconds == startSeconds
                         && $0.pidStartMicroseconds == startMicroseconds
                 }
@@ -40,7 +61,7 @@ extension ClaudeHookSessionStore {
         try withLockedState { state in
             var acknowledgedIDs: Set<String> = []
             for (sessionId, candidate) in candidatesByID {
-                guard let current = state.sessions[sessionId],
+                guard let current = state.pendingSupersededSessionCleanup[sessionId],
                       current.pid == candidate.pid,
                       current.pidStartSeconds == candidate.pidStartSeconds,
                       current.pidStartMicroseconds == candidate.pidStartMicroseconds,
@@ -49,7 +70,7 @@ extension ClaudeHookSessionStore {
                       current.updatedAt == candidate.updatedAt else {
                     continue
                 }
-                state.sessions.removeValue(forKey: sessionId)
+                state.pendingSupersededSessionCleanup.removeValue(forKey: sessionId)
                 acknowledgedIDs.insert(sessionId)
             }
             guard !acknowledgedIDs.isEmpty else { return }

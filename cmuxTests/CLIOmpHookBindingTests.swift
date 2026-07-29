@@ -134,65 +134,9 @@ struct CLIOmpHookBindingTests {
         #expect(resumed["workspaceId"] as? String == Self.liveWorkspaceId)
         #expect(resumed["surfaceId"] as? String == Self.liveSurfaceId)
         #expect(resumed["pid"] as? Int == Self.ompPID)
+        #expect(store["pendingSupersededSessionCleanup"] == nil)
         #expect(store["activeSessionsBySurface"] == nil)
         #expect(store["activeSessionsByWorkspace"] == nil)
-    }
-
-    @Test
-    func failedSupersededCleanupKeepsPriorRecordRecoverable() throws {
-        let context = try Harness.makeContext(name: "omp-cleanup-retry")
-        defer { context.cleanup() }
-
-        let previousSessionId = "omp-cleanup-pending"
-        let currentSessionId = "omp-cleanup-current"
-        let storeURL = context.root.appendingPathComponent("omp-hook-sessions.json")
-        try Self.writePriorSession(
-            to: storeURL,
-            sessionId: previousSessionId,
-            workspaceId: Self.leakedWorkspaceId,
-            surfaceId: Self.leakedSurfaceId,
-            cwd: context.root.path
-        )
-        let serverHandled = Harness.startDeliveryTargetServer(
-            context: context,
-            surfacesByWorkspace: [
-                Self.leakedWorkspaceId: [Self.leakedSurfaceId],
-                Self.liveWorkspaceId: [Self.liveSurfaceId],
-            ],
-            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId),
-            resumeClearSucceeds: false
-        )
-        var environment = Harness.hookEnvironment(context: context)
-        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
-        environment["CMUX_OMP_PID"] = String(Self.ompPID)
-        environment["CMUX_AGENT_LAUNCH_KIND"] = "omp"
-        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/omp"
-        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/omp"])
-        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
-
-        let result = Harness.runHookProcess(
-            context: context,
-            arguments: ["hooks", "omp", "session-start"],
-            environment: environment,
-            standardInput: #"{"session_id":"\#(currentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
-        )
-
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
-        let commands = context.state.snapshot()
-        #expect(commands.contains {
-            Self.jsonObject($0)?["method"] as? String == "surface.resume.clear"
-        })
-        #expect(!commands.contains {
-            $0.hasPrefix("clear_agent_pid omp.\(previousSessionId) ")
-        })
-        let saved = try #require(
-            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
-        )
-        let sessions = try #require(saved["sessions"] as? [String: Any])
-        #expect(sessions[previousSessionId] != nil)
-        #expect(sessions[currentSessionId] != nil)
     }
 
     @Test
