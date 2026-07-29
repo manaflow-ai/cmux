@@ -363,6 +363,11 @@ struct WorkspaceDetailView: View {
 
     #if os(iOS)
     private func resignDisconnectedTerminalInput(status: MobileMacConnectionStatus) {
+        // resignActiveInput() acts on the process-wide active surface, and
+        // hidden details retained by other tab stacks observe their own
+        // status; only the selected workspace may resign it, or background
+        // connection churn would steal the visible terminal's keyboard.
+        guard store.selectedWorkspaceID == workspace.id else { return }
         if toasts.isEnabled, status != .connected {
             GhosttySurfaceView.resignActiveInput()
         }
