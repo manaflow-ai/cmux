@@ -138,8 +138,7 @@ struct ClaudeHookSessionRecord: Codable {
     var pidStartSeconds: Int64? = nil
     var pidStartMicroseconds: Int64? = nil
     var launchCommand: AgentHookLaunchCommandRecord?
-    /// Last hook-observed `permission_mode`, re-applied as `--permission-mode`
-    /// on user-owned session restore (https://github.com/manaflow-ai/cmux/issues/8066).
+    /// Last hook-observed `permission_mode`, re-applied on user-owned restore (#8066).
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
@@ -149,6 +148,7 @@ struct ClaudeHookSessionRecord: Codable {
     var lastEmittedNotificationFingerprint: String?
     var lastEmittedNotificationAt: TimeInterval?
     var recentEmittedNotificationFingerprints: [String: TimeInterval]?
+    var lastNotificationDeliveryFailureAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
     var activePromptTurnId: String?
@@ -157,24 +157,14 @@ struct ClaudeHookSessionRecord: Codable {
     var terminalPromptTurnIds: [String]?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
-    // Auto-naming engine state (all optional so stores written before the
-    // feature decode unchanged). The durable baseline advances only after a
-    // confirmed title apply; the in-flight marker dedupes concurrent Stops.
     var autoNameLastTitle: String?
     var autoNameLastLineCount: Int?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
-    /// Wall-clock of the last summarization attempt (success OR failure), so a
-    /// persistently failing summarizer (rate-limited, signed out, timing out)
-    /// gets the same minInterval cooldown instead of respawning every turn.
+    /// Last summarization attempt, including failures, for cooldown enforcement.
     var autoNameLastAttemptAt: TimeInterval?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
-    /// Whether the most recent Stop reported unfinished background work
-    /// (a running `background_tasks` entry or a pending `session_crons`).
-    /// Cached here because the ~60s-later `idle_prompt` Notification payload
-    /// does not carry `background_tasks`, so the idle-reminder gate reads this.
-    /// Optional so stores written before this field decode unchanged.
     var hadPendingBackgroundWorkAtStop: Bool?
 }
 
@@ -1251,7 +1241,20 @@ final class ClaudeHookSessionStore {
             state.sessions[normalized] = record
         }
     }
-
+    func claimNotificationDeliveryFailureReport(sessionId: String, within interval: TimeInterval = 15 * 60) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return false }
+            let now = Date().timeIntervalSince1970
+            if let lastFailureAt = record.lastNotificationDeliveryFailureAt, now - lastFailureAt < interval {
+                return false
+            }
+            record.lastNotificationDeliveryFailureAt = now
+            state.sessions[normalized] = record
+            return true
+        }
+    }
     func hasRunningSession(
         workspaceId: String,
         surfaceId: String?,
@@ -1266,6 +1269,7 @@ final class ClaudeHookSessionStore {
         let excluded = normalizeOptional(excludingSessionId)
         return try withLockedState { state in
             let excludedUpdatedAt = excluded.flatMap { state.sessions[$0]?.updatedAt }
+            if onlyNewerThanExcludedSession, excludedUpdatedAt == nil { return false }
             var foundRunningSession = false
             let now = Date().timeIntervalSince1970
 
@@ -30939,7 +30943,7 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            let pid = mapped?.pid ?? inferredPID
+            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: hookCwd ?? mapped?.cwd)
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
@@ -31279,7 +31283,7 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
@@ -31487,9 +31491,7 @@ export default CMUXSessionRestore;
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
-                // Tag successful turn-end pings so the app's "Agent Finished"
-                // setting covers every built-in agent, not just Claude. Error
-                // alerts stay untagged and always deliver.
+                // Tag successful turn-end pings; error alerts always deliver.
                 let stopMeta: String? = stopNotificationStatus == .idle
                     ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
                     : nil
@@ -31513,13 +31515,11 @@ export default CMUXSessionRestore;
 #endif
                     markNotificationSent(fingerprint: notificationFingerprint)
                 } catch {
-#if DEBUG
-                    agentHookDebugLog(
-                        "agentHook.stop.notify.error agent=\(def.name) session=\(agentHookDebugShort(sessionId)) resumed=\(env["CMUX_AGENT_RESUME_LAUNCH"] == "1" ? 1 : 0) error=\(String(describing: error))",
-                        socketPath: client.socketPath,
-                        env: env
-                    )
-#endif
+                    if (try? store.claimNotificationDeliveryFailureReport(sessionId: sessionId)) == true {
+                        reportAgentHookNotificationDeliveryFailure(
+                            agentName: def.name, sessionId: sessionId, error: error, telemetry: telemetry
+                        )
+                    }
                 }
             } else if shouldPublishStopAlert {
 #if DEBUG
@@ -31618,7 +31618,7 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -31814,7 +31814,7 @@ export default CMUXSessionRestore;
             }
 
             if !sessionId.isEmpty {
-                let pid = mapped?.pid ?? inferredPID
+                let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
                     fallbackPID: pid,
