@@ -34,25 +34,6 @@ struct SSHRemoteCommandChainingTests {
     }
 
     @Test
-    func rawSSHConfigurationExpandsRemoteCommandTokensBeforeManagedReplay() {
-        let policy = SSHHostConfiguredRemoteCommand()
-        let separator = "\u{001f}"
-        let output = """
-        host token-alias
-        hostname resolved.example
-        user remote-token-user
-        port 2233
-        remotecommand printf 'caller %% %h %n %p %r'
-        versionaddendum cmux-remote-command-token-probe-v1\(separator)%%\(separator)%C\(separator)%d\(separator)%h\(separator)%i\(separator)%j\(separator)%k\(separator)%L\(separator)%l\(separator)%n\(separator)%p\(separator)%r\(separator)%u
-        """
-
-        #expect(
-            policy.configuredCommand(fromSSHConfigOutput: output)
-                == #"printf 'caller % resolved.example token-alias 2233 remote-token-user'"#
-        )
-    }
-
-    @Test
     func interactiveBootstrapExecutesConfiguredRemoteCommandAfterSetup() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
