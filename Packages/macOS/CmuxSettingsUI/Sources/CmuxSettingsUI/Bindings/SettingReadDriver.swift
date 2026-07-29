@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 
 /// Owns the lifecycle of one settings-store change-stream subscription:
@@ -19,9 +20,16 @@ import SwiftUI
 /// The driver is store-agnostic — it only needs an `AsyncStream<Value>` — so
 /// the same path works for every key kind (UserDefaults, JSON, secret) and
 /// for both `@State`-backed and `@Observable`-backed consumers.
-@MainActor
-final class SettingReadDriver<Value: Sendable> {
-    private var task: Task<Void, Never>?
+final class SettingReadDriver<Value: Sendable>: Sendable {
+    private struct State {
+        var isActivated = false
+        var task: Task<Void, Never>?
+    }
+
+    /// `DynamicProperty.update()` is a nonisolated SwiftUI callback. The lock
+    /// makes the synchronous activation boundary safe no matter which executor
+    /// invokes that callback; delivered values still cross to MainActor below.
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     /// Starts forwarding `makeStream()`'s elements into `sink`. Idempotent:
     /// the first call wins and later calls are no-ops, so the subscription is
@@ -33,16 +41,17 @@ final class SettingReadDriver<Value: Sendable> {
     ///     weakly here so the forwarding task does not retain it.
     func activate(
         _ makeStream: () -> AsyncStream<Value>,
-        sink: @escaping @MainActor (Value) -> Void
+        sink: @escaping @MainActor @Sendable (Value) -> Void
     ) {
-        guard task == nil else { return }
+        guard claimActivation() else { return }
         let stream = makeStream()
-        task = Task { @MainActor in
+        let task = Task {
             for await value in stream {
                 if Task.isCancelled { break }
-                sink(value)
+                await sink(value)
             }
         }
+        install(task)
     }
 
     /// Starts forwarding an asynchronously-created stream into `sink`.
@@ -58,15 +67,30 @@ final class SettingReadDriver<Value: Sendable> {
         _ makeStream: @escaping @MainActor @Sendable () async -> AsyncStream<Value>,
         sink: @escaping @MainActor @Sendable (Value) -> Void
     ) {
-        guard task == nil else { return }
-        task = Task { @MainActor in
+        guard claimActivation() else { return }
+        let task = Task {
             let stream = await makeStream()
             for await value in stream {
                 if Task.isCancelled { break }
-                sink(value)
+                await sink(value)
             }
+        }
+        install(task)
+    }
+
+    private func claimActivation() -> Bool {
+        state.withLock { state in
+            guard !state.isActivated else { return false }
+            state.isActivated = true
+            return true
         }
     }
 
-    deinit { task?.cancel() }
+    private func install(_ task: Task<Void, Never>) {
+        state.withLock { $0.task = task }
+    }
+
+    deinit {
+        state.withLock { $0.task }?.cancel()
+    }
 }

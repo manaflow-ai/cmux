@@ -1,4 +1,5 @@
 import CmuxSettings
+import os
 import SwiftUI
 import Testing
 
@@ -30,5 +31,23 @@ private final class ExclusiveDynamicPropertyBox<Property: DynamicProperty>: @unc
         }.value
 
         #expect(didUpdate)
+    }
+
+    @Test func readDriverActivatesExactlyOnceAcrossConcurrentUpdates() async {
+        let driver = SettingReadDriver<Int>()
+        let activationCount = OSAllocatedUnfairLock(initialState: 0)
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<64 {
+                group.addTask {
+                    driver.activate({
+                        activationCount.withLock { $0 += 1 }
+                        return AsyncStream { $0.finish() }
+                    }) { _ in }
+                }
+            }
+        }
+
+        #expect(activationCount.withLock { $0 } == 1)
     }
 }
