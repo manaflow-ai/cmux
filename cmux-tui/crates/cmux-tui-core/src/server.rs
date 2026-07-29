@@ -2647,6 +2647,11 @@ pub fn connect_existing_until(
     }
 }
 
+#[cfg(any(not(unix), test))]
+fn cleanup_without_stable_identity(path: &Path) {
+    let _ = std::fs::remove_file(path);
+}
+
 /// Identity-coupled ownership of one published local server socket.
 ///
 /// Cleanup removes only the socket inode created by the matching successful
@@ -2694,7 +2699,7 @@ impl PublishedSocket {
         }
         #[cfg(not(unix))]
         {
-            let _ = std::fs::remove_file(&self.path);
+            cleanup_without_stable_identity(&self.path);
         }
     }
 
@@ -6187,6 +6192,28 @@ mod tests {
         assert_eq!(
             default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
             runtime_dir.join("main.sock")
+        );
+    }
+
+    #[test]
+    fn cleanup_without_stable_identity_preserves_a_replacement_path() {
+        let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-unverified-publication-{}-{sequence:x}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("server.sock");
+        std::fs::write(&path, b"original").unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, b"replacement").unwrap();
+
+        cleanup_without_stable_identity(&path);
+
+        let replacement = std::fs::read(&path);
+        let _ = std::fs::remove_file(&path);
+        std::fs::remove_dir(directory).unwrap();
+        assert_eq!(
+            replacement.expect("unverified cleanup removed a replacement publication"),
+            b"replacement"
         );
     }
 
