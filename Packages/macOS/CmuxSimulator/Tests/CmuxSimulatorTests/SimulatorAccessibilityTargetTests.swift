@@ -86,6 +86,22 @@ struct SimulatorAccessibilityTargetTests {
         ).count == 2)
     }
 
+    @Test("Role alone is insufficient to select a target")
+    func rejectsRoleOnlySelector() {
+        let snapshot = makeSnapshot(children: [
+            node(
+                id: "com.apple.settings.general",
+                role: "Button",
+                label: "General",
+                frame: SimulatorRect(x: 16, y: 380, width: 370, height: 52)
+            ),
+        ])
+
+        #expect(snapshot.interactionTargets(
+            label: nil, identifier: nil, role: "Button"
+        ).isEmpty)
+    }
+
     private func makeSnapshot(
         children: [SimulatorAccessibilityNode]
     ) -> SimulatorAccessibilitySnapshot {

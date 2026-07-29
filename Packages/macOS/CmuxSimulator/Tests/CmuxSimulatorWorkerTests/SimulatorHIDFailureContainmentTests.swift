@@ -145,6 +145,45 @@ struct SimulatorHIDFailureContainmentTests {
         ])
     }
 
+    @Test("Timed gestures preserve indivisible nanosecond remainders")
+    @MainActor
+    func timedGestureRemainderPacing() async {
+        let sleeper = RecordingHIDSleeper()
+        let transport = SimulatorHIDTransport(
+            frameworkLoader: SimulatorFrameworkLoader(environment: ["DEVELOPER_DIR": "/tmp"]),
+            sleeper: sleeper,
+            pointerSenderOverride: { _ in true }
+        )
+        let events = [
+            SimulatorPointerEvent(
+                phase: .began,
+                primary: SimulatorPoint(x: 0.5, y: 0.8)
+            ),
+            SimulatorPointerEvent(
+                phase: .moved,
+                primary: SimulatorPoint(x: 0.5, y: 0.6)
+            ),
+            SimulatorPointerEvent(
+                phase: .moved,
+                primary: SimulatorPoint(x: 0.5, y: 0.4)
+            ),
+            SimulatorPointerEvent(
+                phase: .ended,
+                primary: SimulatorPoint(x: 0.5, y: 0.2)
+            ),
+        ]
+
+        #expect(await transport.sendGestureSequence(
+            events,
+            totalDurationMilliseconds: 1
+        ))
+        #expect(sleeper.durations == [
+            .nanoseconds(333_334),
+            .nanoseconds(333_333),
+            .nanoseconds(333_333),
+        ])
+    }
+
     @Test("Semantic touch pairs preserve the requested hold")
     @MainActor
     func touchHoldPacing() async {

@@ -825,6 +825,76 @@ struct SimulatorPanelIntegrationTests {
         }
     }
 
+    @Test("Semantic taps recapture after the accessibility display changes")
+    func semanticTapRecapturesAfterDisplayChange() async throws {
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+        let previousOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            workspace.teardownAllPanels()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let device = SimulatorDevice(
+            id: "rotating-semantic-tap",
+            name: "Rotating iPhone",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "type",
+            family: .iPhone,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let client = SimulatorRotatingAccessibilityPaneClient(device: device)
+        let panel = SimulatorPanel(client: client)
+        workspace.panels[panel.id] = panel
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: workspace.id,
+            surfaceID: panel.id,
+            paneID: nil
+        )
+
+        guard case let .started(_, _, receipt) =
+            TerminalController.shared.controlSimulatorBeginOperation(
+                routing: routing,
+                operation: .accessibilityTap(
+                    label: "Continue",
+                    identifier: "continue",
+                    role: "button"
+                )
+            ) else {
+            Issue.record("Expected semantic tap operation to start")
+            return
+        }
+
+        let completion = await Task.detached {
+            receipt.wait(timeout: 3)
+        }.value
+        guard case .success = completion else {
+            Issue.record("Expected semantic tap to recover from the display change")
+            return
+        }
+
+        #expect(await client.accessibilityReadCount == 2)
+        let gesture = try #require(await client.gestureEvents().only)
+        let expectedPoint = SimulatorOrientationGeometry(
+            display: SimulatorRotatingAccessibilityPaneClient.landscapeDisplay
+        ).rawPointerEvent(SimulatorPointerEvent(
+            phase: .began,
+            primary: SimulatorPoint(x: 0.8, y: 0.3)
+        )).primary
+        #expect(gesture.map(\.primary) == [expectedPoint, expectedPoint])
+    }
+
     @Test("Simulator accessibility socket payload preserves axe fields and bounds metadata")
     func accessibilitySocketPayload() throws {
         let node = SimulatorAccessibilityNode(
@@ -911,6 +981,111 @@ private actor SimulatorFeatureFlagPaneClient: SimulatorPaneClient {
     func releaseStop() {
         stopContinuation?.resume()
         stopContinuation = nil
+    }
+}
+
+private actor SimulatorRotatingAccessibilityPaneClient: SimulatorPaneClient {
+    static let portraitDisplay = SimulatorDisplayMetadata(
+        width: 1_200,
+        height: 2_400,
+        orientation: .portrait,
+        scale: 3
+    )
+    static let landscapeDisplay = SimulatorDisplayMetadata(
+        width: 1_200,
+        height: 2_400,
+        orientation: .landscapeLeft,
+        scale: 3
+    )
+
+    private let events = SimulatorWorkerEventStreamSource(
+        maximumBufferedBytes: 16 * 1_024,
+        maximumBufferedEvents: 16,
+        onTermination: {}
+    )
+    private let device: SimulatorDevice
+    private var actions: [SimulatorControlAction] = []
+    private(set) var accessibilityReadCount = 0
+
+    init(device: SimulatorDevice) {
+        self.device = device
+    }
+
+    func discoverDevices() async throws -> [SimulatorDevice] {
+        [device]
+    }
+
+    func synchronizeOrientation(
+        _ orientation: SimulatorOrientation
+    ) async throws -> SimulatorDisplayMetadata? {
+        Self.portraitDisplay
+    }
+
+    func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {
+        let capabilities: Set<SimulatorCapability> = [.accessibility, .touch]
+        _ = await events.continuation.yield(.message(.capabilities(capabilities)))
+        _ = await events.continuation.yield(.message(.capabilitiesHydrated(capabilities)))
+    }
+
+    func shutdownDevice(id: String) async throws {}
+    func subscribe() async -> SimulatorWorkerEventStream { events.stream }
+    func send(_ message: SimulatorWorkerInbound) async {}
+
+    func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
+        actions.append(action)
+        guard case .readAccessibility = action else { return .none }
+        accessibilityReadCount += 1
+        if accessibilityReadCount == 1 {
+            _ = await events.continuation.yield(.message(.display(Self.landscapeDisplay)))
+            try await Task.sleep(for: .milliseconds(25))
+            return .accessibility(Self.snapshot(
+                display: Self.portraitDisplay,
+                buttonFrame: SimulatorRect(x: 60, y: 160, width: 80, height: 80)
+            ))
+        }
+        return .accessibility(Self.snapshot(
+            display: Self.landscapeDisplay,
+            buttonFrame: SimulatorRect(x: 280, y: 200, width: 80, height: 80)
+        ))
+    }
+
+    func invalidateWorker() async {}
+    func stop() async {}
+
+    func gestureEvents() -> [[SimulatorPointerEvent]] {
+        actions.compactMap { action in
+            guard case let .interactive(.gesture(events)) = action else { return nil }
+            return events
+        }
+    }
+
+    private static func snapshot(
+        display: SimulatorDisplayMetadata,
+        buttonFrame: SimulatorRect
+    ) -> SimulatorAccessibilitySnapshot {
+        SimulatorAccessibilitySnapshot(
+            roots: [
+                SimulatorAccessibilityNode(
+                    id: "application",
+                    role: "Application",
+                    label: "Example",
+                    frame: SimulatorRect(x: 0, y: 0, width: 400, height: 800),
+                    isEnabled: true,
+                    children: [
+                        SimulatorAccessibilityNode(
+                            id: "button",
+                            identifier: "continue",
+                            role: "Button",
+                            label: "Continue",
+                            frame: buttonFrame,
+                            isEnabled: true,
+                            children: []
+                        ),
+                    ]
+                ),
+            ],
+            display: display
+        )
     }
 }
 

@@ -37,21 +37,26 @@ struct ControlCommandCoordinatorSimulatorSemanticTapTests {
 
     @Test("Coordinate and accessibility tap inputs cannot be mixed")
     func mixedTapInputs() {
-        let context = FakeSimulatorControlCommandContext()
-        let coordinator = ControlCommandCoordinator(context: context)
+        for coordinates in [
+            ["x": JSONValue.double(0.5), "y": .double(0.5)],
+            ["x1": JSONValue.double(0.5), "y1": .double(0.5)],
+        ] {
+            let context = FakeSimulatorControlCommandContext()
+            let coordinator = ControlCommandCoordinator(context: context)
+            var params = coordinates
+            params["label"] = .string("General")
 
-        guard case let .err(code, _, _) = coordinator.handleSocketWorkerV2(
-            request("simulator.tap", [
-                "x": .double(0.5), "y": .double(0.5), "label": .string("General"),
-            ]),
-            context: context
-        ) else {
-            Issue.record("Expected mixed-input rejection")
-            return
+            guard case let .err(code, _, _) = coordinator.handleSocketWorkerV2(
+                request("simulator.tap", params),
+                context: context
+            ) else {
+                Issue.record("Expected mixed-input rejection for \(coordinates)")
+                continue
+            }
+
+            #expect(code == "invalid_params")
+            #expect(context.lastOperation == nil)
         }
-
-        #expect(code == "invalid_params")
-        #expect(context.lastOperation == nil)
     }
 
     @Test("Role alone is not a unique accessibility selector")

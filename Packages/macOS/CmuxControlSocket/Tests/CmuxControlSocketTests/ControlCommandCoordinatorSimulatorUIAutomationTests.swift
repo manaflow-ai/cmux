@@ -199,6 +199,12 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
             ("simulator.wait_for_ui", [
                 "predicate": .string("focused"),
             ]),
+            ("simulator.button", [
+                "button": .string("launch-missiles"),
+            ]),
+            ("simulator.button", [
+                "button": .string(String(repeating: "h", count: 129)),
+            ]),
         ] {
             let context = FakeSimulatorControlCommandContext()
             let coordinator = ControlCommandCoordinator(context: context)

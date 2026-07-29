@@ -173,6 +173,32 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(scrollView.actions.contains(.swipeWithin))
     }
 
+    @Test("Duplicate refs retain the first lookup record without trapping")
+    func duplicateRefsRetainFirstRecord() throws {
+        let built = try snapshot().uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+        let first = try #require(built.elementRecords.first)
+        let duplicate = SimulatorUIAutomationElementRecord(
+            element: first.element,
+            node: first.node,
+            path: "duplicate",
+            activationPoint: SimulatorPoint(x: 0.9, y: 0.9),
+            viewport: first.viewport,
+            swipeFrame: first.swipeFrame
+        )
+
+        let record = SimulatorUIAutomationSnapshotRecord(
+            snapshot: built.snapshot,
+            elementRecords: [first, duplicate]
+        )
+
+        #expect(record.elementRecords.count == 2)
+        #expect(record.element(ref: first.element.ref)?.path == first.path)
+    }
+
     private func snapshot(
         searchFocused: Bool = true
     ) -> SimulatorAccessibilitySnapshot {
