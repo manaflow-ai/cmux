@@ -742,7 +742,7 @@ actor MobileCoreRPCSession {
     private func startQueuedDemandRecovery(requestID: String) {
         guard !queuedWriteIDs.isEmpty else { return }
         Task { [weak self, taskTimeout, cancelledWriteCompletionGraceNanoseconds] in
-            let waitTask = Task<Void, any Error> {
+            let waitTask = Task<Void, any Error> { [weak self] in
                 await self?.awaitCancelledWriteResolution()
             }
             do {
