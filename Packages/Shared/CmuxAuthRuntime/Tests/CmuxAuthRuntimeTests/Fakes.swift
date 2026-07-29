@@ -119,10 +119,25 @@ actor FakeAuthClient: AuthClient {
         lastRevokedRefreshToken = refreshToken
     }
 
+    /// Mirrors the SDK's likely-valid semantics: a hint equal to
+    /// ``likelyValidAccessToken`` is reused as-is (no "network"), anything else
+    /// forces a mint from the captured refresh token, counted in
+    /// ``mintedAccessTokenCount``.
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? {
+        if let accessToken, accessToken == likelyValidAccessToken {
+            return accessToken
+        }
+        mintedAccessTokenCount += 1
         lastMintedRefreshToken = refreshToken
         return mintedAccessToken ?? accessToken
     }
+
+    /// The one access token the fake "SDK" would deem still valid; `nil` means
+    /// every hint is treated as expired and forces a mint.
+    private(set) var likelyValidAccessToken: String?
+    private(set) var mintedAccessTokenCount = 0
+
+    func setLikelyValidAccessToken(_ token: String?) { likelyValidAccessToken = token }
 }
 
 /// A no-op presentation anchor for OAuth flows in tests.

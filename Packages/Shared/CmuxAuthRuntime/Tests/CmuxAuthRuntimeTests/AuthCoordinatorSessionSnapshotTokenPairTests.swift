@@ -34,15 +34,17 @@ import Testing
         )
     }
 
-    /// The store holds a STALE access token alongside a rotated refresh token,
-    /// exactly as it would the instant after a concurrent force refresh replaced
-    /// the refresh token but before the separately-read access caught up. The
-    /// snapshot must not return that stale access; it must return the access
-    /// minted for the captured refresh token.
+    /// The store holds a STALE (no-longer-valid) access token alongside a
+    /// rotated refresh token, exactly as it would the instant after a
+    /// concurrent force refresh replaced the refresh token but before the
+    /// separately-read access caught up. The snapshot must not return that
+    /// stale access; it must return the access resolved for the captured
+    /// refresh token.
     @Test func snapshotDerivesAccessFromCapturedRefreshTokenNotStaleStoredAccess() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         // `accessToken()` returns the stale token; `refreshToken()` the rotated
-        // one — the torn pair the legacy two-await read would hand back.
+        // one — the torn pair the legacy two-await read would hand back. The
+        // stale token is NOT likely-valid, so the resolution must mint.
         let client = FakeAuthClient(access: "access-old", refresh: "refresh-new", user: user)
         // A mint from the captured refresh yields the coherent access token.
         await client.setMintedAccessToken("access-new")
@@ -57,5 +59,26 @@ import Testing
         #expect(snapshot.refreshToken == "refresh-new")
         // Prove the access token was derived from the captured refresh token.
         #expect(await client.lastMintedRefreshToken == "refresh-new")
+    }
+
+    /// A VALID stored access token is reused as-is: the coherent pair read must
+    /// not require the network when the store already holds a usable pair.
+    /// Forcing a mint on every capture made the snapshot (and with it broker
+    /// activation) fail during an offline launch or a Stack outage even though
+    /// valid credentials were sitting in the store.
+    @Test func snapshotReusesValidStoredAccessTokenWithoutMinting() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: "access-ok", refresh: "refresh-1", user: user)
+        // The stored access is still valid — the "SDK" reuses it offline.
+        await client.setLikelyValidAccessToken("access-ok")
+        let coordinator = makeCoordinator(client: client)
+        coordinator.start()
+
+        let snapshot = try await coordinator.authenticatedSessionSnapshot()
+
+        #expect(snapshot.accessToken == "access-ok")
+        #expect(snapshot.refreshToken == "refresh-1")
+        // No network mint happened: the valid stored pair was reused.
+        #expect(await client.mintedAccessTokenCount == 0)
     }
 }

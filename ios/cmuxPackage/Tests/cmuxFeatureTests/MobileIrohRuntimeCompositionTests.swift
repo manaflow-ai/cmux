@@ -1008,9 +1008,10 @@ struct MobileIrohRuntimeCompositionTests {
         let broker = try #require(capture.get())
         // All three bindings of the device were revoked through the broker.
         #expect(await broker.revokedBindingIDs().count == 3)
-        // Exactly ONE token mint pins the whole forget (the up-front session
-        // snapshot). The discovery and the three revokes reuse that pair.
-        #expect(await fixture.authClient.observedMintedAccessTokenCount() - baseline == 1)
+        // ZERO network mints: the up-front snapshot's coherent pair read reuses
+        // the valid stored access token, and the discovery plus the three
+        // revokes reuse that pinned pair.
+        #expect(await fixture.authClient.observedMintedAccessTokenCount() - baseline == 0)
     }
 
     /// Regression: the ACTIVATION broker's credentials are pinned to the
@@ -1781,16 +1782,20 @@ private actor MobileIrohTestAuthClient: AuthClient {
         refresh = nil
     }
     func revokeSession(accessToken _: String?, refreshToken _: String?) {}
-    /// Counts network token mints. `freshAccessToken` is the SDK's "resolve a
-    /// usable access token for this refresh token" call: with no access hint it
-    /// must mint over the network, which is exactly the cost a test wants to
-    /// count when proving an operation reuses its pinned credentials.
+    /// Counts network token mints, mirroring the SDK's likely-valid semantics:
+    /// a hint equal to the fixture's (always-valid) stored access token is
+    /// reused without a mint; anything else forces a counted mint. This is the
+    /// cost a test counts when proving an operation avoids the network while a
+    /// valid stored pair exists.
     func freshAccessToken(
         accessToken: String?,
         refreshToken _: String
     ) -> String? {
+        if let accessToken, accessToken == access {
+            return accessToken
+        }
         mintedAccessTokenCount += 1
-        return accessToken ?? access
+        return access
     }
     func observedMintedAccessTokenCount() -> Int { mintedAccessTokenCount }
     private var mintedAccessTokenCount = 0
