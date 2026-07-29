@@ -167,7 +167,7 @@ func putExpectedRevision(input map[string]any, options MutationOptions) {
 	}
 }
 
-func (c *Client) ListMachines(ctx context.Context, options MachineListOptions) ([]Machine, error) {
+func (c *Client) ListMachines(ctx context.Context, options MachineListOptions) ([]*Machine, error) {
 	var raw json.RawMessage
 	if err := c.do(ctx, wirev1.MachineList, params(options.Extra), "", &raw); err != nil {
 		return nil, err
@@ -176,20 +176,20 @@ func (c *Client) ListMachines(ctx context.Context, options MachineListOptions) (
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Machine, 0, len(snapshots))
+	result := make([]*Machine, 0, len(snapshots))
 	for index := range snapshots {
-		snapshot := snapshots[index]
+		snapshot := &snapshots[index]
 		selector := SelectID(snapshot.ID)
-		result = append(result, Machine{
+		result = append(result, &Machine{
 			client: c, selector: selector,
 			route:    resourceRoute{}.withMachine(selector),
-			snapshot: &snapshot,
+			snapshot: snapshot,
 		})
 	}
 	return result, nil
 }
 
-func (c *Client) FindMachinesByName(ctx context.Context, name string) ([]Machine, error) {
+func (c *Client) FindMachinesByName(ctx context.Context, name string) ([]*Machine, error) {
 	machines, err := c.ListMachines(ctx, MachineListOptions{})
 	if err != nil {
 		return nil, err
@@ -197,8 +197,8 @@ func (c *Client) FindMachinesByName(ctx context.Context, name string) ([]Machine
 	return filterMachines(machines, name), nil
 }
 
-func filterMachines(values []Machine, name string) []Machine {
-	result := make([]Machine, 0)
+func filterMachines(values []*Machine, name string) []*Machine {
+	result := make([]*Machine, 0)
 	for _, value := range values {
 		if snapshot, ok := value.Cached(); ok && snapshot.Name == name {
 			result = append(result, value)
@@ -308,7 +308,7 @@ func (m *Machine) Purge(ctx context.Context, options MachinePurgeOptions) (Mutat
 	)
 }
 
-func (m *Machine) ListSessions(ctx context.Context, options SessionListOptions) ([]Session, error) {
+func (m *Machine) ListSessions(ctx context.Context, options SessionListOptions) ([]*Session, error) {
 	input := m.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
@@ -319,24 +319,24 @@ func (m *Machine) ListSessions(ctx context.Context, options SessionListOptions) 
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Session, 0, len(snapshots))
+	result := make([]*Session, 0, len(snapshots))
 	for index := range snapshots {
-		snapshot := snapshots[index]
+		snapshot := &snapshots[index]
 		selector := SelectID(snapshot.ID)
-		result = append(result, Session{
+		result = append(result, &Session{
 			client: m.client, machine: m.selector, selector: selector,
-			route: m.route.withSession(selector), snapshot: &snapshot,
+			route: m.route.withSession(selector), snapshot: snapshot,
 		})
 	}
 	return result, nil
 }
 
-func (m *Machine) FindSessionsByName(ctx context.Context, name string) ([]Session, error) {
+func (m *Machine) FindSessionsByName(ctx context.Context, name string) ([]*Session, error) {
 	values, err := m.ListSessions(ctx, SessionListOptions{})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Session, 0)
+	result := make([]*Session, 0)
 	for _, value := range values {
 		if snapshot, ok := value.Cached(); ok && optionalNameMatches(snapshot.Name, name) {
 			result = append(result, value)
@@ -560,7 +560,7 @@ func (p *FrontendProjection) Put(ctx context.Context, options FrontendProjection
 	)
 }
 
-func (s *Session) ListWorkspaces(ctx context.Context, options WorkspaceListOptions) ([]Workspace, error) {
+func (s *Session) ListWorkspaces(ctx context.Context, options WorkspaceListOptions) ([]*Workspace, error) {
 	input := s.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
@@ -571,23 +571,23 @@ func (s *Session) ListWorkspaces(ctx context.Context, options WorkspaceListOptio
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Workspace, 0, len(snapshots))
+	result := make([]*Workspace, 0, len(snapshots))
 	for index := range snapshots {
-		snapshot := snapshots[index]
+		snapshot := &snapshots[index]
 		selector := SelectID(snapshot.ID)
-		result = append(result, Workspace{
+		result = append(result, &Workspace{
 			client: s.client, session: s.selector, selector: selector,
-			route: s.route.withWorkspace(selector), snapshot: &snapshot,
+			route: s.route.withWorkspace(selector), snapshot: snapshot,
 		})
 	}
 	return result, nil
 }
-func (s *Session) FindWorkspacesByName(ctx context.Context, name string) ([]Workspace, error) {
+func (s *Session) FindWorkspacesByName(ctx context.Context, name string) ([]*Workspace, error) {
 	values, err := s.ListWorkspaces(ctx, WorkspaceListOptions{})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Workspace, 0)
+	result := make([]*Workspace, 0)
 	for _, value := range values {
 		if snapshot, ok := value.Cached(); ok && snapshot.Name == name {
 			result = append(result, value)
@@ -701,7 +701,7 @@ func decodeValue[T any](raw json.RawMessage, label string) (T, error) {
 	return zero, nil
 }
 
-func (w *Workspace) ListScreens(ctx context.Context, options ScreenListOptions) ([]Screen, error) {
+func (w *Workspace) ListScreens(ctx context.Context, options ScreenListOptions) ([]*Screen, error) {
 	input := w.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
@@ -712,23 +712,23 @@ func (w *Workspace) ListScreens(ctx context.Context, options ScreenListOptions) 
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Screen, 0, len(snapshots))
+	result := make([]*Screen, 0, len(snapshots))
 	for index := range snapshots {
-		snapshot := snapshots[index]
+		snapshot := &snapshots[index]
 		selector := SelectID(snapshot.ID)
-		result = append(result, Screen{
+		result = append(result, &Screen{
 			client: w.client, workspace: w.selector, selector: selector,
-			route: w.route.withScreen(selector), snapshot: &snapshot,
+			route: w.route.withScreen(selector), snapshot: snapshot,
 		})
 	}
 	return result, nil
 }
-func (w *Workspace) FindScreensByName(ctx context.Context, name string) ([]Screen, error) {
+func (w *Workspace) FindScreensByName(ctx context.Context, name string) ([]*Screen, error) {
 	values, err := w.ListScreens(ctx, ScreenListOptions{})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Screen, 0)
+	result := make([]*Screen, 0)
 	for _, value := range values {
 		if snapshot, ok := value.Cached(); ok && optionalNameMatches(snapshot.Name, name) {
 			result = append(result, value)
@@ -784,7 +784,7 @@ func (s *Screen) UndoLayout(ctx context.Context, options ScreenLayoutUndoOptions
 	)
 }
 
-func (s *Screen) ListPanes(ctx context.Context, options PaneListOptions) ([]Pane, error) {
+func (s *Screen) ListPanes(ctx context.Context, options PaneListOptions) ([]*Pane, error) {
 	input := s.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
@@ -795,23 +795,23 @@ func (s *Screen) ListPanes(ctx context.Context, options PaneListOptions) ([]Pane
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Pane, 0, len(snapshots))
+	result := make([]*Pane, 0, len(snapshots))
 	for index := range snapshots {
-		snapshot := snapshots[index]
+		snapshot := &snapshots[index]
 		selector := SelectID(snapshot.ID)
-		result = append(result, Pane{
+		result = append(result, &Pane{
 			client: s.client, screen: s.selector, selector: selector,
-			route: s.route.withPane(selector), snapshot: &snapshot,
+			route: s.route.withPane(selector), snapshot: snapshot,
 		})
 	}
 	return result, nil
 }
-func (s *Screen) FindPanesByName(ctx context.Context, name string) ([]Pane, error) {
+func (s *Screen) FindPanesByName(ctx context.Context, name string) ([]*Pane, error) {
 	values, err := s.ListPanes(ctx, PaneListOptions{})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Pane, 0)
+	result := make([]*Pane, 0)
 	for _, value := range values {
 		if snapshot, ok := value.Cached(); ok && optionalNameMatches(snapshot.Name, name) {
 			result = append(result, value)
@@ -957,7 +957,7 @@ func (p *Pane) Run(ctx context.Context, options PaneRunOptions) (MutationResult[
 	return p.client.created(ctx, wirev1.PaneRun, input, options.MutationOptions)
 }
 
-func (p *Pane) ListTabs(ctx context.Context, options TabListOptions) ([]Tab, error) {
+func (p *Pane) ListTabs(ctx context.Context, options TabListOptions) ([]*Tab, error) {
 	input := p.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
@@ -968,23 +968,23 @@ func (p *Pane) ListTabs(ctx context.Context, options TabListOptions) ([]Tab, err
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Tab, 0, len(snapshots))
+	result := make([]*Tab, 0, len(snapshots))
 	for index := range snapshots {
-		snapshot := snapshots[index]
+		snapshot := &snapshots[index]
 		selector := SelectID(snapshot.ID)
-		result = append(result, Tab{
+		result = append(result, &Tab{
 			client: p.client, pane: p.selector, selector: selector,
-			route: p.route.withTab(selector), snapshot: &snapshot,
+			route: p.route.withTab(selector), snapshot: snapshot,
 		})
 	}
 	return result, nil
 }
-func (p *Pane) FindTabsByName(ctx context.Context, name string) ([]Tab, error) {
+func (p *Pane) FindTabsByName(ctx context.Context, name string) ([]*Tab, error) {
 	values, err := p.ListTabs(ctx, TabListOptions{})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Tab, 0)
+	result := make([]*Tab, 0)
 	for _, value := range values {
 		if snapshot, ok := value.Cached(); ok && optionalNameMatches(snapshot.Name, name) {
 			result = append(result, value)
@@ -1056,7 +1056,7 @@ func (t *Tab) Close(ctx context.Context, options TabCloseOptions) (MutationResul
 	)
 }
 
-func (s *Session) ListTerminals(ctx context.Context, options TerminalListOptions) ([]Terminal, error) {
+func (s *Session) ListTerminals(ctx context.Context, options TerminalListOptions) ([]*Terminal, error) {
 	input := s.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
@@ -1067,23 +1067,23 @@ func (s *Session) ListTerminals(ctx context.Context, options TerminalListOptions
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Terminal, 0, len(snapshots))
+	result := make([]*Terminal, 0, len(snapshots))
 	for index := range snapshots {
-		snapshot := snapshots[index]
+		snapshot := &snapshots[index]
 		selector := SelectID(snapshot.ID)
-		result = append(result, Terminal{
+		result = append(result, &Terminal{
 			client: s.client, selector: selector,
-			route: s.route.withTerminal(selector), snapshot: &snapshot,
+			route: s.route.withTerminal(selector), snapshot: snapshot,
 		})
 	}
 	return result, nil
 }
-func (s *Session) FindTerminalsByName(ctx context.Context, name string) ([]Terminal, error) {
+func (s *Session) FindTerminalsByName(ctx context.Context, name string) ([]*Terminal, error) {
 	values, err := s.ListTerminals(ctx, TerminalListOptions{})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Terminal, 0)
+	result := make([]*Terminal, 0)
 	for _, value := range values {
 		if snapshot, ok := value.Cached(); ok && snapshot.Title == name {
 			result = append(result, value)
@@ -1269,7 +1269,7 @@ func (t *Terminal) Close(ctx context.Context, options TerminalCloseOptions) (Mut
 	)
 }
 
-func (s *Session) ListBrowsers(ctx context.Context, options BrowserListOptions) ([]Browser, error) {
+func (s *Session) ListBrowsers(ctx context.Context, options BrowserListOptions) ([]*Browser, error) {
 	input := s.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
@@ -1280,23 +1280,23 @@ func (s *Session) ListBrowsers(ctx context.Context, options BrowserListOptions) 
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Browser, 0, len(snapshots))
+	result := make([]*Browser, 0, len(snapshots))
 	for index := range snapshots {
-		snapshot := snapshots[index]
+		snapshot := &snapshots[index]
 		selector := SelectID(snapshot.ID)
-		result = append(result, Browser{
+		result = append(result, &Browser{
 			client: s.client, selector: selector,
-			route: s.route.withBrowser(selector), snapshot: &snapshot,
+			route: s.route.withBrowser(selector), snapshot: snapshot,
 		})
 	}
 	return result, nil
 }
-func (s *Session) FindBrowsersByName(ctx context.Context, name string) ([]Browser, error) {
+func (s *Session) FindBrowsersByName(ctx context.Context, name string) ([]*Browser, error) {
 	values, err := s.ListBrowsers(ctx, BrowserListOptions{})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Browser, 0)
+	result := make([]*Browser, 0)
 	for _, value := range values {
 		if snapshot, ok := value.Cached(); ok && snapshot.Title == name {
 			result = append(result, value)
