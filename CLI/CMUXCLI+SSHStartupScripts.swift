@@ -362,7 +362,7 @@ extension CMUXCLI {
             "cmux_ssh_auth_retry_limit=\(authRetryPolicy.maximumConsecutiveTransientFailures); cmux_ssh_auth_retry=0",
             // Initial transient foreground-auth failures are a reconnect phase, so boot-time outages share this loop.
             "cmux_ssh_reauth_required=\(hasOneTimeCommand ? 1 : 0)",
-            "CMUX_SSH_CHILD_PID=; CMUX_SSH_AUTH_PID=",
+            "CMUX_SSH_CHILD_PID=; CMUX_SSH_AUTH_PID=; CMUX_SSH_PENDING_SIGNAL=; CMUX_SSH_PENDING_SIGNAL_NAME=",
         ] + backoffBuilder.stateInitializationLines + [
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleCleanup); }",
