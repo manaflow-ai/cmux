@@ -55,8 +55,12 @@ struct ConnectionStatusToastPresenter: ViewModifier {
                 requiresReauth: store.connectionRequiresReauth,
                 recoveryFailed: usesForegroundConnection && store.connectionRecoveryFailed,
                 isRecovering: usesForegroundConnection && store.isRecoveringConnection,
+                // With no selected workspace, follow the list policy rather
+                // than the raw foreground status: hidden-computers-only
+                // deliberately reads .connected so no toast advertises a
+                // Reconnect that cannot reach any visible Mac.
                 workspaceStatus: store.selectedWorkspace?.macConnectionStatus
-                    ?? store.macConnectionStatus
+                    ?? store.workspaceListConnectionStatus
             )
         )
     }
