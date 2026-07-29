@@ -1,22 +1,25 @@
+// Generated from cmux-tui/spec/sdk-schema.json. DO NOT EDIT.
 package com.cmux.raw;
 
-public enum TerminalKey {
+import java.util.Objects;
+
+public enum TerminalKey implements WireEnum {
     UNIDENTIFIED("unidentified"),
     BACKQUOTE("backquote"),
     BACKSLASH("backslash"),
     BRACKET_LEFT("bracket-left"),
     BRACKET_RIGHT("bracket-right"),
     COMMA("comma"),
-    DIGIT_0("digit0"),
-    DIGIT_1("digit1"),
-    DIGIT_2("digit2"),
-    DIGIT_3("digit3"),
-    DIGIT_4("digit4"),
-    DIGIT_5("digit5"),
-    DIGIT_6("digit6"),
-    DIGIT_7("digit7"),
-    DIGIT_8("digit8"),
-    DIGIT_9("digit9"),
+    DIGIT0("digit0"),
+    DIGIT1("digit1"),
+    DIGIT2("digit2"),
+    DIGIT3("digit3"),
+    DIGIT4("digit4"),
+    DIGIT5("digit5"),
+    DIGIT6("digit6"),
+    DIGIT7("digit7"),
+    DIGIT8("digit8"),
+    DIGIT9("digit9"),
     EQUAL("equal"),
     A("a"),
     B("b"),
@@ -63,16 +66,16 @@ public enum TerminalKey {
     ARROW_LEFT("arrow-left"),
     ARROW_RIGHT("arrow-right"),
     ARROW_UP("arrow-up"),
-    NUMPAD_0("numpad0"),
-    NUMPAD_1("numpad1"),
-    NUMPAD_2("numpad2"),
-    NUMPAD_3("numpad3"),
-    NUMPAD_4("numpad4"),
-    NUMPAD_5("numpad5"),
-    NUMPAD_6("numpad6"),
-    NUMPAD_7("numpad7"),
-    NUMPAD_8("numpad8"),
-    NUMPAD_9("numpad9"),
+    NUMPAD0("numpad0"),
+    NUMPAD1("numpad1"),
+    NUMPAD2("numpad2"),
+    NUMPAD3("numpad3"),
+    NUMPAD4("numpad4"),
+    NUMPAD5("numpad5"),
+    NUMPAD6("numpad6"),
+    NUMPAD7("numpad7"),
+    NUMPAD8("numpad8"),
+    NUMPAD9("numpad9"),
     NUMPAD_ADD("numpad-add"),
     NUMPAD_BACKSPACE("numpad-backspace"),
     NUMPAD_COMMA("numpad-comma"),
@@ -115,13 +118,28 @@ public enum TerminalKey {
     F19("f19"),
     F20("f20");
 
-    private final String wireName;
+    private final Object wireValue;
 
-    TerminalKey(String wireName) {
-        this.wireName = wireName;
+    TerminalKey(Object wireValue) {
+        this.wireValue = wireValue;
     }
 
-    public String wireName() {
-        return wireName;
+    @Override
+    public String wireValue() {
+        return String.valueOf(wireValue);
+    }
+
+    public Object rawWireValue() {
+        return wireValue;
+    }
+
+    public static TerminalKey fromWire(Object value) {
+        for (TerminalKey candidate : values()) {
+            if (Objects.equals(candidate.wireValue, value)
+                    || Objects.equals(String.valueOf(candidate.wireValue), value)) {
+                return candidate;
+            }
+        }
+        throw new CmuxDecodeException("unknown TerminalKey value " + value, null);
     }
 }

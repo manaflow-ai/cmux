@@ -1,8 +1,6 @@
 // Generated from cmux-tui/spec/sdk-schema.json. DO NOT EDIT.
 package com.cmux.raw;
 
-import com.cmux.raw.WireEnum;
-
 public enum Authority implements WireEnum {
     CONTROL("control"),
     FRONTEND("frontend"),

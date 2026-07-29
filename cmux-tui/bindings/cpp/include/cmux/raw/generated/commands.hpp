@@ -52,6 +52,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_navigate(const BrowserNavigateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_reload(const BrowserReloadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel(const BrowserWheelRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_pane(const ClosePaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> close_provider_managed_workspace(const CloseProviderManagedWorkspaceRequest& request, RequestOptions options = {});
@@ -80,6 +81,7 @@ public:
     [[nodiscard]] Result<WorkspaceMutationResult> move_workspace(const MoveWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_browser_tab(const NewBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_pane(const NewPaneRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<SurfaceResult> new_pane_right(const NewPaneRightRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_screen(const NewScreenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_tab(const NewTabRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_workspace(const NewWorkspaceRequest& request = {}, RequestOptions options = {});
@@ -114,6 +116,7 @@ public:
     [[nodiscard]] Result<EmptyResult> set_default_colors(const SetDefaultColorsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_ratio(const SetRatioRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_split_ratio(const SetSplitRatioRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> set_viewport_pane_width(const SetViewportPaneWidthRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_window_title(const SetWindowTitleRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ShutdownDaemonResult> shutdown_daemon(const ShutdownDaemonRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SidebarPluginResult> sidebar_plugin(const SidebarPluginRequest& request, RequestOptions options = {});
@@ -121,6 +124,7 @@ public:
     [[nodiscard]] Result<EventStream> subscribe(const SubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> swap_pane(const SwapPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<LayoutUndoResult> undo_layout(const UndoLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<VtStateResult> vt_state(const VtStateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WaitForResult> wait_for(const WaitForRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ZoomPaneResult> zoom_pane(const ZoomPaneRequest& request = {}, RequestOptions options = {});

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR d5b3f1b4afa1f85602b7de0c6e91dcbd390a9d802f46a4ad65b15298b158ee43. */
+/* cmux-tui mux protocol 10, IR 5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "d5b3f1b4afa1f85602b7de0c6e91dcbd390a9d802f46a4ad65b15298b158ee43" as const;
+export const SDK_IR_SHA256 = "5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -882,7 +882,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 8,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "transaction": {
+        "since": 9,
+        "capability": "layout-undo-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -890,7 +895,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 9,
     "capability": "viewport-column-resize-v1",
-    "fields": {},
+    "fields": {
+      "transaction": {
+        "since": 9,
+        "capability": "layout-undo-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "width must be finite."
@@ -7886,9 +7896,11 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "transaction": {
+          "capability": "layout-undo-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",
+          "since": 9,
           "type": {
             "kind": "scalar",
             "name": "uint64"
@@ -7915,9 +7927,11 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "transaction": {
+          "capability": "layout-undo-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",
+          "since": 9,
           "type": {
             "kind": "scalar",
             "name": "uint64"

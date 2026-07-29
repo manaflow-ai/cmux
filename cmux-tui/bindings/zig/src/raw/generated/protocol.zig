@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96";
+pub const ir_sha256 = "5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -404,6 +404,45 @@ pub const Layout = union(enum) {
         }
         return error.UnknownUnionVariant;
     }
+};
+
+pub const LayoutUndoConfirmationRequired = struct {
+    closes_panes: []const Id,
+    confirmation_required: bool,
+    revision: u64,
+    screen: Id,
+    undone: bool,
+};
+
+pub const LayoutUndoResult = union(enum) {
+    layout_undo_undone: LayoutUndoUndone,
+    layout_undo_confirmation_required: LayoutUndoConfirmationRequired,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .layout_undo_undone => |payload| try wire.encodeValue(allocator, payload),
+            .layout_undo_confirmation_required => |payload| try wire.encodeValue(allocator, payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        _ = allocator;
+        _ = value;
+        return error.AmbiguousUnion;
+    }
+};
+
+pub const LayoutUndoUndone = struct {
+    confirmation_required: ?bool = null,
+    revision: u64,
+    screen: Id,
+    undone: bool,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "confirmation_required",
+    };
 };
 
 pub const ListAgentsResult = struct {
@@ -816,6 +855,395 @@ pub const TerminalEventsResult = struct {
     terminal_revision: u64,
 };
 
+pub const TerminalKey = enum {
+    unidentified,
+    backquote,
+    backslash,
+    bracket_left,
+    bracket_right,
+    comma,
+    digit0,
+    digit1,
+    digit2,
+    digit3,
+    digit4,
+    digit5,
+    digit6,
+    digit7,
+    digit8,
+    digit9,
+    equal,
+    a,
+    b,
+    c,
+    d,
+    e,
+    f,
+    g,
+    h,
+    i,
+    j,
+    k,
+    l,
+    m,
+    n,
+    o,
+    p,
+    q,
+    r,
+    s,
+    t,
+    u,
+    v,
+    w,
+    x,
+    y,
+    z,
+    minus,
+    period,
+    quote,
+    semicolon,
+    slash,
+    backspace,
+    enter,
+    space,
+    tab,
+    delete,
+    end,
+    home,
+    insert,
+    page_down,
+    page_up,
+    arrow_down,
+    arrow_left,
+    arrow_right,
+    arrow_up,
+    numpad0,
+    numpad1,
+    numpad2,
+    numpad3,
+    numpad4,
+    numpad5,
+    numpad6,
+    numpad7,
+    numpad8,
+    numpad9,
+    numpad_add,
+    numpad_backspace,
+    numpad_comma,
+    numpad_decimal,
+    numpad_divide,
+    numpad_enter,
+    numpad_equal,
+    numpad_multiply,
+    numpad_subtract,
+    numpad_up,
+    numpad_down,
+    numpad_right,
+    numpad_left,
+    numpad_begin,
+    numpad_home,
+    numpad_end,
+    numpad_insert,
+    numpad_delete,
+    numpad_page_up,
+    numpad_page_down,
+    escape,
+    f1,
+    f2,
+    f3,
+    f4,
+    f5,
+    f6,
+    f7,
+    f8,
+    f9,
+    f10,
+    f11,
+    f12,
+    f13,
+    f14,
+    f15,
+    f16,
+    f17,
+    f18,
+    f19,
+    f20,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "unidentified")) return .unidentified;
+        if (std.mem.eql(u8, value, "backquote")) return .backquote;
+        if (std.mem.eql(u8, value, "backslash")) return .backslash;
+        if (std.mem.eql(u8, value, "bracket-left")) return .bracket_left;
+        if (std.mem.eql(u8, value, "bracket-right")) return .bracket_right;
+        if (std.mem.eql(u8, value, "comma")) return .comma;
+        if (std.mem.eql(u8, value, "digit0")) return .digit0;
+        if (std.mem.eql(u8, value, "digit1")) return .digit1;
+        if (std.mem.eql(u8, value, "digit2")) return .digit2;
+        if (std.mem.eql(u8, value, "digit3")) return .digit3;
+        if (std.mem.eql(u8, value, "digit4")) return .digit4;
+        if (std.mem.eql(u8, value, "digit5")) return .digit5;
+        if (std.mem.eql(u8, value, "digit6")) return .digit6;
+        if (std.mem.eql(u8, value, "digit7")) return .digit7;
+        if (std.mem.eql(u8, value, "digit8")) return .digit8;
+        if (std.mem.eql(u8, value, "digit9")) return .digit9;
+        if (std.mem.eql(u8, value, "equal")) return .equal;
+        if (std.mem.eql(u8, value, "a")) return .a;
+        if (std.mem.eql(u8, value, "b")) return .b;
+        if (std.mem.eql(u8, value, "c")) return .c;
+        if (std.mem.eql(u8, value, "d")) return .d;
+        if (std.mem.eql(u8, value, "e")) return .e;
+        if (std.mem.eql(u8, value, "f")) return .f;
+        if (std.mem.eql(u8, value, "g")) return .g;
+        if (std.mem.eql(u8, value, "h")) return .h;
+        if (std.mem.eql(u8, value, "i")) return .i;
+        if (std.mem.eql(u8, value, "j")) return .j;
+        if (std.mem.eql(u8, value, "k")) return .k;
+        if (std.mem.eql(u8, value, "l")) return .l;
+        if (std.mem.eql(u8, value, "m")) return .m;
+        if (std.mem.eql(u8, value, "n")) return .n;
+        if (std.mem.eql(u8, value, "o")) return .o;
+        if (std.mem.eql(u8, value, "p")) return .p;
+        if (std.mem.eql(u8, value, "q")) return .q;
+        if (std.mem.eql(u8, value, "r")) return .r;
+        if (std.mem.eql(u8, value, "s")) return .s;
+        if (std.mem.eql(u8, value, "t")) return .t;
+        if (std.mem.eql(u8, value, "u")) return .u;
+        if (std.mem.eql(u8, value, "v")) return .v;
+        if (std.mem.eql(u8, value, "w")) return .w;
+        if (std.mem.eql(u8, value, "x")) return .x;
+        if (std.mem.eql(u8, value, "y")) return .y;
+        if (std.mem.eql(u8, value, "z")) return .z;
+        if (std.mem.eql(u8, value, "minus")) return .minus;
+        if (std.mem.eql(u8, value, "period")) return .period;
+        if (std.mem.eql(u8, value, "quote")) return .quote;
+        if (std.mem.eql(u8, value, "semicolon")) return .semicolon;
+        if (std.mem.eql(u8, value, "slash")) return .slash;
+        if (std.mem.eql(u8, value, "backspace")) return .backspace;
+        if (std.mem.eql(u8, value, "enter")) return .enter;
+        if (std.mem.eql(u8, value, "space")) return .space;
+        if (std.mem.eql(u8, value, "tab")) return .tab;
+        if (std.mem.eql(u8, value, "delete")) return .delete;
+        if (std.mem.eql(u8, value, "end")) return .end;
+        if (std.mem.eql(u8, value, "home")) return .home;
+        if (std.mem.eql(u8, value, "insert")) return .insert;
+        if (std.mem.eql(u8, value, "page-down")) return .page_down;
+        if (std.mem.eql(u8, value, "page-up")) return .page_up;
+        if (std.mem.eql(u8, value, "arrow-down")) return .arrow_down;
+        if (std.mem.eql(u8, value, "arrow-left")) return .arrow_left;
+        if (std.mem.eql(u8, value, "arrow-right")) return .arrow_right;
+        if (std.mem.eql(u8, value, "arrow-up")) return .arrow_up;
+        if (std.mem.eql(u8, value, "numpad0")) return .numpad0;
+        if (std.mem.eql(u8, value, "numpad1")) return .numpad1;
+        if (std.mem.eql(u8, value, "numpad2")) return .numpad2;
+        if (std.mem.eql(u8, value, "numpad3")) return .numpad3;
+        if (std.mem.eql(u8, value, "numpad4")) return .numpad4;
+        if (std.mem.eql(u8, value, "numpad5")) return .numpad5;
+        if (std.mem.eql(u8, value, "numpad6")) return .numpad6;
+        if (std.mem.eql(u8, value, "numpad7")) return .numpad7;
+        if (std.mem.eql(u8, value, "numpad8")) return .numpad8;
+        if (std.mem.eql(u8, value, "numpad9")) return .numpad9;
+        if (std.mem.eql(u8, value, "numpad-add")) return .numpad_add;
+        if (std.mem.eql(u8, value, "numpad-backspace")) return .numpad_backspace;
+        if (std.mem.eql(u8, value, "numpad-comma")) return .numpad_comma;
+        if (std.mem.eql(u8, value, "numpad-decimal")) return .numpad_decimal;
+        if (std.mem.eql(u8, value, "numpad-divide")) return .numpad_divide;
+        if (std.mem.eql(u8, value, "numpad-enter")) return .numpad_enter;
+        if (std.mem.eql(u8, value, "numpad-equal")) return .numpad_equal;
+        if (std.mem.eql(u8, value, "numpad-multiply")) return .numpad_multiply;
+        if (std.mem.eql(u8, value, "numpad-subtract")) return .numpad_subtract;
+        if (std.mem.eql(u8, value, "numpad-up")) return .numpad_up;
+        if (std.mem.eql(u8, value, "numpad-down")) return .numpad_down;
+        if (std.mem.eql(u8, value, "numpad-right")) return .numpad_right;
+        if (std.mem.eql(u8, value, "numpad-left")) return .numpad_left;
+        if (std.mem.eql(u8, value, "numpad-begin")) return .numpad_begin;
+        if (std.mem.eql(u8, value, "numpad-home")) return .numpad_home;
+        if (std.mem.eql(u8, value, "numpad-end")) return .numpad_end;
+        if (std.mem.eql(u8, value, "numpad-insert")) return .numpad_insert;
+        if (std.mem.eql(u8, value, "numpad-delete")) return .numpad_delete;
+        if (std.mem.eql(u8, value, "numpad-page-up")) return .numpad_page_up;
+        if (std.mem.eql(u8, value, "numpad-page-down")) return .numpad_page_down;
+        if (std.mem.eql(u8, value, "escape")) return .escape;
+        if (std.mem.eql(u8, value, "f1")) return .f1;
+        if (std.mem.eql(u8, value, "f2")) return .f2;
+        if (std.mem.eql(u8, value, "f3")) return .f3;
+        if (std.mem.eql(u8, value, "f4")) return .f4;
+        if (std.mem.eql(u8, value, "f5")) return .f5;
+        if (std.mem.eql(u8, value, "f6")) return .f6;
+        if (std.mem.eql(u8, value, "f7")) return .f7;
+        if (std.mem.eql(u8, value, "f8")) return .f8;
+        if (std.mem.eql(u8, value, "f9")) return .f9;
+        if (std.mem.eql(u8, value, "f10")) return .f10;
+        if (std.mem.eql(u8, value, "f11")) return .f11;
+        if (std.mem.eql(u8, value, "f12")) return .f12;
+        if (std.mem.eql(u8, value, "f13")) return .f13;
+        if (std.mem.eql(u8, value, "f14")) return .f14;
+        if (std.mem.eql(u8, value, "f15")) return .f15;
+        if (std.mem.eql(u8, value, "f16")) return .f16;
+        if (std.mem.eql(u8, value, "f17")) return .f17;
+        if (std.mem.eql(u8, value, "f18")) return .f18;
+        if (std.mem.eql(u8, value, "f19")) return .f19;
+        if (std.mem.eql(u8, value, "f20")) return .f20;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .unidentified => "unidentified",
+            .backquote => "backquote",
+            .backslash => "backslash",
+            .bracket_left => "bracket-left",
+            .bracket_right => "bracket-right",
+            .comma => "comma",
+            .digit0 => "digit0",
+            .digit1 => "digit1",
+            .digit2 => "digit2",
+            .digit3 => "digit3",
+            .digit4 => "digit4",
+            .digit5 => "digit5",
+            .digit6 => "digit6",
+            .digit7 => "digit7",
+            .digit8 => "digit8",
+            .digit9 => "digit9",
+            .equal => "equal",
+            .a => "a",
+            .b => "b",
+            .c => "c",
+            .d => "d",
+            .e => "e",
+            .f => "f",
+            .g => "g",
+            .h => "h",
+            .i => "i",
+            .j => "j",
+            .k => "k",
+            .l => "l",
+            .m => "m",
+            .n => "n",
+            .o => "o",
+            .p => "p",
+            .q => "q",
+            .r => "r",
+            .s => "s",
+            .t => "t",
+            .u => "u",
+            .v => "v",
+            .w => "w",
+            .x => "x",
+            .y => "y",
+            .z => "z",
+            .minus => "minus",
+            .period => "period",
+            .quote => "quote",
+            .semicolon => "semicolon",
+            .slash => "slash",
+            .backspace => "backspace",
+            .enter => "enter",
+            .space => "space",
+            .tab => "tab",
+            .delete => "delete",
+            .end => "end",
+            .home => "home",
+            .insert => "insert",
+            .page_down => "page-down",
+            .page_up => "page-up",
+            .arrow_down => "arrow-down",
+            .arrow_left => "arrow-left",
+            .arrow_right => "arrow-right",
+            .arrow_up => "arrow-up",
+            .numpad0 => "numpad0",
+            .numpad1 => "numpad1",
+            .numpad2 => "numpad2",
+            .numpad3 => "numpad3",
+            .numpad4 => "numpad4",
+            .numpad5 => "numpad5",
+            .numpad6 => "numpad6",
+            .numpad7 => "numpad7",
+            .numpad8 => "numpad8",
+            .numpad9 => "numpad9",
+            .numpad_add => "numpad-add",
+            .numpad_backspace => "numpad-backspace",
+            .numpad_comma => "numpad-comma",
+            .numpad_decimal => "numpad-decimal",
+            .numpad_divide => "numpad-divide",
+            .numpad_enter => "numpad-enter",
+            .numpad_equal => "numpad-equal",
+            .numpad_multiply => "numpad-multiply",
+            .numpad_subtract => "numpad-subtract",
+            .numpad_up => "numpad-up",
+            .numpad_down => "numpad-down",
+            .numpad_right => "numpad-right",
+            .numpad_left => "numpad-left",
+            .numpad_begin => "numpad-begin",
+            .numpad_home => "numpad-home",
+            .numpad_end => "numpad-end",
+            .numpad_insert => "numpad-insert",
+            .numpad_delete => "numpad-delete",
+            .numpad_page_up => "numpad-page-up",
+            .numpad_page_down => "numpad-page-down",
+            .escape => "escape",
+            .f1 => "f1",
+            .f2 => "f2",
+            .f3 => "f3",
+            .f4 => "f4",
+            .f5 => "f5",
+            .f6 => "f6",
+            .f7 => "f7",
+            .f8 => "f8",
+            .f9 => "f9",
+            .f10 => "f10",
+            .f11 => "f11",
+            .f12 => "f12",
+            .f13 => "f13",
+            .f14 => "f14",
+            .f15 => "f15",
+            .f16 => "f16",
+            .f17 => "f17",
+            .f18 => "f18",
+            .f19 => "f19",
+            .f20 => "f20",
+        };
+    }
+};
+
+pub const TerminalKeyAction = enum {
+    press,
+    release,
+    repeat,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "press")) return .press;
+        if (std.mem.eql(u8, value, "release")) return .release;
+        if (std.mem.eql(u8, value, "repeat")) return .repeat;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .press => "press",
+            .release => "release",
+            .repeat => "repeat",
+        };
+    }
+};
+
+pub const TerminalKeyInput = struct {
+    action: wire.Field(TerminalKeyAction) = .absent,
+    base_layout_codepoint: wire.Field([]const u8) = .absent,
+    composing: ?bool = null,
+    consumed_mods: TerminalModifiers,
+    key: TerminalKey,
+    macos_option_as_alt: bool,
+    mods: TerminalModifiers,
+    shifted_codepoint: wire.Field([]const u8) = .absent,
+    unshifted_codepoint: wire.Field([]const u8) = .absent,
+    utf8: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "composing",
+    };
+};
+
 pub const TerminalLifecycle = enum {
     launching,
     adopting,
@@ -841,6 +1269,15 @@ pub const TerminalLifecycle = enum {
             .tombstoned => "tombstoned",
         };
     }
+};
+
+pub const TerminalModifiers = struct {
+    alt: bool,
+    caps_lock: bool,
+    control: bool,
+    num_lock: bool,
+    shift: bool,
+    super: bool,
 };
 
 pub const TerminalPlacement = struct {
@@ -1228,6 +1665,29 @@ pub fn browserWheel(client: anytype, request: BrowserWheelRequest) !wire.Decoded
             .authority = "frontend",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const ClearHistoryRequest = struct {
+    fallback_key: wire.Field(TerminalKeyInput) = .absent,
+    surface: Id,
+};
+
+pub const ClearHistoryResult = EmptyResult;
+
+pub fn clearHistory(client: anytype, request: ClearHistoryRequest) !wire.Decoded(ClearHistoryResult) {
+    return client.callTyped(
+        ClearHistoryResult,
+        .{
+            .name = "clear-history",
+            .authority = "control",
+            .since = 9,
+            .capability = "clear-history-v1",
+            .fields = &.{
+                .{ .name = "fallback_key", .since = 9, .capability = "clear-history-key-v1" },
+            },
         },
         request,
     );
@@ -1850,6 +2310,28 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
             .authority = "control",
             .since = 9,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const NewPaneRightRequest = struct {
+    cols: wire.Field(u16) = .absent,
+    pane: Id,
+    rows: wire.Field(u16) = .absent,
+    width: wire.Field(f32) = .absent,
+};
+
+pub const NewPaneRightResult = SurfaceResult;
+
+pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded(NewPaneRightResult) {
+    return client.callTyped(
+        NewPaneRightResult,
+        .{
+            .name = "new-pane-right",
+            .authority = "control",
+            .since = 9,
+            .capability = "viewport-splits-v1",
         },
         request,
     );
@@ -2574,6 +3056,7 @@ pub fn setRatio(client: anytype, request: SetRatioRequest) !wire.Decoded(SetRati
 pub const SetSplitRatioRequest = struct {
     ratio: f32,
     split: Id,
+    transaction: wire.Field(u64) = .absent,
 };
 
 pub const SetSplitRatioResult = EmptyResult;
@@ -2586,6 +3069,33 @@ pub fn setSplitRatio(client: anytype, request: SetSplitRatioRequest) !wire.Decod
             .authority = "control",
             .since = 8,
             .capability = null,
+            .fields = &.{
+                .{ .name = "transaction", .since = 9, .capability = "layout-undo-v1" },
+            },
+        },
+        request,
+    );
+}
+
+pub const SetViewportPaneWidthRequest = struct {
+    pane: Id,
+    transaction: wire.Field(u64) = .absent,
+    width: f32,
+};
+
+pub const SetViewportPaneWidthResult = EmptyResult;
+
+pub fn setViewportPaneWidth(client: anytype, request: SetViewportPaneWidthRequest) !wire.Decoded(SetViewportPaneWidthResult) {
+    return client.callTyped(
+        SetViewportPaneWidthResult,
+        .{
+            .name = "set-viewport-pane-width",
+            .authority = "control",
+            .since = 9,
+            .capability = "viewport-column-resize-v1",
+            .fields = &.{
+                .{ .name = "transaction", .since = 9, .capability = "layout-undo-v1" },
+            },
         },
         request,
     );
@@ -2752,6 +3262,31 @@ pub fn terminalEvents(client: anytype, request: TerminalEventsRequest) !wire.Dec
             .authority = "control",
             .since = 9,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const UndoLayoutRequest = struct {
+    confirm_close: ?bool = null,
+    pane: Id,
+    revision: wire.Field(u64) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "confirm_close",
+    };
+};
+
+pub const UndoLayoutResult = LayoutUndoResult;
+
+pub fn undoLayout(client: anytype, request: UndoLayoutRequest) !wire.Decoded(UndoLayoutResult) {
+    return client.callTyped(
+        UndoLayoutResult,
+        .{
+            .name = "undo-layout",
+            .authority = "control",
+            .since = 9,
+            .capability = "layout-undo-v1",
         },
         request,
     );
@@ -3597,7 +4132,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 83;
+pub const command_count: usize = 87;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -3610,6 +4145,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-navigate", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-reload", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
+    .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
     .{ .name = "clear-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "close-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-provider-managed-workspace", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
@@ -3638,6 +4174,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-pane", .authority = "control", .since = 9, .capability = null, .stream = null },
+    .{ .name = "new-pane-right", .authority = "control", .since = 9, .capability = "viewport-splits-v1", .stream = null },
     .{ .name = "new-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -3672,6 +4209,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-ratio", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
+    .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "shutdown-daemon", .authority = "local-admin", .since = 9, .capability = null, .stream = null },
     .{ .name = "sidebar-plugin", .authority = "frontend", .since = 6, .capability = null, .stream = null },
@@ -3679,6 +4217,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "subscribe", .authority = "frontend", .since = 5, .capability = null, .stream = "subscribe" },
     .{ .name = "swap-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
+    .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "zoom-pane", .authority = "control", .since = 6, .capability = null, .stream = null },

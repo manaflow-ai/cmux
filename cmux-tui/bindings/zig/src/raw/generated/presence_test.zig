@@ -26,6 +26,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SetDefaultColorsRequest, "complete");
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
+    try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
     try expectExplicitNullRejected(protocol.OutputEvent, "colors");
@@ -51,6 +52,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
     try expectExplicitNullRejected(protocol.IdentifyResult, "capabilities");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split");
+    try expectExplicitNullRejected(protocol.LayoutUndoUndone, "confirmation_required");
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
     try expectExplicitNullRejected(protocol.RenderRun, "underline");
@@ -58,6 +60,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.Screen, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
     try expectExplicitNullRejected(protocol.TerminalColors, "palette");
+    try expectExplicitNullRejected(protocol.TerminalKeyInput, "composing");
     try expectExplicitNullRejected(protocol.Tree, "generation");
     try expectExplicitNullRejected(protocol.Tree, "pane_revision");
     try expectExplicitNullRejected(protocol.Tree, "registry_id");

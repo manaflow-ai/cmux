@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = 'd5b3f1b4afa1f85602b7de0c6e91dcbd390a9d802f46a4ad65b15298b158ee43'
+IR_SHA256 = '5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223'
 
 
 @dataclass(frozen=True)
@@ -1008,7 +1008,7 @@ COMMANDS = {
         {
             'ratio': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, None),
-            'transaction': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
         },
     ),
     'set-viewport-pane-width': CommandMetadata(
@@ -1020,7 +1020,7 @@ COMMANDS = {
         None,
         {
             'pane': CommandFieldMetadata(None, None),
-            'transaction': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
             'width': CommandFieldMetadata(None, None),
         },
     ),

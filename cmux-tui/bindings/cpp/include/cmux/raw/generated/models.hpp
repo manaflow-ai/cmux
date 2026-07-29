@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96";
+inline constexpr std::string_view kProtocolIrSha256 = "5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -46,6 +46,9 @@ struct IdentifyResult;
 struct IdsResult;
 struct JsonValue;
 struct Layout;
+struct LayoutUndoConfirmationRequired;
+struct LayoutUndoResult;
+struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
@@ -80,7 +83,11 @@ struct SurfaceResult;
 struct Tab;
 struct TerminalColors;
 struct TerminalEventsResult;
+enum class TerminalKey;
+enum class TerminalKeyAction;
+struct TerminalKeyInput;
 enum class TerminalLifecycle;
+struct TerminalModifiers;
 struct TerminalPlacement;
 struct TerminalRecord;
 struct TerminalRegistryEvent;
@@ -101,6 +108,7 @@ struct BrowserMouseRequest;
 struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
 struct BrowserWheelRequest;
+struct ClearHistoryRequest;
 struct ClearWindowTitleRequest;
 struct ClosePaneRequest;
 struct CloseProviderManagedWorkspaceRequest;
@@ -130,6 +138,7 @@ struct MoveTerminalRequest;
 struct MoveWorkspaceRequest;
 struct NewBrowserTabRequest;
 struct NewPaneRequest;
+struct NewPaneRightRequest;
 struct NewScreenRequest;
 struct NewTabRequest;
 struct NewWorkspaceRequest;
@@ -165,6 +174,7 @@ struct SetClientSizingRequest;
 struct SetDefaultColorsRequest;
 struct SetRatioRequest;
 struct SetSplitRatioRequest;
+struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct ShutdownDaemonRequest;
 struct SidebarPluginRequest;
@@ -172,6 +182,7 @@ struct SplitRequest;
 struct SubscribeRequest;
 struct SwapPaneRequest;
 struct TerminalEventsRequest;
+struct UndoLayoutRequest;
 struct VtStateRequest;
 struct WaitForRequest;
 struct ZoomPaneRequest;
@@ -459,6 +470,158 @@ struct CellPixelResize {
     std::uint16_t rows{};
     Id surface{};
     friend bool operator==(const CellPixelResize&, const CellPixelResize&) = default;
+};
+
+enum class TerminalKey {
+    unidentified,
+    backquote,
+    backslash,
+    bracket_left,
+    bracket_right,
+    comma,
+    digit0,
+    digit1,
+    digit2,
+    digit3,
+    digit4,
+    digit5,
+    digit6,
+    digit7,
+    digit8,
+    digit9,
+    equal,
+    a,
+    b,
+    c,
+    d,
+    e,
+    f,
+    g,
+    h,
+    i,
+    j,
+    k,
+    l,
+    m,
+    n,
+    o,
+    p,
+    q,
+    r,
+    s,
+    t,
+    u,
+    v,
+    w,
+    x,
+    y,
+    z,
+    minus,
+    period,
+    quote,
+    semicolon,
+    slash,
+    backspace,
+    enter,
+    space,
+    tab,
+    delete_,
+    end,
+    home,
+    insert,
+    page_down,
+    page_up,
+    arrow_down,
+    arrow_left,
+    arrow_right,
+    arrow_up,
+    numpad0,
+    numpad1,
+    numpad2,
+    numpad3,
+    numpad4,
+    numpad5,
+    numpad6,
+    numpad7,
+    numpad8,
+    numpad9,
+    numpad_add,
+    numpad_backspace,
+    numpad_comma,
+    numpad_decimal,
+    numpad_divide,
+    numpad_enter,
+    numpad_equal,
+    numpad_multiply,
+    numpad_subtract,
+    numpad_up,
+    numpad_down,
+    numpad_right,
+    numpad_left,
+    numpad_begin,
+    numpad_home,
+    numpad_end,
+    numpad_insert,
+    numpad_delete,
+    numpad_page_up,
+    numpad_page_down,
+    escape,
+    f1,
+    f2,
+    f3,
+    f4,
+    f5,
+    f6,
+    f7,
+    f8,
+    f9,
+    f10,
+    f11,
+    f12,
+    f13,
+    f14,
+    f15,
+    f16,
+    f17,
+    f18,
+    f19,
+    f20,
+};
+
+enum class TerminalKeyAction {
+    press,
+    release,
+    repeat,
+};
+
+struct TerminalModifiers {
+    bool alt{};
+    bool caps_lock{};
+    bool control{};
+    bool num_lock{};
+    bool shift{};
+    bool super{};
+    friend bool operator==(const TerminalModifiers&, const TerminalModifiers&) = default;
+};
+
+struct TerminalKeyInput {
+    Field<TerminalKeyAction> action{};
+    Field<std::string> base_layout_codepoint{};
+    std::optional<bool> composing{};
+    TerminalModifiers consumed_mods{};
+    TerminalKey key{};
+    bool macos_option_as_alt{};
+    TerminalModifiers mods{};
+    Field<std::string> shifted_codepoint{};
+    Field<std::string> unshifted_codepoint{};
+    std::string utf8{};
+    friend bool operator==(const TerminalKeyInput&, const TerminalKeyInput&) = default;
+};
+
+struct ClearHistoryRequest {
+    Field<TerminalKeyInput> fallback_key{};
+    Id surface{};
+    friend bool operator==(const ClearHistoryRequest&, const ClearHistoryRequest&) = default;
 };
 
 struct ClearWindowTitleRequest {
@@ -838,6 +1001,26 @@ struct LayoutChangedEvent {
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
 };
 
+struct LayoutUndoConfirmationRequired {
+    std::vector<Id> closes_panes{};
+    std::uint64_t revision{};
+    Id screen{};
+    friend bool operator==(const LayoutUndoConfirmationRequired&, const LayoutUndoConfirmationRequired&) = default;
+};
+
+struct LayoutUndoUndone {
+    std::optional<bool> confirmation_required{};
+    std::uint64_t revision{};
+    Id screen{};
+    friend bool operator==(const LayoutUndoUndone&, const LayoutUndoUndone&) = default;
+};
+
+struct LayoutUndoResult {
+    using Variant = std::variant<LayoutUndoUndone, LayoutUndoConfirmationRequired>;
+    Variant value{};
+    friend bool operator==(const LayoutUndoResult&, const LayoutUndoResult&) = default;
+};
+
 struct ListAgentsRequest {
     Field<AgentState> state{};
     Field<Id> surface{};
@@ -1035,6 +1218,14 @@ struct NewPaneRequest {
     Id pane{};
     Field<std::uint16_t> rows{};
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
+};
+
+struct NewPaneRightRequest {
+    Field<std::uint16_t> cols{};
+    Id pane{};
+    Field<std::uint16_t> rows{};
+    Field<float> width{};
+    friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
 };
 
 struct NewScreenRequest {
@@ -1549,7 +1740,15 @@ struct SetRatioRequest {
 struct SetSplitRatioRequest {
     float ratio{};
     Id split{};
+    Field<std::uint64_t> transaction{};
     friend bool operator==(const SetSplitRatioRequest&, const SetSplitRatioRequest&) = default;
+};
+
+struct SetViewportPaneWidthRequest {
+    Id pane{};
+    Field<std::uint64_t> transaction{};
+    float width{};
+    friend bool operator==(const SetViewportPaneWidthRequest&, const SetViewportPaneWidthRequest&) = default;
 };
 
 struct SetWindowTitleRequest {
@@ -1753,6 +1952,13 @@ struct Tree {
 
 struct TreeChangedEvent {
     friend bool operator==(const TreeChangedEvent&, const TreeChangedEvent&) = default;
+};
+
+struct UndoLayoutRequest {
+    std::optional<bool> confirm_close{};
+    Id pane{};
+    Field<std::uint64_t> revision{};
+    friend bool operator==(const UndoLayoutRequest&, const UndoLayoutRequest&) = default;
 };
 
 struct VtStateEvent {
@@ -2053,6 +2259,24 @@ struct Codec<Layout> {
 };
 
 template <>
+struct Codec<LayoutUndoConfirmationRequired> {
+    static Result<Json> encode(const LayoutUndoConfirmationRequired& value);
+    static Result<LayoutUndoConfirmationRequired> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutUndoResult> {
+    static Result<Json> encode(const LayoutUndoResult& value);
+    static Result<LayoutUndoResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutUndoUndone> {
+    static Result<Json> encode(const LayoutUndoUndone& value);
+    static Result<LayoutUndoUndone> decode(const Json& value);
+};
+
+template <>
 struct Codec<ListAgentsResult> {
     static Result<Json> encode(const ListAgentsResult& value);
     static Result<ListAgentsResult> decode(const Json& value);
@@ -2257,9 +2481,33 @@ struct Codec<TerminalEventsResult> {
 };
 
 template <>
+struct Codec<TerminalKey> {
+    static Result<Json> encode(const TerminalKey& value);
+    static Result<TerminalKey> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalKeyAction> {
+    static Result<Json> encode(const TerminalKeyAction& value);
+    static Result<TerminalKeyAction> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalKeyInput> {
+    static Result<Json> encode(const TerminalKeyInput& value);
+    static Result<TerminalKeyInput> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalLifecycle> {
     static Result<Json> encode(const TerminalLifecycle& value);
     static Result<TerminalLifecycle> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalModifiers> {
+    static Result<Json> encode(const TerminalModifiers& value);
+    static Result<TerminalModifiers> decode(const Json& value);
 };
 
 template <>
@@ -2380,6 +2628,12 @@ template <>
 struct Codec<BrowserWheelRequest> {
     static Result<Json> encode(const BrowserWheelRequest& value);
     static Result<BrowserWheelRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClearHistoryRequest> {
+    static Result<Json> encode(const ClearHistoryRequest& value);
+    static Result<ClearHistoryRequest> decode(const Json& value);
 };
 
 template <>
@@ -2554,6 +2808,12 @@ template <>
 struct Codec<NewPaneRequest> {
     static Result<Json> encode(const NewPaneRequest& value);
     static Result<NewPaneRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<NewPaneRightRequest> {
+    static Result<Json> encode(const NewPaneRightRequest& value);
+    static Result<NewPaneRightRequest> decode(const Json& value);
 };
 
 template <>
@@ -2767,6 +3027,12 @@ struct Codec<SetSplitRatioRequest> {
 };
 
 template <>
+struct Codec<SetViewportPaneWidthRequest> {
+    static Result<Json> encode(const SetViewportPaneWidthRequest& value);
+    static Result<SetViewportPaneWidthRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetWindowTitleRequest> {
     static Result<Json> encode(const SetWindowTitleRequest& value);
     static Result<SetWindowTitleRequest> decode(const Json& value);
@@ -2806,6 +3072,12 @@ template <>
 struct Codec<TerminalEventsRequest> {
     static Result<Json> encode(const TerminalEventsRequest& value);
     static Result<TerminalEventsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UndoLayoutRequest> {
+    static Result<Json> encode(const UndoLayoutRequest& value);
+    static Result<UndoLayoutRequest> decode(const Json& value);
 };
 
 template <>

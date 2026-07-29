@@ -2,8 +2,6 @@
 package com.cmux.raw;
 
 
-import com.cmux.raw.CmuxDecodeException;
-import com.cmux.raw.Wire;
 import java.util.Map;
 
 
@@ -11,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "0.4.0";
     public static final int VERSION = 10;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96";
+    public static final String IR_SHA256 = "5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {

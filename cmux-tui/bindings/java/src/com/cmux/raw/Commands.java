@@ -21,6 +21,7 @@ public final class Commands {
     public static final CommandMetadata BROWSER_NAVIGATE = new CommandMetadata("browser-navigate", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_RELOAD = new CommandMetadata("browser-reload", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_WHEEL = new CommandMetadata("browser-wheel", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLEAR_HISTORY = new CommandMetadata("clear-history", Authority.CONTROL, 9, "clear-history-v1", StreamKind.NONE, Map.ofEntries(Map.entry("fallback_key", 9L)), Map.ofEntries(Map.entry("fallback_key", "clear-history-key-v1")));
     public static final CommandMetadata CLEAR_WINDOW_TITLE = new CommandMetadata("clear-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_PANE = new CommandMetadata("close-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_PROVIDER_MANAGED_WORKSPACE = new CommandMetadata("close-provider-managed-workspace", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
@@ -49,6 +50,7 @@ public final class Commands {
     public static final CommandMetadata MOVE_WORKSPACE = new CommandMetadata("move-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("key", "workspace-registry-v1")));
     public static final CommandMetadata NEW_BROWSER_TAB = new CommandMetadata("new-browser-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_PANE = new CommandMetadata("new-pane", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata NEW_PANE_RIGHT = new CommandMetadata("new-pane-right", Authority.CONTROL, 9, "viewport-splits-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_SCREEN = new CommandMetadata("new-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_TAB = new CommandMetadata("new-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
@@ -82,7 +84,8 @@ public final class Commands {
     public static final CommandMetadata SET_CLIENT_SIZING = new CommandMetadata("set-client-sizing", Authority.CONTROL, 10, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_DEFAULT_COLORS = new CommandMetadata("set-default-colors", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("complete", 9L), Map.entry("cursor", 9L), Map.entry("cursor_blink", 9L), Map.entry("cursor_style", 9L), Map.entry("palette", 9L), Map.entry("selection_bg", 9L), Map.entry("selection_fg", 9L)), Map.of());
     public static final CommandMetadata SET_RATIO = new CommandMetadata("set-ratio", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SET_SPLIT_RATIO = new CommandMetadata("set-split-ratio", Authority.CONTROL, 8, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_SPLIT_RATIO = new CommandMetadata("set-split-ratio", Authority.CONTROL, 8, null, StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
+    public static final CommandMetadata SET_VIEWPORT_PANE_WIDTH = new CommandMetadata("set-viewport-pane-width", Authority.CONTROL, 9, "viewport-column-resize-v1", StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
     public static final CommandMetadata SET_WINDOW_TITLE = new CommandMetadata("set-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SHUTDOWN_DAEMON = new CommandMetadata("shutdown-daemon", Authority.LOCAL_ADMIN, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SIDEBAR_PLUGIN = new CommandMetadata("sidebar-plugin", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -90,6 +93,7 @@ public final class Commands {
     public static final CommandMetadata SUBSCRIBE = new CommandMetadata("subscribe", Authority.FRONTEND, 5, null, StreamKind.SUBSCRIBE, Map.ofEntries(Map.entry("surface", 9L), Map.entry("tree_events", 7L)), Map.ofEntries(Map.entry("surface", "surface-subscribe-filter")));
     public static final CommandMetadata SWAP_PANE = new CommandMetadata("swap-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata UNDO_LAYOUT = new CommandMetadata("undo-layout", Authority.CONTROL, 9, "layout-undo-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata VT_STATE = new CommandMetadata("vt-state", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata WAIT_FOR = new CommandMetadata("wait-for", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ZOOM_PANE = new CommandMetadata("zoom-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -108,6 +112,7 @@ public final class Commands {
         values.put("browser-navigate", BROWSER_NAVIGATE);
         values.put("browser-reload", BROWSER_RELOAD);
         values.put("browser-wheel", BROWSER_WHEEL);
+        values.put("clear-history", CLEAR_HISTORY);
         values.put("clear-window-title", CLEAR_WINDOW_TITLE);
         values.put("close-pane", CLOSE_PANE);
         values.put("close-provider-managed-workspace", CLOSE_PROVIDER_MANAGED_WORKSPACE);
@@ -136,6 +141,7 @@ public final class Commands {
         values.put("move-workspace", MOVE_WORKSPACE);
         values.put("new-browser-tab", NEW_BROWSER_TAB);
         values.put("new-pane", NEW_PANE);
+        values.put("new-pane-right", NEW_PANE_RIGHT);
         values.put("new-screen", NEW_SCREEN);
         values.put("new-tab", NEW_TAB);
         values.put("new-workspace", NEW_WORKSPACE);
@@ -170,6 +176,7 @@ public final class Commands {
         values.put("set-default-colors", SET_DEFAULT_COLORS);
         values.put("set-ratio", SET_RATIO);
         values.put("set-split-ratio", SET_SPLIT_RATIO);
+        values.put("set-viewport-pane-width", SET_VIEWPORT_PANE_WIDTH);
         values.put("set-window-title", SET_WINDOW_TITLE);
         values.put("shutdown-daemon", SHUTDOWN_DAEMON);
         values.put("sidebar-plugin", SIDEBAR_PLUGIN);
@@ -177,6 +184,7 @@ public final class Commands {
         values.put("subscribe", SUBSCRIBE);
         values.put("swap-pane", SWAP_PANE);
         values.put("terminal-events", TERMINAL_EVENTS);
+        values.put("undo-layout", UNDO_LAYOUT);
         values.put("vt-state", VT_STATE);
         values.put("wait-for", WAIT_FOR);
         values.put("zoom-pane", ZOOM_PANE);

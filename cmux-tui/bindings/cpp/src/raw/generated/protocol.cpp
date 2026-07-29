@@ -1349,6 +1349,151 @@ Result<Layout> Codec<Layout>::decode(const Json& value) {
     return make_error(ErrorCode::decode, "unknown Layout tag");
 }
 
+Result<Json> Codec<LayoutUndoConfirmationRequired>::encode(const LayoutUndoConfirmationRequired& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_closes_panes = encode_value(value.closes_panes);
+    if (!encoded_closes_panes) return std::move(encoded_closes_panes).error();
+    object.emplace("closes_panes", std::move(encoded_closes_panes).value());
+    object.emplace("confirmation_required", Json(true));
+    auto encoded_revision = encode_value(value.revision);
+    if (!encoded_revision) return std::move(encoded_revision).error();
+    object.emplace("revision", std::move(encoded_revision).value());
+    auto encoded_screen = encode_value(value.screen);
+    if (!encoded_screen) return std::move(encoded_screen).error();
+    object.emplace("screen", std::move(encoded_screen).value());
+    object.emplace("undone", Json(false));
+    return Json(std::move(object));
+}
+
+Result<LayoutUndoConfirmationRequired> Codec<LayoutUndoConfirmationRequired>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    LayoutUndoConfirmationRequired result{};
+    const Json* field_closes_panes = value.find("closes_panes");
+    if (!field_closes_panes) {
+        return make_error(ErrorCode::decode, "missing required field 'closes_panes'");
+    }
+    if (field_closes_panes) {
+        auto decoded = decode_value<std::vector<Id>>(*field_closes_panes);
+        if (!decoded) return std::move(decoded).error();
+        result.closes_panes = std::move(decoded).value();
+    }
+    const Json* field_confirmation_required = value.find("confirmation_required");
+    if (!field_confirmation_required) {
+        return make_error(ErrorCode::decode, "missing required field 'confirmation_required'");
+    }
+    if (field_confirmation_required) {
+        if (*field_confirmation_required != Json(true)) {
+            return make_error(ErrorCode::decode, "field 'confirmation_required' has the wrong literal value");
+        }
+    }
+    const Json* field_revision = value.find("revision");
+    if (!field_revision) {
+        return make_error(ErrorCode::decode, "missing required field 'revision'");
+    }
+    if (field_revision) {
+        auto decoded = decode_value<std::uint64_t>(*field_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.revision = std::move(decoded).value();
+    }
+    const Json* field_screen = value.find("screen");
+    if (!field_screen) {
+        return make_error(ErrorCode::decode, "missing required field 'screen'");
+    }
+    if (field_screen) {
+        auto decoded = decode_value<Id>(*field_screen);
+        if (!decoded) return std::move(decoded).error();
+        result.screen = std::move(decoded).value();
+    }
+    const Json* field_undone = value.find("undone");
+    if (!field_undone) {
+        return make_error(ErrorCode::decode, "missing required field 'undone'");
+    }
+    if (field_undone) {
+        if (*field_undone != Json(false)) {
+            return make_error(ErrorCode::decode, "field 'undone' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<LayoutUndoResult>::encode(const LayoutUndoResult& value) {
+    return encode_value(value.value);
+}
+
+Result<LayoutUndoResult> Codec<LayoutUndoResult>::decode(const Json& value) {
+    if (auto decoded = decode_value<LayoutUndoUndone>(value); decoded) {
+        return LayoutUndoResult{LayoutUndoResult::Variant(std::move(decoded).value())};
+    }
+    if (auto decoded = decode_value<LayoutUndoConfirmationRequired>(value); decoded) {
+        return LayoutUndoResult{LayoutUndoResult::Variant(std::move(decoded).value())};
+    }
+    return make_error(ErrorCode::decode, "value did not match any LayoutUndoResult variant");
+}
+
+Result<Json> Codec<LayoutUndoUndone>::encode(const LayoutUndoUndone& value) {
+    (void)value;
+    Json::Object object;
+    if (value.confirmation_required) {
+        auto encoded = encode_value(*value.confirmation_required);
+        if (!encoded) return std::move(encoded).error();
+        if (encoded.value() != Json(false)) {
+            return make_error(ErrorCode::invalid_argument, "field 'confirmation_required' has the wrong literal value");
+        }
+        object.emplace("confirmation_required", std::move(encoded).value());
+    }
+    auto encoded_revision = encode_value(value.revision);
+    if (!encoded_revision) return std::move(encoded_revision).error();
+    object.emplace("revision", std::move(encoded_revision).value());
+    auto encoded_screen = encode_value(value.screen);
+    if (!encoded_screen) return std::move(encoded_screen).error();
+    object.emplace("screen", std::move(encoded_screen).value());
+    object.emplace("undone", Json(true));
+    return Json(std::move(object));
+}
+
+Result<LayoutUndoUndone> Codec<LayoutUndoUndone>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    LayoutUndoUndone result{};
+    const Json* field_confirmation_required = value.find("confirmation_required");
+    if (field_confirmation_required) {
+        if (*field_confirmation_required != Json(false)) {
+            return make_error(ErrorCode::decode, "field 'confirmation_required' has the wrong literal value");
+        }
+        result.confirmation_required = false;
+    }
+    const Json* field_revision = value.find("revision");
+    if (!field_revision) {
+        return make_error(ErrorCode::decode, "missing required field 'revision'");
+    }
+    if (field_revision) {
+        auto decoded = decode_value<std::uint64_t>(*field_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.revision = std::move(decoded).value();
+    }
+    const Json* field_screen = value.find("screen");
+    if (!field_screen) {
+        return make_error(ErrorCode::decode, "missing required field 'screen'");
+    }
+    if (field_screen) {
+        auto decoded = decode_value<Id>(*field_screen);
+        if (!decoded) return std::move(decoded).error();
+        result.screen = std::move(decoded).value();
+    }
+    const Json* field_undone = value.find("undone");
+    if (!field_undone) {
+        return make_error(ErrorCode::decode, "missing required field 'undone'");
+    }
+    if (field_undone) {
+        if (*field_undone != Json(true)) {
+            return make_error(ErrorCode::decode, "field 'undone' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<ListAgentsResult>::encode(const ListAgentsResult& value) {
     (void)value;
     Json::Object object;
@@ -3688,6 +3833,402 @@ Result<TerminalEventsResult> Codec<TerminalEventsResult>::decode(const Json& val
     return result;
 }
 
+Result<Json> Codec<TerminalKey>::encode(const TerminalKey& value) {
+    switch (value) {
+        case TerminalKey::unidentified: return Json(std::string("unidentified"));
+        case TerminalKey::backquote: return Json(std::string("backquote"));
+        case TerminalKey::backslash: return Json(std::string("backslash"));
+        case TerminalKey::bracket_left: return Json(std::string("bracket-left"));
+        case TerminalKey::bracket_right: return Json(std::string("bracket-right"));
+        case TerminalKey::comma: return Json(std::string("comma"));
+        case TerminalKey::digit0: return Json(std::string("digit0"));
+        case TerminalKey::digit1: return Json(std::string("digit1"));
+        case TerminalKey::digit2: return Json(std::string("digit2"));
+        case TerminalKey::digit3: return Json(std::string("digit3"));
+        case TerminalKey::digit4: return Json(std::string("digit4"));
+        case TerminalKey::digit5: return Json(std::string("digit5"));
+        case TerminalKey::digit6: return Json(std::string("digit6"));
+        case TerminalKey::digit7: return Json(std::string("digit7"));
+        case TerminalKey::digit8: return Json(std::string("digit8"));
+        case TerminalKey::digit9: return Json(std::string("digit9"));
+        case TerminalKey::equal: return Json(std::string("equal"));
+        case TerminalKey::a: return Json(std::string("a"));
+        case TerminalKey::b: return Json(std::string("b"));
+        case TerminalKey::c: return Json(std::string("c"));
+        case TerminalKey::d: return Json(std::string("d"));
+        case TerminalKey::e: return Json(std::string("e"));
+        case TerminalKey::f: return Json(std::string("f"));
+        case TerminalKey::g: return Json(std::string("g"));
+        case TerminalKey::h: return Json(std::string("h"));
+        case TerminalKey::i: return Json(std::string("i"));
+        case TerminalKey::j: return Json(std::string("j"));
+        case TerminalKey::k: return Json(std::string("k"));
+        case TerminalKey::l: return Json(std::string("l"));
+        case TerminalKey::m: return Json(std::string("m"));
+        case TerminalKey::n: return Json(std::string("n"));
+        case TerminalKey::o: return Json(std::string("o"));
+        case TerminalKey::p: return Json(std::string("p"));
+        case TerminalKey::q: return Json(std::string("q"));
+        case TerminalKey::r: return Json(std::string("r"));
+        case TerminalKey::s: return Json(std::string("s"));
+        case TerminalKey::t: return Json(std::string("t"));
+        case TerminalKey::u: return Json(std::string("u"));
+        case TerminalKey::v: return Json(std::string("v"));
+        case TerminalKey::w: return Json(std::string("w"));
+        case TerminalKey::x: return Json(std::string("x"));
+        case TerminalKey::y: return Json(std::string("y"));
+        case TerminalKey::z: return Json(std::string("z"));
+        case TerminalKey::minus: return Json(std::string("minus"));
+        case TerminalKey::period: return Json(std::string("period"));
+        case TerminalKey::quote: return Json(std::string("quote"));
+        case TerminalKey::semicolon: return Json(std::string("semicolon"));
+        case TerminalKey::slash: return Json(std::string("slash"));
+        case TerminalKey::backspace: return Json(std::string("backspace"));
+        case TerminalKey::enter: return Json(std::string("enter"));
+        case TerminalKey::space: return Json(std::string("space"));
+        case TerminalKey::tab: return Json(std::string("tab"));
+        case TerminalKey::delete_: return Json(std::string("delete"));
+        case TerminalKey::end: return Json(std::string("end"));
+        case TerminalKey::home: return Json(std::string("home"));
+        case TerminalKey::insert: return Json(std::string("insert"));
+        case TerminalKey::page_down: return Json(std::string("page-down"));
+        case TerminalKey::page_up: return Json(std::string("page-up"));
+        case TerminalKey::arrow_down: return Json(std::string("arrow-down"));
+        case TerminalKey::arrow_left: return Json(std::string("arrow-left"));
+        case TerminalKey::arrow_right: return Json(std::string("arrow-right"));
+        case TerminalKey::arrow_up: return Json(std::string("arrow-up"));
+        case TerminalKey::numpad0: return Json(std::string("numpad0"));
+        case TerminalKey::numpad1: return Json(std::string("numpad1"));
+        case TerminalKey::numpad2: return Json(std::string("numpad2"));
+        case TerminalKey::numpad3: return Json(std::string("numpad3"));
+        case TerminalKey::numpad4: return Json(std::string("numpad4"));
+        case TerminalKey::numpad5: return Json(std::string("numpad5"));
+        case TerminalKey::numpad6: return Json(std::string("numpad6"));
+        case TerminalKey::numpad7: return Json(std::string("numpad7"));
+        case TerminalKey::numpad8: return Json(std::string("numpad8"));
+        case TerminalKey::numpad9: return Json(std::string("numpad9"));
+        case TerminalKey::numpad_add: return Json(std::string("numpad-add"));
+        case TerminalKey::numpad_backspace: return Json(std::string("numpad-backspace"));
+        case TerminalKey::numpad_comma: return Json(std::string("numpad-comma"));
+        case TerminalKey::numpad_decimal: return Json(std::string("numpad-decimal"));
+        case TerminalKey::numpad_divide: return Json(std::string("numpad-divide"));
+        case TerminalKey::numpad_enter: return Json(std::string("numpad-enter"));
+        case TerminalKey::numpad_equal: return Json(std::string("numpad-equal"));
+        case TerminalKey::numpad_multiply: return Json(std::string("numpad-multiply"));
+        case TerminalKey::numpad_subtract: return Json(std::string("numpad-subtract"));
+        case TerminalKey::numpad_up: return Json(std::string("numpad-up"));
+        case TerminalKey::numpad_down: return Json(std::string("numpad-down"));
+        case TerminalKey::numpad_right: return Json(std::string("numpad-right"));
+        case TerminalKey::numpad_left: return Json(std::string("numpad-left"));
+        case TerminalKey::numpad_begin: return Json(std::string("numpad-begin"));
+        case TerminalKey::numpad_home: return Json(std::string("numpad-home"));
+        case TerminalKey::numpad_end: return Json(std::string("numpad-end"));
+        case TerminalKey::numpad_insert: return Json(std::string("numpad-insert"));
+        case TerminalKey::numpad_delete: return Json(std::string("numpad-delete"));
+        case TerminalKey::numpad_page_up: return Json(std::string("numpad-page-up"));
+        case TerminalKey::numpad_page_down: return Json(std::string("numpad-page-down"));
+        case TerminalKey::escape: return Json(std::string("escape"));
+        case TerminalKey::f1: return Json(std::string("f1"));
+        case TerminalKey::f2: return Json(std::string("f2"));
+        case TerminalKey::f3: return Json(std::string("f3"));
+        case TerminalKey::f4: return Json(std::string("f4"));
+        case TerminalKey::f5: return Json(std::string("f5"));
+        case TerminalKey::f6: return Json(std::string("f6"));
+        case TerminalKey::f7: return Json(std::string("f7"));
+        case TerminalKey::f8: return Json(std::string("f8"));
+        case TerminalKey::f9: return Json(std::string("f9"));
+        case TerminalKey::f10: return Json(std::string("f10"));
+        case TerminalKey::f11: return Json(std::string("f11"));
+        case TerminalKey::f12: return Json(std::string("f12"));
+        case TerminalKey::f13: return Json(std::string("f13"));
+        case TerminalKey::f14: return Json(std::string("f14"));
+        case TerminalKey::f15: return Json(std::string("f15"));
+        case TerminalKey::f16: return Json(std::string("f16"));
+        case TerminalKey::f17: return Json(std::string("f17"));
+        case TerminalKey::f18: return Json(std::string("f18"));
+        case TerminalKey::f19: return Json(std::string("f19"));
+        case TerminalKey::f20: return Json(std::string("f20"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<TerminalKey> Codec<TerminalKey>::decode(const Json& value) {
+    if (value == Json(std::string("unidentified"))) return TerminalKey::unidentified;
+    if (value == Json(std::string("backquote"))) return TerminalKey::backquote;
+    if (value == Json(std::string("backslash"))) return TerminalKey::backslash;
+    if (value == Json(std::string("bracket-left"))) return TerminalKey::bracket_left;
+    if (value == Json(std::string("bracket-right"))) return TerminalKey::bracket_right;
+    if (value == Json(std::string("comma"))) return TerminalKey::comma;
+    if (value == Json(std::string("digit0"))) return TerminalKey::digit0;
+    if (value == Json(std::string("digit1"))) return TerminalKey::digit1;
+    if (value == Json(std::string("digit2"))) return TerminalKey::digit2;
+    if (value == Json(std::string("digit3"))) return TerminalKey::digit3;
+    if (value == Json(std::string("digit4"))) return TerminalKey::digit4;
+    if (value == Json(std::string("digit5"))) return TerminalKey::digit5;
+    if (value == Json(std::string("digit6"))) return TerminalKey::digit6;
+    if (value == Json(std::string("digit7"))) return TerminalKey::digit7;
+    if (value == Json(std::string("digit8"))) return TerminalKey::digit8;
+    if (value == Json(std::string("digit9"))) return TerminalKey::digit9;
+    if (value == Json(std::string("equal"))) return TerminalKey::equal;
+    if (value == Json(std::string("a"))) return TerminalKey::a;
+    if (value == Json(std::string("b"))) return TerminalKey::b;
+    if (value == Json(std::string("c"))) return TerminalKey::c;
+    if (value == Json(std::string("d"))) return TerminalKey::d;
+    if (value == Json(std::string("e"))) return TerminalKey::e;
+    if (value == Json(std::string("f"))) return TerminalKey::f;
+    if (value == Json(std::string("g"))) return TerminalKey::g;
+    if (value == Json(std::string("h"))) return TerminalKey::h;
+    if (value == Json(std::string("i"))) return TerminalKey::i;
+    if (value == Json(std::string("j"))) return TerminalKey::j;
+    if (value == Json(std::string("k"))) return TerminalKey::k;
+    if (value == Json(std::string("l"))) return TerminalKey::l;
+    if (value == Json(std::string("m"))) return TerminalKey::m;
+    if (value == Json(std::string("n"))) return TerminalKey::n;
+    if (value == Json(std::string("o"))) return TerminalKey::o;
+    if (value == Json(std::string("p"))) return TerminalKey::p;
+    if (value == Json(std::string("q"))) return TerminalKey::q;
+    if (value == Json(std::string("r"))) return TerminalKey::r;
+    if (value == Json(std::string("s"))) return TerminalKey::s;
+    if (value == Json(std::string("t"))) return TerminalKey::t;
+    if (value == Json(std::string("u"))) return TerminalKey::u;
+    if (value == Json(std::string("v"))) return TerminalKey::v;
+    if (value == Json(std::string("w"))) return TerminalKey::w;
+    if (value == Json(std::string("x"))) return TerminalKey::x;
+    if (value == Json(std::string("y"))) return TerminalKey::y;
+    if (value == Json(std::string("z"))) return TerminalKey::z;
+    if (value == Json(std::string("minus"))) return TerminalKey::minus;
+    if (value == Json(std::string("period"))) return TerminalKey::period;
+    if (value == Json(std::string("quote"))) return TerminalKey::quote;
+    if (value == Json(std::string("semicolon"))) return TerminalKey::semicolon;
+    if (value == Json(std::string("slash"))) return TerminalKey::slash;
+    if (value == Json(std::string("backspace"))) return TerminalKey::backspace;
+    if (value == Json(std::string("enter"))) return TerminalKey::enter;
+    if (value == Json(std::string("space"))) return TerminalKey::space;
+    if (value == Json(std::string("tab"))) return TerminalKey::tab;
+    if (value == Json(std::string("delete"))) return TerminalKey::delete_;
+    if (value == Json(std::string("end"))) return TerminalKey::end;
+    if (value == Json(std::string("home"))) return TerminalKey::home;
+    if (value == Json(std::string("insert"))) return TerminalKey::insert;
+    if (value == Json(std::string("page-down"))) return TerminalKey::page_down;
+    if (value == Json(std::string("page-up"))) return TerminalKey::page_up;
+    if (value == Json(std::string("arrow-down"))) return TerminalKey::arrow_down;
+    if (value == Json(std::string("arrow-left"))) return TerminalKey::arrow_left;
+    if (value == Json(std::string("arrow-right"))) return TerminalKey::arrow_right;
+    if (value == Json(std::string("arrow-up"))) return TerminalKey::arrow_up;
+    if (value == Json(std::string("numpad0"))) return TerminalKey::numpad0;
+    if (value == Json(std::string("numpad1"))) return TerminalKey::numpad1;
+    if (value == Json(std::string("numpad2"))) return TerminalKey::numpad2;
+    if (value == Json(std::string("numpad3"))) return TerminalKey::numpad3;
+    if (value == Json(std::string("numpad4"))) return TerminalKey::numpad4;
+    if (value == Json(std::string("numpad5"))) return TerminalKey::numpad5;
+    if (value == Json(std::string("numpad6"))) return TerminalKey::numpad6;
+    if (value == Json(std::string("numpad7"))) return TerminalKey::numpad7;
+    if (value == Json(std::string("numpad8"))) return TerminalKey::numpad8;
+    if (value == Json(std::string("numpad9"))) return TerminalKey::numpad9;
+    if (value == Json(std::string("numpad-add"))) return TerminalKey::numpad_add;
+    if (value == Json(std::string("numpad-backspace"))) return TerminalKey::numpad_backspace;
+    if (value == Json(std::string("numpad-comma"))) return TerminalKey::numpad_comma;
+    if (value == Json(std::string("numpad-decimal"))) return TerminalKey::numpad_decimal;
+    if (value == Json(std::string("numpad-divide"))) return TerminalKey::numpad_divide;
+    if (value == Json(std::string("numpad-enter"))) return TerminalKey::numpad_enter;
+    if (value == Json(std::string("numpad-equal"))) return TerminalKey::numpad_equal;
+    if (value == Json(std::string("numpad-multiply"))) return TerminalKey::numpad_multiply;
+    if (value == Json(std::string("numpad-subtract"))) return TerminalKey::numpad_subtract;
+    if (value == Json(std::string("numpad-up"))) return TerminalKey::numpad_up;
+    if (value == Json(std::string("numpad-down"))) return TerminalKey::numpad_down;
+    if (value == Json(std::string("numpad-right"))) return TerminalKey::numpad_right;
+    if (value == Json(std::string("numpad-left"))) return TerminalKey::numpad_left;
+    if (value == Json(std::string("numpad-begin"))) return TerminalKey::numpad_begin;
+    if (value == Json(std::string("numpad-home"))) return TerminalKey::numpad_home;
+    if (value == Json(std::string("numpad-end"))) return TerminalKey::numpad_end;
+    if (value == Json(std::string("numpad-insert"))) return TerminalKey::numpad_insert;
+    if (value == Json(std::string("numpad-delete"))) return TerminalKey::numpad_delete;
+    if (value == Json(std::string("numpad-page-up"))) return TerminalKey::numpad_page_up;
+    if (value == Json(std::string("numpad-page-down"))) return TerminalKey::numpad_page_down;
+    if (value == Json(std::string("escape"))) return TerminalKey::escape;
+    if (value == Json(std::string("f1"))) return TerminalKey::f1;
+    if (value == Json(std::string("f2"))) return TerminalKey::f2;
+    if (value == Json(std::string("f3"))) return TerminalKey::f3;
+    if (value == Json(std::string("f4"))) return TerminalKey::f4;
+    if (value == Json(std::string("f5"))) return TerminalKey::f5;
+    if (value == Json(std::string("f6"))) return TerminalKey::f6;
+    if (value == Json(std::string("f7"))) return TerminalKey::f7;
+    if (value == Json(std::string("f8"))) return TerminalKey::f8;
+    if (value == Json(std::string("f9"))) return TerminalKey::f9;
+    if (value == Json(std::string("f10"))) return TerminalKey::f10;
+    if (value == Json(std::string("f11"))) return TerminalKey::f11;
+    if (value == Json(std::string("f12"))) return TerminalKey::f12;
+    if (value == Json(std::string("f13"))) return TerminalKey::f13;
+    if (value == Json(std::string("f14"))) return TerminalKey::f14;
+    if (value == Json(std::string("f15"))) return TerminalKey::f15;
+    if (value == Json(std::string("f16"))) return TerminalKey::f16;
+    if (value == Json(std::string("f17"))) return TerminalKey::f17;
+    if (value == Json(std::string("f18"))) return TerminalKey::f18;
+    if (value == Json(std::string("f19"))) return TerminalKey::f19;
+    if (value == Json(std::string("f20"))) return TerminalKey::f20;
+    return make_error(ErrorCode::decode, "unknown TerminalKey value");
+}
+
+Result<Json> Codec<TerminalKeyAction>::encode(const TerminalKeyAction& value) {
+    switch (value) {
+        case TerminalKeyAction::press: return Json(std::string("press"));
+        case TerminalKeyAction::release: return Json(std::string("release"));
+        case TerminalKeyAction::repeat: return Json(std::string("repeat"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<TerminalKeyAction> Codec<TerminalKeyAction>::decode(const Json& value) {
+    if (value == Json(std::string("press"))) return TerminalKeyAction::press;
+    if (value == Json(std::string("release"))) return TerminalKeyAction::release;
+    if (value == Json(std::string("repeat"))) return TerminalKeyAction::repeat;
+    return make_error(ErrorCode::decode, "unknown TerminalKeyAction value");
+}
+
+Result<Json> Codec<TerminalKeyInput>::encode(const TerminalKeyInput& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.action.is_absent()) {
+        auto encoded = encode_value(value.action);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("action", std::move(encoded).value());
+    }
+    if (!value.base_layout_codepoint.is_absent()) {
+        auto encoded = encode_value(value.base_layout_codepoint);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("base_layout_codepoint", std::move(encoded).value());
+    }
+    if (value.composing) {
+        auto encoded = encode_value(*value.composing);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("composing", std::move(encoded).value());
+    }
+    auto encoded_consumed_mods = encode_value(value.consumed_mods);
+    if (!encoded_consumed_mods) return std::move(encoded_consumed_mods).error();
+    object.emplace("consumed_mods", std::move(encoded_consumed_mods).value());
+    auto encoded_key = encode_value(value.key);
+    if (!encoded_key) return std::move(encoded_key).error();
+    object.emplace("key", std::move(encoded_key).value());
+    auto encoded_macos_option_as_alt = encode_value(value.macos_option_as_alt);
+    if (!encoded_macos_option_as_alt) return std::move(encoded_macos_option_as_alt).error();
+    object.emplace("macos_option_as_alt", std::move(encoded_macos_option_as_alt).value());
+    auto encoded_mods = encode_value(value.mods);
+    if (!encoded_mods) return std::move(encoded_mods).error();
+    object.emplace("mods", std::move(encoded_mods).value());
+    if (!value.shifted_codepoint.is_absent()) {
+        auto encoded = encode_value(value.shifted_codepoint);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("shifted_codepoint", std::move(encoded).value());
+    }
+    if (!value.unshifted_codepoint.is_absent()) {
+        auto encoded = encode_value(value.unshifted_codepoint);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("unshifted_codepoint", std::move(encoded).value());
+    }
+    auto encoded_utf8 = encode_value(value.utf8);
+    if (!encoded_utf8) return std::move(encoded_utf8).error();
+    object.emplace("utf8", std::move(encoded_utf8).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalKeyInput> Codec<TerminalKeyInput>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalKeyInput result{};
+    const Json* field_action = value.find("action");
+    if (field_action) {
+        if (field_action->is_null()) {
+            result.action = Field<TerminalKeyAction>::null();
+        } else {
+            auto decoded = decode_value<TerminalKeyAction>(*field_action);
+            if (!decoded) return std::move(decoded).error();
+            result.action = Field<TerminalKeyAction>(std::move(decoded).value());
+        }
+    }
+    const Json* field_base_layout_codepoint = value.find("base_layout_codepoint");
+    if (field_base_layout_codepoint) {
+        if (field_base_layout_codepoint->is_null()) {
+            result.base_layout_codepoint = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_base_layout_codepoint);
+            if (!decoded) return std::move(decoded).error();
+            result.base_layout_codepoint = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_composing = value.find("composing");
+    if (field_composing) {
+        auto decoded = decode_value<bool>(*field_composing);
+        if (!decoded) return std::move(decoded).error();
+        result.composing = std::move(decoded).value();
+    }
+    const Json* field_consumed_mods = value.find("consumed_mods");
+    if (!field_consumed_mods) {
+        return make_error(ErrorCode::decode, "missing required field 'consumed_mods'");
+    }
+    if (field_consumed_mods) {
+        auto decoded = decode_value<TerminalModifiers>(*field_consumed_mods);
+        if (!decoded) return std::move(decoded).error();
+        result.consumed_mods = std::move(decoded).value();
+    }
+    const Json* field_key = value.find("key");
+    if (!field_key) {
+        return make_error(ErrorCode::decode, "missing required field 'key'");
+    }
+    if (field_key) {
+        auto decoded = decode_value<TerminalKey>(*field_key);
+        if (!decoded) return std::move(decoded).error();
+        result.key = std::move(decoded).value();
+    }
+    const Json* field_macos_option_as_alt = value.find("macos_option_as_alt");
+    if (!field_macos_option_as_alt) {
+        return make_error(ErrorCode::decode, "missing required field 'macos_option_as_alt'");
+    }
+    if (field_macos_option_as_alt) {
+        auto decoded = decode_value<bool>(*field_macos_option_as_alt);
+        if (!decoded) return std::move(decoded).error();
+        result.macos_option_as_alt = std::move(decoded).value();
+    }
+    const Json* field_mods = value.find("mods");
+    if (!field_mods) {
+        return make_error(ErrorCode::decode, "missing required field 'mods'");
+    }
+    if (field_mods) {
+        auto decoded = decode_value<TerminalModifiers>(*field_mods);
+        if (!decoded) return std::move(decoded).error();
+        result.mods = std::move(decoded).value();
+    }
+    const Json* field_shifted_codepoint = value.find("shifted_codepoint");
+    if (field_shifted_codepoint) {
+        if (field_shifted_codepoint->is_null()) {
+            result.shifted_codepoint = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_shifted_codepoint);
+            if (!decoded) return std::move(decoded).error();
+            result.shifted_codepoint = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_unshifted_codepoint = value.find("unshifted_codepoint");
+    if (field_unshifted_codepoint) {
+        if (field_unshifted_codepoint->is_null()) {
+            result.unshifted_codepoint = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_unshifted_codepoint);
+            if (!decoded) return std::move(decoded).error();
+            result.unshifted_codepoint = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_utf8 = value.find("utf8");
+    if (!field_utf8) {
+        return make_error(ErrorCode::decode, "missing required field 'utf8'");
+    }
+    if (field_utf8) {
+        auto decoded = decode_value<std::string>(*field_utf8);
+        if (!decoded) return std::move(decoded).error();
+        result.utf8 = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalLifecycle>::encode(const TerminalLifecycle& value) {
     switch (value) {
         case TerminalLifecycle::launching: return Json(std::string("launching"));
@@ -3706,6 +4247,91 @@ Result<TerminalLifecycle> Codec<TerminalLifecycle>::decode(const Json& value) {
     if (value == Json(std::string("exited"))) return TerminalLifecycle::exited;
     if (value == Json(std::string("tombstoned"))) return TerminalLifecycle::tombstoned;
     return make_error(ErrorCode::decode, "unknown TerminalLifecycle value");
+}
+
+Result<Json> Codec<TerminalModifiers>::encode(const TerminalModifiers& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_alt = encode_value(value.alt);
+    if (!encoded_alt) return std::move(encoded_alt).error();
+    object.emplace("alt", std::move(encoded_alt).value());
+    auto encoded_caps_lock = encode_value(value.caps_lock);
+    if (!encoded_caps_lock) return std::move(encoded_caps_lock).error();
+    object.emplace("caps_lock", std::move(encoded_caps_lock).value());
+    auto encoded_control = encode_value(value.control);
+    if (!encoded_control) return std::move(encoded_control).error();
+    object.emplace("control", std::move(encoded_control).value());
+    auto encoded_num_lock = encode_value(value.num_lock);
+    if (!encoded_num_lock) return std::move(encoded_num_lock).error();
+    object.emplace("num_lock", std::move(encoded_num_lock).value());
+    auto encoded_shift = encode_value(value.shift);
+    if (!encoded_shift) return std::move(encoded_shift).error();
+    object.emplace("shift", std::move(encoded_shift).value());
+    auto encoded_super = encode_value(value.super);
+    if (!encoded_super) return std::move(encoded_super).error();
+    object.emplace("super", std::move(encoded_super).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalModifiers> Codec<TerminalModifiers>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalModifiers result{};
+    const Json* field_alt = value.find("alt");
+    if (!field_alt) {
+        return make_error(ErrorCode::decode, "missing required field 'alt'");
+    }
+    if (field_alt) {
+        auto decoded = decode_value<bool>(*field_alt);
+        if (!decoded) return std::move(decoded).error();
+        result.alt = std::move(decoded).value();
+    }
+    const Json* field_caps_lock = value.find("caps_lock");
+    if (!field_caps_lock) {
+        return make_error(ErrorCode::decode, "missing required field 'caps_lock'");
+    }
+    if (field_caps_lock) {
+        auto decoded = decode_value<bool>(*field_caps_lock);
+        if (!decoded) return std::move(decoded).error();
+        result.caps_lock = std::move(decoded).value();
+    }
+    const Json* field_control = value.find("control");
+    if (!field_control) {
+        return make_error(ErrorCode::decode, "missing required field 'control'");
+    }
+    if (field_control) {
+        auto decoded = decode_value<bool>(*field_control);
+        if (!decoded) return std::move(decoded).error();
+        result.control = std::move(decoded).value();
+    }
+    const Json* field_num_lock = value.find("num_lock");
+    if (!field_num_lock) {
+        return make_error(ErrorCode::decode, "missing required field 'num_lock'");
+    }
+    if (field_num_lock) {
+        auto decoded = decode_value<bool>(*field_num_lock);
+        if (!decoded) return std::move(decoded).error();
+        result.num_lock = std::move(decoded).value();
+    }
+    const Json* field_shift = value.find("shift");
+    if (!field_shift) {
+        return make_error(ErrorCode::decode, "missing required field 'shift'");
+    }
+    if (field_shift) {
+        auto decoded = decode_value<bool>(*field_shift);
+        if (!decoded) return std::move(decoded).error();
+        result.shift = std::move(decoded).value();
+    }
+    const Json* field_super = value.find("super");
+    if (!field_super) {
+        return make_error(ErrorCode::decode, "missing required field 'super'");
+    }
+    if (field_super) {
+        auto decoded = decode_value<bool>(*field_super);
+        if (!decoded) return std::move(decoded).error();
+        result.super = std::move(decoded).value();
+    }
+    return result;
 }
 
 Result<Json> Codec<TerminalPlacement>::encode(const TerminalPlacement& value) {
@@ -5092,6 +5718,46 @@ Result<BrowserWheelRequest> Codec<BrowserWheelRequest>::decode(const Json& value
         auto decoded = decode_value<double>(*field_y_px);
         if (!decoded) return std::move(decoded).error();
         result.y_px = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ClearHistoryRequest>::encode(const ClearHistoryRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.fallback_key.is_absent()) {
+        auto encoded = encode_value(value.fallback_key);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("fallback_key", std::move(encoded).value());
+    }
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    return Json(std::move(object));
+}
+
+Result<ClearHistoryRequest> Codec<ClearHistoryRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ClearHistoryRequest result{};
+    const Json* field_fallback_key = value.find("fallback_key");
+    if (field_fallback_key) {
+        if (field_fallback_key->is_null()) {
+            result.fallback_key = Field<TerminalKeyInput>::null();
+        } else {
+            auto decoded = decode_value<TerminalKeyInput>(*field_fallback_key);
+            if (!decoded) return std::move(decoded).error();
+            result.fallback_key = Field<TerminalKeyInput>(std::move(decoded).value());
+        }
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
     }
     return result;
 }
@@ -6559,6 +7225,76 @@ Result<NewPaneRequest> Codec<NewPaneRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<NewPaneRightRequest>::encode(const NewPaneRightRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.cols.is_absent()) {
+        auto encoded = encode_value(value.cols);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cols", std::move(encoded).value());
+    }
+    auto encoded_pane = encode_value(value.pane);
+    if (!encoded_pane) return std::move(encoded_pane).error();
+    object.emplace("pane", std::move(encoded_pane).value());
+    if (!value.rows.is_absent()) {
+        auto encoded = encode_value(value.rows);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("rows", std::move(encoded).value());
+    }
+    if (!value.width.is_absent()) {
+        auto encoded = encode_value(value.width);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("width", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<NewPaneRightRequest> Codec<NewPaneRightRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    NewPaneRightRequest result{};
+    const Json* field_cols = value.find("cols");
+    if (field_cols) {
+        if (field_cols->is_null()) {
+            result.cols = Field<std::uint16_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint16_t>(*field_cols);
+            if (!decoded) return std::move(decoded).error();
+            result.cols = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_rows = value.find("rows");
+    if (field_rows) {
+        if (field_rows->is_null()) {
+            result.rows = Field<std::uint16_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint16_t>(*field_rows);
+            if (!decoded) return std::move(decoded).error();
+            result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_width = value.find("width");
+    if (field_width) {
+        if (field_width->is_null()) {
+            result.width = Field<float>::null();
+        } else {
+            auto decoded = decode_value<float>(*field_width);
+            if (!decoded) return std::move(decoded).error();
+            result.width = Field<float>(std::move(decoded).value());
         }
     }
     return result;
@@ -8447,6 +9183,11 @@ Result<Json> Codec<SetSplitRatioRequest>::encode(const SetSplitRatioRequest& val
     auto encoded_split = encode_value(value.split);
     if (!encoded_split) return std::move(encoded_split).error();
     object.emplace("split", std::move(encoded_split).value());
+    if (!value.transaction.is_absent()) {
+        auto encoded = encode_value(value.transaction);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("transaction", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -8471,6 +9212,68 @@ Result<SetSplitRatioRequest> Codec<SetSplitRatioRequest>::decode(const Json& val
         auto decoded = decode_value<Id>(*field_split);
         if (!decoded) return std::move(decoded).error();
         result.split = std::move(decoded).value();
+    }
+    const Json* field_transaction = value.find("transaction");
+    if (field_transaction) {
+        if (field_transaction->is_null()) {
+            result.transaction = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_transaction);
+            if (!decoded) return std::move(decoded).error();
+            result.transaction = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<SetViewportPaneWidthRequest>::encode(const SetViewportPaneWidthRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_pane = encode_value(value.pane);
+    if (!encoded_pane) return std::move(encoded_pane).error();
+    object.emplace("pane", std::move(encoded_pane).value());
+    if (!value.transaction.is_absent()) {
+        auto encoded = encode_value(value.transaction);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("transaction", std::move(encoded).value());
+    }
+    auto encoded_width = encode_value(value.width);
+    if (!encoded_width) return std::move(encoded_width).error();
+    object.emplace("width", std::move(encoded_width).value());
+    return Json(std::move(object));
+}
+
+Result<SetViewportPaneWidthRequest> Codec<SetViewportPaneWidthRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SetViewportPaneWidthRequest result{};
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_transaction = value.find("transaction");
+    if (field_transaction) {
+        if (field_transaction->is_null()) {
+            result.transaction = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_transaction);
+            if (!decoded) return std::move(decoded).error();
+            result.transaction = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_width = value.find("width");
+    if (!field_width) {
+        return make_error(ErrorCode::decode, "missing required field 'width'");
+    }
+    if (field_width) {
+        auto decoded = decode_value<float>(*field_width);
+        if (!decoded) return std::move(decoded).error();
+        result.width = std::move(decoded).value();
     }
     return result;
 }
@@ -8770,6 +9573,57 @@ Result<TerminalEventsRequest> Codec<TerminalEventsRequest>::decode(const Json& v
         auto decoded = decode_value<std::uint64_t>(*field_after_revision);
         if (!decoded) return std::move(decoded).error();
         result.after_revision = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<UndoLayoutRequest>::encode(const UndoLayoutRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (value.confirm_close) {
+        auto encoded = encode_value(*value.confirm_close);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("confirm_close", std::move(encoded).value());
+    }
+    auto encoded_pane = encode_value(value.pane);
+    if (!encoded_pane) return std::move(encoded_pane).error();
+    object.emplace("pane", std::move(encoded_pane).value());
+    if (!value.revision.is_absent()) {
+        auto encoded = encode_value(value.revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("revision", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<UndoLayoutRequest> Codec<UndoLayoutRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    UndoLayoutRequest result{};
+    const Json* field_confirm_close = value.find("confirm_close");
+    if (field_confirm_close) {
+        auto decoded = decode_value<bool>(*field_confirm_close);
+        if (!decoded) return std::move(decoded).error();
+        result.confirm_close = std::move(decoded).value();
+    }
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_revision = value.find("revision");
+    if (field_revision) {
+        if (field_revision->is_null()) {
+            result.revision = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.revision = Field<std::uint64_t>(std::move(decoded).value());
+        }
     }
     return result;
 }
@@ -12894,37 +13748,40 @@ constexpr std::array<CommandFieldRequirement, 3> kCommand1FieldRequirements{{
     {"mode", 7U, ""},
     {"rows", 0U, "attach-initial-size"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand17FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand11FieldRequirements{{
+    {"fallback_key", 9U, "clear-history-key-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 5> kCommand18FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand19FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand20FieldRequirements{{
     {"terminal_id", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand36FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand37FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand56FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand58FieldRequirements{{
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand60FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand62FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand65FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand67FieldRequirements{{
     {"paste", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 7> kCommand70FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 7> kCommand72FieldRequirements{{
     {"complete", 9U, ""},
     {"cursor", 9U, ""},
     {"cursor_blink", 9U, ""},
@@ -12933,11 +13790,17 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand70FieldRequirements{{
     {"selection_bg", 9U, ""},
     {"selection_fg", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand77FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand74FieldRequirements{{
+    {"transaction", 9U, "layout-undo-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand75FieldRequirements{{
+    {"transaction", 9U, "layout-undo-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 2> kCommand80FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandMetadata, 83> kCommands{{
+constexpr std::array<CommandMetadata, 87> kCommands{{
     {"apply-layout", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"attach-surface", "frontend", 5U, "", true, "attach", "detached", std::span<const CommandFieldRequirement>(kCommand1FieldRequirements)},
     {"browser-activate", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -12949,15 +13812,16 @@ constexpr std::array<CommandMetadata, 83> kCommands{{
     {"browser-navigate", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"browser-reload", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"browser-wheel", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"clear-history", "control", 9U, "clear-history-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand11FieldRequirements)},
     {"clear-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-pane", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-provider-managed-workspace", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"close-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand17FieldRequirements)},
+    {"close-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand18FieldRequirements)},
     {"copy", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"create-terminal", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand19FieldRequirements)},
+    {"create-terminal", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand20FieldRequirements)},
     {"create-workspace", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"detach-client", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"export-layout", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -12974,9 +13838,10 @@ constexpr std::array<CommandMetadata, 83> kCommands{{
     {"mint-terminal-renderer", "frontend", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand36FieldRequirements)},
+    {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand37FieldRequirements)},
     {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -12994,30 +13859,32 @@ constexpr std::array<CommandMetadata, 83> kCommands{{
     {"rename-provider-managed-workspace", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"rename-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand56FieldRequirements)},
+    {"rename-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand58FieldRequirements)},
     {"report-agent", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resize-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resolve-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand60FieldRequirements)},
+    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand62FieldRequirements)},
     {"scroll-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand65FieldRequirements)},
+    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand67FieldRequirements)},
     {"send-key", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-sizing", "control", 10U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand70FieldRequirements)},
+    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand72FieldRequirements)},
     {"set-ratio", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand74FieldRequirements)},
+    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand75FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand77FieldRequirements)},
+    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand80FieldRequirements)},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-events", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"undo-layout", "control", 9U, "layout-undo-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"vt-state", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -13204,6 +14071,17 @@ Result<EmptyResult> Client::browser_wheel(
     auto parameters = encoded.value().as_object();
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("browser-wheel", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<EmptyResult>(response.value());
+}
+
+Result<EmptyResult> Client::clear_history(
+    const ClearHistoryRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("clear-history", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<EmptyResult>(response.value());
 }
@@ -13512,6 +14390,17 @@ Result<SurfaceResult> Client::new_pane(
     auto parameters = encoded.value().as_object();
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("new-pane", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<SurfaceResult>(response.value());
+}
+
+Result<SurfaceResult> Client::new_pane_right(
+    const NewPaneRightRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("new-pane-right", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<SurfaceResult>(response.value());
 }
@@ -13890,6 +14779,17 @@ Result<EmptyResult> Client::set_split_ratio(
     return decode_value<EmptyResult>(response.value());
 }
 
+Result<EmptyResult> Client::set_viewport_pane_width(
+    const SetViewportPaneWidthRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("set-viewport-pane-width", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<EmptyResult>(response.value());
+}
+
 Result<EmptyResult> Client::set_window_title(
     const SetWindowTitleRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
@@ -13963,6 +14863,17 @@ Result<TerminalEventsResult> Client::terminal_events(
     auto response = core_.request("terminal-events", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<TerminalEventsResult>(response.value());
+}
+
+Result<LayoutUndoResult> Client::undo_layout(
+    const UndoLayoutRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("undo-layout", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<LayoutUndoResult>(response.value());
 }
 
 Result<VtStateResult> Client::vt_state(

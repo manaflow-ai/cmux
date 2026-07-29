@@ -2,9 +2,6 @@
 package com.cmux.raw;
 
 
-import com.cmux.raw.CmuxException;
-import com.cmux.raw.CmuxStream;
-import com.cmux.raw.Wire;
 import java.util.List;
 import java.util.Map;
 
@@ -68,6 +65,11 @@ public abstract class GeneratedCmuxClient {
 
     public final EmptyResult browserWheel(BrowserWheelRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_WHEEL, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final EmptyResult clearHistory(ClearHistoryRequest request) throws CmuxException {
+        Object result = execute(Commands.CLEAR_HISTORY, request.toWire());
         return EmptyResult.fromWire(result);
     }
 
@@ -208,6 +210,11 @@ public abstract class GeneratedCmuxClient {
 
     public final SurfaceResult newPane(NewPaneRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_PANE, request.toWire());
+        return SurfaceResult.fromWire(result);
+    }
+
+    public final SurfaceResult newPaneRight(NewPaneRightRequest request) throws CmuxException {
+        Object result = execute(Commands.NEW_PANE_RIGHT, request.toWire());
         return SurfaceResult.fromWire(result);
     }
 
@@ -381,6 +388,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EmptyResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_VIEWPORT_PANE_WIDTH, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final EmptyResult setWindowTitle(SetWindowTitleRequest request) throws CmuxException {
         Object result = execute(Commands.SET_WINDOW_TITLE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -413,6 +425,11 @@ public abstract class GeneratedCmuxClient {
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_EVENTS, request.toWire());
         return TerminalEventsResult.fromWire(result);
+    }
+
+    public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {
+        Object result = execute(Commands.UNDO_LAYOUT, request.toWire());
+        return LayoutUndoResult.fromWire(result);
     }
 
     public final VtStateResult vtState(VtStateRequest request) throws CmuxException {
