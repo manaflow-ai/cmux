@@ -28,17 +28,12 @@ extension GhosttySurfaceView {
             workQueue.async {
                 var scrollbar = ghostty_surface_scrollbar_s()
                 let anchor: VerifiedReplayViewportAnchor?
-                if ghostty_surface_scrollbar(operation.surface, &scrollbar),
-                   scrollbar.offset < scrollbar.total {
-                    let rowsAfterOffset = scrollbar.total - scrollbar.offset
-                    if scrollbar.len < rowsAfterOffset {
-                        anchor = VerifiedReplayViewportAnchor(
-                            rowsFromBottom: rowsAfterOffset - scrollbar.len,
-                            totalRows: scrollbar.total
-                        )
-                    } else {
-                        anchor = nil
-                    }
+                if ghostty_surface_scrollbar(operation.surface, &scrollbar) {
+                    anchor = VerifiedReplayViewportAnchor(
+                        scrollbarTotal: scrollbar.total,
+                        offset: scrollbar.offset,
+                        len: scrollbar.len
+                    )
                 } else {
                     anchor = nil
                 }
@@ -94,7 +89,7 @@ extension GhosttySurfaceView {
                 } ?? false
                 if readPostReplay {
                     MobileDebugLog.anchormux(
-                        "verified_replay.viewport_restore preTotal=\(anchor.totalRows) preRowsFromBottom=\(anchor.rowsFromBottom) postTotal=\(postReplay.total) postOffset=\(postReplay.offset) postLen=\(postReplay.len) targetTop=\(targetTopRow.map(String.init) ?? "nil") restored=\(restored)"
+                        "verified_replay.viewport_restore preTotal=\(anchor.totalRows) preTopDistance=\(anchor.topRowDistanceFromBottom) postTotal=\(postReplay.total) postOffset=\(postReplay.offset) postLen=\(postReplay.len) targetTop=\(targetTopRow.map(String.init) ?? "nil") restored=\(restored)"
                     )
                 }
                 Task { @MainActor [weak self] in

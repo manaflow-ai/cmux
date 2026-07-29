@@ -1,32 +1,36 @@
 /// A content-relative viewport position captured before a verified replay.
 public struct VerifiedReplayViewportAnchor: Equatable, Sendable {
-    /// The number of rows between the viewport bottom and the content bottom.
-    public let rowsFromBottom: UInt64
+    /// The number of rows between the viewport top and the content bottom.
+    public let topRowDistanceFromBottom: UInt64
     /// The total row-space size when the viewport was captured.
     public let totalRows: UInt64
 
-    /// Creates a viewport anchor from an authoritative scrollbar snapshot.
+    /// Creates a viewport anchor from content-relative row-space values.
     ///
     /// - Parameters:
-    ///   - rowsFromBottom: Rows between the viewport bottom and content bottom.
+    ///   - topRowDistanceFromBottom: Rows from the viewport top to content bottom.
     ///   - totalRows: Total row-space size at capture time.
-    public init(rowsFromBottom: UInt64, totalRows: UInt64) {
-        self.rowsFromBottom = rowsFromBottom
+    public init(topRowDistanceFromBottom: UInt64, totalRows: UInt64) {
+        self.topRowDistanceFromBottom = topRowDistanceFromBottom
         self.totalRows = totalRows
     }
 
     /// Creates an anchor when a scrollbar snapshot is above the content bottom.
     ///
+    /// `len` is excluded from the anchor so visible-row flicker cannot
+    /// accumulate across replays.
+    ///
     /// - Parameters:
     ///   - scrollbarTotal: Total row-space size at capture time.
     ///   - offset: Top visible row at capture time.
     ///   - len: Number of visible rows at capture time.
+    /// - Returns: An anchor above bottom, or `nil` at or below bottom.
     public init?(scrollbarTotal: UInt64, offset: UInt64, len: UInt64) {
         guard offset < scrollbarTotal else { return nil }
         let rowsAfterOffset = scrollbarTotal - offset
         guard len < rowsAfterOffset else { return nil }
         self.init(
-            rowsFromBottom: rowsAfterOffset - len,
+            topRowDistanceFromBottom: rowsAfterOffset,
             totalRows: scrollbarTotal
         )
     }
@@ -45,7 +49,7 @@ public struct VerifiedReplayViewportAnchor: Equatable, Sendable {
         postReplayTotalRows: UInt64,
         postReplayVisibleRows: UInt64
     ) -> UInt64? {
-        guard rowsFromBottom > 0 else { return nil }
+        guard topRowDistanceFromBottom > 0 else { return nil }
 
         let maximumTopRow = postReplayTotalRows > postReplayVisibleRows
             ? postReplayTotalRows - postReplayVisibleRows
@@ -54,9 +58,10 @@ public struct VerifiedReplayViewportAnchor: Equatable, Sendable {
             ? postReplayTotalRows - totalRows
             : 0
 
-        guard rowsFromBottom <= maximumTopRow else { return 0 }
-        let topRowBeforeDrift = maximumTopRow - rowsFromBottom
+        guard topRowDistanceFromBottom <= postReplayTotalRows else { return 0 }
+        let topRowBeforeDrift = postReplayTotalRows - topRowDistanceFromBottom
         guard drift <= topRowBeforeDrift else { return 0 }
-        return topRowBeforeDrift - drift
+        let idealTop = topRowBeforeDrift - drift
+        return min(idealTop, maximumTopRow)
     }
 }
