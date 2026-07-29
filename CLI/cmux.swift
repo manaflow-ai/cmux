@@ -266,6 +266,12 @@ struct ClaudeHookSessionStoreFile: Codable {
 }
 
 final class ClaudeHookSessionStore {
+    private enum ProcessGenerationComparison: Equatable {
+        case same
+        case different
+        case unavailable
+    }
+
     enum PendingBackgroundWorkBoundary {
         case unchanged
         case discardTransfer
@@ -1657,7 +1663,21 @@ final class ClaudeHookSessionStore {
             )
         }
         guard let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] else {
-            return activeOwner == nil || canReplaceStoppedOwner
+            guard let activeOwner else {
+                return true
+            }
+            if activeOwner.sessionId == sessionId {
+                guard let activeSession = state.sessions[sessionId] else {
+                    return false
+                }
+                return compareProcessGeneration(
+                    recordedPID: activeSession.pid,
+                    recordedStartSeconds: activeSession.pidStartSeconds,
+                    recordedStartMicroseconds: activeSession.pidStartMicroseconds,
+                    incomingPID: incomingPID
+                ) == .different
+            }
+            return canReplaceStoppedOwner
         }
 
         let resumesPendingClear = clearBackgroundWorkTransferMatchesSource(
@@ -1707,21 +1727,35 @@ final class ClaudeHookSessionStore {
         recordedStartMicroseconds: Int64?,
         incomingPID: Int?
     ) -> Bool {
+        compareProcessGeneration(
+            recordedPID: recordedPID,
+            recordedStartSeconds: recordedStartSeconds,
+            recordedStartMicroseconds: recordedStartMicroseconds,
+            incomingPID: incomingPID
+        ) == .same
+    }
+
+    private func compareProcessGeneration(
+        recordedPID: Int?,
+        recordedStartSeconds: Int64?,
+        recordedStartMicroseconds: Int64?,
+        incomingPID: Int?
+    ) -> ProcessGenerationComparison {
         guard let recordedPID, let incomingPID else {
-            return true
+            return .unavailable
         }
         guard recordedPID == incomingPID else {
-            return false
+            return .different
         }
         guard let recordedStartSeconds,
-              let recordedStartMicroseconds else {
-            return true
-        }
-        guard let incomingIdentity = processStartIdentity(pid: incomingPID) else {
-            return false
+              let recordedStartMicroseconds,
+              let incomingIdentity = processStartIdentity(pid: incomingPID) else {
+            return .unavailable
         }
         return recordedStartSeconds == incomingIdentity.seconds
             && recordedStartMicroseconds == incomingIdentity.microseconds
+            ? .same
+            : .different
     }
 
     func consume(
