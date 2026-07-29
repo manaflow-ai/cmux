@@ -58,6 +58,7 @@ class FakeCmuxState:
         self.lock = threading.Lock()
         self.requests: list[str] = []
         self.split_calls: list[dict] = []
+        self.equalize_calls: list[dict] = []
         self.split_counter = 0
         self.workspace = {
             "id": INITIAL_WORKSPACE_ID,
@@ -213,6 +214,9 @@ class FakeCmuxState:
                 self.current_pane_id = surface["pane_id"]
                 return {"ok": True}
             if method == "pane.resize":
+                return {"ok": True}
+            if method == "workspace.equalize_splits":
+                self.equalize_calls.append(dict(params))
                 return {"ok": True}
             if method == "surface.send_text":
                 return {"ok": True}
@@ -406,6 +410,17 @@ printf '%s\\n%s\\n%s\\n' "$t1" "$t2" "$t3" > "$RESULT_LOG"
             if call["focus"] is not False:
                 print(f"FAIL: split[{i}] expected focus=false, got {call['focus']}")
                 return 1
+
+        expected_equalize_call = {
+            "workspace_id": INITIAL_WORKSPACE_ID,
+            "orientation": "vertical",
+        }
+        if state.equalize_calls != [expected_equalize_call] * 6:
+            print(
+                "FAIL: expected each split and main-vertical selection to equalize "
+                f"the teammate column, got {state.equalize_calls}"
+            )
+            return 1
 
         # Focus should remain on leader
         if state.current_pane_id != INITIAL_PANE_ID:
