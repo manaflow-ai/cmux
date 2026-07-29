@@ -4,6 +4,7 @@
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <deque>
 #include <initializer_list>
 #include <limits>
@@ -505,6 +506,21 @@ void inject_routing(
     });
 }
 
+[[nodiscard]] Result<void> put_correlation_key(
+    Json::Object& params,
+    const std::optional<std::string>& correlation_key) {
+    if (!correlation_key) {
+        return {};
+    }
+    if (correlation_key->empty() || correlation_key->size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "correlation_key must contain 1 to 128 UTF-8 bytes");
+    }
+    params.emplace("correlation_key", Json(*correlation_key));
+    return {};
+}
+
 }  // namespace
 
 std::string_view operation_name(Operation operation) noexcept {
@@ -567,6 +583,26 @@ void RunCommand::encode_into(Json::Object& params) const {
     params.insert_or_assign("argv", Json(std::move(argv)));
 }
 
+Result<Json::Object> CreateWorkspaceOptions::to_params() const {
+    Json::Object params{
+        {
+            "initial_content",
+            Json(
+                initial_content == InitialContent::terminal
+                    ? "terminal"
+                    : "empty"),
+        },
+    };
+    if (name) {
+        params.emplace("name", Json(*name));
+    }
+    auto correlated = put_correlation_key(params, correlation_key);
+    if (!correlated) {
+        return std::move(correlated).error();
+    }
+    return params;
+}
+
 Result<Json::Object> RunOptions::to_params() const {
     Json::Object params;
     command.encode_into(params);
@@ -589,6 +625,99 @@ Result<Json::Object> RunOptions::to_params() const {
         }
         params.emplace("cols", Json(static_cast<std::uint64_t>(*columns)));
         params.emplace("rows", Json(static_cast<std::uint64_t>(*rows)));
+    }
+    auto correlated = put_correlation_key(params, correlation_key);
+    if (!correlated) {
+        return std::move(correlated).error();
+    }
+    return params;
+}
+
+Result<Json::Object> CreateScreenOptions::to_params() const {
+    Json::Object params;
+    if (name) {
+        params.emplace("name", Json(*name));
+    }
+    auto correlated = put_correlation_key(params, correlation_key);
+    if (!correlated) {
+        return std::move(correlated).error();
+    }
+    return params;
+}
+
+Result<Json::Object> CreatePaneOptions::to_params() const {
+    Json::Object params;
+    if (cwd) {
+        params.emplace("cwd", Json(*cwd));
+    }
+    if (columns.has_value() != rows.has_value()) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "columns and rows must be supplied together");
+    }
+    if (columns) {
+        if (*columns == 0 || *rows == 0) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "columns and rows must be positive");
+        }
+        params.emplace("cols", Json(static_cast<std::uint64_t>(*columns)));
+        params.emplace("rows", Json(static_cast<std::uint64_t>(*rows)));
+    }
+    auto correlated = put_correlation_key(params, correlation_key);
+    if (!correlated) {
+        return std::move(correlated).error();
+    }
+    return params;
+}
+
+Result<Json::Object> SplitPaneOptions::to_params() const {
+    std::string_view direction_name;
+    switch (direction) {
+        case PaneDirection::left:
+            direction_name = "left";
+            break;
+        case PaneDirection::right:
+            direction_name = "right";
+            break;
+        case PaneDirection::up:
+            direction_name = "up";
+            break;
+        case PaneDirection::down:
+            direction_name = "down";
+            break;
+    }
+    Json::Object params{
+        {"direction", Json(std::string(direction_name))},
+    };
+    if (ratio) {
+        if (!std::isfinite(*ratio) || *ratio <= 0.0 || *ratio >= 1.0) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "split ratio must be finite and between zero and one");
+        }
+        params.emplace("ratio", Json(*ratio));
+    }
+    if (cwd) {
+        params.emplace("cwd", Json(*cwd));
+    }
+    if (columns.has_value() != rows.has_value()) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "columns and rows must be supplied together");
+    }
+    if (columns) {
+        if (*columns == 0 || *rows == 0) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "columns and rows must be positive");
+        }
+        params.emplace("cols", Json(static_cast<std::uint64_t>(*columns)));
+        params.emplace("rows", Json(static_cast<std::uint64_t>(*rows)));
+    }
+    auto correlated = put_correlation_key(params, correlation_key);
+    if (!correlated) {
+        return std::move(correlated).error();
     }
     return params;
 }
@@ -614,6 +743,10 @@ Result<Json::Object> CreateTerminalTabOptions::to_params() const {
         }
         params.emplace("cols", Json(static_cast<std::uint64_t>(*columns)));
         params.emplace("rows", Json(static_cast<std::uint64_t>(*rows)));
+    }
+    auto correlated = put_correlation_key(params, correlation_key);
+    if (!correlated) {
+        return std::move(correlated).error();
     }
     return params;
 }
@@ -642,6 +775,10 @@ Result<Json::Object> CreateBrowserTabOptions::to_params() const {
         params.emplace("width_px", Json(static_cast<std::uint64_t>(*width_px)));
         params.emplace(
             "height_px", Json(static_cast<std::uint64_t>(*height_px)));
+    }
+    auto correlated = put_correlation_key(params, correlation_key);
+    if (!correlated) {
+        return std::move(correlated).error();
     }
     return params;
 }
@@ -1301,17 +1438,13 @@ Workspace Session::workspace(WorkspaceId id) const {
 Result<MutationResult<CreatedPath>> Session::create_workspace(
     CreateWorkspaceOptions create,
     MutationOptions mutation) const {
-    Json::Object params{
-        {"initial_content",
-         Json(create.initial_content == InitialContent::terminal ? "terminal"
-                                                                 : "empty")},
-    };
-    if (create.name) {
-        params.emplace("name", Json(*create.name));
+    auto params = create.to_params();
+    if (!params) {
+        return std::move(params).error();
     }
     return mutate(
         Operation::workspace_create,
-        std::move(params),
+        std::move(params).value(),
         std::move(mutation));
 }
 
@@ -1382,10 +1515,16 @@ Screen Workspace::screen(ScreenId id) const {
 }
 
 Result<MutationResult<CreatedTerminalPath>> Workspace::create_screen(
-    Json::Object params,
+    CreateScreenOptions create,
     MutationOptions options) const {
+    auto params = create.to_params();
+    if (!params) {
+        return std::move(params).error();
+    }
     return mutate(
-        Operation::screen_create, std::move(params), std::move(options));
+        Operation::screen_create,
+        std::move(params).value(),
+        std::move(options));
 }
 
 Result<MutationResult<WorkspaceSnapshot>> Workspace::rename(
@@ -1459,10 +1598,16 @@ Pane Screen::pane(PaneId id) const {
 }
 
 Result<MutationResult<CreatedTerminalPath>> Screen::create_pane(
-    Json::Object params,
+    CreatePaneOptions create,
     MutationOptions options) const {
+    auto params = create.to_params();
+    if (!params) {
+        return std::move(params).error();
+    }
     return mutate(
-        Operation::pane_create, std::move(params), std::move(options));
+        Operation::pane_create,
+        std::move(params).value(),
+        std::move(options));
 }
 
 Result<MutationResult<ScreenSnapshot>> Screen::rename(
@@ -1523,9 +1668,16 @@ Tab Pane::tab(TabId id) const {
 }
 
 Result<MutationResult<CreatedTerminalPath>> Pane::split(
-    Json::Object params,
+    SplitPaneOptions split,
     MutationOptions options) const {
-    return mutate(Operation::pane_split, std::move(params), std::move(options));
+    auto params = split.to_params();
+    if (!params) {
+        return std::move(params).error();
+    }
+    return mutate(
+        Operation::pane_split,
+        std::move(params).value(),
+        std::move(options));
 }
 
 Result<MutationResult<PaneSnapshot>> Pane::rename(

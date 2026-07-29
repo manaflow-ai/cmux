@@ -77,6 +77,9 @@ public final class Workspace {
         options.name().ifPresent(value -> params.put(Wire.NAME, value));
         options.columns().ifPresent(value -> params.put(Wire.COLS, value));
         options.rows().ifPresent(value -> params.put(Wire.ROWS, value));
+        options.correlationKey().ifPresent(
+            key -> params.put("correlation_key", key)
+        );
         Client.MutationResponse response = client.mutation(
             Operations.WORKSPACE_RUN, params, options.mutation()
         );
@@ -129,6 +132,9 @@ public final class Workspace {
     ) {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
         options.name().ifPresent(value -> params.put(Wire.NAME, value));
+        options.correlationKey().ifPresent(
+            key -> params.put("correlation_key", key)
+        );
         Client.MutationResponse response = client.mutation(
             Operations.SCREEN_CREATE, params, options.mutation()
         );

@@ -26,9 +26,71 @@ int main() {
     const auto selector =
         cmux::Selector<cmux::WorkspaceId>::exact_name("current");
     auto command = cmux::RunCommand::exact({"cargo", "test"});
+    if (!command || command.value().argv().size() != 2) {
+        return 1;
+    }
+
+    cmux::CreateWorkspaceOptions workspace_create;
+    workspace_create.correlation_key = "consumer-workspace";
+    auto workspace_params = workspace_create.to_params();
+
+    cmux::RunOptions run(std::move(command).value());
+    run.correlation_key = "consumer-run";
+    auto run_params = run.to_params();
+
+    cmux::CreateScreenOptions screen_create;
+    screen_create.correlation_key = "consumer-screen";
+    auto screen_params = screen_create.to_params();
+
+    cmux::CreatePaneOptions pane_create;
+    pane_create.correlation_key = "consumer-pane";
+    auto pane_params = pane_create.to_params();
+
+    cmux::SplitPaneOptions pane_split(cmux::PaneDirection::right);
+    pane_split.correlation_key = "consumer-split";
+    auto split_params = pane_split.to_params();
+
+    cmux::CreateTerminalTabOptions terminal_create;
+    terminal_create.correlation_key = "consumer-terminal";
+    auto terminal_params = terminal_create.to_params();
+
+    cmux::CreateBrowserTabOptions browser_create("https://example.com");
+    browser_create.correlation_key = "consumer-browser";
+    auto browser_params = browser_create.to_params();
+
     cmux::raw::IdentifyRequest raw_request;
-    return selector.wire() != "name:current" || !command ||
-                   command.value().argv().size() != 2 ||
+    return selector.wire() != "name:current" ||
+                   !workspace_params || !run_params || !screen_params ||
+                   !pane_params || !split_params || !terminal_params ||
+                   !browser_params ||
+                   workspace_params.value()
+                           .at("correlation_key")
+                           .as_string()
+                           .value() != "consumer-workspace" ||
+                   run_params.value()
+                           .at("correlation_key")
+                           .as_string()
+                           .value() != "consumer-run" ||
+                   screen_params.value()
+                           .at("correlation_key")
+                           .as_string()
+                           .value() != "consumer-screen" ||
+                   pane_params.value()
+                           .at("correlation_key")
+                           .as_string()
+                           .value() != "consumer-pane" ||
+                   split_params.value()
+                           .at("correlation_key")
+                           .as_string()
+                           .value() != "consumer-split" ||
+                   terminal_params.value()
+                           .at("correlation_key")
+                           .as_string()
+                           .value() != "consumer-terminal" ||
+                   browser_params.value()
+                           .at("correlation_key")
+                           .as_string()
+                           .value() != "consumer-browser" ||
                    !(raw_request == cmux::raw::IdentifyRequest{}) ||
                    cmux::kSdkVersion != "1.0.0"
                ? 1

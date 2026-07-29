@@ -42,6 +42,9 @@ public final class Pane {
         options.cwd().ifPresent(value -> params.put(Wire.CWD, value));
         options.columns().ifPresent(value -> params.put(Wire.COLS, value));
         options.rows().ifPresent(value -> params.put(Wire.ROWS, value));
+        options.correlationKey().ifPresent(
+            key -> params.put("correlation_key", key)
+        );
         Client.MutationResponse response = client.mutation(
             Operations.PANE_SPLIT, params, options.mutation()
         );
@@ -135,6 +138,9 @@ public final class Pane {
         options.name().ifPresent(value -> params.put(Wire.NAME, value));
         options.columns().ifPresent(value -> params.put(Wire.COLS, value));
         options.rows().ifPresent(value -> params.put(Wire.ROWS, value));
+        options.correlationKey().ifPresent(
+            key -> params.put("correlation_key", key)
+        );
         Client.MutationResponse response = client.mutation(
             Operations.PANE_RUN, params, options.mutation()
         );
@@ -176,6 +182,9 @@ public final class Pane {
         options.cwd().ifPresent(value -> params.put(Wire.CWD, value));
         options.columns().ifPresent(value -> params.put(Wire.COLS, value));
         options.rows().ifPresent(value -> params.put(Wire.ROWS, value));
+        options.correlationKey().ifPresent(
+            key -> params.put("correlation_key", key)
+        );
         Client.MutationResponse response = client.mutation(
             Operations.TAB_CREATE_TERMINAL, params, options.mutation()
         );
@@ -192,6 +201,9 @@ public final class Pane {
         options.name().ifPresent(value -> params.put(Wire.NAME, value));
         options.width().ifPresent(value -> params.put("width_px", value));
         options.height().ifPresent(value -> params.put("height_px", value));
+        options.correlationKey().ifPresent(
+            key -> params.put("correlation_key", key)
+        );
         Client.MutationResponse response = client.mutation(
             Operations.TAB_CREATE_BROWSER, params, options.mutation()
         );

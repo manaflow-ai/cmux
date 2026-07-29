@@ -350,6 +350,9 @@ enum class InitialContent {
 struct CreateWorkspaceOptions {
     std::optional<std::string> name;
     InitialContent initial_content = InitialContent::terminal;
+    std::optional<std::string> correlation_key;
+
+    [[nodiscard]] Result<Json::Object> to_params() const;
 };
 
 struct RunOptions {
@@ -361,6 +364,44 @@ struct RunOptions {
     std::optional<std::string> name;
     std::optional<std::uint16_t> columns;
     std::optional<std::uint16_t> rows;
+    std::optional<std::string> correlation_key;
+
+    [[nodiscard]] Result<Json::Object> to_params() const;
+};
+
+struct CreateScreenOptions {
+    std::optional<std::string> name;
+    std::optional<std::string> correlation_key;
+
+    [[nodiscard]] Result<Json::Object> to_params() const;
+};
+
+struct CreatePaneOptions {
+    std::optional<std::string> cwd;
+    std::optional<std::uint16_t> columns;
+    std::optional<std::uint16_t> rows;
+    std::optional<std::string> correlation_key;
+
+    [[nodiscard]] Result<Json::Object> to_params() const;
+};
+
+enum class PaneDirection {
+    left,
+    right,
+    up,
+    down,
+};
+
+struct SplitPaneOptions {
+    explicit SplitPaneOptions(PaneDirection direction_value)
+        : direction(direction_value) {}
+
+    PaneDirection direction;
+    std::optional<double> ratio;
+    std::optional<std::string> cwd;
+    std::optional<std::uint16_t> columns;
+    std::optional<std::uint16_t> rows;
+    std::optional<std::string> correlation_key;
 
     [[nodiscard]] Result<Json::Object> to_params() const;
 };
@@ -370,6 +411,7 @@ struct CreateTerminalTabOptions {
     std::optional<std::string> name;
     std::optional<std::uint16_t> columns;
     std::optional<std::uint16_t> rows;
+    std::optional<std::string> correlation_key;
 
     [[nodiscard]] Result<Json::Object> to_params() const;
 };
@@ -382,6 +424,7 @@ struct CreateBrowserTabOptions {
     std::optional<std::string> name;
     std::optional<std::uint32_t> width_px;
     std::optional<std::uint32_t> height_px;
+    std::optional<std::string> correlation_key;
 
     [[nodiscard]] Result<Json::Object> to_params() const;
 };
@@ -1728,7 +1771,7 @@ public:
     [[nodiscard]] Screen screen(Selector<ScreenId> selector) const;
     [[nodiscard]] Screen screen(ScreenId id) const;
     [[nodiscard]] Result<MutationResult<CreatedTerminalPath>> create_screen(
-        Json::Object params = {},
+        CreateScreenOptions create = {},
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<MutationResult<WorkspaceSnapshot>> rename(
         std::string name,
@@ -1758,7 +1801,7 @@ public:
     [[nodiscard]] Pane pane(Selector<PaneId> selector) const;
     [[nodiscard]] Pane pane(PaneId id) const;
     [[nodiscard]] Result<MutationResult<CreatedTerminalPath>> create_pane(
-        Json::Object params = {},
+        CreatePaneOptions create = {},
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<MutationResult<ScreenSnapshot>> rename(
         std::string name,
@@ -1783,7 +1826,7 @@ public:
     [[nodiscard]] Tab tab(Selector<TabId> selector) const;
     [[nodiscard]] Tab tab(TabId id) const;
     [[nodiscard]] Result<MutationResult<CreatedTerminalPath>> split(
-        Json::Object params,
+        SplitPaneOptions split,
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<MutationResult<PaneSnapshot>> rename(
         std::string name,

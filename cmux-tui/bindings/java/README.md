@@ -44,6 +44,11 @@ try (Client client = Client.builder().build()) {
 `ShellCommand` requests explicit server-side shell execution. Resource handles
 perform no I/O when copied and never implement `AutoCloseable`.
 
+Every operation returning `CreatedPath`, `CreatedTerminalPath`, or
+`CreatedBrowserPath` accepts an optional validated `correlationKey` through
+its typed creation options. The key is independent of the mutation
+idempotency key and can be resolved later with `Session.resolveCreation(...)`.
+
 Only `Client` and `ResourceStream` own transport state. Use try-with-resources
 for both:
 

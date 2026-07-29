@@ -747,7 +747,11 @@ public final class Client implements AutoCloseable {
     }
 
     static CreatedPath decodeCreatedPath(Map<String, Object> result) {
-        Map<String, Object> path = Wire.object(result.get(Wire.VALUE), "created path");
+        return decodeCreatedPathValue(result.get(Wire.VALUE));
+    }
+
+    private static CreatedPath decodeCreatedPathValue(Object value) {
+        Map<String, Object> path = Wire.object(value, "created path");
         String kind = Wire.string(path.get(Wire.KIND), "created path kind");
         return switch (kind) {
             case "workspace" -> {
@@ -1697,9 +1701,7 @@ public final class Client implements AutoCloseable {
             );
         }
         Optional<CreatedPath> createdPath = fields.containsKey("created_path")
-            ? Optional.of(decodeCreatedPath(
-                Wire.object(fields.get("created_path"), "created path")
-            ))
+            ? Optional.of(decodeCreatedPathValue(fields.get("created_path")))
             : Optional.empty();
         Optional<Decimal> revision = fields.containsKey(Wire.REVISION)
             ? Optional.of(Wire.decimal(

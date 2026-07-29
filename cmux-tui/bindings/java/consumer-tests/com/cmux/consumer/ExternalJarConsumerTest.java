@@ -5,6 +5,7 @@ import com.cmux.CreatedTerminalPath;
 import com.cmux.ExactCommand;
 import com.cmux.MutationOutcomeUncertain;
 import com.cmux.MutationResult;
+import com.cmux.Options;
 import com.cmux.Results;
 import com.cmux.ResourceStream;
 import com.cmux.Session;
@@ -64,6 +65,24 @@ public final class ExternalJarConsumerTest {
         require(
             ExactCommand.of("printf", "%s", "hello").argv().size() == 3,
             "exact argv is public from the jar"
+        );
+        require(
+            Options.WorkspaceCreate.builder()
+                .correlationKey("consumer-create")
+                .build()
+                .correlationKey()
+                .orElseThrow()
+                .equals("consumer-create"),
+            "workspace creation correlation key is public from the jar"
+        );
+        require(
+            Options.Run.builder(ExactCommand.of("true"))
+                .correlationKey("consumer-run")
+                .build()
+                .correlationKey()
+                .orElseThrow()
+                .equals("consumer-run"),
+            "run correlation key is public from the jar"
         );
         Workspace.class.getMethod("run", com.cmux.Options.Run.class);
         MutationResult.class.getMethod("value");

@@ -34,6 +34,11 @@ script for the server platform default shell. Choosing a shell executable
 uses `RunCommand::shell_with_executable`, which encodes exact
 `[executable, "-lc", script]` arguments.
 
+Every operation returning `CreatedPath`, `CreatedTerminalPath`, or
+`CreatedBrowserPath` accepts an optional validated `correlation_key` through
+its typed creation options. The key is independent of the mutation
+idempotency key and can be resolved later with `Session::resolve_creation()`.
+
 Each mutation sends one caller-visible idempotency key and never retries
 implicitly. `MutationResult<T>` contains the exact typed catalog value,
 generation, revision, and replayed fields. A transport failure after a

@@ -122,6 +122,9 @@ public final class Screen {
         options.cwd().ifPresent(value -> params.put(Wire.CWD, value));
         options.columns().ifPresent(value -> params.put(Wire.COLS, value));
         options.rows().ifPresent(value -> params.put(Wire.ROWS, value));
+        options.correlationKey().ifPresent(
+            key -> params.put("correlation_key", key)
+        );
         Client.MutationResponse response = client.mutation(
             Operations.PANE_CREATE, params, options.mutation()
         );

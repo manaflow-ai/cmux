@@ -157,22 +157,41 @@ public final class Options {
     public record WorkspaceCreate(
         Mutation mutation,
         Optional<String> name,
-        InitialContent initialContent
+        InitialContent initialContent,
+        Optional<String> correlationKey
     ) {
         public WorkspaceCreate {
             mutation = mut(mutation); name = opt(name);
             initialContent = initialContent == null ? InitialContent.TERMINAL : initialContent;
+            correlationKey = correlation(correlationKey);
+        }
+        public WorkspaceCreate(
+            Mutation mutation,
+            Optional<String> name,
+            InitialContent initialContent
+        ) {
+            this(mutation, name, initialContent, Optional.empty());
         }
         public static Builder builder() { return new Builder(); }
         public static final class Builder {
             private Mutation mutation = Mutation.defaults();
             private String name;
             private InitialContent initialContent = InitialContent.TERMINAL;
+            private String correlationKey;
             public Builder mutation(Mutation value) { mutation = value; return this; }
             public Builder name(String value) { name = value; return this; }
             public Builder initialContent(InitialContent value) { initialContent = value; return this; }
+            public Builder correlationKey(String value) {
+                correlationKey = value;
+                return this;
+            }
             public WorkspaceCreate build() {
-                return new WorkspaceCreate(mutation, Optional.ofNullable(name), initialContent);
+                return new WorkspaceCreate(
+                    mutation,
+                    Optional.ofNullable(name),
+                    initialContent,
+                    Optional.ofNullable(correlationKey)
+                );
             }
         }
     }
@@ -191,11 +210,31 @@ public final class Options {
         Optional<String> cwd,
         Optional<String> name,
         Optional<Integer> columns,
-        Optional<Integer> rows
+        Optional<Integer> rows,
+        Optional<String> correlationKey
     ) {
         public Run {
             mutation = mut(mutation); Objects.requireNonNull(command, "command");
             cwd = opt(cwd); name = opt(name); columns = opt(columns); rows = opt(rows);
+            correlationKey = correlation(correlationKey);
+        }
+        public Run(
+            Mutation mutation,
+            Command command,
+            Optional<String> cwd,
+            Optional<String> name,
+            Optional<Integer> columns,
+            Optional<Integer> rows
+        ) {
+            this(
+                mutation,
+                command,
+                cwd,
+                name,
+                columns,
+                rows,
+                Optional.empty()
+            );
         }
         public static Builder builder(Command command) { return new Builder(command); }
         public static final class Builder {
@@ -205,11 +244,16 @@ public final class Options {
             private String name;
             private Integer columns;
             private Integer rows;
+            private String correlationKey;
             private Builder(Command command) { this.command = Objects.requireNonNull(command, "command"); }
             public Builder mutation(Mutation value) { mutation = value; return this; }
             public Builder cwd(String value) { cwd = value; return this; }
             public Builder name(String value) { name = value; return this; }
             public Builder size(int cols, int rowCount) { columns = cols; rows = rowCount; return this; }
+            public Builder correlationKey(String value) {
+                correlationKey = value;
+                return this;
+            }
             public Run build() {
                 return new Run(
                     mutation,
@@ -217,7 +261,8 @@ public final class Options {
                     Optional.ofNullable(cwd),
                     Optional.ofNullable(name),
                     Optional.ofNullable(columns),
-                    Optional.ofNullable(rows)
+                    Optional.ofNullable(rows),
+                    Optional.ofNullable(correlationKey)
                 );
             }
         }
@@ -225,8 +270,19 @@ public final class Options {
     public record LayoutApply(Mutation mutation, Map<String, Object> layout) {
         public LayoutApply { mutation = mut(mutation); layout = copy(layout); }
     }
-    public record ScreenCreate(Mutation mutation, Optional<String> name) {
-        public ScreenCreate { mutation = mut(mutation); name = opt(name); }
+    public record ScreenCreate(
+        Mutation mutation,
+        Optional<String> name,
+        Optional<String> correlationKey
+    ) {
+        public ScreenCreate {
+            mutation = mut(mutation);
+            name = opt(name);
+            correlationKey = correlation(correlationKey);
+        }
+        public ScreenCreate(Mutation mutation, Optional<String> name) {
+            this(mutation, name, Optional.empty());
+        }
     }
     public record ScreenRename(Mutation mutation, String name) {
         public ScreenRename { mutation = mut(mutation); Objects.requireNonNull(name, "name"); }
@@ -280,9 +336,21 @@ public final class Options {
         Mutation mutation,
         Optional<String> cwd,
         Optional<Integer> columns,
-        Optional<Integer> rows
+        Optional<Integer> rows,
+        Optional<String> correlationKey
     ) {
-        public PaneCreate { mutation = mut(mutation); cwd = opt(cwd); columns = opt(columns); rows = opt(rows); }
+        public PaneCreate {
+            mutation = mut(mutation); cwd = opt(cwd); columns = opt(columns); rows = opt(rows);
+            correlationKey = correlation(correlationKey);
+        }
+        public PaneCreate(
+            Mutation mutation,
+            Optional<String> cwd,
+            Optional<Integer> columns,
+            Optional<Integer> rows
+        ) {
+            this(mutation, cwd, columns, rows, Optional.empty());
+        }
     }
     public record PaneSplit(
         Mutation mutation,
@@ -290,11 +358,31 @@ public final class Options {
         Optional<Double> ratio,
         Optional<String> cwd,
         Optional<Integer> columns,
-        Optional<Integer> rows
+        Optional<Integer> rows,
+        Optional<String> correlationKey
     ) {
         public PaneSplit {
             mutation = mut(mutation); Objects.requireNonNull(direction, "direction");
             ratio = opt(ratio); cwd = opt(cwd); columns = opt(columns); rows = opt(rows);
+            correlationKey = correlation(correlationKey);
+        }
+        public PaneSplit(
+            Mutation mutation,
+            Direction direction,
+            Optional<Double> ratio,
+            Optional<String> cwd,
+            Optional<Integer> columns,
+            Optional<Integer> rows
+        ) {
+            this(
+                mutation,
+                direction,
+                ratio,
+                cwd,
+                columns,
+                rows,
+                Optional.empty()
+            );
         }
     }
     public record DirectionInput(Mutation mutation, Direction direction) {
@@ -328,18 +416,44 @@ public final class Options {
         Optional<String> name,
         Optional<String> cwd,
         Optional<Integer> columns,
-        Optional<Integer> rows
+        Optional<Integer> rows,
+        Optional<String> correlationKey
     ) {
-        public TabCreateTerminal { mutation = mut(mutation); name = opt(name); cwd = opt(cwd); columns = opt(columns); rows = opt(rows); }
+        public TabCreateTerminal {
+            mutation = mut(mutation); name = opt(name); cwd = opt(cwd); columns = opt(columns); rows = opt(rows);
+            correlationKey = correlation(correlationKey);
+        }
+        public TabCreateTerminal(
+            Mutation mutation,
+            Optional<String> name,
+            Optional<String> cwd,
+            Optional<Integer> columns,
+            Optional<Integer> rows
+        ) {
+            this(mutation, name, cwd, columns, rows, Optional.empty());
+        }
     }
     public record TabCreateBrowser(
         Mutation mutation,
         Optional<String> name,
         String url,
         Optional<Integer> width,
-        Optional<Integer> height
+        Optional<Integer> height,
+        Optional<String> correlationKey
     ) {
-        public TabCreateBrowser { mutation = mut(mutation); name = opt(name); Objects.requireNonNull(url, "url"); width = opt(width); height = opt(height); }
+        public TabCreateBrowser {
+            mutation = mut(mutation); name = opt(name); Objects.requireNonNull(url, "url"); width = opt(width); height = opt(height);
+            correlationKey = correlation(correlationKey);
+        }
+        public TabCreateBrowser(
+            Mutation mutation,
+            Optional<String> name,
+            String url,
+            Optional<Integer> width,
+            Optional<Integer> height
+        ) {
+            this(mutation, name, url, width, height, Optional.empty());
+        }
     }
     public record TabMove(
         Mutation mutation,
@@ -531,6 +645,18 @@ public final class Options {
     private static Control control(Control value) { return value == null ? Control.defaults() : value; }
     private static Stream stream(Stream value) { return value == null ? Stream.defaults() : value; }
     private static <T> Optional<T> opt(Optional<T> value) { return value == null ? Optional.empty() : value; }
+    private static Optional<String> correlation(Optional<String> value) {
+        Optional<String> result = opt(value);
+        result.ifPresent(key -> {
+            int bytes = key.getBytes(StandardCharsets.UTF_8).length;
+            if (bytes < 1 || bytes > 128) {
+                throw new IllegalArgumentException(
+                    "correlationKey must contain 1 to 128 UTF-8 bytes"
+                );
+            }
+        });
+        return result;
+    }
     private static Map<String, Object> copy(Map<String, Object> value) { return value == null ? Map.of() : Map.copyOf(value); }
     private static void nonnegative(long value, String name) { if (value < 0) throw new IllegalArgumentException(name + " must not be negative"); }
     private static void positive(long value, String name) { if (value <= 0) throw new IllegalArgumentException(name + " must be positive"); }

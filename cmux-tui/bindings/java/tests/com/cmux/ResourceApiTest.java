@@ -20,6 +20,7 @@ public final class ResourceApiTest {
         decimalAndIdentifiers();
         sensitiveValuesAreRedacted();
         exactCommandAndRouting();
+        creationCorrelationIsFirstClass();
         nullableMetadata();
         strictTypedModels();
         layoutUndoUsesTypedConfirmation();
@@ -138,6 +139,122 @@ public final class ResourceApiTest {
         }
     }
 
+    private static void creationCorrelationIsFirstClass() {
+        expect(
+            IllegalArgumentException.class,
+            () -> Options.WorkspaceCreate.builder()
+                .correlationKey("")
+                .build()
+        );
+        expect(
+            IllegalArgumentException.class,
+            () -> Options.Run.builder(ExactCommand.of("true"))
+                .correlationKey("é".repeat(65))
+                .build()
+        );
+
+        FakeTransport transport = new FakeTransport();
+        try (Client client = client(transport)) {
+            Session session = client.machine(Selector.current())
+                .session(Selector.current());
+            Workspace workspace = session.workspace(Selector.current());
+            Screen screen = workspace.screen(Selector.current());
+            Pane pane = screen.pane(Selector.current());
+
+            session.createWorkspace(
+                Options.WorkspaceCreate.builder()
+                    .correlationKey("workspace-create")
+                    .build()
+            );
+            requireLastCorrelation(
+                transport,
+                "workspace.create",
+                "workspace-create"
+            );
+
+            workspace.run(
+                Options.Run.builder(ExactCommand.of("true"))
+                    .correlationKey("workspace-run")
+                    .build()
+            );
+            requireLastCorrelation(
+                transport,
+                "workspace.run",
+                "workspace-run"
+            );
+
+            workspace.createScreen(new Options.ScreenCreate(
+                Options.Mutation.defaults(),
+                Optional.empty(),
+                Optional.of("screen-create")
+            ));
+            requireLastCorrelation(
+                transport,
+                "screen.create",
+                "screen-create"
+            );
+
+            screen.createPane(new Options.PaneCreate(
+                Options.Mutation.defaults(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of("pane-create")
+            ));
+            requireLastCorrelation(
+                transport,
+                "pane.create",
+                "pane-create"
+            );
+
+            pane.run(
+                Options.Run.builder(ExactCommand.of("true"))
+                    .correlationKey("pane-run")
+                    .build()
+            );
+            requireLastCorrelation(transport, "pane.run", "pane-run");
+
+            pane.split(new Options.PaneSplit(
+                Options.Mutation.defaults(),
+                Options.Direction.RIGHT,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of("pane-split")
+            ));
+            requireLastCorrelation(transport, "pane.split", "pane-split");
+
+            pane.createTerminalTab(new Options.TabCreateTerminal(
+                Options.Mutation.defaults(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of("terminal-tab")
+            ));
+            requireLastCorrelation(
+                transport,
+                "tab.create_terminal",
+                "terminal-tab"
+            );
+
+            pane.createBrowserTab(new Options.TabCreateBrowser(
+                Options.Mutation.defaults(),
+                Optional.empty(),
+                "https://example.com",
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of("browser-tab")
+            ));
+            requireLastCorrelation(
+                transport,
+                "tab.create_browser",
+                "browser-tab"
+            );
+        }
+    }
+
     private static void strictTypedModels() {
         ResourceChange change = Client.decodeResourceChange(Map.of(
             "kind", "delete",
@@ -244,6 +361,30 @@ public final class ResourceApiTest {
     }
 
     private static void creationResolutionAndWaitExitStaySeparate() {
+        Results.CreationResolution created =
+            Client.decodeCreationResolution(Map.of(
+                "correlation_key", "create-key",
+                "state", "created",
+                "recovery", "none",
+                "operation", "workspace.run",
+                "idempotency_key", "idem-test",
+                "created_path", Map.of(
+                    "kind", "terminal",
+                    "workspace_id", "ws_" + HEX,
+                    "screen_id", "screen_" + HEX,
+                    "pane_id", "pane_" + HEX,
+                    "tab_id", "tab_" + HEX,
+                    "terminal_id", "term_" + HEX
+                ),
+                "generation", "generation-1",
+                "revision", "12"
+            ));
+        require(
+            created.createdPath().orElseThrow()
+                instanceof CreatedTerminalPath,
+            "created resolution decodes its raw CreatedPath value"
+        );
+
         FakeTransport transport = new FakeTransport();
         try (Client client = client(transport)) {
             Session session = client.machine(Selector.current())
@@ -501,6 +642,24 @@ public final class ResourceApiTest {
         }
     }
 
+    private static void requireLastCorrelation(
+        FakeTransport transport,
+        String operation,
+        String correlationKey
+    ) {
+        Map<String, Object> request = transport.lastSent();
+        require(
+            request.get("operation").equals(operation),
+            operation + " operation"
+        );
+        require(
+            object(request.get("params"))
+                .get("correlation_key")
+                .equals(correlationKey),
+            operation + " correlation_key"
+        );
+    }
+
     private static <T extends Throwable> T expect(
         Class<T> type,
         ThrowingRunnable action
@@ -593,7 +752,14 @@ public final class ResourceApiTest {
                 return;
             }
             Map<String, Object> result = switch (operation) {
-                case "workspace.run" -> workspaceRunResult();
+                case "workspace.create",
+                     "workspace.run",
+                     "screen.create",
+                     "pane.create",
+                     "pane.run",
+                     "pane.split",
+                     "tab.create_terminal" -> workspaceRunResult();
+                case "tab.create_browser" -> browserCreateResult();
                 case "client.metadata.update" -> clientSnapshot();
                 case "session.creation.resolve" -> Map.of(
                     "correlation_key", "create-key",
@@ -688,6 +854,22 @@ public final class ResourceApiTest {
                     "pane_id", "pane_" + HEX,
                     "tab_id", "tab_" + HEX,
                     "terminal_id", "term_" + HEX
+                ),
+                "generation", "generation-1",
+                "revision", "18446744073709551615",
+                "replayed", false
+            );
+        }
+
+        private static Map<String, Object> browserCreateResult() {
+            return Map.of(
+                "value", Map.of(
+                    "kind", "browser",
+                    "workspace_id", "ws_" + HEX,
+                    "screen_id", "screen_" + HEX,
+                    "pane_id", "pane_" + HEX,
+                    "tab_id", "tab_" + HEX,
+                    "browser_id", "browser_" + HEX
                 ),
                 "generation", "generation-1",
                 "revision", "18446744073709551615",

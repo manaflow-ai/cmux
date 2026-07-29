@@ -176,6 +176,9 @@ public final class Session {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
         options.name().ifPresent(name -> params.put(Wire.NAME, name));
         params.put(Wire.INITIAL_CONTENT, options.initialContent().toWire());
+        options.correlationKey().ifPresent(
+            key -> params.put("correlation_key", key)
+        );
         Client.MutationResponse response = client.mutation(
             Operations.WORKSPACE_CREATE, params, options.mutation()
         );

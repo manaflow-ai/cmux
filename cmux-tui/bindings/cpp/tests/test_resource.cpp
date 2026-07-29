@@ -223,6 +223,57 @@ TEST("run commands preserve exact argv and keep shell evaluation remote") {
     CHECK_EQ(explicit_shell.value().argv().at(1), std::string("-lc"));
 }
 
+TEST("all creation options validate and encode correlation keys") {
+    const auto check = [](cmux::Result<cmux::Json::Object> params) {
+        CHECK(params);
+        CHECK_EQ(
+            params.value().at("correlation_key").as_string().value(),
+            std::string_view("create-correlation"));
+    };
+
+    cmux::CreateWorkspaceOptions workspace;
+    workspace.correlation_key = "create-correlation";
+    check(workspace.to_params());
+
+    auto exact = cmux::RunCommand::exact({"true"});
+    CHECK(exact);
+    cmux::RunOptions run(std::move(exact).value());
+    run.correlation_key = "create-correlation";
+    check(run.to_params());
+
+    cmux::CreateScreenOptions screen;
+    screen.correlation_key = "create-correlation";
+    check(screen.to_params());
+
+    cmux::CreatePaneOptions pane;
+    pane.correlation_key = "create-correlation";
+    check(pane.to_params());
+
+    cmux::SplitPaneOptions split(cmux::PaneDirection::right);
+    split.correlation_key = "create-correlation";
+    check(split.to_params());
+
+    cmux::CreateTerminalTabOptions terminal;
+    terminal.correlation_key = "create-correlation";
+    check(terminal.to_params());
+
+    cmux::CreateBrowserTabOptions browser("https://example.com");
+    browser.correlation_key = "create-correlation";
+    check(browser.to_params());
+
+    cmux::CreateScreenOptions empty;
+    empty.correlation_key = "";
+    auto invalid_empty = empty.to_params();
+    CHECK(!invalid_empty);
+    CHECK_EQ(
+        invalid_empty.error().code,
+        cmux::ErrorCode::invalid_argument);
+
+    cmux::CreatePaneOptions oversized;
+    oversized.correlation_key = std::string(129, 'x');
+    CHECK(!oversized.to_params());
+}
+
 TEST("operation classes contain capability corrections") {
     CHECK_EQ(
         cmux::operation_name(cmux::Operation::terminal_renderer_grant_create),
