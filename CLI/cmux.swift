@@ -9185,15 +9185,48 @@ struct CMUXCLI {
             sshOptions.initialCommand == nil &&
             sshOptions.terminalProfile.kind == .shell
         // This lookup determines which program the user expects to run. Match
-        // exec rules can legitimately take longer than the best-effort timeout
-        // used by connection sharing, so wait just as the real SSH invocation
-        // would instead of silently treating an unresolved command as `none`.
-        let resolvedUserSSHConfiguration = resolvedSSHConfigurationOutput(
+        // exec rules can legitimately take longer than the two-second
+        // best-effort timeout used by connection sharing, but a broken rule
+        // must not hang every managed SSH launch indefinitely.
+        let configurationTimeout: TimeInterval = usesImplicitManagedInteractiveShell ? 15 : 2
+        let configurationResult = resolvedSSHConfigurationResult(
             for: inputSSHOptions,
-            timeout: usesImplicitManagedInteractiveShell ? nil : 2
+            timeout: configurationTimeout
         )
+        let resolvedUserSSHConfiguration =
+            configurationResult.status == 0 ? configurationResult.stdout : nil
+        if usesImplicitManagedInteractiveShell, configurationResult.status != 0 {
+            if configurationResult.timedOut {
+                let format = String(
+                    localized: "cli.ssh.error.configResolutionTimedOut",
+                    defaultValue: "ssh: timed out after %1$d seconds while resolving SSH configuration for %2$@. Check Match exec directives in your SSH config."
+                )
+                throw CLIError(message: String(
+                    format: format,
+                    locale: Locale.current,
+                    Int(configurationTimeout),
+                    sshOptions.displayDestination
+                ))
+            }
+            let format = String(
+                localized: "cli.ssh.error.configResolutionFailed",
+                defaultValue: "ssh: failed to resolve SSH configuration for %1$@ (exit %2$d). Check your SSH config."
+            )
+            throw CLIError(message: String(
+                format: format,
+                locale: Locale.current,
+                sshOptions.displayDestination,
+                configurationResult.status
+            ))
+        }
+        let forwardedSSHOptions = sshOptions.skipDaemonBootstrap
+            ? inputSSHOptions.sshOptions
+            : SSHAgentSocketResolver().removingOptions(
+                named: "RemoteCommand",
+                from: inputSSHOptions.sshOptions
+            )
         sshOptions.sshOptions = sharingOptions.mergingDefaults(
-            into: inputSSHOptions.sshOptions,
+            into: forwardedSSHOptions,
             userConfiguredControlOptions: resolvedUserSSHConfiguration.flatMap {
                 sharingOptions.userConfiguredControlOptions(fromSSHConfigOutput: $0)
             }

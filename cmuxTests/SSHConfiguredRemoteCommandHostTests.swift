@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import XCTest
@@ -185,11 +186,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     /// `cmux ssh` bootstrap-install flow (ControlMaster disabled → staged
-    /// installer hop + interactive session hop): the installer hop pipes the
-    /// bootstrap into `ssh ... <dest> <install command>` and used to hit the
-    /// same fatal; the session hop must keep carrying cmux's own
-    /// `-o RemoteCommand=<bootstrap>` rather than having it cleared.
-    func testSSHBootstrapStartupConnectsWhenHostConfigSetsRemoteCommand() throws {
+    /// installer hop + interactive session hop): a caller-supplied
+    /// `RemoteCommand` is captured as the program to chain, then removed from
+    /// forwarded SSH options so the session hop's single
+    /// `-o RemoteCommand=<bootstrap>` wins.
+    func testSSHBootstrapStartupChainsExplicitRemoteCommandWithConnectionSharingDisabled() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-rc-boot")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -237,6 +238,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "--no-focus",
                 "--ssh-option", "ControlMaster no",
                 "--ssh-option", "ControlPath /tmp/cmux-ssh-%C",
+                "--ssh-option", "RemoteCommand=printf caller-command",
                 "cmux-remotecommand-host",
             ],
             environment: captureEnvironment,
@@ -251,6 +253,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             requests.first { $0["method"] as? String == "workspace.create" }?["params"] as? [String: Any]
         )
         let startupCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let configureParams = try XCTUnwrap(
+            requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"] as? [String: Any]
+        )
+        XCTAssertEqual(configureParams["configured_remote_command"] as? String, "printf caller-command")
+        let forwardedOptions = configureParams["ssh_options"] as? [String] ?? []
+        XCTAssertFalse(
+            SSHAgentSocketResolver().hasOptionKey(forwardedOptions, key: "RemoteCommand"),
+            "The configured command must travel in its dedicated field, not remain ahead of cmux's bootstrap option: \(forwardedOptions)"
+        )
 
         let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-bootstrap")
         defer { harness.cleanup() }
@@ -289,6 +300,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             events.contains("invocation kind=session override=custom"),
             "The interactive session hop must keep carrying cmux's own -o RemoteCommand=<bootstrap>, not have it cleared to none; events: \(events)"
+        )
+        XCTAssertTrue(
+            events.contains("remotecommand-options kind=session count=1"),
+            "The interactive session must carry only cmux's bootstrap RemoteCommand; events: \(events)"
         )
     }
 
@@ -384,10 +399,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         #!/bin/sh
         events="${CMUX_FAKE_SSH_EVENTS:?}"
         override=absent
+        remotecommand_options=0
         mode=session
         while [ $# -gt 0 ]; do
           case "$1" in
             -o)
+              case "$2" in
+                RemoteCommand=*|remotecommand=*) remotecommand_options=$((remotecommand_options + 1)) ;;
+              esac
               if [ "$override" = absent ]; then
                 case "$2" in
                   RemoteCommand=none|remotecommand=none) override=none ;;
@@ -396,6 +415,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
               fi
               shift 2 ;;
             -o*)
+              case "${1#-o}" in
+                RemoteCommand=*|remotecommand=*) remotecommand_options=$((remotecommand_options + 1)) ;;
+              esac
               if [ "$override" = absent ]; then
                 case "${1#-o}" in
                   RemoteCommand=none|remotecommand=none) override=none ;;
@@ -422,6 +444,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         fi
         if [ $# -gt 0 ]; then mode=command; fi
         printf 'invocation kind=%s override=%s\\n' "$mode" "$override" >> "$events"
+        printf 'remotecommand-options kind=%s count=%s\\n' "$mode" "$remotecommand_options" >> "$events"
         if [ "$mode" = command ] && [ "$override" = absent ]; then
           printf '%s\\n' 'Cannot execute command-line and remote command.' >&2
           exit 255
