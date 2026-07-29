@@ -45,35 +45,19 @@ extension GhosttyNSView {
         }
     }
 
-    /// Replays a submit key when AppKit committed the unchanged preedit but did
-    /// not emit a command callback for the physical key.
+    /// A committed preedit does not prove that the physical submit key belongs
+    /// to the terminal. AppKit must delegate a command callback explicitly.
     func replaysPhysicalKeyAfterLiteralPreeditCommit(
-        _ event: NSEvent
+        _: NSEvent
     ) -> Bool {
-        switch Int(event.keyCode) {
-        case kVK_Return, kVK_ANSI_KeypadEnter:
-            return true
-        default:
-            return false
-        }
+        false
     }
 
-    /// Replays plain horizontal navigation after AppKit moves only the
-    /// provisional caret. Modified arrows remain owned by the input method.
+    /// A changed preedit caret proves that AppKit consumed the navigation key.
+    /// Only an explicit command callback can delegate it to the terminal.
     func replaysPhysicalKeyAfterPreeditCaretMove(
-        _ event: NSEvent
+        _: NSEvent
     ) -> Bool {
-        guard event.modifierFlags.isDisjoint(
-            with: [.shift, .control, .option, .command]
-        ) else {
-            return false
-        }
-
-        switch Int(event.keyCode) {
-        case kVK_LeftArrow, kVK_RightArrow:
-            return true
-        default:
-            return false
-        }
+        false
     }
 }
