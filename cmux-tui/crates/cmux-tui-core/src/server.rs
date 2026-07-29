@@ -32,6 +32,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use fs4::FileExt;
 use ghostty_vt::{
     Dirty, KeyAction, KeyEncoder, KeyInput, Mods, StyledRun, UnderlineStyle, key_input_from_chord,
     rows_to_runs, sys,
@@ -2674,6 +2675,60 @@ fn socket_publication_hook(path: &Path, stage: SocketPublicationStage) {
     }
 }
 
+fn socket_publication_lock_path(path: &Path) -> std::io::Result<PathBuf> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "server socket has no parent directory",
+        )
+    })?;
+    let file_name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "server socket has no file name")
+    })?;
+    let mut lock_name = std::ffi::OsString::from(".");
+    lock_name.push(file_name);
+    lock_name.push(".publish.lock");
+    Ok(parent.join(lock_name))
+}
+
+struct SocketPublicationLock {
+    file: std::fs::File,
+}
+
+impl SocketPublicationLock {
+    fn acquire(path: &Path, deadline: Instant) -> std::io::Result<Self> {
+        let lock_path = socket_publication_lock_path(path)?;
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&lock_path)?;
+        platform::restrict_file(&lock_path)?;
+        loop {
+            match FileExt::try_lock(&file) {
+                Ok(()) => return Ok(Self { file }),
+                Err(fs4::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(fs4::TryLockError::WouldBlock) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        format!("timed out waiting to publish server socket {}", path.display()),
+                    ));
+                }
+                Err(fs4::TryLockError::Error(error)) => return Err(error),
+            }
+        }
+    }
+}
+
+impl Drop for SocketPublicationLock {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.file);
+    }
+}
+
 #[cfg(any(not(unix), test))]
 fn cleanup_without_stable_identity(_path: &Path) {
     // Windows does not expose a race-free socket publication identity through
@@ -2813,6 +2868,10 @@ pub fn serve_owned(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Publi
         std::fs::create_dir_all(dir)?;
         platform::restrict_directory(dir)?;
     }
+    let _publication_lock = SocketPublicationLock::acquire(
+        &path,
+        Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT + LOCAL_SOCKET_CONNECT_TIMEOUT,
+    )?;
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
         let deadline = Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT;
@@ -6358,6 +6417,7 @@ mod tests {
             publication.cleanup();
         }
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(socket_publication_lock_path(&path).unwrap());
         std::fs::remove_dir(&directory).unwrap();
 
         assert_eq!(
