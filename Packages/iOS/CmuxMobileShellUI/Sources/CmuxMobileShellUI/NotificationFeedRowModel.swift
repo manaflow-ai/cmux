@@ -107,14 +107,15 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
         return details
     }
 
+    // Localized interpolation, not `String(format:)`: these run per row inside
+    // the detached whole-window rebuild, and C-varargs formatting is banned in
+    // concurrent hot paths (the PR 5347 regression class). The catalog values
+    // keep their positional placeholders; interpolation arguments bind to them
+    // in order.
     private static func accessibilityField(label: String, value: String) -> String {
-        String(
-            format: L10n.string(
-                "mobile.notificationFeed.row.fieldFormat",
-                defaultValue: "%1$@: %2$@"
-            ),
-            label,
-            value
+        L10n.string(
+            "mobile.notificationFeed.row.fieldFormat",
+            defaultValue: "\(label): \(value)"
         )
     }
 
@@ -126,20 +127,14 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
         case .connected:
             return value
         case .reconnecting:
-            return String(
-                format: L10n.string(
-                    "mobile.notificationFeed.macReconnectingFormat",
-                    defaultValue: "%@ · Reconnecting"
-                ),
-                value
+            return L10n.string(
+                "mobile.notificationFeed.macReconnectingFormat",
+                defaultValue: "\(value) · Reconnecting"
             )
         case .unavailable:
-            return String(
-                format: L10n.string(
-                    "mobile.notificationFeed.macUnavailableFormat",
-                    defaultValue: "%@ · Unavailable"
-                ),
-                value
+            return L10n.string(
+                "mobile.notificationFeed.macUnavailableFormat",
+                defaultValue: "\(value) · Unavailable"
             )
         }
     }
