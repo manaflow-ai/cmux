@@ -272,30 +272,33 @@ struct WorkspaceDetailView: View {
         // visible; block interaction so keystrokes aren't silently dropped by
         // the disconnected drain path. The pill and toast overlays attach
         // after this modifier and stay tappable.
-        .allowsHitTesting(!toasts.isEnabled || connectionStatus == .connected)
+        .allowsHitTesting(!toasts.isEnabled || effectiveConnectionStatus == .connected)
         #if os(iOS)
         // Hit-testing only blocks new touches: a terminal focused before the
         // drop (or autofocused on window attach) keeps its keyboard, and its
         // keystrokes drain into the disconnected path silently. Release the
         // input proxy on mount, on status changes, and on flag flips.
-        .onChange(of: connectionStatus, initial: true) { _, status in
+        .onChange(of: effectiveConnectionStatus, initial: true) { _, status in
             resignDisconnectedTerminalInput(status: status)
         }
         .onChange(of: toasts.isEnabled) { _, _ in
-            resignDisconnectedTerminalInput(status: connectionStatus)
+            resignDisconnectedTerminalInput(status: effectiveConnectionStatus)
         }
         .onChange(of: store.selectedWorkspaceID) { _, _ in
             // A retained detail can go unavailable while hidden (the
             // selection guard skips it); when it becomes selected again,
             // neither status nor flag changes, so re-check on selection.
-            resignDisconnectedTerminalInput(status: connectionStatus)
+            resignDisconnectedTerminalInput(status: effectiveConnectionStatus)
         }
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {
             MobileMacConnectionStatusPill(
                 host: host,
-                status: connectionStatus,
+                // Flag off keeps the raw per-workspace status (legacy
+                // byte-for-byte); flag on folds in foreground recovery so
+                // the pill matches the toast capsule and input gating.
+                status: toasts.isEnabled ? effectiveConnectionStatus : connectionStatus,
                 reconnect: toasts.isEnabled ? { reconnectToWorkspaceMac() } : nil
             )
                 .padding(.top, 10)
@@ -365,6 +368,24 @@ struct WorkspaceDetailView: View {
         Task {
             await store.reconnectToMac(macDeviceID: workspace.macDeviceID)
         }
+    }
+
+    /// Same-client foreground recovery flips the store's recovery flags while
+    /// `workspace.macConnectionStatus` stays `.connected`; input safety (and
+    /// the flag-on pill) must reflect the recovery, matching the presenter's
+    /// derivation. Hidden retained details keep their raw status: the guard
+    /// only applies to the selected workspace on the foreground connection.
+    private var effectiveConnectionStatus: MobileMacConnectionStatus {
+        if store.selectedWorkspaceID == workspace.id,
+           store.selectedWorkspaceUsesForegroundConnection {
+            if store.connectionRecoveryFailed {
+                return .unavailable
+            }
+            if store.isRecoveringConnection {
+                return .reconnecting
+            }
+        }
+        return connectionStatus
     }
 
     #if os(iOS)
