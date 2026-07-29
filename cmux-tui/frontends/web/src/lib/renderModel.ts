@@ -199,6 +199,8 @@ function samePlacement(left: RenderGraphicPlacement, right: RenderGraphicPlaceme
     && left.viewport_col === right.viewport_col
     && left.viewport_row === right.viewport_row
     && left.viewport_visible === right.viewport_visible
+    && left.anchor_col === right.anchor_col
+    && left.anchor_row === right.anchor_row
     && left.z === right.z;
 }
 

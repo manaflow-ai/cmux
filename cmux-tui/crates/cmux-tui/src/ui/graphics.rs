@@ -1880,6 +1880,7 @@ mod tests {
             viewport_col: -2,
             viewport_row: -1,
             viewport_visible: true,
+            anchor: None,
             z: 3,
         };
         let outer = kitty_graphic_placement(
@@ -1928,6 +1929,7 @@ mod tests {
             viewport_col: 3,
             viewport_row: 2,
             viewport_visible: true,
+            anchor: None,
             z: 0,
         };
         let pane = Rect { x: 10, y: 5, width: 5, height: 4 };

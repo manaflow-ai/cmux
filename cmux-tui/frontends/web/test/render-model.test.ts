@@ -64,6 +64,8 @@ const graphics: RenderGraphics = {
     viewport_col: 1,
     viewport_row: 0,
     viewport_visible: true,
+    anchor_col: 1,
+    anchor_row: 0,
     z: 0,
   }],
 };
@@ -174,6 +176,19 @@ describe("render model", () => {
     expect(replaced.graphics.images[0]).toMatchObject({ generation: 3, data: "AAD//w==" });
     expect(replaced.graphics.images[1]).toBe(initial.graphics.images[1]);
     expect(replaced.graphics.placements[0]?.viewport_col).toBe(3);
+  });
+
+  it("applies placement deltas that only change absolute history anchors", () => {
+    const initial = applySnapshot(snapshot());
+    const reanchored = applyDelta(initial, delta({
+      graphics: {
+        generation: initial.graphics.generation,
+        placements: [{ ...graphics.placements[0], anchor_row: 4 }],
+      },
+    }));
+
+    expect(reanchored.graphics.placements).not.toBe(initial.graphics.placements);
+    expect(reanchored.graphics.placements[0]?.anchor_row).toBe(4);
   });
 
   it("does not scan image payload characters on the browser thread", () => {

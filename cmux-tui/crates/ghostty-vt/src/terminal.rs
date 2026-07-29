@@ -3922,6 +3922,7 @@ mod tests {
             viewport_col: viewport.0,
             viewport_row: viewport.1,
             viewport_visible: true,
+            anchor: None,
             z: 3,
         }
     }

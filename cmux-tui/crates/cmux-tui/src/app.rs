@@ -20850,6 +20850,7 @@ mod tests {
                     viewport_col: 5,
                     viewport_row: 0,
                     viewport_visible: true,
+                    anchor: None,
                     z: 0,
                 }],
             }),

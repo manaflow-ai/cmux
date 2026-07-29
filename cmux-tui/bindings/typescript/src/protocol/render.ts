@@ -3,8 +3,8 @@ import type { Base64, ColorHex, Id, Size } from "./common.js";
 /**
  * Render graphics use one transport budget chain:
  * 10,000,000 decoded bytes become at most 13,333,336 base64 characters.
- * The 16,384-placement limit contributes at most 7,258,113 JSON characters.
- * Their 20,591,449-character subtotal leaves 12,962,983 characters of a
+ * The 16,384-placement limit contributes at most 7,962,625 JSON characters.
+ * Their 21,295,961-character subtotal leaves 12,258,471 characters of a
  * 32 MiB attach message for image metadata, rows, and the JSON wrapper.
  * Keep the Rust server limits and web decoder in sync with these constants.
  */
@@ -77,6 +77,10 @@ export interface RenderGraphicPlacement {
   viewport_col: number;
   viewport_row: number;
   viewport_visible: boolean;
+  /** Absolute cell column in the retained screen, omitted by older servers. */
+  anchor_col?: number;
+  /** Absolute row counted from the oldest retained row, omitted by older servers. */
+  anchor_row?: number;
   z: number;
 }
 

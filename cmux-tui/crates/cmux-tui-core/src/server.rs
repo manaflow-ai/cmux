@@ -1194,14 +1194,14 @@ const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
 const WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
 // One outbound render budget chain:
 // 10,000,000 decoded image bytes -> 13,333,336 base64 bytes.
-// 16,384 maximal placement objects -> 7,258,113 JSON bytes.
-// Their 20,591,449-byte subtotal fits a 32 MiB attach message with
-// 12,962,983 bytes left for image metadata, rows, and the JSON wrapper.
+// 16,384 maximal placement objects -> 7,962,625 JSON bytes.
+// Their 21,295,961-byte subtotal fits a 32 MiB attach message with
+// 12,258,471 bytes left for image metadata, rows, and the JSON wrapper.
 // Keep the TypeScript SDK and web decoder constants in sync.
 const RENDER_GRAPHIC_MAX_DECODED_BYTES: usize = 10_000_000;
 const RENDER_GRAPHIC_MAX_ENCODED_BYTES: usize = RENDER_GRAPHIC_MAX_DECODED_BYTES.div_ceil(3) * 4;
 const RENDER_GRAPHIC_MAX_PLACEMENTS: usize = 16_384;
-const RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES: usize = 442;
+const RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES: usize = 485;
 const RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES: usize = 2
     + RENDER_GRAPHIC_MAX_PLACEMENTS * RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES
     + (RENDER_GRAPHIC_MAX_PLACEMENTS - 1);
@@ -4444,6 +4444,10 @@ struct RenderGraphicPlacementMessage {
     viewport_col: i32,
     viewport_row: i32,
     viewport_visible: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    anchor_col: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    anchor_row: Option<u32>,
     z: i32,
 }
 
@@ -4468,6 +4472,8 @@ impl From<&ghostty_vt::KittyPlacement> for RenderGraphicPlacementMessage {
             viewport_col: placement.viewport_col,
             viewport_row: placement.viewport_row,
             viewport_visible: placement.viewport_visible,
+            anchor_col: placement.anchor.map(|anchor| anchor.col),
+            anchor_row: placement.anchor.map(|anchor| anchor.row),
             z: placement.z,
         }
     }
@@ -7204,6 +7210,7 @@ mod tests {
             viewport_col: i32::MIN,
             viewport_row: i32::MIN,
             viewport_visible: false,
+            anchor: Some(ghostty_vt::KittyPlacementAnchor { col: u16::MAX, row: u32::MAX }),
             z: i32::MIN,
         };
         let graphics = ghostty_vt::KittyGraphicsSnapshot {
@@ -7220,14 +7227,14 @@ mod tests {
         let image_base64_bytes = RENDER_GRAPHIC_MAX_DECODED_BYTES.div_ceil(3) * 4;
         let required_without_rows = image_base64_bytes + placement_array_bytes;
 
-        assert_eq!(placement_bytes, 442);
-        assert_eq!(placement_array_bytes, 7_258_113);
+        assert_eq!(placement_bytes, 485);
+        assert_eq!(placement_array_bytes, 7_962_625);
         assert_eq!(image_base64_bytes, 13_333_336);
-        assert_eq!(required_without_rows, 20_591_449);
+        assert_eq!(required_without_rows, 21_295_961);
         assert_eq!(placement_bytes, RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES);
         assert_eq!(placement_array_bytes, RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES);
         assert_eq!(image_base64_bytes, RENDER_GRAPHIC_MAX_ENCODED_BYTES);
-        assert_eq!(OUTBOUND_BYTE_CAPACITY - required_without_rows, 12_962_983);
+        assert_eq!(OUTBOUND_BYTE_CAPACITY - required_without_rows, 12_258_471);
         assert!(
             required_without_rows < OUTBOUND_BYTE_CAPACITY,
             "{required_without_rows} image and placement bytes exceed the configured \
@@ -7266,7 +7273,10 @@ mod tests {
         assert_eq!(graphics["placements"].as_array().unwrap().len(), 2);
         assert!(
             graphics["placements"].as_array().unwrap().iter().any(|placement| {
-                placement["placement_id"] == 9 && placement["viewport_col"] == 2
+                placement["placement_id"] == 9
+                    && placement["viewport_col"] == 2
+                    && placement["anchor_col"] == 2
+                    && placement["anchor_row"] == 0
             })
         );
     }

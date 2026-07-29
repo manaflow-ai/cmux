@@ -512,6 +512,8 @@ pub struct KittyPlacement {
     pub viewport_col: i32,
     pub viewport_row: i32,
     pub viewport_visible: bool,
+    /// Absolute cell anchor in the retained screen, counted from its oldest row.
+    pub anchor: Option<KittyPlacementAnchor>,
     pub z: i32,
 }
 
@@ -524,7 +526,7 @@ pub struct KittyGraphicsSnapshot {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct KittyPlacementAnchor {
+pub struct KittyPlacementAnchor {
     pub col: u16,
     pub row: u32,
 }
@@ -608,7 +610,7 @@ pub(crate) fn snapshot(
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
     include_unplaced: bool,
 ) -> Result<KittyGraphicsSnapshot> {
-    Ok(snapshot_impl(terminal, pixel_cache, include_unplaced, false)?.graphics)
+    Ok(snapshot_impl(terminal, pixel_cache, include_unplaced)?.graphics)
 }
 
 /// Consume libghostty's renderer-owned graphics damage and return a complete
@@ -657,7 +659,7 @@ pub(crate) fn snapshot_for_replay(
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
     include_unplaced: bool,
 ) -> Result<KittyReplaySnapshot> {
-    snapshot_impl(terminal, pixel_cache, include_unplaced, true)
+    snapshot_impl(terminal, pixel_cache, include_unplaced)
 }
 
 pub(crate) fn generation(terminal: &Terminal) -> Result<u64> {
@@ -671,7 +673,6 @@ fn snapshot_impl(
     terminal: &Terminal,
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
     include_unplaced: bool,
-    capture_anchors: bool,
 ) -> Result<KittyReplaySnapshot> {
     let Some(graphics) = terminal_graphics(terminal)? else {
         return Ok(KittyReplaySnapshot {
@@ -760,81 +761,75 @@ fn snapshot_impl(
             )
         })?;
 
-        let anchor = if capture_anchors {
-            let mut rect = sys::GhosttySelection {
-                size: size_of::<sys::GhosttySelection>(),
-                ..Default::default()
-            };
-            check(unsafe {
-                sys::ghostty_kitty_graphics_placement_rect(
-                    iterator.0,
-                    raw_image,
-                    terminal.raw(),
-                    &mut rect,
-                )
-            })?;
-            let mut anchor = sys::GhosttyPointCoordinate::default();
-            check(unsafe {
-                sys::ghostty_terminal_point_from_grid_ref(
-                    terminal.raw(),
-                    &rect.start,
-                    sys::GHOSTTY_POINT_TAG_SCREEN,
-                    &mut anchor,
-                )
-            })?;
-            Some(KittyPlacementAnchor { col: anchor.x, row: anchor.y })
-        } else {
-            None
+        let mut rect = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
         };
+        check(unsafe {
+            sys::ghostty_kitty_graphics_placement_rect(
+                iterator.0,
+                raw_image,
+                terminal.raw(),
+                &mut rect,
+            )
+        })?;
+        let mut anchor = sys::GhosttyPointCoordinate::default();
+        check(unsafe {
+            sys::ghostty_terminal_point_from_grid_ref(
+                terminal.raw(),
+                &rect.start,
+                sys::GHOSTTY_POINT_TAG_SCREEN,
+                &mut anchor,
+            )
+        })?;
+        let anchor = KittyPlacementAnchor { col: anchor.x, row: anchor.y };
 
-        placements.push((
-            KittyPlacement {
-                key: KittyPlacementKey { image_id, placement_id, ordinal: 0 },
-                image_id,
-                placement_id,
-                is_internal: placement_value(
-                    iterator.0,
-                    sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_INTERNAL,
-                )?,
-                x_offset: placement_value(
-                    iterator.0,
-                    sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET,
-                )?,
-                y_offset: placement_value(
-                    iterator.0,
-                    sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET,
-                )?,
-                source_x: info.source_x,
-                source_y: info.source_y,
-                source_width: info.source_width,
-                source_height: info.source_height,
-                columns: placement_value(
-                    iterator.0,
-                    sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS,
-                )?,
-                rows: placement_value(iterator.0, sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS)?,
-                grid_cols: info.grid_cols,
-                grid_rows: info.grid_rows,
-                pixel_width: info.pixel_width,
-                pixel_height: info.pixel_height,
-                viewport_col: info.viewport_col,
-                viewport_row: info.viewport_row,
-                viewport_visible: info.viewport_visible,
-                z: placement_value(iterator.0, sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z)?,
-            },
-            anchor,
-        ));
+        placements.push(KittyPlacement {
+            key: KittyPlacementKey { image_id, placement_id, ordinal: 0 },
+            image_id,
+            placement_id,
+            is_internal: placement_value(
+                iterator.0,
+                sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_INTERNAL,
+            )?,
+            x_offset: placement_value(
+                iterator.0,
+                sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET,
+            )?,
+            y_offset: placement_value(
+                iterator.0,
+                sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Y_OFFSET,
+            )?,
+            source_x: info.source_x,
+            source_y: info.source_y,
+            source_width: info.source_width,
+            source_height: info.source_height,
+            columns: placement_value(
+                iterator.0,
+                sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_COLUMNS,
+            )?,
+            rows: placement_value(iterator.0, sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_ROWS)?,
+            grid_cols: info.grid_cols,
+            grid_rows: info.grid_rows,
+            pixel_width: info.pixel_width,
+            pixel_height: info.pixel_height,
+            viewport_col: info.viewport_col,
+            viewport_row: info.viewport_row,
+            viewport_visible: info.viewport_visible,
+            anchor: Some(anchor),
+            z: placement_value(iterator.0, sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z)?,
+        });
     }
 
-    placements.sort_by_key(|(placement, _)| PlacementSortKey::from(placement));
+    placements.sort_by_key(|placement| PlacementSortKey::from(placement));
     let mut ordinals = BTreeMap::<(u32, u32), u32>::new();
     let mut anchors = BTreeMap::new();
-    for (placement, anchor) in &mut placements {
+    for placement in &mut placements {
         let ordinal = ordinals.entry((placement.image_id, placement.placement_id)).or_default();
         placement.key.ordinal = *ordinal;
         *ordinal = ordinal.saturating_add(1);
-        if let Some(anchor) = anchor {
-            anchors.insert(placement.key, *anchor);
+        if let Some(anchor) = placement.anchor {
+            anchors.insert(placement.key, anchor);
         }
     }
     let current_generations = images.values().map(|image| image.generation).collect::<HashSet<_>>();
@@ -848,7 +843,7 @@ fn snapshot_impl(
         graphics: KittyGraphicsSnapshot {
             generation,
             images: images.into_values().collect(),
-            placements: placements.into_iter().map(|(placement, _)| placement).collect(),
+            placements,
         },
         anchors,
     })

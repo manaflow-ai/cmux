@@ -2,6 +2,7 @@ import { memo, type CSSProperties } from "react";
 import type { CmuxClient, Id, RenderRow } from "cmux/browser";
 import { useRenderTerminal } from "../hooks/useRenderTerminal";
 import { t } from "../i18n";
+import { projectRenderGraphicsToRows } from "../lib/scrollback";
 import { renderAttrs, runPresentation } from "../lib/renderStyles";
 import { RenderGraphics } from "./RenderGraphics";
 import { TerminalFrame } from "./TerminalFrame";
@@ -129,12 +130,15 @@ export function RenderTerminal({
     top: `calc(var(--render-cell-height) * ${cursor.y})`,
     color: cursor.color ?? "var(--terminal-cursor)",
   } satisfies CSSProperties;
-  const layeredGraphics = !history.active
-    && model?.graphics !== undefined
-    && model.graphics.images.length > 0
-    && model.graphics.placements.length > 0
-    ? model.graphics
+  const projectedGraphics = history.active
+    ? projectRenderGraphicsToRows(model?.graphics, rows)
+    : model?.graphics;
+  const layeredGraphics = projectedGraphics !== undefined
+    && projectedGraphics.images.length > 0
+    && projectedGraphics.placements.length > 0
+    ? projectedGraphics
     : undefined;
+  const rowKeyPrefix = history.active ? "history" : "live";
 
   return (
     <TerminalFrame
@@ -157,7 +161,7 @@ export function RenderTerminal({
               <RenderRowsView
                 defaultFg={defaultFg}
                 defaultBg={defaultBg}
-                keyPrefix={history.active ? "history" : "live"}
+                keyPrefix={rowKeyPrefix}
                 rows={rows}
               />
             ) : (
@@ -166,7 +170,7 @@ export function RenderTerminal({
                   <RenderRowsView
                     defaultBg={defaultBg}
                     defaultFg={defaultFg}
-                    keyPrefix="background-live"
+                    keyPrefix={`${rowKeyPrefix}-background`}
                     mode="background"
                     rows={rows}
                   />
@@ -176,7 +180,7 @@ export function RenderTerminal({
                   <RenderRowsView
                     defaultBg={defaultBg}
                     defaultFg={defaultFg}
-                    keyPrefix="plain-live"
+                    keyPrefix={`${rowKeyPrefix}-plain`}
                     rows={rows}
                   />
                 )}
@@ -184,7 +188,7 @@ export function RenderTerminal({
                 <RenderRowsView
                   defaultBg={defaultBg}
                   defaultFg={defaultFg}
-                  keyPrefix="live"
+                  keyPrefix={rowKeyPrefix}
                   mode="foreground"
                   rows={rows}
                 />
