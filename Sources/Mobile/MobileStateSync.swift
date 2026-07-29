@@ -134,6 +134,7 @@ final class MobileStateSyncHost {
                         name: group.name,
                         isCollapsed: group.isCollapsed,
                         isPinned: group.isPinned,
+                        iconSymbol: group.iconSymbol,
                         anchorWorkspaceID: group.anchorWorkspaceId.uuidString,
                         sortIndex: groupRows.count
                     )

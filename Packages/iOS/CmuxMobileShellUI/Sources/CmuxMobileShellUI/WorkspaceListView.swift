@@ -138,6 +138,13 @@ struct WorkspaceListView: View {
     /// The workspace whose UIKit context-menu action is presenting the shared
     /// customization sheet.
     @State var workspacePendingCustomizationID: MobileWorkspacePreview.ID?
+    /// The group whose UIKit context-menu action is presenting the shared
+    /// rename sheet.
+    @State var workspaceGroupPendingRenameID: MobileWorkspaceGroupPreview.ID?
+    /// The group and destructive operation awaiting confirmation from a UIKit
+    /// context-menu action.
+    @State var workspaceGroupPendingDestructiveID: MobileWorkspaceGroupPreview.ID?
+    @State var workspaceGroupPendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction?
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
     /// In-flight move RPC count plus the tail of the send chain. Moves stay
@@ -425,6 +432,14 @@ struct WorkspaceListView: View {
                 }
             }
         }
+        .sheet(isPresented: workspaceGroupRenameIsPresented) {
+            if let groupID = workspaceGroupPendingRenameID,
+               let group = groups.first(where: { $0.id == groupID }) {
+                WorkspaceGroupRenameSheet(currentName: group.name) { newName in
+                    renameWorkspaceGroup?(groupID, newName)
+                }
+            }
+        }
         .sheet(item: $changesSheetTarget) { target in
             if let store {
                 WorkspaceChangesSheet(
@@ -460,6 +475,39 @@ struct WorkspaceListView: View {
                     defaultValue: "This will close the workspace on your Mac."
                 )
             )
+        }
+        .confirmationDialog(
+            workspaceGroupDestructiveDialogTitle,
+            isPresented: workspaceGroupDestructiveConfirmationIsPresented,
+            titleVisibility: .visible
+        ) {
+            if workspaceGroupPendingDestructiveAction == .ungroup,
+               let groupID = workspaceGroupPendingDestructiveID,
+               ungroupWorkspaceGroup != nil {
+                Button(
+                    L10n.string("mobile.workspaceGroup.ungroup.confirmAction", defaultValue: "Ungroup"),
+                    role: .destructive
+                ) {
+                    confirmWorkspaceGroupDestructiveAction()
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupUngroupConfirmButton-\(groupID.rawValue)")
+            }
+            if workspaceGroupPendingDestructiveAction == .delete,
+               let groupID = workspaceGroupPendingDestructiveID,
+               deleteWorkspaceGroup != nil {
+                Button(
+                    L10n.string("mobile.workspaceGroup.delete.confirmAction", defaultValue: "Delete Group"),
+                    role: .destructive
+                ) {
+                    confirmWorkspaceGroupDestructiveAction()
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupDeleteConfirmButton-\(groupID.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                clearWorkspaceGroupDestructiveRequest()
+            }
+        } message: {
+            Text(workspaceGroupDestructiveDialogMessage)
         }
         #endif
     }

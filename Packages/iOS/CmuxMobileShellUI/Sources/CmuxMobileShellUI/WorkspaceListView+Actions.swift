@@ -66,6 +66,27 @@ extension WorkspaceListView {
         return { workspacePendingCustomizationID = $0 }
     }
 
+    var requestWorkspaceGroupRename: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
+        guard renameWorkspaceGroup != nil else { return nil }
+        return { workspaceGroupPendingRenameID = $0 }
+    }
+
+    var requestWorkspaceGroupUngroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
+        guard ungroupWorkspaceGroup != nil else { return nil }
+        return { groupID in
+            workspaceGroupPendingDestructiveID = groupID
+            workspaceGroupPendingDestructiveAction = .ungroup
+        }
+    }
+
+    var requestWorkspaceGroupDelete: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
+        guard deleteWorkspaceGroup != nil else { return nil }
+        return { groupID in
+            workspaceGroupPendingDestructiveID = groupID
+            workspaceGroupPendingDestructiveAction = .delete
+        }
+    }
+
     var workspaceRenameIsPresented: Binding<Bool> {
         Binding(
             get: { workspacePendingRenameID != nil },
@@ -88,6 +109,31 @@ extension WorkspaceListView {
         )
     }
 
+    var workspaceGroupRenameIsPresented: Binding<Bool> {
+        Binding(
+            get: { workspaceGroupPendingRenameID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    workspaceGroupPendingRenameID = nil
+                }
+            }
+        )
+    }
+
+    var workspaceGroupDestructiveConfirmationIsPresented: Binding<Bool> {
+        Binding(
+            get: {
+                workspaceGroupPendingDestructiveID != nil
+                    && workspaceGroupPendingDestructiveAction != nil
+            },
+            set: { isPresented in
+                if !isPresented {
+                    clearWorkspaceGroupDestructiveRequest()
+                }
+            }
+        )
+    }
+
     var workspaceCloseConfirmationIsPresented: Binding<Bool> {
         Binding(
             get: { workspacePendingCloseID != nil },
@@ -97,6 +143,34 @@ extension WorkspaceListView {
                 }
             }
         )
+    }
+
+    var workspaceGroupDestructiveDialogTitle: String {
+        switch workspaceGroupPendingDestructiveAction {
+        case .ungroup:
+            L10n.string("mobile.workspaceGroup.ungroup.confirmTitle", defaultValue: "Ungroup Group?")
+        case .delete:
+            L10n.string("mobile.workspaceGroup.delete.confirmTitle", defaultValue: "Delete Group?")
+        case nil:
+            ""
+        }
+    }
+
+    var workspaceGroupDestructiveDialogMessage: String {
+        switch workspaceGroupPendingDestructiveAction {
+        case .ungroup:
+            L10n.string(
+                "mobile.workspaceGroup.ungroup.confirmMessage",
+                defaultValue: "This will dissolve the group on your Mac and keep its workspaces."
+            )
+        case .delete:
+            L10n.string(
+                "mobile.workspaceGroup.delete.confirmMessage",
+                defaultValue: "This will delete the group and close its workspaces on your Mac."
+            )
+        case nil:
+            ""
+        }
     }
     #endif
 
@@ -119,5 +193,24 @@ extension WorkspaceListView {
         }
         workspacePendingCloseID = nil
         closeWorkspace?(workspaceID)
+    }
+
+    func confirmWorkspaceGroupDestructiveAction() {
+        guard let groupID = workspaceGroupPendingDestructiveID,
+              let action = workspaceGroupPendingDestructiveAction else {
+            return
+        }
+        clearWorkspaceGroupDestructiveRequest()
+        switch action {
+        case .ungroup:
+            ungroupWorkspaceGroup?(groupID)
+        case .delete:
+            deleteWorkspaceGroup?(groupID)
+        }
+    }
+
+    func clearWorkspaceGroupDestructiveRequest() {
+        workspaceGroupPendingDestructiveID = nil
+        workspaceGroupPendingDestructiveAction = nil
     }
 }

@@ -68,7 +68,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
     /// the desktop header whose body focuses the anchor.
     private var nameLabel: some View {
         HStack(spacing: 6) {
-            Image(systemName: "folder.fill")
+            Image(systemName: group.iconSymbol ?? "folder.fill")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)

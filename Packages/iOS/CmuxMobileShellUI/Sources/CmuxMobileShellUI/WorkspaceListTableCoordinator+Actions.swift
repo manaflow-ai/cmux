@@ -30,7 +30,8 @@ extension WorkspaceListTableCoordinator {
             }
             action.accessibilityIdentifier = "MobileWorkspaceCustomizeButton-\(workspace.id.rawValue)"
             actions.append(action)
-        } else if capabilities.supportsWorkspaceActions, let renameRequest = configuration.renameRequest {
+        }
+        if capabilities.supportsWorkspaceActions, let renameRequest = configuration.renameRequest {
             let action = UIAction(
                 title: L10n.string("mobile.workspace.rename.action", defaultValue: "Rename"),
                 image: UIImage(systemName: "pencil")
@@ -62,6 +63,100 @@ extension WorkspaceListTableCoordinator {
             actions.append(action)
         }
         return actions
+    }
+
+    func contextMenuActions(
+        for group: MobileWorkspaceGroupPreview,
+        anchorWorkspace: MobileWorkspacePreview
+    ) -> [UIMenuElement] {
+        let capabilities = anchorWorkspace.actionCapabilities
+        var sections: [UIMenuElement] = []
+        var groupActions: [UIAction] = []
+
+        if let createWorkspaceInGroup = configuration.createWorkspaceInGroup {
+            let action = UIAction(
+                title: L10n.string(
+                    "mobile.workspaceGroup.newWorkspace",
+                    defaultValue: "New Workspace in Group"
+                ),
+                image: UIImage(systemName: "plus")
+            ) { _ in
+                createWorkspaceInGroup(group.id)
+            }
+            action.accessibilityIdentifier = "MobileWorkspaceGroupNewWorkspace-\(group.id.rawValue)"
+            groupActions.append(action)
+        }
+        if capabilities.supportsGroupActions,
+           let setGroupPinned = configuration.setGroupPinned {
+            let action = UIAction(
+                title: group.isPinned
+                    ? L10n.string("mobile.workspaceGroup.unpin", defaultValue: "Unpin Group")
+                    : L10n.string("mobile.workspaceGroup.pin", defaultValue: "Pin Group"),
+                image: UIImage(systemName: group.isPinned ? "pin.slash" : "pin")
+            ) { _ in
+                setGroupPinned(group.id, !group.isPinned)
+            }
+            action.accessibilityIdentifier = "MobileWorkspaceGroupPinButton-\(group.id.rawValue)"
+            groupActions.append(action)
+        }
+        if capabilities.supportsGroupActions,
+           let renameWorkspaceGroupRequest = configuration.renameWorkspaceGroupRequest {
+            let action = UIAction(
+                title: L10n.string(
+                    "mobile.workspaceGroup.rename.action",
+                    defaultValue: "Rename Group"
+                ),
+                image: UIImage(systemName: "pencil")
+            ) { _ in
+                renameWorkspaceGroupRequest(group.id)
+            }
+            action.accessibilityIdentifier = "MobileWorkspaceGroupRenameButton-\(group.id.rawValue)"
+            groupActions.append(action)
+        }
+        if !groupActions.isEmpty {
+            sections.append(UIMenu(options: .displayInline, children: groupActions))
+        }
+
+        let workspaceActions = contextMenuActions(for: anchorWorkspace)
+        if !workspaceActions.isEmpty {
+            sections.append(UIMenu(options: .displayInline, children: workspaceActions))
+        }
+
+        var destructiveActions: [UIAction] = []
+        if capabilities.supportsGroupActions,
+           let ungroupWorkspaceGroupRequest = configuration.ungroupWorkspaceGroupRequest {
+            let action = UIAction(
+                title: L10n.string(
+                    "mobile.workspaceGroup.ungroup",
+                    defaultValue: "Ungroup (Keep Workspaces)"
+                ),
+                image: UIImage(systemName: "rectangle.3.group"),
+                attributes: .destructive
+            ) { _ in
+                ungroupWorkspaceGroupRequest(group.id)
+            }
+            action.accessibilityIdentifier = "MobileWorkspaceGroupUngroupButton-\(group.id.rawValue)"
+            destructiveActions.append(action)
+        }
+        if capabilities.supportsGroupActions,
+           let deleteWorkspaceGroupRequest = configuration.deleteWorkspaceGroupRequest {
+            let action = UIAction(
+                title: L10n.string(
+                    "mobile.workspaceGroup.delete",
+                    defaultValue: "Delete Group (Close Workspaces)"
+                ),
+                image: UIImage(systemName: "trash"),
+                attributes: .destructive
+            ) { _ in
+                deleteWorkspaceGroupRequest(group.id)
+            }
+            action.accessibilityIdentifier = "MobileWorkspaceGroupDeleteButton-\(group.id.rawValue)"
+            destructiveActions.append(action)
+        }
+        if !destructiveActions.isEmpty {
+            sections.append(UIMenu(options: .displayInline, children: destructiveActions))
+        }
+        return sections
     }
 
     func readStateActionTitle(for workspace: MobileWorkspacePreview) -> String {

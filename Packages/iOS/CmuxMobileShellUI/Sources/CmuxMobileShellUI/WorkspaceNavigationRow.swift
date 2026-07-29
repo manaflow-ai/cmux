@@ -78,7 +78,8 @@ struct WorkspaceNavigationRow: View {
                 Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
                     isCustomizing = true
                 }
-            } else if renameWorkspace != nil {
+            }
+            if renameWorkspace != nil {
                 Button(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename")) {
                     isRenaming = true
                 }
@@ -198,7 +199,8 @@ struct WorkspaceNavigationRow: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceCustomizeButton-\(workspace.id.rawValue)")
-        } else if renameWorkspace != nil {
+        }
+        if renameWorkspace != nil {
             Button {
                 isRenaming = true
             } label: {

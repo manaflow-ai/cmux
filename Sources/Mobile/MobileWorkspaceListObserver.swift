@@ -411,15 +411,16 @@ final class MobileWorkspaceListObserver {
         hasher.combine(tabs.count)
         hasher.combine(selectedTabID)
         // Group sections are iOS-facing. Hash group order + the fields the phone
-        // renders (name, collapse, pin, anchor) so a pure collapse/expand, rename,
-        // or reorder re-emits to the phone. Membership is already covered by each
-        // workspace's `groupId`, hashed in the per-workspace loop below.
+        // renders (name, collapse, pin, icon, anchor) so a pure collapse/expand,
+        // rename, icon change, or reorder re-emits to the phone. Membership is
+        // already covered by each workspace's `groupId`, hashed below.
         hasher.combine(groups.count)
         for group in groups {
             hasher.combine(group.id)
             hasher.combine(group.name)
             hasher.combine(group.isCollapsed)
             hasher.combine(group.isPinned)
+            hasher.combine(group.iconSymbol)
             hasher.combine(group.anchorWorkspaceId)
         }
         for workspace in tabs {

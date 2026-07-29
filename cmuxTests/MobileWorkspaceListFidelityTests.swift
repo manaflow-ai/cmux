@@ -262,6 +262,30 @@ struct MobileWorkspaceListFidelityTests {
         #expect(before != after, "a pure group-membership move must change the mobile summary hash")
     }
 
+    @Test func workspaceGroupIconFlowsIntoMobilePayloadAndObserverHash() throws {
+        let manager = TabManager()
+        let groupID = try #require(manager.createWorkspaceGroup(name: "Release"))
+
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        manager.setWorkspaceGroupIcon(groupId: groupID, symbol: "shippingbox.fill")
+        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(before != after)
+
+        let payload = TerminalController.shared.mobileWorkspaceGroupPayloads(
+            manager.workspaceGroups,
+            tabs: manager.tabs
+        )
+        #expect(payload.first?["icon_symbol"] as? String == "shippingbox.fill")
+    }
+
     /// A new notification (or clearing the latest one) changes only a workspace's
     /// preview signature, not the tab set, groups, panels, title, or pin state.
     /// The signature must be folded into the summary hash so the observer

@@ -293,7 +293,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath
     ) -> UISwipeActionsConfiguration? {
         guard
-            let workspace = workspace(at: indexPath),
+            let workspace = actionWorkspace(at: indexPath),
             workspace.actionCapabilities.supportsReadStateActions,
             let setUnread = configuration.setUnread
         else { return nil }
@@ -319,7 +319,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
     ) -> UISwipeActionsConfiguration? {
         guard
-            let workspace = workspace(at: indexPath),
+            let workspace = actionWorkspace(at: indexPath),
             workspace.actionCapabilities.supportsCloseActions,
             let requestWorkspaceClose = configuration.requestWorkspaceClose
         else { return nil }
@@ -343,11 +343,27 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         contextMenuConfigurationForRowAt indexPath: IndexPath,
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
-        guard let workspace = workspace(at: indexPath) else { return nil }
-        let actions = contextMenuActions(for: workspace)
+        guard let item = dataSource?.itemIdentifier(for: indexPath) else { return nil }
+        let identifier: NSString
+        let actions: [UIMenuElement]
+        switch item {
+        case .workspace:
+            guard let workspace = actionWorkspace(at: indexPath) else { return nil }
+            identifier = workspace.id.rawValue as NSString
+            actions = contextMenuActions(for: workspace)
+        case .groupHeader(let groupID):
+            guard let group = configuration.groupsByID[groupID],
+                  let workspace = configuration.workspacesByID[group.anchorWorkspaceID] else {
+                return nil
+            }
+            identifier = group.id.rawValue as NSString
+            actions = contextMenuActions(for: group, anchorWorkspace: workspace)
+        case .chrome, .groupFooter, .filterEmpty:
+            return nil
+        }
         guard !actions.isEmpty else { return nil }
         return UIContextMenuConfiguration(
-            identifier: workspace.id.rawValue as NSString,
+            identifier: identifier,
             previewProvider: nil
         ) { _ in
             UIMenu(children: actions)
@@ -380,12 +396,17 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
     }
 
-    private func workspace(at indexPath: IndexPath) -> MobileWorkspacePreview? {
-        guard
-            let item = dataSource?.itemIdentifier(for: indexPath),
-            let workspaceID = item.workspaceID
-        else { return nil }
-        return configuration.workspacesByID[workspaceID]
+    private func actionWorkspace(at indexPath: IndexPath) -> MobileWorkspacePreview? {
+        guard let item = dataSource?.itemIdentifier(for: indexPath) else { return nil }
+        switch item {
+        case .workspace(let workspaceID, _):
+            return configuration.workspacesByID[workspaceID]
+        case .groupHeader(let groupID):
+            guard let group = configuration.groupsByID[groupID] else { return nil }
+            return configuration.workspacesByID[group.anchorWorkspaceID]
+        case .chrome, .groupFooter, .filterEmpty:
+            return nil
+        }
     }
 
     private var chromePrefixCount: Int {
@@ -410,7 +431,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     fileprivate func canEditRow(at indexPath: IndexPath) -> Bool {
-        guard let workspace = workspace(at: indexPath) else { return false }
+        guard let workspace = actionWorkspace(at: indexPath) else { return false }
         return (workspace.actionCapabilities.supportsReadStateActions && configuration.setUnread != nil)
             || (workspace.actionCapabilities.supportsCloseActions
                 && configuration.requestWorkspaceClose != nil)
@@ -511,8 +532,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                         Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
                             customizeRequest(workspace.id)
                         }
-                    } else if capabilities.supportsWorkspaceActions,
-                              let renameRequest = configuration.renameRequest {
+                    }
+                    if capabilities.supportsWorkspaceActions,
+                       let renameRequest = configuration.renameRequest {
                         Button(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename")) {
                             renameRequest(workspace.id)
                         }
@@ -786,9 +808,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     ) -> Bool {
         (previous.createWorkspaceInGroup != nil) != (next.createWorkspaceInGroup != nil)
             || (previous.renameWorkspaceGroup != nil) != (next.renameWorkspaceGroup != nil)
+            || (previous.renameWorkspaceGroupRequest != nil)
+                != (next.renameWorkspaceGroupRequest != nil)
             || (previous.setGroupPinned != nil) != (next.setGroupPinned != nil)
             || (previous.ungroupWorkspaceGroup != nil) != (next.ungroupWorkspaceGroup != nil)
+            || (previous.ungroupWorkspaceGroupRequest != nil)
+                != (next.ungroupWorkspaceGroupRequest != nil)
             || (previous.deleteWorkspaceGroup != nil) != (next.deleteWorkspaceGroup != nil)
+            || (previous.deleteWorkspaceGroupRequest != nil)
+                != (next.deleteWorkspaceGroupRequest != nil)
             || (previous.toggleGroupCollapsed != nil) != (next.toggleGroupCollapsed != nil)
     }
 }

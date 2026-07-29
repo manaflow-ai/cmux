@@ -137,9 +137,12 @@ import UIKit
             customizeRequest: { _ in },
             createWorkspaceInGroup: { _ in },
             renameWorkspaceGroup: { _, _ in },
+            renameWorkspaceGroupRequest: { _ in },
             setGroupPinned: { _, _ in },
             ungroupWorkspaceGroup: { _ in },
-            deleteWorkspaceGroup: { _ in }
+            ungroupWorkspaceGroupRequest: { _ in },
+            deleteWorkspaceGroup: { _ in },
+            deleteWorkspaceGroupRequest: { _ in }
         )
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
         let tableView = makeTableView()
@@ -155,6 +158,21 @@ import UIKit
                 leadingSwipeActionsConfigurationForRowAt: indexPath
             ) != nil
         )
+
+        let workspace = initial.workspacesByID[group.anchorWorkspaceID]!
+        let identifiers = menuActionIdentifiers(
+            in: coordinator.contextMenuActions(for: group, anchorWorkspace: workspace)
+        )
+        #expect(identifiers.contains("MobileWorkspaceGroupNewWorkspace-group-1"))
+        #expect(identifiers.contains("MobileWorkspaceGroupPinButton-group-1"))
+        #expect(identifiers.contains("MobileWorkspaceGroupRenameButton-group-1"))
+        #expect(identifiers.contains("MobileWorkspaceGroupUngroupButton-group-1"))
+        #expect(identifiers.contains("MobileWorkspaceGroupDeleteButton-group-1"))
+        #expect(identifiers.contains("MobileWorkspacePinButton-workspace-1"))
+        #expect(identifiers.contains("MobileWorkspaceCustomizeButton-workspace-1"))
+        #expect(identifiers.contains("MobileWorkspaceRenameButton-workspace-1"))
+        #expect(identifiers.contains("MobileWorkspaceReadStateMenuButton-workspace-1"))
+        #expect(identifiers.contains("MobileWorkspaceDeleteMenuButton-workspace-1"))
         #expect(
             coordinator.tableView(
                 tableView,
@@ -196,6 +214,18 @@ import UIKit
         #expect(identifiers.contains("MobileWorkspaceRenameButton-workspace-1"))
     }
 
+    private func menuActionIdentifiers(in elements: [UIMenuElement]) -> [String] {
+        elements.flatMap { element -> [String] in
+            if let action = element as? UIAction {
+                return [action.accessibilityIdentifier].compactMap { $0 }
+            }
+            if let menu = element as? UIMenu {
+                return menuActionIdentifiers(in: menu.children)
+            }
+            return []
+        }
+    }
+
     private func makeTableView() -> WorkspaceListUITableView {
         WorkspaceListUITableView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -215,9 +245,12 @@ import UIKit
         customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
         renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)? = nil,
+        renameWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
         setGroupPinned: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? = nil,
         ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
-        deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
+        ungroupWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
+        deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
+        deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     ) -> WorkspaceListTable {
         let workspaces = workspaceIDs.map { rawID in
             var workspace = MobileWorkspacePreview(
@@ -262,9 +295,12 @@ import UIKit
             customizeRequest: customizeRequest,
             createWorkspaceInGroup: createWorkspaceInGroup,
             renameWorkspaceGroup: renameWorkspaceGroup,
+            renameWorkspaceGroupRequest: renameWorkspaceGroupRequest,
             setGroupPinned: setGroupPinned,
             ungroupWorkspaceGroup: ungroupWorkspaceGroup,
+            ungroupWorkspaceGroupRequest: ungroupWorkspaceGroupRequest,
             deleteWorkspaceGroup: deleteWorkspaceGroup,
+            deleteWorkspaceGroupRequest: deleteWorkspaceGroupRequest,
             toggleGroupCollapsed: nil,
             showAll: {},
             retryConnectionRecovery: nil,
