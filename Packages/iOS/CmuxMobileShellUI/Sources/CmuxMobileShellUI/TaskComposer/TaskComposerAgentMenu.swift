@@ -23,10 +23,8 @@ struct TaskComposerAgentMenu: View, Equatable {
         guard value.modelPickerVariant.renderedVariant == .combined,
               let selectedTemplate,
               let selectedModelID = value.selectedModelID else { return nil }
-        return MobileTaskAgentModelCatalog.model(
-            id: selectedModelID,
-            forCommand: selectedTemplate.command
-        )
+        return MobileTaskAgentProvider(command: selectedTemplate.command)?
+            .model(id: selectedModelID)
     }
 
     var body: some View {

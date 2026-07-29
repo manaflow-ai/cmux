@@ -3,10 +3,13 @@ import CmuxMobileShellModel
 import Foundation
 
 extension TaskComposerSheet {
-    func selectTemplate(_ template: MobileTaskTemplate) {
+    func selectTemplate(_ template: MobileTaskTemplate, modelID: String? = nil) {
+        let validatedModelID = modelID.flatMap { id in
+            MobileTaskAgentProvider(command: template.command)?.model(id: id)?.id
+        }
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedTemplateID = template.id
-            selectedModelID = nil
+            selectedModelID = validatedModelID
             syncSuggestedDirectory()
         }
     }
@@ -17,7 +20,7 @@ extension TaskComposerSheet {
         selectedTemplateID = snapshot.templateID
         selectedModelID = snapshot.modelID.flatMap { id in
             selectedTemplate.flatMap {
-                MobileTaskAgentModelCatalog.model(id: id, forCommand: $0.command)?.id
+                MobileTaskAgentProvider(command: $0.command)?.model(id: id)?.id
             }
         }
         selectedMacDeviceID = snapshot.macDeviceID

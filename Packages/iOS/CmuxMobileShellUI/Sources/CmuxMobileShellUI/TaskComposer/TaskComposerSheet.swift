@@ -107,7 +107,7 @@ struct TaskComposerSheet: View {
         let initialModelID = (draft?.templateID == selectedTemplateID)
             ? draft?.modelID.flatMap { id in
                 selectedTemplate.flatMap {
-                    MobileTaskAgentModelCatalog.model(id: id, forCommand: $0.command)?.id
+                    MobileTaskAgentProvider(command: $0.command)?.model(id: id)?.id
                 }
             }
             : nil
@@ -209,25 +209,8 @@ struct TaskComposerSheet: View {
                     candidates: directoryCandidates,
                     selectedPath: directory,
                     select: selectDirectory,
-                    searchMac: { query in
-                        if let searchTaskDirectories {
-                            return await searchTaskDirectories(selectedMacDeviceID, query)
-                        }
-                        return await store.searchTaskDirectories(
-                            macDeviceID: selectedMacDeviceID,
-                            query: query
-                        )
-                    },
-                    listMac: { path, offset in
-                        if let listTaskDirectories {
-                            return await listTaskDirectories(selectedMacDeviceID, path, offset)
-                        }
-                        return await store.listTaskDirectories(
-                            macDeviceID: selectedMacDeviceID,
-                            path: path,
-                            offset: offset
-                        )
-                    }
+                    searchMac: resolvedSearchTaskDirectories,
+                    listMac: resolvedListTaskDirectories
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
@@ -277,6 +260,7 @@ struct TaskComposerSheet: View {
                         models: availableModels,
                         selectedModelID: selectedModelID,
                         selectTemplate: selectTemplateFromPicker,
+                        selectTemplateAndModel: selectTemplateAndModelFromPicker,
                         selectModel: selectModel,
                         editTemplates: presentTemplateEditor
                     )
@@ -352,13 +336,15 @@ struct TaskComposerSheet: View {
             isSubmitting: submissionPhase.showsProgress,
             isSubmitEnabled: selectedMachine != nil
                 && canLaunchSelectedTemplate
-                && submissionPhase.allowsSubmission,
+                && submissionPhase.allowsSubmission
+                && blockingCompletedOperationRecovery == nil,
             failureTitle: failureTitleStyle.title,
             failureText: failureText,
             completedOperationRecovery: blockingCompletedOperationRecovery,
             optionsSheet: minimalOptionsSheet,
             endEditing: resolveCompletedOperationRecoveryAfterEditing,
             selectTemplate: selectTemplateFromPicker,
+            selectTemplateAndModel: selectTemplateAndModelFromPicker,
             selectModel: selectModel,
             editTemplates: presentTemplateEditor,
             cancel: cancelComposer,
@@ -383,25 +369,34 @@ struct TaskComposerSheet: View {
             selectMachine: selectMachine,
             selectDirectory: selectDirectory,
             selectModel: selectModel,
-            searchMac: { query in
-                if let searchTaskDirectories {
-                    return await searchTaskDirectories(selectedMacDeviceID, query)
-                }
-                return await store.searchTaskDirectories(
-                    macDeviceID: selectedMacDeviceID,
-                    query: query
-                )
-            },
-            listMac: { path, offset in
-                if let listTaskDirectories {
-                    return await listTaskDirectories(selectedMacDeviceID, path, offset)
-                }
-                return await store.listTaskDirectories(
-                    macDeviceID: selectedMacDeviceID,
-                    path: path,
-                    offset: offset
-                )
-            }
+            searchMac: resolvedSearchTaskDirectories,
+            listMac: resolvedListTaskDirectories
+        )
+    }
+
+    private func resolvedSearchTaskDirectories(
+        query: String
+    ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure> {
+        if let searchTaskDirectories {
+            return await searchTaskDirectories(selectedMacDeviceID, query)
+        }
+        return await store.searchTaskDirectories(
+            macDeviceID: selectedMacDeviceID,
+            query: query
+        )
+    }
+
+    private func resolvedListTaskDirectories(
+        path: String,
+        offset: Int
+    ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        if let listTaskDirectories {
+            return await listTaskDirectories(selectedMacDeviceID, path, offset)
+        }
+        return await store.listTaskDirectories(
+            macDeviceID: selectedMacDeviceID,
+            path: path,
+            offset: offset
         )
     }
 
@@ -546,10 +541,14 @@ struct TaskComposerSheet: View {
     }
 
     private func selectTemplateFromPicker(_ id: MobileTaskTemplate.ID) {
+        selectTemplateAndModelFromPicker(id, nil)
+    }
+
+    private func selectTemplateAndModelFromPicker(_ id: MobileTaskTemplate.ID, _ modelID: String?) {
         guard !submissionPhase.disablesRequestEditing,
               let template = templates.first(where: { $0.id == id }) else { return }
         withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.2)) {
-            selectTemplate(template)
+            selectTemplate(template, modelID: modelID)
         }
     }
 

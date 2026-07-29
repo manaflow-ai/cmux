@@ -32,18 +32,12 @@ struct TaskComposerModelChip: View {
                 .contentShape(Capsule())
         }
         .disabled(isDisabled)
-        .accessibilityLabel(L10n.string("mobile.taskComposer.model", defaultValue: "Model"))
-        .accessibilityValue(selectedModelName)
-        .accessibilityHint(L10n.string(
-            "mobile.taskComposer.model.accessibilityHint",
-            defaultValue: "Chooses the model this agent runs with."
-        ))
+        .taskComposerModelAccessibility(valueName: selectedModelName)
         .accessibilityIdentifier("MobileTaskComposerModelChip")
     }
 
     private var selectedModelName: String {
-        models.first { $0.id == selectedModelID }?.displayName
-            ?? L10n.string("mobile.taskComposer.model.default", defaultValue: "Default")
+        models.displayName(forSelected: selectedModelID)
     }
 }
 #endif

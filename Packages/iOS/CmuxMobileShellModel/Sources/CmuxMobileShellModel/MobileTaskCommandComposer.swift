@@ -25,11 +25,14 @@ public struct MobileTaskCommandComposer: Sendable {
         guard !template.isPlainShell else {
             return MobileTaskComposition(initialCommand: nil, initialEnv: [:], title: title)
         }
+        let initialCommand: String
+        if let modelID, let provider = MobileTaskAgentProvider(command: template.command) {
+            initialCommand = provider.command(applying: modelID, to: template.command)
+        } else {
+            initialCommand = template.command
+        }
         return MobileTaskComposition(
-            initialCommand: MobileTaskAgentModelCatalog.commandApplying(
-                modelID: modelID,
-                to: template.command
-            ),
+            initialCommand: initialCommand,
             initialEnv: ["CMUX_TASK_PROMPT": prompt],
             title: title
         )

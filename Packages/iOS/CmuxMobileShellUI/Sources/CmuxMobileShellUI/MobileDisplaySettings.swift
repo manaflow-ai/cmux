@@ -1,3 +1,4 @@
+import CmuxMobileSupport
 import Foundation
 import Observation
 
@@ -180,12 +181,18 @@ public final class MobileDisplaySettings {
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
-    /// - Parameter defaults: The store backing the persisted preferences.
-    ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
-    ///   are initialized from `defaults`; absent keys read as their default
-    ///   (single-line titles, enabled folder taps, hidden missing files, two
-    ///   preview lines) without a write.
-    public init(defaults: UserDefaults = .standard) {
+    /// - Parameters:
+    ///   - defaults: The store backing the persisted preferences.
+    ///     Defaults to `.standard`; tests pass a scoped suite. Stored properties
+    ///     are initialized from `defaults`; absent keys read as their default
+    ///     (single-line titles, enabled folder taps, hidden missing files, two
+    ///     preview lines) without a write.
+    ///   - environment: The process environment consulted for the DEBUG-only
+    ///     task-composer lab fallbacks; tests pass an explicit dictionary.
+    public init(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
         self.defaults = defaults
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
@@ -215,15 +222,47 @@ public final class MobileDisplaySettings {
         #if DEBUG
         self.taskComposerLayoutStyle = defaults.string(
             forKey: Self.taskComposerLayoutStyleKey
-        ).flatMap(TaskComposerLayoutStyle.init(rawValue:)) ?? .composer
+        ).flatMap(TaskComposerLayoutStyle.init(rawValue:))
+            ?? Self.debugDefaultTaskComposerLayoutStyle(environment: environment)
         self.taskComposerModelPickerVariant = defaults.string(
             forKey: Self.taskComposerModelPickerVariantKey
-        ).flatMap(TaskComposerModelPickerVariant.init(rawValue:)) ?? .combined
+        ).flatMap(TaskComposerModelPickerVariant.init(rawValue:))
+            ?? Self.debugDefaultTaskComposerModelPickerVariant(environment: environment)
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
         #endif
     }
+
+    #if DEBUG
+    /// The layout fallback when nothing is persisted. The task-composer
+    /// accessibility preview pins the shipping classic layout so the XCUITest
+    /// suite keeps a stable hierarchy; `CMUX_UITEST_TASK_COMPOSER_LAYOUT` opts
+    /// a test or screenshot run into another layout explicitly.
+    static func debugDefaultTaskComposerLayoutStyle(
+        environment: [String: String]
+    ) -> TaskComposerLayoutStyle {
+        if let style = environment["CMUX_UITEST_TASK_COMPOSER_LAYOUT"]
+            .flatMap(TaskComposerLayoutStyle.init(rawValue:)) {
+            return style
+        }
+        return UITestConfig.taskComposerPreviewEnabled(from: environment) ? .classic : .composer
+    }
+
+    /// The model-picker fallback when nothing is persisted. The task-composer
+    /// accessibility preview pins the shipping off state (the combined variant
+    /// changes the agent menu's element tree);
+    /// `CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT` opts a test into a variant.
+    static func debugDefaultTaskComposerModelPickerVariant(
+        environment: [String: String]
+    ) -> TaskComposerModelPickerVariant {
+        if let variant = environment["CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT"]
+            .flatMap(TaskComposerModelPickerVariant.init(rawValue:)) {
+            return variant
+        }
+        return UITestConfig.taskComposerPreviewEnabled(from: environment) ? .off : .combined
+    }
+    #endif
 
     /// Clamps a stored or assigned preview line count to the supported range.
     /// A static member (not a file-scope func) because the package-conventions

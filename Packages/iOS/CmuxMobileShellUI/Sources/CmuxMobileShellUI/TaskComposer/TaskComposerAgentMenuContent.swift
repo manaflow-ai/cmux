@@ -49,7 +49,7 @@ struct TaskComposerAgentMenuContent: View {
     @ViewBuilder
     private var combinedChoices: some View {
         ForEach(value.templates) { template in
-            let models = MobileTaskAgentModelCatalog.models(forCommand: template.command)
+            let models = MobileTaskAgentProvider(command: template.command)?.models ?? []
             if models.isEmpty {
                 Button {
                     actions.selectTemplate(template.id)
@@ -63,8 +63,7 @@ struct TaskComposerAgentMenuContent: View {
             } else {
                 Menu {
                     Button {
-                        actions.selectTemplate(template.id)
-                        actions.selectModel(nil)
+                        actions.selectTemplateAndModel(template.id, nil)
                     } label: {
                         Text(L10n.string(
                             "mobile.taskComposer.model.default",
@@ -81,8 +80,7 @@ struct TaskComposerAgentMenuContent: View {
 
                     ForEach(models) { model in
                         Button {
-                            actions.selectTemplate(template.id)
-                            actions.selectModel(model.id)
+                            actions.selectTemplateAndModel(template.id, model.id)
                         } label: {
                             Text(verbatim: model.displayName)
                         }

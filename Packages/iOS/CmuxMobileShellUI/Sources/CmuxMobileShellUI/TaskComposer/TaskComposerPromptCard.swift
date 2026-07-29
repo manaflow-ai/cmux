@@ -17,6 +17,7 @@ struct TaskComposerPromptCard: View {
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
+    let selectTemplateAndModel: (MobileTaskTemplate.ID, String?) -> Void
     let selectModel: (String?) -> Void
     let editTemplates: () -> Void
 
@@ -99,7 +100,7 @@ struct TaskComposerPromptCard: View {
             ),
             actions: TaskComposerAgentMenuActions(
                 selectTemplate: selectTemplate,
-                selectModel: selectModel,
+                selectTemplateAndModel: selectTemplateAndModel,
                 editTemplates: editTemplates
             )
         )

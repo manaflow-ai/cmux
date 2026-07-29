@@ -197,6 +197,44 @@ import Testing
         #expect(MobileDisplaySettings(defaults: defaults).taskComposerModelPickerVariant == .combined)
     }
 
+    @Test func taskComposerPreviewPinsStableLabDefaults() throws {
+        // A fresh install under the accessibility preview keeps the shipping
+        // classic layout and no model UI so the XCUITest suite's element tree
+        // stays stable across lab default changes.
+        let defaults = try makeDefaults("previewLabDefaults")
+        let preview = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
+        let settings = MobileDisplaySettings(defaults: defaults, environment: preview)
+        #expect(settings.taskComposerLayoutStyle == .classic)
+        #expect(settings.taskComposerModelPickerVariant == .off)
+    }
+
+    @Test func taskComposerPreviewHonorsExplicitLabOverrides() throws {
+        let defaults = try makeDefaults("previewLabOverrides")
+        let environment = [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "contextRow",
+        ]
+        let settings = MobileDisplaySettings(defaults: defaults, environment: environment)
+        #expect(settings.taskComposerLayoutStyle == .composer)
+        #expect(settings.taskComposerModelPickerVariant == .contextRow)
+    }
+
+    @Test func taskComposerPreviewPrefersPersistedLabValues() throws {
+        // The dev screenshot recipe writes defaults then relaunches with the
+        // preview env; the persisted choice must win over the preview fallback.
+        let defaults = try makeDefaults("previewLabPersisted")
+        defaults.set("composer", forKey: "cmux.mobile.debug.taskComposerLayoutStyle.v1")
+        defaults.set(
+            "pillStrip",
+            forKey: "cmux.mobile.debug.taskComposerModelPickerVariant.v1"
+        )
+        let preview = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
+        let settings = MobileDisplaySettings(defaults: defaults, environment: preview)
+        #expect(settings.taskComposerLayoutStyle == .composer)
+        #expect(settings.taskComposerModelPickerVariant == .pillStrip)
+    }
+
     @Test func shellIconVariantPersistsAndRejectsUnknownValues() throws {
         let defaults = try makeDefaults("shellIconVariant")
         let settings = MobileDisplaySettings(defaults: defaults)

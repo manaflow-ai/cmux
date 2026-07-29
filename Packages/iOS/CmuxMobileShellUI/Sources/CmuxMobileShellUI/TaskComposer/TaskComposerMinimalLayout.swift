@@ -24,6 +24,7 @@ struct TaskComposerMinimalLayout: View {
     let optionsSheet: TaskComposerOptionsSheet
     let endEditing: () -> Void
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
+    let selectTemplateAndModel: (MobileTaskTemplate.ID, String?) -> Void
     let selectModel: (String?) -> Void
     let editTemplates: () -> Void
     let cancel: () -> Void
@@ -117,8 +118,7 @@ struct TaskComposerMinimalLayout: View {
                     HStack(spacing: 8) {
                         agentPill
 
-                        if !models.isEmpty,
-                           modelPickerVariant.renderedVariant != .off {
+                        if !models.isEmpty, showsStandaloneModelPill {
                             modelPill
                         }
                     }
@@ -232,12 +232,7 @@ struct TaskComposerMinimalLayout: View {
         }
         .tint(Color.primary)
         .disabled(isDisabled)
-        .accessibilityLabel(L10n.string("mobile.taskComposer.model", defaultValue: "Model"))
-        .accessibilityValue(selectedModelName)
-        .accessibilityHint(L10n.string(
-            "mobile.taskComposer.model.accessibilityHint",
-            defaultValue: "Chooses the model this agent runs with."
-        ))
+        .taskComposerModelAccessibility(valueName: selectedModelName)
         .accessibilityIdentifier("MobileTaskComposerModelPill")
     }
 
@@ -275,9 +270,21 @@ struct TaskComposerMinimalLayout: View {
         selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
     }
 
+    /// Each lab variant keeps exactly one model entry point in this layout:
+    /// combined lives inside the agent pill's submenus, contextRow lives in
+    /// the Task Options context card, and the remaining variants collapse to
+    /// the standalone bottom-bar pill.
+    private var showsStandaloneModelPill: Bool {
+        switch modelPickerVariant.renderedVariant {
+        case .off, .combined, .contextRow:
+            false
+        case .separateRow, .trailingChip, .pillStrip:
+            true
+        }
+    }
+
     private var selectedModelName: String {
-        models.first { $0.id == selectedModelID }?.displayName
-            ?? L10n.string("mobile.taskComposer.model.default", defaultValue: "Default")
+        models.displayName(forSelected: selectedModelID)
     }
 
     private var navigationTitle: String {
@@ -313,7 +320,7 @@ struct TaskComposerMinimalLayout: View {
     private var agentMenuActions: TaskComposerAgentMenuActions {
         TaskComposerAgentMenuActions(
             selectTemplate: selectTemplate,
-            selectModel: selectModel,
+            selectTemplateAndModel: selectTemplateAndModel,
             editTemplates: editTemplates
         )
     }
