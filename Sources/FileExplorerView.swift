@@ -109,7 +109,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
         private(set) var lastNodeChangeVisibleRowInspectionCount = 0
-        private static let maximumNodeChangesPerFlush = 64
+        private static let maximumNodeChangesPerFlush = 8
         let iconRenderContext: CmuxResolvedIconRenderContext
 
         @MainActor

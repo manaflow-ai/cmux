@@ -121,15 +121,20 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
     private(set) var lastReloadedRowCount = 0
     private(set) var itemAtRowCallCount = 0
     private(set) var cellViewLookupCallCount = 0
+    var performsActualOutlineMutations = true
 
     override func reloadItem(_ item: Any?, reloadChildren: Bool) {
         reloadItemCallCount += 1
-        super.reloadItem(item, reloadChildren: reloadChildren)
+        if performsActualOutlineMutations {
+            super.reloadItem(item, reloadChildren: reloadChildren)
+        }
     }
 
     override func reloadData() {
         reloadDataCallCount += 1
-        super.reloadData()
+        if performsActualOutlineMutations {
+            super.reloadData()
+        }
     }
 
     override func reloadData(
@@ -138,7 +143,15 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
     ) {
         reloadRowsCallCount += 1
         lastReloadedRowCount = rowIndexes.count
-        super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
+        if performsActualOutlineMutations {
+            super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
+        }
+    }
+
+    override func expandItem(_ item: Any?, expandChildren: Bool) {
+        if performsActualOutlineMutations {
+            super.expandItem(item, expandChildren: expandChildren)
+        }
     }
 
     override func item(atRow row: Int) -> Any? {
@@ -521,6 +534,7 @@ struct FileExplorerStoreTests {
         coordinator.outlineView = outlineView
         coordinator.reloadIfNeeded()
         outlineView.resetMetrics()
+        outlineView.performsActualOutlineMutations = false
 
         for node in nodes {
             coordinator.enqueueOutlineChange(.expansionChanged(node: node, isExpanded: true))
