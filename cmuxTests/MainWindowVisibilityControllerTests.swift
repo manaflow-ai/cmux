@@ -169,6 +169,108 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(activeCount, 0)
     }
 
+    func testInWindowCommandRejectsUnavailableWindow() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        var mutationCount = 0
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                windowAvailability: { _ in
+                    .init(isAvailable: false, windowId: nil, workspaceId: nil, owner: "close-committed")
+                },
+                setActiveMainWindow: { _ in mutationCount += 1 },
+                isApplicationHidden: { true },
+                unhideApplication: { mutationCount += 1 },
+                activateRunningApplication: { _ in mutationCount += 1 },
+                windowOperations: makeWindowOperations(
+                    isMiniaturized: { _ in true },
+                    deminiaturize: { _ in mutationCount += 1 },
+                    makeKeyAndOrderFront: { _ in mutationCount += 1 },
+                    softShow: { _ in mutationCount += 1 }
+                )
+            )
+        )
+
+        controller.focusForInWindowCommand(window, reason: .findShortcut)
+
+        XCTAssertEqual(mutationCount, 0)
+    }
+
+    func testShowApplicationWindowsRejectsUnavailableWindowBeforeUnhiding() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        var mutationCount = 0
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                windowAvailability: { _ in
+                    .init(isAvailable: false, windowId: nil, workspaceId: nil, owner: "close-committed")
+                },
+                setActiveMainWindow: { _ in mutationCount += 1 },
+                isApplicationHidden: { true },
+                unhideApplication: { mutationCount += 1 },
+                activateRunningApplication: { _ in mutationCount += 1 },
+                windowOperations: makeWindowOperations(
+                    isMiniaturized: { _ in true },
+                    deminiaturize: { _ in mutationCount += 1 },
+                    makeKey: { _ in mutationCount += 1 },
+                    orderFrontRegardless: { _ in mutationCount += 1 },
+                    softShow: { _ in mutationCount += 1 }
+                )
+            )
+        )
+
+        XCTAssertNil(controller.showApplicationWindows(windows: [window], reason: .globalHotkey))
+        XCTAssertEqual(mutationCount, 0)
+    }
+
+    func testRevealFiltersUnavailableWindowsAtOrderingBoundary() {
+        let unavailableWindow = makeWindow()
+        let availableWindow = makeWindow()
+        defer {
+            unavailableWindow.orderOut(nil)
+            availableWindow.orderOut(nil)
+        }
+
+        var mutatedWindows: [NSWindow] = []
+        var activeWindows: [NSWindow] = []
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                windowAvailability: { window in
+                    .init(
+                        isAvailable: window === availableWindow,
+                        windowId: nil,
+                        workspaceId: nil,
+                        owner: window === availableWindow ? "registered-context" : "close-committed"
+                    )
+                },
+                setActiveMainWindow: { activeWindows.append($0) },
+                isApplicationHidden: { false },
+                activateRunningApplication: { _ in },
+                windowOperations: makeWindowOperations(
+                    makeKey: { mutatedWindows.append($0) },
+                    orderFrontRegardless: { mutatedWindows.append($0) },
+                    softShow: { mutatedWindows.append($0) }
+                )
+            )
+        )
+
+        let revealed = controller.reveal(
+            [unavailableWindow, availableWindow],
+            preferredWindow: unavailableWindow,
+            reason: .menuBar
+        )
+
+        XCTAssertTrue(revealed === availableWindow)
+        XCTAssertTrue(activeWindows.allSatisfy { $0 === availableWindow })
+        XCTAssertTrue(mutatedWindows.allSatisfy { $0 === availableWindow })
+        XCTAssertFalse(mutatedWindows.isEmpty)
+    }
+
     func testHotkeyRestoreUsesCapturedVisibleTargetsWithoutDeminiaturizingMiniaturizedWindows() {
         let visibleWindow = makeWindow()
         let miniaturizedWindow = makeWindow()

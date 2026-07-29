@@ -169,6 +169,59 @@ struct ClosedMainWindowRoutingTests {
         #expect(!window.isKeyWindow)
     }
 
+    @Test("Noninteractive close commits before inspector teardown")
+    func noninteractiveCloseCommitsBeforeInspectorTeardown() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        window.isReleasedWhenClosed = false
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        var wasCommittedDuringTeardown = false
+        var focusResultDuringTeardown: Bool?
+        app.closeMainWindowWithoutInteractiveVeto(window) { closingWindow in
+            wasCommittedDuringTeardown = app.isMainWindowCloseCommitted(closingWindow)
+            app.registerMainWindow(
+                closingWindow,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+            focusResultDuringTeardown = app.focusMainWindow(windowId: windowId)
+        }
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(wasCommittedDuringTeardown)
+        #expect(focusResultDuringTeardown == false)
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
+    }
+
     @Test("Closed main window is not listed or focusable while its objects linger")
     func closedMainWindowIsNotListedOrFocusableWhileItsObjectsLinger() throws {
         _ = NSApplication.shared

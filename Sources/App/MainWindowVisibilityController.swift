@@ -234,6 +234,9 @@ final class MainWindowVisibilityController {
     }
 
     func focusForInWindowCommand(_ window: NSWindow, reason: Reason) {
+        guard windowIsAvailableForMutation(window, reason: reason, operation: "focus.inWindow") else {
+            return
+        }
         dependencies.setActiveMainWindow(window)
         guard !dependencies.windowOperations.isKeyWindow(window) else {
             log("focus.inWindow.key", reason: reason, windows: [window])
@@ -316,7 +319,11 @@ final class MainWindowVisibilityController {
         makeKey: Bool = true,
         consumeDismissedWindowRestoreTargets: Bool = true
     ) -> NSWindow? {
-        let allWindows = uniqueWindows(allWindows)
+        let allWindows = availableWindowsForMutation(
+            allWindows,
+            reason: reason,
+            operation: "show"
+        )
         let visibleOrMiniaturizedTargets = allWindows.filter { window in
             dependencies.windowOperations.isVisible(window) || dependencies.windowOperations.isMiniaturized(window)
         }
@@ -414,7 +421,11 @@ final class MainWindowVisibilityController {
         activation: Activation = .runningApplication([.activateAllWindows]),
         makeKey: Bool = true
     ) -> NSWindow? {
-        let windows = uniqueWindows(windows).filter { window in
+        let windows = availableWindowsForMutation(
+            windows,
+            reason: reason,
+            operation: "reveal"
+        ).filter { window in
             makeKey || !dependencies.windowOperations.isMiniaturized(window)
         }
         guard !windows.isEmpty else {
@@ -536,6 +547,37 @@ final class MainWindowVisibilityController {
             data["workspaceId"] = workspaceId.uuidString
         }
         return data
+    }
+
+    private func windowIsAvailableForMutation(
+        _ window: NSWindow,
+        reason: Reason,
+        operation: String
+    ) -> Bool {
+        let availability = dependencies.windowAvailability(window)
+        guard !availability.isAvailable else { return true }
+
+        var data = focusBreadcrumbData(
+            window,
+            reason: reason,
+            suppressed: false,
+            availability: availability
+        )
+        data["cause"] = "missing-live-owner"
+        data["operation"] = operation
+        dependencies.recordBreadcrumb("mainWindow.focus.unavailable", data)
+        log("\(operation).unavailable", reason: reason, windows: [window])
+        return false
+    }
+
+    private func availableWindowsForMutation(
+        _ windows: [NSWindow],
+        reason: Reason,
+        operation: String
+    ) -> [NSWindow] {
+        uniqueWindows(windows).filter {
+            windowIsAvailableForMutation($0, reason: reason, operation: operation)
+        }
     }
 
     private func uniqueWindows(_ windows: [NSWindow]) -> [NSWindow] {
