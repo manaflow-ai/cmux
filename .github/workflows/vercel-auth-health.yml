@@ -62,7 +62,7 @@ jobs:
             local actual
             actual="$(
               bunx vercel@56.3.1 curl "$path" \
-                --deployment "$preview_url" --scope manaflow --cwd . \
+                --deployment "$preview_url" \
                 -- -sS -o /dev/null -w '%{http_code}'
             )"
             printf 'Preview status: %s -> %s\n' "$path" "$actual"
