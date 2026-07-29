@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import json
 import socket
+import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from runner import (
+    Adapter,
+    AdapterSpec,
     FIXTURES,
     LANGUAGES,
     MAX_STREAM_BYTES,
@@ -17,6 +22,9 @@ from runner import (
     live_server_command,
     live_transports,
     load_contract,
+    run_live_case,
+    validate_live_creation_exit,
+    validate_live_exit_restart,
     validate_live_restart,
     validate_live_setup,
 )
@@ -31,6 +39,92 @@ def request(connection: socket.socket, value: dict) -> dict:
     return json.loads(source.readline())
 
 
+class FakeLiveAdapter:
+    def __init__(self, language: str = "typescript") -> None:
+        self.spec = SimpleNamespace(language=language)
+        self.requests: list[dict] = []
+
+    def request(self, payload: dict, *, timeout: float = 45.0) -> dict:
+        self.requests.append(json.loads(json.dumps(payload)))
+        transport = payload["transport"]
+        digit = "1" if transport == "unix" else "4"
+        terminal_digit = "7" if transport == "unix" else "8"
+        values = {
+            "live-setup": {
+                "pinged": True,
+                "stable_id": f"ws_{digit * 32}",
+                "stable_renamed": True,
+                "duplicate_ids": [
+                    f"ws_{str(int(digit) + 1) * 32}",
+                    f"ws_{str(int(digit) + 2) * 32}",
+                ],
+                "ambiguity_code": "selector.ambiguous",
+                "ambiguity_preserved_all_candidates": True,
+                "no_mutation": True,
+            },
+            "live-restart": {
+                "same_ids": True,
+                "stable_name_preserved": True,
+                "duplicates_preserved": True,
+                "closed": True,
+                "disappeared": True,
+            },
+        }
+        if payload["op"] == "live-creation-exit":
+            value = {
+                "correlation_key": f"{transport}-terminal-correlation",
+                "created_path": {
+                    "kind": "terminal",
+                    "workspace_id": payload["expected_stable_id"],
+                    "screen_id": f"screen_{terminal_digit * 32}",
+                    "pane_id": f"pane_{terminal_digit * 32}",
+                    "tab_id": f"tab_{terminal_digit * 32}",
+                    "terminal_id": f"term_{terminal_digit * 32}",
+                },
+                "pending_terminal_id": f"term_{terminal_digit * 32}",
+                "pending_state": "pending",
+                "pending_lifecycle": "running",
+                "creation_state": "created",
+                "creation_recovery": "none",
+                "creation_generation": f"generation-{transport}",
+                "creation_revision": "101",
+                "exit_state": "exited",
+                "exit_terminal_id": f"term_{terminal_digit * 32}",
+                "exit_lifecycle": "exited",
+                "exit_kind": "exit",
+                "exit_code": 17,
+                "exited_at": "1001",
+                "exit_revision": "102",
+            }
+        elif payload["op"] == "live-exit-restart":
+            path = payload["expected_created_path"]
+            value = {
+                "correlation_key": payload["expected_correlation_key"],
+                "created_path": path,
+                "creation_state": "created",
+                "creation_recovery": "none",
+                "creation_generation": payload[
+                    "expected_creation_generation"
+                ],
+                "creation_revision": payload["expected_creation_revision"],
+                "exit_state": "exited",
+                "exit_terminal_id": path["terminal_id"],
+                "exit_lifecycle": "exited",
+                "exit_kind": "exit",
+                "exit_code": 17,
+                "exited_at": payload["expected_exited_at"],
+                "exit_revision": payload["expected_exit_revision"],
+            }
+        else:
+            value = values[payload["op"]]
+        return {
+            "contract_version": 2,
+            "id": payload["id"],
+            "ok": True,
+            "value": value,
+        }
+
+
 class ContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -42,14 +136,21 @@ class ContractTests(unittest.TestCase):
             ("python", "typescript", "rust", "go", "java", "cpp", "zig"),
         )
 
-    def test_catalog_is_public_v1_and_has_124_transported_operations(self) -> None:
+    def test_catalog_is_public_v1_and_has_111_transported_operations(self) -> None:
         self.assertEqual(self.catalog["protocol"], PROTOCOL)
-        self.assertEqual(len(self.catalog["operations"]), 124)
+        self.assertEqual(len(self.catalog["operations"]), 111)
         self.assertEqual(
             self.catalog["operations"]["workspace.rename"]["class"], "mutation"
         )
         self.assertEqual(
             self.catalog["operations"]["session.events"]["class"], "stream_open"
+        )
+        self.assertEqual(
+            self.catalog["operations"]["session.creation.resolve"]["class"],
+            "read",
+        )
+        self.assertEqual(
+            self.catalog["operations"]["terminal.wait_exit"]["class"], "read"
         )
 
     def test_fixtures_cover_every_requested_semantic(self) -> None:
@@ -65,6 +166,16 @@ class ContractTests(unittest.TestCase):
             "message-overflow-is-stream-local",
             "byte-overflow-is-stream-local",
             "sensitive-values-redact",
+            "creation-resolve-created-workspace-path",
+            "creation-resolve-created-terminal-path",
+            "creation-resolve-created-browser-path",
+            "creation-resolve-pending-means-wait",
+            "creation-resolve-prepared-retries-same-key",
+            "creation-resolve-absent-retries-new-key",
+            "creation-resolve-indeterminate-forbids-retry",
+            "creation-correlation-conflict-is-structured",
+            "terminal-wait-exit-timeout-is-pending",
+            "terminal-wait-exit-preserves-code-17",
         }
         self.assertEqual(names, required)
 
@@ -162,6 +273,85 @@ class ContractTests(unittest.TestCase):
             validate_live_restart(restart, "unix")
 
 
+class LiveOrchestrationTests(unittest.TestCase):
+    def run_mock_live(self) -> tuple[FakeLiveAdapter, object, object]:
+        adapter = FakeLiveAdapter()
+        with (
+            patch("runner.start_live_server") as start,
+            patch("runner.stop_live_server") as stop,
+        ):
+            start.side_effect = [
+                (object(), "ws://127.0.0.1:41001"),
+                (object(), "ws://127.0.0.1:41002"),
+            ]
+            transports = run_live_case(adapter, Path(sys.executable), {})
+            self.assertEqual(transports, ("unix", "websocket"))
+            return adapter, start, stop
+
+    def test_live_orchestration_orders_creation_exit_and_cleanup(self) -> None:
+        adapter, _, stop = self.run_mock_live()
+        self.assertEqual(
+            [payload["op"] for payload in adapter.requests],
+            [
+                "live-setup",
+                "live-creation-exit",
+                "live-setup",
+                "live-creation-exit",
+                "live-exit-restart",
+                "live-restart",
+                "live-exit-restart",
+                "live-restart",
+            ],
+        )
+        for payload in (
+            item
+            for item in adapter.requests
+            if item["op"] == "live-creation-exit"
+        ):
+            self.assertEqual(payload["pending_timeout_ms"], "0")
+            self.assertEqual(payload["exit_timeout_ms"], "10000")
+            self.assertEqual(payload["expected_exit_code"], 17)
+            self.assertEqual(payload["exit_shell"], "sleep 2; exit 17")
+        self.assertEqual(stop.call_count, 2)
+
+    def test_restart_reuses_state_session_and_passes_exact_evidence(self) -> None:
+        adapter, start, _ = self.run_mock_live()
+        self.assertEqual(start.call_count, 2)
+        first = start.call_args_list[0].args
+        second = start.call_args_list[1].args
+        self.assertEqual(first[0], second[0])
+        self.assertEqual(first[1], second[1])
+        self.assertEqual(first[2], second[2])
+        self.assertEqual(first[3], second[3])
+        self.assertEqual(first[4], second[4])
+
+        creation = {
+            payload["transport"]: payload
+            for payload in adapter.requests
+            if payload["op"] == "live-creation-exit"
+        }
+        restarted = {
+            payload["transport"]: payload
+            for payload in adapter.requests
+            if payload["op"] == "live-exit-restart"
+        }
+        for transport in ("unix", "websocket"):
+            self.assertEqual(
+                restarted[transport]["expected_correlation_key"],
+                f"{transport}-terminal-correlation",
+            )
+            self.assertEqual(
+                restarted[transport]["expected_created_path"]["workspace_id"],
+                creation[transport]["expected_stable_id"],
+            )
+            self.assertEqual(
+                restarted[transport]["expected_exit_revision"], "102"
+            )
+            self.assertEqual(
+                restarted[transport]["expected_exited_at"], "1001"
+            )
+
+
 class EnvelopeServerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -251,6 +441,98 @@ class EnvelopeServerTests(unittest.TestCase):
                 self.assertTrue(second["result"]["replayed"])
             server.assert_complete()
 
+    def test_creation_resolution_is_a_read_and_preserves_terminal_path(self) -> None:
+        with ResourceV1Server(
+            "creation-created-terminal", self.constants, self.operations
+        ) as server:
+            with self.connect(server) as connection:
+                response = request(
+                    connection,
+                    {
+                        "protocol": PROTOCOL,
+                        "type": "request",
+                        "id": "resolve-created",
+                        "operation": "session.creation.resolve",
+                        "params": {
+                            "machine": "current",
+                            "session": self.constants["session"],
+                            "correlation_key": self.constants[
+                                "correlation_key"
+                            ],
+                        },
+                    },
+                )
+            self.assertTrue(response["ok"])
+            self.assertEqual(response["result"]["state"], "created")
+            self.assertEqual(
+                response["result"]["created_path"]["terminal_id"],
+                self.constants["terminal"],
+            )
+            server.assert_complete()
+
+    def test_creation_conflict_preserves_both_semantics(self) -> None:
+        with ResourceV1Server(
+            "creation-conflict", self.constants, self.operations
+        ) as server:
+            with self.connect(server) as connection:
+                response = request(
+                    connection,
+                    {
+                        "protocol": PROTOCOL,
+                        "type": "request",
+                        "id": "conflicting-create",
+                        "operation": "workspace.create",
+                        "params": {
+                            "machine": "current",
+                            "session": self.constants["session"],
+                            "name": self.constants["name"],
+                            "initial_content": "empty",
+                            "correlation_key": self.constants[
+                                "correlation_key"
+                            ],
+                        },
+                        "idempotency_key": self.constants[
+                            "idempotency_key"
+                        ],
+                    },
+                )
+            self.assertFalse(response["ok"])
+            self.assertEqual(response["error"]["code"], "creation.conflict")
+            self.assertEqual(
+                response["error"]["details"]["existing_operation"],
+                "workspace.run",
+            )
+            self.assertEqual(
+                response["error"]["details"]["requested_operation"],
+                "workspace.create",
+            )
+            server.assert_complete()
+
+    def test_wait_exit_timeout_is_a_pending_value(self) -> None:
+        with ResourceV1Server(
+            "terminal-exit-pending", self.constants, self.operations
+        ) as server:
+            with self.connect(server) as connection:
+                response = request(
+                    connection,
+                    {
+                        "protocol": PROTOCOL,
+                        "type": "request",
+                        "id": "wait-pending",
+                        "operation": "terminal.wait_exit",
+                        "params": {
+                            "machine": "current",
+                            "session": self.constants["session"],
+                            "terminal": self.constants["terminal"],
+                            "timeout_ms": "0",
+                        },
+                    },
+                )
+            self.assertTrue(response["ok"])
+            self.assertEqual(response["result"]["state"], "pending")
+            self.assertEqual(response["result"]["lifecycle"], "running")
+            server.assert_complete()
+
     def test_cancel_end_is_written_before_cancel_response(self) -> None:
         with ResourceV1Server(
             "stream-cancel", self.constants, self.operations
@@ -312,6 +594,93 @@ class ResultMatchingTests(unittest.TestCase):
                 {"ok": True, "value": {"revision": 42}},
                 {"ok": True, "value": {"revision": "42"}},
             )
+
+    def test_live_results_reject_malformed_types_and_extra_fields(self) -> None:
+        adapter = FakeLiveAdapter("python")
+        payload = {
+            "contract_version": 2,
+            "id": "live-unix-creation-exit",
+            "op": "live-creation-exit",
+            "transport": "unix",
+            "expected_stable_id": "ws_11111111111111111111111111111111",
+        }
+        response = adapter.request(payload)
+        evidence = validate_live_creation_exit(
+            response, "unix", "unix-terminal-correlation"
+        )
+
+        numeric_decimal = json.loads(json.dumps(response))
+        numeric_decimal["value"]["exited_at"] = 1001
+        with self.assertRaisesRegex(
+            ConformanceFailure, "unsigned decimal string"
+        ):
+            validate_live_creation_exit(
+                numeric_decimal, "unix", "unix-terminal-correlation"
+            )
+
+        extra = json.loads(json.dumps(response))
+        extra["value"]["unexpected"] = True
+        with self.assertRaisesRegex(
+            ConformanceFailure, "fields must be exactly"
+        ):
+            validate_live_creation_exit(
+                extra, "unix", "unix-terminal-correlation"
+            )
+
+        restart_payload = {
+            "contract_version": 2,
+            "id": "live-unix-exit-restart",
+            "op": "live-exit-restart",
+            "transport": "unix",
+            "expected_created_path": evidence.created_path,
+            "expected_correlation_key": evidence.correlation_key,
+            "expected_creation_generation": evidence.creation_generation,
+            "expected_creation_revision": evidence.creation_revision,
+            "expected_exited_at": evidence.exited_at,
+            "expected_exit_revision": evidence.exit_revision,
+        }
+        restarted = adapter.request(restart_payload)
+        restarted["value"]["exit_revision"] = "103"
+        with self.assertRaisesRegex(ConformanceFailure, "exit_revision"):
+            validate_live_exit_restart(restarted, "unix", evidence)
+
+
+class AdapterProcessTests(unittest.TestCase):
+    def test_adapter_timeout_kills_the_child(self) -> None:
+        adapter = Adapter(
+            AdapterSpec(
+                "timeout",
+                (),
+                (),
+                (
+                    sys.executable,
+                    "-c",
+                    "import time; time.sleep(5)",
+                ),
+                Path.cwd(),
+            )
+        )
+        with self.assertRaisesRegex(ConformanceFailure, "timed out"):
+            adapter.request({"id": "timeout"}, timeout=0.01)
+
+    def test_adapter_rejects_malformed_success_envelope(self) -> None:
+        program = (
+            "import json,sys;"
+            "p=json.loads(sys.stdin.readline());"
+            "print(json.dumps({'contract_version':2,'id':p['id'],"
+            "'ok':'true','value':{}}))"
+        )
+        adapter = Adapter(
+            AdapterSpec(
+                "malformed",
+                (),
+                (),
+                (sys.executable, "-c", program),
+                Path.cwd(),
+            )
+        )
+        with self.assertRaisesRegex(ConformanceFailure, "must be a boolean"):
+            adapter.request({"id": "malformed"})
 
 
 if __name__ == "__main__":

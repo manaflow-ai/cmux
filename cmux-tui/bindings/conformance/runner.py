@@ -34,6 +34,11 @@ MAX_STREAM_MESSAGES = 256
 MAX_STREAM_BYTES = 16 * 1024 * 1024
 OPAQUE_STREAM = re.compile(r"^stream_[0-9a-f]{32}$")
 OPAQUE_WORKSPACE = re.compile(r"^ws_[0-9a-f]{32}$")
+OPAQUE_SCREEN = re.compile(r"^screen_[0-9a-f]{32}$")
+OPAQUE_PANE = re.compile(r"^pane_[0-9a-f]{32}$")
+OPAQUE_TAB = re.compile(r"^tab_[0-9a-f]{32}$")
+OPAQUE_TERMINAL = re.compile(r"^term_[0-9a-f]{32}$")
+UNSIGNED_DECIMAL = re.compile(r"^(0|[1-9][0-9]*)$")
 LIVE_SETUP_FIELDS = frozenset(
     {
         "pinged",
@@ -52,6 +57,43 @@ LIVE_RESTART_FIELDS = frozenset(
         "duplicates_preserved",
         "closed",
         "disappeared",
+    }
+)
+LIVE_CREATION_EXIT_FIELDS = frozenset(
+    {
+        "correlation_key",
+        "created_path",
+        "pending_terminal_id",
+        "pending_state",
+        "pending_lifecycle",
+        "creation_state",
+        "creation_recovery",
+        "creation_generation",
+        "creation_revision",
+        "exit_state",
+        "exit_terminal_id",
+        "exit_lifecycle",
+        "exit_kind",
+        "exit_code",
+        "exited_at",
+        "exit_revision",
+    }
+)
+LIVE_EXIT_RESTART_FIELDS = frozenset(
+    {
+        "correlation_key",
+        "created_path",
+        "creation_state",
+        "creation_recovery",
+        "creation_generation",
+        "creation_revision",
+        "exit_state",
+        "exit_terminal_id",
+        "exit_lifecycle",
+        "exit_kind",
+        "exit_code",
+        "exited_at",
+        "exit_revision",
     }
 )
 
@@ -79,6 +121,16 @@ class CaseResult:
     name: str
     status: str
     detail: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class LiveCreationEvidence:
+    created_path: dict[str, str]
+    correlation_key: str
+    creation_generation: str
+    creation_revision: str
+    exited_at: str
+    exit_revision: str
 
 
 def adapter_specs() -> dict[str, AdapterSpec]:
@@ -264,6 +316,40 @@ class Adapter:
                 f"adapter response id {response.get('id')!r} does not match "
                 f"{payload.get('id')!r}"
             )
+        ok = response.get("ok")
+        if not isinstance(ok, bool):
+            raise ConformanceFailure(
+                f"adapter response ok must be a boolean, got {ok!r}"
+            )
+        expected_fields = (
+            {"contract_version", "id", "ok", "value"}
+            if ok
+            else {"contract_version", "id", "ok", "error"}
+        )
+        if set(response) != expected_fields:
+            raise ConformanceFailure(
+                f"adapter response fields must be exactly "
+                f"{sorted(expected_fields)}, got {sorted(response)}"
+            )
+        if not ok:
+            error = response["error"]
+            if not isinstance(error, dict) or set(error) != {"kind", "message"}:
+                raise ConformanceFailure(
+                    "adapter error must contain exactly kind and message"
+                )
+            if error["kind"] not in {
+                "adapter",
+                "transport",
+                "protocol",
+                "resource",
+            }:
+                raise ConformanceFailure(
+                    f"adapter error kind is invalid: {error['kind']!r}"
+                )
+            if not isinstance(error["message"], str) or not error["message"]:
+                raise ConformanceFailure(
+                    "adapter error message must be a nonempty string"
+                )
         return response
 
 
@@ -437,6 +523,18 @@ class ResourceV1Server:
             self._expect_mutation(request)
             self._dispatch_mutation(connection, request)
             return
+        if operation == "session.creation.resolve":
+            self._expect_creation_resolution(request)
+            self._dispatch_creation_resolution(connection, request)
+            return
+        if operation == "workspace.create":
+            self._expect_creation_conflict(request)
+            self._dispatch_creation_conflict(connection, request)
+            return
+        if operation == "terminal.wait_exit":
+            self._expect_terminal_wait_exit(request)
+            self._dispatch_terminal_wait_exit(connection, request)
+            return
         if operation == "session.events":
             self._expect_stream_open(request)
             self._dispatch_stream_open(connection, request)
@@ -486,6 +584,46 @@ class ResourceV1Server:
             or OPAQUE_STREAM.fullmatch(params["stream_id"]) is None
         ):
             raise ConformanceFailure(f"invalid session.events routing: {params!r}")
+
+    def _expect_creation_resolution(self, request: Mapping[str, Any]) -> None:
+        self._expect_params(
+            request,
+            {
+                "machine": "current",
+                "session": self.constants["session"],
+                "correlation_key": self.constants["correlation_key"],
+            },
+        )
+
+    def _expect_creation_conflict(self, request: Mapping[str, Any]) -> None:
+        self._expect_params(
+            request,
+            {
+                "machine": "current",
+                "session": self.constants["session"],
+                "name": self.constants["name"],
+                "initial_content": "empty",
+                "correlation_key": self.constants["correlation_key"],
+            },
+        )
+        if request["idempotency_key"] != self.constants["idempotency_key"]:
+            raise ConformanceFailure(
+                "adapter changed the explicit creation idempotency key"
+            )
+
+    def _expect_terminal_wait_exit(self, request: Mapping[str, Any]) -> None:
+        expected_timeout = (
+            "0" if self.behavior == "terminal-exit-pending" else "5000"
+        )
+        self._expect_params(
+            request,
+            {
+                "machine": "current",
+                "session": self.constants["session"],
+                "terminal": self.constants["terminal"],
+                "timeout_ms": expected_timeout,
+            },
+        )
 
     def _expect_stream_cancel(self, request: Mapping[str, Any]) -> None:
         params = request["params"]
@@ -548,6 +686,151 @@ class ResourceV1Server:
                 f"behavior {self.behavior} cannot handle workspace.rename"
             )
         self._error(connection, request, error)
+
+    def _dispatch_creation_resolution(
+        self, connection: _Connection, request: Mapping[str, Any]
+    ) -> None:
+        common = {
+            "correlation_key": self.constants["correlation_key"],
+            "idempotency_key": self.constants["idempotency_key"],
+        }
+        created_common = {
+            **common,
+            "state": "created",
+            "recovery": "none",
+            "generation": self.constants["generation"],
+            "revision": self.constants["revision"],
+        }
+        created_paths = {
+            "creation-created-workspace": {
+                **created_common,
+                "operation": "workspace.create",
+                "created_path": {
+                    "kind": "workspace",
+                    "workspace_id": self.constants["workspace"],
+                },
+            },
+            "creation-created-terminal": {
+                **created_common,
+                "operation": "workspace.run",
+                "created_path": self._created_terminal_path(),
+            },
+            "creation-created-browser": {
+                **created_common,
+                "operation": "tab.create_browser",
+                "created_path": {
+                    "kind": "browser",
+                    "workspace_id": self.constants["workspace"],
+                    "screen_id": self.constants["screen"],
+                    "pane_id": self.constants["pane"],
+                    "tab_id": self.constants["tab"],
+                    "browser_id": self.constants["browser"],
+                },
+            },
+        }
+        result = created_paths.get(self.behavior)
+        if result is None:
+            other_states = {
+                "creation-pending": {
+                    **common,
+                    "state": "pending",
+                    "recovery": "wait",
+                    "operation": "pane.run",
+                },
+                "creation-not-applied-same-key": {
+                    **common,
+                    "state": "not_applied",
+                    "recovery": "retry_same_idempotency_key",
+                    "operation": "pane.split",
+                },
+                "creation-not-applied-new-key": {
+                    "correlation_key": self.constants["correlation_key"],
+                    "state": "not_applied",
+                    "recovery": "retry_new_idempotency_key",
+                },
+                "creation-indeterminate": {
+                    **common,
+                    "state": "indeterminate",
+                    "recovery": "do_not_retry",
+                    "operation": "screen.create",
+                },
+            }
+            result = other_states.get(self.behavior)
+        if result is None:
+            raise ConformanceFailure(
+                f"behavior {self.behavior} cannot resolve a creation"
+            )
+        self._ok(connection, request, result)
+
+    def _dispatch_creation_conflict(
+        self, connection: _Connection, request: Mapping[str, Any]
+    ) -> None:
+        if self.behavior != "creation-conflict":
+            raise ConformanceFailure(
+                f"behavior {self.behavior} cannot handle workspace.create"
+            )
+        self._error(
+            connection,
+            request,
+            {
+                "code": "creation.conflict",
+                "message": (
+                    "correlation key is already bound to different "
+                    "creation semantics"
+                ),
+                "details": {
+                    "correlation_key": self.constants["correlation_key"],
+                    "existing_operation": "workspace.run",
+                    "requested_operation": "workspace.create",
+                    "existing_fingerprint": "a" * 64,
+                    "requested_fingerprint": "b" * 64,
+                },
+                "retryable": False,
+            },
+        )
+
+    def _dispatch_terminal_wait_exit(
+        self, connection: _Connection, request: Mapping[str, Any]
+    ) -> None:
+        if self.behavior == "terminal-exit-pending":
+            self._ok(
+                connection,
+                request,
+                {
+                    "state": "pending",
+                    "terminal_id": self.constants["terminal"],
+                    "lifecycle": "running",
+                    "revision": self.constants["revision"],
+                },
+            )
+            return
+        if self.behavior == "terminal-exit-code":
+            self._ok(
+                connection,
+                request,
+                {
+                    "state": "exited",
+                    "terminal_id": self.constants["terminal"],
+                    "lifecycle": "exited",
+                    "outcome": {"kind": "exit", "code": 17},
+                    "exited_at": self.constants["exited_at"],
+                    "revision": self.constants["exit_revision"],
+                },
+            )
+            return
+        raise ConformanceFailure(
+            f"behavior {self.behavior} cannot handle terminal.wait_exit"
+        )
+
+    def _created_terminal_path(self) -> dict[str, Any]:
+        return {
+            "kind": "terminal",
+            "workspace_id": self.constants["workspace"],
+            "screen_id": self.constants["screen"],
+            "pane_id": self.constants["pane"],
+            "tab_id": self.constants["tab"],
+            "terminal_id": self.constants["terminal"],
+        }
 
     def _mutation_result(self, replayed: bool) -> dict[str, Any]:
         return {
@@ -791,6 +1074,16 @@ class ResourceV1Server:
             "mutation-indeterminate": {"workspace.rename": 1},
             "revision-conflict": {"workspace.rename": 1},
             "selector-ambiguous": {"workspace.rename": 1},
+            "creation-created-workspace": {"session.creation.resolve": 1},
+            "creation-created-terminal": {"session.creation.resolve": 1},
+            "creation-created-browser": {"session.creation.resolve": 1},
+            "creation-pending": {"session.creation.resolve": 1},
+            "creation-not-applied-same-key": {"session.creation.resolve": 1},
+            "creation-not-applied-new-key": {"session.creation.resolve": 1},
+            "creation-indeterminate": {"session.creation.resolve": 1},
+            "creation-conflict": {"workspace.create": 1},
+            "terminal-exit-pending": {"terminal.wait_exit": 1},
+            "terminal-exit-code": {"terminal.wait_exit": 1},
             "stream-unknown": {"session.events": 1},
             "stream-cancel": {"session.events": 1, "stream.cancel": 1},
         }
@@ -837,9 +1130,9 @@ def load_contract() -> tuple[dict[str, Any], dict[str, Any]]:
     if catalog.get("protocol") != PROTOCOL:
         raise ConformanceFailure("operation catalog targets the wrong protocol")
     operations = catalog.get("operations")
-    if not isinstance(operations, dict) or len(operations) != 124:
+    if not isinstance(operations, dict) or len(operations) != 111:
         raise ConformanceFailure(
-            f"expected 124 transported operations, got "
+            f"expected 111 transported operations, got "
             f"{len(operations) if isinstance(operations, dict) else 'invalid'}"
         )
     return fixtures, catalog
@@ -1024,6 +1317,54 @@ def response_value(
     return value
 
 
+def require_unsigned_decimal(value: Any, field: str, phase: str) -> str:
+    if not isinstance(value, str) or UNSIGNED_DECIMAL.fullmatch(value) is None:
+        raise ConformanceFailure(
+            f"{phase} {field} must be an unsigned decimal string, got {value!r}"
+        )
+    return value
+
+
+def require_created_terminal_path(
+    value: Any,
+    phase: str,
+) -> dict[str, str]:
+    fields = {
+        "kind",
+        "workspace_id",
+        "screen_id",
+        "pane_id",
+        "tab_id",
+        "terminal_id",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ConformanceFailure(
+            f"{phase} created_path must be an exact terminal path"
+        )
+    checks = {
+        "workspace_id": OPAQUE_WORKSPACE,
+        "screen_id": OPAQUE_SCREEN,
+        "pane_id": OPAQUE_PANE,
+        "tab_id": OPAQUE_TAB,
+        "terminal_id": OPAQUE_TERMINAL,
+    }
+    if value["kind"] != "terminal":
+        raise ConformanceFailure(
+            f"{phase} created_path kind must be terminal, got "
+            f"{value['kind']!r}"
+        )
+    for field, pattern in checks.items():
+        identifier = value[field]
+        if (
+            not isinstance(identifier, str)
+            or pattern.fullmatch(identifier) is None
+        ):
+            raise ConformanceFailure(
+                f"{phase} created_path {field} is invalid: {identifier!r}"
+            )
+    return {field: str(value[field]) for field in fields}
+
+
 def validate_live_setup(
     response: Mapping[str, Any],
     transport: str,
@@ -1082,6 +1423,115 @@ def validate_live_restart(
         )
 
 
+def validate_live_creation_exit(
+    response: Mapping[str, Any],
+    transport: str,
+    expected_correlation_key: str,
+) -> LiveCreationEvidence:
+    phase = f"{transport} creation-exit"
+    value = response_value(response, LIVE_CREATION_EXIT_FIELDS, phase)
+    if value["correlation_key"] != expected_correlation_key:
+        raise ConformanceFailure(
+            f"{phase} correlation_key {value['correlation_key']!r} != "
+            f"{expected_correlation_key!r}"
+        )
+    created_path = require_created_terminal_path(
+        value["created_path"], phase
+    )
+    terminal_id = created_path["terminal_id"]
+    exact = {
+        "pending_state": "pending",
+        "creation_state": "created",
+        "creation_recovery": "none",
+        "exit_state": "exited",
+        "exit_lifecycle": "exited",
+        "exit_kind": "exit",
+    }
+    mismatches = [
+        f"{field}={value[field]!r}"
+        for field, expected in exact.items()
+        if value[field] != expected
+    ]
+    if value["pending_lifecycle"] not in {"launching", "running"}:
+        mismatches.append(
+            f"pending_lifecycle={value['pending_lifecycle']!r}"
+        )
+    for field in ("pending_terminal_id", "exit_terminal_id"):
+        if value[field] != terminal_id:
+            mismatches.append(f"{field}={value[field]!r}")
+    if (
+        isinstance(value["exit_code"], bool)
+        or not isinstance(value["exit_code"], int)
+        or value["exit_code"] != 17
+    ):
+        mismatches.append(f"exit_code={value['exit_code']!r}")
+    generation = value["creation_generation"]
+    if not isinstance(generation, str) or not 1 <= len(generation) <= 128:
+        mismatches.append(f"creation_generation={generation!r}")
+    if mismatches:
+        raise ConformanceFailure(
+            f"{phase} failed assertions: {', '.join(mismatches)}"
+        )
+    return LiveCreationEvidence(
+        created_path=created_path,
+        correlation_key=expected_correlation_key,
+        creation_generation=generation,
+        creation_revision=require_unsigned_decimal(
+            value["creation_revision"], "creation_revision", phase
+        ),
+        exited_at=require_unsigned_decimal(
+            value["exited_at"], "exited_at", phase
+        ),
+        exit_revision=require_unsigned_decimal(
+            value["exit_revision"], "exit_revision", phase
+        ),
+    )
+
+
+def validate_live_exit_restart(
+    response: Mapping[str, Any],
+    transport: str,
+    expected: LiveCreationEvidence,
+) -> None:
+    phase = f"{transport} exit-restart"
+    value = response_value(response, LIVE_EXIT_RESTART_FIELDS, phase)
+    exact = {
+        "correlation_key": expected.correlation_key,
+        "created_path": expected.created_path,
+        "creation_state": "created",
+        "creation_recovery": "none",
+        "creation_generation": expected.creation_generation,
+        "creation_revision": expected.creation_revision,
+        "exit_state": "exited",
+        "exit_terminal_id": expected.created_path["terminal_id"],
+        "exit_lifecycle": "exited",
+        "exit_kind": "exit",
+        "exit_code": 17,
+        "exited_at": expected.exited_at,
+        "exit_revision": expected.exit_revision,
+    }
+    mismatches = [
+        f"{field}={value[field]!r}"
+        for field, wanted in exact.items()
+        if (
+            value[field] != wanted
+            or (
+                field == "exit_code"
+                and isinstance(value[field], bool)
+            )
+        )
+    ]
+    if mismatches:
+        raise ConformanceFailure(
+            f"{phase} failed assertions: {', '.join(mismatches)}"
+        )
+    require_unsigned_decimal(value["exited_at"], "exited_at", phase)
+    require_unsigned_decimal(value["exit_revision"], "exit_revision", phase)
+    require_unsigned_decimal(
+        value["creation_revision"], "creation_revision", phase
+    )
+
+
 def live_payload(
     *,
     identifier: str,
@@ -1138,6 +1588,7 @@ def run_live_case(
     transports = live_transports(adapter.spec.language)
     process: subprocess.Popen[str] | None = None
     setup: dict[str, tuple[str, list[str]]] = {}
+    creation: dict[str, LiveCreationEvidence] = {}
     try:
         process, websocket_url = start_live_server(
             exact_binary,
@@ -1163,6 +1614,33 @@ def run_live_case(
                 adapter.request(payload, timeout=45),
                 transport,
             )
+            stable_id, _ = setup[transport]
+            correlation_key = f"{transport}-terminal-correlation"
+            payload = live_payload(
+                identifier=f"live-{transport}-creation-exit",
+                operation="live-creation-exit",
+                transport=transport,
+                socket_path=socket_path,
+                websocket_url=websocket_url,
+                websocket_token=websocket_token,
+                constants=constants,
+                workspace_name=workspace_name,
+                key_prefix=transport,
+            )
+            payload.update(
+                {
+                    "expected_stable_id": stable_id,
+                    "exit_shell": "sleep 2; exit 17",
+                    "pending_timeout_ms": "0",
+                    "exit_timeout_ms": "10000",
+                    "expected_exit_code": 17,
+                }
+            )
+            creation[transport] = validate_live_creation_exit(
+                adapter.request(payload, timeout=45),
+                transport,
+                correlation_key,
+            )
 
         stop_live_server(process, socket_path)
         process = None
@@ -1175,7 +1653,38 @@ def run_live_case(
         )
         for transport in transports:
             stable_id, duplicate_ids = setup[transport]
+            evidence = creation[transport]
             workspace_name = f"{base_name}-{transport}"
+            payload = live_payload(
+                identifier=f"live-{transport}-exit-restart",
+                operation="live-exit-restart",
+                transport=transport,
+                socket_path=socket_path,
+                websocket_url=websocket_url,
+                websocket_token=websocket_token,
+                constants=constants,
+                workspace_name=workspace_name,
+                key_prefix=transport,
+            )
+            payload.update(
+                {
+                    "expected_created_path": evidence.created_path,
+                    "expected_correlation_key": evidence.correlation_key,
+                    "expected_creation_generation": (
+                        evidence.creation_generation
+                    ),
+                    "expected_creation_revision": evidence.creation_revision,
+                    "expected_exited_at": evidence.exited_at,
+                    "expected_exit_revision": evidence.exit_revision,
+                    "exit_timeout_ms": "0",
+                    "expected_exit_code": 17,
+                }
+            )
+            validate_live_exit_restart(
+                adapter.request(payload, timeout=45),
+                transport,
+                evidence,
+            )
             payload = live_payload(
                 identifier=f"live-{transport}-restart",
                 operation="live-restart",
@@ -1291,7 +1800,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     results.append(
                         CaseResult(
                             language,
-                            f"live-durable-restart-{transport}",
+                            f"live-creation-exit-restart-{transport}",
                             "FAIL",
                             str(error),
                         )
@@ -1301,7 +1810,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     results.append(
                         CaseResult(
                             language,
-                            f"live-durable-restart-{transport}",
+                            f"live-creation-exit-restart-{transport}",
                             "PASS",
                         )
                     )
