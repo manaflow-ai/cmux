@@ -8,6 +8,12 @@ public import Foundation
 /// a semantic commit boundary. It classifies callbacks from event-local state,
 /// without inspecting language, script, locale, or input-source identity.
 public struct TerminalTextInputEditSession: Sendable {
+    // These are global latency and memory budgets for an otherwise
+    // indistinguishable AppKit callback sequence. They do not classify the
+    // active language, input source, script, or payload.
+    private static let maximumSpeculativeEventCount = 8
+    private static let maximumSpeculativeUTF16Length = 32 * 1024
+
     private enum MarkedTextOrigin: Sendable {
         case explicit
         case replacementEdits
@@ -23,6 +29,7 @@ public struct TerminalTextInputEditSession: Sendable {
         let rawText: String?
         var pendingInsertions: [Insertion] = []
         var receivedExplicitCompositionCallback = false
+        var appliedReplacementEdit = false
     }
 
     /// The provisional text currently owned by the input system.
@@ -35,6 +42,7 @@ public struct TerminalTextInputEditSession: Sendable {
     )
 
     private var markedTextOrigin: MarkedTextOrigin?
+    private var replacementEditEventCount = 0
     private var event: Event?
 
     /// Creates an empty text-input session.
@@ -83,11 +91,18 @@ public struct TerminalTextInputEditSession: Sendable {
 
         let insertions = completedEvent.pendingInsertions
         guard !insertions.isEmpty else {
-            guard markedTextOrigin == .replacementEdits,
-                  (!consumedByTextInput || commandPerformed) else {
+            guard markedTextOrigin == .replacementEdits else {
                 return []
             }
-            return commitPendingText()
+            if !consumedByTextInput || commandPerformed {
+                return commitPendingText()
+            }
+            if completedEvent.appliedReplacementEdit {
+                replacementEditEventCount += 1
+            }
+            return shouldCommitSpeculativeText
+                ? commitPendingText()
+                : []
         }
 
         let insertedText = insertions.map(\.text).joined()
@@ -109,12 +124,17 @@ public struct TerminalTextInputEditSession: Sendable {
         }
 
         markedTextOrigin = .replacementEdits
-        return insertions.flatMap {
+        let committedText = insertions.flatMap {
             applyReplacementEdit(
                 $0.text,
                 replacementRange: $0.replacementRange
             )
         }
+        guard hasMarkedText else { return committedText }
+        replacementEditEventCount = 1
+        return shouldCommitSpeculativeText
+            ? committedText + commitPendingText()
+            : committedText
     }
 
     /// Records AppKit's explicit marked-text state.
@@ -130,6 +150,7 @@ public struct TerminalTextInputEditSession: Sendable {
         }
 
         markedTextOrigin = .explicit
+        replacementEditEventCount = 0
         markedSelection = normalizedSelection(
             selectedRange,
             textLength: utf16Length(of: text)
@@ -168,10 +189,17 @@ public struct TerminalTextInputEditSession: Sendable {
                 let directText = directText(for: text, event: event)
                 return pendingText + (directText.isEmpty ? [] : [directText])
             }
-            return applyReplacementEdit(
+            event?.appliedReplacementEdit = true
+            let committedText = applyReplacementEdit(
                 text,
                 replacementRange: replacementRange
             )
+            guard committedText.isEmpty,
+                  hasMarkedText,
+                  shouldCommitSpeculativeText else {
+                return committedText
+            }
+            return commitPendingText()
 
         case nil:
             guard event != nil else {
@@ -213,6 +241,12 @@ public struct TerminalTextInputEditSession: Sendable {
             return text
         }
         return translatedText
+    }
+
+    private var shouldCommitSpeculativeText: Bool {
+        replacementEditEventCount >= Self.maximumSpeculativeEventCount ||
+            utf16Length(of: markedText)
+                > Self.maximumSpeculativeUTF16Length
     }
 
     private mutating func applyReplacementEdit(
@@ -297,6 +331,7 @@ public struct TerminalTextInputEditSession: Sendable {
         markedText = ""
         markedSelection = NSRange(location: NSNotFound, length: 0)
         markedTextOrigin = nil
+        replacementEditEventCount = 0
     }
 
     private func utf16Length(of text: String) -> Int {

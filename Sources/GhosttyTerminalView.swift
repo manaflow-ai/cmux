@@ -11538,7 +11538,11 @@ extension GhosttyNSView: NSTextInputClient {
             invalidateTextInputCoordinates(selectionChanged: true)
         }
         for text in committedText {
-            deliverCommittedText(text, isExternal: false)
+            deliverCommittedText(
+                text,
+                isExternal: false,
+                originatedFromPreedit: hadMarkedText
+            )
         }
     }
 
@@ -11734,14 +11738,17 @@ extension GhosttyNSView: NSTextInputClient {
         for text in committedText {
             deliverCommittedText(
                 text,
-                isExternal: isExternalCommittedText
+                isExternal: isExternalCommittedText,
+                originatedFromPreedit:
+                    hadMarkedText && !isExternalCommittedText
             )
         }
     }
 
     private func deliverCommittedText(
         _ text: String,
-        isExternal: Bool
+        isExternal: Bool,
+        originatedFromPreedit: Bool = false
     ) {
         let committedText = if isExternal {
             // Only sanitize explicit external committed-text paths used by
@@ -11764,6 +11771,18 @@ extension GhosttyNSView: NSTextInputClient {
         guard !committedText.isEmpty else { return }
         if keyTextAccumulator != nil {
             keyTextAccumulator?.append(committedText)
+            return
+        }
+
+        if originatedFromPreedit {
+            guard let surface = ensureSurfaceReadyForInput() else { return }
+            terminalSurface?.didReceiveExplicitInput()
+            recordDirectAgentHibernationTerminalInput()
+            sendCommittedText(
+                committedText,
+                action: GHOSTTY_ACTION_PRESS,
+                surface: surface
+            )
             return
         }
 
