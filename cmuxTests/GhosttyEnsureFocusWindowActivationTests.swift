@@ -67,4 +67,20 @@ final class GhosttyEnsureFocusWindowActivationTests: XCTestCase {
             )
         )
     }
+
+    func testDoesNotActivateMainWindowDuringKeyWindowHandoff() {
+        let targetManager = TabManager()
+        let targetWindow = NSWindow()
+
+        XCTAssertFalse(
+            shouldAllowEnsureFocusWindowActivation(
+                activeTabManager: targetManager,
+                targetTabManager: targetManager,
+                keyWindow: nil,
+                mainWindow: targetWindow,
+                targetWindow: targetWindow
+            ),
+            "Deferred terminal focus must wait for didBecomeKey instead of stealing a transient key-window handoff"
+        )
+    }
 }
