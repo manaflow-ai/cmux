@@ -28,7 +28,7 @@ struct RemoteSessionReverseRelayStartupTests {
     }
 
     @Test("Confirmed bind conflict exits the configured master once")
-    func confirmedConflictExitsConfiguredMaster() async {
+    func confirmedConflictExitsConfiguredMaster() async throws {
         let host = ReverseRelayRecoveryHost()
         let runner = RecordingProcessRunner { _ in
             RemoteCommandResult(
@@ -37,7 +37,9 @@ struct RemoteSessionReverseRelayStartupTests {
                 stderr: "Control socket connect: No such file or directory"
             )
         }
-        let coordinator = Self.makeCoordinator(host: host, runner: runner)
+        let fixture = try Self.makeCoordinator(host: host, runner: runner)
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
 
         let ignoredUnrelatedFailure = coordinator.queue.sync {
             coordinator.beginConflictedControlMasterExitIfNeededLocked(
@@ -46,7 +48,7 @@ struct RemoteSessionReverseRelayStartupTests {
                 relayPort: 64_044,
                 relayID: "relay-startup-cancellation",
                 relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-relay-startup-cancellation.sock"
+                localSocketPath: coordinator.configuration.localSocketPath ?? ""
             )
         }
         #expect(!ignoredUnrelatedFailure)
@@ -59,14 +61,17 @@ struct RemoteSessionReverseRelayStartupTests {
                 relayPort: 64_044,
                 relayID: "relay-startup-cancellation",
                 relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-relay-startup-cancellation.sock"
+                localSocketPath: coordinator.configuration.localSocketPath ?? ""
             )
         }
         #expect(beganRecovery)
 
         var statuses = host.daemonStatuses.makeAsyncIterator()
         let status = await statuses.next()
-        #expect(status?.detail?.contains("retry in 2s") == true)
+        #expect(status?.detail == String(
+            localized: "remoteSession.reverseRelay.portUnavailableRetrying",
+            defaultValue: "Remote SSH relay port unavailable; retrying in 2 seconds"
+        ))
 
         let request = runner.requests.first
         #expect(request?.executable == "/usr/bin/ssh")
@@ -88,7 +93,7 @@ struct RemoteSessionReverseRelayStartupTests {
                 relayPort: 64_044,
                 relayID: "relay-startup-cancellation",
                 relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-relay-startup-cancellation.sock"
+                localSocketPath: coordinator.configuration.localSocketPath ?? ""
             )
         }
         #expect(!beganSecondRecovery)
@@ -100,9 +105,11 @@ struct RemoteSessionReverseRelayStartupTests {
         "Stop cancels conflicted-master exit without waiting on its timeout",
         .timeLimit(.minutes(1))
     )
-    func stopCancelsConflictedMasterExit() async {
+    func stopCancelsConflictedMasterExit() async throws {
         let runner = BlockingConflictedMasterExitRunner()
-        let coordinator = Self.makeCoordinator(runner: runner)
+        let fixture = try Self.makeCoordinator(runner: runner)
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
 
         coordinator.queue.async {
             _ = coordinator.beginConflictedControlMasterExitIfNeededLocked(
@@ -111,7 +118,7 @@ struct RemoteSessionReverseRelayStartupTests {
                 relayPort: 64_044,
                 relayID: "relay-startup-cancellation",
                 relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-relay-startup-cancellation.sock"
+                localSocketPath: coordinator.configuration.localSocketPath ?? ""
             )
         }
 
@@ -124,6 +131,7 @@ struct RemoteSessionReverseRelayStartupTests {
         #expect(await cancelled.next() != nil)
         let startupCleared = coordinator.queue.sync {
             !coordinator.reverseRelayStartupPhase.isRecovering &&
+                coordinator.reverseRelayStartupPhase.allowsRelayLaunch &&
                 coordinator.reverseRelayProcess == nil
         }
         #expect(startupCleared)
@@ -132,7 +140,16 @@ struct RemoteSessionReverseRelayStartupTests {
     private static func makeCoordinator(
         host: any RemoteSessionHosting = NoopRemoteSessionHost(),
         runner: any RemoteSessionProcessRunning
-    ) -> RemoteSessionCoordinator {
+    ) throws -> (coordinator: RemoteSessionCoordinator, scratchDirectory: URL) {
+        let scratchDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-reverse-relay-startup-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: scratchDirectory,
+            withIntermediateDirectories: true
+        )
         let configuration = WorkspaceRemoteConfiguration(
             destination: "user@example.test",
             port: nil,
@@ -142,18 +159,18 @@ struct RemoteSessionReverseRelayStartupTests {
             relayPort: 64_044,
             relayID: "relay-startup-cancellation",
             relayToken: String(repeating: "a", count: 64),
-            localSocketPath: "/tmp/cmux-relay-startup-cancellation.sock",
+            localSocketPath: scratchDirectory.appendingPathComponent("relay.sock").path,
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: false,
             persistentDaemonSlot: nil
         )
-        return RemoteSessionCoordinator(
+        let coordinator = RemoteSessionCoordinator(
             host: host,
             configuration: configuration,
             proxyBroker: SSHOverrideUnusedRemoteProxyBroker(),
             connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
-                homeDirectory: FileManager.default.temporaryDirectory
+                homeDirectory: scratchDirectory
             ),
             processRunner: runner,
             reachabilityProbe: SSHOverrideNoopReachabilityProbe(),
@@ -168,6 +185,7 @@ struct RemoteSessionReverseRelayStartupTests {
                 suspendedDetailFormat: "%@"
             )
         )
+        return (coordinator, scratchDirectory)
     }
 }
 

@@ -57,7 +57,6 @@ extension RemoteSessionCoordinator {
                 self?.finishConflictedControlMasterExitLocked(
                     token: token,
                     outcome: outcome,
-                    startupFailure: startupFailure,
                     remotePath: remotePath,
                     relayPort: relayPort,
                     relayID: relayID,
@@ -112,7 +111,6 @@ extension RemoteSessionCoordinator {
     private func finishConflictedControlMasterExitLocked(
         token: UUID,
         outcome: ConflictedControlMasterExitOutcome,
-        startupFailure: String,
         remotePath: String,
         relayPort: Int,
         relayID: String,
@@ -135,7 +133,10 @@ extension RemoteSessionCoordinator {
             )
             publishDaemonStatus(
                 .error,
-                detail: "Remote SSH relay unavailable: \(startupFailure) (retry in 2s)"
+                detail: String(
+                    localized: "remoteSession.reverseRelay.portUnavailableRetrying",
+                    defaultValue: "Remote SSH relay port unavailable; retrying in 2 seconds"
+                )
             )
             scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
             return
