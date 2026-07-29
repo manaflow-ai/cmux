@@ -461,13 +461,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// Shared local-delete + backup-mirror body for both `remove` and
     /// `removeExactScope`. `team` is already resolved by the caller (the live
     /// selected team for `remove`, the captured scope verbatim for
-    /// `removeExactScope`) and scopes BOTH the local row delete and the backup
-    /// tombstone: `upsert` stamps the row and uploads its backup under one
-    /// resolved team, so keeping the tombstone on the row's own team keeps the
-    /// whole pending-delete lifecycle (outbox key, local apply, flush,
-    /// restore-suppression) on the one scope the backup was written under.
-    /// `exactScope` selects the matching inner delete so a team-less captured
-    /// scope is preserved all the way down.
+    /// `removeExactScope`) and scopes the LOCAL row delete; the backup
+    /// tombstone routes to the row's verified DESTINATION (see the outbox
+    /// section below). `exactScope` selects the matching inner delete so a
+    /// team-less captured scope is preserved all the way down.
     private func removeMirroring(
         macDeviceID rawMacDeviceID: String,
         instanceTag: String?,
@@ -489,8 +486,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // Only mirror the delete while signed in; an anonymous removal has no
         // per-user backup to delete and would just fail auth and log noise.
         let backupAccount = account ?? lastSignedInAccount
-        let scope = await scopeKey(account: backupAccount, teamID: team)
-        if let scope {
+        let planned: PlannedTombstone?
+        if let backupAccount {
             // Persist the delete intent before removing the only local row. If the
             // app dies or the network upload fails after the local delete, the next
             // read/restore still applies this tombstone and retries the backup
@@ -498,11 +495,16 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             // The catch below rolls this intent back if the local delete itself
             // fails, so the outbox never claims a row was deleted locally when it
             // was not.
-            await addPendingDelete(
+            let plan = await planTombstone(
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag,
-                scope: scope
+                rowTeamID: team,
+                account: backupAccount
             )
+            await addPendingDelete(plan)
+            planned = plan
+        } else {
+            planned = nil
         }
         let draining = cancelInFlightRestoresReturningTasks()
         for task in draining { _ = await task.value }
@@ -522,21 +524,90 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                     teamID: team
                 )
             }
-            if let scope, let backupAccount {
-                await flushPendingDeletes(scope: scope, account: backupAccount, teamID: team)
+            if let planned {
+                await flushPendingDeletes(
+                    scope: planned.outboxScope,
+                    account: planned.account,
+                    teamID: planned.destinationTeamID
+                )
             }
         } catch {
-            if let scope {
-                await clearPendingDelete(
-                    pairingID: MobilePairedMac.pairingID(
-                        macDeviceID: macDeviceID,
-                        instanceTag: instanceTag
-                    ),
-                    scope: scope
-                )
+            if let planned {
+                await clearPendingDelete(planned)
             }
             throw error
         }
+    }
+
+    /// Batch exact-scope removal: every row's local delete and outbox write
+    /// happens first, then the accumulated tombstones flush ONCE per backup
+    /// destination. The per-row `removeExactScope` flushes after each delete,
+    /// so a wildcard forget covering many tagged/teamed rows would otherwise
+    /// issue one sequential backup request per row — with failures each
+    /// consuming a full request timeout — after the broker revoke loop already
+    /// ran. Rows that fail their local delete have their intents rolled back
+    /// and the first error is rethrown after every row was attempted and the
+    /// successful rows' tombstones were flushed.
+    public func removeExactScopes(_ scopes: [MobilePairedMacExactScope]) async throws {
+        guard !scopes.isEmpty else { return }
+        let draining = cancelInFlightRestoresReturningTasks()
+        for task in draining { _ = await task.value }
+        var flushTargets: [String: (account: String, destination: String?)] = [:]
+        var firstError: (any Error)?
+        for scope in scopes {
+            let macDeviceID = cmxCanonicalDeviceID(scope.macDeviceID)
+            let account: String?
+            if let stackUserID = scope.stackUserID {
+                account = stackUserID
+            } else {
+                account = try? await accountForMac(
+                    macDeviceID,
+                    instanceTag: scope.instanceTag,
+                    teamID: scope.teamID
+                )
+            }
+            let backupAccount = account ?? lastSignedInAccount
+            let planned: PlannedTombstone?
+            if let backupAccount {
+                let plan = await planTombstone(
+                    macDeviceID: macDeviceID,
+                    instanceTag: scope.instanceTag,
+                    rowTeamID: scope.teamID,
+                    account: backupAccount
+                )
+                await addPendingDelete(plan)
+                planned = plan
+            } else {
+                planned = nil
+            }
+            do {
+                try await inner.removeExactScope(
+                    macDeviceID: macDeviceID,
+                    instanceTag: scope.instanceTag,
+                    stackUserID: account,
+                    teamID: scope.teamID
+                )
+                if let planned {
+                    flushTargets[planned.outboxScope] = (
+                        account: planned.account,
+                        destination: planned.destinationTeamID
+                    )
+                }
+            } catch {
+                if let planned {
+                    await clearPendingDelete(planned)
+                }
+                if firstError == nil { firstError = error }
+            }
+        }
+        for (outboxScope, target) in flushTargets {
+            await flushPendingDeletes(
+                scope: outboxScope,
+                account: target.account,
+                teamID: target.destination
+            )
+        }
+        if let firstError { throw firstError }
     }
 
     /// Cross-team enumeration forwards straight to the local rail. No restore
@@ -832,40 +903,147 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         }
     }
 
-    private func pendingDeleteIDs(scope: String) async -> Set<String> {
-        if let ids = pendingDeleteIDsByScope[scope] { return ids }
-        let storedIDs = await pendingDeleteStore.load(scope: scope)
-        let ids = Set(storedIDs.map { pairingID in
-            let identity = MobilePairedMac.pairingIdentity(from: pairingID)
-            return MobilePairedMac.pairingID(
+    // MARK: - Pending delete outbox
+    //
+    // Records live under the scope key of their backup DESTINATION (the team
+    // whose Durable Object holds the record), not the row's local scope: a
+    // restore of the destination scope must both SEE the intent (so its
+    // suppression list keeps the deleted record from resurrecting while the
+    // upload is still pending) and retry the flush. Each record additionally
+    // encodes the row's LOCAL team so the local replay can delete the exact
+    // row regardless of where the backup lives. A team-less row with no
+    // verified destination mapping is PARKED under the account's nil-team
+    // scope and never uploaded with a guessed destination — the server would
+    // re-resolve a nil team from its CURRENT account state, which can differ
+    // from where the record was stored and destroy an unrelated same-pairing
+    // record in another team. Parked intents flush once a restore's echo
+    // recovers the verified mapping. Residual: while parked, a restore of a
+    // DIFFERENT team's scope cannot see the intent and may resurrect the
+    // record as that team's row; re-forgetting that row then routes exactly
+    // (its scope is concrete), which is recoverable — unlike a misrouted
+    // destructive delete.
+
+    /// One pending tombstone: the pairing it deletes and the LOCAL team scope
+    /// of the row it deleted (needed for exact local replay).
+    private struct PendingDeleteRecord: Hashable {
+        let pairingID: String
+        let localTeamID: String?
+
+        /// `pairingID` alone (a legacy record whose local team equals its
+        /// scope's team), or `pairingID<RS>localTeam` with "" = team-less.
+        static let separator: Character = "\u{1E}"
+
+        func encoded() -> String {
+            "\(pairingID)\(Self.separator)\(localTeamID ?? "")"
+        }
+
+        /// Decode a stored record. A legacy record (no separator) predates the
+        /// destination-keyed outbox, where local scope == the record's scope,
+        /// so its local team is the scope's own team.
+        init(decoding raw: String, scopeTeamID: String?) {
+            let parts = raw.split(
+                separator: Self.separator,
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            )
+            let identity = MobilePairedMac.pairingIdentity(from: String(parts[0]))
+            pairingID = MobilePairedMac.pairingID(
                 macDeviceID: identity.macDeviceID,
                 instanceTag: identity.instanceTag
             )
-        })
-        pendingDeleteIDsByScope[scope] = ids
-        return ids
+            if parts.count == 2 {
+                let team = String(parts[1])
+                localTeamID = team.isEmpty ? nil : team
+            } else {
+                localTeamID = scopeTeamID
+            }
+        }
+
+        init(pairingID: String, localTeamID: String?) {
+            self.pairingID = pairingID
+            self.localTeamID = localTeamID
+        }
     }
 
-    private func savePendingDeleteIDs(_ ids: Set<String>, scope: String) async {
-        pendingDeleteIDsByScope[scope] = ids
-        await pendingDeleteStore.save(ids, scope: scope)
+    /// Where one row's tombstone must go, and the outbox record that carries it.
+    private struct PlannedTombstone {
+        let record: PendingDeleteRecord
+        /// The verified backup destination team, or nil when it is unknown
+        /// (a team-less row with no persisted echo) and the intent is parked.
+        let destinationTeamID: String?
+        let outboxScope: String
+        let account: String
     }
 
-    private func addPendingDelete(
+    /// Resolve a row's tombstone destination: the persisted upload/restore echo
+    /// when one exists, else the row's OWN concrete team (symmetric with the
+    /// upload, which targeted that team explicitly — not a guess). A team-less
+    /// row with no echo has an unknowable destination and parks.
+    private func planTombstone(
         macDeviceID: String,
         instanceTag: String?,
-        scope: String
-    ) async {
-        let trimmed = MobilePairedMac.pairingID(
+        rowTeamID: String?,
+        account: String
+    ) async -> PlannedTombstone {
+        let pairingID = MobilePairedMac.pairingID(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        var ids = await pendingDeleteIDs(scope: scope)
-        ids.insert(trimmed)
-        await savePendingDeleteIDs(ids, scope: scope)
+        )
+        let mapped = await backupTeamStore.load(
+            key: backupTeamKey(account: account, rowTeamID: rowTeamID, pairingID: pairingID)
+        )
+        let destination = mapped ?? rowTeamID
+        return PlannedTombstone(
+            record: PendingDeleteRecord(pairingID: pairingID, localTeamID: rowTeamID),
+            destinationTeamID: destination,
+            outboxScope: await nonoptionalScopeKey(account: account, teamID: destination),
+            account: account
+        )
     }
 
+    private func pendingRecords(scope: String) async -> Set<String> {
+        if let ids = pendingDeleteIDsByScope[scope] { return ids }
+        let stored = await pendingDeleteStore.load(scope: scope)
+        pendingDeleteIDsByScope[scope] = stored
+        return stored
+    }
+
+    private func savePendingRecords(_ records: Set<String>, scope: String) async {
+        pendingDeleteIDsByScope[scope] = records
+        await pendingDeleteStore.save(records, scope: scope)
+    }
+
+    /// The pairing ids pending in one scope, for the restore's resurrect
+    /// suppression list.
+    private func pendingDeleteIDs(scope: String) async -> Set<String> {
+        let scopeTeam = teamID(fromScopeKey: scope)
+        return Set(await pendingRecords(scope: scope).map {
+            PendingDeleteRecord(decoding: $0, scopeTeamID: scopeTeam).pairingID
+        })
+    }
+
+    /// The team component of a scope key (`account\0team[\0clientScope]`).
+    private func teamID(fromScopeKey scope: String) -> String? {
+        let parts = scope.split(separator: "\u{0}", omittingEmptySubsequences: false)
+        guard parts.count >= 2, !parts[1].isEmpty else { return nil }
+        return String(parts[1])
+    }
+
+    private func addPendingDelete(_ planned: PlannedTombstone) async {
+        var records = await pendingRecords(scope: planned.outboxScope)
+        records.insert(planned.record.encoded())
+        await savePendingRecords(records, scope: planned.outboxScope)
+    }
+
+    private func clearPendingDelete(_ planned: PlannedTombstone) async {
+        var records = await pendingRecords(scope: planned.outboxScope)
+        guard records.remove(planned.record.encoded()) != nil else { return }
+        await savePendingRecords(records, scope: planned.outboxScope)
+    }
+
+    /// Drop any pending tombstone for a pairing that was just re-added
+    /// (revive): the intent could sit under its mapped destination scope, its
+    /// own team's scope, or the parked nil-team scope, in either encoding.
     @discardableResult
     func clearPendingDelete(
         macDeviceID: String,
@@ -873,98 +1051,135 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         account: String,
         teamID: String?
     ) async -> Bool {
-        let scope = await nonoptionalScopeKey(account: account, teamID: teamID)
-        return await clearPendingDelete(
-            pairingID: MobilePairedMac.pairingID(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag
-            ),
-            scope: scope
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
         )
-    }
-
-    @discardableResult
-    private func clearPendingDelete(pairingID: String, scope: String) async -> Bool {
-        var ids = await pendingDeleteIDs(scope: scope)
-        guard ids.remove(pairingID) != nil else { return false }
-        await savePendingDeleteIDs(ids, scope: scope)
-        return true
+        let mapped = await backupTeamStore.load(
+            key: backupTeamKey(account: account, rowTeamID: teamID, pairingID: pairingID)
+        )
+        var candidateTeams: [String?] = [teamID, nil]
+        if let mapped { candidateTeams.append(mapped) }
+        var cleared = false
+        for team in candidateTeams {
+            let scope = await nonoptionalScopeKey(account: account, teamID: team)
+            var records = await pendingRecords(scope: scope)
+            let before = records.count
+            records = records.filter {
+                PendingDeleteRecord(
+                    decoding: $0,
+                    scopeTeamID: team
+                ).pairingID != pairingID
+            }
+            if records.count != before {
+                await savePendingRecords(records, scope: scope)
+                cleared = true
+            }
+        }
+        return cleared
     }
 
     /// Re-apply pending tombstones locally before a restore for their scope.
     ///
-    /// A tombstone names one exact pairing, and its outbox scope key pins the
-    /// exact (account, team) it was deleted under, so the replay uses
-    /// `removeExactScope` — its only job is to finish/confirm THAT deletion.
-    /// Replaying through the broad `remove` re-resolves visibility on the way
-    /// down (``TeamScopedPairedMacStore`` looks the device up under the scope's
-    /// team, which also returns team-less legacy rows, and the build-scope
-    /// decorator's broad remove drops its team-less fallback alias), so in the
-    /// common failed-upload case — where the exact row is ALREADY deleted — it
-    /// would resolve a SURVIVING unrelated alias of the same device and delete
-    /// it. Exact-scope replay is a no-op there, and after a crash between the
-    /// tombstone write and the local delete it removes exactly the named row.
+    /// Each record encodes the LOCAL team of the row it deleted, so the replay
+    /// deletes exactly that row via `removeExactScope` — never re-resolving
+    /// visibility through the broad `remove`, which could target a surviving
+    /// unrelated alias of the same device in the common already-deleted case.
     private func applyPendingLocalDeletes(scope: String, account: String, teamID: String?) async {
-        let ids = await pendingDeleteIDs(scope: scope)
-        guard !ids.isEmpty else { return }
-        for pairingID in ids {
-            let identity = MobilePairedMac.pairingIdentity(from: pairingID)
+        let records = await pendingRecords(scope: scope)
+        guard !records.isEmpty else { return }
+        for raw in records {
+            let record = PendingDeleteRecord(decoding: raw, scopeTeamID: teamID)
+            let identity = MobilePairedMac.pairingIdentity(from: record.pairingID)
             try? await inner.removeExactScope(
                 macDeviceID: identity.macDeviceID,
                 instanceTag: identity.instanceTag,
                 stackUserID: account,
-                teamID: teamID
+                teamID: record.localTeamID
             )
         }
     }
 
-    /// Flush the scope's pending delete tombstones, each to the team its
-    /// record's backup was last stored under (the persisted upload echo),
-    /// falling back to the scope's own team when no echo was recorded. Ids are
-    /// grouped by destination so one request serves each backup; a failed
-    /// group keeps its ids pending for the next flush. A flushed pairing's
-    /// mapping is dropped — its backup record is gone, so there is nothing
-    /// left to route to. Returns the ids still pending.
+    /// Flush one scope's pending tombstones.
+    ///
+    /// A scope with a CONCRETE team IS the verified destination: all of its
+    /// records go out in ONE request to that team. The nil-team scope holds
+    /// PARKED intents whose destination was unknown when they were written;
+    /// each is re-checked against the mapping store (restores' echoes recover
+    /// mappings over time), and any now-verified intent MIGRATES to its
+    /// destination scope — so suppression there sees it even if its upload
+    /// fails — and flushes with it. Unverified intents stay parked; a nil
+    /// destination is never guessed. Returns the records still pending.
     @discardableResult
     private func flushPendingDeletes(scope: String, account: String, teamID: String?) async -> Set<String> {
-        let ids = await pendingDeleteIDs(scope: scope)
-        guard !ids.isEmpty else { return ids }
-        // Team ids are never empty strings (the scope key relies on the same
-        // invariant), so "" is a safe marker for "no team" in the group key.
-        var groups: [String: [String]] = [:]
-        for pairingID in ids.sorted() {
-            let mapped = await backupTeamStore.load(
-                key: backupTeamKey(account: account, rowTeamID: teamID, pairingID: pairingID)
-            )
-            groups[mapped ?? teamID ?? "", default: []].append(pairingID)
-        }
-        var remaining = ids
-        for (destinationKey, pairingIDs) in groups {
-            let destination = destinationKey.isEmpty ? nil : destinationKey
-            let ops = pairingIDs.map { pairingID -> PairedMacBackupOp in
-                let identity = MobilePairedMac.pairingIdentity(from: pairingID)
-                if let instanceTag = identity.instanceTag {
-                    return .deleteInstance(
-                        macDeviceID: identity.macDeviceID,
-                        instanceTag: instanceTag
-                    )
-                }
-                return .delete(macDeviceID: identity.macDeviceID)
+        var records = await pendingRecords(scope: scope)
+        guard !records.isEmpty else { return records }
+        if let teamID {
+            let decoded = records.map {
+                PendingDeleteRecord(decoding: $0, scopeTeamID: teamID)
             }
+            let ops = decoded
+                .sorted { $0.pairingID < $1.pairingID }
+                .map { record -> PairedMacBackupOp in
+                    let identity = MobilePairedMac.pairingIdentity(from: record.pairingID)
+                    if let instanceTag = identity.instanceTag {
+                        return .deleteInstance(
+                            macDeviceID: identity.macDeviceID,
+                            instanceTag: instanceTag
+                        )
+                    }
+                    return .delete(macDeviceID: identity.macDeviceID)
+                }
             guard await backup.upload(
                 ops: ops,
-                teamID: destination,
+                teamID: teamID,
                 expectedUserID: account
-            ) else { continue }
-            remaining.subtract(pairingIDs)
-            for pairingID in pairingIDs {
+            ) else { return records }
+            for record in decoded {
                 await backupTeamStore.remove(
-                    key: backupTeamKey(account: account, rowTeamID: teamID, pairingID: pairingID)
+                    key: backupTeamKey(
+                        account: account,
+                        rowTeamID: record.localTeamID,
+                        pairingID: record.pairingID
+                    )
                 )
             }
+            await savePendingRecords([], scope: scope)
+            return []
         }
-        await savePendingDeleteIDs(remaining, scope: scope)
-        return remaining
+        // The parked nil-team scope: migrate now-verified intents to their
+        // destination scopes and flush those; keep the rest parked.
+        var migratedScopes: Set<String> = []
+        var stillParked = records
+        for raw in records {
+            let record = PendingDeleteRecord(decoding: raw, scopeTeamID: nil)
+            guard let destination = await backupTeamStore.load(
+                key: backupTeamKey(
+                    account: account,
+                    rowTeamID: record.localTeamID,
+                    pairingID: record.pairingID
+                )
+            ) else { continue }
+            let destinationScope = await nonoptionalScopeKey(account: account, teamID: destination)
+            var destinationRecords = await pendingRecords(scope: destinationScope)
+            destinationRecords.insert(record.encoded())
+            await savePendingRecords(destinationRecords, scope: destinationScope)
+            stillParked.remove(raw)
+            migratedScopes.insert(destination)
+        }
+        if stillParked.count != records.count {
+            await savePendingRecords(stillParked, scope: scope)
+        }
+        for destination in migratedScopes {
+            let destinationScope = await nonoptionalScopeKey(account: account, teamID: destination)
+            _ = await flushPendingDeletes(
+                scope: destinationScope,
+                account: account,
+                teamID: destination
+            )
+        }
+        records = stillParked
+        return records
     }
 
 }

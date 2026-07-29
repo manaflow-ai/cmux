@@ -178,6 +178,11 @@ public protocol MobilePairedMacStoring: Sendable {
         stackUserID: String?
     ) async throws -> [MobilePairedMac]
 
+    /// Remove several exact row scopes as one batch, so stores with per-delete
+    /// side effects (the backup-mirroring decorator's tombstone flush) can
+    /// coalesce them instead of paying one network round-trip per row.
+    func removeExactScopes(_ scopes: [MobilePairedMacExactScope]) async throws
+
     /// Remove all paired Macs.
     func removeAll() async throws
 }
@@ -268,6 +273,21 @@ extension MobilePairedMacStoring {
         let canonical = cmxCanonicalDeviceID(macDeviceID)
         return try await loadAll(stackUserID: stackUserID, teamID: nil)
             .filter { cmxCanonicalDeviceID($0.macDeviceID) == canonical }
+    }
+
+    /// Default batch removal: each scope through this store's own
+    /// `removeExactScope`, in order. Stores whose per-delete side effects are
+    /// expensive (the backup-mirroring decorator's tombstone flush) override
+    /// this to coalesce.
+    public func removeExactScopes(_ scopes: [MobilePairedMacExactScope]) async throws {
+        for scope in scopes {
+            try await removeExactScope(
+                macDeviceID: scope.macDeviceID,
+                instanceTag: scope.instanceTag,
+                stackUserID: scope.stackUserID,
+                teamID: scope.teamID
+            )
+        }
     }
 
     /// In-memory/test fallback. Production SQLite and scope decorators override
