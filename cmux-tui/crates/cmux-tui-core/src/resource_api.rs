@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::Weak;
 use std::time::Duration;
 
+use anyhow::Context;
 use serde_json::{Map, Value, json};
 
 use crate::resource::{
@@ -19,7 +20,7 @@ use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
-    ResourceEffectOutcome, ResourceEffectPreparation,
+    ResourceEffectOutcome, ResourceEffectPreparation, TerminalLifecycle,
 };
 use crate::{Mux, ResourceSelectors};
 
@@ -431,6 +432,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
     mux.with_resource_projection(|registry, state| {
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
+        let terminal_registry = registry.terminal_snapshot()?;
         anyhow::ensure!(
             registry_snapshot.generation == topology.generation
                 && registry_snapshot.resource_revision == topology.revision,
@@ -446,6 +448,11 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             .map(|screen| (&screen.public_id, screen))
             .collect::<HashMap<_, _>>();
         let active_screens = topology.active_screens.iter().cloned().collect::<HashMap<_, _>>();
+        let terminals_by_id = terminal_registry
+            .terminals
+            .iter()
+            .map(|terminal| (terminal.terminal_id.as_str(), terminal))
+            .collect::<HashMap<_, _>>();
 
         let workspaces = registry_snapshot
             .workspaces
@@ -531,26 +538,55 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                 let ContentPublicId::Terminal(terminal_id) = &tab.content_id else {
                     return None;
                 };
-                let surface = state
-                    .resource_indexes
-                    .content
-                    .get(&tab.content_id)
-                    .and_then(|slot| state.surfaces.get(slot));
-                let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
-                let mut terminal = json!({
-                    "id": terminal_id,
-                    "tab_id": tab.public_id,
-                    "title": surface.map(|surface| surface.title()).unwrap_or_default(),
-                    "cols": cols.max(1),
-                    "rows": rows.max(1),
-                    "running": surface.is_some_and(|surface| !surface.is_dead()),
-                });
-                if let Some(cwd) = surface.and_then(|surface| surface.spawn_cwd()) {
-                    terminal["cwd"] = json!(cwd);
-                }
-                Some(terminal)
+                Some((|| {
+                    let durable_id = tab
+                        .terminal_id
+                        .as_deref()
+                        .context("terminal tab omitted its durable terminal identity")?;
+                    let durable = terminals_by_id
+                        .get(durable_id)
+                        .with_context(|| format!("terminal tab references missing {durable_id}"))?;
+                    let lifecycle = match durable.lifecycle {
+                        TerminalLifecycle::Launching | TerminalLifecycle::Adopting => "launching",
+                        TerminalLifecycle::Running => "running",
+                        TerminalLifecycle::Exited => "exited",
+                        TerminalLifecycle::Tombstoned => {
+                            anyhow::bail!("live terminal tab references a tombstoned terminal")
+                        }
+                    };
+                    let surface = state
+                        .resource_indexes
+                        .content
+                        .get(&tab.content_id)
+                        .and_then(|slot| state.surfaces.get(slot));
+                    let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
+                    let mut terminal = json!({
+                        "id": terminal_id,
+                        "tab_id": tab.public_id,
+                        "title": surface.map(|surface| surface.title()).unwrap_or_default(),
+                        "cols": cols.max(1),
+                        "rows": rows.max(1),
+                        "running": durable.lifecycle == TerminalLifecycle::Running,
+                        "lifecycle": lifecycle,
+                    });
+                    if let Some(cwd) = surface.and_then(|surface| surface.spawn_cwd()) {
+                        terminal["cwd"] = json!(cwd);
+                    }
+                    if durable.lifecycle == TerminalLifecycle::Exited {
+                        terminal["exit"] = durable
+                            .exit
+                            .clone()
+                            .context("exited terminal omitted its durable outcome")?;
+                    } else {
+                        anyhow::ensure!(
+                            durable.exit.is_none(),
+                            "non-exited terminal unexpectedly has a durable outcome"
+                        );
+                    }
+                    Ok(terminal)
+                })())
             })
-            .collect::<Vec<_>>();
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         let browsers_by_id = topology
             .browsers
