@@ -35,6 +35,7 @@ struct SSHRemoteCommandChainingTests {
 
     @Test
     func rawSSHConfigurationExpandsRemoteCommandTokensBeforeManagedReplay() {
+        let policy = SSHHostConfiguredRemoteCommand()
         let separator = "\u{001f}"
         let output = """
         host token-alias
