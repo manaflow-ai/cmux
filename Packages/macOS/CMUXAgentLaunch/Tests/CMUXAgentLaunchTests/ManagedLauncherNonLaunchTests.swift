@@ -47,6 +47,8 @@ struct ManagedLauncherNonLaunchTests {
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "list"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "delete", "session-id"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["github", "install"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "--log-level", "WARN", "list"]))
+        #expect(classifier.omoLaunchIsNonLaunch(args: ["github", "--log-level=ERROR", "install"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "--help"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["session", "run", "--help"]))
         #expect(classifier.omoLaunchIsNonLaunch(args: ["run", "--help"]))
@@ -71,6 +73,9 @@ struct ManagedLauncherNonLaunchTests {
             ["session"],
             ["session", "run"],
             ["session", "--", "--help"],
+            ["session", "--", "list"],
+            ["session", "--unknown-option", "list"],
+            ["github", "--log-level"],
             ["github", "run"],
             ["run", "hello"],
             ["run", "--", "--help"],
