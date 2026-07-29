@@ -44,6 +44,21 @@ def test_pypi_fixture_targets_match_packager() -> None:
     assert RUST_TARGETS == declared
 
 
+def test_pypi_fixture_wheel_tags_match_packager() -> None:
+    packager = runpy.run_path(str(PYPI_PACKAGER))
+    fixture_tags = tuple(
+        WHEEL_TAG_BY_PLATFORM[key]
+        for key in (
+            ("darwin", "arm64"),
+            ("darwin", "x86_64"),
+            ("linux", "x86_64"),
+            ("linux", "aarch64"),
+        )
+    )
+    declared = tuple(target.platform_tags[0] for target in packager["TARGETS"])
+    assert fixture_tags == declared
+
+
 def normalized_platform() -> tuple[str, str]:
     machine = platform.machine().lower()
     if machine in {"amd64", "x64"}:
