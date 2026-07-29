@@ -71,6 +71,23 @@ import Testing
         #expect(!session.hasMarkedText)
     }
 
+    @Test func oneShotTransformationFlushesBeforeNextUnownedKey() {
+        var session = TerminalTextInputEditSession()
+        session.beginEvent(translatedText: "x", rawText: "x")
+        #expect(session.insertText(
+            "opaque",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        ).isEmpty)
+        #expect(session.finishEvent(consumedByTextInput: true).isEmpty)
+        #expect(session.markedText == "opaque")
+
+        session.beginEvent(translatedText: "\r", rawText: "\r")
+        #expect(
+            session.finishEvent(consumedByTextInput: false) == ["opaque"]
+        )
+        #expect(!session.hasMarkedText)
+    }
+
     @Test func consumedReplacementEditsRemainProvisionalUntilCommit() {
         var session = TerminalTextInputEditSession()
 
@@ -195,4 +212,5 @@ import Testing
         #expect(!session.hasMarkedText)
         #expect(session.unmarkText().isEmpty)
     }
+
 }
