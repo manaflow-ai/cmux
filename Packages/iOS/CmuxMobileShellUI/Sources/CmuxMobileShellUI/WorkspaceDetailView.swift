@@ -289,20 +289,14 @@ struct WorkspaceDetailView: View {
             }
         }
         .onChange(of: connectionStatus, initial: true) { _, status in
-            guard toasts.isEnabled else { return }
-            switch status {
-            case .unavailable:
-                toasts.present(.connectionUnavailable {
-                    reconnectToWorkspaceMac()
-                })
-            case .reconnecting:
-                toasts.present(.connectionReconnecting())
-            case .connected:
-                // The always-mounted shell owns connected-transition cleanup
-                // (dismiss + "Reconnected" success). Dismissing here too would
-                // race it: the success toast shares the coalescing key, so a
-                // dismiss landing after the shell's present kills the toast.
-                break
+            presentConnectionStatusToast(for: status)
+        }
+        .onChange(of: toasts.isEnabled) { _, isEnabled in
+            // Flipping the flag doesn't re-fire the status onChange, so a
+            // workspace that is already disconnected when Toasts turns on
+            // would otherwise show only the pill.
+            if isEnabled {
+                presentConnectionStatusToast(for: connectionStatus)
             }
         }
         #if os(iOS) && DEBUG
@@ -363,6 +357,29 @@ struct WorkspaceDetailView: View {
                 return
             }
             await store.reconnectOrRefresh()
+        }
+    }
+
+    private func presentConnectionStatusToast(for status: MobileMacConnectionStatus) {
+        guard toasts.isEnabled else { return }
+        // While reauth is required, the recovery overlay owns the
+        // never-dismissing account-mismatch toast on the same coalescing key.
+        // A transient status toast would replace it and then auto-dismiss,
+        // losing the persistent sign-out affordance.
+        guard !store.connectionRequiresReauth else { return }
+        switch status {
+        case .unavailable:
+            toasts.present(.connectionUnavailable {
+                reconnectToWorkspaceMac()
+            })
+        case .reconnecting:
+            toasts.present(.connectionReconnecting())
+        case .connected:
+            // The always-mounted shell owns connected-transition cleanup
+            // (dismiss + "Reconnected" success). Dismissing here too would
+            // race it: the success toast shares the coalescing key, so a
+            // dismiss landing after the shell's present kills the toast.
+            break
         }
     }
 

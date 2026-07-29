@@ -28,7 +28,15 @@ private struct MobileConnectionRecoveryOverlay: ViewModifier {
                 case .recovering:
                     toasts.present(.connectionReconnecting())
                 case .idle:
+                    // When the store reaches .connected, the always-mounted
+                    // shell owns cleanup (dismiss + "Reconnected" success on
+                    // the same key); dismissing here too could land after its
+                    // present and kill the success toast. Dismiss only when
+                    // reauth cleared, or when recovery state evaporated
+                    // without a connection (mac switch, disconnect-and-hide).
                     if case .reauth = previousPhase {
+                        toasts.dismiss(coalescingKey: Toast.connectionStatusKey)
+                    } else if store.connectionState != .connected {
                         toasts.dismiss(coalescingKey: Toast.connectionStatusKey)
                     }
                 }
