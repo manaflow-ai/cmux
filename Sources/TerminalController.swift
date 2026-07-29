@@ -83,6 +83,10 @@ func windowScreenshotCaptureAction(
     }
 }
 
+func windowScreenshotCGWindowID(exactly windowNumber: Int) -> CGWindowID? {
+    CGWindowID(windowNumber)
+}
+
 /// Accumulated worker→main `v2MainSync` hop time for the socket command
 /// currently executing on a worker thread. Confined to one thread: it lives in
 /// that thread's `threadDictionary`, `processSocketLine` installs a fresh
@@ -13231,12 +13235,14 @@ class TerminalController {
                 (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
             } ?? NSApp.mainWindow ?? NSApp.windows.first
 
-            return window.map {
-                (
-                    windowID: CGWindowID($0.windowNumber),
-                    needsCompositedCapture: $0.contentView.map(self.viewHierarchyContainsWebView) ?? false
-                )
+            guard let window,
+                  let windowID = windowScreenshotCGWindowID(exactly: window.windowNumber) else {
+                return nil
             }
+            return (
+                windowID: windowID,
+                needsCompositedCapture: window.contentView.map(self.viewHierarchyContainsWebView) ?? false
+            )
         }
 
         guard let captureTarget else {
@@ -13246,7 +13252,10 @@ class TerminalController {
         let captureWithAppKit: () -> Data? = {
             self.v2MainSync {
                 guard let window = NSApp.windows.first(where: {
-                    CGWindowID($0.windowNumber) == captureTarget.windowID
+                    guard let windowID = windowScreenshotCGWindowID(exactly: $0.windowNumber) else {
+                        return false
+                    }
+                    return windowID == captureTarget.windowID
                 }) else {
                     return nil
                 }

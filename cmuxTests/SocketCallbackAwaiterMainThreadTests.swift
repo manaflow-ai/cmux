@@ -56,6 +56,13 @@ import Testing
 }
 
 @Suite struct WindowScreenshotCaptureRoutingTests {
+    @Test func windowNumberConversionRejectsValuesOutsideCGWindowIDRange() {
+        #expect(windowScreenshotCGWindowID(exactly: 42) == 42)
+        #expect(windowScreenshotCGWindowID(exactly: Int(UInt32.max)) == UInt32.max)
+        #expect(windowScreenshotCGWindowID(exactly: -1) == nil)
+        #expect(windowScreenshotCGWindowID(exactly: Int(UInt32.max) + 1) == nil)
+    }
+
     @Test func timeoutLatchPermanentlyDisablesCompositorCapture() {
         var latch = WindowScreenshotCaptureTimeoutLatch()
 
