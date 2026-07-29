@@ -661,6 +661,80 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         )
     }
 
+    /// Restore-Pfad B (`Workspace.restoreSessionSnapshot`) coverage for
+    /// "Resume Agents on First Focus": with the defer setting enabled, a
+    /// restorable agent that would otherwise auto-resume immediately instead
+    /// enters the existing synthetic agent-hibernation state, and the
+    /// existing focus-triggered resume still wakes it on demand.
+    @MainActor
+    func testDeferredResumeEnabledEntersHibernationInsteadOfAutoResuming() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            try withRestoredDefaults(key: AgentSessionDeferredResumeSettings.deferUntilFirstFocusKey) {
+                let defaults = UserDefaults.standard
+                defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+                defaults.set(true, forKey: AgentSessionDeferredResumeSettings.deferUntilFirstFocusKey)
+
+                let source = Workspace()
+                let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+                let sourceIndex = try makeRestorableAgentIndex(
+                    workspaceId: source.id,
+                    panelId: sourcePanelId,
+                    sessionId: "codex-defer-resume-session"
+                )
+                source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+                let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+                let restored = Workspace()
+                restored.restoreSessionSnapshot(snapshot)
+                let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+                let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+                XCTAssertTrue(restoredPanel.isAgentHibernated)
+                let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
+                XCTAssertFalse(restoredInput.hasInitialInput)
+                XCTAssertEqual(restoredInput.byteCount, 0)
+
+                // The existing focus-triggered resume must still be able to wake it.
+                XCTAssertTrue(restored.resumeAgentHibernation(panelId: restoredPanelId, focus: false))
+                XCTAssertFalse(restoredPanel.isAgentHibernated)
+            }
+        }
+    }
+
+    /// Default-off companion to the above: without the defer setting, restore
+    /// behavior on this path must stay bit-identical to today (immediate
+    /// auto-resume, no synthetic hibernation).
+    @MainActor
+    func testDeferredResumeDisabledMatchesPriorAutoResumeBehavior() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            try withRestoredDefaults(key: AgentSessionDeferredResumeSettings.deferUntilFirstFocusKey) {
+                let defaults = UserDefaults.standard
+                defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+                defaults.removeObject(forKey: AgentSessionDeferredResumeSettings.deferUntilFirstFocusKey)
+
+                let source = Workspace()
+                let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+                let sourceIndex = try makeRestorableAgentIndex(
+                    workspaceId: source.id,
+                    panelId: sourcePanelId,
+                    sessionId: "codex-defer-off-session"
+                )
+                source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+                let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+                let restored = Workspace()
+                restored.restoreSessionSnapshot(snapshot)
+                let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+                let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+                XCTAssertFalse(restoredPanel.isAgentHibernated)
+                let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
+                XCTAssertTrue(restoredInput.hasInitialInput)
+                XCTAssertGreaterThan(restoredInput.byteCount, 0)
+            }
+        }
+    }
+
     private func withRestoredDefaults<T>(
         key: String,
         defaults: UserDefaults = .standard,
