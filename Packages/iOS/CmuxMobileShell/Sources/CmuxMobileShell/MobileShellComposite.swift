@@ -3650,6 +3650,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             secondaryMacSubscriptions[pairingID] = nil
             workspacesByMac[pairingID] = nil
         }
+        // Also prune RETAINED pairing-keyed states with no live subscription
+        // (e.g. a disconnected secondary that was reconnected as foreground via
+        // the dial path): the foreground's device-keyed entry would otherwise
+        // coexist with the stale pairing entry and duplicate its rows.
+        for key in workspacesByMac.keys
+        where !wanted.contains(key)
+            && secondaryMacSubscriptions[key] == nil
+            && key != foregroundMacKey
+            && key != Self.foregroundAnonymousKey
+            && MobilePairedMac.pairingIdentity(from: key).instanceTag != nil {
+            workspacesByMac[key] = nil
+        }
         // For each wanted secondary Mac: establish a fresh subscription, or — if
         // one already exists — reseed its snapshot over the existing client so an
         // explicit refresh (foreground/pull) still updates a stream that was
@@ -3853,7 +3865,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 instanceTag: mac.instanceTag,
                 scope: scope
             ) else { return }
-            markSecondaryMacUnavailable(macID)
+            // Downgrade the PAIRING's retained state only: the device key can
+            // be the live foreground sibling's entry.
+            markSecondaryMacUnavailable(pairingID)
             return
         }
         let client = handle.client
