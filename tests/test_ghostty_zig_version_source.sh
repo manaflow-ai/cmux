@@ -39,4 +39,26 @@ do
   fi
 done
 
-echo "PASS: Ghostty Zig consumers share the submodule version"
+reload_script="$ROOT_DIR/scripts/reload.sh"
+for required_assignment in \
+  'ZIG_LOCAL_INSTALL_ONLY=1' \
+  'ZIG_PATH_OUTPUT="$ZIG_PATH_FILE"' \
+  'XCODEBUILD_ARGS+=(CMUX_ZIG="$CMUX_ZIG")'
+do
+  if ! grep -Fq "$required_assignment" "$reload_script"; then
+    echo "FAIL: reload.sh does not provision and forward the resolved Zig executable" >&2
+    exit 1
+  fi
+done
+
+for documentation in \
+  "$ROOT_DIR/cmux-tui/README.md" \
+  "$ROOT_DIR/cmux-tui/docs/getting-started.md"
+do
+  if ! grep -Fq './scripts/ghostty-required-zig-version.sh' "$documentation"; then
+    echo "FAIL: $documentation does not reference the shared Zig version source" >&2
+    exit 1
+  fi
+done
+
+echo "PASS: Ghostty Zig consumers and setup docs share the submodule version"

@@ -89,6 +89,14 @@ FORCE_LOCAL_GITHUB_PATH_FILE="$TMP_DIR/force-local-github-path"
 FORCE_LOCAL_GITHUB_ENV_FILE="$TMP_DIR/force-local-github-env"
 FORCE_LOCAL_INSTALL_PARENT="$TMP_DIR/force-local-install"
 FORCE_LOCAL_MARKER="$FORCE_LOCAL_INSTALL_PARENT/keep.txt"
+LOCAL_ONLY_OUTPUT_FILE="$TMP_DIR/local-only-output"
+LOCAL_ONLY_REUSE_OUTPUT_FILE="$TMP_DIR/local-only-reuse-output"
+LOCAL_ONLY_GITHUB_PATH_FILE="$TMP_DIR/local-only-github-path"
+LOCAL_ONLY_GITHUB_ENV_FILE="$TMP_DIR/local-only-github-env"
+LOCAL_ONLY_INSTALL_PARENT="$TMP_DIR/local-only-install"
+LOCAL_ONLY_PATH_OUTPUT="$TMP_DIR/local-only-zig-path"
+LOCAL_ONLY_REUSE_PATH_OUTPUT="$TMP_DIR/local-only-reuse-zig-path"
+LOCAL_ONLY_MARKER="$LOCAL_ONLY_INSTALL_PARENT/keep.txt"
 DEFAULT_OUTPUT_FILE="$TMP_DIR/default-output"
 DEFAULT_GITHUB_PATH_FILE="$TMP_DIR/default-github-path"
 DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
@@ -373,6 +381,91 @@ if ! grep -Fxq "CMUX_ZIG=$EXPECTED_FORCE_LOCAL_INSTALL_ROOT/zig" "$FORCE_LOCAL_G
   exit 1
 fi
 
+rm -f "$SUDO_LOG"
+mkdir -p "$LOCAL_ONLY_INSTALL_PARENT"
+printf 'keep\n' > "$LOCAL_ONLY_MARKER"
+
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  GITHUB_PATH="$LOCAL_ONLY_GITHUB_PATH_FILE" \
+  GITHUB_ENV="$LOCAL_ONLY_GITHUB_ENV_FILE" \
+  FAKE_ZIG_VERSION="98.98.98" \
+  FAKE_ZIG_LIB_DIR="$FIXTURE_ROOT/$ZIG_NAME/lib" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_LOCAL_INSTALL_ONLY=1 \
+  ZIG_INSTALL_ROOT="$LOCAL_ONLY_INSTALL_PARENT" \
+  ZIG_PATH_OUTPUT="$LOCAL_ONLY_PATH_OUTPUT" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$LOCAL_ONLY_OUTPUT_FILE" 2>&1
+
+LOCAL_ONLY_INSTALL_ROOT="$LOCAL_ONLY_INSTALL_PARENT/$ZIG_NAME"
+EXPECTED_LOCAL_ONLY_INSTALL_ROOT="$(canonical_install_root "$LOCAL_ONLY_INSTALL_ROOT")"
+if [ ! -x "$LOCAL_ONLY_INSTALL_ROOT/zig" ]; then
+  cat "$LOCAL_ONLY_OUTPUT_FILE"
+  echo "FAIL: local-only install did not install zig under ZIG_INSTALL_ROOT" >&2
+  exit 1
+fi
+
+if [ ! -f "$LOCAL_ONLY_MARKER" ]; then
+  cat "$LOCAL_ONLY_OUTPUT_FILE"
+  echo "FAIL: local-only install deleted unrelated parent directory contents" >&2
+  exit 1
+fi
+
+if [ -s "$SUDO_LOG" ]; then
+  cat "$LOCAL_ONLY_OUTPUT_FILE"
+  cat "$SUDO_LOG"
+  echo "FAIL: local-only install invoked sudo" >&2
+  exit 1
+fi
+
+if ! grep -Fq "ZIG_LOCAL_INSTALL_ONLY=1; installing zig under" "$LOCAL_ONLY_OUTPUT_FILE"; then
+  cat "$LOCAL_ONLY_OUTPUT_FILE"
+  echo "FAIL: local-only install did not report the isolated path" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "$EXPECTED_LOCAL_ONLY_INSTALL_ROOT/zig" "$LOCAL_ONLY_PATH_OUTPUT"; then
+  cat "$LOCAL_ONLY_OUTPUT_FILE"
+  echo "FAIL: local-only install did not publish its executable to ZIG_PATH_OUTPUT" >&2
+  exit 1
+fi
+
+rm -f "$SUDO_LOG"
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  GITHUB_PATH="$LOCAL_ONLY_GITHUB_PATH_FILE" \
+  GITHUB_ENV="$LOCAL_ONLY_GITHUB_ENV_FILE" \
+  FAKE_ZIG_VERSION="98.98.98" \
+  FAKE_ZIG_LIB_DIR="$FIXTURE_ROOT/$ZIG_NAME/lib" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_LOCAL_INSTALL_ONLY=1 \
+  ZIG_INSTALL_ROOT="$LOCAL_ONLY_INSTALL_PARENT" \
+  ZIG_PATH_OUTPUT="$LOCAL_ONLY_REUSE_PATH_OUTPUT" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$LOCAL_ONLY_REUSE_OUTPUT_FILE" 2>&1
+
+if ! grep -Fq "already installed at $EXPECTED_LOCAL_ONLY_INSTALL_ROOT/zig" "$LOCAL_ONLY_REUSE_OUTPUT_FILE"; then
+  cat "$LOCAL_ONLY_REUSE_OUTPUT_FILE"
+  echo "FAIL: local-only installer did not reuse its verified cached Zig" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "$EXPECTED_LOCAL_ONLY_INSTALL_ROOT/zig" "$LOCAL_ONLY_REUSE_PATH_OUTPUT"; then
+  cat "$LOCAL_ONLY_REUSE_OUTPUT_FILE"
+  echo "FAIL: cached local-only Zig was not published to ZIG_PATH_OUTPUT" >&2
+  exit 1
+fi
+
+if [ -s "$SUDO_LOG" ]; then
+  cat "$LOCAL_ONLY_REUSE_OUTPUT_FILE"
+  cat "$SUDO_LOG"
+  echo "FAIL: cached local-only reuse invoked sudo" >&2
+  exit 1
+fi
+
 cat > "$BIN_DIR/sudo" <<'EOF'
 #!/usr/bin/env bash
 exit 1
@@ -416,4 +509,4 @@ if ! grep -Fxq "CMUX_ZIG=$EXPECTED_DEFAULT_INSTALL_ROOT/zig" "$DEFAULT_GITHUB_EN
   exit 1
 fi
 
-echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, validates sudo lib_dir, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"
+echo "PASS: install-zig-ci validates existing Zig, supports isolated cached installs with path output, validates sudo lib_dir, and handles missing RUNNER_TEMP"
