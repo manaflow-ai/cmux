@@ -1278,7 +1278,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     deinit {
-        cancelRemoteHomeResolution()
+        remoteHomeResolutionTask?.cancel()
         directoryWatchTask?.cancel()
     }
 }
