@@ -1559,6 +1559,260 @@ def verify_vacant_surface_accepts_authoritative_resume(cli_path: str) -> None:
             )
 
 
+def verify_older_generation_resume_is_rejected(cli_path: str) -> None:
+    with live_process_pid() as older_pid:
+        with live_process_pid() as newer_pid:
+            workspace_id = str(uuid.uuid4()).upper()
+            surface_id = str(uuid.uuid4()).upper()
+            session_id = f"newer-live-{uuid.uuid4().hex}"
+
+            with HookSocketServer(
+                workspace_id=workspace_id,
+                surface_id=surface_id,
+            ) as server:
+                state_path = Path(server.root.name) / "older-live-resume-state.json"
+                env = hook_environment(server, workspace_id, surface_id, state_path)
+                older_env = env.copy()
+                older_env["CMUX_CLAUDE_PID"] = str(older_pid)
+                newer_env = env.copy()
+                newer_env["CMUX_CLAUDE_PID"] = str(newer_pid)
+
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "session-start",
+                    {"session_id": session_id, "source": "resume", "cwd": "/tmp"},
+                    newer_env,
+                )
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "prompt-submit",
+                    {
+                        "session_id": session_id,
+                        "turn_id": "newer-turn",
+                        "cwd": "/tmp",
+                    },
+                    newer_env,
+                )
+
+                replay_start = len(server.commands)
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "session-start",
+                    {"session_id": session_id, "source": "resume", "cwd": "/tmp"},
+                    older_env,
+                )
+                replay_commands = server.commands[replay_start:]
+                if has_command_with(
+                    replay_commands,
+                    f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+                    f"--panel={surface_id}",
+                ) or has_command(
+                    replay_commands,
+                    f"set_agent_pid claude_code {older_pid}",
+                ):
+                    raise RuntimeError(
+                        "An older process generation replaced a live same-session "
+                        f"owner:\ncommands={replay_commands!r}"
+                    )
+
+                state = json.loads(state_path.read_text())
+                record = state["sessions"][session_id]
+                if (
+                    record.get("pid") != newer_pid
+                    or record.get("agentLifecycle") != "running"
+                ):
+                    raise RuntimeError(
+                        "An older resume rewrote the live generation record:\n"
+                        f"record={record!r}"
+                    )
+
+            workspace_id = str(uuid.uuid4()).upper()
+            surface_id = str(uuid.uuid4()).upper()
+            stopped_session_id = f"newer-stopped-{uuid.uuid4().hex}"
+            replay_session_id = f"older-replay-{uuid.uuid4().hex}"
+
+            with HookSocketServer(
+                workspace_id=workspace_id,
+                surface_id=surface_id,
+            ) as server:
+                state_path = Path(server.root.name) / "older-stopped-resume-state.json"
+                env = hook_environment(server, workspace_id, surface_id, state_path)
+                older_env = env.copy()
+                older_env["CMUX_CLAUDE_PID"] = str(older_pid)
+                newer_env = env.copy()
+                newer_env["CMUX_CLAUDE_PID"] = str(newer_pid)
+
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "session-start",
+                    {
+                        "session_id": stopped_session_id,
+                        "source": "resume",
+                        "cwd": "/tmp",
+                    },
+                    newer_env,
+                )
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "prompt-submit",
+                    {
+                        "session_id": stopped_session_id,
+                        "turn_id": "stopped-turn",
+                        "cwd": "/tmp",
+                    },
+                    newer_env,
+                )
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "stop",
+                    {
+                        "session_id": stopped_session_id,
+                        "turn_id": "stopped-turn",
+                        "cwd": "/tmp",
+                        "last_assistant_message": "newer owner stopped",
+                        "background_tasks": [],
+                        "session_crons": [],
+                    },
+                    newer_env,
+                )
+
+                replay_start = len(server.commands)
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "session-start",
+                    {
+                        "session_id": replay_session_id,
+                        "source": "resume",
+                        "cwd": "/tmp",
+                    },
+                    older_env,
+                )
+                replay_commands = server.commands[replay_start:]
+                if has_command_with(
+                    replay_commands,
+                    f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+                    f"--panel={surface_id}",
+                ) or has_command(
+                    replay_commands,
+                    f"set_agent_pid claude_code {older_pid}",
+                ):
+                    raise RuntimeError(
+                        "An older process generation replaced a newer stopped "
+                        f"owner:\ncommands={replay_commands!r}"
+                    )
+
+                state = json.loads(state_path.read_text())
+                surface_owner = state["activeSessionsBySurface"][surface_id]
+                if surface_owner.get("sessionId") != stopped_session_id:
+                    raise RuntimeError(
+                        "An older resume stole the stopped owner's surface:\n"
+                        f"surface_owner={surface_owner!r}\nstate={state!r}"
+                    )
+                if replay_session_id in state["sessions"]:
+                    raise RuntimeError(
+                        "An older resume persisted over the stopped owner:\n"
+                        f"state={state!r}"
+                    )
+
+            workspace_id = str(uuid.uuid4()).upper()
+            surface_id = str(uuid.uuid4()).upper()
+            retired_session_id = f"newer-retired-{uuid.uuid4().hex}"
+
+            with HookSocketServer(
+                workspace_id=workspace_id,
+                surface_id=surface_id,
+            ) as server:
+                state_path = Path(server.root.name) / "older-retired-resume-state.json"
+                env = hook_environment(server, workspace_id, surface_id, state_path)
+                older_env = env.copy()
+                older_env["CMUX_CLAUDE_PID"] = str(older_pid)
+                newer_env = env.copy()
+                newer_env["CMUX_CLAUDE_PID"] = str(newer_pid)
+
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "prompt-submit",
+                    {
+                        "session_id": retired_session_id,
+                        "turn_id": "retired-turn",
+                        "cwd": "/tmp",
+                    },
+                    newer_env,
+                )
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "stop",
+                    {
+                        "session_id": retired_session_id,
+                        "turn_id": "retired-turn",
+                        "cwd": "/tmp",
+                        "last_assistant_message": "background work continues",
+                        "background_tasks": [{"id": "task-1", "status": "running"}],
+                        "session_crons": [],
+                    },
+                    newer_env,
+                )
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "session-end",
+                    {
+                        "session_id": retired_session_id,
+                        "reason": "clear",
+                        "cwd": "/tmp",
+                    },
+                    newer_env,
+                )
+
+                replay_start = len(server.commands)
+                run_claude_hook(
+                    cli_path,
+                    server.socket_path,
+                    "session-start",
+                    {
+                        "session_id": retired_session_id,
+                        "source": "resume",
+                        "cwd": "/tmp",
+                    },
+                    older_env,
+                )
+                replay_commands = server.commands[replay_start:]
+                if has_command_with(
+                    replay_commands,
+                    f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+                    f"--panel={surface_id}",
+                ) or has_command(
+                    replay_commands,
+                    f"set_agent_pid claude_code {older_pid}",
+                ):
+                    raise RuntimeError(
+                        "An older process generation superseded a newer retired "
+                        f"generation:\ncommands={replay_commands!r}"
+                    )
+
+                state = json.loads(state_path.read_text())
+                transfers = state.get("clearBackgroundWorkTransfersBySurface", {})
+                if surface_id not in transfers:
+                    raise RuntimeError(
+                        "An older resume consumed the newer generation's handoff:\n"
+                        f"state={state!r}"
+                    )
+                if retired_session_id in state.get("sessions", {}):
+                    raise RuntimeError(
+                        "An older resume recreated the retired session record:\n"
+                        f"state={state!r}"
+                    )
+
+
 def verify_new_generation_resumes_same_session(cli_path: str) -> None:
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
@@ -2140,6 +2394,7 @@ def main() -> int:
         verify_authoritative_resume_supersedes_clear_tombstone(cli_path)
         verify_unproven_process_cannot_consume_clear_handoff(cli_path)
         verify_vacant_surface_accepts_authoritative_resume(cli_path)
+        verify_older_generation_resume_is_rejected(cli_path)
         verify_new_generation_resumes_same_session(cli_path)
         verify_new_generation_resume_discards_source_handoff(cli_path)
         verify_late_resume_cannot_replace_clear_successor(cli_path)
