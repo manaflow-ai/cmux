@@ -259,10 +259,34 @@ async function clearResumeBinding(
   }
 }
 
+type PiFeedEventName =
+  | "PreToolUse"
+  | "PostToolUse"
+  | "PreCompact"
+  | "PostCompact"
+  | "SubagentStart"
+  | "SubagentStop";
+
+const subagentToolNames = new Set([
+  "subagent",
+  "team_spawn",
+  "superpowers_dispatch",
+  "Task",
+]);
+
+function isSubagentTool(event: unknown): boolean {
+  const toolName = firstString(objectValue(event, ["toolName", "tool_name", "name"]));
+  return toolName !== null && (subagentToolNames.has(toolName) || /subagent/i.test(toolName));
+}
+
+function isTerminalFeedEvent(eventName: PiFeedEventName): boolean {
+  return eventName === "PostToolUse" || eventName === "SubagentStop";
+}
+
 function sendFeed(
   dispatcher: PiCmuxCommandDispatcher,
   sessionStates: Map<string, SessionState>,
-  eventName: "PreToolUse" | "PostToolUse",
+  eventName: PiFeedEventName,
   context: PiExtensionContextSnapshot,
   event: unknown,
 ): void {
@@ -291,7 +315,7 @@ function sendFeed(
   if (boundedToolName !== undefined) payload.tool_name = boundedToolName;
   const toolInput = objectValue(event, ["args", "input"]);
   if (toolInput !== undefined) payload.tool_input = projectPiFeedValue(toolInput, projectionState);
-  if (eventName === "PostToolUse") {
+  if (isTerminalFeedEvent(eventName)) {
     const toolResult = objectValue(event, ["result", "details", "content"]);
     if (toolResult !== undefined) {
       payload.tool_result = projectPiFeedValue(toolResult, projectionState, 0, false);
@@ -304,7 +328,7 @@ function sendFeed(
     cwd,
     payload,
     context,
-    terminal: eventName === "PostToolUse",
+    terminal: isTerminalFeedEvent(eventName),
     onFailure: () => { state.feedDeliveryFailed = true; },
   });
 }
@@ -365,12 +389,24 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
   pi.on("tool_execution_start", async (event, ctx) => {
     const context = snapshotContext(ctx);
-    sendFeed(dispatcher, sessionStates, "PreToolUse", context, event);
+    const eventName = isSubagentTool(event) ? "SubagentStart" : "PreToolUse";
+    sendFeed(dispatcher, sessionStates, eventName, context, event);
   });
 
   pi.on("tool_execution_end", async (event, ctx) => {
     const context = snapshotContext(ctx);
-    sendFeed(dispatcher, sessionStates, "PostToolUse", context, event);
+    const eventName = isSubagentTool(event) ? "SubagentStop" : "PostToolUse";
+    sendFeed(dispatcher, sessionStates, eventName, context, event);
+  });
+
+  pi.on("session_before_compact", async (event, ctx) => {
+    const context = snapshotContext(ctx);
+    sendFeed(dispatcher, sessionStates, "PreCompact", context, event);
+  });
+
+  pi.on("session_compact", async (event, ctx) => {
+    const context = snapshotContext(ctx);
+    sendFeed(dispatcher, sessionStates, "PostCompact", context, event);
   });
 
   pi.on("agent_end", async (event, ctx) => {

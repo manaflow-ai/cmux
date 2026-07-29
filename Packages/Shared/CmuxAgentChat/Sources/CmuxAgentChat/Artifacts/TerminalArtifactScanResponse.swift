@@ -78,20 +78,25 @@ public struct TerminalArtifactScanResponse: Sendable, Equatable, Codable {
     public let sessionID: String?
     /// Complete Session-tab artifact count, present for supported count-only scans.
     public let sessionArtifactTotal: Int?
+    /// Rows rendered by the files sheet's default landing view, when supported.
+    public let galleryRowTotal: Int?
 
     /// Creates a scan response.
     /// - Parameters:
     ///   - artifacts: Capped terminal artifacts sorted by detection order.
     ///   - sessionID: Agent session bound to the terminal, when available.
     ///   - sessionArtifactTotal: Complete Session-tab count for a count-only scan.
+    ///   - galleryRowTotal: Rows in the files sheet's default landing view.
     public init(
         artifacts: [TerminalArtifactReference],
         sessionID: String? = nil,
-        sessionArtifactTotal: Int? = nil
+        sessionArtifactTotal: Int? = nil,
+        galleryRowTotal: Int? = nil
     ) {
         self.artifacts = artifacts
         self.sessionID = sessionID
         self.sessionArtifactTotal = sessionArtifactTotal
+        self.galleryRowTotal = galleryRowTotal
     }
 
     /// Creates the lightweight response for a session-scoped count scan.
@@ -103,15 +108,18 @@ public struct TerminalArtifactScanResponse: Sendable, Equatable, Codable {
     /// - Parameters:
     ///   - sessionID: Agent session bound to the terminal.
     ///   - sessionArtifacts: Transcript-index snapshot used by the gallery.
+    ///   - galleryRowTotal: Stat-filtered rows in the gallery's default view.
     /// - Returns: A count-only terminal scan response.
     public static func sessionCount(
         sessionID: String,
-        sessionArtifacts: [ChatArtifactIndexedReference]
+        sessionArtifacts: [ChatArtifactIndexedReference],
+        galleryRowTotal: Int?
     ) -> TerminalArtifactScanResponse {
         TerminalArtifactScanResponse(
             artifacts: [],
             sessionID: sessionID,
-            sessionArtifactTotal: ChatArtifactGalleryOrdering().sessionTotal(sessionArtifacts)
+            sessionArtifactTotal: ChatArtifactGalleryOrdering().sessionTotal(sessionArtifacts),
+            galleryRowTotal: galleryRowTotal
         )
     }
 
@@ -119,6 +127,7 @@ public struct TerminalArtifactScanResponse: Sendable, Equatable, Codable {
         case artifacts
         case sessionID = "session_id"
         case sessionArtifactTotal = "session_artifact_total"
+        case galleryRowTotal = "gallery_row_total"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -126,5 +135,6 @@ public struct TerminalArtifactScanResponse: Sendable, Equatable, Codable {
         artifacts = (try? container.decode([TerminalArtifactReference].self, forKey: .artifacts)) ?? []
         sessionID = try? container.decode(String.self, forKey: .sessionID)
         sessionArtifactTotal = try? container.decode(Int.self, forKey: .sessionArtifactTotal)
+        galleryRowTotal = try? container.decode(Int.self, forKey: .galleryRowTotal)
     }
 }

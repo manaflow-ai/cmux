@@ -850,7 +850,7 @@ class TabManager: ObservableObject {
 
     func findNext() {
         if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:next")
+            _ = TerminalSearchNavigation.next.perform { panel.performBindingAction($0) }
             return
         }
 
@@ -859,7 +859,7 @@ class TabManager: ObservableObject {
 
     func findPrevious() {
         if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:previous")
+            _ = TerminalSearchNavigation.previous.perform { panel.performBindingAction($0) }
             return
         }
 
@@ -3813,10 +3813,10 @@ class TabManager: ObservableObject {
     }
 
     /// Cycle focus through panes in tree order, wrapping at the ends.
-    func cyclePaneFocus(forward: Bool) {
-        guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
-        tab.cycleFocus(forward: forward)
+    @discardableResult
+    func cyclePaneFocus(forward: Bool) -> Bool {
+        guard let selectedTabId else { return false }
+        return cycleSplitFocus(tabId: selectedTabId, forward: forward)
     }
 
     // MARK: - Focus History Navigation (CmuxWorkspaceNavigation)
@@ -3926,8 +3926,22 @@ class TabManager: ObservableObject {
     /// Cycle focus to the next or previous pane in tree order, wrapping at the ends.
     func cycleSplitFocus(tabId: UUID, forward: Bool) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        tab.cycleFocus(forward: forward)
-        return true
+#if DEBUG
+        let beforePaneId = tab.bonsplitController.focusedPaneId
+        let paneCount = tab.spatiallyOrderedPaneIds.count
+#endif
+        let moved = tab.cycleFocus(forward: forward)
+#if DEBUG
+        let afterPaneId = tab.bonsplitController.focusedPaneId
+        dlog(
+            "split.focus.cycle tab=\(tabId.uuidString.prefix(5)) " +
+            "direction=\(forward ? "next" : "previous") panes=\(paneCount) " +
+            "moved=\(moved ? 1 : 0) " +
+            "from=\(beforePaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil") " +
+            "to=\(afterPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil")"
+        )
+#endif
+        return moved
     }
 
     /// Resize split - not directly supported by bonsplit, but we can adjust divider positions

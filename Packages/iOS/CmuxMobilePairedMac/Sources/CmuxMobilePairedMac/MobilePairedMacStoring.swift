@@ -147,6 +147,44 @@ public protocol MobilePairedMacStoring: Sendable {
         teamID: String?
     ) async throws
 
+    /// Remove one exact tagged Mac app instance in the EXACT owner scope the
+    /// caller captured, without re-resolving a nil `teamID` to the currently
+    /// selected team.
+    ///
+    /// The forget path captures its scope before an async network revoke, then
+    /// deletes the stored row. If the user switches teams during that await, a
+    /// nil (team-less) captured `teamID` must still delete the team-less row it
+    /// was captured against, not the freshly selected team's rows. Decorators
+    /// that substitute a nil `teamID` with the live team selection override this
+    /// to bypass that substitution and honor the captured scope verbatim.
+    func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+
+    /// Remove one exact tagged Mac app instance whose LOCAL row lives in
+    /// `teamID` but whose server backup lives in `backupTeamID`.
+    ///
+    /// A team-less local row (`teamID == nil`) can be shown under, and forgotten
+    /// from, a selected team (legacy visibility). Its backup, however, is stored
+    /// in a per-team Durable Object, so the tombstone must be routed to the team
+    /// the row was DISPLAYED under (`backupTeamID`, captured up front) rather than
+    /// re-using the nil local team, which the server would resolve to whatever
+    /// team is selected when the delete flushes and could wipe a same-device
+    /// record from the wrong team's backup. The local delete still honors `teamID`
+    /// verbatim so the exact captured row is the one removed. Only the
+    /// backup-mirroring decorator distinguishes the two scopes; every other store
+    /// ignores `backupTeamID` and deletes the local `teamID` row.
+    func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        backupTeamID: String?
+    ) async throws
+
     /// Remove all paired Macs.
     func removeAll() async throws
 }
@@ -197,6 +235,46 @@ extension MobilePairedMacStoring {
     ) async throws {
         try await remove(
             macDeviceID: macDeviceID,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    /// Default: the base SQLite store never re-resolves a nil `teamID`, so its
+    /// exact-scope removal is the tagged remove unchanged. Decorators whose
+    /// general `remove` widens the delete override this: team-substituting
+    /// decorators (``TeamScopedPairedMacStore``, ``BackingUpPairedMacStore``)
+    /// re-resolve a nil team to the live one, and the build-scope decorator
+    /// additionally drops its team-less fallback row. Each overrides
+    /// `removeExactScope` to delete exactly the captured scope and nothing else.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await remove(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    /// Default: a store with no separate server backup deletes only the local
+    /// `teamID` row and ignores `backupTeamID`. The backup-mirroring decorator
+    /// (``BackingUpPairedMacStore``) overrides this to route its tombstone to
+    /// `backupTeamID` while still deleting the exact `teamID` local row.
+    public func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        backupTeamID _: String?
+    ) async throws {
+        try await removeExactScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )

@@ -2062,6 +2062,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()
+        PresenceNudgeSubscriber.shared.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
@@ -2117,6 +2118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
+        PresenceNudgeSubscriber.shared.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host
         // entry). No-op on Release / when the flag is off.
@@ -10656,7 +10658,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
             if layout == "three_pane_terminal" {
-                self.setupThreePaneTerminalLayout(tabManager: tabManager)
+                GotoSplitCycleUITestSupport().setupThreePaneTerminalLayout(
+                    tabManager: tabManager,
+                    previousShortcutDisplay: ghosttyGotoSplitPreviousShortcut?.displayString ?? "",
+                    nextShortcutDisplay: ghosttyGotoSplitNextShortcut?.displayString ?? ""
+                )
                 return
             }
 
@@ -10693,81 +10699,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             runSetupWhenWindowReady()
         }
-    }
-
-    /// Create a 3-pane terminal-only layout: one horizontal split (right) and one vertical split (down).
-    /// Used by `CMUX_UI_TEST_GOTO_SPLIT_LAYOUT=three_pane_terminal`.
-    /// Focus changes are recorded by `recordGotoSplitCycleMoveIfNeeded` in the Ghostty action handler.
-    private func setupThreePaneTerminalLayout(tabManager: TabManager) {
-        let tab = tabManager.addTab()
-        guard let initialPanelId = tab.focusedPanelId else {
-            writeGotoSplitTestData(["setupError": "Missing initial panel id"])
-            return
-        }
-
-        // Create horizontal split (right)
-        guard tabManager.createSplit(
-            tabId: tab.id, surfaceId: initialPanelId, direction: .right
-        ) != nil else {
-            writeGotoSplitTestData(["setupError": "Failed to create horizontal split"])
-            return
-        }
-
-        // Focus back to initial pane, then create vertical split (down)
-        tab.focusPanel(initialPanelId)
-        guard tabManager.createSplit(
-            tabId: tab.id, surfaceId: initialPanelId, direction: .down
-        ) != nil else {
-            writeGotoSplitTestData(["setupError": "Failed to create vertical split"])
-            return
-        }
-
-        // Wait for a terminal surface to become first responder before signaling
-        // setup complete. Ghostty keybinds only fire when GhosttyNSView has focus.
-        var observer: NSObjectProtocol?
-        var resolved = false
-        let deadline = Date().addingTimeInterval(6.0)
-
-        func checkAndSignal() {
-            guard !resolved else { return }
-            guard Date() < deadline else {
-                if let observer { NotificationCenter.default.removeObserver(observer) }
-                resolved = true
-                self.writeGotoSplitTestData(["setupError": "Timed out waiting for terminal focus"])
-                return
-            }
-            guard let focusedPanelId = tab.focusedPanelId,
-                  tab.terminalPanel(for: focusedPanelId) != nil,
-                  let window = NSApp.mainWindow ?? NSApp.keyWindow,
-                  window.firstResponder is NSView else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { checkAndSignal() }
-                return
-            }
-
-            if let observer { NotificationCenter.default.removeObserver(observer) }
-            resolved = true
-
-            let allPaneIds = tab.bonsplitController.allPaneIds.map(\.description)
-            let focusedPaneId = tab.bonsplitController.focusedPaneId?.description ?? ""
-
-            self.writeGotoSplitTestData([
-                "paneCount": String(allPaneIds.count),
-                "allPaneIds": allPaneIds.joined(separator: ","),
-                "focusedPaneId": focusedPaneId,
-                "ghosttyGotoSplitPreviousShortcut": ghosttyGotoSplitPreviousShortcut?.displayString ?? "",
-                "ghosttyGotoSplitNextShortcut": ghosttyGotoSplitNextShortcut?.displayString ?? "",
-                "setupComplete": "true",
-            ])
-        }
-
-        observer = NotificationCenter.default.addObserver(
-            forName: .ghosttyDidFocusSurface,
-            object: nil,
-            queue: .main
-        ) { _ in checkAndSignal() }
-
-        // Also poll in case the notification already fired before we observed.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { checkAndSignal() }
     }
 
     private func setupBonsplitTabDragUITestIfNeeded() {
@@ -11787,16 +11718,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         var updates = gotoSplitFindStateSnapshot(for: workspace)
         updates["lastMoveDirection"] = directionValue
-        writeGotoSplitTestData(updates)
-    }
-
-    func recordGotoSplitCycleMoveIfNeeded(tabId: UUID, forward: Bool) {
-        guard isGotoSplitUITestRecordingEnabled() else { return }
-        guard let tabManager = tabManagerFor(tabId: tabId),
-              let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
-
-        var updates = gotoSplitFindStateSnapshot(for: workspace)
-        updates["lastMoveDirection"] = forward ? "next" : "previous"
         writeGotoSplitTestData(updates)
     }
 
@@ -14108,20 +14029,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchesGhosttyGotoSplitPreviousShortcut(event) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.cyclePaneFocus(forward: false)
+            let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
+            let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
 #if DEBUG
-            if let workspace = tabManager?.selectedWorkspace {
-                recordGotoSplitCycleMoveIfNeeded(tabId: workspace.id, forward: false)
+            if moved, let workspace = routedTabs?.selectedWorkspace {
+                GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
+                    tabManager: routedTabs,
+                    tabId: workspace.id,
+                    forward: false
+                )
             }
 #endif
             return true
         }
 
         if matchesGhosttyGotoSplitNextShortcut(event) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.cyclePaneFocus(forward: true)
+            let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
+            let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
 #if DEBUG
-            if let workspace = tabManager?.selectedWorkspace {
-                recordGotoSplitCycleMoveIfNeeded(tabId: workspace.id, forward: true)
+            if moved, let workspace = routedTabs?.selectedWorkspace {
+                GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
+                    tabManager: routedTabs,
+                    tabId: workspace.id,
+                    forward: true
+                )
             }
 #endif
             return true
