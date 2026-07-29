@@ -11,7 +11,7 @@ import Testing
 
 @Suite
 struct SessionIndexJSONLReaderTests {
-    private enum ReadDirection: Sendable {
+    enum ReadDirection: Sendable {
         case start
         case tail
 
