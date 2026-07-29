@@ -143,8 +143,15 @@ struct WorkspaceListView: View {
     @State var workspaceGroupPendingRenameID: MobileWorkspaceGroupPreview.ID?
     /// The group and destructive operation awaiting confirmation from a UIKit
     /// context-menu action.
-    @State var workspaceGroupPendingDestructiveID: MobileWorkspaceGroupPreview.ID?
-    @State var workspaceGroupPendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction?
+    @State var workspaceGroupDestructiveRequest = WorkspaceGroupDestructiveRequestState()
+    var workspaceGroupPendingDestructiveID: MobileWorkspaceGroupPreview.ID? {
+        get { workspaceGroupDestructiveRequest.groupID }
+        nonmutating set { workspaceGroupDestructiveRequest.groupID = newValue }
+    }
+    var workspaceGroupPendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction? {
+        get { workspaceGroupDestructiveRequest.action }
+        nonmutating set { workspaceGroupDestructiveRequest.action = newValue }
+    }
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
     /// In-flight move RPC count plus the tail of the send chain. Moves stay

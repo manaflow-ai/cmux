@@ -196,21 +196,18 @@ extension WorkspaceListView {
     }
 
     func confirmWorkspaceGroupDestructiveAction() {
-        guard let groupID = workspaceGroupPendingDestructiveID,
-              let action = workspaceGroupPendingDestructiveAction else {
+        guard let request = workspaceGroupDestructiveRequest.consume() else {
             return
         }
-        clearWorkspaceGroupDestructiveRequest()
-        switch action {
+        switch request.action {
         case .ungroup:
-            ungroupWorkspaceGroup?(groupID)
+            ungroupWorkspaceGroup?(request.groupID)
         case .delete:
-            deleteWorkspaceGroup?(groupID)
+            deleteWorkspaceGroup?(request.groupID)
         }
     }
 
     func clearWorkspaceGroupDestructiveRequest() {
-        workspaceGroupPendingDestructiveID = nil
-        workspaceGroupPendingDestructiveAction = nil
+        workspaceGroupDestructiveRequest.clear()
     }
 }
