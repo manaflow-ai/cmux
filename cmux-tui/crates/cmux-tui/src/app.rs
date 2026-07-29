@@ -25915,6 +25915,37 @@ mod tests {
     }
 
     #[test]
+    fn pointer_motion_waits_behind_earlier_deferred_pointer_input() {
+        let mux = Mux::new("ordered-pointer-motion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        assert!(!app.session.has_pending_pointer_mutations());
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        let motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 18,
+            row: 7,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle(AppEvent::Input(Event::Mouse(motion))).unwrap();
+
+        let deferred_sequence = app.deferred_input.front().map(|input| input.sequence).unwrap();
+        let pending_motion = app.pending_pointer_motion.expect(
+            "motion must stay behind an earlier deferred press during an ordered-only mutation",
+        );
+        assert_eq!(app.hover, None);
+        assert_eq!(pending_motion.event, motion);
+        assert!(pending_motion.sequence > deferred_sequence);
+    }
+
+    #[test]
     fn event_loop_drains_replay_draw_before_receiving_more_input() {
         let mux = Mux::new("event-loop-draw-replay-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
