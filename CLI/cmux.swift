@@ -1643,15 +1643,6 @@ final class ClaudeHookSessionStore {
     ) -> Bool {
         let normalizedWorkspaceId = normalizeOptional(workspaceId)
         let normalizedSurfaceId = normalizeOptional(surfaceId)
-        let canReplaceStoppedOwner =
-            normalizedWorkspaceId.map {
-                activeSessionAllowsReplacement(
-                    in: state,
-                    sessionId: sessionId,
-                    workspaceId: $0,
-                    surfaceId: normalizedSurfaceId
-                )
-            } ?? false
         guard let normalizedSurfaceId else {
             return false
         }
@@ -1661,6 +1652,21 @@ final class ClaudeHookSessionStore {
                 workspaceId: $0,
                 surfaceId: normalizedSurfaceId
             )
+        }
+        let replacesStoppedOwnerFromNewGeneration: Bool
+        if let activeOwner,
+           activeOwner.sessionId != sessionId,
+           activeOwner.allowsNewSessionReplacement == true,
+           let stoppedSession = state.sessions[activeOwner.sessionId] {
+            replacesStoppedOwnerFromNewGeneration =
+                compareProcessGeneration(
+                    recordedPID: stoppedSession.pid,
+                    recordedStartSeconds: stoppedSession.pidStartSeconds,
+                    recordedStartMicroseconds: stoppedSession.pidStartMicroseconds,
+                    incomingPID: incomingPID
+                ) == .different
+        } else {
+            replacesStoppedOwnerFromNewGeneration = false
         }
         guard let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] else {
             guard let activeOwner else {
@@ -1677,7 +1683,7 @@ final class ClaudeHookSessionStore {
                     incomingPID: incomingPID
                 ) == .different
             }
-            return canReplaceStoppedOwner
+            return replacesStoppedOwnerFromNewGeneration
         }
 
         let transferSourceMatches =
@@ -1694,13 +1700,13 @@ final class ClaudeHookSessionStore {
             transferSourceMatches && transferGeneration == .different
         guard resumesPendingClear
             || supersedesRetiredTransfer
-            || canReplaceStoppedOwner else {
+            || replacesStoppedOwnerFromNewGeneration else {
             return false
         }
         if resumesPendingClear || supersedesRetiredTransfer,
            let activeOwner,
            activeOwner.sessionId != sessionId,
-           activeOwner.allowsNewSessionReplacement != true {
+           !replacesStoppedOwnerFromNewGeneration {
             return false
         }
         state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
