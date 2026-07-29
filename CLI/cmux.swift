@@ -24519,6 +24519,7 @@ struct CMUXCLI {
                 fallbackPID: claudePid
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
+            let isResumeSessionStart = isClaudeResumeSessionStart(parsedInput)
             let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -24531,7 +24532,10 @@ struct CMUXCLI {
                 && (
                     isClearSessionStart
                         ? resolvedSurface.isAuthoritative
-                        : canReplaceStoppedSession
+                        : (
+                            isResumeSessionStart && resolvedSurface.isAuthoritative
+                                || canReplaceStoppedSession
+                        )
                 )
             let pendingBackgroundWorkBoundary: ClaudeHookSessionStore.PendingBackgroundWorkBoundary
             if isClearSessionStart, shouldEstablishActiveSession {
@@ -24545,7 +24549,10 @@ struct CMUXCLI {
             var sessionStoreMutationFailed = false
             let shouldPersistSessionStart =
                 !isForkSessionLaunch
-                && (!isClearSessionStart || shouldEstablishActiveSession)
+                && (
+                    !(isClearSessionStart || isResumeSessionStart)
+                        || shouldEstablishActiveSession
+                )
             if let sessionId = parsedInput.sessionId, shouldPersistSessionStart {
                 // Only /clear or replacement of a stopped owner establishes a
                 // boundary. SessionStart does not start a turn; /clear carries
@@ -24608,8 +24615,8 @@ struct CMUXCLI {
                 shouldRegisterPID = false
             } else if didEstablishActiveSession {
                 shouldRegisterPID = true
-            } else if isClearSessionStart {
-                // A guessed pane cannot own a clear boundary or its PID routing.
+            } else if isClearSessionStart || isResumeSessionStart {
+                // A guessed pane cannot own a session boundary or its PID routing.
                 shouldRegisterPID = false
             } else if !shouldEstablishActiveSession {
                 shouldRegisterPID = shouldApplyClaudeHookVisibleMutation(
@@ -25171,10 +25178,11 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            let consumeStoredRoute = isClearSessionEnd && !liveEndTarget.isAuthoritative
             let consumption = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
-                workspaceId: liveEndTarget.workspaceId,
-                surfaceId: liveEndTarget.surfaceId,
+                workspaceId: consumeStoredRoute ? nil : liveEndTarget.workspaceId,
+                surfaceId: consumeStoredRoute ? nil : liveEndTarget.surfaceId,
                 turnId: parsedInput.turnId,
                 preservePendingBackgroundWorkForClear: isClearSessionEnd
             )
@@ -25641,6 +25649,13 @@ struct CMUXCLI {
             return false
         }
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+    }
+
+    private func isClaudeResumeSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let source = parsedInput.object?["source"] as? String else {
+            return false
+        }
+        return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "resume"
     }
 
     private func isClaudeClearSessionEnd(_ parsedInput: ClaudeHookParsedInput) -> Bool {
