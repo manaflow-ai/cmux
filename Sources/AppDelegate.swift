@@ -842,14 +842,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
 
                 let windowId = self.mainWindowId(from: window)
-                if let route = self.focusableRecoverableMainWindowRoute(for: window),
-                   let windowId,
+                if let windowId,
+                   let route = self.recoverableMainWindowRoute(windowId: windowId),
+                   route.window === window,
                    let manager = route.tabManager {
                     return .init(
-                        isAvailable: true,
+                        isAvailable: false,
                         windowId: windowId,
                         workspaceId: manager.selectedTabId,
-                        owner: "recoverable-route"
+                        owner: "recoverable-route-missing-context"
                     )
                 }
 
@@ -16394,39 +16395,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func setActiveMainWindow(_ window: NSWindow) {
-        if let context = contextForMainTerminalWindow(window) {
-#if DEBUG
-            let beforeManagerToken = debugManagerToken(tabManager)
-#endif
-            activateMainWindowContext(context)
-#if DEBUG
-            cmuxDebugLog(
-                "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) \(debugShortcutRouteSnapshot())"
-            )
-#endif
-            return
-        }
-
-        guard let route = focusableRecoverableMainWindowRoute(for: window),
-              let recoveredManager = route.tabManager else {
-            return
-        }
+        guard let context = contextForMainTerminalWindow(window) else { return }
 #if DEBUG
         let beforeManagerToken = debugManagerToken(tabManager)
 #endif
-        recoveredManager.window = window
-        recoveredManager.windowId = route.windowId
-        tabManager = recoveredManager
-        sidebarState = nil
-        sidebarSelectionState = nil
-        fileExplorerState = nil
-        TerminalController.shared.setActiveTabManager(recoveredManager)
+        activateMainWindowContext(context)
 #if DEBUG
         cmuxDebugLog(
-            "mainWindow.active.recovered window={\(debugWindowToken(window))} "
-                + "windowId=\(String(route.windowId.uuidString.prefix(8))) "
-                + "beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) "
-                + "\(debugShortcutRouteSnapshot())"
+            "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) \(debugShortcutRouteSnapshot())"
         )
 #endif
     }

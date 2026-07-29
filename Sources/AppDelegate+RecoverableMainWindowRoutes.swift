@@ -70,7 +70,6 @@ extension AppDelegate {
         let isLiveOwner: (NSWindow) -> Bool = { window in
             !self.isMainWindowCloseCommitted(window)
                 && appKitWindows.contains(where: { $0 === window })
-                && (window.isVisible || window.isMiniaturized)
                 && self.mainWindowId(from: window) == windowId
         }
 
@@ -161,15 +160,6 @@ extension AppDelegate {
 
     func recoverableMainWindowRoute(windowId: UUID) -> RecoverableMainWindowRoute? {
         guard recoverableMainWindowRouteSnapshot(windowId: windowId) != nil else { return nil }
-        return mainWindowRouteLedger.routesByWindowId[windowId]
-    }
-
-    func focusableRecoverableMainWindowRoute(for window: NSWindow) -> RecoverableMainWindowRoute? {
-        guard let windowId = mainWindowId(from: window),
-              let snapshot = recoverableMainWindowRouteSnapshot(windowId: windowId),
-              snapshot.window === window else {
-            return nil
-        }
         return mainWindowRouteLedger.routesByWindowId[windowId]
     }
 
