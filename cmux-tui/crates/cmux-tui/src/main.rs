@@ -41,7 +41,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceKind, SurfaceOptions};
+use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
 use machine::{
@@ -246,20 +246,18 @@ fn harden_provider_secret_process() -> io::Result<()> {
 }
 
 const USAGE: &str = "\
-cmux-tui - terminal multiplexer backed by libghostty-vt
+cmux-tui - terminal multiplexer and resource client
 
-USAGE:
-  cmux-tui [OPTIONS]           Start a session (TUI + control socket)
-  cmux-tui attach [OPTIONS]    Attach to an existing session or one terminal
-  cmux-tui relay [OPTIONS]     Relay stdio to a session's socket
+USAGE
+  cmux-tui [OPTIONS]           Start a session
+  cmux-tui attach [OPTIONS]    Attach to a session
+  cmux-tui relay [OPTIONS]     Relay protocol bytes over stdio
   {machine_agent_usage}
-  cmux-tui <verb> [OPTIONS]    Run one control-socket command
-  cmux-tui plugin <subcommand> Manage sidebar plugins locally
+  cmux-tui <scope> --help      Discover resource commands
 
-OPTIONS:
+START OPTIONS
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
-  --surface <id>     With attach, show only this terminal (numeric or short id).
   --state <path>     Durable session-state root (default: platform state dir).
   --ephemeral        Keep workspace state in memory for this run only.
   --machine-provider <path>
@@ -278,59 +276,6 @@ OPTIONS:
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.
   -V, --version      Print the cmux-tui version.
-
-KEYS (prefix: Ctrl-b)
-  t  new tab in pane   B    new browser tab    Alt-n  auto-layout new pane
-  Tab/BackTab  next/prev tab
-  0-9  select screen
-  %  split right       \"  split down          x/X  close tab/pane
-  ,  rename screen     $    rename workspace   c    new screen
-  n/p  next/prev screen
-  h/j/k/l or arrows    move focus              d    quit (attach: detach)
-  (/)  prev/next workspace   W  new workspace   D  close workspace
-  w    next workspace alias  Alt-{ / Alt-}  prev/next workspace
-  z  maximize/restore pane
-  s  show/hide sidebar m    compact/full sidebar
-  e  toggle sidebar view    S    focus sidebar  ?  keyboard shortcuts
-  {layout_shortcuts}
-  <  browser back      >    browser forward     r/u  browser reload/edit URL
-  Ctrl-b  send a literal Ctrl-b
-
-MOUSE
-  Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
-  to select text or open the cmux pane menu. Right-click a pane for
-  rename, new pane/tab, split/close, and maximize; menus
-  show configured keyboard shortcuts. Right-click anywhere in the sidebar for sidebar
-  controls. Right-click a workspace row or status-bar screen for its
-  local rename/close actions. Click
-  tab-bar entries to switch tabs (+ for a new tab), and status-bar
-  screen entries to switch screens (+ for a new screen). The shortcut
-  modal supports wheel, an overflow-only terminal-style scrollbar, and Esc close.
-
-CLI VERBS
-  identify, ping, set-client-info, list-clients, detach-client, set-client-sizing,
-  reload-config, set-window-title, clear-window-title,
-  list-workspaces, export-layout, apply-layout, send,
-  read-screen, read-scrollback, clear-history, vt-state, new-tab, new-browser-tab, new-workspace,
-  new-screen, new-pane, new-pane-right, split, set-ratio, set-split-ratio,
-  set-viewport-pane-width, undo-layout,
-  pane-neighbor, focus-direction,
-  swap-pane, zoom-pane, process-info, set-default-colors,
-  close-surface, close-pane, close-screen, close-workspace,
-  rename-pane, rename-surface, rename-screen, rename-workspace,
-  resize-surface, release-surface-size, focus-pane, select-tab, select-screen,
-  select-workspace, move-tab, move-workspace, scroll-surface,
-  subscribe, attach-surface, wait-for, run, send-key, copy, ids,
-  notify, list-agents, report-agent
-
-PLUGIN VERBS (local; no socket protocol command)
-  plugin install <git-url> [--name <name>] [--force]
-  plugin list [--json]
-  plugin use <name>
-  plugin use --builtin
-  plugin disable
-  plugin update <name>
-  plugin remove <name>
 ";
 
 fn usage_for(catalog: &localization::Catalog) -> String {
@@ -338,12 +283,11 @@ fn usage_for(catalog: &localization::Catalog) -> String {
 }
 
 fn usage_for_platform(catalog: &localization::Catalog, supports_machine_agent: bool) -> String {
-    let usage = if supports_machine_agent {
+    if supports_machine_agent {
         USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", catalog.machine_agent.usage))
     } else {
         USAGE.replace("  {machine_agent_usage}\n", "")
-    };
-    usage.replace("  {layout_shortcuts}\n", &format!("{}\n", catalog.layout.startup_shortcuts))
+    }
 }
 
 fn usage() -> String {
@@ -355,7 +299,6 @@ struct Args {
     attach: bool,
     session: String,
     socket: Option<PathBuf>,
-    surface: Option<String>,
     state: Option<PathBuf>,
     ephemeral: bool,
     machine_provider: Option<PathBuf>,
@@ -391,7 +334,6 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         attach: false,
         session: "main".to_string(),
         socket: None,
-        surface: None,
         state: None,
         ephemeral: false,
         machine_provider: None,
@@ -475,10 +417,6 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     args.next().ok_or_else(|| "--cloud-identity needs a value".to_string())?.into(),
                 );
             }
-            "--surface" => {
-                out.surface =
-                    Some(args.next().ok_or_else(|| "--surface needs a value".to_string())?);
-            }
             "--state" => {
                 out.state =
                     Some(args.next().unwrap_or_else(|| usage_exit("--state needs a value")).into());
@@ -506,9 +444,6 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             }
             other => return Err(format!("unknown argument {other:?}")),
         }
-    }
-    if out.surface.is_some() && !out.attach {
-        return Err("--surface requires `cmux-tui attach`".to_string());
     }
     Ok(out)
 }
@@ -699,10 +634,6 @@ fn main() {
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
         std::process::exit(exit_code);
     }
-    if raw_args.first().map(|arg| arg.as_str()) == Some("help") {
-        cli::print_help(&usage());
-        std::process::exit(0);
-    }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
         let args = parse_args(raw_args.into_iter().skip(1));
         discard_provider_secret_environment();
@@ -795,41 +726,8 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     let config = config::load();
-    let remote = if args.surface.is_some() {
-        RemoteSession::connect_for_surface_attach(&socket_path)?
-    } else {
-        RemoteSession::connect(&socket_path)?
-    };
-    let surface_only = if let Some(reference) = args.surface.as_deref() {
-        let tree = remote.refresh_tree()?;
-        let messages = &localization::catalog().attach;
-        let surface = tree
-            .resolve_surface(reference)
-            .map_err(|_| anyhow::anyhow!(messages.ambiguous_terminal(reference)))?
-            .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(reference)))?;
-        let tab = tree.surface(surface).expect("resolved surface must remain in the snapshot");
-        if tab.kind != SurfaceKind::Pty {
-            anyhow::bail!(messages.browser_not_terminal(reference));
-        }
-        if !remote.supports_surface_subscription_filter() {
-            anyhow::bail!(messages.filtered_subscription_unavailable);
-        }
-        remote.scope_events_to_surface(surface)?;
-        let tree = remote.refresh_tree()?;
-        if tree.surface(surface).is_none() {
-            anyhow::bail!(messages.unknown_terminal(reference));
-        }
-        Some(surface)
-    } else {
-        None
-    };
-    run_connected_session_client(
-        socket_path,
-        args.session,
-        config,
-        Session::Remote(remote),
-        surface_only,
-    )
+    let remote = RemoteSession::connect(&socket_path)?;
+    run_connected_session_client(socket_path, args.session, config, Session::Remote(remote), None)
 }
 
 /// Copy the control protocol byte-for-byte between stdio and a local session.
@@ -1333,8 +1231,8 @@ mod tests {
     }
 
     #[test]
-    fn surface_only_attach_does_not_publish_session_default_colors() {
-        let mux = Mux::new("surface-only-color-test", SurfaceOptions::default());
+    fn scoped_terminal_attach_does_not_publish_session_default_colors() {
+        let mux = Mux::new("scoped-terminal-color-test", SurfaceOptions::default());
         let original = cmux_tui_core::DefaultColors {
             fg: Some(cmux_tui_core::Rgb { r: 1, g: 2, b: 3 }),
             ..Default::default()
@@ -1350,7 +1248,7 @@ mod tests {
         assert_eq!(
             mux.default_colors(),
             original,
-            "single-surface attach must retain the session and sibling surfaces' colors"
+            "scoped terminal attach must retain the session and sibling tabs' colors"
         );
 
         publish_session_default_colors(&session, client, None).unwrap();
@@ -1679,7 +1577,6 @@ mod tests {
     #[test]
     fn startup_help_lists_all_provider_entrypoints() {
         let usage = usage();
-        assert!(usage.contains("--surface <id>"));
         assert!(usage.contains("--machine-provider <path>"));
         assert!(usage.contains("--machine-provider-command <program> [arg ...] --"));
         assert!(usage.contains("--cloud"));
@@ -1707,26 +1604,22 @@ mod tests {
     }
 
     #[test]
-    fn single_surface_attach_is_scoped_to_attach_mode() {
-        let parsed = args(&["attach", "--session", "agents", "--surface", "s:abc123"]);
-        assert!(parsed.attach);
-        assert_eq!(parsed.session, "agents");
-        assert_eq!(parsed.surface.as_deref(), Some("s:abc123"));
-        assert!(parse_args_result(["--surface".into(), "s:abc123".into()]).is_err());
-        assert!(parse_args_result(["attach".into(), "--surface".into()]).is_err());
+    fn old_single_target_attach_flag_is_rejected() {
+        let removed = ["--sur", "face"].concat();
+        assert!(parse_args_result([removed.clone(), "s:abc123".into()]).is_err());
+        assert!(parse_args_result(["attach".into(), removed, "s:abc123".into()]).is_err());
     }
 
     #[test]
-    fn startup_help_lists_column_action() {
+    fn startup_help_stays_focused_on_process_modes() {
         let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
-        assert!(english.contains("g  new 2/3 column right"));
-        assert!(english.contains("new-pane-right"));
-        assert!(english.contains("U    undo layout"));
-        assert!(english.contains("undo-layout"));
+        assert!(english.contains("cmux-tui <scope> --help"));
+        assert!(!english.contains("KEYS"));
+        assert!(!english.contains("CLI VERBS"));
 
         let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
-        assert!(japanese.contains("g  右に 2/3 幅の列を追加"));
-        assert!(japanese.contains("U    レイアウトを元に戻す"));
+        assert!(japanese.contains("cmux-tui <scope> --help"));
+        assert!(!japanese.contains("KEYS"));
     }
 
     #[test]

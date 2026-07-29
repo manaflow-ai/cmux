@@ -381,6 +381,38 @@ fn duplicate_name_ambiguity_is_structured_and_never_retried() {
 
 #[cfg(unix)]
 #[test]
+fn indeterminate_mutation_is_preserved_exactly_and_never_retried() {
+    let error = json!({
+        "code": "mutation.indeterminate",
+        "message": "the provider may have created the machine before the connection closed",
+        "details": {
+            "idempotency_key": "create-machine-1",
+            "operation": "machine.create",
+            "recovery": "inspect_state_then_retry_with_new_key"
+        },
+        "retryable": false
+    });
+    let (output, requests) = fake_resource_cli(
+        &["machine", "create", "--idempotency-key", "create-machine-1"],
+        FakeReply::Failure(error.clone()),
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout:\n{}\nstderr:\n{}",
+        stdout(&output),
+        stderr(&output)
+    );
+    assert!(output.stdout.is_empty(), "indeterminate mutation wrote success output");
+    assert_eq!(parse_single_json(&output.stderr), error);
+    assert_eq!(requests.len(), 1, "indeterminate mutation was retried: {requests:?}");
+    assert_eq!(requests[0]["operation"], "machine.create");
+    assert_eq!(requests[0]["idempotency_key"], "create-machine-1");
+}
+
+#[cfg(unix)]
+#[test]
 fn output_modes_keep_success_on_stdout_and_diagnostics_on_stderr() {
     let result = json!({
         "workspaces": [
@@ -423,6 +455,257 @@ fn output_modes_keep_success_on_stdout_and_diagnostics_on_stderr() {
     assert_mutation_has_idempotency_key(&requests[0]);
 }
 
+#[cfg(unix)]
+#[test]
+fn stream_commands_validate_and_print_typed_stream_envelopes() {
+    let dir = unique_temp_dir("stream");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("control.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let read_half = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        let request_id = request["id"].clone();
+        let stream_id = request["params"]["stream_id"].clone();
+        for envelope in [
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "response",
+                "id": request_id,
+                "ok": true,
+                "result": {"stream_id": stream_id}
+            }),
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_item",
+                "stream_id": stream_id,
+                "sequence": "0",
+                "item": {"kind": "output", "text": "ready"}
+            }),
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_end",
+                "stream_id": stream_id,
+                "reason": "completed"
+            }),
+        ] {
+            writeln!(stream, "{envelope}").unwrap();
+        }
+        stream.flush().unwrap();
+        request
+    });
+
+    let output = Command::new(bin())
+        .args(["--jsonl", "--socket"])
+        .arg(&socket)
+        .args(["terminal", TERMINAL_ID, "attach"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    let request = server.join().unwrap();
+    assert_success(&output);
+    assert!(output.stderr.is_empty(), "{}", stderr(&output));
+    assert_eq!(request["operation"], "terminal.attach");
+    let item = parse_single_json(&output.stdout);
+    assert_eq!(item["type"], "stream_item");
+    assert_eq!(item["item"]["text"], "ready");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn raw_command_sends_the_exact_private_request_object() {
+    let dir = unique_temp_dir("raw-command");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("control.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let read_half = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(read_half);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        writeln!(stream, "{}", json!({"id": "raw-1", "ok": true, "data": {"pong": true}})).unwrap();
+        stream.flush().unwrap();
+        request
+    });
+
+    let output = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(&socket)
+        .args([
+            "raw",
+            "command",
+            "--request-json",
+            r#"{"id":"raw-1","cmd":"private.ping","opaque":{"x":true}}"#,
+        ])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    let request = server.join().unwrap();
+    assert_success(&output);
+    assert_eq!(request, json!({"id":"raw-1","cmd":"private.ping","opaque":{"x":true}}));
+    assert_eq!(parse_single_json(&output.stdout), json!({"pong": true}));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn local_plugin_jsonl_never_connects_to_the_session_socket() {
+    let dir = unique_temp_dir("plugin-list");
+    let data = dir.join("data");
+    let config = dir.join("config");
+    let plugins = data.join("cmux").join("mux-plugins");
+    fs::create_dir_all(plugins.join(".registry")).unwrap();
+    for (name, id) in [
+        ("alpha", "sidebar_plugin_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ("beta", "sidebar_plugin_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        (
+            "sidebar_plugin_cccccccccccccccccccccccccccccccc",
+            "sidebar_plugin_dddddddddddddddddddddddddddddddd",
+        ),
+    ] {
+        let plugin = plugins.join(name);
+        fs::create_dir_all(plugin.join("bin")).unwrap();
+        fs::write(
+            plugins.join(".registry").join(format!("{name}.json")),
+            format!("{{\"id\":\"{id}\"}}\n"),
+        )
+        .unwrap();
+        fs::write(
+            plugin.join("cmux-plugin.toml"),
+            format!(
+                "[plugin]\nname = \"{name}\"\nkind = \"sidebar\"\n\n[run]\ncommand = [\"bin/sidebar\"]\n"
+            ),
+        )
+        .unwrap();
+        let executable = plugin.join("bin").join("sidebar");
+        fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    let output = Command::new(bin())
+        .args(["--jsonl", "--socket"])
+        .arg(dir.join("missing.sock"))
+        .args(["sidebar", "plugin", "list"])
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CONFIG_HOME", &config)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert!(output.stderr.is_empty(), "{}", stderr(&output));
+    let snapshots = stdout(&output)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let names = snapshots
+        .iter()
+        .map(|snapshot| snapshot["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["alpha", "beta", "sidebar_plugin_cccccccccccccccccccccccccccccccc"]);
+    for snapshot in &snapshots {
+        let id = snapshot["id"].as_str().unwrap();
+        assert!(id.starts_with("sidebar_plugin_"));
+        assert_eq!(id.len(), "sidebar_plugin_".len() + 32);
+        assert_eq!(snapshot["active"], false);
+        assert_eq!(snapshot["enabled"], true);
+        let keys = snapshot.as_object().unwrap().keys().map(String::as_str).collect::<Vec<_>>();
+        assert_eq!(keys, ["active", "enabled", "extra", "id", "name", "source"]);
+    }
+    assert_ne!(snapshots[0]["id"], snapshots[1]["id"]);
+
+    let alpha_id = snapshots[0]["id"].as_str().unwrap();
+    let selected = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(dir.join("missing.sock"))
+        .args(["sidebar", "plugin", "use", alpha_id])
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CONFIG_HOME", &config)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&selected);
+    let selected = parse_single_json(&selected.stdout);
+    assert_eq!(selected["plugin"]["id"], alpha_id);
+    assert_eq!(selected["plugin"]["name"], "alpha");
+    assert_eq!(selected["plugin"]["active"], true);
+
+    let forced_name = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(dir.join("missing.sock"))
+        .args(["sidebar", "plugin", "use", "name:sidebar_plugin_cccccccccccccccccccccccccccccccc"])
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CONFIG_HOME", &config)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&forced_name);
+    let forced_name = parse_single_json(&forced_name.stdout);
+    assert_eq!(forced_name["plugin"]["id"], "sidebar_plugin_dddddddddddddddddddddddddddddddd");
+    assert_eq!(forced_name["plugin"]["name"], "sidebar_plugin_cccccccccccccccccccccccccccccccc");
+    assert_eq!(forced_name["plugin"]["active"], true);
+
+    let builtin = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(dir.join("missing.sock"))
+        .args(["sidebar", "plugin", "use", "--builtin"])
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CONFIG_HOME", &config)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&builtin);
+    assert!(
+        parse_single_json(&builtin.stdout)["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|snapshot| snapshot["active"] == false && snapshot["enabled"] == true)
+    );
+
+    let beta_id = snapshots[1]["id"].as_str().unwrap();
+    let removed = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(dir.join("missing.sock"))
+        .args(["sidebar", "plugin", "remove", beta_id])
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CONFIG_HOME", &config)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&removed);
+    let removed = parse_single_json(&removed.stdout);
+    assert_eq!(removed["plugin"]["id"], beta_id);
+    assert_eq!(removed["plugin"]["active"], false);
+    assert_eq!(removed["plugin"]["enabled"], false);
+
+    let invalid = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(dir.join("missing.sock"))
+        .args(["sidebar", "plugin", "use", "Bad"])
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CONFIG_HOME", &config)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(invalid.status.code(), Some(1));
+    assert!(invalid.stdout.is_empty());
+    let invalid = parse_single_json(&invalid.stderr);
+    assert_eq!(invalid["code"], "validation.invalid");
+    assert_eq!(invalid["retryable"], false);
+    assert_eq!(invalid["details"]["field"], "sidebar_plugin");
+    assert!(invalid["details"]["reason"].is_string());
+    fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn usage_and_transport_failures_use_distinct_exit_codes_and_stderr() {
     let usage = local_cli(&["workspace", WORKSPACE_ID, "definitely-not-an-action"]);
@@ -431,9 +714,20 @@ fn usage_and_transport_failures_use_distinct_exit_codes_and_stderr() {
     assert!(!usage.stderr.is_empty());
 
     let missing_socket = unique_temp_dir("transport-exit").join("missing.sock");
+    let wrong_stream_mode = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(&missing_socket)
+        .args(["terminal", TERMINAL_ID, "attach"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(wrong_stream_mode.status.code(), Some(2));
+    assert!(wrong_stream_mode.stdout.is_empty());
+    assert!(stderr(&wrong_stream_mode).contains("--jsonl"));
+
     let transport = Command::new(bin())
         .args(["--json", "--socket"])
-        .arg(missing_socket)
+        .arg(&missing_socket)
         .args(["workspace", "list"])
         .env_remove("CMUX_TUI_SOCKET")
         .output()
@@ -559,16 +853,14 @@ fn assert_mutation_has_idempotency_key(request: &Value) {
 
 fn assert_forced_name_selector(params: &Value, name: &str) {
     assert!(
-        json_has_key_value(params, "name", &Value::String(name.to_owned())),
+        json_contains_string(params, &format!("name:{name}")),
         "forced name selector was not encoded as a name selector: {params}"
     );
 }
 
 fn assert_current_selector(params: &Value) {
     assert!(
-        json_has_key_value(params, "current", &Value::Bool(true))
-            || json_has_key_value(params, "kind", &Value::String("current".to_owned()))
-            || json_has_key_value(params, "selector", &Value::String("current".to_owned())),
+        json_contains_string(params, "current"),
         "current selector was not encoded as current: {params}"
     );
 }
