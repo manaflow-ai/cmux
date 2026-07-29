@@ -468,7 +468,7 @@ class TerminalController {
     }
 
     func controlFocusWindow(for tabManager: TabManager) -> Bool {
-        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return true }
+        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return false }
         guard AppDelegate.shared?.focusMainWindow(windowId: windowId) == true else {
             return false
         }
@@ -477,7 +477,7 @@ class TerminalController {
     }
 
     func controlWorkspaceMutationTargetIsAvailable(_ tabManager: TabManager) -> Bool {
-        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return true }
+        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return false }
         return AppDelegate.shared?.isMainWindowAvailableForMutation(windowId: windowId) == true
     }
 
