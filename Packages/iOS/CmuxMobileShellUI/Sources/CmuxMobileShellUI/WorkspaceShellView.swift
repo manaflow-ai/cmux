@@ -144,7 +144,7 @@ private struct WorkspaceShellRenderPresentation {
 
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
-    let signOut: () -> Void
+    let signOut: @MainActor @Sendable () -> Void
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
@@ -176,11 +176,11 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
-    @Environment(ToastCenter.self) var toasts
     /// Legacy fallback while the Toasts beta flag is off: the old dismissible
     /// bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
+    @Environment(ToastCenter.self) var toasts
     @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
@@ -317,16 +317,17 @@ struct WorkspaceShellView: View {
                 )
             }
         }
-        // Root-mounted on purpose: inside a tab, every return to that tab
-        // remounts the content and re-fires onChange(initial:), which used to
-        // toast "Reconnected" on plain tab switches while connected.
-        .reconnectedToastPresenter(connectionState: store.connectionState)
+        // Root-mounted on purpose (the presenter's contract): layoutContent
+        // lives inside the workspaces tab, so a presenter mounted there is
+        // unmounted while the user sits on another tab and misses every
+        // status transition that happens in the meantime.
+        .connectionStatusToastPresenter(store: store)
         #else
         workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
         .onAppear {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
-        .reconnectedToastPresenter(connectionState: store.connectionState)
+        .connectionStatusToastPresenter(store: store)
         #endif
     }
 
@@ -452,11 +453,6 @@ struct WorkspaceShellView: View {
                     rootToolbarContent
                 }
             }
-            #if os(iOS)
-            .overlay(alignment: .bottomTrailing) {
-                taskComposerButtonOverlay
-            }
-            #endif
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
@@ -549,11 +545,6 @@ struct WorkspaceShellView: View {
             .toolbar {
                 rootToolbarContent
             }
-            #if os(iOS)
-            .overlay(alignment: .bottomTrailing) {
-                taskComposerButtonOverlay
-            }
-            #endif
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
             workspaceDestination(
@@ -791,22 +782,6 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private var showsTaskComposerButtonOverlay: Bool {
-        guard displaySettings.taskComposerEnabled else { return false }
-        if #available(iOS 26.0, *) {
-            return false
-        }
-        return true
-    }
-
-    @ViewBuilder
-    private var taskComposerButtonOverlay: some View {
-        if showsTaskComposerButtonOverlay {
-            TaskComposerButton(action: openTaskComposer)
-                .padding(.trailing, 20)
-                .padding(.bottom, 6)
-        }
-    }
     #endif
 
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
