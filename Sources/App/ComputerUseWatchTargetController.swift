@@ -5,6 +5,12 @@ import Foundation
 
 // MARK: - Dedupe decision (pure, injectable)
 
+enum ComputerUseWatchFocusMode: Equatable, Sendable {
+    case automatic
+    case computerUse
+    case callingTerminal
+}
+
 /// Pure focus-activation policy for the computer-use "watch the target" feature.
 ///
 /// A computer-use agent runs as a background CLI process, which macOS will not
@@ -28,25 +34,35 @@ enum ComputerUseWatchTargetDecision {
     static func activation(
         current: Int?,
         lastActivated: Int?,
-        automaticActivationEnabled: Bool = true
+        focusMode: ComputerUseWatchFocusMode = .automatic,
+        targetIsFrontmost: Bool = false
     ) -> Int? {
-        guard automaticActivationEnabled else { return nil }
         guard let current else { return nil }
-        if current == lastActivated { return nil }
-        return current
+        switch focusMode {
+        case .callingTerminal:
+            return nil
+        case .computerUse:
+            return targetIsFrontmost ? nil : current
+        case .automatic:
+            return current == lastActivated ? nil : current
+        }
     }
 
     static func activityDisposition(
         isAuthorized: Bool,
         validatedTargetPID: Int?,
-        lastActivatedTargetPID: Int?
+        lastActivatedTargetPID: Int?,
+        focusMode: ComputerUseWatchFocusMode = .automatic,
+        targetIsFrontmost: Bool = false
     ) -> (shouldRetry: Bool, targetPIDToActivate: Int?) {
         guard isAuthorized, let validatedTargetPID else {
             return (true, nil)
         }
         guard let targetPID = ComputerUseWatchTargetDecision.activation(
             current: validatedTargetPID,
-            lastActivated: lastActivatedTargetPID
+            lastActivated: lastActivatedTargetPID,
+            focusMode: focusMode,
+            targetIsFrontmost: targetIsFrontmost
         ) else {
             return (false, nil)
         }
@@ -208,8 +224,8 @@ struct ComputerUseWatchTargetFeed: Sendable {
 /// so it never competes with the user's own focus while a session runs. Gated by
 /// `featureEnabled` and validated with `ComputerUseTargetIdentity`, mirroring the
 /// menu bar's "Focus Computer Use" action and the cursor overlay's watcher shape.
-/// Choosing "Focus Calling Terminal" pauses automatic activation until the user
-/// explicitly returns to the target or the active session ends.
+/// An explicit "Focus Computer Use" or "Focus Calling Terminal" choice is
+/// reasserted on later authenticated actions until the active turn ends.
 @MainActor
 final class ComputerUseWatchTargetController {
     private let stateDirectoryURL: URL
@@ -223,12 +239,16 @@ final class ComputerUseWatchTargetController {
     private let currentLiveDriverSession:
         @MainActor (ComputerUseLiveDriverSession) -> ComputerUseLiveDriverSession?
     private let feed: ComputerUseWatchTargetFeed
+    private let onFocusTerminal: @MainActor (UUID, UUID) -> Void
     private let onCursorVisibilityChange: @MainActor (String, Bool) -> Void
+    private let frontmostApplicationProcessIdentifier: @MainActor () -> pid_t?
     private let activate: @MainActor (NSRunningApplication) -> Void
 
-    /// Background/focus presentation is retained independently for every live
-    /// driver session, so activity in one agent cannot rewrite another's choice.
-    private var backgroundDriverSessionIDs: Set<String> = []
+    /// An explicit menu choice remains authoritative until that driver finishes.
+    /// Missing entries retain the non-invasive automatic one-front-per-target
+    /// behavior.
+    private var focusModesByDriverSessionID:
+        [String: ComputerUseWatchFocusMode] = [:]
     private var observedDriverSessions: [String: ComputerUseLiveDriverSession] = [:]
 
     /// The most recently fronted target for each driver session. Keeping this per
@@ -263,8 +283,14 @@ final class ComputerUseWatchTargetController {
                 ComputerUseLiveDriverSession
             ) -> ComputerUseLiveDriverSession?,
         feed: ComputerUseWatchTargetFeed,
+        onFocusTerminal:
+            @escaping @MainActor (UUID, UUID) -> Void = { _, _ in },
         onCursorVisibilityChange:
             @escaping @MainActor (String, Bool) -> Void = { _, _ in },
+        frontmostApplicationProcessIdentifier:
+            @escaping @MainActor () -> pid_t? = {
+                NSWorkspace.shared.frontmostApplication?.processIdentifier
+            },
         activate: @escaping @MainActor (NSRunningApplication) -> Void = { application in
             // NSRunningApplication.activate no longer reliably fronts another app
             // on macOS 14+ (cooperative-activation changes make it a frequent
@@ -290,7 +316,10 @@ final class ComputerUseWatchTargetController {
         self.liveDriverSessions = liveDriverSessions
         self.currentLiveDriverSession = currentLiveDriverSession
         self.feed = feed
+        self.onFocusTerminal = onFocusTerminal
         self.onCursorVisibilityChange = onCursorVisibilityChange
+        self.frontmostApplicationProcessIdentifier =
+            frontmostApplicationProcessIdentifier
         self.activate = activate
     }
 
@@ -328,7 +357,7 @@ final class ComputerUseWatchTargetController {
         observedDriverSessions.removeAll()
         lastActivatedTargetPIDByDriverSessionID.removeAll()
         lastObservedActionAtByDriverSessionID.removeAll()
-        backgroundDriverSessionIDs.removeAll()
+        focusModesByDriverSessionID.removeAll()
     }
 
     /// Preserves the originating terminal as the user's foreground context.
@@ -345,8 +374,15 @@ final class ComputerUseWatchTargetController {
         ) else {
             return false
         }
-        backgroundDriverSessionIDs.insert(driverSessionID)
+        guard let liveSession = revalidatedLiveSession(
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID
+        ) else {
+            return false
+        }
+        focusModesByDriverSessionID[driverSessionID] = .callingTerminal
         onCursorVisibilityChange(driverSessionID, false)
+        onFocusTerminal(liveSession.workspaceID, liveSession.surfaceID)
         return true
     }
 
@@ -383,7 +419,8 @@ final class ComputerUseWatchTargetController {
         else {
             return false
         }
-        return backgroundDriverSessionIDs.contains(driverSessionID)
+        return focusModesByDriverSessionID[driverSessionID]
+            == .callingTerminal
     }
 
     /// Fronts a validated target and resumes automatic following for new targets.
@@ -407,12 +444,16 @@ final class ComputerUseWatchTargetController {
             return false
         }
 
-        backgroundDriverSessionIDs.remove(driverSessionID)
+        focusModesByDriverSessionID[driverSessionID] = .computerUse
         onCursorVisibilityChange(driverSessionID, true)
         activate(application)
         lastActivatedTargetPIDByDriverSessionID[driverSessionID] =
             identity.processIdentifier
         return true
+    }
+
+    func driverSessionDidComplete(_ driverSessionID: String) {
+        focusModesByDriverSessionID.removeValue(forKey: driverSessionID)
     }
 
     /// Reports whether a captured target still identifies the same running app.
@@ -529,21 +570,20 @@ final class ComputerUseWatchTargetController {
         }
         guard let newest = newlyUpdated.last else { return }
 
-        // A newest background event may not starve another newly-updated
-        // foreground session. Otherwise, never fall back from a deduped/invalid
-        // newest foreground event to older still-fresh activity.
-        let activity = backgroundDriverSessionIDs.contains(newest.driverSessionID)
-            ? newlyUpdated.last {
-                !backgroundDriverSessionIDs.contains($0.driverSessionID)
-            }
-            : newest
+        // An explicit menu selection is a focus lock, so it wins over passive
+        // automatic-follow activity. If several locked sessions updated in one
+        // scan, the latest selected activity determines the final focus.
+        let activity = newlyUpdated.last {
+            focusModesByDriverSessionID[$0.driverSessionID] != nil
+        } ?? newest
         for nonSelected in newlyUpdated where
-            nonSelected.driverSessionID != activity?.driverSessionID
+            nonSelected.driverSessionID != activity.driverSessionID
         {
             advanceWatermark(for: nonSelected)
         }
-        guard let activity else { return }
         let driverSessionID = activity.driverSessionID
+        let focusMode =
+            focusModesByDriverSessionID[driverSessionID] ?? .automatic
         let scannedSession = observedDriverSessions[driverSessionID]
         let currentSession = scannedSession.flatMap {
             currentLiveDriverSession($0)
@@ -557,14 +597,31 @@ final class ComputerUseWatchTargetController {
         } else {
             isAuthorized = false
         }
+        if focusMode == .callingTerminal {
+            guard isAuthorized, let currentSession else {
+                scheduleCoalescedRefresh()
+                return
+            }
+            onFocusTerminal(
+                currentSession.workspaceID,
+                currentSession.surfaceID
+            )
+            advanceWatermark(for: activity)
+            return
+        }
         let target = isAuthorized
             ? validatedTarget(from: activity.state)
             : nil
+        let targetIsFrontmost = target.map {
+            frontmostApplicationProcessIdentifier() == pid_t($0.pid)
+        } ?? false
         let disposition = ComputerUseWatchTargetDecision.activityDisposition(
             isAuthorized: isAuthorized,
             validatedTargetPID: target?.pid,
             lastActivatedTargetPID:
-                lastActivatedTargetPIDByDriverSessionID[driverSessionID]
+                lastActivatedTargetPIDByDriverSessionID[driverSessionID],
+            focusMode: focusMode,
+            targetIsFrontmost: targetIsFrontmost
         )
 
         if disposition.shouldRetry {
@@ -631,7 +688,10 @@ final class ComputerUseWatchTargetController {
                 : driverSessionID
         })
 
-        backgroundDriverSessionIDs.formIntersection(liveDriverSessionIDs)
+        focusModesByDriverSessionID =
+            focusModesByDriverSessionID.filter {
+                liveDriverSessionIDs.contains($0.key)
+            }
         lastActivatedTargetPIDByDriverSessionID =
             lastActivatedTargetPIDByDriverSessionID.filter {
                 liveDriverSessionIDs.contains($0.key)
@@ -641,7 +701,7 @@ final class ComputerUseWatchTargetController {
                 liveDriverSessionIDs.contains($0.key)
             }
         for driverSessionID in replacedDriverSessionIDs {
-            backgroundDriverSessionIDs.remove(driverSessionID)
+            focusModesByDriverSessionID.removeValue(forKey: driverSessionID)
             lastActivatedTargetPIDByDriverSessionID.removeValue(
                 forKey: driverSessionID
             )

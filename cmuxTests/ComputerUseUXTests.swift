@@ -564,7 +564,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor
-    func computerUseHookResolutionRequiresCurrentSurfaceAndAgentGeneration() throws {
+    func computerUseHookResolutionAcceptsTheCurrentProcessGenerationWhenAgentIDsDiffer() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
         let processID = ProcessInfo.processInfo.processIdentifier
@@ -608,8 +608,14 @@ struct ComputerUseUXTests {
             agentSessionID: "replaced-agent-generation"
         ) == nil)
         #expect(projection.driverSessionID(
+            surfaceID: surfaceID.uuidString,
+            agentSessionID: "hook-protocol-session",
+            hookProcessID: Int(processID)
+        ) == expectedDriverSessionID)
+        #expect(projection.driverSessionID(
             surfaceID: UUID().uuidString,
-            agentSessionID: "current-agent-generation"
+            agentSessionID: "hook-protocol-session",
+            hookProcessID: Int(processID)
         ) == nil)
     }
 
@@ -1978,8 +1984,30 @@ struct ComputerUseUXTests {
             )
         unavailableResponder.stop()
 
+        let nativeReadyResponder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"capturable":true}}"#
+        )
+        let codexDeniedResponder = try UnixSocketResponder(
+            path: paths.codexDaemonSocketURL.path,
+            response: #"{"ok":true,"result":{"capturable":false}}"#
+        )
+        let profiles = await ComputerUseRuntimeService
+            .verifyDirectScreenCaptureOutcomes(
+                paths: paths,
+                expectedPeerIdentities: [
+                    .native: currentIdentity,
+                    .codexCompatibility: currentIdentity,
+                ]
+            )
+        nativeReadyResponder.stop()
+        codexDeniedResponder.stop()
+
         #expect(denied == .notCapturable)
         #expect(unavailable == .unavailable)
+        #expect(profiles == .notCapturable)
+        #expect(nativeReadyResponder.receivedRequests.count == 1)
+        #expect(codexDeniedResponder.receivedRequests.count == 1)
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
@@ -2396,17 +2424,24 @@ struct ComputerUseUXTests {
         #expect(ComputerUseWatchTargetDecision.activation(current: 200, lastActivated: 100) == 200)
     }
 
-    @Test func backgroundModeSuppressesAutomaticTargetFrontingUntilResumed() {
+    @Test func explicitFocusModesRemainAuthoritativeAcrossLaterActions() {
         #expect(ComputerUseWatchTargetDecision.activation(
             current: 200,
             lastActivated: 100,
-            automaticActivationEnabled: false
+            focusMode: .callingTerminal
         ) == nil)
         #expect(ComputerUseWatchTargetDecision.activation(
             current: 200,
-            lastActivated: 100,
-            automaticActivationEnabled: true
+            lastActivated: 200,
+            focusMode: .computerUse,
+            targetIsFrontmost: false
         ) == 200)
+        #expect(ComputerUseWatchTargetDecision.activation(
+            current: 200,
+            lastActivated: 200,
+            focusMode: .computerUse,
+            targetIsFrontmost: true
+        ) == nil)
     }
 
     @Test func transientTargetValidationDoesNotConsumeFreshActivity() {
@@ -2604,6 +2639,7 @@ struct ComputerUseUXTests {
         )
         defer { scannedSessions.continuation.finish() }
         var activatedProcessIdentifiers: [pid_t] = []
+        var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
         var cursorVisibilityChanges: [(driverSessionID: String, visible: Bool)] = []
         let controller = ComputerUseWatchTargetController(
             stateDirectoryURL: directory,
@@ -2620,9 +2656,13 @@ struct ComputerUseUXTests {
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: Self.stateAuthenticationKey
             ),
+            onFocusTerminal: { workspaceID, surfaceID in
+                focusedTerminalSessions.append((workspaceID, surfaceID))
+            },
             onCursorVisibilityChange: { driverSessionID, visible in
                 cursorVisibilityChanges.append((driverSessionID, visible))
             },
+            frontmostApplicationProcessIdentifier: { nil },
             activate: { application in
                 activatedProcessIdentifiers.append(
                     application.processIdentifier
@@ -2640,6 +2680,15 @@ struct ComputerUseUXTests {
         #expect(cursorVisibilityChanges.count == 1)
         #expect(cursorVisibilityChanges.first?.driverSessionID == backgroundDriverSessionID)
         #expect(cursorVisibilityChanges.first?.visible == false)
+        #expect(focusedTerminalSessions.count == 1)
+        #expect(
+            focusedTerminalSessions.first?.workspaceID
+                == backgroundSession.workspaceID
+        )
+        #expect(
+            focusedTerminalSessions.first?.surfaceID
+                == backgroundSession.surfaceID
+        )
 
         let actionDate = max(Date(), targetLaunchDate)
         let formatter = ISO8601DateFormatter()
@@ -2689,8 +2738,9 @@ struct ComputerUseUXTests {
         var scannedIterator = scannedSessions.stream.makeAsyncIterator()
         let scannedLogicalSessionID = await scannedIterator.next()
 
-        #expect(scannedLogicalSessionID == foregroundLogicalSessionID)
+        #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
         #expect(activatedProcessIdentifiers.isEmpty)
+        #expect(focusedTerminalSessions.count == 2)
 
         let identity = ComputerUseTargetIdentity(
             processIdentifier: Int(target.processIdentifier),
@@ -2786,6 +2836,15 @@ struct ComputerUseUXTests {
             stateWriterIdentity: currentIdentity
         ))
         #expect(controller.isRunningInBackground(
+            driverSessionID: "session-a",
+            logicalSessionID: logicalSessionA
+        ))
+        #expect(controller.isRunningInBackground(
+            driverSessionID: "session-b",
+            logicalSessionID: logicalSessionB
+        ))
+        controller.driverSessionDidComplete("session-a")
+        #expect(!controller.isRunningInBackground(
             driverSessionID: "session-a",
             logicalSessionID: logicalSessionA
         ))

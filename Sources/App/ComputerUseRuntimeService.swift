@@ -342,20 +342,52 @@ final class ComputerUseRuntimeService {
                 return .unavailable
             }
             await self.startIfNeededWithinLifecycle()
+            guard !Task.isCancelled else {
+                return .unavailable
+            }
+            let expectedPeerIdentities = Dictionary(
+                uniqueKeysWithValues: ComputerUseDaemonProfile.allCases
+                    .compactMap { profile in
+                        self.processIdentity(for: profile).map {
+                            (profile, $0)
+                        }
+                    }
+            )
+            return await Self.verifyDirectScreenCaptureOutcomes(
+                paths: self.paths,
+                transport: self.transport,
+                expectedPeerIdentities: expectedPeerIdentities
+            )
+        }
+    }
+
+    /// Verifies every helper profile that can perform a real capture. Tahoe's
+    /// direct-capture consent can be process-generation scoped, so validating
+    /// only the native daemon lets the Codex compatibility daemon prompt later
+    /// during the first actual Computer Use call.
+    nonisolated static func verifyDirectScreenCaptureOutcomes(
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport = SocketTransport(),
+        expectedPeerIdentities:
+            [ComputerUseDaemonProfile: AgentPIDProcessIdentity]
+    ) async -> ComputerUseDirectScreenCaptureVerification {
+        for profile in ComputerUseDaemonProfile.allCases {
             guard
-                !Task.isCancelled,
-                let expectedPeerIdentity = self.processIdentity(for: .native),
+                let expectedPeerIdentity = expectedPeerIdentities[profile],
                 AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
                     == expectedPeerIdentity
             else {
                 return .unavailable
             }
-            return await Self.verifyDirectScreenCaptureOutcome(
-                paths: self.paths,
-                transport: self.transport,
-                expectedPeerIdentity: expectedPeerIdentity
+            let result = await verifyDirectScreenCaptureOutcome(
+                paths: paths,
+                transport: transport,
+                expectedPeerIdentity: expectedPeerIdentity,
+                socketURL: Self.socketURL(for: profile, paths: paths)
             )
+            guard result == .ready else { return result }
         }
+        return .ready
     }
 
     /// Socket-level host request kept internal for peer/capability regression
@@ -375,7 +407,8 @@ final class ComputerUseRuntimeService {
     nonisolated static func verifyDirectScreenCaptureOutcome(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport = SocketTransport(),
-        expectedPeerIdentity: AgentPIDProcessIdentity
+        expectedPeerIdentity: AgentPIDProcessIdentity,
+        socketURL: URL? = nil
     ) async -> ComputerUseDirectScreenCaptureVerification {
         guard
             let response = await sendDaemonRequest(
@@ -384,7 +417,7 @@ final class ComputerUseRuntimeService {
                 transport: transport,
                 timeout: 60,
                 expectedPeerIdentity: expectedPeerIdentity,
-                socketURL: paths.daemonSocketURL
+                socketURL: socketURL ?? paths.daemonSocketURL
             )
         else {
             return .unavailable
@@ -860,6 +893,13 @@ final class ComputerUseRuntimeService {
     }
 
     private func socketURL(for profile: ComputerUseDaemonProfile) -> URL {
+        Self.socketURL(for: profile, paths: paths)
+    }
+
+    nonisolated private static func socketURL(
+        for profile: ComputerUseDaemonProfile,
+        paths: ComputerUseRuntimePaths
+    ) -> URL {
         switch profile {
         case .native:
             paths.daemonSocketURL

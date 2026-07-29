@@ -699,6 +699,11 @@ struct ComputerUseOnboardingView: View {
         // visible presentation explains the alert instead of surprising the
         // user with "attempting to bypass" wording out of nowhere.
         presentationState.beginScreenCaptureConsent()
+        // Leave the compact System Settings companion immediately. The direct
+        // capture prompt belongs to the final onboarding phase, and keeping the
+        // drag tile up made a successful second drag look stuck while the
+        // helper recovered and macOS prepared its consent alert.
+        onExpandedRequested()
         Task { @MainActor in
             let verification = await runtimeService
                 .verifyDirectScreenCaptureOutcome()

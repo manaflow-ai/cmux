@@ -98,12 +98,17 @@ final class ComputerUseLiveSessionProjection {
         return recordsByDriverSessionID.mapValues(\.session)
     }
 
-    /// Resolves a hook only when both its surface and raw agent generation still
-    /// match the live projection. A delayed Stop from a replaced Codex process
-    /// must not hide Computer Use activity started by its successor in the pane.
+    /// Resolves a hook only when its surface and current agent generation still
+    /// match the live projection.
+    ///
+    /// Some agents expose different identifiers to the process scanner and hook
+    /// protocol. In that case the generation-validated hook parent process is
+    /// the authority. A delayed Stop from a replaced process cannot match the
+    /// successor's live process tree, so it cannot hide newer pane activity.
     func driverSessionID(
         surfaceID rawSurfaceID: String?,
-        agentSessionID: String
+        agentSessionID: String,
+        hookProcessID: Int? = nil
     ) -> String? {
         guard
             let rawSurfaceID,
@@ -115,10 +120,22 @@ final class ComputerUseLiveSessionProjection {
         let driverSessionID = ComputerUseSessionScope.driverSessionID(
             surfaceID: surfaceID
         )
+        guard let record = recordsByDriverSessionID[driverSessionID],
+              record.session.surfaceID == surfaceID
+        else {
+            return nil
+        }
+        if record.agentSessionID == agentSessionID {
+            return driverSessionID
+        }
         guard
-            let record = recordsByDriverSessionID[driverSessionID],
-            record.session.surfaceID == surfaceID,
-            record.agentSessionID == agentSessionID
+            let hookProcessID,
+            let processID = pid_t(exactly: hookProcessID),
+            let hookProcessIdentity = AgentPIDProcessIdentity(pid: processID),
+            ComputerUseDriverState.process(
+                hookProcessIdentity,
+                belongsToProcessTree: record.session.rootProcessIdentities
+            )
         else {
             return nil
         }

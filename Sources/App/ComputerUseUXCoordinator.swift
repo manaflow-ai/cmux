@@ -122,6 +122,7 @@ final class ComputerUseUXCoordinator {
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: runtimeService.stateAuthenticationKey
             ),
+            onFocusTerminal: onFocusTerminal,
             onCursorVisibilityChange: { [runtimeService] driverSessionID, visible in
                 Task { @MainActor in
                     _ = await runtimeService.setDriverCursorVisible(
@@ -152,20 +153,16 @@ final class ComputerUseUXCoordinator {
                 )
             },
             onContinueInBackground: {
-                workspaceID,
-                surfaceID,
+                _,
+                _,
                 driverSessionID,
                 logicalSessionID,
                 stateWriterIdentity in
-                guard watchTarget.continueInBackground(
+                watchTarget.continueInBackground(
                     driverSessionID: driverSessionID,
                     logicalSessionID: logicalSessionID,
                     stateWriterIdentity: stateWriterIdentity
-                ) else {
-                    return false
-                }
-                onFocusTerminal(workspaceID, surfaceID)
-                return true
+                )
             },
             canViewComputerUse: {
                 identity,
@@ -270,10 +267,15 @@ final class ComputerUseUXCoordinator {
         if isComputerUseInvocation {
             reconcileToolInvocation(event)
         }
+        let isCompletion =
+            event.hookEventName == .stop
+                || event.hookEventName == .sessionEnd
+        guard isComputerUseInvocation || isCompletion else { return }
         guard
             let driverSessionID = liveSessionProjection.driverSessionID(
                 surfaceID: event.surfaceId,
-                agentSessionID: event.sessionId
+                agentSessionID: event.sessionId,
+                hookProcessID: event.ppid
             )
         else {
             return
@@ -292,6 +294,7 @@ final class ComputerUseUXCoordinator {
                 driverSessionID: driverSessionID,
                 receivedAt: event.receivedAt
             )
+            watchTargetController?.driverSessionDidComplete(driverSessionID)
             menuBarSnapshotStore?.driverSessionDidComplete(driverSessionID)
             Task { @MainActor [runtimeService] in
                 _ = await runtimeService.setDriverCursorVisible(
