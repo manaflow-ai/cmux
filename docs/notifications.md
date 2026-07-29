@@ -175,7 +175,7 @@ action=$(printf '%s' "$response" | jq -r .action)
 reason=$(printf '%s' "$response" | jq -r .values.reason)
 ```
 
-The response action is a caller-defined action id, `open`, `dismiss`, `timeout`, `replaced`, or `dismissed`. `replaced` means a newer notification from the same workspace surface atomically replaced that row. Callers should treat every value except their accepted action ids as cancellation.
+The response action is a caller-defined action id, `open`, `dismiss`, `timeout`, or `dismissed`. Distinct notification IDs remain pending even when they target the same workspace surface. The reserved `replaced` value remains in the schema for compatibility with older cmux builds. Callers should treat every value except their accepted action ids as cancellation.
 
 ## Navigation
 
