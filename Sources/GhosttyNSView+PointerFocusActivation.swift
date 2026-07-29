@@ -22,9 +22,7 @@ extension GhosttyNSView {
 
         switch terminalSurface.focusPlacement {
         case .workspace:
-            guard let workspace = terminalSurface.owningWorkspace() else {
-                return false
-            }
+            guard let workspace = terminalSurface.owningWorkspace() else { return false }
             return workspace.isFocusedTerminalInputSurface(terminalSurface.id)
         case .rightSidebarDock:
             return TerminalPointerFocusActivationPolicy().shouldForwardToTerminal(

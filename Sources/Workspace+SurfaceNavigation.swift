@@ -4,6 +4,13 @@ import Foundation
 
 /// Surface navigation and sidebar status helpers extracted from `Workspace.swift`, which sits at its file-length budget.
 extension Workspace {
+    /// Synchronizes a nested remote-tmux pane with its outer workspace pane
+    /// without reactivating an already-selected container's hidden surface.
+    func focusRemoteTmuxContainerPaneIfNeeded(_ paneId: PaneID) {
+        guard bonsplitController.focusedPaneId != paneId else { return }
+        bonsplitController.focusPane(paneId)
+    }
+
     /// Moves keyboard focus through the rendered pane hierarchy. A selected
     /// remote-tmux window owns a nested split tree, so it gets first refusal;
     /// an edge with no inner neighbor falls through to the workspace tree.
@@ -22,8 +29,8 @@ extension Workspace {
             }
         }
 
-        if let previousFocusedPanelId = focusedPanelId,
-           let previous = panels[previousFocusedPanelId] {
+        let previousFocusedPanelId = focusedPanelId
+        if let previousFocusedPanelId, let previous = panels[previousFocusedPanelId] {
             previous.unfocus()
         }
 
