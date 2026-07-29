@@ -5490,8 +5490,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 }
 
 
-@Suite struct BrowserReadAccessURLTests {
-    @Test func usesParentDirectoryForFileURL() throws {
+final class BrowserReadAccessURLTests: XCTestCase {
+    func testUsesParentDirectoryForFileURL() throws {
         let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
         let file = dir.appendingPathComponent("sample.html")
@@ -5499,41 +5499,41 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
 
-        let readAccessURL = try #require(browserReadAccessURL(forLocalFileURL: file))
-        #expect(readAccessURL.standardizedFileURL == dir.standardizedFileURL)
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
     }
 
-    @Test func usesDirectoryURLWhenTargetIsDirectory() throws {
+    func testUsesDirectoryURLWhenTargetIsDirectory() throws {
         let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let readAccessURL = try #require(browserReadAccessURL(forLocalFileURL: dir))
-        #expect(readAccessURL.standardizedFileURL == dir.standardizedFileURL)
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: dir))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
     }
 
-    @Test func fileOnlyPolicyRejectsDirectoryURL() throws {
+    func testFileOnlyPolicyRejectsDirectoryURL() throws {
         let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        #expect(browserReadAccessURL(
+        XCTAssertNil(browserReadAccessURL(
             forLocalFileURL: dir,
             policy: .fileOnly
-        ) == nil)
+        ))
     }
 
-    @Test func usesParentDirectoryWhenFileDoesNotExist() throws {
+    func testUsesParentDirectoryWhenFileDoesNotExist() throws {
         let missing = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).html")
-        let readAccessURL = try #require(browserReadAccessURL(forLocalFileURL: missing))
-        #expect(readAccessURL.standardizedFileURL == missing.deletingLastPathComponent().standardizedFileURL)
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: missing))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, missing.deletingLastPathComponent().standardizedFileURL)
     }
 
-    @Test func returnsNilForHostOnlyFileURL() throws {
-        let hostOnly = try #require(URL(string: "file://example.html"))
-        #expect(browserReadAccessURL(forLocalFileURL: hostOnly) == nil)
+    func testReturnsNilForHostOnlyFileURL() throws {
+        let hostOnly = try XCTUnwrap(URL(string: "file://example.html"))
+        XCTAssertNil(browserReadAccessURL(forLocalFileURL: hostOnly))
     }
 }
 
