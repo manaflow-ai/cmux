@@ -3261,6 +3261,10 @@ fn handle_resource_connection_message(
                 Err(error) => send_resource_response(writer, id, Err(error)),
             }
         }
+        ResourceOperation::SessionSnapshot => {
+            let result = resource_session_snapshot(mux, client, &request.selectors);
+            send_resource_response(writer, id, result)
+        }
         ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit => {
             start_resource_wait(mux.clone(), writer.clone(), request, id)
         }
@@ -3484,6 +3488,14 @@ fn resource_client_list(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let session_id = resource_session_id(mux, &request.selectors)?;
+    Ok(Value::Array(resource_client_snapshots(mux, requesting_client, &session_id)?))
+}
+
+fn resource_client_snapshots(
+    mux: &Mux,
+    requesting_client: u64,
+    session_id: &SessionPublicId,
+) -> Result<Vec<Value>, ResourceError> {
     let mut clients = mux
         .control_clients
         .resource_records()
@@ -3493,7 +3505,19 @@ fn resource_client_list(
     clients.sort_by(|left, right| {
         left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
     });
-    Ok(Value::Array(clients))
+    Ok(clients)
+}
+
+fn resource_session_snapshot(
+    mux: &Mux,
+    requesting_client: u64,
+    selectors: &crate::ResourceSelectors,
+) -> Result<Value, ResourceError> {
+    let session_id = resource_session_id(mux, selectors)?;
+    let mut snapshot = crate::resource_api::public_session_snapshot(mux)?;
+    snapshot["clients"] =
+        Value::Array(resource_client_snapshots(mux, requesting_client, &session_id)?);
+    Ok(snapshot)
 }
 
 fn resource_client_get(
@@ -4571,7 +4595,7 @@ fn prepare_session_event_stream(
     mux.resolve_resource_path(crate::ResourceTarget::Session, &request.selectors)?;
     let stream_id = resource_stream_id(request)?;
     let epoch = mux.resource_event_epoch();
-    let snapshot = crate::resource_api::public_session_snapshot(mux)?;
+    let snapshot = resource_session_snapshot(mux, client, &request.selectors)?;
     let snapshot_cursor = snapshot["cursor"].clone();
     let snapshot_generation = snapshot_cursor["generation"]
         .as_str()
@@ -8127,6 +8151,10 @@ mod tests {
         assert_eq!(snapshot["sequence"], "0");
         assert_eq!(snapshot["item"]["kind"], "snapshot");
         assert_eq!(snapshot["item"]["reset_reason"], "initial");
+        let clients = snapshot["item"]["snapshot"]["clients"].as_array().unwrap();
+        assert_eq!(clients.len(), 1);
+        assert_eq!(clients[0]["self"], true);
+        assert_eq!(clients[0]["transport"], "unix");
 
         let cancel = resource_request(
             "events-cancel",
@@ -8203,6 +8231,23 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|client| { client["self"] == false && client["transport"] == "websocket" })
+        );
+
+        let snapshot = resource_request(
+            "session-snapshot-with-clients",
+            "session.snapshot",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, first, &snapshot, &first_writer, &scheduler));
+        let snapshot = pop_json(&first_outbound);
+        let clients = snapshot["result"]["clients"].as_array().unwrap();
+        assert_eq!(clients.len(), 2);
+        assert!(clients.iter().any(|client| client["id"] == first_id && client["self"] == true));
+        assert!(
+            clients
+                .iter()
+                .any(|client| client["self"] == false && client["transport"] == "websocket")
         );
 
         let clear = resource_request(

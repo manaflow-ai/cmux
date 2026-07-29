@@ -10,10 +10,11 @@ use std::sync::Weak;
 
 use anyhow::Context;
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::resource::{
-    ContentPublicId, MachinePublicId, PanePublicId, ResourceError, ResourceOperation, Selector,
-    SessionPublicId,
+    AgentPublicId, ContentPublicId, FrontendProjectionPublicId, MachinePublicId, PanePublicId,
+    ResourceError, ResourceOperation, Selector, SessionPublicId,
 };
 use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
@@ -343,6 +344,7 @@ fn resource_operation_name(operation: ResourceOperation) -> String {
 pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError> {
     let context = mux.local_resource_context().map_err(operation_failed)?;
     let notifications = mux.resource_notifications(256);
+    let agent_records = mux.list_agents(None, None);
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
     // up a surface in State, so doing this inside the projection would invert
@@ -365,6 +367,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let terminal_registry = registry.terminal_snapshot()?;
+        let frontend_projection_records = registry.public_frontend_projections()?;
         anyhow::ensure!(
             registry_snapshot.generation == topology.generation
                 && registry_snapshot.resource_revision == topology.revision,
@@ -563,6 +566,41 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                 snapshot
             })
             .collect::<Vec<_>>();
+        let mut agents = agent_records
+            .iter()
+            .filter_map(|record| {
+                let ContentPublicId::Terminal(terminal_id) =
+                    state.resource_indexes.content_ids.get(&record.surface)?
+                else {
+                    return None;
+                };
+                Some((|| {
+                    Ok(json!({
+                        "id": public_agent_id(terminal_id)?,
+                        "session_id": topology.session_id,
+                        "terminal_id": terminal_id,
+                        "state": record.state.as_str(),
+                        "source": record.source.as_str(),
+                        "updated_at_ms": record.updated_at_ms.to_string(),
+                        "source_session": record.session,
+                    }))
+                })())
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        agents.sort_by(|left, right| {
+            left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
+        });
+        let frontend_projections = frontend_projection_records
+            .into_iter()
+            .map(|projection| {
+                let id = FrontendProjectionPublicId::parse(projection.subject_key)?;
+                Ok(json!({
+                    "id": id,
+                    "session_id": topology.session_id,
+                    "projection": projection.projection,
+                }))
+            })
+            .collect::<Result<Vec<_>, ResourceError>>()?;
 
         Ok(json!({
             "machine": machine_snapshot(&context),
@@ -575,8 +613,8 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             "browsers": browsers,
             "clients": [],
             "notifications": notifications,
-            "agents": [],
-            "frontend_projections": [],
+            "agents": agents,
+            "frontend_projections": frontend_projections,
             "sidebar_views": sidebar_views,
             "cursor": {
                 "generation": topology.generation,
@@ -585,6 +623,14 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
         }))
     })
     .map_err(operation_failed)
+}
+
+fn public_agent_id(
+    terminal_id: &crate::resource::TerminalPublicId,
+) -> Result<AgentPublicId, ResourceError> {
+    let digest = Sha256::digest(format!("cmux.protocol/1/agent/{terminal_id}").as_bytes());
+    let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    AgentPublicId::parse(format!("agent_{payload}"))
 }
 
 fn checked_index(index: usize) -> anyhow::Result<u32> {
