@@ -1114,12 +1114,13 @@ describe("recordCheckoutCompletion", () => {
     const removeTester = mock(async () => undefined);
     const user = {
       id: "user_123",
-      primaryEmail: "legacy@example.com",
+      primaryEmail: "current@example.com",
       clientReadOnlyMetadata: {
         cmuxPlan: "pro",
         cmuxProTestflightOwnedLegacyGroupIDs: [
           "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
         ],
+        cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
       },
       update: mock(async () => undefined),
     };
@@ -1142,7 +1143,10 @@ describe("recordCheckoutCompletion", () => {
       stackUserId: "user_123",
       isActive: false,
     });
-    expect(removeTester).toHaveBeenCalledWith("legacy@example.com", {
+    expect(removeTester).toHaveBeenNthCalledWith(1, "current@example.com", {
+      ownedLegacyGroupIDs: [],
+    });
+    expect(removeTester).toHaveBeenNthCalledWith(2, "legacy@example.com", {
       ownedLegacyGroupIDs: [
         "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
       ],

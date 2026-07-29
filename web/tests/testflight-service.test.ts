@@ -26,6 +26,7 @@ const {
   recordProOwnedLegacyTestflightGroup,
   enrollTester,
   findBetaTesterByEmail,
+  proTestflightRemovalTargets,
   removeTester,
   testerGroupStatus,
 } = await import("../services/asc/testflight");
@@ -294,7 +295,9 @@ describe("TestFlight ASC service", () => {
       update,
     };
 
-    await expect(recordProOwnedLegacyTestflightGroup(user)).resolves.toBe(true);
+    await expect(
+      recordProOwnedLegacyTestflightGroup(user, "Legacy@Example.com"),
+    ).resolves.toBe(true);
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: {
         cmuxPlan: "pro",
@@ -302,6 +305,7 @@ describe("TestFlight ASC service", () => {
         cmuxProTestflightOwnedLegacyGroupIDs: [
           "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
         ],
+        cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
       },
     });
   });
@@ -313,12 +317,35 @@ describe("TestFlight ASC service", () => {
         cmuxProTestflightOwnedLegacyGroupIDs: [
           "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
         ],
+        cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
       },
       update,
     };
 
-    await expect(recordProOwnedLegacyTestflightGroup(user)).resolves.toBe(false);
+    await expect(
+      recordProOwnedLegacyTestflightGroup(user, "legacy@example.com"),
+    ).resolves.toBe(false);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  test("targets the current Pro email and the exact legacy enrollment email", () => {
+    expect(proTestflightRemovalTargets("Current@Example.com", {
+      cmuxProTestflightOwnedLegacyGroupIDs: [
+        "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+      ],
+      cmuxProTestflightOwnedLegacyEmails: ["Legacy@Example.com"],
+    })).toEqual([
+      {
+        email: "current@example.com",
+        ownedLegacyGroupIDs: [],
+      },
+      {
+        email: "legacy@example.com",
+        ownedLegacyGroupIDs: [
+          "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+        ],
+      },
+    ]);
   });
 });
 
