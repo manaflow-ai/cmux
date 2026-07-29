@@ -297,7 +297,11 @@ final class MainWindowVisibilityController {
     }
 
     func toggleApplicationVisibility(windows: [NSWindow], reason: Reason = .globalHotkey) {
-        let windows = uniqueWindows(windows)
+        let windows = availableWindowsForMutation(
+            windows,
+            reason: reason,
+            operation: "toggle"
+        )
         let isFrontmost = dependencies.isApplicationActive() && !dependencies.isApplicationHidden()
         let hasVisibleWindow = windows.contains { window in
             dependencies.windowOperations.isVisible(window) && !dependencies.windowOperations.isMiniaturized(window)

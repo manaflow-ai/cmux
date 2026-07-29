@@ -5252,10 +5252,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let window = state.window else {
             return false
         }
-        setActiveMainWindow(window)
         if shouldBringToFront {
-            bringToFront(window)
+            return bringToFront(window)
         }
+        setActiveMainWindow(window)
         return true
     }
 
@@ -16633,11 +16633,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return tabManager?.tabs.first(where: { $0.id == tabId })?.title
     }
 
+    @discardableResult
     func bringToFront(
         _ window: NSWindow,
         reason: MainWindowVisibilityController.Reason = .focusMainWindow
-    ) {
-        _ = mainWindowVisibilityController.focus(window, reason: reason)
+    ) -> Bool {
+        mainWindowVisibilityController.focus(window, reason: reason)
     }
 
     func markMainWindowCloseCommitted(_ window: NSWindow) {

@@ -599,8 +599,11 @@ final class ScriptTerminal: NSObject {
             return nil
         }
 
-        if let app = AppDelegate.shared {
-            _ = app.focusScriptableMainWindow(windowId: state.windowId, bringToFront: true)
+        guard let app = AppDelegate.shared,
+              app.focusScriptableMainWindow(windowId: state.windowId, bringToFront: true) else {
+            command.scriptErrorNumber = errAEEventFailed
+            command.scriptErrorString = AppleScriptStrings.windowUnavailable
+            return nil
         }
         state.tabManager.selectWorkspace(workspace)
         workspace.focusPanel(terminalId)
