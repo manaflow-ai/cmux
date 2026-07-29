@@ -1067,6 +1067,8 @@ impl RemoteSurfaceAttachJob {
                     match surface.resize(cols, rows) {
                         Ok(_) => {
                             resize_failures.lock().unwrap().remove(&id);
+                            result.outcome = SessionMutationOutcome::Success { tree: None };
+                            result.requested_size = latest.requested_size;
                         }
                         Err(error) => {
                             let transient =
@@ -1087,7 +1089,6 @@ impl RemoteSurfaceAttachJob {
                             };
                         }
                     }
-                    result.requested_size = latest.requested_size;
                 }
                 applied_revision = latest.revision;
             }
