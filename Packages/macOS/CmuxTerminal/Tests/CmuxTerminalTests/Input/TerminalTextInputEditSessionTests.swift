@@ -141,35 +141,45 @@ import Testing
         #expect(!session.hasMarkedText)
     }
 
-    @Test func continuousTransformationsHaveFiniteProvisionalWindow() {
+    @Test func continuousTransformationsRemainReversibleUntilSemanticCommit() {
         var session = TerminalTextInputEditSession()
-        var committedText: [String] = []
+        var expectedText = ""
 
         for index in 0..<128 {
             let nativeText = "native-\(index)"
+            let transformedText = "\(index % 10)"
             session.beginEvent(
                 translatedText: nativeText,
                 rawText: nativeText
             )
             #expect(session.insertText(
-                "transformed-\(index)",
+                transformedText,
                 replacementRange: NSRange(
                     location: NSNotFound,
                     length: 0
                 )
             ).isEmpty)
-            committedText.append(contentsOf: session.finishEvent(
-                consumedByTextInput: true
-            ))
-            if !committedText.isEmpty {
-                break
-            }
+            expectedText.append(transformedText)
+            #expect(
+                session.finishEvent(consumedByTextInput: true).isEmpty
+            )
         }
 
-        #expect(!committedText.isEmpty)
+        #expect(session.markedText == expectedText)
+
+        session.beginEvent(translatedText: "\r", rawText: "\r")
+        #expect(session.insertText(
+            "final",
+            replacementRange: NSRange(
+                location: 0,
+                length: (expectedText as NSString).length
+            )
+        ) == ["final"])
+        #expect(session.finishEvent(consumedByTextInput: true).isEmpty)
+        #expect(!session.hasMarkedText)
     }
 
-    @Test func oneLargeTransformationHasFiniteProvisionalSize() {
+    @Test func oneLargeTransformationRemainsReversibleUntilExternalBoundary() {
         var session = TerminalTextInputEditSession()
         let transformedText = String(repeating: "Ω", count: 65_537)
         session.beginEvent(translatedText: "x", rawText: "x")
@@ -178,10 +188,9 @@ import Testing
             replacementRange: NSRange(location: NSNotFound, length: 0)
         ).isEmpty)
 
-        #expect(
-            session.finishEvent(consumedByTextInput: true)
-                == [transformedText]
-        )
+        #expect(session.finishEvent(consumedByTextInput: true).isEmpty)
+        #expect(session.markedText == transformedText)
+        #expect(session.commitPendingText() == [transformedText])
         #expect(!session.hasMarkedText)
     }
 
