@@ -305,6 +305,10 @@ extension Workspace {
             )
         }
         if !isManual {
+            agentSessionRetryCoordinator.agentLifecycleDidChange(
+                panelId: targetPanelId,
+                lifecycle: lifecycle
+            )
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
     }
@@ -339,6 +343,7 @@ extension Workspace {
             }
             didClear = true
             if recordsHibernationActivity {
+                agentSessionRetryCoordinator.agentLifecycleDidClear(panelId: panelId)
                 recordAgentLifecycleChange(panelId: panelId)
             }
         }
@@ -353,6 +358,7 @@ extension Workspace {
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
+        agentSessionRetryCoordinator.cancel(panelId: panelId)
         guard let removed = agentLifecycleRecordsByPanelId.removeValue(forKey: panelId) else { return }
         let manualRecords = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
         for (key, record) in removed where !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
@@ -383,8 +389,9 @@ extension Workspace {
     func clearAllAgentLifecycleStates() {
         let removed = agentLifecycleRecordsByPanelId
         let panelIds = Array(removed.keys)
-        guard !panelIds.isEmpty else { return }
         agentLifecycleRecordsByPanelId.removeAll()
+        agentSessionRetryCoordinator.cancelAll()
+        guard !panelIds.isEmpty else { return }
         for (panelID, records) in removed {
             for (key, record) in records where !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
                 publishAgentLifecycleTransition(

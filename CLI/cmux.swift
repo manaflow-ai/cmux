@@ -24900,14 +24900,16 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: cleanupSurfaceId,
-                    sessionId: consumedSession.sessionId
+                    sessionId: consumedSession.sessionId,
+                    sessionDidEnd: true
                 )
                 if cleanupSurfaceId != consumedSession.surfaceId {
                     clearAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: consumedSession.workspaceId,
                         surfaceId: consumedSession.surfaceId,
-                        sessionId: consumedSession.sessionId
+                        sessionId: consumedSession.sessionId,
+                        sessionDidEnd: true
                     )
                 }
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
@@ -28020,7 +28022,8 @@ struct CMUXCLI {
         client: SocketClient,
         workspaceId: String,
         surfaceId: String,
-        sessionId: String?
+        sessionId: String?,
+        sessionDidEnd: Bool = false
     ) {
         let normalizedSessionId = normalizedHookValue(sessionId)
         var params: [String: Any] = [
@@ -28029,6 +28032,9 @@ struct CMUXCLI {
         ]
         if let normalizedSessionId {
             params["checkpoint_id"] = normalizedSessionId
+        }
+        if sessionDidEnd, normalizedSessionId != nil {
+            params["agent_session_ended"] = true
         }
         _ = try? client.sendV2(method: "surface.resume.clear", params: params)
     }
@@ -30553,7 +30559,8 @@ export default CMUXSessionRestore;
                     client: client,
                     workspaceId: consumed.workspaceId,
                     surfaceId: consumed.surfaceId,
-                    sessionId: consumed.sessionId
+                    sessionId: consumed.sessionId,
+                    sessionDidEnd: true
                 )
                 var clearCommand = "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status"
                 if let lifecycleSessionId {

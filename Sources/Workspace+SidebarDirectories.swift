@@ -58,6 +58,10 @@ extension Workspace {
     }
 
     func effectivePanelDirectory(panelId: UUID, localFallback: String? = nil) -> String? {
+        if let remotePane = remoteTmuxControlPane(surfaceID: panelId),
+           let directory = remotePane.windowMirror?.cwdByPaneId[remotePane.pane.tmuxPaneID] {
+            return normalizedSidebarDirectory(directory)
+        }
         if let directory = reportedPanelDirectory(panelId: panelId) {
             return directory
         }
