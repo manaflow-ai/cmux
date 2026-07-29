@@ -1056,8 +1056,7 @@ impl RemoteSurfaceAttachJob {
             },
         );
         let mut applied_revision = initial.revision;
-        loop {
-            let Some(latest) = claim.snapshot() else { break };
+        while let Some(latest) = claim.snapshot() {
             if latest.revision != applied_revision {
                 if !latest.retired
                     && latest.requested_size != result.requested_size
@@ -22014,18 +22013,17 @@ mod tests {
 
     #[test]
     fn latest_promoted_resize_success_supersedes_an_earlier_failure() {
-        let (session, attach_started, release_attach, resize_started, release_resize) =
-            test_remote_session_with_deferred_attach_and_first_resize_failure();
-        let (app, events) = test_app_with_events(session);
+        let fixture = test_remote_session_with_deferred_attach_and_first_resize_failure();
+        let (app, events) = test_app_with_events(fixture.session);
         let surface_id = 7;
 
         app.session.attach_surface(surface_id, None);
-        attach_started.recv_timeout(Duration::from_secs(1)).unwrap();
+        fixture.attach_started.recv_timeout(Duration::from_secs(1)).unwrap();
         app.session.attach_surface(surface_id, Some((100, 30)));
-        release_attach.send(()).unwrap();
-        resize_started.recv_timeout(Duration::from_secs(1)).unwrap();
+        fixture.release_attach.send(()).unwrap();
+        fixture.resize_started.recv_timeout(Duration::from_secs(1)).unwrap();
         app.session.attach_surface(surface_id, Some((120, 40)));
-        release_resize.send(()).unwrap();
+        fixture.release_resize.send(()).unwrap();
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),

@@ -2613,13 +2613,28 @@ fn test_session_with_deferred_attach_control(
 }
 
 #[cfg(test)]
+pub(super) struct DeferredAttachResizeFailureFixture {
+    pub session: Arc<RemoteSession>,
+    pub attach_started: Receiver<()>,
+    pub release_attach: Sender<()>,
+    pub resize_started: Receiver<()>,
+    pub release_resize: Sender<()>,
+}
+
+#[cfg(test)]
 pub(super) fn test_session_with_deferred_attach_and_first_resize_failure()
--> (Arc<RemoteSession>, Receiver<()>, Sender<()>, Receiver<()>, Sender<()>) {
+-> DeferredAttachResizeFailureFixture {
     let (resize_started_tx, resize_started_rx) = std::sync::mpsc::sync_channel(1);
     let (release_resize_tx, release_resize_rx) = channel();
     let (session, attach_started, release_attach) =
         test_session_with_deferred_attach_control(Some((resize_started_tx, release_resize_rx)));
-    (session, attach_started, release_attach, resize_started_rx, release_resize_tx)
+    DeferredAttachResizeFailureFixture {
+        session,
+        attach_started,
+        release_attach,
+        resize_started: resize_started_rx,
+        release_resize: release_resize_tx,
+    }
 }
 
 #[cfg(test)]

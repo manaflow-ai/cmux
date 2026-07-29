@@ -1825,16 +1825,25 @@ pub(crate) fn test_remote_session_with_deferred_attach()
 }
 
 #[cfg(test)]
-pub(crate) fn test_remote_session_with_deferred_attach_and_first_resize_failure() -> (
-    Session,
-    std::sync::mpsc::Receiver<()>,
-    std::sync::mpsc::Sender<()>,
-    std::sync::mpsc::Receiver<()>,
-    std::sync::mpsc::Sender<()>,
-) {
-    let (session, attach_started, release_attach, resize_started, release_resize) =
-        remote::test_session_with_deferred_attach_and_first_resize_failure();
-    (Session::Remote(session), attach_started, release_attach, resize_started, release_resize)
+pub(crate) struct DeferredAttachResizeFailureFixture {
+    pub session: Session,
+    pub attach_started: std::sync::mpsc::Receiver<()>,
+    pub release_attach: std::sync::mpsc::Sender<()>,
+    pub resize_started: std::sync::mpsc::Receiver<()>,
+    pub release_resize: std::sync::mpsc::Sender<()>,
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_deferred_attach_and_first_resize_failure()
+-> DeferredAttachResizeFailureFixture {
+    let fixture = remote::test_session_with_deferred_attach_and_first_resize_failure();
+    DeferredAttachResizeFailureFixture {
+        session: Session::Remote(fixture.session),
+        attach_started: fixture.attach_started,
+        release_attach: fixture.release_attach,
+        resize_started: fixture.resize_started,
+        release_resize: fixture.release_resize,
+    }
 }
 
 #[cfg(test)]
