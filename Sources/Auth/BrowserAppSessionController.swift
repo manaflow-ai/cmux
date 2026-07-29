@@ -65,7 +65,6 @@ final class BrowserAppSessionController {
     ) async -> BrowserAppSessionRequestOutcome {
         guard acceptsHandoffs else { return .failed }
         let requestGeneration = generation
-        handoffStores[ObjectIdentifier(websiteDataStore)] = websiteDataStore
         let operationID = UUID()
         let task = Task { @MainActor [weak self] in
             guard let self else { return BrowserAppSessionRequestOutcome.failed }
@@ -168,6 +167,7 @@ final class BrowserAppSessionController {
             return .failed
         }
 
+        handoffStores[ObjectIdentifier(websiteDataStore)] = websiteDataStore
         await clearCmuxWebSession(in: websiteDataStore)
         guard handoffIsCurrent(requestGeneration) else { return .failed }
         for cookie in cookies {
