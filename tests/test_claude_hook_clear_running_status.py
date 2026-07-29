@@ -37,6 +37,7 @@ class HookSocketServer:
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.error: Exception | None = None
+        self.delivery_target_available = True
         self.root = tempfile.TemporaryDirectory(prefix="cmux-claude-clear-")
         self.socket_path = os.path.join(self.root.name, "cmux.sock")
         self.thread = threading.Thread(target=self._run, daemon=True)
@@ -110,6 +111,17 @@ class HookSocketServer:
         method = request.get("method")
         result: dict[str, object] = {}
         if method == "agent.resolve_delivery_target":
+            if not self.delivery_target_available:
+                return json.dumps(
+                    {
+                        "id": request.get("id"),
+                        "ok": False,
+                        "error": {
+                            "code": "not_found",
+                            "message": "no live target",
+                        },
+                    }
+                )
             params = request.get("params")
             if isinstance(params, dict) and "pid" in params:
                 result = {
@@ -531,6 +543,267 @@ def verify_session_crons_do_not_cross_clear(cli_path: str) -> None:
             )
 
 
+def verify_clear_handoff_follows_moved_surface(cli_path: str) -> None:
+    old_workspace_id = str(uuid.uuid4()).upper()
+    new_workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    old_session_id = f"moved-old-{uuid.uuid4().hex}"
+    clear_session_id = f"moved-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(
+        workspace_id=old_workspace_id,
+        surface_id=surface_id,
+    ) as server:
+        state_path = Path(server.root.name) / "moved-clear-state.json"
+        env = hook_environment(server, old_workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        # Surface identity is stable across workspace moves. The live resolver
+        # re-homes it before the replacement SessionStart consumes the handoff.
+        server.workspace_id = new_workspace_id
+        clear_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
+            env,
+        )
+        clear_commands = server.commands[clear_start:]
+
+        if not has_command_with(
+            clear_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={new_workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "A workspace move dropped live background work from the clear handoff:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+        if has_command_with(
+            clear_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={new_workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "A moved surface became Idle while transferred work was still running:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+
+        clear_record = json.loads(state_path.read_text())["sessions"][clear_session_id]
+        if clear_record.get("workspaceId") != new_workspace_id:
+            raise RuntimeError(
+                "The replacement clear session did not follow its moved surface:\n"
+                f"clear_record={clear_record!r}"
+            )
+        if clear_record.get("agentLifecycle") != "running":
+            raise RuntimeError(
+                "The moved clear session did not inherit the running lifecycle:\n"
+                f"clear_record={clear_record!r}"
+            )
+
+
+def verify_guessed_surface_does_not_consume_clear_handoff(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    old_session_id = f"authoritative-old-{uuid.uuid4().hex}"
+    guessed_session_id = f"guessed-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "guessed-clear-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        fallback_env = env.copy()
+        fallback_env.pop("CMUX_SURFACE_ID")
+        server.delivery_target_available = False
+        clear_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": guessed_session_id, "source": "clear", "cwd": "/tmp"},
+            fallback_env,
+        )
+        clear_commands = server.commands[clear_start:]
+
+        forbidden_fragments = [
+            "set_agent_pid claude_code ",
+            "set_agent_lifecycle claude_code ",
+            "set_status claude_code ",
+            "clear_notifications ",
+            '"method":"surface.resume.set"',
+        ]
+        for fragment in forbidden_fragments:
+            if has_command(clear_commands, fragment):
+                raise RuntimeError(
+                    "A non-authoritative fallback published a clear boundary:\n"
+                    f"fragment={fragment!r}\ncommands={clear_commands!r}"
+                )
+
+        state = json.loads(state_path.read_text())
+        transfers = state.get("clearBackgroundWorkTransfersBySurface", {})
+        if surface_id not in transfers:
+            raise RuntimeError(
+                "A guessed surface consumed another pane's clear handoff:\n"
+                f"state={state!r}"
+            )
+
+
+def verify_stale_clear_start_preserves_handoff(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    old_session_id = f"pid-old-{uuid.uuid4().hex}"
+    stale_session_id = f"pid-stale-{uuid.uuid4().hex}"
+    clear_session_id = f"pid-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "pid-clear-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+        source_env = env.copy()
+        source_env["CMUX_CLAUDE_PID"] = "11111"
+        stale_env = env.copy()
+        stale_env["CMUX_CLAUDE_PID"] = "22222"
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            source_env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            source_env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            source_env,
+        )
+
+        stale_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": stale_session_id, "source": "clear", "cwd": "/tmp"},
+            stale_env,
+        )
+        stale_commands = server.commands[stale_start:]
+        forbidden_fragments = [
+            "set_agent_pid claude_code ",
+            "set_agent_lifecycle claude_code ",
+            "set_status claude_code ",
+            "clear_notifications ",
+            '"method":"surface.resume.set"',
+        ]
+        for fragment in forbidden_fragments:
+            if has_command(stale_commands, fragment):
+                raise RuntimeError(
+                    "A stale process generation established a clear boundary:\n"
+                    f"fragment={fragment!r}\ncommands={stale_commands!r}"
+                )
+
+        state_after_stale_start = json.loads(state_path.read_text())
+        transfers = state_after_stale_start.get(
+            "clearBackgroundWorkTransfersBySurface",
+            {},
+        )
+        if surface_id not in transfers:
+            raise RuntimeError(
+                "A stale clear start consumed the live process's handoff:\n"
+                f"state={state_after_stale_start!r}"
+            )
+
+        clear_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
+            source_env,
+        )
+        clear_commands = server.commands[clear_start:]
+        if not has_command_with(
+            clear_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "The matching process could not consume its clear handoff:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -728,6 +1001,9 @@ def main() -> int:
         )
         verify_failed_clear_store_preserves_visible_state(cli_path)
         verify_session_crons_do_not_cross_clear(cli_path)
+        verify_clear_handoff_follows_moved_surface(cli_path)
+        verify_guessed_surface_does_not_consume_clear_handoff(cli_path)
+        verify_stale_clear_start_preserves_handoff(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
