@@ -65,7 +65,22 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Wire-pinned rpc error code the daemon returns for a sequenced
     /// `pty.write` whose seq is not exactly last+1.
     public static let ptyInputSeqGapErrorCode = "pty_input_seq_gap"
+    /// Package-owned NSError metadata key for the daemon's structured RPC error code.
+    static let rpcErrorCodeUserInfoKey = "cmux.remote.daemon.rpc.error_code"
     static let maxCloudCLIRequestsInFlight = 4
+
+    /// Returns the daemon's structured RPC error code preserved on `error`.
+    ///
+    /// RPC callers should classify this stable code before consulting the
+    /// localized description, whose text remains a compatibility surface but
+    /// is not a reliable error taxonomy.
+    public static func rpcErrorCode(from error: any Error) -> String? {
+        guard let rawCode = (error as NSError).userInfo[rpcErrorCodeUserInfoKey] as? String else {
+            return nil
+        }
+        let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        return code.isEmpty ? nil : code
+    }
 
     // Subscription records pair the caller's delivery queue with its handler.
     // @unchecked Sendable: the handler is only ever invoked via

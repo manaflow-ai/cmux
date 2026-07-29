@@ -90,11 +90,12 @@ type wsPTYLease = wsLease
 type wsPTYAuthFrame = wsAuthFrame
 
 var (
-	errWSLeaseMissing   = errors.New("attach lease missing")
-	errWSLeaseExpired   = errors.New("attach lease expired")
-	errWSLeaseForbidden = errors.New("attach lease rejected")
-	errWSPTYHubClosed   = errors.New("PTY hub is closed")
-	wsLeaseMu           sync.Mutex
+	errWSLeaseMissing            = errors.New("attach lease missing")
+	errWSLeaseExpired            = errors.New("attach lease expired")
+	errWSLeaseForbidden          = errors.New("attach lease rejected")
+	errWSPTYHubClosed            = errors.New("PTY hub is closed")
+	errWSPTYStartOwnersSaturated = errors.New("too many PTY sessions are already starting")
+	wsLeaseMu                    sync.Mutex
 )
 
 const (
@@ -1020,7 +1021,7 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 		case h.sessionStartSlots <- struct{}{}:
 		default:
 			h.mu.Unlock()
-			return nil, nil, nil, errors.New("too many PTY sessions are already starting")
+			return nil, nil, nil, errWSPTYStartOwnersSaturated
 		}
 		start := &wsPTYSessionStart{done: make(chan struct{})}
 		h.startingSessions[sessionKey] = start

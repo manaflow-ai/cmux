@@ -185,6 +185,9 @@ public enum SSHPTYAttachExitCode: Int32 {
         if normalizedCode == "pty_lifecycle_closed" {
             return .fatal
         }
+        if normalizedCode == "unavailable" {
+            return .retryableTransient
+        }
         let rawDescription = [normalizedCode, message]
             .compactMap { $0 }
             .joined(separator: " ")

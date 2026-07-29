@@ -2303,7 +2303,7 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
-				Code:    ptyAttachErrorCode(requireExisting),
+				Code:    ptyAttachErrorCode(err, requireExisting),
 				Message: ptyAttachErrorMessage(err),
 			},
 		}
@@ -2314,7 +2314,7 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
-				Code:    ptyAttachErrorCode(requireExisting),
+				Code:    ptyAttachErrorCode(err, requireExisting),
 				Message: ptyAttachErrorMessage(err),
 			},
 		}
@@ -2325,7 +2325,7 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
-				Code:    ptyAttachErrorCode(requireExisting),
+				Code:    ptyAttachErrorCode(nil, requireExisting),
 				Message: "RPC connection closed before PTY attachment completed",
 			},
 		}
@@ -2351,7 +2351,10 @@ func ptyAttachErrorMessage(err error) string {
 	return err.Error()
 }
 
-func ptyAttachErrorCode(requireExisting bool) string {
+func ptyAttachErrorCode(err error, requireExisting bool) string {
+	if errors.Is(err, errWSPTYStartOwnersSaturated) {
+		return "unavailable"
+	}
 	if requireExisting {
 		return "pty_session_not_found"
 	}

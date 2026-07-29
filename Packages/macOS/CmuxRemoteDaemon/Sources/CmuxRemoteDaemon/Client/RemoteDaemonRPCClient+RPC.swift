@@ -359,6 +359,7 @@ extension RemoteDaemonRPCClient {
         let message = (errorObject["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "daemon RPC call failed"
         throw NSError(domain: "cmux.remote.daemon.rpc", code: 14, userInfo: [
             NSLocalizedDescriptionKey: "\(method) failed (\(code)): \(message)",
+            Self.rpcErrorCodeUserInfoKey: code,
         ])
     }
 
