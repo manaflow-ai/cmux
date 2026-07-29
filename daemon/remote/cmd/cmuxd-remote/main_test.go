@@ -1800,6 +1800,30 @@ func TestPTYAttachmentPumpCancellationDropsHubAttachment(t *testing.T) {
 	}
 }
 
+func TestPTYAttachmentPumpReleasesLifetimeContextAfterSessionExit(t *testing.T) {
+	attachmentCtx, cancelAttachment := context.WithCancel(context.Background())
+	defer cancelAttachment()
+	attachment := &wsPTYAttachment{
+		sessionKey:  persistentPTYSessionKey("completed-session"),
+		id:          "completed-attachment",
+		clientToken: "completed-token",
+		send:        make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:      cancelAttachment,
+		persistent:  true,
+	}
+	sessionDone := make(chan struct{})
+	close(sessionDone)
+	server := &rpcServer{
+		frameWriter: &stdioFrameWriter{writer: bufio.NewWriter(io.Discard)},
+	}
+
+	server.ptyAttachmentPump(attachmentCtx, attachment, sessionDone)
+
+	if !errors.Is(attachmentCtx.Err(), context.Canceled) {
+		t.Fatalf("attachment context error after session exit = %v, want context.Canceled", attachmentCtx.Err())
+	}
+}
+
 func TestPersistentStdioProxyReturnsWhenDaemonClosesFirst(t *testing.T) {
 	client, server := net.Pipe()
 	stdinReader, stdinWriter := io.Pipe()
