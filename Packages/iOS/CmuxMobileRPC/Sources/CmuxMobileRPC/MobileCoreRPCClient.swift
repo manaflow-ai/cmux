@@ -168,7 +168,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// - Parameters:
     ///   - method: The RPC method name.
     ///   - params: The request parameters.
-    ///   - id: The request id (defaults to a fresh UUID).
+    ///   - id: The request id (defaults to a fresh UUID). Must be unique per
+    ///     logical request: the session does not tombstone the ids of
+    ///     cancelled or timed-out requests on a preserved transport, so
+    ///     reusing an id for a retry lets the original request's late
+    ///     response settle the retry.
     /// - Returns: The encoded request data.
     /// - Throws: A serialization error if the params are not JSON-encodable.
     public static func requestData(
