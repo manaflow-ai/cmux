@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: /clear SessionStart keeps Claude Running status current."""
+"""Regression: /clear stays idle until the next Claude turn begins."""
 
 from __future__ import annotations
 
@@ -277,11 +277,49 @@ def main() -> int:
             return 1
         if not has_command_with(
             clear_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            print("FAIL: expected clear SessionStart to set Claude Idle on the current panel")
+            print(f"clear_commands={clear_commands!r}")
+            return 1
+        if has_command_with(
+            clear_commands,
             f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
             f"--panel={surface_id}",
         ):
-            print("FAIL: expected clear SessionStart to set Claude Running on the current panel")
+            print("FAIL: clear SessionStart must not begin a turn")
             print(f"clear_commands={clear_commands!r}")
+            return 1
+
+        state = json.loads(state_path.read_text())
+        clear_record = state["sessions"][new_session_id]
+        if clear_record.get("agentLifecycle") != "idle":
+            print("FAIL: clear SessionStart must persist an idle lifecycle")
+            print(f"clear_record={clear_record!r}")
+            return 1
+
+        clear_prompt_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": new_session_id,
+                "turn_id": "clear-turn-1",
+                "cwd": "/tmp",
+            },
+            clear_pid_env,
+        )
+        clear_prompt_commands = server.commands[clear_prompt_start:]
+
+        if not has_command_with(
+            clear_prompt_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            print("FAIL: prompt-submit after /clear must begin the turn")
+            print(f"clear_prompt_commands={clear_prompt_commands!r}")
             return 1
 
         late_old_start = len(server.commands)
@@ -341,7 +379,7 @@ def main() -> int:
                 print(f"old_session_end_commands={old_session_end_commands!r}")
                 return 1
 
-    print("PASS: Claude /clear SessionStart preserves Running against stale Stop and SessionEnd")
+    print("PASS: Claude /clear stays Idle until prompt-submit begins the next turn")
     return 0
 
 

@@ -7,14 +7,15 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
-    func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
-        let context = try makeClaudeHookContext(name: "claude-clear-running")
+    func testClaudeClearSessionStartStaysIdleUntilPromptSubmit() throws {
+        let context = try makeClaudeHookContext(name: "claude-clear-idle")
         defer { context.cleanup() }
 
+        let sessionId = "clear-session"
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"clear-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -26,11 +27,40 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(
             context.state.commands.contains {
+                $0.hasPrefix("set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "SessionStart establishes an idle session boundary; it does not begin a turn. Saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "SessionStart must not claim Claude is running before a prompt is submitted. Saw \(context.state.commands)"
+        )
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
+
+        let promptCommandStart = context.state.commands.count
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+        )
+
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+        let promptCommands = context.state.commands.dropFirst(promptCommandStart)
+        XCTAssertTrue(
+            promptCommands.contains {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
+            "UserPromptSubmit begins the turn and must mark Claude running. Saw \(promptCommands)"
         )
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["agentLifecycle"] as? String, "running")
     }
 
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
