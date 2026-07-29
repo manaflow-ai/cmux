@@ -279,16 +279,16 @@ extension TerminalController {
         tabManager: TabManager
     ) -> ControlPaneFocusResolution {
         if let location = workspace.remoteTmuxControlPane(paneID: requestedPaneID) {
+            guard controlWorkspaceMutationTargetIsAvailable(tabManager) else {
+                return .tabManagerUnavailable
+            }
+            guard location.controlFocus() else {
+                return .paneNotFound(requestedPaneID)
+            }
             guard controlPrepareWorkspaceFocus(tabManager, workspace: workspace) else {
                 return .tabManagerUnavailable
             }
-            guard focusRemoteTmuxControlPane(
-                location,
-                workspace: workspace,
-                tabManager: tabManager
-            ) else {
-                return .paneNotFound(requestedPaneID)
-            }
+            workspace.focusPanel(location.containerPanelID)
             return .focused(
                 windowID: v2ResolveWindowId(tabManager: tabManager),
                 workspaceID: workspace.id,

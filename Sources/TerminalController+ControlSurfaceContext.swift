@@ -274,16 +274,16 @@ extension TerminalController: ControlSurfaceContext {
         }
         switch ws.remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
         case .pane(let location):
+            guard controlWorkspaceMutationTargetIsAvailable(tabManager) else {
+                return .tabManagerUnavailable
+            }
+            guard location.controlFocus() else {
+                return .surfaceNotFound(surfaceID)
+            }
             guard controlPrepareWorkspaceFocus(tabManager, workspace: ws) else {
                 return .tabManagerUnavailable
             }
-            guard focusRemoteTmuxControlPane(
-                location,
-                workspace: ws,
-                tabManager: tabManager
-            ) else {
-                return .surfaceNotFound(surfaceID)
-            }
+            ws.focusPanel(location.containerPanelID)
             return .focused(
                 windowID: v2ResolveWindowId(tabManager: tabManager),
                 workspaceID: ws.id,

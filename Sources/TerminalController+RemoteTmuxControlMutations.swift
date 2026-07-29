@@ -31,19 +31,6 @@ extension TerminalController {
         return unsupported
     }
 
-    func focusRemoteTmuxControlPane(
-        _ location: RemoteTmuxControlPaneLocation,
-        workspace: Workspace,
-        tabManager: TabManager
-    ) -> Bool {
-        guard location.controlFocus() else { return false }
-        // The wrapper is the mirror's real Bonsplit tab. Selecting it makes the
-        // projected TerminalPanelView visible; mirror.activePaneId drives which
-        // inner hosted view receives its `isFocused` responder state.
-        workspace.focusPanel(location.containerPanelID)
-        return true
-    }
-
     func controlRemoteTmuxSendText(
         workspace: Workspace,
         tabManager: TabManager,
@@ -236,11 +223,13 @@ extension TerminalController {
         ) else {
             return .respawnFailed(targetSurfaceID)
         }
-        if shouldFocus {
+        if shouldFocus, location.controlFocus() {
             guard controlPrepareWorkspaceFocus(tabManager, workspace: workspace) else {
                 return .tabManagerUnavailable
             }
-            _ = focusRemoteTmuxControlPane(location, workspace: workspace, tabManager: tabManager)
+            // The wrapper is the mirror's real Bonsplit tab. Selecting it makes
+            // the projected pane visible after remote focus succeeds.
+            workspace.focusPanel(location.containerPanelID)
         }
         return .respawned(
             windowID: v2ResolveWindowId(tabManager: tabManager),

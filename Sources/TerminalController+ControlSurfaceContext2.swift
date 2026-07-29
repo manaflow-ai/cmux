@@ -345,10 +345,17 @@ extension TerminalController {
         ) else {
             return .workspaceNotFound
         }
+        if let remote = controlRemoteTmuxSurfaceCreate(
+            workspace: ws,
+            tabManager: tabManager,
+            inputs: inputs,
+            panelType: panelType
+        ) {
+            return remote
+        }
         guard v2PrepareWorkspaceMutation(tabManager, workspace: ws) else {
             return .tabManagerUnavailable
         }
-        if let remote = controlRemoteTmuxSurfaceCreate(workspace: ws, tabManager: tabManager, inputs: inputs, panelType: panelType) { return remote }
         let paneId: PaneID? = {
             if let paneUUID = inputs.requestedPaneID {
                 return ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
