@@ -17,10 +17,11 @@ import Foundation
 /// (enable flag, service URL, auth) mirrors ``PresenceHeartbeatClient``;
 /// reconnect posture mirrors the iOS presence subscriber (backoff 1s→60s,
 /// reset when a stream delivers; the service bounds streams to token expiry,
-/// so clean close and resubscribe is the steady state). Against a pre-nudge
-/// worker the same endpoint serves snapshot/presence frames; the decoder
-/// ignores everything that is not a nudge, so old servers just make this a
-/// slightly chattier no-op.
+/// so clean close and resubscribe is the steady state). A pre-nudge worker
+/// ignores `deviceScope` and serves the full team snapshot plus presence
+/// events instead; the FIRST such frame proves the endpoint is legacy, so
+/// the subscriber closes immediately and re-probes slowly rather than
+/// parsing team-sized traffic on the main actor (see `StreamOutcome`).
 @MainActor
 final class PresenceNudgeSubscriber {
     static let shared = PresenceNudgeSubscriber()
@@ -109,43 +110,64 @@ final class PresenceNudgeSubscriber {
         }
     }
 
+    private enum StreamOutcome {
+        /// Never connected usefully; exponential backoff.
+        case connectFailed
+        /// Served as a directed stream (delivered nudges and/or closed
+        /// cleanly at the service deadline); resubscribe promptly.
+        case served
+        /// The endpoint ignored `deviceScope` (a pre-nudge worker) and sent
+        /// presence traffic on what must be a silent directed stream. A
+        /// legacy worker has no nudges to send, so nothing is lost by
+        /// probing slowly; the only cost is a later first nudge after the
+        /// worker upgrades.
+        case legacyEndpoint
+    }
+
+    private static let legacyReprobeDelay: Duration = .seconds(15 * 60)
+
     private func startLoop() {
         loopTask = Task { @MainActor [weak self] in
             let clock = ContinuousClock()
             var failureDelay: Duration = .seconds(1)
             while !Task.isCancelled {
                 guard let self else { return }
-                let streamDelivered = await self.subscribeOnce()
+                let outcome = await self.subscribeOnce()
                 if Task.isCancelled { return }
-                // A stream that delivered anything (even the expiry close after
-                // minutes of silence counts as normal service) resubscribes
-                // promptly; hard connect failures back off.
-                if streamDelivered {
+                let delay: Duration
+                switch outcome {
+                case .served:
+                    // Normal service (even the quiet deadline close after
+                    // minutes of silence) resubscribes promptly.
                     failureDelay = .seconds(1)
-                } else {
+                    delay = failureDelay
+                case .connectFailed:
                     failureDelay = min(failureDelay * 2, .seconds(60))
+                    delay = failureDelay
+                case .legacyEndpoint:
+                    failureDelay = .seconds(1)
+                    delay = Self.legacyReprobeDelay
                 }
-                guard (try? await clock.sleep(for: failureDelay)) != nil else { return }
+                guard (try? await clock.sleep(for: delay)) != nil else { return }
             }
         }
     }
 
     /// Opens one bounded subscription stream and pumps it until the service
-    /// closes it (token expiry), it errors, or the loop is cancelled. Returns
-    /// whether the stream connected well enough to deliver at least one frame
-    /// or a clean service-side close.
-    private func subscribeOnce() async -> Bool {
+    /// closes it (token expiry), it errors, the endpoint proves legacy, or
+    /// the loop is cancelled.
+    private func subscribeOnce() async -> StreamOutcome {
         guard let auth, let baseURL = PresenceHeartbeatClient.resolvedServiceURL() else {
-            return false
+            return .connectFailed
         }
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
         } catch {
-            return false // not signed in; evaluate() restarts on auth change
+            return .connectFailed // not signed in; evaluate() restarts on auth change
         }
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-            return false
+            return .connectFailed
         }
         // URLSessionWebSocketTask requires ws/wss; the service URL is stated as
         // https. Same conversion as the iOS PresenceClient.subscribeURL.
@@ -153,7 +175,7 @@ final class PresenceNudgeSubscriber {
         case "https": comps.scheme = "wss"
         case "http": comps.scheme = "ws"
         case "wss", "ws": break
-        default: return false
+        default: return .connectFailed
         }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
             + "/v1/presence/subscribe"
@@ -161,7 +183,7 @@ final class PresenceNudgeSubscriber {
             name: "deviceScope",
             value: MobileHostIdentity.deviceID()
         )]
-        guard let url = comps.url else { return false }
+        guard let url = comps.url else { return .connectFailed }
 
         var request = URLRequest(url: url)
         request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
@@ -193,46 +215,67 @@ final class PresenceNudgeSubscriber {
                     // that neither delivered nor closed cleanly is a failure.
                     let closedCleanly = task.closeCode == .normalClosure
                         || task.closeCode == .goingAway
-                    return delivered || closedCleanly
+                    return (delivered || closedCleanly) ? .served : .connectFailed
+                }
+                guard !Task.isCancelled else { return .served }
+                let text: String?
+                switch message {
+                case let .string(string): text = string
+                case let .data(data): text = String(data: data, encoding: .utf8)
+                @unknown default: text = nil
+                }
+                // A nudge-aware worker sends nothing but small text nudge
+                // frames on a directed stream, so the first frame that is
+                // anything else (a snapshot, presence chatter, binary) proves
+                // the endpoint is legacy: stop pumping it instead of paying a
+                // main-actor decode for team-sized traffic.
+                guard let text, classifyAndHandleFrame(text) == .nudge else {
+                    return .legacyEndpoint
                 }
                 delivered = true
-                guard !Task.isCancelled else { return delivered }
-                switch message {
-                case let .string(text):
-                    handleFrame(text)
-                case let .data(data):
-                    if let text = String(data: data, encoding: .utf8) {
-                        handleFrame(text)
-                    }
-                @unknown default:
-                    break
-                }
             }
-            return delivered
+            return .served
         } onCancel: {
             task.cancel(with: .goingAway, reason: nil)
         }
     }
 
-    private func handleFrame(_ text: String) {
-        guard let payload = try? JSONSerialization.jsonObject(
-            with: Data(text.utf8)
-        ) as? [String: Any] else { return }
-        // Everything except a nudge for this device (an old worker's snapshot
-        // or presence chatter) is ignored.
-        guard payload["type"] as? String == "nudge",
-              let deviceID = payload["deviceId"] as? String,
-              deviceID.caseInsensitiveCompare(MobileHostIdentity.deviceID()) == .orderedSame
-        else { return }
+    /// Upper bound of a nudge frame on the wire: fixed keys plus a 36-char
+    /// device id, a bounded (≤64) tag, an allowlisted kind, and an epoch —
+    /// roughly 200 bytes. The bound classifies oversized frames as foreign in
+    /// O(1), so a pre-nudge worker's team snapshot (up to megabytes) is never
+    /// JSON-parsed on the main actor.
+    private static let maxNudgeFrameBytes = 2048
+
+    private enum FrameKind {
+        case nudge
+        case foreign
+    }
+
+    /// Classifies one frame, and applies it when it is this instance's nudge.
+    /// A nudge for another build tag on this Mac still classifies as `.nudge`:
+    /// the stream is healthy and directed, it is just not addressed to us.
+    private func classifyAndHandleFrame(_ text: String) -> FrameKind {
+        guard text.utf8.count <= Self.maxNudgeFrameBytes,
+              let payload = try? JSONSerialization.jsonObject(
+                  with: Data(text.utf8)
+              ) as? [String: Any],
+              payload["type"] as? String == "nudge",
+              let deviceID = payload["deviceId"] as? String
+        else { return .foreign }
+        guard deviceID.caseInsensitiveCompare(MobileHostIdentity.deviceID()) == .orderedSame else {
+            return .nudge // server-side scope filter should make this unreachable
+        }
         if let tag = payload["tag"] as? String,
            !tag.isEmpty,
            tag != MobileHostIdentity.instanceTag() {
-            return // directed at another app instance (build tag) on this Mac
+            return .nudge // directed at another app instance (build tag) on this Mac
         }
         let kind = payload["kind"] as? String ?? "unknown"
         mobileHostIrohLog.info(
             "Presence nudge received (\(kind, privacy: .public)); refreshing iroh registration"
         )
         MobileHostIrohRuntime.shared.refreshRegistrationFromServerSignal()
+        return .nudge
     }
 }

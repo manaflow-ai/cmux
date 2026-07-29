@@ -53,6 +53,14 @@ catches up on its next scheduled round trip). Nudge frames are sent only to
 device-scoped sockets, mirroring how sync frames are gated on `sync.hello`, so
 legacy presence decoders that throw on unknown event types never see them.
 
+The pin's known first-writer residual (a team member can claim an unclaimed
+device id by heartbeating it first) extends to nudges, accepted deliberately:
+the worker keeps no synchronous registry dependency, and a squatted pin only
+costs the real Mac the acceleration — it falls back to its pre-nudge renewal
+cadence, never to a correctness failure. Registry-anchored device credentials
+(the planned key-pinning phase) replace the pin for both heartbeats and
+nudges when they land.
+
 ## Develop
 
 ```bash

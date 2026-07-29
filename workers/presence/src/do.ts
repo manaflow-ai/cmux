@@ -404,7 +404,19 @@ export class TeamPresence extends DurableObject {
    * owner; an unpinned device has never heartbeated here and has nothing to
    * wake. `delivered: 0` is success, not failure: the device may be offline,
    * and a nudge only accelerates a re-check its next scheduled round trip
-   * would run anyway. */
+   * would run anyway.
+   *
+   * Authorization deliberately reuses the presence owner pin, including its
+   * documented first-authenticated-writer residual (see checkDeviceOwner):
+   * this service must stay available without a synchronous registry
+   * dependency, and the registry does not yet issue verifiable device
+   * credentials. A team member who squats an unclaimed device id can
+   * therefore hold the pin and starve the real Mac's directed channel — but
+   * the blast radius is bounded to losing the ACCELERATION: the Mac falls
+   * back to exactly the pre-nudge cadence (renewal timer and network
+   * observers), never to a correctness failure. Replacing the pin with
+   * registry-anchored device credentials is tracked with the same planned
+   * key-pinning phase checkDeviceOwner references. */
   async nudge(
     teamId: string,
     userId: string,
