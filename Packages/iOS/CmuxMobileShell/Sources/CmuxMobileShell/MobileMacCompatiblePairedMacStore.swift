@@ -248,6 +248,20 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Forward the cross-team enumeration down the rail unchanged. This is a
+    /// read used to target deletions; the compatibility guard still applies on
+    /// each per-row `removeExactScope`, so an incompatible tagged instance can
+    /// be SEEN here but not deleted through this store.
+    func loadAllInstances(
+        macDeviceID: String,
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        try await inner.loadAllInstances(
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID
+        )
+    }
+
     func removeAll() async throws {
         for mac in try await loadAll(stackUserID: nil, teamID: nil) {
             try await inner.remove(

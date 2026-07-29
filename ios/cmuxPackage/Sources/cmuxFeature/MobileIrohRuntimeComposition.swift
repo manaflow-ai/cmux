@@ -1372,21 +1372,23 @@ public final class MobileIrohRuntimeComposition:
             cachedRelay = nil
         }
 
+        // Pin the activation's broker to the session that owns `accountID`:
+        // capture ONE coherent snapshot and reuse its pair for every leg while
+        // the live session still matches its generation and account (cheap
+        // local check, no per-leg network). Without the pin, an account switch
+        // mid-activation let later registration/discovery legs send the NEW
+        // session's credentials against THIS activation's endpoint state —
+        // server mutations in the wrong account — before the lifecycle
+        // revision guard could stop the runtime. A session change makes the
+        // source yield nil, so those legs fail closed and the reconcile loop
+        // rebuilds under the new session.
+        let session = try await auth.authenticatedSessionSnapshot()
+        guard session.accountID == accountID else {
+            throw CmxIrohClientRuntimeError.inactive
+        }
         let brokerBundle = try makeBrokerBundle(
             accountID: accountID,
-            tokenSource: CmxIrohBrokerTokenSource(
-                // ONE currentTokens() call per fetch: both tokens come from the
-                // same read, never assembled across two calls a session
-                // transition could land between.
-                credentialPair: { [weak auth] in
-                    guard let auth,
-                          let tokens = try? await auth.currentTokens() else { return nil }
-                    return CmxIrohBrokerCredentials(
-                        accessToken: tokens.accessToken,
-                        refreshToken: tokens.refreshToken
-                    )
-                }
-            )
+            tokenSource: brokerTokenSource(pinnedSession: session)
         )
         let broker = brokerBundle.client
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?

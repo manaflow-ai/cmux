@@ -193,11 +193,12 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     }
 
     /// Adopt a pre-Keychain `UserDefaults` id (so existing installs keep their
-    /// slot), or mint a fresh one. An adopted legacy id is already the id the
-    /// existing binding uses, so it is durable regardless of whether the
-    /// upgrade-persist to the Keychain succeeds. A freshly minted id is durable
-    /// only once the Keychain confirms it holds the id; otherwise it must not be
-    /// advertised, since only the reinstall-volatile mirror would hold it.
+    /// slot), or mint a fresh one. Either id is durable ONLY once the Keychain
+    /// confirms it holds it: until then the sole copy lives in reinstall-volatile
+    /// `UserDefaults`, so registering a binding under it lets a
+    /// delete-and-reinstall wipe the id, mint a different one, and strand the
+    /// existing `(user, device, tag)` slot — the exact failure the durable store
+    /// exists to prevent.
     ///
     /// Persistence goes through ``DeviceIdentityStoring/createOrAdopt(_:)``, which
     /// never overwrites a value a concurrent resolution already won, so two
@@ -209,11 +210,14 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         defaults: UserDefaults
     ) -> DurableDeviceIDResolution {
         if let legacy = trimmedLegacyDeviceID(defaults) {
-            // The adopted id stays durable even if the Keychain cannot persist it
-            // right now (it is the id the existing binding uses); a later launch
-            // re-attempts the upgrade. If a concurrent resolution already persisted
-            // a winner, adopt it so all callers agree.
-            let winner = store.createOrAdopt(legacy) ?? legacy
+            // If a concurrent resolution already persisted a winner, adopt it so
+            // all callers agree. A failed persist (the store is READABLE — it
+            // reported the id absent — but cannot write right now) must defer:
+            // the legacy value is not durable until the Keychain confirms the
+            // migration, and a later launch re-attempts the upgrade.
+            guard let winner = store.createOrAdopt(legacy) else {
+                return .unavailable
+            }
             if defaults.string(forKey: deviceIDKey) != winner {
                 defaults.set(winner, forKey: deviceIDKey)
             }

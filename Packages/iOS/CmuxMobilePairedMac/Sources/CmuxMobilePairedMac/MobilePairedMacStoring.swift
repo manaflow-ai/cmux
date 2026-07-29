@@ -164,6 +164,20 @@ public protocol MobilePairedMacStoring: Sendable {
         teamID: String?
     ) async throws
 
+    /// Every stored instance of one physical device owned by one account,
+    /// across ALL team scopes and instance tags.
+    ///
+    /// The forget flow's wildcard revoke kills the device's bindings for the
+    /// whole account, so its local cleanup must be able to see the device's
+    /// rows in OTHER teams than the one currently displayed — the ordinary
+    /// `loadAll(stackUserID:teamID:)` is deliberately team-scoped and cannot.
+    /// Team-substituting decorators override this to bypass their live-team
+    /// resolution and forward verbatim.
+    func loadAllInstances(
+        macDeviceID: String,
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac]
+
     /// Remove all paired Macs.
     func removeAll() async throws
 }
@@ -238,6 +252,22 @@ extension MobilePairedMacStoring {
             stackUserID: stackUserID,
             teamID: teamID
         )
+    }
+
+    /// Default cross-team instance enumeration: a nil `teamID` on the BASE
+    /// store's `loadAll` returns every team's rows, so filtering by the
+    /// canonical device id yields all of the device's instances. Correct for
+    /// the base SQLite store and simple in-memory stores ONLY — any decorator
+    /// that substitutes a nil team with the live selection, or that re-scopes
+    /// team ids, must override this to keep the enumeration genuinely
+    /// cross-team.
+    public func loadAllInstances(
+        macDeviceID: String,
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        let canonical = cmxCanonicalDeviceID(macDeviceID)
+        return try await loadAll(stackUserID: stackUserID, teamID: nil)
+            .filter { cmxCanonicalDeviceID($0.macDeviceID) == canonical }
     }
 
     /// In-memory/test fallback. Production SQLite and scope decorators override

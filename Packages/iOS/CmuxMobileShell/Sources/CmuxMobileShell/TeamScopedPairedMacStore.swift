@@ -298,6 +298,20 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Cross-team by contract: forward verbatim, WITHOUT substituting the live
+    /// team. This decorator's whole job is scoping reads to the selected team;
+    /// the instance enumeration exists precisely to see past that boundary
+    /// (a wildcard forget's revoke is account-wide, so its cleanup must be too).
+    public func loadAllInstances(
+        macDeviceID: String,
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        try await inner.loadAllInstances(
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID
+        )
+    }
+
     /// Remove all paired Macs.
     public func removeAll() async throws {
         try await inner.removeAll()

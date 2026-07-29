@@ -472,6 +472,21 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// Cross-team enumeration bounded to THIS build scope: rows from other
+    /// build scopes are invisible, exactly like every other read here. The
+    /// inner enumeration is cross-team over scoped team ids; keep only rows
+    /// carrying this scope's suffix and unwrap them to client team ids.
+    public func loadAllInstances(
+        macDeviceID: String,
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        try await inner.loadAllInstances(
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID
+        )
+        .compactMap(unscoped)
+    }
+
     public func removeAll() async throws {
         try await mutationGate.withLock {
             try await removeAllUnlocked()

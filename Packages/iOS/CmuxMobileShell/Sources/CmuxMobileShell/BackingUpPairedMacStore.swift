@@ -533,6 +533,19 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         }
     }
 
+    /// Cross-team enumeration forwards straight to the local rail. No restore
+    /// is triggered: this read targets deletions during a forget, and kicking
+    /// off a backup fetch there would race the very rows being removed.
+    public func loadAllInstances(
+        macDeviceID: String,
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        try await inner.loadAllInstances(
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID
+        )
+    }
+
     /// Clear local paired Macs without deleting the user's server backup.
     public func removeAll() async throws {
         // Sign-out wipe: clear local only. The server backup is intentionally

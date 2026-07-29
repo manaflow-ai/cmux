@@ -194,6 +194,8 @@ extension MobileShellComposite {
         if computer.instanceTag == nil {
             siblingsCleaned = await removeWildcardSiblingRows(
                 macDeviceID: computer.macDeviceID,
+                instanceTag: computer.instanceTag,
+                primaryTeamID: computer.teamID,
                 pinnedAccountID: computer.stackUserID ?? scope.userID,
                 displayScope: scope
             )
@@ -237,32 +239,34 @@ extension MobileShellComposite {
         clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
     }
 
-    /// Deletes the device's OTHER (tagged) rows after a wildcard forget, so the
-    /// local list matches the revoke's breadth.
+    /// Deletes the device's OTHER rows after a wildcard forget, so the local
+    /// list matches the revoke's breadth.
     ///
-    /// Enumerates what the store can see in the captured display scope (the
-    /// display team plus team-less legacy rows) and deletes only rows owned by
-    /// the account the revoke was pinned to, each through the same exact-scope
-    /// removal as the primary row (which also clears its hidden marker). Rows in
-    /// OTHER teams' scopes are not enumerable here and self-heal when the Mac
-    /// re-registers; rows owned by other accounts still hold live bindings and
-    /// must survive.
+    /// The wildcard revoke kills the device's bindings for the WHOLE account,
+    /// across teams — an offline Mac never re-registers, so any row left behind
+    /// (in another team, or another tag) makes the supposedly forgotten
+    /// computer reappear when the user switches teams or restores. Enumerate
+    /// every account-owned instance of the device via the cross-team
+    /// `loadAllInstances` (the ordinary team-scoped read cannot see past the
+    /// display team) and delete each by its OWN exact scope, skipping the
+    /// primary row (deleted separately with its own error semantics). Rows
+    /// owned by other accounts still hold live bindings and must survive.
     private func removeWildcardSiblingRows(
         macDeviceID: String,
+        instanceTag primaryInstanceTag: String?,
+        primaryTeamID: String?,
         pinnedAccountID: String,
         displayScope: MobileShellScopeSnapshot
     ) async -> Bool {
         guard let pairedMacStore else { return true }
-        let canonical = cmxCanonicalDeviceID(macDeviceID)
-        let rows = (try? await pairedMacStore.loadAll(
-            stackUserID: pinnedAccountID,
-            teamID: displayScope.teamID
+        let rows = (try? await pairedMacStore.loadAllInstances(
+            macDeviceID: macDeviceID,
+            stackUserID: pinnedAccountID
         )) ?? []
         var allCleaned = true
         for row in rows
-        where cmxCanonicalDeviceID(row.macDeviceID) == canonical
-            && row.instanceTag != nil
-            && row.stackUserID == pinnedAccountID {
+        where row.stackUserID == pinnedAccountID
+            && !(row.instanceTag == primaryInstanceTag && row.teamID == primaryTeamID) {
             let cleaned = await deleteStoredPairedMacRow(
                 macDeviceID: row.macDeviceID,
                 instanceTag: row.instanceTag,
