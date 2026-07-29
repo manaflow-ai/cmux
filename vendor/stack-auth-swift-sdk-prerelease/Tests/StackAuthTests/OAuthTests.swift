@@ -4,6 +4,18 @@ import Foundation
 
 @Suite("OAuth Tests")
 struct OAuthTests {
+    @Test("Should support an ephemeral OAuth browser session")
+    func supportsEphemeralOAuthBrowserSession() async {
+        let app = StackClientApp(
+            projectId: testProjectId,
+            publishableClientKey: testPublishableClientKey,
+            tokenStore: .custom(MemoryTokenStore()),
+            noAutomaticPrefetch: true,
+            oauthBrowserSessionPrivacy: .ephemeral
+        )
+
+        #expect(await app.oauthBrowserSessionPrivacy == .ephemeral)
+    }
     
     // Default test URLs (must be absolute URLs)
     let testRedirectUrl = "stack-auth-mobile-oauth-url://success"
