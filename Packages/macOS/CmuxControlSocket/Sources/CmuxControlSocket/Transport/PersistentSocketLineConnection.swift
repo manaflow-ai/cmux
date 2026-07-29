@@ -84,12 +84,19 @@ public actor PersistentSocketLineConnection {
         timeout: TimeInterval,
         validatingPeer: @Sendable (pid_t?) -> Bool
     ) -> Bool {
-        if let current = state {
+        if var current = state {
             if
                 current.path == socketPath,
-                current.timeout == timeout,
                 validatingPeer(current.peerProcessID)
             {
+                if current.timeout != timeout {
+                    transport.configureSocketTimeouts(
+                        current.socket,
+                        timeout: timeout
+                    )
+                    current.timeout = timeout
+                    state = current
+                }
                 return true
             }
             closeConnection()

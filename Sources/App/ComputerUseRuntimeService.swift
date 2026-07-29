@@ -326,9 +326,14 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         if let identity = processIdentity(for: .native),
            AgentPIDProcessIdentity(pid: identity.pid) == identity {
             for sessionID in sessionIDs {
+                let connection =
+                    applicationSurfaceInputConnections.connection(
+                        for: sessionID
+                    )
                 let response = await requestApplicationSurfaceStop(
                     sessionID: sessionID,
-                    expectedPeerIdentity: identity
+                    expectedPeerIdentity: identity,
+                    persistentConnection: connection
                 )
                 if Self.applicationSurfaceStopWasAcknowledged(response) {
                     applicationSurfacePendingStops.removeValue(forKey: sessionID)
@@ -384,6 +389,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             throw ApplicationSurfaceRuntimeError.windowUnavailable
         }
         let identity = try validatedApplicationSurfaceIdentity(lease: lease)
+        let connection = applicationSurfaceInputConnections.makeConnection()
         guard let response = await Self.sendDaemonRequest(
             [
                 "method": "application_surface_start",
@@ -397,7 +403,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             transport: transport,
             timeout: 8,
             expectedPeerIdentity: identity,
-            socketURL: paths.daemonSocketURL
+            socketURL: paths.daemonSocketURL,
+            persistentConnection: connection
         ) else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
@@ -412,7 +419,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard let descriptor = parsed.descriptor else {
             let stopResponse = await requestApplicationSurfaceStop(
                 sessionID: sessionID,
-                expectedPeerIdentity: identity
+                expectedPeerIdentity: identity,
+                persistentConnection: connection
             )
             if !Self.applicationSurfaceStopWasAcknowledged(stopResponse) {
                 recordPendingApplicationSurfaceStop(
@@ -425,7 +433,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard applicationSurfaceLeaseIdentifiers.contains(lease.identifier) else {
             let stopResponse = await requestApplicationSurfaceStop(
                 sessionID: sessionID,
-                expectedPeerIdentity: identity
+                expectedPeerIdentity: identity,
+                persistentConnection: connection
             )
             if !Self.applicationSurfaceStopWasAcknowledged(stopResponse) {
                 recordPendingApplicationSurfaceStop(
@@ -438,7 +447,10 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
         applicationSurfaceSessionIDsByLease[lease.identifier, default: []]
             .insert(sessionID)
-        _ = applicationSurfaceInputConnections.connection(for: sessionID)
+        applicationSurfaceInputConnections.register(
+            connection,
+            for: sessionID
+        )
         return descriptor
     }
 
@@ -453,16 +465,21 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         else {
             return
         }
-        applicationSurfaceInputConnections.removeConnection(for: sessionID)
         applicationSurfaceFailureEventRegistry.finish(sessionID: sessionID)
         guard let identity = try? validatedApplicationSurfaceIdentity(lease: lease) else {
+            applicationSurfaceInputConnections.removeConnection(for: sessionID)
             applicationSurfaceSessionIDsByLease[lease.identifier]?.remove(sessionID)
             return
         }
+        let connection = applicationSurfaceInputConnections.connection(
+            for: sessionID
+        )
         let response = await requestApplicationSurfaceStop(
             sessionID: sessionID,
-            expectedPeerIdentity: identity
+            expectedPeerIdentity: identity,
+            persistentConnection: connection
         )
+        applicationSurfaceInputConnections.removeConnection(for: sessionID)
         if Self.applicationSurfaceStopWasAcknowledged(response) {
             applicationSurfacePendingStops.removeValue(forKey: sessionID)
             applicationSurfaceSessionIDsByLease[lease.identifier]?.remove(sessionID)
@@ -500,7 +517,10 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard
             !sessionID.isEmpty,
             applicationSurfaceSessionIDsByLease[lease.identifier]?
-                .contains(sessionID) == true
+                .contains(sessionID) == true,
+            let connection = applicationSurfaceInputConnections.connection(
+                for: sessionID
+            )
         else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
@@ -513,7 +533,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             transport: transport,
             timeout: 3,
             expectedPeerIdentity: identity,
-            socketURL: paths.daemonSocketURL
+            socketURL: paths.daemonSocketURL,
+            persistentConnection: connection
         )
         guard Self.applicationSurfaceAttachmentWasAcknowledged(response) else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
@@ -543,7 +564,10 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             !events.isEmpty,
             events.count <= 64,
             applicationSurfaceSessionIDsByLease[lease.identifier]?
-                .contains(sessionID) == true
+                .contains(sessionID) == true,
+            let connection = applicationSurfaceInputConnections.connection(
+                for: sessionID
+            )
         else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
@@ -565,8 +589,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             timeout: 3,
             expectedPeerIdentity: identity,
             socketURL: paths.daemonSocketURL,
-            persistentConnection:
-                applicationSurfaceInputConnections.connection(for: sessionID)
+            persistentConnection: connection
         ) else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
@@ -609,7 +632,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
 
     private func requestApplicationSurfaceStop(
         sessionID: String,
-        expectedPeerIdentity: AgentPIDProcessIdentity
+        expectedPeerIdentity: AgentPIDProcessIdentity,
+        persistentConnection: PersistentSocketLineConnection? = nil
     ) async -> [String: Any]? {
         await Self.sendDaemonRequest(
             [
@@ -620,7 +644,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             transport: transport,
             timeout: 3,
             expectedPeerIdentity: expectedPeerIdentity,
-            socketURL: paths.daemonSocketURL
+            socketURL: paths.daemonSocketURL,
+            persistentConnection: persistentConnection
         )
     }
 

@@ -9,13 +9,22 @@ final class ApplicationSurfaceInputConnectionRegistry {
         self.transport = transport
     }
 
-    func connection(for sessionID: String) -> PersistentSocketLineConnection {
-        if let connection = connections[sessionID] {
-            return connection
-        }
-        let connection = PersistentSocketLineConnection(transport: transport)
+    func makeConnection() -> PersistentSocketLineConnection {
+        PersistentSocketLineConnection(transport: transport)
+    }
+
+    func register(
+        _ connection: PersistentSocketLineConnection,
+        for sessionID: String
+    ) {
+        precondition(!sessionID.isEmpty)
         connections[sessionID] = connection
-        return connection
+    }
+
+    func connection(
+        for sessionID: String
+    ) -> PersistentSocketLineConnection? {
+        connections[sessionID]
     }
 
     @discardableResult
