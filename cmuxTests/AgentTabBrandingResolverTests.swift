@@ -158,4 +158,27 @@ import Testing
             ) == nil
         )
     }
+
+    @Test func agentBasenameProcessResolvesUnconditionallyButStaysPromptFiltered() throws {
+        // A real process whose executable basename matches an agent definition
+        // without prompt-turn support (grok): the unconditional matcher must
+        // resolve it through the genuine kernel-path identity rules, while the
+        // prompt-gated matcher keeps filtering it.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-matcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let grokBinary = directory.appendingPathComponent("grok")
+        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: grokBinary.path)
+
+        let process = Process()
+        process.executableURL = grokBinary
+        process.arguments = ["5"]
+        try process.run()
+        defer { process.terminate() }
+
+        let pid = Int(process.processIdentifier)
+        #expect(CmuxTopProcessSnapshot.codingAgentDefinition(foregroundPID: pid)?.id == "grok")
+        #expect(CmuxTopProcessSnapshot.promptAgentDefinition(foregroundPID: pid) == nil)
+    }
 }
