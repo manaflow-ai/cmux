@@ -102,6 +102,7 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Get Teams");
     expect(html).toContain('href="/dashboard/testflight"');
     expect(html).toContain("Join the iOS beta");
+    expect(html).toContain("active personal Pro subscribers");
     expect(html).not.toContain("/api/billing/subscription");
   });
 
