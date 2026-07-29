@@ -131,7 +131,7 @@ fn update_terminal_defaults(
             .expect("validated mutations have an idempotency key"),
         "resource-api",
     )
-    .map_err(super::resource_operation_error)?;
+    .map_err(resource_operation_error)?;
     let fields = Value::Object(request.fields.clone());
     let commit = mux
         .resource_update_terminal_defaults_selected(
@@ -142,7 +142,7 @@ fn update_terminal_defaults(
             expected_revision(&request.fields)?,
             &mutation,
         )
-        .map_err(super::resource_operation_error)?;
+        .map_err(resource_operation_error)?;
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
 }
 

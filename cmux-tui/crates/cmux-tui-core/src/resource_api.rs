@@ -156,7 +156,7 @@ impl LocalResourceMachineService {
             .and_then(Value::as_str)
             .map(|revision| revision.parse::<u64>())
             .transpose()
-            .map_err(|error| {
+            .map_err(|_| {
                 ResourceError::validation_invalid(
                     Some("expected_revision"),
                     "session.open expected_revision is invalid",

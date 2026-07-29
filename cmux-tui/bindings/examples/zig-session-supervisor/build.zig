@@ -10,12 +10,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const provider_controller = b.addModule("provider_controller", .{
-        .root_source_file = b.path("src/controller.zig"),
+    const session_supervisor = b.addModule("session_supervisor", .{
+        .root_source_file = b.path("src/supervisor.zig"),
         .target = target,
         .optimize = optimize,
     });
-    provider_controller.addImport("cmux_tui", cmux_tui);
+    session_supervisor.addImport("cmux_tui", cmux_tui);
 
     const executable_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -23,10 +23,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     executable_module.addImport("cmux_tui", cmux_tui);
-    executable_module.addImport("provider_controller", provider_controller);
+    executable_module.addImport("session_supervisor", session_supervisor);
 
     const executable = b.addExecutable(.{
-        .name = "cmux-zig-provider-controller",
+        .name = "cmux-zig-session-supervisor",
         .root_module = executable_module,
         .version = std.SemanticVersion.parse("0.1.0") catch unreachable,
     });
@@ -34,7 +34,7 @@ pub fn build(b: *std.Build) void {
 
     const run_executable = b.addRunArtifact(executable);
     if (b.args) |args| run_executable.addArgs(args);
-    const run_step = b.step("run", "Run the provider controller");
+    const run_step = b.step("run", "Run the session supervisor");
     run_step.dependOn(&run_executable.step);
 
     const tests_module = b.createModule(.{
@@ -43,9 +43,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     tests_module.addImport("cmux_tui", cmux_tui);
-    tests_module.addImport("provider_controller", provider_controller);
+    tests_module.addImport("session_supervisor", session_supervisor);
     const tests = b.addTest(.{
-        .name = "cmux-zig-provider-controller-tests",
+        .name = "cmux-zig-session-supervisor-tests",
         .root_module = tests_module,
     });
     const run_tests = b.addRunArtifact(tests);

@@ -5828,7 +5828,7 @@ impl RenderClientState {
 
 fn browser_state_json(
     surface: SurfaceId,
-    state: &crate::BrowserAttachState,
+    state: &BrowserAttachState,
     include_frame: bool,
 ) -> Value {
     let mut value = json!({
@@ -8602,7 +8602,7 @@ mod tests {
 
     #[test]
     fn browser_state_serializes_css_and_encoded_image_dimensions() {
-        let state = crate::BrowserAttachState {
+        let state = BrowserAttachState {
             url: "https://example.com".to_string(),
             title: "Example".to_string(),
             cols: 80,
