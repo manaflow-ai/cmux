@@ -487,6 +487,42 @@ struct ApplicationSurfaceTests {
         panel.close()
     }
 
+    @Test func leavingCanvasRestoresSplitCaptureEligibility() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let view = panel.captureView(windowID: 42, processID: 43)
+        panel.setCaptureVisibleInUI(true, view: view)
+        let container = NSView()
+        let mount = CanvasPaneContentMount(
+            content: .hosted(
+                panel,
+                view,
+                CanvasHostedPanelPresentation(
+                    isFocused: false,
+                    allowsPointerInput: true,
+                    pointerInputOwner: view
+                )
+            ),
+            panelId: panel.id,
+            container: container,
+            onFocusPanel: { _ in }
+        )
+
+        mount.setRendering(false)
+        #expect(!panel.captureEligibleForCurrentVisibility)
+
+        mount.unmount()
+        #expect(panel.captureEligibleForCurrentVisibility)
+        panel.close()
+    }
+
     @Test func hiddenApplicationCaptureReportsSuspendedHealth() {
         let runtime = FakeApplicationSurfaceRuntime()
         let panel = ApplicationPanel(

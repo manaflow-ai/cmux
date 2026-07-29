@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxControlSocket
 import CmuxFoundation
 import CmuxSettings
 import CmuxTerminal
@@ -1754,6 +1755,62 @@ struct ComputerUseUXTests {
 
         #expect(parsed.sessionID == "orphaned-session")
         #expect(parsed.descriptor == nil)
+    }
+
+    @Test
+    func applicationSurfaceHealthDoesNotShareTheInputConnection() {
+        let inputConnection = PersistentSocketLineConnection()
+
+        #expect(
+            ComputerUseRuntimeService.applicationSurfacePersistentConnection(
+                for: .health,
+                inputConnection: inputConnection
+            ) == nil
+        )
+        #expect(
+            ComputerUseRuntimeService.applicationSurfacePersistentConnection(
+                for: .input,
+                inputConnection: inputConnection
+            ) === inputConnection
+        )
+    }
+
+    @Test
+    func applicationWindowDescriptorsRejectUnsafeDimensions() {
+        let valid: [String: Any] = [
+            "window_id": NSNumber(value: 42),
+            "process_id": NSNumber(value: 43),
+            "owner": "Dictionary",
+            "title": "Dictionary",
+            "width": NSNumber(value: 800.5),
+            "height": NSNumber(value: 600.5),
+        ]
+
+        #expect(
+            ComputerUseRuntimeService.applicationWindowDescriptor(valid)
+                == ApplicationWindowDescriptor(
+                    windowID: 42,
+                    processID: 43,
+                    owner: "Dictionary",
+                    title: "Dictionary",
+                    width: 800.5,
+                    height: 600.5
+                )
+        )
+        for unsafeDimension in [
+            -1.0,
+            0.0,
+            Double.nan,
+            Double.infinity,
+            1e300,
+        ] {
+            var invalid = valid
+            invalid["width"] = NSNumber(value: unsafeDimension)
+            #expect(
+                ComputerUseRuntimeService
+                    .applicationWindowDescriptor(invalid) == nil
+            )
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
