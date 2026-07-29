@@ -241,14 +241,18 @@ final class WorkspaceTerminalFontSizeCoordinator {
             TerminalFontSizeLineageSelection()
         var didParticipateWindowDock = false
         var remainingRequestTokens: Set<UUID> = []
+        let deferredProjectionToken: UUID?
         let windowDockTransferToken = UUID()
         let workspaceTransferToken = UUID()
 
         init(
             configuration:
-                WorkspaceTerminalFontConfigurationSnapshot
+                WorkspaceTerminalFontConfigurationSnapshot,
+            deferredProjectionToken: UUID? = nil
         ) {
             self.configuration = configuration
+            self.deferredProjectionToken =
+                deferredProjectionToken
         }
     }
 
@@ -937,6 +941,7 @@ final class WorkspaceTerminalFontSizeCoordinator {
     private var activeBatchLineages:
         [ObjectIdentifier: EventBatchLineage] = [:]
     private var activeTransferRequestTokens: Set<UUID> = []
+    private var activeDeferredProjectionTokens: Set<UUID> = []
     private var isDraining = false
     private var mutationRetryDisposition:
         MutationRetryDisposition = .ready
@@ -1507,6 +1512,23 @@ final class WorkspaceTerminalFontSizeCoordinator {
         for request: PendingRequest
     ) -> WorkspaceTerminalFontSizeSnapshotProjection.Intent {
         let configuration = request.batchLineage.configuration
+        if let token =
+                request.batchLineage
+                    .deferredProjectionToken {
+            return WorkspaceTerminalFontSizeSnapshotProjection
+                .Intent(
+                    acceptedOrder: request.acceptedOrder,
+                    requestSequence: request.sequence,
+                    requestToken: token,
+                    requestTransferToken: token,
+                    counterpartTransferToken: token,
+                    change: request.change,
+                    configuredRuntimePoints:
+                        configuration.configuredRuntimePoints,
+                    magnificationPercent:
+                        configuration.magnificationPercent
+                )
+        }
         return WorkspaceTerminalFontSizeSnapshotProjection.Intent(
             acceptedOrder: request.acceptedOrder,
             requestSequence: request.sequence,
@@ -1736,10 +1758,16 @@ final class WorkspaceTerminalFontSizeCoordinator {
         workspaceId: UUID,
         workspaceReference: WeakWorkspaceReference,
         windowDockSlot: WindowDockSlot,
-        acceptedOrder: UInt64
+        acceptedOrder: UInt64,
+        deferredProjectionToken: UUID? = nil
     ) -> Bool {
+        let mustStartNewBatch =
+            deferredProjectionToken != nil
+            || pendingEventBatch?.lineage
+                .deferredProjectionToken != nil
         let additionalRequestCount: Int
-        if let pendingEventBatch,
+        if !mustStartNewBatch,
+           let pendingEventBatch,
            pendingEventBatch.windowDockSlotIdentity
                 == ObjectIdentifier(windowDockSlot) {
             additionalRequestCount =
@@ -1755,6 +1783,9 @@ final class WorkspaceTerminalFontSizeCoordinator {
         }
 
         retainWhileOutstanding()
+        if mustStartNewBatch {
+            sealPendingEventBatch()
+        }
         let windowDockSlotIdentity = ObjectIdentifier(windowDockSlot)
         if let pendingEventBatch,
            pendingEventBatch.windowDockSlotIdentity
@@ -1767,7 +1798,12 @@ final class WorkspaceTerminalFontSizeCoordinator {
             pendingEventBatch = batch
         } else {
             let lineage = EventBatchLineage(
-                configuration: configurationSnapshot()
+                configuration: configurationSnapshot(),
+                deferredProjectionToken:
+                    deferredProjectionToken
+            )
+            activateDeferredProjectionTokenIfNeeded(
+                for: lineage
             )
             nextRequestSequence += 1
             let windowDockRequest = PendingRequest(
@@ -1823,7 +1859,8 @@ final class WorkspaceTerminalFontSizeCoordinator {
         _ change: WorkspaceTerminalFontSizeChange,
         workspaceId: UUID,
         workspaceReference: WeakWorkspaceReference,
-        acceptedOrder: UInt64
+        acceptedOrder: UInt64,
+        deferredProjectionToken: UUID? = nil
     ) -> Bool {
         guard outstandingRequestCount + 1
                 <= maximumOutstandingRequestCount else {
@@ -1833,8 +1870,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
         retainWhileOutstanding()
         sealPendingEventBatch()
         let lineage = EventBatchLineage(
-            configuration: configurationSnapshot()
+            configuration: configurationSnapshot(),
+            deferredProjectionToken:
+                deferredProjectionToken
         )
+        activateDeferredProjectionTokenIfNeeded(for: lineage)
         nextRequestSequence += 1
         let request = PendingRequest(
             token: UUID(),
@@ -1925,6 +1965,21 @@ final class WorkspaceTerminalFontSizeCoordinator {
             windowDockResourceKeys[ObjectIdentifier(dock)] =
                 request.resourceKey
         }
+    }
+
+    private func activateDeferredProjectionTokenIfNeeded(
+        for lineage: EventBatchLineage
+    ) {
+        guard let token =
+                lineage.deferredProjectionToken else {
+            return
+        }
+        precondition(
+            activeDeferredProjectionTokens.insert(token)
+                .inserted
+        )
+        TerminalSurface
+            .activateFontSizeChangeReconciliationToken(token)
     }
 
     private func popPendingRequest() -> PendingRequest? {
@@ -2625,6 +2680,11 @@ final class WorkspaceTerminalFontSizeCoordinator {
             || terminalPanel.surface.hasAppliedFontSizeChange(
                 token: counterpartTransferToken(for: request)
             )
+            || request.batchLineage
+                .deferredProjectionToken.map {
+                    terminalPanel.surface
+                        .hasAppliedFontSizeChange(token: $0)
+                } == true
     }
 
     /// Ghostty can update its logical font size before later native font work
@@ -2670,6 +2730,14 @@ final class WorkspaceTerminalFontSizeCoordinator {
         terminalPanel.surface.markFontSizeChangeReconciledForTransfer(
             token: requestTransferToken(for: request)
         )
+        if let token =
+                request.batchLineage
+                    .deferredProjectionToken {
+            terminalPanel.surface
+                .markFontSizeChangeReconciledForTransfer(
+                    token: token
+                )
+        }
     }
 
     private func recordTransferredChange(
@@ -2682,6 +2750,14 @@ final class WorkspaceTerminalFontSizeCoordinator {
         terminalPanel.surface.markFontSizeChangeReconciledForTransfer(
             token: requestTransferToken(for: request)
         )
+        if let token =
+                request.batchLineage
+                    .deferredProjectionToken {
+            terminalPanel.surface
+                .markFontSizeChangeReconciledForTransfer(
+                    token: token
+                )
+        }
     }
 
     private func clearAllTransferReconciliationMarks() {
@@ -2703,6 +2779,15 @@ final class WorkspaceTerminalFontSizeCoordinator {
             )
         }
         activeTransferRequestTokens.removeAll(keepingCapacity: false)
+        for token in activeDeferredProjectionTokens {
+            TerminalSurface
+                .clearFontSizeChangeReconciledForTransfer(
+                    token: token
+                )
+        }
+        activeDeferredProjectionTokens.removeAll(
+            keepingCapacity: false
+        )
         transferResourceStates.removeAll(keepingCapacity: false)
         windowDockResourceKeys.removeAll(keepingCapacity: false)
     }
@@ -2754,6 +2839,15 @@ final class WorkspaceTerminalFontSizeCoordinator {
         activeBatchLineages.removeValue(
             forKey: ObjectIdentifier(batchLineage)
         )
+        if let token =
+                batchLineage.deferredProjectionToken,
+           activeDeferredProjectionTokens.remove(token)
+                != nil {
+            TerminalSurface
+                .clearFontSizeChangeReconciledForTransfer(
+                    token: token
+                )
+        }
         TerminalSurface.clearFontSizeChangeReconciledForTransfer(
             token: batchLineage.windowDockTransferToken
         )

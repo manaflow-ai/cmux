@@ -518,14 +518,18 @@ final class WorkspaceTerminalFontSizeArbiter {
                     workspaceReference:
                         join.workspaceReference,
                     windowDockSlot: join.windowDockSlot,
-                    acceptedOrder: join.acceptedOrder
+                    acceptedOrder: join.acceptedOrder,
+                    deferredProjectionToken:
+                        join.projectionToken
                 )
                 : eventCoordinator.appendWorkspaceOnlyEvent(
                     join.change,
                     workspaceId: join.workspaceId,
                     workspaceReference:
                         join.workspaceReference,
-                    acceptedOrder: join.acceptedOrder
+                    acceptedOrder: join.acceptedOrder,
+                    deferredProjectionToken:
+                        join.projectionToken
                 )
             guard didAppend else {
                 eventCoordinator.scheduleOutstandingContinuation()

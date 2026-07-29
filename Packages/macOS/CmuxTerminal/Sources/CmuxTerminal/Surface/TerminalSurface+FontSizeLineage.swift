@@ -706,16 +706,19 @@ extension TerminalSurface {
 
     /// Finishes a reconciliation that exhausted its native retries.
     ///
-    /// The desired state was never committed. If the runtime remains live,
-    /// its observed post-config value becomes the fallback lineage so later
-    /// snapshots cannot reinterpret old points with the new magnification.
+    /// The desired state was never committed. A mobile viewport fit keeps the
+    /// captured durable target separate from its temporary live points.
+    /// Otherwise, an observed post-config value becomes the fallback lineage
+    /// so snapshots cannot reinterpret old points with new magnification.
     @MainActor
     public func abandonFontSizeConfigurationReloadReconciliation(
         from state: TerminalFontSizeConfigurationReloadState,
         magnificationPercent: Int
     ) {
-        guard pendingFontSizeConfigurationReloadState?
-                .transactionId == state.transactionId else {
+        guard let activeState =
+                pendingFontSizeConfigurationReloadState,
+              activeState.transactionId
+                == state.transactionId else {
             return
         }
         if let runtimeSurface = liveSurfaceForGhosttyAccess(
@@ -731,22 +734,44 @@ extension TerminalSurface {
             )
             let isExplicitOverride =
                 ghostty_surface_font_size_adjusted(runtimeSurface)
-            if var fitState = mobileViewportFontFitState {
-                fitState.rebase(to: runtimePoints)
-                mobileViewportFontFitState = fitState
-            }
-            followsConfiguredFontSize = !isExplicitOverride
-            recordCurrentFontSizeLineage(
-                TerminalFontSizeLineage(
-                    basePoints:
-                        CmuxSurfaceConfigTemplate.baseFontSize(
-                            fromRuntimePoints: runtimePoints,
-                            percent: magnificationPercent
-                        ),
-                    isExplicitOverride:
-                        isExplicitOverride
+            if var fitState = mobileViewportFontFitState,
+               let targetLineage =
+                    activeState.resolvedTargetLineage() {
+                let durableRuntimePoints =
+                    policy.clampedRuntimePoints(
+                        CmuxSurfaceConfigTemplate
+                            .runtimeFontSize(
+                                fromBasePoints:
+                                    targetLineage.basePoints,
+                                percent:
+                                    magnificationPercent
+                            )
+                    )
+                fitState.updateDurableBase(
+                    to: durableRuntimePoints
                 )
-            )
+                mobileViewportFontFitState = fitState
+                followsConfiguredFontSize =
+                    !targetLineage.isExplicitOverride
+                recordCurrentFontSizeLineage(targetLineage)
+            } else {
+                followsConfiguredFontSize =
+                    !isExplicitOverride
+                recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(
+                        basePoints:
+                            CmuxSurfaceConfigTemplate
+                                .baseFontSize(
+                                    fromRuntimePoints:
+                                        runtimePoints,
+                                    percent:
+                                        magnificationPercent
+                                ),
+                        isExplicitOverride:
+                            isExplicitOverride
+                    )
+                )
+            }
         }
         pendingFontSizeConfigurationReloadState = nil
         pendingFontSizeExplicitInputBaseline = nil
