@@ -122,6 +122,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reschedule per received event (an actively-streaming connection just keeps
     /// failing the silence check because `lastTerminalEventAt` stays fresh).
     private static let renderGridLivenessCheckInterval: TimeInterval = 2.5
+    /// An input ACK only reasserts the event subscription after this long
+    /// without an event, preserving lost-registration recovery without adding a
+    /// control-lane round trip to healthy continuous typing.
+    static let terminalInputAckResubscribeSilenceThreshold: TimeInterval = 2
     /// Short background dwells usually preserve the event stream; beyond this,
     /// the liveness watchdog and normal foreground resync own catch-up.
     static let foregroundResyncShortBackgroundThreshold: TimeInterval = 30
@@ -7614,7 +7618,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             pendingTerminalByteEndSeqBySurfaceID[surfaceID] = targetSeq
             MobileDebugLog.anchormux("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)")
-            refreshTerminalEventSubscription(reason: "input_seq_wait")
+            let now = runtime?.now() ?? Date()
+            if lastTerminalEventAt.map({
+                now.timeIntervalSince($0) >= Self.terminalInputAckResubscribeSilenceThreshold
+            }) ?? true {
+                refreshTerminalEventSubscription(reason: "input_seq_wait")
+            }
             return
         }
         MobileDebugLog.anchormux("sync.input_seq_behind surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
@@ -8052,6 +8061,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         }
                     }
                     self.recordTerminalRenderGridDelivery(renderGrid)
+                    self.recordTerminalRenderGridHistoryContinuity(renderGrid)
                     self.rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
                     // A delivered grid is progress even if the payload omitted
                     // its sequence; fall back to the frame's own sequence so

@@ -30,6 +30,16 @@ extension MobileShellComposite {
         }
     }
 
+    /// Record the screen-anchor history that the next live delta must link to.
+    func recordTerminalRenderGridHistoryContinuity(
+        _ renderGrid: MobileTerminalRenderGridFrame
+    ) {
+        guard renderGrid.anchor == .screen, let historyRows = renderGrid.historyRows else {
+            return
+        }
+        terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID] = historyRows
+    }
+
     private func renderGridEventDeliveryDecision(
         _ renderGrid: MobileTerminalRenderGridFrame,
         previous: MobileTerminalRenderGridFrame.Screen?
@@ -248,9 +258,7 @@ extension MobileShellComposite {
             endSeq: renderGrid.stateSeq,
             fullReplacement: renderGrid.full
         )
-        if renderGrid.anchor == .screen, let historyRows = renderGrid.historyRows {
-            terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID] = historyRows
-        }
+        recordTerminalRenderGridHistoryContinuity(renderGrid)
         if renderGrid.full, renderGrid.scrollbackRows > 0 {
             terminalMirrorHydrationNeededSurfaceIDs.remove(renderGrid.surfaceID)
         }
