@@ -19,6 +19,64 @@ private final class WildcardRecordingForget: MobileIrohMacForgetting {
     }
 }
 
+/// A store double whose cross-team enumeration fails, modeling a read error
+/// during wildcard cleanup. Everything else forwards to the wrapped store.
+private struct EnumerationFailingStore: MobilePairedMacStoring {
+    struct EnumerationError: Error {}
+    let inner: any MobilePairedMacStoring
+
+    func loadAllInstances(
+        macDeviceID _: String,
+        stackUserID _: String?
+    ) async throws -> [MobilePairedMac] {
+        throw EnumerationError()
+    }
+
+    func upsert(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws {
+        try await inner.upsert(macDeviceID: macDeviceID, displayName: displayName, routes: routes, instanceTag: instanceTag, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func upsertIfNewer(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?, customName: String?, customColor: String?, customIcon: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws -> Bool {
+        try await inner.upsertIfNewer(macDeviceID: macDeviceID, displayName: displayName, routes: routes, instanceTag: instanceTag, customName: customName, customColor: customColor, customIcon: customIcon, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func upsertRoutesIfAuthorized(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], condition: MobilePairedMacRouteWriteCondition, markActive: Bool?, stackUserID: String?, teamID: String?, now: Date) async throws -> Bool {
+        try await inner.upsertRoutesIfAuthorized(macDeviceID: macDeviceID, displayName: displayName, routes: routes, condition: condition, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+        try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        try await inner.activeMac(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await inner.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func clearActive(stackUserID: String?, teamID: String?) async throws {
+        try await inner.clearActive(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setCustomization(macDeviceID: String, customName: String?, customColor: String?, customIcon: String?, stackUserID: String?, teamID: String?, now: Date) async throws {
+        try await inner.setCustomization(macDeviceID: macDeviceID, customName: customName, customColor: customColor, customIcon: customIcon, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func remove(macDeviceID: String, instanceTag: String?, stackUserID: String?, teamID: String?) async throws {
+        try await inner.remove(macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func removeAll() async throws {
+        try await inner.removeAll()
+    }
+}
+
 /// Regression coverage for the BREADTH of a forget.
 ///
 /// A row with no instance tag cannot name which broker binding is its own, so
@@ -292,6 +350,130 @@ private final class WildcardRecordingForget: MobileIrohMacForgetting {
         // binding was revoked account-wide and an offline Mac cannot self-heal.
         let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
         #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+    }
+
+    /// A wildcard forget's backup tombstones must flush as ONE request per
+    /// destination, not one request per deleted row. Each per-row flush is a
+    /// network round-trip whose failure burns a full request timeout, and a
+    /// device can carry up to the discovery snapshot's 256 bindings — per-row
+    /// flushing turns one tap into minutes of sequential requests after the
+    /// broker revoke loop already ran.
+    @Test func wildcardForgetFlushesTombstonesInOneRequestPerDestination() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // Three tagged siblings plus the untagged row, all in ONE team (their
+        // own team is the verified destination), seeded raw. Tagged first so
+        // the untagged upsert cannot be claimed.
+        for (index, tag) in ["one", "two", "three"].enumerated() {
+            try await base.upsert(
+                macDeviceID: "mac-a",
+                displayName: "Desk Mac (\(tag))",
+                routes: [try Self.route("100.82.214.11\(index + 3)")],
+                instanceTag: tag,
+                markActive: false,
+                stackUserID: "user-1",
+                teamID: "team-a",
+                now: Date(timeIntervalSince1970: TimeInterval(index + 1))
+            )
+        }
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 4)
+        )
+        let backup = FakeBackup()
+        let backingUp = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { "team-a" }
+        )
+        let forget = WildcardRecordingForget()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: backingUp,
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == nil
+        })
+
+        let ok = await store.forgetHiddenComputer(hidden)
+
+        #expect(ok)
+        // Every row of the device is gone...
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+        // ...and their four tombstones traveled in ONE request to the one
+        // destination, not one request per row.
+        let deleteBatches = await backup.uploadBatches().filter { batch in
+            batch.contains {
+                switch $0 {
+                case .delete, .deleteInstance: return true
+                default: return false
+                }
+            }
+        }
+        #expect(deleteBatches.count == 1)
+        #expect(deleteBatches.first?.count == 4)
+    }
+
+    /// A failed cross-team enumeration is a CLEANUP failure: the account-wide
+    /// revoke already succeeded, so silently claiming success would leave
+    /// sibling rows whose bindings are dead to reappear in another team or
+    /// restore. The forget must report failure so the user can retry.
+    @Test func wildcardForgetReportsFailureWhenSiblingEnumerationFails() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let forget = WildcardRecordingForget()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: EnumerationFailingStore(inner: base),
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { nil },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == nil
+        })
+
+        let ok = await store.forgetHiddenComputer(hidden)
+
+        #expect(!ok)
     }
 
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {

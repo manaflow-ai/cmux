@@ -42,6 +42,7 @@ actor FakeBackup: PairedMacBackingUp {
 
     func upload(ops: [PairedMacBackupOp], teamID: String?, expectedUserID: String?) async -> Bool {
         uploaded.append(contentsOf: ops)
+        uploadedBatches.append(ops)
         uploadedTeamIDs.append(teamID)
         uploadedExpectedUserIDs.append(expectedUserID)
         if failNextUploads > 0 {
@@ -50,6 +51,16 @@ actor FakeBackup: PairedMacBackingUp {
         }
         return true
     }
+
+    /// Every `upload` invocation's ops, one entry per network request, so a
+    /// test can count round-trips (not just total ops).
+    private(set) var uploadedBatches: [[PairedMacBackupOp]] = []
+
+    func uploadBatches() -> [[PairedMacBackupOp]] { uploadedBatches }
+
+    /// Arm upload failures after construction (e.g. for the forget that follows
+    /// a successful seeding upload).
+    func setFailNextUploads(_ count: Int) { failNextUploads = count }
 
     /// The team the fake "server" reports it stored a successful upload under,
     /// mirroring the presence worker's echo of its verified resolved team. When

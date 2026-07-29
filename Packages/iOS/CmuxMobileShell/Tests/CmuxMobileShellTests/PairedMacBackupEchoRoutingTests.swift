@@ -200,6 +200,92 @@ import Testing
         #expect(teams[deleteIndex] == "do-team-a")
     }
 
+    /// A pending tombstone must be visible to restores of its DESTINATION
+    /// scope: while its upload is still pending, a restore of the team that
+    /// actually holds the record must both suppress the record (no resurrect)
+    /// and retry the flush. Keying the intent by the row's LOCAL scope instead
+    /// left a team-less row's tombstone under the nil-team scope, where a
+    /// team-A restore never saw it — so the forgotten Mac came straight back on
+    /// the next team-A restore, and the retry never ran.
+    @Test func pendingTombstoneSuppressesRestoreOfItsDestinationScope() async throws {
+        final class TeamBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var stored: String?
+            var value: String? {
+                get { lock.withLock { stored } }
+                set { lock.withLock { stored = newValue } }
+            }
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // The record still lives server-side (its delete has not landed yet).
+        let backup = FakeBackup(records: [
+            PairedMacBackupRecord(
+                macDeviceID: "mac-a",
+                displayName: "Desk Mac",
+                routes: [try Self.route("100.82.214.112")],
+                createdAt: 1_000,
+                lastSeenAt: 2_000,
+                isActive: false
+            ),
+        ])
+        await backup.setEchoedResolvedTeamID("team-a")
+        let team = TeamBox()
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { team.value }
+        )
+        // Pair team-less; the upload's echo records that the backup actually
+        // lives in team-a.
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        // The forget's flush fails, and so does the first destination retry:
+        // the tombstone stays pending across both.
+        await backup.setFailNextUploads(2)
+        try await store.removeExactScope(
+            macDeviceID: "mac-a",
+            instanceTag: nil,
+            stackUserID: "user-1",
+            teamID: nil
+        )
+
+        // The user now works in team-a — the team whose backup holds the
+        // record. Its restore must NOT bring the forgotten Mac back.
+        team.value = "team-a"
+        let restored = try await store.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!restored.contains { $0.macDeviceID == "mac-a" })
+
+        // And a later read under the destination retries the flush.
+        _ = try await store.loadAll(stackUserID: "user-1", teamID: nil)
+        let deleteBatchIndex = (await backup.uploadBatches()).lastIndex { batch in
+            batch.contains {
+                switch $0 {
+                case .delete(let id), .deleteInstance(let id, _): return id == "mac-a"
+                default: return false
+                }
+            }
+        }
+        let teams = await backup.uploadTeams()
+        #expect(deleteBatchIndex != nil)
+        if let deleteBatchIndex {
+            #expect(teams[deleteBatchIndex] == "team-a")
+        }
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }

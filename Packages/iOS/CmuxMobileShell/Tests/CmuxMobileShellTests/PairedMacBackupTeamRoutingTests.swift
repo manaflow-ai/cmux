@@ -17,20 +17,18 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
 
 /// Regression coverage for the backup-team routing of a forget.
 ///
-/// A row's backup tombstone must route to the SAME team scope its backup was
-/// uploaded under: the row's own stamped `team_id` (nil for a team-less row).
-/// `upsert` resolves and stamps one team, then uploads the record under exactly
-/// that team, so the row's own team is the only client-side value tied to where
-/// the backup lives. The display team is NOT: a team-less row is visible under
-/// every selected team (legacy visibility), so the team it happens to be shown
-/// under when forgotten is arbitrary. Routing the tombstone there desynchronizes
-/// the pending-delete outbox from the row's own scope — a restore under the
-/// row's real (team-less) scope does not see the tombstone and can resurrect the
-/// forgotten row — and can delete a same-device record from an unrelated team's
-/// backup while the row's actual backup survives.
+/// A tombstone's destination is correctness-critical: sent to the wrong team's
+/// backup it deletes an unrelated same-pairing record there while the real
+/// backup survives to resurrect the forgotten Mac. A team-less row shown under
+/// a selected team (legacy visibility) proves nothing about where its backup
+/// lives — the display team is arbitrary — and a nil team is not sendable
+/// either, because the server resolves nil from its CURRENT account state,
+/// which can differ from where the record was stored. With no VERIFIED
+/// destination (no persisted upload/restore echo), the tombstone must be
+/// PARKED, and it flushes only once an echo recovers the real destination.
 @MainActor
 @Suite struct PairedMacBackupTeamRoutingTests {
-    @Test func forgetRoutesBackupTombstoneToRowOwnTeamScopeNotDisplayTeam() async throws {
+    @Test func unmappedTeamlessTombstoneParksUntilItsDestinationIsVerified() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -38,8 +36,8 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         let base = try MobilePairedMacStore(
             databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
         )
-        // A team-less local row, exactly as `upsert` stamps one when no team was
-        // selected at pairing time. Its backup was uploaded under `teamID: nil`.
+        // A team-less local row seeded RAW (no upload ever echoed a destination
+        // for it — the pre-echo population).
         try await base.upsert(
             macDeviceID: "mac-a",
             displayName: "Desk Mac",
@@ -78,19 +76,16 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
         #expect(!remaining.contains { $0.macDeviceID == "mac-a" && $0.teamID == nil })
 
-        // The backup tombstone must go out under the row's OWN team scope (nil,
-        // matching its upload), NOT the team it was displayed under.
-        let ops = await backup.uploadedOps()
-        let teams = await backup.uploadTeams()
-        let deleteIndex = try #require(ops.firstIndex {
+        // No verified destination exists, so the tombstone must NOT have been
+        // uploaded anywhere: not to the display team, and never with a guessed
+        // nil team the server would re-resolve.
+        let deletesSent = await backup.uploadedOps().contains {
             switch $0 {
-            case .delete(let macDeviceID): return macDeviceID == "mac-a"
-            case .deleteInstance(let macDeviceID, _): return macDeviceID == "mac-a"
+            case .delete, .deleteInstance: return true
             default: return false
             }
-        })
-        #expect(teams.indices.contains(deleteIndex))
-        #expect(teams[deleteIndex] == nil)
+        }
+        #expect(!deletesSent)
     }
 
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
