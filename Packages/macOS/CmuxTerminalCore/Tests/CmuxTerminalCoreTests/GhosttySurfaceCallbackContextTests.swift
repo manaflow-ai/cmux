@@ -145,6 +145,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
                 _ = invalidationCount.advanceRelaxed()
             }
         ))
+        #expect(context.commitRuntimeClipboardRequest(17))
         #expect(context.attachRuntimeClipboardTask(task, requestID: 17))
         context.markRuntimeClipboardRequestAdmitted(17)
 
@@ -177,6 +178,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
                 _ = invalidationCount.advanceRelaxed()
             }
         ))
+        #expect(context.commitRuntimeClipboardRequest(23))
         #expect(context.completeRuntimeClipboardRequest(23))
 
         context.invalidateRuntimeClipboardRequests(
@@ -184,5 +186,95 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         )
 
         #expect(invalidationCount.loadRelaxed() == 0)
+    }
+
+    @Test @MainActor
+    func invalidatingUncommittedRequestLeavesNativeReclamationToCallback() {
+        let controller = FakeSurfaceController()
+        let host = FakeSurfaceHost()
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller
+        )
+        let completedNativeRequest = AtomicBooleanGate(true)
+
+        #expect(context.registerRuntimeClipboardRequest(
+            id: 31,
+            onInvalidation: { _, completesNativeRequest in
+                completedNativeRequest.storeRelease(completesNativeRequest)
+            }
+        ))
+
+        context.invalidateRuntimeClipboardRequests(
+            completingNativeRequests: true
+        )
+
+        #expect(!completedNativeRequest.loadAcquire())
+        #expect(!context.commitRuntimeClipboardRequest(31))
+    }
+
+    @Test @MainActor
+    func runtimeClipboardRegistrationKeepsItsBoundNativeSurface() throws {
+        let originalSurface = try #require(ghostty_surface_t(bitPattern: 0x3))
+        let replacementSurface = try #require(ghostty_surface_t(bitPattern: 0x4))
+        let replacementController = FakeSurfaceController(
+            runtimeSurfacePointer: replacementSurface
+        )
+        let host = FakeSurfaceHost(
+            attachedSurfaceController: replacementController
+        )
+        var originalController: FakeSurfaceController? = FakeSurfaceController(
+            runtimeSurfacePointer: originalSurface
+        )
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: originalController!
+        )
+        #expect(context.bindRuntimeClipboardSurface(originalSurface))
+        originalController = nil
+
+        var reservedAdmissionCount = 0
+        var invalidatedSurfaceAddress: UInt?
+        #expect(context.registerRuntimeClipboardRequest(
+            id: 37,
+            reserveAdmission: {
+                reservedAdmissionCount += 1
+            },
+            onInvalidation: { surfaceAddress, _, _ in
+                invalidatedSurfaceAddress = surfaceAddress
+            }
+        ))
+        #expect(context.commitRuntimeClipboardRequest(37))
+
+        context.invalidateRuntimeClipboardRequests(
+            completingNativeRequests: true
+        )
+
+        #expect(reservedAdmissionCount == 1)
+        #expect(invalidatedSurfaceAddress == UInt(bitPattern: originalSurface))
+    }
+
+    @Test @MainActor
+    func rejectedRuntimeClipboardRegistrationDoesNotReserveAdmission() {
+        let controller = FakeSurfaceController()
+        let host = FakeSurfaceHost()
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller
+        )
+        context.invalidateRuntimeClipboardRequests(
+            completingNativeRequests: false
+        )
+        var reservedAdmissionCount = 0
+
+        #expect(!context.registerRuntimeClipboardRequest(
+            id: 41,
+            reserveAdmission: {
+                reservedAdmissionCount += 1
+            },
+            onInvalidation: { _, _, _ in }
+        ))
+
+        #expect(reservedAdmissionCount == 0)
     }
 }

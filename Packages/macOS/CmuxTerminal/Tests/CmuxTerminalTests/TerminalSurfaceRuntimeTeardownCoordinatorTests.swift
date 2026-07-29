@@ -166,6 +166,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 )
             }
         ))
+        #expect(context.commitRuntimeClipboardRequest(29))
 
         coordinator.enqueueRuntimeTeardown(
             id: UUID(),
