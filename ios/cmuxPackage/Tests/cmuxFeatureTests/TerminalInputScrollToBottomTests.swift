@@ -71,9 +71,9 @@ struct TerminalInputScrollToBottomTests {
         view.renderedTextForTesting() ?? ""
     }
 
-    /// Seeds numbered scrollback and scrolls up until the last line leaves the
-    /// viewport, returning the marker text of the last (bottom) line.
-    private func seedAndScrollUp(_ view: GhosttySurfaceView) async throws -> String {
+    /// Seeds numbered scrollback at the live bottom, returning the marker text
+    /// of the last line.
+    private func seed(_ view: GhosttySurfaceView) async throws -> String {
         let lastLineMarker = "seed-line 300"
         var text = ""
         for i in 1...300 {
@@ -82,11 +82,20 @@ struct TerminalInputScrollToBottomTests {
         _ = await view.processOutputAndWait(Data(text.utf8))
         #expect(await waitUntil { viewportText(view).contains(lastLineMarker) },
                 "seeded output should land with the viewport at the bottom")
+        return lastLineMarker
+    }
 
+    /// Scrolls up until the supplied bottom marker leaves the viewport.
+    private func scrollUp(_ view: GhosttySurfaceView, past lastLineMarker: String) async {
         view.applyLocalScrollbackScroll(lines: 120, col: 2, row: 2)
         #expect(await waitUntil { !viewportText(view).contains(lastLineMarker) },
                 "scrolling up should move the last line out of the viewport")
-        return lastLineMarker
+    }
+
+    private func seedAndScrollUp(_ view: GhosttySurfaceView) async throws -> String {
+        let marker = try await seed(view)
+        await scrollUp(view, past: marker)
+        return marker
     }
 
     @Test("typing while scrolled up snaps the viewport back to the bottom")
@@ -118,6 +127,30 @@ struct TerminalInputScrollToBottomTests {
                 || viewportText(harness.view).contains("passive-tail")
         }
         #expect(!jumped, "passive output must not auto-follow while the user reads scrollback")
+    }
+
+    @Test("cursor is hidden while reviewing scrollback")
+    func cursorIsHiddenWhileScrolledUp() async throws {
+        let harness = try makeHarness()
+        defer { harness.view.prepareForDismantle() }
+
+        let marker = try await seed(harness.view)
+        #expect(
+            await waitUntil {
+                harness.view.updateCursorOverlay()
+                return harness.view.cursorOverlayLayer != nil
+            },
+            "the live cursor overlay should be mounted at the bottom"
+        )
+        let cursor = try #require(harness.view.cursorOverlayLayer)
+        #expect(!cursor.isHidden, "the live terminal cursor should be visible at the bottom")
+
+        await scrollUp(harness.view, past: marker)
+
+        #expect(
+            await waitUntil { cursor.isHidden },
+            "the live terminal cursor must not be drawn over historical rows while scrolled up"
+        )
     }
 }
 #endif
