@@ -849,6 +849,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn partial_mux_client_line_retains_budget_until_local_write_finishes() {
+        const MIN_FRAME_CHARGE: usize = 1024;
+
+        let line = vec![b'm'; cmux_remote_protocol::MAX_FRAME_PAYLOAD];
+        let packets = crate::mux_codec::encode_line(1, &line).unwrap();
+        assert_eq!(packets.len(), 2);
+        let incoming_budget = packets.iter().map(|packet| packet.len().max(MIN_FRAME_CHARGE)).sum();
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new_with_incoming_budget(
+            client_endpoint,
+            EndpointRole::Client,
+            incoming_budget,
+        );
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let mux = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let outgoing_mux = daemon.accept().await.unwrap().unwrap().stream;
+        let additional = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let additional_outgoing = daemon.accept().await.unwrap().unwrap().stream;
+        let (pump_socket, mut local_tui) = tokio::io::duplex(1);
+        let (reader, writer) = split(pump_socket);
+        let pump = tokio::spawn(pump_mux_client(Arc::new(mux), reader, writer, false));
+
+        for packet in packets {
+            outgoing_mux.send_on(Lane::Interactive, packet).await.unwrap();
+        }
+        let mut first_byte = [0_u8; 1];
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            local_tui.read_exact(&mut first_byte),
+        )
+        .await
+        .expect("assembled mux line never reached the blocked local writer")
+        .unwrap();
+        additional_outgoing
+            .send_on(Lane::Interactive, Bytes::from_static(b"budget-overflow"))
+            .await
+            .unwrap();
+
+        let result = tokio::time::timeout(std::time::Duration::from_secs(1), additional.receive())
+            .await
+            .expect("additional mux stream did not resolve");
+        assert!(
+            matches!(result, Err(ServiceError::Reset(ref message)) if message.contains("byte budget")),
+            "partial mux line released its incoming budget before the local write: {result:?}"
+        );
+
+        pump.abort();
+        let _ = pump.await;
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn forward_connection_limit_defers_additional_tunnel_opens() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();
         let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);

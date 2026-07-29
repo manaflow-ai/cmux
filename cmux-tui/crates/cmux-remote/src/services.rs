@@ -2521,6 +2521,63 @@ mod tests {
         assert_eq!(bulk_messages.read.lock().await.budgets.len(), 1);
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn partial_mux_server_line_retains_budget_until_local_write_finishes() {
+        const MIN_FRAME_CHARGE: usize = 1024;
+
+        let line = vec![b'm'; cmux_remote_protocol::MAX_FRAME_PAYLOAD];
+        let packets = crate::mux_codec::encode_line(1, &line).unwrap();
+        assert_eq!(packets.len(), 2);
+        let incoming_budget = packets.iter().map(|packet| packet.len().max(MIN_FRAME_CHARGE)).sum();
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new_with_incoming_budget(
+            daemon_endpoint,
+            EndpointRole::Daemon,
+            incoming_budget,
+        );
+        let mux = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let incoming_mux = daemon.accept().await.unwrap().unwrap();
+        let additional = client.open(Service::MuxControl, BTreeMap::new()).await.unwrap();
+        let additional_incoming = daemon.accept().await.unwrap().unwrap();
+        let (pump_socket, mut local_core) = tokio::io::duplex(1);
+        let (reader, writer) = tokio::io::split(pump_socket);
+        let pump = tokio::spawn(pump_mux_server(Arc::new(incoming_mux.stream), reader, writer));
+
+        for packet in packets {
+            mux.send_on(Lane::Interactive, packet).await.unwrap();
+        }
+        let mut first_byte = [0_u8; 1];
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            local_core.read_exact(&mut first_byte),
+        )
+        .await
+        .expect("assembled mux line never reached the blocked local writer")
+        .unwrap();
+        additional
+            .send_on(Lane::Interactive, Bytes::from_static(b"budget-overflow"))
+            .await
+            .unwrap();
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            additional_incoming.stream.receive(),
+        )
+        .await
+        .expect("additional mux stream did not resolve");
+        assert!(
+            matches!(result, Err(ServiceError::Reset(ref message)) if message.contains("byte budget")),
+            "partial mux line released its incoming budget before the local write: {result:?}"
+        );
+
+        pump.abort();
+        let _ = pump.await;
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
     #[tokio::test]
     async fn canceled_reserved_process_streams_do_not_exhaust_the_same_session() {
         const RESERVATION_LIMIT: u128 = 256;
