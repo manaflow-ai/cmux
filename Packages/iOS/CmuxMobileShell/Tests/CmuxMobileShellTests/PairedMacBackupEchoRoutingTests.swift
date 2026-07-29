@@ -286,6 +286,92 @@ import Testing
         }
     }
 
+    /// Reviving ONE team's row must clear only THAT row's pending tombstone.
+    /// The destination-keyed outbox can hold records with the same pairing id
+    /// for different local teams (the same pairing forgotten in team A and
+    /// team B, both backups in one destination); re-adding A's row must not
+    /// cancel B's still-pending deletion, or B's forgotten record survives in
+    /// the backup and restores later.
+    @Test func revivingOneTeamsRowKeepsAnotherTeamsPendingTombstone() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        final class TeamBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var stored: String?
+            var value: String? {
+                get { lock.withLock { stored } }
+                set { lock.withLock { stored = newValue } }
+            }
+        }
+        let backup = FakeBackup()
+        // Both teams' copies live in ONE destination collection.
+        await backup.setEchoedResolvedTeamID("do-x")
+        let team = TeamBox()
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { team.value }
+        )
+        for team in ["team-a", "team-b"] {
+            try await store.upsert(
+                macDeviceID: "mac-a",
+                displayName: "Desk Mac (\(team))",
+                routes: [try Self.route("100.82.214.112")],
+                instanceTag: nil,
+                markActive: false,
+                stackUserID: "user-1",
+                teamID: team,
+                now: Date(timeIntervalSince1970: 1)
+            )
+        }
+        // Forget BOTH rows; both tombstone flushes fail, leaving two pending
+        // records (same pairing, different local teams) under do-x.
+        await backup.setFailNextUploads(2)
+        for team in ["team-a", "team-b"] {
+            try await store.removeExactScope(
+                macDeviceID: "mac-a",
+                instanceTag: nil,
+                stackUserID: "user-1",
+                teamID: team
+            )
+        }
+
+        // The user re-pairs the Mac in team A. Only team A's tombstone may be
+        // cancelled by the revive.
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (team-a again)",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 2)
+        )
+        let batchesBeforeFlush = (await backup.uploadBatches()).count
+
+        // A read under the destination retries the flush: team B's tombstone
+        // must still be pending and go out now.
+        team.value = "do-x"
+        _ = try await store.loadAll(stackUserID: "user-1", teamID: nil)
+
+        let newBatches = (await backup.uploadBatches()).dropFirst(batchesBeforeFlush)
+        let deleteStillFlushed = newBatches.contains { batch in
+            batch.contains {
+                switch $0 {
+                case .delete(let id), .deleteInstance(let id, _): return id == "mac-a"
+                default: return false
+                }
+            }
+        }
+        #expect(deleteStillFlushed)
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }

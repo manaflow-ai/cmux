@@ -476,6 +476,79 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         #expect(!ok)
     }
 
+    /// A TAGGED forget's revoke is also account-wide for that (device, tag)
+    /// binding, and the local store allows the same tagged pairing under
+    /// several team scopes. Forgetting team A's row kills the binding team B's
+    /// identical-tag row uses, so B's row must be cleaned too — while a row
+    /// with a DIFFERENT tag keeps its own live binding and must survive.
+    @Test func tagExactForgetDeletesSameTagRowsInOtherTeamsOnly() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // The same tagged pairing in two teams, plus a different-tag row.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (feature, team A)",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: "feature",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (feature, team B)",
+            routes: [try Self.route("100.82.214.113")],
+            instanceTag: "feature",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-b",
+            now: Date(timeIntervalSince1970: 2)
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (other)",
+            routes: [try Self.route("100.82.214.114")],
+            instanceTag: "other",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 3)
+        )
+        let forget = WildcardRecordingForget()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: TeamScopedPairedMacStore(inner: base, teamIDProvider: { "team-a" }),
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: "feature")
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == "feature"
+        })
+
+        let ok = await store.forgetHiddenComputer(hidden)
+
+        #expect(ok)
+        // The revoke stayed tag-exact.
+        #expect(forget.revokes.count == 1)
+        #expect(forget.revokes.first?.instanceTag == "feature")
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        // Both teams' "feature" rows are gone: their shared binding is revoked.
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" && $0.instanceTag == "feature" })
+        // The different-tag row keeps its live binding and survives.
+        #expect(remaining.contains { $0.macDeviceID == "mac-a" && $0.instanceTag == "other" })
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }
