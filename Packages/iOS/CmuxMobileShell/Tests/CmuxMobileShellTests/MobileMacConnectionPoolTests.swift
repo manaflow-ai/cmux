@@ -563,14 +563,16 @@ import Testing
 
         let focus = try connectionParts("mac-focus")
         _ = registry.transitionToFocused(focus.connection)
-        var controls: [SecondaryMacSubscription] = []
+        var controls: [(
+            subscription: SecondaryMacSubscription,
+            connection: MacConnection
+        )] = []
         for index in 0 ..<
             MobileShellComposite.maximumWarmControlConnectionCount {
             let control = try connectionParts("mac-control-\(index)")
-                .subscription
             controls.append(control)
             #expect(registry.insertControlIfAbsent(
-                control,
+                control.subscription,
                 maximumControlCount:
                     MobileShellComposite.maximumWarmControlConnectionCount
             ))
@@ -592,19 +594,19 @@ import Testing
                 == MobileShellComposite.maximumWarmControlConnectionCount
         )
 
-        registry.controlSubscriptions["mac-control-0"] = nil
-        #expect(registry.transitionToControl(
-            focus.subscription,
-            replacing: focus.connection,
-            maximumControlCount:
-                MobileShellComposite.maximumWarmControlConnectionCount
+        #expect(registry.exchangePromotedControlForDemotedFocus(
+            promotedControl: controls[0].subscription,
+            demotedControl: focus.subscription,
+            replacing: focus.connection
         ))
+        _ = registry.transitionToFocused(controls[0].connection)
         #expect(
             registry.controlSubscriptions.count
                 == MobileShellComposite.maximumWarmControlConnectionCount
         )
+        #expect(registry.snapshots.filter { $0.role == .focused }.count == 1)
         for control in controls {
-            control.cancel()
+            control.subscription.cancel()
         }
         overflow.cancel()
         focus.subscription.cancel()
@@ -3481,6 +3483,12 @@ import Testing
         #expect(shell.secondaryMacSubscriptions["mac-a"]?.client === oldClient)
         #expect(shell.secondaryMacSubscriptions.count
             == MobileShellComposite.maximumWarmControlConnectionCount)
+        #expect(shell.liveMacConnections.filter {
+            $0.role == .focused
+        }.map(\.macDeviceID) == ["mac-b"])
+        #expect(shell.liveMacConnections.first {
+            $0.macDeviceID == "mac-a"
+        }?.role == .control)
         #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
         #expect(shell.workspacesByMac["mac-b"]?.status == .connected)
         #expect(shell.connections["mac-b"]?.supportedHostCapabilities

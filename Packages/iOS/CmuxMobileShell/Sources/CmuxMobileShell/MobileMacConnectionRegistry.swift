@@ -223,6 +223,35 @@ final class MobileMacConnectionRegistry {
         return true
     }
 
+    /// Vacate the control slot being promoted and demote the prepared focus in
+    /// one registry publication. The control count is unchanged, so a full
+    /// pool can switch focus without exposing two focused owners or exceeding
+    /// its resource cap.
+    func exchangePromotedControlForDemotedFocus(
+        promotedControl: SecondaryMacSubscription,
+        demotedControl: SecondaryMacSubscription,
+        replacing focusedConnection: MacConnection
+    ) -> Bool {
+        guard promotedControl.macDeviceID
+                != focusedConnection.macDeviceID,
+              case .control(let currentPromoted) =
+                entriesByMacDeviceID[promotedControl.macDeviceID],
+              currentPromoted === promotedControl,
+              case .focused(let currentFocused) =
+                entriesByMacDeviceID[focusedConnection.macDeviceID],
+              currentFocused.client === focusedConnection.client,
+              currentFocused.generation
+                == focusedConnection.generation else {
+            return false
+        }
+        var updated = entriesByMacDeviceID
+        updated[promotedControl.macDeviceID] = nil
+        updated[focusedConnection.macDeviceID] =
+            .control(demotedControl)
+        entriesByMacDeviceID = updated
+        return true
+    }
+
     /// Remove only the focused owner that the caller actually prepared.
     /// A newer focus generation, including one reusing the same client, is left
     /// untouched.

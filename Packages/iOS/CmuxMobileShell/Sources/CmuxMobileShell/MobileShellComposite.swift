@@ -7844,6 +7844,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    func exchangePromotedControlForDemotedFocus(
+        promotedControl: SecondaryMacSubscription,
+        demotedControl: SecondaryMacSubscription,
+        replacing focusedConnection: MacConnection
+    ) -> Bool {
+        macConnectionRegistry.exchangePromotedControlForDemotedFocus(
+            promotedControl: promotedControl,
+            demotedControl: demotedControl,
+            replacing: focusedConnection
+        )
+    }
+
     func isFocusedConnectionCurrent(_ connection: MacConnection) -> Bool {
         macConnectionRegistry.isFocused(ifMatching: connection)
     }

@@ -128,10 +128,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// Retire this client and await both its installed transport close and any
     /// transport factory admission that raced retirement. A cancellation-
     /// ignoring abandoned dial is handed to the shared route registry after a
-    /// bounded cleanup interval. The registry retains the exact cleanup task,
-    /// permits one recovery dial, and blocks further route admission while two
-    /// physical cleanups remain unresolved. Same-peer ownership transfers use
-    /// this stronger bounded boundary before allocating a replacement.
+    /// bounded cleanup interval. Installed transports retain that same global
+    /// lease until their exact close task finishes. The registry permits one
+    /// recovery dial and blocks further route admission while two physical
+    /// cleanups remain unresolved.
     public func disconnectAndWaitForTransportDrain() async {
         retire()
         await session.tearDown(error: .connectionClosed)

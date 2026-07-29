@@ -84,17 +84,7 @@ extension MobileShellComposite {
             Task { await connection.client.disconnect() }
             return
         }
-        let subscription = SecondaryMacSubscription(
-            macDeviceID: connection.macDeviceID,
-            client: connection.client,
-            route: connection.route,
-            ticket: connection.ticket,
-            storedInstanceTag: connection.storedInstanceTag,
-            authenticatedInstanceTag: connection.authenticatedInstanceTag,
-            supportedHostCapabilities: connection.supportedHostCapabilities,
-            actionCapabilities: connection.actionCapabilities,
-            displayName: connection.displayName
-        )
+        let subscription = makeControlSubscription(from: connection)
         guard transitionFocusedConnectionToControl(
             subscription,
             replacing: connection
@@ -106,7 +96,38 @@ extension MobileShellComposite {
             }
             return
         }
+        await activateDemotedControlConnection(
+            subscription,
+            from: connection
+        )
+    }
+
+    func makeControlSubscription(
+        from connection: MacConnection
+    ) -> SecondaryMacSubscription {
+        SecondaryMacSubscription(
+            macDeviceID: connection.macDeviceID,
+            client: connection.client,
+            route: connection.route,
+            ticket: connection.ticket,
+            storedInstanceTag: connection.storedInstanceTag,
+            authenticatedInstanceTag: connection.authenticatedInstanceTag,
+            supportedHostCapabilities: connection.supportedHostCapabilities,
+            actionCapabilities: connection.actionCapabilities,
+            displayName: connection.displayName
+        )
+    }
+
+    func activateDemotedControlConnection(
+        _ subscription: SecondaryMacSubscription,
+        from connection: MacConnection
+    ) async {
         focusedHandoffPreparedGenerations.remove(connection.generation)
+        guard secondaryMacSubscriptions[connection.macDeviceID]
+                === subscription,
+              !subscription.isTransitioningToFocus else {
+            return
+        }
         await connection.client.updateTransportSessionPurpose(
             .backgroundControl
         )
@@ -508,18 +529,45 @@ extension MobileShellComposite {
         let previousForegroundKey = foregroundMacKey
         sub.detachKeepingClient()
         let displayName = workspacesByMac[macID]?.displayName
+        var demotedForegroundSubscription: SecondaryMacSubscription?
         if let previousForegroundID,
            previousForegroundID != macID,
            let previousForegroundConnection {
             if previousForegroundCanStayWarm {
-                await installControlConnection(
+                let subscription = makeControlSubscription(
                     from: previousForegroundConnection
                 )
+                guard exchangePromotedControlForDemotedFocus(
+                    promotedControl: sub,
+                    demotedControl: subscription,
+                    replacing: previousForegroundConnection
+                ) else {
+                    if registryOwnsClient(
+                        of: previousForegroundConnection
+                    ) {
+                        subscription.detachKeepingClient()
+                    } else {
+                        subscription.cancel()
+                    }
+                    await retireSecondaryPromotionCandidate(
+                        sub,
+                        macDeviceID: macID
+                    )
+                    invalidateFocusedConnectionAfterAbortedHandoff(
+                        previousForegroundConnection
+                    )
+                    return false
+                }
+                focusedHandoffPreparedGenerations.remove(
+                    previousForegroundConnection.generation
+                )
+                demotedForegroundSubscription = subscription
             } else {
                 removeFocusedConnection(ifMatching: previousForegroundConnection)
             }
         }
-        guard secondaryMacSubscriptions[macID] === sub,
+        guard (demotedForegroundSubscription != nil
+                  || secondaryMacSubscriptions[macID] === sub),
               isCurrentMacSwitchAttempt(switchAttemptID) else {
             await retireSecondaryPromotionCandidate(
                 sub,
@@ -562,6 +610,15 @@ extension MobileShellComposite {
             actionCapabilities: sub.actionCapabilities
         )
         installFocusedConnection(promotedConnection)
+        if let previousForegroundConnection,
+           let demotedForegroundSubscription {
+            Task { @MainActor [weak self] in
+                await self?.activateDemotedControlConnection(
+                    demotedForegroundSubscription,
+                    from: previousForegroundConnection
+                )
+            }
+        }
         // Promotion reuses the live client without a fresh `mobile.host.status`
         // probe, so the previous foreground Mac's update hint would otherwise
         // survive the switch. Recompute against this Mac's capabilities; the

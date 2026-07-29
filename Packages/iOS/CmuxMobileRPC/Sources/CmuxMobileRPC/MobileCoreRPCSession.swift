@@ -71,6 +71,11 @@ actor MobileCoreRPCSession {
     // inspect the installed transport. Only this actor's production code can
     // replace it.
     private(set) var transport: (any CmxByteTransport)?
+    /// The global physical-resource lease stays live for the installed
+    /// transport's full lifetime. Teardown transfers it to the exact close
+    /// task, so a hanging installed close consumes the same bounded cleanup
+    /// budget as an abandoned connect.
+    private var installedConnectLease: MobileRPCConnectAttemptLease?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
@@ -96,7 +101,10 @@ actor MobileCoreRPCSession {
     private var activeWrite: ActiveWrite?
     private var transportCloseTask: Task<Void, Never>?
     private var transportCloseTaskID: UUID?
-    private var pendingTransportCloses: [any CmxByteTransport] = []
+    private var pendingTransportCloses: [(
+        transport: any CmxByteTransport,
+        lease: MobileRPCConnectAttemptLease?
+    )] = []
     var abandonedConnectionCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     init(
@@ -128,14 +136,39 @@ actor MobileCoreRPCSession {
     }
 
     deinit {
-        connectionTask?.task.cancel()
+        let connecting = connectionTask
+        connecting?.task.cancel()
+        let installedTransport = transport
+        let installedLease = installedConnectLease
+        let registry = connectAttemptRegistry
+        if let connecting {
+            Task.detached {
+                await registry.handOffPhysicalCleanup(
+                    lease: connecting.lease
+                ) {
+                    do {
+                        let candidate = try await connecting.task.value
+                        await candidate.close()
+                    } catch {
+                    }
+                }
+            }
+        }
+        if installedTransport != nil || installedLease != nil {
+            Task.detached {
+                await registry.handOffPhysicalCleanup(
+                    lease: installedLease
+                ) {
+                    await installedTransport?.close()
+                }
+            }
+        }
         readerTask?.cancel()
         independentEventPreparation?.task.cancel()
         independentEventReader?.task.cancel()
         activeWrite?.task.cancel()
         activeWrite?.cancelledRequestResolutionTask?.cancel()
         writerTask?.cancel()
-        transportCloseTask?.cancel()
         writeQueue?.finish()
     }
 
@@ -253,6 +286,8 @@ actor MobileCoreRPCSession {
         connecting?.task.cancel()
         connectionTask = nil
         installedConnectionID = nil
+        let installedLease = installedConnectLease
+        installedConnectLease = nil
         let transportToClose = transport
         transport = nil
         readerTask?.cancel()
@@ -263,7 +298,14 @@ actor MobileCoreRPCSession {
         independentEventReader = nil
         independentEventSubscriptionStreamIDs.removeAll()
         if let transportToClose {
-            enqueueTransportClose(transportToClose)
+            await enqueueTransportClose(
+                transportToClose,
+                lease: installedLease
+            )
+        } else {
+            await connectAttemptRegistry.finishConnect(
+                lease: installedLease
+            )
         }
         if let connecting { await abandonConnectionTask(connecting) }
         isTearingDown = false
@@ -555,8 +597,8 @@ actor MobileCoreRPCSession {
         writeQueue = continuation
         writerTask = nextWriterTask
         transport = candidate
+        installedConnectLease = connectLease
 
-        await connectAttemptRegistry.recordSuccessfulConnect(lease: connectLease)
         guard installedConnectionID == connectionID,
               transport != nil,
               !isTearingDown else {
@@ -983,25 +1025,37 @@ actor MobileCoreRPCSession {
 
     /// Serializes physical transport cleanup off this actor. Session state is
     /// already detached, so a hanging close cannot block the replacement dial.
-    private func enqueueTransportClose(_ transport: any CmxByteTransport) {
+    private func enqueueTransportClose(
+        _ transport: any CmxByteTransport,
+        lease: MobileRPCConnectAttemptLease?
+    ) async {
         guard transportCloseTask == nil else {
-            pendingTransportCloses.append(transport)
+            pendingTransportCloses.append((transport, lease))
             return
         }
         let taskID = UUID()
         transportCloseTaskID = taskID
-        transportCloseTask = Task.detached { [weak self] in
+        let closeTask = Task.detached { [weak self] in
             await transport.close()
             await self?.transportCloseDidFinish(taskID: taskID)
         }
+        transportCloseTask = closeTask
+        await connectAttemptRegistry.handOffPhysicalCleanup(
+            lease: lease
+        ) {
+            await closeTask.value
+        }
     }
 
-    private func transportCloseDidFinish(taskID: UUID) {
+    private func transportCloseDidFinish(taskID: UUID) async {
         guard transportCloseTaskID == taskID else { return }
         transportCloseTask = nil
         transportCloseTaskID = nil
         guard !pendingTransportCloses.isEmpty else { return }
-        let nextTransport = pendingTransportCloses.removeFirst()
-        enqueueTransportClose(nextTransport)
+        let next = pendingTransportCloses.removeFirst()
+        await enqueueTransportClose(
+            next.transport,
+            lease: next.lease
+        )
     }
 }

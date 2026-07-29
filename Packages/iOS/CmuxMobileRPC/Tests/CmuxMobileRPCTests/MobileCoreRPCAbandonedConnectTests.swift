@@ -426,7 +426,7 @@ import Testing
             Issue.record("Expected one recovery admission")
             return
         }
-        await registry.recordSuccessfulConnect(lease: recoveryLease)
+        await registry.finishConnect(lease: recoveryLease)
         guard case let .granted(laterLease) =
                 await registry.beginConnect(key: key) else {
             Issue.record("Expected later admission with one cleanup debt")
@@ -514,7 +514,7 @@ import Testing
         await registry.finishConnect(lease: otherLease)
         #expect(await registry.beginConnect(key: key) == .busy)
 
-        await registry.recordSuccessfulConnect(lease: firstLease)
+        await registry.finishConnect(lease: firstLease)
         guard case let .granted(nextLease) =
                 await registry.beginConnect(key: key) else {
             Issue.record("Expected released route admission")
@@ -723,6 +723,50 @@ import Testing
         for gate in cleanupGates.dropFirst() {
             await gate.release()
         }
+    }
+
+    @Test func installedTransportCloseRetainsPhysicalCleanupAdmission()
+        async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
+        let key = debugConnectAttemptKey(port: 58_987)
+        let transport = ReleasableConnectTransport(holdsClose: true)
+        await transport.releaseConnect()
+        let session = MobileCoreRPCSession(
+            connectAttemptKey: key,
+            connectAttemptRegistry: registry,
+            makeTransport: { transport }
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            id: "installed-close-admission"
+        )
+
+        _ = try await session.send(
+            payload: request,
+            requestID: "installed-close-admission",
+            deadlineUptimeNanoseconds:
+                DispatchTime.now().uptimeNanoseconds
+                + 60_000_000_000
+        )
+        #expect(await registry.beginConnect(key: key) == .busy)
+
+        await session.tearDown(error: .connectionClosed)
+        await transport.waitUntilCloseStarted()
+        guard case let .granted(recoveryLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected one recovery beside installed close")
+            await transport.releaseClose()
+            return
+        }
+        let secondCleanup = PhysicalCleanupGate()
+        await registry.handOffPhysicalCleanup(lease: recoveryLease) {
+            await secondCleanup.wait()
+        }
+        #expect(await registry.beginConnect(key: key) == .cleanupBlocked)
+
+        await transport.releaseClose()
+        await secondCleanup.release()
+        await session.waitForTransportDrain()
     }
 
     @Test func callerCancelledRPCClosesSlowConnectionBeforeSendingAuthenticatedRequest() async throws {

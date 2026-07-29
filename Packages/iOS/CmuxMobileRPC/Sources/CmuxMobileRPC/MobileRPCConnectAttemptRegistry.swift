@@ -1,15 +1,14 @@
 import Foundation
 
-/// Tracks connection attempts for one owner.
+/// Tracks physical connection resources for one shell owner.
 ///
-/// `MobileCoreRPCSession` instances are short-lived around pairing and route
-/// retries. This actor lets a larger owner, such as `MobileShellComposite`,
-/// reserve a route before connect starts and retain every physical cleanup task
-/// that outlives its session's bounded drain. Active admission and unresolved
-/// cleanup debt are independent identities, so a successful recovery cannot
-/// erase an older cleanup. One unresolved cleanup permits one recovery dial;
-/// two block the route until either exact cleanup finishes. A global admission
-/// budget also bounds cleanup debt across many distinct or anonymous routes.
+/// A session reserves before connect, keeps that lease while its transport is
+/// installed, and transfers the lease to any physical cleanup that outlives
+/// its bounded drain. Active sessions and unresolved cleanup debt are
+/// independent identities, so a successful recovery cannot erase an older
+/// cleanup. One unresolved cleanup permits one recovery dial; two block the
+/// route until either exact cleanup finishes. A global admission budget bounds
+/// live transports, active dials, and cleanup debt across all routes.
 public actor MobileRPCConnectAttemptRegistry {
     private static let maximumUnresolvedCleanupsPerRoute = 2
     private static let maximumGlobalOutstandingAttempts = 16
@@ -100,10 +99,6 @@ public actor MobileRPCConnectAttemptRegistry {
             )
         }
         routeStates[key] = state
-    }
-
-    func recordSuccessfulConnect(lease: MobileRPCConnectAttemptLease?) {
-        finishConnect(lease: lease)
     }
 
     private func physicalCleanupDidFinish(
