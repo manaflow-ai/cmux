@@ -99,8 +99,8 @@ struct SimulatorUIAutomationSessionTests {
         }
     }
 
-    @Test("Recording advances sequence and reset restarts it")
-    func sequenceReset() throws {
+    @Test("Recording and device reset preserve a monotonic sequence")
+    func sequenceRemainsMonotonicAcrossReset() throws {
         let session = SimulatorUIAutomationSession()
         #expect(try session.record(
             snapshot(),
@@ -118,7 +118,7 @@ struct SimulatorUIAutomationSessionTests {
             snapshot(),
             simulatorID: "SIM-2",
             capturedAtMilliseconds: 3
-        ).snapshot.sequence == 1)
+        ).snapshot.sequence == 3)
     }
 
     private func snapshot() -> SimulatorAccessibilitySnapshot {

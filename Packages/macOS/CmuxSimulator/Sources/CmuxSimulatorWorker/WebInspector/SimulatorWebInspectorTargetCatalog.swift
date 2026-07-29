@@ -10,6 +10,7 @@ struct SimulatorWebInspectorTargetCatalog {
     private var applications: [String: SimulatorWebInspectorApplication] = [:]
     private var listings: [String: [SimulatorWebInspectorTarget]] = [:]
     private var targetsByID: [String: SimulatorWebInspectorTarget] = [:]
+    private var provisionalEmptyListingIdentifiers: Set<String> = []
 
     var targets: [SimulatorWebInspectorTarget] {
         listings.values
@@ -34,6 +35,7 @@ struct SimulatorWebInspectorTargetCatalog {
         applications.removeAll()
         listings.removeAll()
         targetsByID.removeAll()
+        provisionalEmptyListingIdentifiers.removeAll()
     }
 
     @discardableResult
@@ -57,7 +59,10 @@ struct SimulatorWebInspectorTargetCatalog {
                 replacement[identifier] = application
             }
             let removed = Set(applications.keys).subtracting(replacement.keys)
-            for identifier in removed { removeListing(for: identifier) }
+            for identifier in removed {
+                removeListing(for: identifier)
+                provisionalEmptyListingIdentifiers.remove(identifier)
+            }
             guard applications != replacement || !removed.isEmpty else { return false }
             applications = replacement
             return true
@@ -72,6 +77,7 @@ struct SimulatorWebInspectorTargetCatalog {
                 identifier: identifier,
                 value: argument
             )
+            provisionalEmptyListingIdentifiers.remove(identifier)
             guard applications[identifier] != application else { return false }
             applications[identifier] = application
             return true
@@ -79,6 +85,7 @@ struct SimulatorWebInspectorTargetCatalog {
             guard let identifier = argument["WIRApplicationIdentifierKey"] as? String else {
                 return false
             }
+            provisionalEmptyListingIdentifiers.remove(identifier)
             let removedApplication = applications.removeValue(forKey: identifier) != nil
             let removedListing = removeListing(for: identifier)
             return removedApplication || removedListing
@@ -90,10 +97,17 @@ struct SimulatorWebInspectorTargetCatalog {
                 return removeListing(for: identifier)
             }
             let rawListing = argument["WIRListingKey"] as? [String: Any] ?? [:]
-            // WebKit emits provisional empty listings while a newly launched app
-            // is still publishing its pages. Application disconnect is the
-            // authoritative signal that its last published pages are gone.
-            guard !rawListing.isEmpty else { return false }
+            if rawListing.isEmpty {
+                if provisionalEmptyListingIdentifiers.remove(identifier) != nil {
+                    return removeListing(for: identifier)
+                }
+                // WebKit can emit one provisional empty listing while a newly
+                // launched app is still publishing pages. A repeated empty or
+                // a census-requested empty is authoritative.
+                provisionalEmptyListingIdentifiers.insert(identifier)
+                return false
+            }
+            provisionalEmptyListingIdentifiers.remove(identifier)
             let retainedTargets = listings.lazy
                 .filter { $0.key != identifier }
                 .flatMap(\.value)
@@ -137,6 +151,10 @@ struct SimulatorWebInspectorTargetCatalog {
 
     func target(id: String) -> SimulatorWebInspectorTarget? {
         targetsByID[id]
+    }
+
+    func needsEmptyListingConfirmation(for identifier: String) -> Bool {
+        provisionalEmptyListingIdentifiers.contains(identifier)
     }
 
     func target(selector: String) -> SimulatorWebInspectorTarget? {

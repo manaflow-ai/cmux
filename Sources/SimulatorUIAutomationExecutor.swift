@@ -6,6 +6,11 @@ import Foundation
 /// Executes serialized UI automation against one Simulator pane coordinator.
 @MainActor
 struct SimulatorUIAutomationExecutor {
+    private struct ActionPreflight {
+        let sourceRecord: SimulatorUIAutomationSnapshotRecord?
+        let previousScreenHash: String?
+    }
+
     private let timing: any SimulatorUIAutomationTiming
 
     init(
@@ -128,22 +133,22 @@ struct SimulatorUIAutomationExecutor {
         _ action: ControlSimulatorUIAction,
         coordinator: SimulatorPaneCoordinator
     ) async throws -> JSONValue {
-        let previousScreenHash = try await preflightSimulatorUIAction(
+        let preflight = try await preflightSimulatorUIAction(
             action,
             coordinator: coordinator
         )
+        let previousScreenHash = preflight.previousScreenHash
         let actionPayload: [String: JSONValue]
         var postActionSettleDelayMilliseconds = 0
         switch action {
-        case let .tap(elementRef, preDelayMilliseconds, postDelayMilliseconds):
+        case let .tap(elementRef, _, postDelayMilliseconds):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
+            let record = try simulatorUIActionSourceRecord(preflight)
             let target = try resolveSimulatorUIElement(
                 ref: elementRef,
                 requiredActions: [.tap],
-                coordinator: coordinator
+                record: record
             )
-            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
-            try await simulatorUIDelay(preDelayMilliseconds)
             try await performSimulatorUITap(
                 target,
                 snapshotDisplay: record.display,
@@ -158,12 +163,12 @@ struct SimulatorUIAutomationExecutor {
             ]
         case let .touch(elementRef, down, up, delayMilliseconds):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
+            let record = try simulatorUIActionSourceRecord(preflight)
             let target = try resolveSimulatorUIElement(
                 ref: elementRef,
                 requiredActions: [.touch],
-                coordinator: coordinator
+                record: record
             )
-            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
             let events = try simulatorUITouchEvents(
                 point: target.activationPoint,
                 down: down,
@@ -185,15 +190,15 @@ struct SimulatorUIAutomationExecutor {
             ]
         case let .swipe(
             elementRef, rawDirection, durationMilliseconds, distance, steps,
-            preDelayMilliseconds, postDelayMilliseconds
+            _, postDelayMilliseconds
         ):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
+            let record = try simulatorUIActionSourceRecord(preflight)
             let target = try resolveSimulatorUIElement(
                 ref: elementRef,
                 requiredActions: [.swipeWithin],
-                coordinator: coordinator
+                record: record
             )
-            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
             let direction = try simulatorUIDirection(rawDirection)
             guard let points = record.swipePoints(
                 elementRef: elementRef,
@@ -202,7 +207,6 @@ struct SimulatorUIAutomationExecutor {
             ) else {
                 throw simulatorUITargetNotActionable(elementRef)
             }
-            try await simulatorUIDelay(preDelayMilliseconds)
             try await performSimulatorUITimedGesture(
                 points: points,
                 edge: .none,
@@ -222,15 +226,15 @@ struct SimulatorUIAutomationExecutor {
             )
         case let .drag(
             elementRef, rawDirection, durationMilliseconds, distance, steps,
-            preDelayMilliseconds, postDelayMilliseconds
+            _, postDelayMilliseconds
         ):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
+            let record = try simulatorUIActionSourceRecord(preflight)
             let target = try resolveSimulatorUIElement(
                 ref: elementRef,
                 requiredActions: [.touch, .swipeWithin],
-                coordinator: coordinator
+                record: record
             )
-            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
             let direction = try simulatorUIDirection(rawDirection)
             guard let points = record.dragPoints(
                 elementRef: elementRef,
@@ -239,7 +243,6 @@ struct SimulatorUIAutomationExecutor {
             ) else {
                 throw simulatorUITargetNotActionable(elementRef)
             }
-            try await simulatorUIDelay(preDelayMilliseconds)
             try await performSimulatorUITimedGesture(
                 points: points,
                 edge: .none,
@@ -259,12 +262,12 @@ struct SimulatorUIAutomationExecutor {
             )
         case let .longPress(elementRef, durationMilliseconds):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
+            let record = try simulatorUIActionSourceRecord(preflight)
             let target = try resolveSimulatorUIElement(
                 ref: elementRef,
                 requiredActions: [.longPress],
-                coordinator: coordinator
+                record: record
             )
-            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
             let events = try simulatorUITouchEvents(
                 point: target.activationPoint,
                 down: true,
@@ -286,12 +289,12 @@ struct SimulatorUIAutomationExecutor {
         case let .typeText(elementRef, text, replaceExisting):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
             try requireSimulatorCapability(.keyboard, coordinator: coordinator)
+            let record = try simulatorUIActionSourceRecord(preflight)
             let target = try resolveSimulatorUIElement(
                 ref: elementRef,
                 requiredActions: [.typeText],
-                coordinator: coordinator
+                record: record
             )
-            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
             let sequence: SimulatorTextInputSequence
             do {
                 sequence = try SimulatorUSKeyboardTextEncoder().encode(text)
@@ -372,14 +375,13 @@ struct SimulatorUIAutomationExecutor {
             postActionSettleDelayMilliseconds = 750
         case let .gesturePreset(
             preset, durationMilliseconds, distance, steps,
-            preDelayMilliseconds, postDelayMilliseconds
+            _, postDelayMilliseconds
         ):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
             let (points, edge) = try simulatorUIGesturePreset(
                 preset,
                 distance: distance
             )
-            try await simulatorUIDelay(preDelayMilliseconds)
             let snapshotDisplay = coordinator.display
             try await performSimulatorUITimedGesture(
                 points: points,
@@ -399,19 +401,24 @@ struct SimulatorUIAutomationExecutor {
             ]
         case let .batch(steps):
             try requireSimulatorCapability(.touch, coordinator: coordinator)
-            let record = try currentSimulatorUISnapshot(coordinator: coordinator)
+            let record = try simulatorUIActionSourceRecord(preflight)
             let targets = try steps.map { step in
                 (
                     step,
                     try resolveSimulatorUIElement(
                         ref: step.elementRef,
                         requiredActions: [.tap],
-                        coordinator: coordinator
+                        record: record
                     )
                 )
             }
             for (step, target) in targets {
                 try await simulatorUIDelay(step.preDelayMilliseconds)
+                try await revalidateSimulatorUIRecord(
+                    record,
+                    elementRef: step.elementRef,
+                    coordinator: coordinator
+                )
                 try await performSimulatorUITap(
                     target,
                     snapshotDisplay: record.display,
@@ -467,12 +474,16 @@ struct SimulatorUIAutomationExecutor {
     private func preflightSimulatorUIAction(
         _ action: ControlSimulatorUIAction,
         coordinator: SimulatorPaneCoordinator
-    ) async throws -> String? {
+    ) async throws -> ActionPreflight {
+        try await simulatorUIDelay(simulatorUIPreActionDelayMilliseconds(action))
         let elementRefs = simulatorUIElementRefs(in: action)
         guard !elementRefs.isEmpty else {
-            return try? coordinator.currentUIAutomationSnapshot(
-                nowMilliseconds: simulatorUINowMilliseconds()
-            ).snapshot.screenHash
+            return ActionPreflight(
+                sourceRecord: nil,
+                previousScreenHash: try? coordinator.currentUIAutomationSnapshot(
+                    nowMilliseconds: simulatorUINowMilliseconds()
+                ).snapshot.screenHash
+            )
         }
 
         let current = try currentSimulatorUISnapshot(coordinator: coordinator)
@@ -481,14 +492,60 @@ struct SimulatorUIAutomationExecutor {
                 SimulatorUIAutomationReferenceError.elementRefNotFound(elementRef)
             )
         }
+        if case .batch = action {
+            return ActionPreflight(
+                sourceRecord: current,
+                previousScreenHash: current.snapshot.screenHash
+            )
+        }
+        try await revalidateSimulatorUIRecord(
+            current,
+            elementRef: elementRefs.first,
+            coordinator: coordinator
+        )
+        return ActionPreflight(
+            sourceRecord: current,
+            previousScreenHash: current.snapshot.screenHash
+        )
+    }
+
+    private func revalidateSimulatorUIRecord(
+        _ sourceRecord: SimulatorUIAutomationSnapshotRecord,
+        elementRef: String?,
+        coordinator: SimulatorPaneCoordinator
+    ) async throws {
         let refreshed = try await captureSimulatorUIAutomationSnapshot(
             coordinator: coordinator,
             retryingUntil: simulatorUINowMilliseconds() + 2_500
         )
-        guard refreshed.snapshot.screenHash == current.snapshot.screenHash else {
-            throw simulatorUIStateChangedFailure(elementRef: elementRefs.first)
+        guard refreshed.snapshot.screenHash == sourceRecord.snapshot.screenHash else {
+            throw simulatorUIStateChangedFailure(elementRef: elementRef)
         }
-        return current.snapshot.screenHash
+    }
+
+    private func simulatorUIPreActionDelayMilliseconds(
+        _ action: ControlSimulatorUIAction
+    ) -> Int {
+        switch action {
+        case let .tap(_, preDelayMilliseconds, _),
+             let .swipe(_, _, _, _, _, preDelayMilliseconds, _),
+             let .drag(_, _, _, _, _, preDelayMilliseconds, _),
+             let .gesturePreset(_, _, _, _, preDelayMilliseconds, _):
+            return preDelayMilliseconds
+        case .touch, .longPress, .typeText, .keyPress, .keySequence, .button, .batch:
+            return 0
+        }
+    }
+
+    private func simulatorUIActionSourceRecord(
+        _ preflight: ActionPreflight
+    ) throws -> SimulatorUIAutomationSnapshotRecord {
+        guard let sourceRecord = preflight.sourceRecord else {
+            throw simulatorUIReferenceFailure(
+                SimulatorUIAutomationReferenceError.snapshotMissing
+            )
+        }
+        return sourceRecord
     }
 
     private func simulatorUIElementRefs(
@@ -813,17 +870,23 @@ struct SimulatorUIAutomationExecutor {
     private func resolveSimulatorUIElement(
         ref: String,
         requiredActions: [SimulatorUIAutomationActionName],
-        coordinator: SimulatorPaneCoordinator
+        record: SimulatorUIAutomationSnapshotRecord
     ) throws -> SimulatorUIAutomationElementRecord {
-        do {
-            return try coordinator.resolveUIAutomationElement(
-                ref: ref,
-                requiredActions: requiredActions,
-                nowMilliseconds: simulatorUINowMilliseconds()
+        guard let element = record.element(ref: ref) else {
+            throw simulatorUIReferenceFailure(
+                SimulatorUIAutomationReferenceError.elementRefNotFound(ref)
             )
-        } catch {
-            throw simulatorUIReferenceFailure(error)
         }
+        guard requiredActions.isEmpty
+                || requiredActions.contains(where: element.element.actions.contains) else {
+            throw simulatorUIReferenceFailure(
+                SimulatorUIAutomationReferenceError.targetNotActionable(
+                    ref: ref,
+                    required: requiredActions
+                )
+            )
+        }
+        return element
     }
 
     private func simulatorUIReferenceFailure(

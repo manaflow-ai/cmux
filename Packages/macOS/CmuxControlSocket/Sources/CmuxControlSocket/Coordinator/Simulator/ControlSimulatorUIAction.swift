@@ -1,5 +1,8 @@
 /// A semantic Simulator action driven by refs or named presets.
 public enum ControlSimulatorUIAction: Sendable, Equatable {
+    /// Leaves receipt time for worker startup, transport, and the final snapshot.
+    public static let maximumEstimatedDurationMilliseconds: Int64 = 120_000
+
     /// Taps one current element reference.
     case tap(
         elementRef: String,
@@ -54,4 +57,49 @@ public enum ControlSimulatorUIAction: Sendable, Equatable {
     )
     /// Performs a bounded sequence of taps resolved from one snapshot.
     case batch(steps: [ControlSimulatorUITapStep])
+
+    /// A conservative bound for declared delays and known internal pacing.
+    public var estimatedDurationMilliseconds: Int64 {
+        let snapshotCaptureBudget: Int64 = 2_500
+        let finalSnapshotBudget: Int64 = 2_500
+        let tapPacing: Int64 = 50
+        switch self {
+        case let .tap(_, preDelay, postDelay):
+            return snapshotCaptureBudget + Int64(preDelay) + tapPacing
+                + Int64(postDelay) + finalSnapshotBudget
+        case let .touch(_, _, _, delay):
+            return snapshotCaptureBudget + Int64(delay) + finalSnapshotBudget
+        case let .swipe(_, _, duration, _, _, preDelay, postDelay),
+             let .drag(_, _, duration, _, _, preDelay, postDelay):
+            return snapshotCaptureBudget + Int64(preDelay) + Int64(duration)
+                + Int64(postDelay) + finalSnapshotBudget
+        case let .longPress(_, duration):
+            return snapshotCaptureBudget + Int64(duration) + finalSnapshotBudget
+        case let .typeText(_, text, _):
+            let maximumTextPacing = Int64(text.utf8.count) * 20
+            return snapshotCaptureBudget + maximumTextPacing + finalSnapshotBudget
+        case let .keyPress(_, duration):
+            return Int64(duration) + finalSnapshotBudget
+        case let .keySequence(keyCodes, delay):
+            let pressPacing = Int64(keyCodes.count) * 50
+            let interKeyPacing = Int64(max(0, keyCodes.count - 1)) * Int64(delay)
+            return pressPacing + interKeyPacing + finalSnapshotBudget
+        case let .button(_, duration):
+            return Int64(duration ?? 50) + 750 + finalSnapshotBudget
+        case let .gesturePreset(_, duration, _, _, preDelay, postDelay):
+            return Int64(preDelay) + Int64(duration) + Int64(postDelay)
+                + finalSnapshotBudget
+        case let .batch(steps):
+            let actionBudget = steps.reduce(Int64.zero) { partial, step in
+                partial + snapshotCaptureBudget + Int64(step.preDelayMilliseconds)
+                    + tapPacing + Int64(step.postDelayMilliseconds)
+            }
+            return actionBudget + finalSnapshotBudget
+        }
+    }
+
+    /// Whether the action can finish before the server's receipt deadline.
+    public var fitsReceiptDeadline: Bool {
+        estimatedDurationMilliseconds <= Self.maximumEstimatedDurationMilliseconds
+    }
 }

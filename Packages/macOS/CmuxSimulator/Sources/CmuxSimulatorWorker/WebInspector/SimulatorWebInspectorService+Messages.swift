@@ -252,6 +252,10 @@ extension SimulatorWebInspectorService {
             finishAuthoritativeRefreshIfComplete()
         case "_rpc_applicationSentListing:":
             guard let identifier = argument["WIRApplicationIdentifierKey"] as? String else { return }
+            if catalog.needsEmptyListingConfirmation(for: identifier) {
+                requestListing(applicationIdentifier: identifier)
+                return
+            }
             if !refreshCensusPending { pendingListingIdentifiers.remove(identifier) }
             finishAuthoritativeRefreshIfComplete()
         default:

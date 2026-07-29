@@ -45,14 +45,16 @@ struct SimulatorWebInspectorTargetCatalogTests {
         #expect(catalog.target(id: "APP|7") == nil)
     }
 
-    @Test("An authoritative census makes an empty listing remove closed pages")
-    func authoritativeEmptyListing() {
+    @Test("A census refresh still requires one empty-listing confirmation")
+    func censusEmptyListingConfirmation() {
         var catalog = SimulatorWebInspectorTargetCatalog()
         catalog.apply(Self.applicationList(), ownConnectionIdentifier: "OURS")
         catalog.apply(Self.pageListing(connectionIdentifier: nil), ownConnectionIdentifier: "OURS")
         #expect(catalog.targets.count == 1)
 
         catalog.apply(Self.applicationList(), ownConnectionIdentifier: "OURS")
+        catalog.apply(Self.pageListing(connectionIdentifier: nil, pages: [:]), ownConnectionIdentifier: "OURS")
+        #expect(catalog.targets.count == 1)
         catalog.apply(Self.pageListing(connectionIdentifier: nil, pages: [:]), ownConnectionIdentifier: "OURS")
 
         #expect(catalog.targets.isEmpty)

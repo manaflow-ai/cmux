@@ -16,6 +16,7 @@ final class SimulatorHostWindowVisibilityView: NSView {
         for name in [
             NSWindow.didBecomeKeyNotification,
             NSWindow.didBecomeMainNotification,
+            NSWindow.didResignKeyNotification,
             NSWindow.didChangeOcclusionStateNotification,
             NSWindow.didMiniaturizeNotification,
             NSWindow.didDeminiaturizeNotification,

@@ -66,7 +66,6 @@ struct SimulatorUIAutomationSnapshotBuilder {
             simulatorID: simulatorID,
             screenHash: screenHash(
                 elements: elements,
-                actions: actions,
                 isTruncated: source.isTruncated
             ),
             sequence: sequence,
@@ -111,10 +110,17 @@ struct SimulatorUIAutomationSnapshotBuilder {
         viewport: SimulatorRect
     ) -> SimulatorUIAutomationElementRecord {
         let frame = node.frame ?? SimulatorRect(x: 0, y: 0, width: 0, height: 0)
+        let normalizedLabel = simulatorUIAutomationNormalizedText(node.label)
+        let normalizedValue = simulatorUIAutomationNormalizedText(node.value)
+        let normalizedIdentifier = simulatorUIAutomationNormalizedText(node.identifier)
+        let normalizedRawRole = simulatorUIAutomationNormalizedText(node.role)
+        let normalizedRoleDescription = simulatorUIAutomationNormalizedText(
+            node.roleDescription
+        )
         let role = normalizedRole(
-            node.role,
-            description: node.roleDescription,
-            identifier: node.identifier
+            normalizedRawRole,
+            description: normalizedRoleDescription,
+            identifier: normalizedIdentifier
         )
         let visibleFrame = frameIntersection(frame, viewport)
         let visible = visibleFrame != nil
@@ -122,16 +128,17 @@ struct SimulatorUIAutomationSnapshotBuilder {
         let actions = supportedActions(
             node: node,
             role: role,
+            hasSemanticIdentity: normalizedLabel != nil || normalizedIdentifier != nil,
             enabled: enabled,
             visible: visible,
             frame: frame
         )
         let element = SimulatorUIAutomationElement(
-            ref: "e\(index + 1)",
+            ref: "e\(sequence)_\(index + 1)",
             role: role,
-            label: simulatorUIAutomationNormalizedText(node.label),
-            value: simulatorUIAutomationNormalizedText(node.value),
-            identifier: simulatorUIAutomationNormalizedText(node.identifier),
+            label: normalizedLabel,
+            value: normalizedValue,
+            identifier: normalizedIdentifier,
             frame: frame,
             state: SimulatorUIAutomationElementState(
                 isEnabled: enabled,
@@ -160,12 +167,11 @@ struct SimulatorUIAutomationSnapshotBuilder {
         description: String?,
         identifier: String?
     ) -> SimulatorUIAutomationRole? {
-        let normalizedDescription = simulatorUIAutomationNormalizedText(description)?.lowercased()
-        if normalizedDescription == "tab" {
+        if description?.lowercased() == "tab" {
             return .tab
         }
         let text = [rawRole, description]
-            .compactMap(simulatorUIAutomationNormalizedText)
+            .compactMap { $0 }
             .joined(separator: " ")
             .lowercased()
         guard !text.isEmpty else { return nil }
@@ -207,6 +213,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
     private func supportedActions(
         node: SimulatorAccessibilityNode,
         role: SimulatorUIAutomationRole?,
+        hasSemanticIdentity: Bool,
         enabled: Bool,
         visible: Bool,
         frame: SimulatorRect
@@ -216,8 +223,6 @@ struct SimulatorUIAutomationSnapshotBuilder {
         let tapRoles: Set<SimulatorUIAutomationRole> = [
             .button, .cell, .keyboardKey, .switch, .tab, .textField,
         ]
-        let hasSemanticIdentity = simulatorUIAutomationNormalizedText(node.label) != nil
-            || simulatorUIAutomationNormalizedText(node.identifier) != nil
         if role.map(tapRoles.contains) == true
             || (hasSemanticIdentity && node.children.isEmpty && role != .text) {
             actions.append(.tap)
@@ -263,7 +268,7 @@ struct SimulatorUIAutomationSnapshotBuilder {
     }
 
     private func isScrollSemanticIdentifier(_ identifier: String?) -> Bool {
-        guard let identifier = simulatorUIAutomationNormalizedText(identifier)?.lowercased() else {
+        guard let identifier = identifier?.lowercased() else {
             return false
         }
         return identifier.contains("scrollview")
@@ -297,13 +302,33 @@ struct SimulatorUIAutomationSnapshotBuilder {
 
     private func screenHash(
         elements: [SimulatorUIAutomationElement],
-        actions: [SimulatorUIAutomationActionHint],
         isTruncated: Bool
     ) -> String {
+        let stableElements = elements.enumerated().map { index, element in
+            SimulatorUIAutomationElement(
+                ref: "e\(index + 1)",
+                role: element.role,
+                label: element.label,
+                value: element.value,
+                identifier: element.identifier,
+                frame: element.frame,
+                state: element.state,
+                actions: element.actions
+            )
+        }
+        let stableActions = stableElements.flatMap { element in
+            element.actions.map {
+                SimulatorUIAutomationActionHint(
+                    action: $0,
+                    elementRef: element.ref,
+                    label: element.label
+                )
+            }
+        }
         let payload = ScreenHashPayload(
             protocol: simulatorUIAutomationProtocol,
-            elements: elements,
-            actions: actions,
+            elements: stableElements,
+            actions: stableActions,
             isTruncated: isTruncated
         )
         let encoder = JSONEncoder()

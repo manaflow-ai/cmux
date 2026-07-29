@@ -2,7 +2,7 @@
 public struct SimulatorUIAutomationActionHint: Codable, Equatable, Sendable {
     /// The supported semantic action.
     public let action: SimulatorUIAutomationActionName
-    /// The target's process-scoped element reference.
+    /// The target's snapshot-scoped element reference.
     public let elementRef: String
     /// The target label when one exists.
     public let label: String?

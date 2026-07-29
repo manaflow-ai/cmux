@@ -94,7 +94,6 @@ final class SimulatorUIAutomationSession {
 
     func reset() {
         record = nil
-        nextSequence = 1
     }
 
     func beginTransaction() async throws {

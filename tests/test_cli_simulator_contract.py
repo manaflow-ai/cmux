@@ -231,50 +231,50 @@ def check_ui_automation(
     )
     assert_request(
         cli_path, socket_path, fake_home, state,
-        ["tap", "--ref", "e2", "--pre-delay", "0.05", "--post-delay", "0.1"],
+        ["tap", "--ref", "e1_2", "--pre-delay", "0.05", "--post-delay", "0.1"],
         "simulator.tap",
         {
-            "element_ref": "e2",
+            "element_ref": "e1_2",
             "pre_delay_milliseconds": 50,
             "post_delay_milliseconds": 100,
         },
     )
     assert_request(
         cli_path, socket_path, fake_home, state,
-        ["touch", "--ref", "e3", "--down", "--up", "--delay", "0.25"],
+        ["touch", "--ref", "e1_3", "--down", "--up", "--delay", "0.25"],
         "simulator.touch",
         {
-            "element_ref": "e3", "down": True, "up": True,
+            "element_ref": "e1_3", "down": True, "up": True,
             "delay_milliseconds": 250,
         },
     )
     assert_request(
         cli_path, socket_path, fake_home, state,
-        ["swipe", "--ref", "e4", "up", "--duration", "0.4",
+        ["swipe", "--ref", "e1_4", "up", "--duration", "0.4",
          "--distance", "0.8", "--steps", "1000"],
         "simulator.swipe",
         {
-            "within_element_ref": "e4", "direction": "up",
+            "within_element_ref": "e1_4", "direction": "up",
             "duration_milliseconds": 400, "distance": 0.8, "steps": 1000,
         },
     )
     assert_request(
         cli_path, socket_path, fake_home, state,
-        ["drag", "--ref", "e5", "right"],
+        ["drag", "--ref", "e1_5", "right"],
         "simulator.drag",
-        {"element_ref": "e5", "direction": "right"},
+        {"element_ref": "e1_5", "direction": "right"},
     )
     assert_request(
         cli_path, socket_path, fake_home, state,
-        ["long-press", "--ref", "e6", "750"],
+        ["long-press", "--ref", "e1_6", "750"],
         "simulator.long_press",
-        {"element_ref": "e6", "duration_milliseconds": 750},
+        {"element_ref": "e1_6", "duration_milliseconds": 750},
     )
     assert_request(
         cli_path, socket_path, fake_home, state,
-        ["type", "--ref", "e7", "hello", "--replace-existing"],
+        ["type", "--ref", "e1_7", "hello", "--replace-existing"],
         "simulator.type_text",
-        {"element_ref": "e7", "text": "hello", "replace_existing": True},
+        {"element_ref": "e1_7", "text": "hello", "replace_existing": True},
     )
     assert_request(
         cli_path, socket_path, fake_home, state,
@@ -303,17 +303,17 @@ def check_ui_automation(
     assert_request(
         cli_path, socket_path, fake_home, state,
         ["batch", json.dumps([
-            {"action": "tap", "elementRef": "e2", "preDelay": 1},
-            {"action": "tap", "element_ref": "e3", "post_delay": 0.5},
+            {"action": "tap", "elementRef": "e1_2", "preDelay": 1},
+            {"action": "tap", "element_ref": "e1_3", "post_delay": 0.5},
         ])],
         "simulator.batch",
         {"steps": [
             {
-                "action": "tap", "element_ref": "e2",
+                "action": "tap", "element_ref": "e1_2",
                 "pre_delay_milliseconds": 1000,
             },
             {
-                "action": "tap", "element_ref": "e3",
+                "action": "tap", "element_ref": "e1_3",
                 "post_delay_milliseconds": 500,
             },
         ]},
@@ -340,15 +340,15 @@ def check_ui_automation(
 
     assert_invalid(
         cli_path, socket_path, fake_home, state,
-        ["swipe", "--ref", "e4", "up", "--duration", "0"],
+        ["swipe", "--ref", "e1_4", "up", "--duration", "0"],
     )
     assert_invalid(
         cli_path, socket_path, fake_home, state,
-        ["swipe", "--ref", "e4", "up", "--duration", "1e20"],
+        ["swipe", "--ref", "e1_4", "up", "--duration", "1e20"],
     )
     assert_invalid(
         cli_path, socket_path, fake_home, state,
-        ["touch", "--ref", "e3", "--down", "--delay", "0.25"],
+        ["touch", "--ref", "e1_3", "--down", "--delay", "0.25"],
     )
     assert_invalid(
         cli_path, socket_path, fake_home, state,
@@ -361,7 +361,7 @@ def check_ui_automation(
     assert_invalid(
         cli_path, socket_path, fake_home, state,
         ["batch", json.dumps([
-            {"action": "tap", "elementRef": "e2", "postDelay": "later"},
+            {"action": "tap", "elementRef": "e1_2", "postDelay": "later"},
         ])],
     )
     assert_invalid(

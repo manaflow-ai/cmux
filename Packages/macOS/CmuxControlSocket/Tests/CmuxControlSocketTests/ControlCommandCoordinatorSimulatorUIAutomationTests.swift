@@ -14,13 +14,13 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
 
         #expect(try operation("simulator.wait_for_ui", [
             "predicate": .string("focused"),
-            "element_ref": .string("e12"),
+            "element_ref": .string("e1_12"),
             "timeout_milliseconds": .int(8_000),
             "poll_interval_milliseconds": .int(100),
             "settled_duration_milliseconds": .int(250),
         ]) == .uiWait(ControlSimulatorUIWait(
             predicate: "focused",
-            elementRef: "e12",
+            elementRef: "e1_12",
             identifier: nil,
             label: nil,
             role: nil,
@@ -51,35 +51,35 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
     @Test("Every ref-based action routes with bounded typed parameters")
     func semanticActionRouting() throws {
         #expect(try operation("simulator.tap", [
-            "element_ref": .string("e2"),
+            "element_ref": .string("e1_2"),
             "pre_delay_milliseconds": .int(50),
             "post_delay_milliseconds": .int(75),
         ]) == .uiAction(.tap(
-            elementRef: "e2",
+            elementRef: "e1_2",
             preDelayMilliseconds: 50,
             postDelayMilliseconds: 75
         )))
 
         #expect(try operation("simulator.touch", [
-            "element_ref": .string("e3"),
+            "element_ref": .string("e1_3"),
             "down": .bool(true),
             "up": .bool(true),
             "delay_milliseconds": .int(300),
         ]) == .uiAction(.touch(
-            elementRef: "e3",
+            elementRef: "e1_3",
             down: true,
             up: true,
             delayMilliseconds: 300
         )))
 
         #expect(try operation("simulator.swipe", [
-            "within_element_ref": .string("e4"),
+            "within_element_ref": .string("e1_4"),
             "direction": .string("up"),
             "duration_milliseconds": .int(400),
             "distance": .double(0.8),
             "steps": .int(1_000),
         ]) == .uiAction(.swipe(
-            elementRef: "e4",
+            elementRef: "e1_4",
             direction: "up",
             durationMilliseconds: 400,
             distance: 0.8,
@@ -89,11 +89,11 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
         )))
 
         #expect(try operation("simulator.drag", [
-            "element_ref": .string("e5"),
+            "element_ref": .string("e1_5"),
             "direction": .string("right"),
             "steps": .int(1),
         ]) == .uiAction(.drag(
-            elementRef: "e5",
+            elementRef: "e1_5",
             direction: "right",
             durationMilliseconds: 300,
             distance: 0.35,
@@ -103,19 +103,19 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
         )))
 
         #expect(try operation("simulator.long_press", [
-            "element_ref": .string("e6"),
+            "element_ref": .string("e1_6"),
             "duration_milliseconds": .int(750),
         ]) == .uiAction(.longPress(
-            elementRef: "e6",
+            elementRef: "e1_6",
             durationMilliseconds: 750
         )))
 
         #expect(try operation("simulator.type_text", [
-            "element_ref": .string("e7"),
+            "element_ref": .string("e1_7"),
             "text": .string("hello"),
             "replace_existing": .bool(true),
         ]) == .uiAction(.typeText(
-            elementRef: "e7",
+            elementRef: "e1_7",
             text: "hello",
             replaceExisting: true
         )))
@@ -165,18 +165,18 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
             "steps": .array([
                 .object([
                     "action": .string("tap"),
-                    "element_ref": .string("e2"),
+                    "element_ref": .string("e1_2"),
                 ]),
                 .object([
                     "action": .string("tap"),
-                    "element_ref": .string("e3"),
+                    "element_ref": .string("e1_3"),
                     "post_delay_milliseconds": .int(100),
                 ]),
             ]),
         ]) == .uiAction(.batch(steps: [
-            ControlSimulatorUITapStep(elementRef: "e2"),
+            ControlSimulatorUITapStep(elementRef: "e1_2"),
             ControlSimulatorUITapStep(
-                elementRef: "e3",
+                elementRef: "e1_3",
                 postDelayMilliseconds: 100
             ),
         ])))
@@ -187,12 +187,12 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
         for (method, params) in [
             ("simulator.tap", ["element_ref": JSONValue.string("old-ref")]),
             ("simulator.type_text", [
-                "element_ref": .string("e1"),
+                "element_ref": .string("e1_1"),
                 "text": .string(""),
                 "replace_existing": .bool(false),
             ]),
             ("simulator.swipe", [
-                "within_element_ref": .string("e1"),
+                "within_element_ref": .string("e1_1"),
                 "direction": .string("up"),
                 "duration_milliseconds": .int(0),
             ]),
@@ -226,7 +226,7 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
         let batchSteps = Array(
             repeating: JSONValue.object([
                 "action": .string("tap"),
-                "element_ref": .string("e1"),
+                "element_ref": .string("e1_1"),
                 "pre_delay_milliseconds": .int(10_000),
                 "post_delay_milliseconds": .int(10_000),
             ]),

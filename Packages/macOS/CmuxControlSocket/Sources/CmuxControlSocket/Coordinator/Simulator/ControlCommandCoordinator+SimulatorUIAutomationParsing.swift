@@ -296,9 +296,17 @@ extension ControlCommandCoordinator {
     ) -> String? {
         guard let ref = string(params, key),
               ref.utf8.count <= 64,
-              ref.first == "e",
-              !ref.dropFirst().isEmpty,
-              ref.dropFirst().allSatisfy(\.isNumber) else {
+              ref.first == "e" else {
+            return nil
+        }
+        let components = ref.dropFirst().split(
+            separator: "_",
+            omittingEmptySubsequences: false
+        )
+        guard components.count == 2,
+              UInt64(components[0]) != nil,
+              let ordinal = UInt64(components[1]),
+              ordinal > 0 else {
             return nil
         }
         return ref

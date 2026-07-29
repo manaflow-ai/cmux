@@ -7,13 +7,20 @@ func simulatorUIAutomationIsValidFrame(_ frame: SimulatorRect) -> Bool {
 }
 
 func simulatorUIAutomationNormalizedText(_ value: String?) -> String? {
-    guard let normalized = value?.replacingOccurrences(
-        of: #"\s+"#,
-        with: " ",
-        options: .regularExpression
-    ).trimmingCharacters(in: .whitespacesAndNewlines),
-          !normalized.isEmpty else {
-        return nil
+    guard let value else { return nil }
+    var normalized = ""
+    normalized.reserveCapacity(value.utf8.count)
+    var pendingSpace = false
+    for character in value {
+        if character.isWhitespace {
+            pendingSpace = !normalized.isEmpty
+            continue
+        }
+        if pendingSpace {
+            normalized.append(" ")
+            pendingSpace = false
+        }
+        normalized.append(character)
     }
-    return normalized
+    return normalized.isEmpty ? nil : normalized
 }

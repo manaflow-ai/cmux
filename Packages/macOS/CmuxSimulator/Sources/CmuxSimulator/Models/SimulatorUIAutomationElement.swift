@@ -1,6 +1,6 @@
 /// A compact, public runtime UI element.
 public struct SimulatorUIAutomationElement: Codable, Equatable, Sendable {
-    /// The process-scoped reference valid for the snapshot lifetime.
+    /// The snapshot-scoped reference valid for the snapshot lifetime.
     public let ref: String
     /// The normalized semantic role.
     public let role: SimulatorUIAutomationRole?
@@ -20,7 +20,7 @@ public struct SimulatorUIAutomationElement: Codable, Equatable, Sendable {
     /// Creates one compact runtime element.
     ///
     /// - Parameters:
-    ///   - ref: The process-scoped reference.
+    ///   - ref: The snapshot-scoped reference.
     ///   - role: The normalized role.
     ///   - label: The accessibility label.
     ///   - value: The accessibility value.

@@ -35,7 +35,7 @@ extension ControlCommandCoordinator {
              "simulator.gesture_preset", "simulator.batch":
             guard let action = simulatorUIAction(
                 method: request.method, params: request.params
-            ) else {
+            ), action.fitsReceiptDeadline else {
                 return invalidSimulatorOperation("semantic UI action parameters are invalid")
             }
             operation = .uiAction(action)
@@ -52,7 +52,7 @@ extension ControlCommandCoordinator {
             if request.params["element_ref"] != nil {
                 guard let action = simulatorUIAction(
                     method: request.method, params: request.params
-                ) else {
+                ), action.fitsReceiptDeadline else {
                     return invalidSimulatorOperation("semantic tap parameters are invalid")
                 }
                 operation = .uiAction(action)
@@ -99,7 +99,7 @@ extension ControlCommandCoordinator {
             if request.params["within_element_ref"] != nil {
                 guard let action = simulatorUIAction(
                     method: request.method, params: request.params
-                ) else {
+                ), action.fitsReceiptDeadline else {
                     return invalidSimulatorOperation("semantic swipe parameters are invalid")
                 }
                 operation = .uiAction(action)
@@ -114,7 +114,7 @@ extension ControlCommandCoordinator {
         case "simulator.button":
             guard let action = simulatorUIAction(
                 method: request.method, params: request.params
-            ) else {
+            ), action.fitsReceiptDeadline else {
                 return invalidSimulatorOperation("button parameters are invalid")
             }
             operation = .uiAction(action)

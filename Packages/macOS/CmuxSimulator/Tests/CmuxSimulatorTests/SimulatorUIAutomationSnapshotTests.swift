@@ -14,25 +14,28 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(record.snapshot.protocol == "rs/1")
         #expect(record.snapshot.sequence == 7)
         #expect(record.snapshot.expiresAtMilliseconds == 61_000)
-        #expect(record.snapshot.elements.map(\.ref) == ["e1", "e2", "e3", "e4"])
+        #expect(
+            record.snapshot.elements.map(\.ref)
+                == ["e7_1", "e7_2", "e7_3", "e7_4"]
+        )
 
-        let button = try #require(record.element(ref: "e2")?.element)
+        let button = try #require(record.element(ref: "e7_2")?.element)
         #expect(button.identifier == "settings.general")
         #expect(button.role == .button)
         #expect(button.state.isEnabled)
         #expect(button.state.isFocused == false)
         #expect(button.actions == [.tap, .longPress, .touch])
 
-        let textField = try #require(record.element(ref: "e3")?.element)
+        let textField = try #require(record.element(ref: "e7_3")?.element)
         #expect(textField.role == .textField)
         #expect(textField.state.isFocused == true)
         #expect(textField.actions.contains(.typeText))
 
-        let list = try #require(record.element(ref: "e4")?.element)
+        let list = try #require(record.element(ref: "e7_4")?.element)
         #expect(list.role == .scrollView)
         #expect(list.actions.contains(.swipeWithin))
         #expect(record.snapshot.actions.contains {
-            $0.elementRef == "e3" && $0.action == .typeText
+            $0.elementRef == "e7_3" && $0.action == .typeText
         })
     }
 
@@ -66,12 +69,12 @@ struct SimulatorUIAutomationSnapshotTests {
             capturedAtMilliseconds: 1_000
         )
 
-        let selector = try #require(record.stableSelector(for: "e2"))
+        let selector = try #require(record.stableSelector(for: "e1_2"))
         #expect(selector.identifier == "settings.general")
         #expect(selector.label == nil)
 
         let swipe = try #require(record.swipePoints(
-            elementRef: "e4",
+            elementRef: "e1_4",
             direction: .up,
             distance: 1
         ))
@@ -82,7 +85,7 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect((0...1).contains(swipe.to.y))
 
         let drag = try #require(record.dragPoints(
-            elementRef: "e2",
+            elementRef: "e1_2",
             direction: .right,
             distance: 0.5
         ))
@@ -102,15 +105,17 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(record.matching(SimulatorUIAutomationSelector(
             label: "General",
             role: .button
-        )).map(\.ref) == ["e2"])
-        #expect(record.containingText("search").map(\.ref) == ["e3"])
-        #expect(record.containingText("GENERAL").map(\.ref) == ["e2"])
+        )).map(\.ref) == ["e1_2"])
+        #expect(record.containingText("search").map(\.ref) == ["e1_3"])
+        #expect(record.containingText("GENERAL").map(\.ref) == ["e1_2"])
 
         let repeated = [
-            try #require(record.element(ref: "e2")?.element),
-            try #require(record.element(ref: "e2")?.element),
+            try #require(record.element(ref: "e1_2")?.element),
+            try #require(record.element(ref: "e1_2")?.element),
         ]
-        let distinct = repeated + [try #require(record.element(ref: "e3")?.element)]
+        let distinct = repeated + [
+            try #require(record.element(ref: "e1_3")?.element),
+        ]
         #expect(record.candidatesShareMatchingText(repeated, containing: "general"))
         #expect(!record.candidatesShareMatchingText(distinct, containing: "e"))
     }
@@ -162,13 +167,13 @@ struct SimulatorUIAutomationSnapshotTests {
             capturedAtMilliseconds: 1_000
         )
 
-        let tab = try #require(record.element(ref: "e2"))
+        let tab = try #require(record.element(ref: "e1_2"))
         #expect(tab.element.role == .tab)
         #expect(tab.element.actions.contains(.tap))
         #expect((0...1).contains(tab.activationPoint.x))
         #expect((0...1).contains(tab.activationPoint.y))
 
-        let scrollView = try #require(record.element(ref: "e3")?.element)
+        let scrollView = try #require(record.element(ref: "e1_3")?.element)
         #expect(scrollView.role == .scrollView)
         #expect(scrollView.actions.contains(.swipeWithin))
     }

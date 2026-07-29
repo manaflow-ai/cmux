@@ -65,10 +65,8 @@ extension SimulatorUIAutomationSnapshotRecord {
         let needle = (simulatorUIAutomationNormalizedText(text) ?? "").lowercased()
         guard !needle.isEmpty else { return [] }
         return snapshot.elements.filter {
-            (simulatorUIAutomationNormalizedText($0.label) ?? "")
-                .lowercased().contains(needle)
-                || (simulatorUIAutomationNormalizedText($0.value) ?? "")
-                .lowercased().contains(needle)
+            ($0.label ?? "").lowercased().contains(needle)
+                || ($0.value ?? "").lowercased().contains(needle)
         }
     }
 
@@ -85,8 +83,10 @@ extension SimulatorUIAutomationSnapshotRecord {
         _ candidates: [SimulatorUIAutomationElement],
         containing text: String
     ) -> Bool {
+        let needle = (simulatorUIAutomationNormalizedText(text) ?? "").lowercased()
+        guard !needle.isEmpty else { return false }
         let matches = candidates.compactMap {
-            matchingText(in: $0, containing: text)
+            matchingText(in: $0, containingNormalized: needle)
         }
         guard let first = matches.first, matches.count == candidates.count else {
             return false
@@ -96,7 +96,7 @@ extension SimulatorUIAutomationSnapshotRecord {
 
     /// Converts one current ref into selector fields that survive a refreshed snapshot.
     ///
-    /// - Parameter elementRef: The current process-scoped reference.
+    /// - Parameter elementRef: The current snapshot-scoped reference.
     /// - Returns: The strongest stable selector available, or `nil` when none exists.
     public func stableSelector(
         for elementRef: String
@@ -263,15 +263,13 @@ extension SimulatorUIAutomationSnapshotRecord {
 
     private func matchingText(
         in element: SimulatorUIAutomationElement,
-        containing text: String
+        containingNormalized needle: String
     ) -> String? {
-        let needle = (simulatorUIAutomationNormalizedText(text) ?? "").lowercased()
-        guard !needle.isEmpty else { return nil }
-        let value = (simulatorUIAutomationNormalizedText(element.value) ?? "").lowercased()
+        let value = (element.value ?? "").lowercased()
         if value.contains(needle) {
             return value
         }
-        let label = (simulatorUIAutomationNormalizedText(element.label) ?? "").lowercased()
+        let label = (element.label ?? "").lowercased()
         return label.contains(needle) ? label : nil
     }
 

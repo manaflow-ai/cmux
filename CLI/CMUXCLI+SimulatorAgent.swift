@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import CmuxSimulator
 import Foundation
 
@@ -268,10 +269,21 @@ extension CMUXCLI {
                 maximum: 5_000,
                 defaultValue: 0
             )
-            return request("simulator.key_sequence", [
-                "key_codes": codes,
-                "delay_milliseconds": delay,
-            ])
+            let action = ControlSimulatorUIAction.keySequence(
+                keyCodes: codes.map(UInt32.init),
+                delayMilliseconds: delay
+            )
+            guard action.fitsReceiptDeadline else {
+                throw simulatorArgumentsError(subcommand)
+            }
+            return request(
+                "simulator.key_sequence",
+                [
+                    "key_codes": codes,
+                    "delay_milliseconds": delay,
+                ],
+                timeout: simulatorOperationDeadlines.clientTimeout(for: 140)
+            )
         case "batch":
             try requireSimulatorUIOptions(arguments, subcommand: subcommand)
             return try simulatorUIBatchRequest(arguments)
@@ -617,7 +629,8 @@ extension CMUXCLI {
               !rawSteps.isEmpty, rawSteps.count <= 100 else {
             throw simulatorArgumentsError("batch")
         }
-        let steps: [[String: Any]] = try rawSteps.map { step in
+        let parsedSteps: [(params: [String: Any], action: ControlSimulatorUITapStep)] =
+            try rawSteps.map { step in
             let allowedKeys: Set<String> = [
                 "action", "element_ref", "elementRef",
                 "pre_delay", "preDelay", "post_delay", "postDelay",
@@ -632,25 +645,46 @@ extension CMUXCLI {
                 "action": "tap",
                 "element_ref": ref,
             ]
+            var preDelayMilliseconds = 0
+            var postDelayMilliseconds = 0
             if let rawValue = step["pre_delay"] ?? step["preDelay"] {
                 guard let value = simulatorUIBatchNumber(rawValue) else {
                     throw simulatorArgumentsError("batch")
                 }
-                normalized["pre_delay_milliseconds"] = try simulatorUIMilliseconds(
+                preDelayMilliseconds = try simulatorUIMilliseconds(
                     String(value), maximum: 10_000, defaultValue: 0
                 )
+                normalized["pre_delay_milliseconds"] = preDelayMilliseconds
             }
             if let rawValue = step["post_delay"] ?? step["postDelay"] {
                 guard let value = simulatorUIBatchNumber(rawValue) else {
                     throw simulatorArgumentsError("batch")
                 }
-                normalized["post_delay_milliseconds"] = try simulatorUIMilliseconds(
+                postDelayMilliseconds = try simulatorUIMilliseconds(
                     String(value), maximum: 10_000, defaultValue: 0
                 )
+                normalized["post_delay_milliseconds"] = postDelayMilliseconds
             }
-            return normalized
+            return (
+                normalized,
+                ControlSimulatorUITapStep(
+                    elementRef: ref,
+                    preDelayMilliseconds: preDelayMilliseconds,
+                    postDelayMilliseconds: postDelayMilliseconds
+                )
+            )
         }
-        return request("simulator.batch", ["steps": steps], timeout: 140)
+        let action = ControlSimulatorUIAction.batch(
+            steps: parsedSteps.map(\.action)
+        )
+        guard action.fitsReceiptDeadline else {
+            throw simulatorArgumentsError("batch")
+        }
+        return request(
+            "simulator.batch",
+            ["steps": parsedSteps.map(\.params)],
+            timeout: simulatorOperationDeadlines.clientTimeout(for: 140)
+        )
     }
 
     private func simulatorUIGesturePresetRequest(
@@ -715,11 +749,12 @@ extension CMUXCLI {
         guard let seconds = Double(rawSeconds), seconds.isFinite, seconds >= 0 else {
             throw simulatorArgumentsError("duration")
         }
-        let milliseconds = Int((seconds * 1_000).rounded())
-        guard milliseconds <= maximum else {
+        let milliseconds = (seconds * 1_000).rounded()
+        guard milliseconds.isFinite,
+              milliseconds <= Double(maximum) else {
             throw simulatorArgumentsError("duration")
         }
-        return milliseconds
+        return Int(milliseconds)
     }
 
     private func simulatorUIInteger(

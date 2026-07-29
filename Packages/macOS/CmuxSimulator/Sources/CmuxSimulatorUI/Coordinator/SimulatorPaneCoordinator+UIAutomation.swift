@@ -59,7 +59,7 @@ extension SimulatorPaneCoordinator {
     /// Resolves one current element ref and verifies its action contract.
     ///
     /// - Parameters:
-    ///   - ref: The current process-scoped reference.
+    ///   - ref: The current snapshot-scoped reference.
     ///   - requiredActions: Actions of which at least one must be advertised.
     ///   - nowMilliseconds: The current Unix epoch time in milliseconds.
     /// - Returns: The target and its process-local lookup metadata.
@@ -79,7 +79,7 @@ extension SimulatorPaneCoordinator {
     /// Converts a current ref into exact semantic fields for a refreshed wait.
     ///
     /// - Parameters:
-    ///   - ref: The current process-scoped reference.
+    ///   - ref: The current snapshot-scoped reference.
     ///   - nowMilliseconds: The current Unix epoch time in milliseconds.
     /// - Returns: The strongest exact selector available.
     /// - Throws: ``SimulatorUIAutomationReferenceError`` for stale or unstable targets.

@@ -1,4 +1,4 @@
-/// The public snapshot plus private lookup metadata for its process-scoped refs.
+/// The public snapshot plus private lookup metadata for its snapshot-scoped refs.
 public struct SimulatorUIAutomationSnapshotRecord: Equatable, Sendable {
     /// The public compact snapshot.
     public let snapshot: SimulatorUIAutomationSnapshot
@@ -31,7 +31,7 @@ public struct SimulatorUIAutomationSnapshotRecord: Equatable, Sendable {
 
     /// Returns the lookup record for one current element reference.
     ///
-    /// - Parameter ref: The process-scoped reference.
+    /// - Parameter ref: The snapshot-scoped reference.
     /// - Returns: The matching lookup record, or `nil` when absent.
     public func element(ref: String) -> SimulatorUIAutomationElementRecord? {
         elementsByRef[ref]
