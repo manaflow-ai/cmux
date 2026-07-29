@@ -293,6 +293,56 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
+    /// Regression for https://github.com/manaflow-ai/cmux/pull/9159: the
+    /// connection-status toast presenter must observe transport transitions
+    /// from the always-mounted shell root. Mounted inside the workspaces tab
+    /// instead, it is unmounted while the Notifications tab is selected, so a
+    /// host that dies there presents no status capsule and the recovery never
+    /// toasts "Reconnected to your Mac."
+    @MainActor
+    func testConnectionStatusToastsPresentWhileNotificationsTabSelected() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
+        ], launchArguments: [
+            "-cmux.toasts.betaEnabled", "YES",
+        ])
+        defer { app.terminate() }
+        waitForWorkspaceShell(in: app)
+
+        let notificationsTab = app.tabBars.buttons["Notifications"]
+        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 8))
+        notificationsTab.tap()
+        XCTAssertTrue(notificationsTab.isSelected)
+
+        // Kill the host while the workspaces tab content (and any presenter
+        // wrongly mounted inside it) is out of the hierarchy.
+        server.stop()
+
+        let toast = app.otherElements["MobileToast"]
+        XCTAssertTrue(
+            toast.waitForExistence(timeout: 30),
+            "Losing the host must present a connection-status capsule while the Notifications tab is selected"
+        )
+        XCTAssertTrue(notificationsTab.isSelected)
+
+        // Revive the host at the paired address; the recovery's success toast
+        // must also present while the Notifications tab stays selected.
+        let revived = try MobileSyncMockHostServer(port: port)
+        _ = try await revived.start()
+        defer { revived.stop() }
+
+        let reconnected = app.staticTexts["Reconnected to your Mac."]
+        XCTAssertTrue(
+            reconnected.waitForExistence(timeout: 90),
+            "Recovering the host must toast success while the Notifications tab is selected"
+        )
+        XCTAssertTrue(notificationsTab.isSelected)
+    }
+
     @MainActor
     func testDeleteComputersVerifierPasses() throws {
         let app = launchApp(mockData: false, environment: [
@@ -6012,9 +6062,20 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
-        macInstanceTag: String = mockHostInstanceTag()
+        macInstanceTag: String = mockHostInstanceTag(),
+        port: UInt16? = nil
     ) throws {
-        listener = try NWListener(using: .tcp, on: .any)
+        // A fixed port lets a test revive a "dead" host at the address the
+        // app already paired with, so automatic recovery can be exercised.
+        // Reuse is required because the revived listener binds while the
+        // previous socket may still be in TIME_WAIT.
+        if let port, let fixedPort = NWEndpoint.Port(rawValue: port) {
+            let parameters: NWParameters = .tcp
+            parameters.allowLocalEndpointReuse = true
+            listener = try NWListener(using: parameters, on: fixedPort)
+        } else {
+            listener = try NWListener(using: .tcp, on: .any)
+        }
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
