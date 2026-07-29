@@ -1,94 +1,91 @@
-# cmux-tui Programmability Contract
+# cmux-tui programmability contracts
 
-This directory is the source of truth for the cmux-tui control protocol,
-frontend programmability, the generated `cmux-tui` command surface, plugin
-contracts, separately versioned provider, machine-agent, and terminal-host
-boundaries, and language bindings. The implemented mux protocol described here
-is protocol version 10, as defined by `cmux-tui-core/src/server.rs`.
+cmux-tui has one stable public resource protocol and several explicitly
+separate internal or privileged protocols.
 
-The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of the implemented protocol.
+## Public API
 
-[`inventory.json`](inventory.json) is the machine-readable coverage index. CI validates it against its JSON Schema and compares it with the Rust protocol version, every server command, serialized event name, configurable TUI action, context-menu action, terminal-host message kind, machine-provider request/event, machine-agent message, provider-management operation, and corresponding prose section. The current checked baseline contains 83 commands, 44 serialized event names, 45 configurable actions, 40 menu actions, 28 cross-boundary feature families, 23 terminal-host messages, 22 machine-provider requests, and 14 machine-agent messages.
-
-## Versioning
-
-The spec version tracks the mux protocol version.
-
-| Change type | Version rule |
-| --- | --- |
-| Clarification that does not change wire behavior | Patch level of the spec text only |
-| Additive command, event, field, CLI flag, binding helper, or transport option | Minor protocol version |
-| Removal, rename, incompatible type change, changed error semantics, or changed ordering guarantee | Major protocol version |
-
-Protocol v8 adds stable ids to canonical split nodes and exact split-ratio mutation while preserving the protocol-v5 `set-ratio` command. Protocol-v7 layout nodes do not carry `split`, so clients must negotiate v8 before requiring that field or sending `set-split-ratio`.
-
-Protocol v9 adds stack layout nodes and `new-pane`. Clients must negotiate v9 before decoding a stack node or sending `new-pane`.
-
-Protocol v10 is the implemented baseline. It scopes client-sizing participation to one terminal surface, requires `surface` on `set-client-sizing`, and reports `size_participating` on each `list-clients.sizes` entry. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
-
-Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"bytes"`, and `subscribe.tree_events` defaults to `"coarse"`, so absent v7 selectors retain exact v6 attach and tree-event behavior. A v7 server reports `identify.protocol == 7`; clients must require that value before selecting render mode or using other v7-only fields and commands.
-
-Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
-
-`identify.capabilities` negotiates additive build-level features within one protocol version. Clients must treat a missing capability list as empty. They must require `attach-initial-size` before sending initial `cols` or `rows` on `attach-surface`, `surface-subscribe-filter` before sending `surface` on `subscribe`, `workspace-registry-v1` before using registry creation, placement, stable-key, or revision-CAS APIs, `viewport-splits-v1` before creating horizontal viewport columns, `viewport-column-resize-v1` before resizing those columns, `layout-undo-v1` before sending `undo-layout`, `clear-history-v1` before sending `clear-history`, both `clear-history-v1` and `clear-history-key-v1` before including its structured `fallback_key`, and `provider-managed-workspace-authority-v2` before committing provider-owned workspace mirrors with a pre-provisioned authority.
-
-## Generation Model
-
-The checked-in bindings combine generated wire layers with handwritten
-transports and language-specific conveniences. `sdk-schema.json` is the
-reviewed schema-v2 generator input. The local Python generator has no network
-or model dependency, renders each emitter twice, stages every selected language
-before writing, and deletes only files named by the prior ownership manifest.
-CI rejects schema drift and generated output drift.
-
-The acceptance gate is the conformance suite described in `bindings.md`. A binding is conformant only when it can replay the fixture request/response pairs, event transcripts, and end-to-end scenarios against a real headless mux server. Raw request access does not satisfy a typed-method requirement.
-
-The generator must preserve the wire command names, parameter names, result shapes, and error handling rules in `commands.md`. Language-specific APIs may be idiomatic, but they must map 1:1 to the command schema.
-
-## File Map
+`cmux.protocol/1` is the compatibility boundary for the noun-first CLI and
+high-level SDKs:
 
 | File | Purpose |
 | --- | --- |
-| `inventory.json` | Checked list of implemented commands/events, native action routes, protocol profiles, domains, and pending heads |
-| `inventory.schema.json` | JSON Schema for the checked inventory |
-| `sdk-schema.json` | Schema-v2 typed SDK IR for all implemented mux commands and events |
-| `sdk-schema.schema.json` | JSON Schema for the SDK IR |
-| `programmability.md` | Ownership model, exhaustive action policy, missing primitive backlog, compatibility profiles, and conformance bar |
-| `commands.md` | Command contract, CLI mapping for each command, examples, and compatibility notes |
-| `events.md` | Subscribe and attach event payloads, ordering guarantees, and proposed filters |
-| `render.md` | Protocol-v7 authoritative styled-cell attach, deltas, scrollback, sizing guidance, and draft open questions |
-| `transports.md` | Implemented Unix socket and WebSocket transports plus proposed HTTP and SSE transports |
-| `frontends.md` | Canonical connection, synchronization, terminal streaming, and agent/notification guide for frontend authors |
-| `cli.md` | Generated `cmux-tui <verb>` conventions, exit codes, stdin rules, verb table, and examples |
-| `bindings.md` | Language binding style sheets and conformance suite contract |
-| `native-frontend.md` | Current ownership of config, actions, host terminal side channels, filesystem access, localization, and diagnostics |
-| `plugins.md` | Sidebar plugin PTY, manifest, lifecycle, focus, and config contract |
-| `machine-provider.md` | Implemented static catalog and authenticated dynamic-provider v1 contract |
-| `provider-management.md` | Implemented root-only Linux provider-authority management protocol v1 |
-| `terminal-host.md` | Local terminal-host binary protocol v1, with the current resize decoder incompatibility called out as partial |
-| `machine-agent.md` | Implemented outbound local-machine registration, stream relay, and generation migration contract |
+| [`resource-api-v1.md`](resource-api-v1.md) | IDs, selectors, envelopes, mutations, streams, limits, and lifecycle rules |
+| [`resource-api-v1.json`](resource-api-v1.json) | JSON Schema for request, response, and stream envelopes |
+| [`resource-operations-v1.json`](resource-operations-v1.json) | Normative catalog of 122 transported and six local operations |
+| [`resource-operations-v1.schema.json`](resource-operations-v1.schema.json) | JSON Schema for the operation catalog |
+| [`resource-operations-v1.md`](resource-operations-v1.md) | Human-readable operation inventory |
+| [`cli.md`](cli.md) | Noun-first public CLI |
+| [`bindings.md`](bindings.md) | Seven handwritten SDK facades and generated raw layers |
+| [`plugins.md`](plugins.md) | Sidebar view and local plugin contract |
 
-## Implemented Inventory
+The operation catalog is authoritative for every operation's class, selector
+scopes, parameter presence, result type, structured errors, stream items, and
+stream end. Unknown fields are rejected except at named extension points.
 
-Protocol v10 implements the socket commands listed in `inventory.json` and
-`commands.md`. The event inventory includes subscribe events, attach-stream
-events, and implemented stream lifecycle events. Reserved serializers without a
-current producer remain marked separately.
+Public IDs are typed opaque strings. Internal mux positions, storage keys,
+numeric identities, and private renderer lifecycle values cannot cross this
+boundary.
 
-The client also implements `machine-provider-v0`, an in-process static Unix/SSH
-catalog, `machine-provider-v1`, an authenticated dynamic-provider protocol over
-Unix sockets, direct child processes, or the built-in SSH connector, and
-`cmux.machine-agent` v1 for outbound local-machine registration. These
-contracts are versioned separately from protocol v10.
+## Raw and implementation protocols
 
-Terminal-host v1 and provider-management v1 are also separate version domains. Terminal-host v1 is partial because its current `Resized` producer and consumer disagree on replay framing. SDKs must not infer either domain's compatibility from `identify.protocol`.
+Protocol v10 is the current private mux implementation protocol. It remains
+documented for cmux frontends and compatibility adapters:
 
-## Change Rule
+| File | Purpose |
+| --- | --- |
+| [`commands.md`](commands.md) | Raw protocol-v10 commands |
+| [`events.md`](events.md) | Raw events and attachment messages |
+| [`render.md`](render.md) | Styled render model used by private frontends |
+| [`transports.md`](transports.md) | Unix socket, WebSocket, and relay framing |
+| [`frontends.md`](frontends.md) | Private frontend synchronization |
+| [`programmability.md`](programmability.md) | Implementation inventory and ownership |
+| [`native-frontend.md`](native-frontend.md) | Native TUI integration boundaries |
 
-A PR that changes the mux protocol version or adds, removes, or renames a server command, serialized event, configurable action, menu action, or secondary-protocol entry must update `inventory.json` and its normative prose in the same commit. Run:
+Private protocol-v10 compatibility does not imply `cmux.protocol/1`
+compatibility. High-level SDK packages expose it only through a path named
+`raw`.
 
-```sh
+The machine-provider, provider-management, terminal-host, and machine-agent
+protocols each have their own version and authority boundary:
+
+| File | Version domain |
+| --- | --- |
+| [`machine-provider.md`](machine-provider.md) | Dynamic provider control and stream |
+| [`provider-management.md`](provider-management.md) | Root-only provider authority |
+| [`terminal-host.md`](terminal-host.md) | Terminal host process |
+| [`machine-agent.md`](machine-agent.md) | Outbound machine registration and relay |
+
+Clients must negotiate each domain independently.
+
+## Inventory and checks
+
+[`inventory.json`](inventory.json) records raw server commands, events, TUI
+actions, menu actions, feature families, and secondary protocol messages.
+[`inventory.schema.json`](inventory.schema.json) defines that index.
+[`sdk-schema.json`](sdk-schema.json) drives only raw protocol-v10 generation.
+
+Run the contract checks from the repository root:
+
+```bash
+python3 cmux-tui/scripts/test_check_spec_inventory.py
 python3 cmux-tui/scripts/check-spec-inventory.py
+python3 cmux-tui/scripts/test_check_resource_api_boundary.py
+python3 cmux-tui/scripts/check-resource-api-boundary.py
+python3 cmux-tui/bindings/codegen/generate.py --check
 ```
 
-Pending PR behavior stays under `pending_heads` until it lands on `main`.
+A change to any operation, field, class, public ID, raw command, serialized
+event, native action, menu action, or secondary protocol entry updates its
+machine-readable catalog and normative prose in the same commit.
+
+## Versioning
+
+`cmux.protocol/1` may receive backward-compatible optional additions while it
+is version 1. Removing an operation, changing field presence or type, changing
+selector behavior, or weakening ordering and idempotency semantics requires a
+new public protocol version.
+
+Private protocol v10 follows its own negotiation and capability rules. Public
+SDKs do not infer private capability support and private frontends do not infer
+the public resource version.

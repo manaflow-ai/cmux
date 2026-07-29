@@ -1,6 +1,10 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v10 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies private protocol-v10 commands for cmux frontends and raw
+SDK adapters. Application code should use
+[`cmux.protocol/1`](resource-api-v1.md).
+
+Implemented commands match protocol v10 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 

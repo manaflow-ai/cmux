@@ -1,6 +1,12 @@
 # Programmability Completeness
 
-This contract defines when a cmux-tui feature is programmable. A feature is complete only when its authoritative state and side effects have a typed protocol route, observable results, compatibility metadata, and conformance coverage. A raw JSON escape hatch does not count as typed SDK support.
+This inventory audits both the private frontend protocol and secondary
+implementation boundaries. Public application completeness is defined by
+[`cmux.protocol/1`](resource-api-v1.md), its
+[operation catalog](resource-operations-v1.json), the
+[noun-first CLI](cli.md), and the [SDK contract](bindings.md).
+
+A feature is complete only when its authoritative state and side effects have a typed protocol route, observable results, compatibility metadata, and conformance coverage. A raw JSON escape hatch does not count as typed SDK support.
 
 [`inventory.json`](inventory.json) is the checked inventory. CI validates it against its JSON Schema and compares it with the Rust protocol version, `Command`, `Action`, and `MenuAction` enums, serialized wire event names, secondary protocol enums, and the prose sections that define each implemented command and event.
 

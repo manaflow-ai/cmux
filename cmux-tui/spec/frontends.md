@@ -1,6 +1,10 @@
 # Build a cmux-tui Frontend
 
-This is the canonical integration path for an external cmux-tui frontend. This document narrates the complete protocol-v10 flow. Rich frontends should consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.
+This guide covers the private protocol-v10 frontend interface. Applications
+and extensions should use [`cmux.protocol/1`](resource-api-v1.md) and its typed
+terminal, browser, sidebar, and session streams.
+
+Rich frontends consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.
 
 The complete command schemas are in [`commands.md`](commands.md), event schemas and scoping are in [`events.md`](events.md), and styled-cell details are in [`render.md`](render.md).
 
