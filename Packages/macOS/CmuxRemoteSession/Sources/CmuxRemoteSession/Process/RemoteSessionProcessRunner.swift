@@ -57,6 +57,35 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         var stderrReadError: (any Error)?
     }
 
+    private final class ProcessCompletionState: @unchecked Sendable {
+        struct Snapshot {
+            let didExit: Bool
+            let stdinWriteError: (any Error)?
+        }
+
+        private let lock = NSLock()
+        private var didExit = false
+        private var stdinWriteError: (any Error)?
+
+        func markExited() {
+            lock.withLock {
+                didExit = true
+            }
+        }
+
+        func markStdinWriteFailed(_ error: any Error) {
+            lock.withLock {
+                stdinWriteError = error
+            }
+        }
+
+        func snapshot() -> Snapshot {
+            lock.withLock {
+                Snapshot(didExit: didExit, stdinWriteError: stdinWriteError)
+            }
+        }
+    }
+
     /// Runs the request to completion on the calling thread; see
     /// ``RemoteSessionProcessRunning/run(_:operation:)``.
     public func run(
@@ -106,10 +135,14 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         let stderrHandle = stderrPipe.fileHandleForReading
         let captureQueue = DispatchQueue(label: "cmux.remote.process.capture")
         let exitSemaphore = DispatchSemaphore(value: 0)
+        let lifecycleSemaphore = DispatchSemaphore(value: 0)
+        let completionState = ProcessCompletionState()
         let captureState = PipeCaptureState()
         let captureGroup = DispatchGroup()
         process.terminationHandler = { _ in
+            completionState.markExited()
             exitSemaphore.signal()
+            lifecycleSemaphore.signal()
         }
         // Duplicate the descriptors on the calling thread, while the handles
         // are guaranteed open, and drain the duplicates. The contract (pinned
@@ -203,39 +236,66 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             }
         }
 
+        let stdinWriteGroup = DispatchGroup()
         if let stdin, let pipe = process.standardInput as? Pipe {
             let inputHandle = pipe.fileHandleForWriting
-            do {
-                try stdinWriter.write(stdin, to: inputHandle)
-            } catch let error as POSIXError where error.code == .EPIPE {
-                // A child may exit before consuming optional stdin. The POSIX
-                // helper turns that expected race into EPIPE instead of SIGPIPE.
-            } catch {
-                try? inputHandle.close()
-                if process.isRunning {
-                    terminateProcessAndWait()
+            stdinWriteGroup.enter()
+            DispatchQueue.global(qos: .utility).async {
+                defer {
+                    try? inputHandle.close()
+                    stdinWriteGroup.leave()
+                    lifecycleSemaphore.signal()
                 }
-                finishCaptureAndCloseReadHandles()
-                debugLog(
-                    "remote.proc.stdinWriteFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
-                    "error=\(error.localizedDescription)"
-                )
-                throw NSError(domain: "cmux.remote.process", code: 3, userInfo: [
-                    NSLocalizedDescriptionKey: "Failed to write stdin for \(URL(fileURLWithPath: executable).lastPathComponent): \(error.localizedDescription)",
-                    NSUnderlyingErrorKey: error,
-                ])
+                do {
+                    try stdinWriter.write(stdin, to: inputHandle)
+                } catch let error as POSIXError where error.code == .EPIPE {
+                    // A child may exit before consuming optional stdin. The
+                    // POSIX helper turns that race into EPIPE instead of SIGPIPE.
+                } catch {
+                    completionState.markStdinWriteFailed(error)
+                }
             }
-            try? inputHandle.close()
         }
 
-        let didExitBeforeTimeout = exitSemaphore.wait(timeout: .now() + max(0, timeout)) == .success
-        if !didExitBeforeTimeout, process.isRunning {
+        let timeoutDeadline = DispatchTime.now() + max(0, timeout)
+        var didTimeOut = false
+        while true {
+            let state = completionState.snapshot()
+            if state.didExit || state.stdinWriteError != nil {
+                break
+            }
+            if lifecycleSemaphore.wait(timeout: timeoutDeadline) == .timedOut {
+                let stateAtDeadline = completionState.snapshot()
+                didTimeOut = !stateAtDeadline.didExit && stateAtDeadline.stdinWriteError == nil
+                break
+            }
+        }
+
+        if let stdinWriteError = completionState.snapshot().stdinWriteError {
+            if process.isRunning {
+                terminateProcessAndWait()
+            }
+            stdinWriteGroup.wait()
+            finishCaptureAndCloseReadHandles()
+            debugLog(
+                "remote.proc.stdinWriteFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
+                "error=\(stdinWriteError.localizedDescription)"
+            )
+            throw NSError(domain: "cmux.remote.process", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to write stdin for \(URL(fileURLWithPath: executable).lastPathComponent): \(stdinWriteError.localizedDescription)",
+                NSUnderlyingErrorKey: stdinWriteError,
+            ])
+        }
+
+        if didTimeOut, process.isRunning {
             if let operation, operation.isCancelled {
                 terminateProcessAndWait()
+                stdinWriteGroup.wait()
                 finishCaptureAndCloseReadHandles()
                 throw operation.cancellationError
             }
             terminateProcessAndWait()
+            stdinWriteGroup.wait()
             finishCaptureAndCloseReadHandles()
             debugLog(
                 "remote.proc.timeout exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
@@ -246,6 +306,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             ])
         }
 
+        stdinWriteGroup.wait()
         finishCaptureAndCloseReadHandles()
         let stdout = String(data: captureState.stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: captureState.stderrData, encoding: .utf8) ?? ""
