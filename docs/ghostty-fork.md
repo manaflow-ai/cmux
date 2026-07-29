@@ -12,20 +12,24 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `112faaa49`, the reviewed head of
-https://github.com/manaflow-ai/ghostty/pull/169, merged to fork main as
-`64d7fca66`. It combines the renderer-memory line ending at `78621f8ce` with
-the bounded app-mailbox fix at `2258bea96`. The renderer line was reviewed in
+The submodule pinned by this branch is `cd1f8e012`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/170, merged to fork main as
+`4d6f0014f`. It combines the renderer-memory line ending at `78621f8ce`, the
+bounded app-mailbox fix at `2258bea96`, and generation-tagged renderer retry
+timers. The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged
 https://github.com/manaflow-ai/ghostty/pull/153,
 https://github.com/manaflow-ai/ghostty/pull/165, and
 https://github.com/manaflow-ai/ghostty/pull/166,
-https://github.com/manaflow-ai/ghostty/pull/167. The combined head adds
+https://github.com/manaflow-ai/ghostty/pull/167, then integrated by
+https://github.com/manaflow-ai/ghostty/pull/169. The combined head adds
 lossless hidden-tab renderer reclamation, forced renderer rebuild
 transactions, shared custom Metal pipelines, compile-attempt-owned failure
 backoff, one observation owner per native tab group, and bounded app-mailbox
-turns. The six PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
-`2fc66ed15`, `3c1b75d25`, `c467d389c`, and `64d7fca66`.
+turns. Retry timers validate lifecycle generations immediately before xev
+reset, so a stale cross-thread handoff cannot replace a fresh 250 ms deadline.
+The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
+`2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
 
 ### Hidden macOS renderer reclamation
 
@@ -36,6 +40,7 @@ turns. The six PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
   - https://github.com/manaflow-ai/ghostty/pull/167
   - https://github.com/manaflow-ai/ghostty/pull/168
   - Integration: https://github.com/manaflow-ai/ghostty/pull/169
+  - Retry deadline hardening: https://github.com/manaflow-ai/ghostty/pull/170
 - Commits:
   - `1de584d1e` (test: require lossless renderer realization requests)
   - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
@@ -88,6 +93,11 @@ turns. The six PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
   - `a1e727ad2` (fix: tolerate matching retained shader entries)
   - `173623b9d` (test: cover live shader failure backoff)
   - `78621f8ce` (fix: key shader retries to compile attempts)
+  - `29cbadf15` (test: reset resolved renderer retry deadlines)
+  - `f9b38609a` (test: replace obsolete renderer retry handoffs)
+  - `45abb8a2d` (fix: reset resolved renderer retry deadlines)
+  - `e7d06af34` (fix: generation-tag renderer retry timers)
+  - `cd1f8e012` (test: update renderer retry request assertion)
 - Files:
   - `include/ghostty.h`
   - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
@@ -126,6 +136,9 @@ turns. The six PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
   - Tags retries with publication generations and invalidates them atomically
     while claiming newer requests, so stale retries cannot override the latest
     external-render state.
+  - Validates generation-tagged timer requests immediately before xev reset,
+    rejects stale expirations, and resets the retry backoff after successful
+    resolution so delayed handoffs cannot inherit or overwrite fresh deadlines.
   - Shares immutable standard shader pipelines by Metal device and pixel
     format while preserving renderer-owned resources and transactional cleanup.
   - Shares custom shader pipelines by device, pixel format, and source across
@@ -146,13 +159,14 @@ turns. The six PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
     single-owner tab observation, conservative tab selection, and off-main
     teardown without synchronous main-queue waits.
 
-The pinned `112faaa49` universal ReleaseFast GhosttyKit archive was built with
+The pinned `cd1f8e012` universal ReleaseFast GhosttyKit archive was built with
 Zig 0.16.0 on macOS 26.3 and Xcode 26.5. It is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-112faaa496f49cb3d7c74b82cbdc802929cc5a8d-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cd1f8e0120f534cabc7d89257baccc42c166d369-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. Verification
-used the app-mailbox producer-refill regression, the 83-test custom-shader Zig
-suite, the xcframework archive validator, `lipo -archs`, and `nm -g` for
-`_ghostty_surface_rebuild_renderer` in every slice.
+used the renderer-thread retry suite, the xcframework archive validator,
+`lipo -archs`, and `nm -g` for `_ghostty_surface_rebuild_renderer` in every
+slice. The published asset was downloaded again and matched SHA-256
+`578864e66ed7483d8c28fd2418d6b9961467d4a4bba4d166884eb3557187d601`.
 
 ### `os/open` stderr drain spin and zombie leak
 
@@ -234,9 +248,9 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The mailbox line is integrated into the pinned `112faaa49` universal
+The mailbox line is integrated into the pinned `cd1f8e012` universal
 ReleaseFast GhosttyKit archive published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-112faaa496f49cb3d7c74b82cbdc802929cc5a8d-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cd1f8e0120f534cabc7d89257baccc42c166d369-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Bounded app mailbox turns
@@ -264,9 +278,9 @@ published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2258bea96ddc005156beceb741b7dabb283ec615-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The integrated `112faaa49` universal ReleaseFast GhosttyKit archive is
+The integrated `cd1f8e012` universal ReleaseFast GhosttyKit archive is
 published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-112faaa496f49cb3d7c74b82cbdc802929cc5a8d-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cd1f8e0120f534cabc7d89257baccc42c166d369-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. Verification
 covered the archive layout and plist, absence of AppleDouble entries, every
 declared architecture, and `_ghostty_surface_rebuild_renderer` plus
