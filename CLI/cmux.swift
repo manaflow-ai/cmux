@@ -176,6 +176,10 @@ struct ClaudeHookSessionRecord: Codable {
     /// does not carry `background_tasks`, so the idle-reminder gate reads this.
     /// Optional so stores written before this field decode unchanged.
     var hadPendingBackgroundWorkAtStop: Bool?
+    /// Whether the most recent Stop reported work that survives `/clear`.
+    /// Claude clears `session_crons` with the conversation, while running
+    /// `background_tasks` continue into the replacement session.
+    var hadSurvivingBackgroundWorkAtStop: Bool?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -724,6 +728,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        hadSurvivingBackgroundWorkAtStop: Bool? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false,
@@ -760,7 +765,7 @@ final class ClaudeHookSessionStore {
                     surfaceId: surfaceId
                 )
                 let activeOwnerHasPendingWork =
-                    activeRecord?.hadPendingBackgroundWorkAtStop == true
+                    activeRecord?.hadSurvivingBackgroundWorkAtStop == true
                     && processGenerationMatches(
                         recordedPID: activeRecord?.pid,
                         recordedStartSeconds: activeRecord?.pidStartSeconds,
@@ -784,6 +789,14 @@ final class ClaudeHookSessionStore {
                 effectivePendingBackgroundWork = false
             } else {
                 effectivePendingBackgroundWork = hadPendingBackgroundWorkAtStop
+            }
+            let effectiveSurvivingBackgroundWork: Bool?
+            if inheritedPendingBackgroundWork {
+                effectiveSurvivingBackgroundWork = true
+            } else if case .inheritAcrossClear = pendingBackgroundWorkBoundary {
+                effectiveSurvivingBackgroundWork = false
+            } else {
+                effectiveSurvivingBackgroundWork = hadSurvivingBackgroundWorkAtStop
             }
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
@@ -826,6 +839,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: effectivePendingBackgroundWork,
+                hadSurvivingBackgroundWorkAtStop: effectiveSurvivingBackgroundWork,
                 now: now
             )
             state.sessions[normalized] = record
@@ -1198,6 +1212,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        hadSurvivingBackgroundWorkAtStop: Bool? = nil,
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
@@ -1258,6 +1273,9 @@ final class ClaudeHookSessionStore {
         }
         if let hadPendingBackgroundWorkAtStop {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
+        }
+        if let hadSurvivingBackgroundWorkAtStop {
+            record.hadSurvivingBackgroundWorkAtStop = hadSurvivingBackgroundWorkAtStop
         }
         record.updatedAt = now
     }
@@ -1631,7 +1649,7 @@ final class ClaudeHookSessionStore {
             )
             let preservesPendingBackgroundWork =
                 preservePendingBackgroundWorkForClear
-                && record.hadPendingBackgroundWorkAtStop == true
+                && record.hadSurvivingBackgroundWorkAtStop == true
                 && activeOwner?.sessionId == record.sessionId
                 && transferSurfaceId != nil
             if preservesPendingBackgroundWork, let transferSurfaceId {
@@ -24653,7 +24671,8 @@ struct CMUXCLI {
                 // background task or a pending cron). Cached on the session record so
                 // the ~60s-later idle_prompt Notification can consult it, and forwarded
                 // to the app so it can suppress the done-ping until work truly drains.
-                let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
+                let backgroundWork = claudeBackgroundWorkState(parsedInput)
+                let hasPendingBackgroundWork = backgroundWork.keepsSessionRunning
 
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
@@ -24675,6 +24694,7 @@ struct CMUXCLI {
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
+                        hadSurvivingBackgroundWorkAtStop: backgroundWork.survivesClear,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -27763,19 +27783,27 @@ struct CMUXCLI {
         return base + "|" + meta
     }
 
-    /// True when a Claude `Stop`/`Notification` payload reports unfinished
-    /// background work: any `background_tasks` entry still `running`, or a
-    /// non-empty `session_crons`. A `nil` rawObject or absent keys (claude
-    /// < 2.1.145) yield `false`, so older clients behave exactly as before.
-    /// Pure over `rawObject` so both the notify gate and the hibernation
-    /// lifecycle decision can share it (mirrors `hasActiveAntigravityBackgroundWork`).
-    func hasActiveClaudeBackgroundWork(_ parsedInput: ClaudeHookParsedInput) -> Bool {
-        guard let obj = parsedInput.rawObject else { return false }
-        if let crons = obj["session_crons"] as? [Any], !crons.isEmpty { return true }
-        if let tasks = obj["background_tasks"] as? [[String: Any]] {
-            return tasks.contains { ($0["status"] as? String) == "running" }
+    /// Separates current-session activity from work that survives `/clear`.
+    /// A `nil` rawObject or absent keys (Claude < 2.1.145) yields no work, so
+    /// older clients behave exactly as before.
+    func claudeBackgroundWorkState(
+        _ parsedInput: ClaudeHookParsedInput
+    ) -> (keepsSessionRunning: Bool, survivesClear: Bool) {
+        guard let obj = parsedInput.rawObject else {
+            return (
+                keepsSessionRunning: false,
+                survivesClear: false
+            )
         }
-        return false
+        let hasSessionCrons = (obj["session_crons"] as? [Any])?.isEmpty == false
+        let hasRunningBackgroundTasks =
+            (obj["background_tasks"] as? [[String: Any]])?.contains {
+                ($0["status"] as? String) == "running"
+            } == true
+        return (
+            keepsSessionRunning: hasSessionCrons || hasRunningBackgroundTasks,
+            survivesClear: hasRunningBackgroundTasks
+        )
     }
 
     private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
