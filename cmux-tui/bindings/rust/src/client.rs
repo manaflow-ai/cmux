@@ -32,6 +32,11 @@ pub enum CmuxError {
         details: Value,
         retryable: bool,
     },
+    /// A destructive layout mutation requires an exact stale-state fence.
+    ConfirmationRequired {
+        message: String,
+        details: crate::ConfirmationRequiredDetails,
+    },
     AuthorityDenied {
         command: &'static str,
         authority: &'static str,
@@ -39,6 +44,14 @@ pub enum CmuxError {
     Decode(String),
     Connection(String),
     Timeout(String),
+    /// A caller canceled one resource operation before its response arrived.
+    Cancelled(String),
+    /// A mutation lost its response after a transport failure.
+    MutationTransport {
+        operation: String,
+        idempotency_key: String,
+        source: Box<CmuxError>,
+    },
     ProtocolVersion {
         command: &'static str,
         required: u32,
@@ -74,6 +87,9 @@ impl fmt::Display for CmuxError {
         match self {
             Self::Command { command, message, .. } => write!(formatter, "{command}: {message}"),
             Self::Protocol { code, message, .. } => write!(formatter, "{code}: {message}"),
+            Self::ConfirmationRequired { message, .. } => {
+                write!(formatter, "confirmation.required: {message}")
+            }
             Self::AuthorityDenied { command, authority } => {
                 write!(
                     formatter,
@@ -83,7 +99,13 @@ impl fmt::Display for CmuxError {
             Self::Decode(message)
             | Self::Connection(message)
             | Self::Timeout(message)
+            | Self::Cancelled(message)
             | Self::InvalidArgument(message) => formatter.write_str(message),
+            Self::MutationTransport { operation, idempotency_key, .. } => write!(
+                formatter,
+                "{operation} transport failed after dispatch; mutation outcome is uncertain \
+                 (idempotency_key={idempotency_key})"
+            ),
             Self::ProtocolVersion { command, required, actual } => {
                 write!(
                     formatter,
@@ -118,7 +140,14 @@ impl fmt::Display for CmuxError {
     }
 }
 
-impl std::error::Error for CmuxError {}
+impl std::error::Error for CmuxError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::MutationTransport { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {

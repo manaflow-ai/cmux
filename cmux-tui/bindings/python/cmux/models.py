@@ -22,9 +22,6 @@ from .ids import (
     PairingRequestId,
     PaneId,
     ProjectionId,
-    ProviderActionId,
-    ProviderNoticeId,
-    ProviderScopeId,
     ResourceId,
     ScreenId,
     SessionId,
@@ -38,7 +35,6 @@ from .ids import (
 
 
 JsonObject = Mapping[str, Any]
-ProviderActionValue = Union[str, int]
 IdT = TypeVar("IdT", bound=ResourceId)
 ValueT = TypeVar("ValueT")
 ItemT = TypeVar("ItemT")
@@ -52,7 +48,7 @@ class Snapshot(Generic[IdT]):
 @dataclass(frozen=True)
 class MachineSnapshot(Snapshot[MachineId]):
     name: str
-    origin: Literal["local", "external"]
+    origin: Literal["local"]
     status: Literal[
         "running",
         "connecting",
@@ -63,7 +59,6 @@ class MachineSnapshot(Snapshot[MachineId]):
     connectable: bool
     deleted: bool
     recoverable: bool
-    provider_scope_id: Optional[ProviderScopeId] = None
     extra: JsonObject = field(default_factory=dict)
 
 
@@ -117,13 +112,51 @@ class TabSnapshot(Snapshot[TabId]):
 
 
 @dataclass(frozen=True)
+class TerminalExitCode:
+    kind: Literal["exit"]
+    code: int
+
+
+@dataclass(frozen=True)
+class TerminalExitSignal:
+    kind: Literal["signal"]
+    signal: int
+    core_dumped: bool
+
+
+@dataclass(frozen=True)
+class TerminalExitUnknown:
+    kind: Literal["unknown"]
+    reason: str
+
+
+TerminalExitOutcome = Union[
+    TerminalExitCode,
+    TerminalExitSignal,
+    TerminalExitUnknown,
+]
+
+
+@dataclass(frozen=True)
+class TerminalExit:
+    outcome: TerminalExitOutcome
+    exited_at: str
+    revision: str
+
+
+TerminalLifecycle = Literal["launching", "running", "exited"]
+
+
+@dataclass(frozen=True)
 class TerminalSnapshot(Snapshot[TerminalId]):
     tab_id: TabId
     title: str
     cols: int
     rows: int
     running: bool
+    lifecycle: TerminalLifecycle
     cwd: Optional[str] = None
+    exit: Optional[TerminalExit] = None
     extra: JsonObject = field(default_factory=dict)
 
 
@@ -183,8 +216,8 @@ class PairingCode:
     __slots__ = ("__value",)
 
     def __init__(self, value: str) -> None:
-        if not isinstance(value, str) or not value:
-            raise ValueError("pairing code must be a non-empty string")
+        if not isinstance(value, str):
+            raise TypeError("pairing code must be a string")
         self.__value = value
 
     def reveal(self) -> str:
@@ -224,47 +257,6 @@ class SidebarViewSnapshot(Snapshot[SidebarViewId]):
 
 
 @dataclass(frozen=True)
-class ProviderScopeSnapshot(Snapshot[ProviderScopeId]):
-    name: str
-    kind: Literal["personal", "team"]
-    can_admin: bool
-    selected: bool
-    extra: JsonObject = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class ProviderActionField:
-    id: str
-    label: str
-    kind: Literal["text", "email", "integer"]
-    required: bool
-    max_length: Optional[int] = None
-    minimum: Optional[int] = None
-    maximum: Optional[int] = None
-    placeholder: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class ProviderActionSnapshot(Snapshot[ProviderActionId]):
-    provider_scope_id: ProviderScopeId
-    name: str
-    title: str
-    enabled: bool
-    target: Literal["scope", "selected_machine", "selected_workspace"]
-    destructive: bool
-    fields: Tuple[ProviderActionField, ...]
-    extra: JsonObject = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class ProviderNoticeSnapshot(Snapshot[ProviderNoticeId]):
-    provider_scope_id: ProviderScopeId
-    level: Literal["info", "warning", "error"]
-    message: str
-    extra: JsonObject = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
 class Cursor:
     generation: str
     revision: str
@@ -276,6 +268,150 @@ class MutationResult(Generic[ValueT]):
     generation: str
     revision: str
     replayed: bool
+
+
+@dataclass(frozen=True)
+class CreationResolution(Generic[ValueT]):
+    correlation_key: str
+    state: Literal["pending", "created", "not_applied", "indeterminate"]
+    recovery: Literal[
+        "retry_same_idempotency_key",
+        "retry_new_idempotency_key",
+        "wait",
+        "none",
+        "do_not_retry",
+    ]
+    operation: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    created_path: Optional[ValueT] = None
+    generation: Optional[str] = None
+    revision: Optional[str] = None
+
+
+MutationReceipt = MutationResult[None]
+
+
+@dataclass(frozen=True)
+class PingResult:
+    alive: bool
+    cursor: Cursor
+
+
+@dataclass(frozen=True)
+class ShutdownResult:
+    accepted: bool
+
+
+@dataclass(frozen=True)
+class ReloadConfigResult:
+    reloaded: bool
+    warnings: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TerminalDefaultsSnapshot:
+    foreground: Optional[str] = None
+    background: Optional[str] = None
+    cursor: Optional[str] = None
+    selection_background: Optional[str] = None
+    selection_foreground: Optional[str] = None
+    cursor_style: Optional[Literal["block", "bar", "underline"]] = None
+    cursor_blink: Optional[bool] = None
+    palette: Optional[Mapping[str, str]] = None
+
+
+@dataclass(frozen=True)
+class TerminalScreenResult:
+    text: str
+    cols: int
+    rows: int
+    cursor_row: int
+    cursor_col: int
+    cursor_visible: bool
+    extra: JsonObject = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class TerminalStateResult:
+    state: bytes
+    cols: int
+    rows: int
+
+
+@dataclass(frozen=True)
+class TerminalHistoryResult:
+    start: str
+    next: Optional[str]
+    rows: Tuple["RenderRow", ...]
+
+
+@dataclass(frozen=True)
+class TerminalWaitResult:
+    matched: bool
+    text: str
+
+
+@dataclass(frozen=True)
+class TerminalWaitExitPending:
+    state: Literal["pending"]
+    terminal_id: TerminalId
+    lifecycle: Literal["launching", "running"]
+    revision: str
+
+
+@dataclass(frozen=True)
+class TerminalWaitExitExited:
+    state: Literal["exited"]
+    terminal_id: TerminalId
+    lifecycle: Literal["exited"]
+    outcome: TerminalExitOutcome
+    exited_at: str
+    revision: str
+
+
+TerminalWaitExitResult = Union[
+    TerminalWaitExitPending,
+    TerminalWaitExitExited,
+]
+
+@dataclass(frozen=True)
+class TerminalCopyResult:
+    mode: Literal["screen", "selection", "scrollback"]
+    text: str
+
+
+@dataclass(frozen=True)
+class ProcessInfoResult:
+    pid: int
+    executable: Optional[str]
+    argv: Tuple[str, ...]
+    cwd: Optional[str]
+    children: Tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class ViewerResizeResult:
+    accepted: bool
+    size: "Size"
+
+
+@dataclass(frozen=True)
+class BrowserViewerResizeResult:
+    accepted: bool
+    size: "PixelSize"
+
+
+@dataclass(frozen=True)
+class CellPixelsResult:
+    width_px: int
+    height_px: int
+    resized_terminals: Tuple[TerminalId, ...]
+    failures: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class PairingResolutionResult:
+    pairing_request: PairingRequestSnapshot
 
 
 @dataclass(frozen=True)
@@ -325,27 +461,6 @@ class RendererGrant(_Secret):
         self.terminal_id = terminal_id
         self.rights = tuple(rights)
         self.ttl_ms = ttl_ms
-
-
-class ProviderCredential(_Secret):
-    """Provider credential with redacted display."""
-
-    _label = "provider credential"
-
-    def __init__(self, name: str, value: str) -> None:
-        if not isinstance(name, str) or not name:
-            raise ValueError("provider credential name must be non-empty")
-        self.name = name
-        super().__init__(value)
-
-    def to_params(self) -> dict[str, str]:
-        return {"name": self.name, "value": self.take()}
-
-
-class ExternalMachineSpecifier(_Secret):
-    """One-use provider-owned machine specifier with redacted display."""
-
-    _label = "external machine specifier"
 
 
 @dataclass(frozen=True)
@@ -576,9 +691,6 @@ ResourceKind = Literal[
     "pairing_request",
     "frontend_projection",
     "sidebar_view",
-    "provider_scope",
-    "provider_action",
-    "provider_notice",
 ]
 ResourceEntitySnapshot = Union[
     MachineSnapshot,
@@ -595,9 +707,6 @@ ResourceEntitySnapshot = Union[
     PairingRequestSnapshot,
     FrontendProjectionSnapshot,
     SidebarViewSnapshot,
-    ProviderScopeSnapshot,
-    ProviderActionSnapshot,
-    ProviderNoticeSnapshot,
 ]
 
 
@@ -794,16 +903,6 @@ SidebarAttachItem = Union[
 ]
 
 
-@dataclass(frozen=True)
-class ProviderNoticeKnown:
-    kind: Literal["notice"]
-    notice: ProviderNoticeSnapshot
-    sequence: str
-
-
-ProviderNoticeItem = Union[ProviderNoticeKnown, Unknown]
-
-
 __all__ = [
     "AgentSnapshot",
     "BrowserAttachFrame",
@@ -811,13 +910,15 @@ __all__ = [
     "BrowserAttachSnapshot",
     "BrowserAttachState",
     "BrowserSnapshot",
+    "BrowserViewerResizeResult",
+    "CellPixelsResult",
     "Command",
     "ClientTerminalSize",
     "ClientSnapshot",
+    "CreationResolution",
     "Cursor",
     "Document",
     "ExactCommand",
-    "ExternalMachineSpecifier",
     "FrontendProjectionSnapshot",
     "JsonObject",
     "KeyInput",
@@ -831,19 +932,15 @@ __all__ = [
     "MachineSnapshot",
     "MouseInput",
     "MutationResult",
+    "MutationReceipt",
     "NotificationSnapshot",
     "PairingRequestSnapshot",
+    "PairingResolutionResult",
     "PairingCode",
     "PaneSnapshot",
     "PixelSize",
-    "ProviderActionSnapshot",
-    "ProviderActionValue",
-    "ProviderActionField",
-    "ProviderCredential",
-    "ProviderNoticeKnown",
-    "ProviderNoticeItem",
-    "ProviderNoticeSnapshot",
-    "ProviderScopeSnapshot",
+    "PingResult",
+    "ProcessInfoResult",
     "ResourceChange",
     "ResourceDelete",
     "ResourceEntitySnapshot",
@@ -857,8 +954,10 @@ __all__ = [
     "RenderRun",
     "RenderScroll",
     "RenderSnapshot",
+    "ReloadConfigResult",
     "ScreenSnapshot",
     "SessionSnapshot",
+    "ShutdownResult",
     "SessionSnapshotItem",
     "SessionDelta",
     "SessionEvent",
@@ -874,11 +973,27 @@ __all__ = [
     "StreamItem",
     "TabSnapshot",
     "TerminalSnapshot",
+    "TerminalCopyResult",
+    "TerminalDefaultsSnapshot",
+    "TerminalExit",
+    "TerminalExitCode",
+    "TerminalExitOutcome",
+    "TerminalExitSignal",
+    "TerminalExitUnknown",
+    "TerminalHistoryResult",
+    "TerminalLifecycle",
+    "TerminalScreenResult",
+    "TerminalStateResult",
+    "TerminalWaitExitExited",
+    "TerminalWaitExitPending",
+    "TerminalWaitExitResult",
+    "TerminalWaitResult",
     "TerminalAttachItem",
     "TerminalAttachPatch",
     "TerminalAttachScroll",
     "TerminalAttachSnapshot",
     "Unknown",
+    "ViewerResizeResult",
     "WorkspaceSnapshot",
     "exact",
     "shell",

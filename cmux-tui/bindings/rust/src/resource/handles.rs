@@ -4,12 +4,12 @@ use super::model::*;
 use super::ops;
 use super::options::*;
 use super::typed_stream::{
-    BrowserAttachment, ProviderNoticeStream, SessionEventStream, SidebarViewStream,
-    TerminalAttachment,
+    BrowserAttachment, SessionEventStream, SidebarViewStream, TerminalAttachment,
 };
 use super::wire::{self, Params, field};
 use crate::{Error, Result};
 use base64::Engine;
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
 fn receipt(value: &Value) -> Result<MutationReceipt> {
@@ -30,19 +30,17 @@ fn mutation_result<T>(
     })
 }
 
-fn mutation_document(value: Value) -> Result<MutationResult<Document>> {
-    mutation_result(value, |value| Ok(Document(value.clone())))
+fn mutation_empty(value: Value) -> Result<MutationReceipt> {
+    mutation_result(value, decode_empty)
 }
 
-fn mutation_empty(value: Value) -> Result<MutationReceipt> {
-    mutation_result(value, |value| {
-        if !value.as_object().is_some_and(Map::is_empty) {
-            return Err(Error::UnexpectedEnvelope(
-                "empty mutation result value must be an object with no fields".to_string(),
-            ));
-        }
-        Ok(())
-    })
+fn decode_empty(value: &Value) -> Result<()> {
+    if !value.as_object().is_some_and(Map::is_empty) {
+        return Err(Error::UnexpectedEnvelope(
+            "empty result must be an object with no fields".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn created<T>(
@@ -60,11 +58,11 @@ fn created<T>(
     })
 }
 
-fn mutation_snapshot<I: OpaqueId>(
+fn mutation_snapshot<T: DeserializeOwned>(
     value: Value,
     key: &'static str,
-) -> Result<MutationResult<ResourceSnapshot<I>>> {
-    mutation_result(value, |value| wire::snapshot::<I>(value, key))
+) -> Result<MutationResult<T>> {
+    mutation_result(value, |value| wire::snapshot::<T>(value, key))
 }
 
 fn label_params(options: LabelOptions) -> Params {
@@ -100,7 +98,7 @@ impl Client {
     }
 
     pub fn machines(&self) -> Result<Vec<Machine>> {
-        wire::list::<MachineId>(
+        wire::list::<MachineSnapshot>(
             &self.read(ops::MACHINE_LIST, Params::new())?,
             "machines",
             "machine",
@@ -109,20 +107,15 @@ impl Client {
     }
 
     pub fn find_machines_by_name(&self, name: &str) -> Result<Vec<Machine>> {
-        Ok(wire::list::<MachineId>(
+        Ok(wire::list::<MachineSnapshot>(
             &self.read(ops::MACHINE_LIST, Params::new())?,
             "machines",
             "machine",
         )?
         .into_iter()
-        .filter(|snapshot| snapshot.name.as_deref() == Some(name))
+        .filter(|snapshot| snapshot.name == name)
         .map(|snapshot| self.machine(snapshot.id))
         .collect())
-    }
-
-    /// Creates an unscoped provider handle for machine creation or connection.
-    pub fn provider_scope(&self, selector: impl Into<Selector<ProviderScopeId>>) -> ProviderScope {
-        ProviderScope { client: self.clone(), machine: None, selector: selector.into() }
     }
 
     pub fn session(&self, selector: impl Into<Selector<SessionId>>) -> Session {
@@ -134,7 +127,7 @@ impl Client {
     }
 
     pub fn sessions(&self) -> Result<Vec<Session>> {
-        wire::list::<SessionId>(
+        wire::list::<SessionSnapshot>(
             &self.read(
                 ops::SESSION_LIST,
                 Params::new().selector(field::MACHINE, &Selector::<MachineId>::current()),
@@ -146,7 +139,7 @@ impl Client {
     }
 
     pub fn find_sessions_by_name(&self, name: &str) -> Result<Vec<Session>> {
-        Ok(wire::list::<SessionId>(
+        Ok(wire::list::<SessionSnapshot>(
             &self.read(
                 ops::SESSION_LIST,
                 Params::new().selector(field::MACHINE, &Selector::<MachineId>::current()),
@@ -189,7 +182,7 @@ impl Machine {
     }
 
     pub fn sessions(&self) -> Result<Vec<Session>> {
-        wire::list::<SessionId>(
+        wire::list::<SessionSnapshot>(
             &self
                 .client
                 .read(ops::SESSION_LIST, Params::new().selector(field::MACHINE, &self.selector))?,
@@ -209,7 +202,7 @@ impl Machine {
     }
 
     pub fn find_sessions_by_name(&self, name: &str) -> Result<Vec<Session>> {
-        Ok(wire::list::<SessionId>(
+        Ok(wire::list::<SessionSnapshot>(
             &self
                 .client
                 .read(ops::SESSION_LIST, Params::new().selector(field::MACHINE, &self.selector))?,
@@ -247,105 +240,6 @@ impl Machine {
         )?;
         mutation_snapshot(value, "session")
     }
-
-    pub fn provider_scope(&self, selector: impl Into<Selector<ProviderScopeId>>) -> ProviderScope {
-        ProviderScope {
-            client: self.client.clone(),
-            machine: Some(self.selector.clone()),
-            selector: selector.into(),
-        }
-    }
-
-    pub fn provider_scopes(&self) -> Result<Vec<ProviderScope>> {
-        wire::list::<ProviderScopeId>(
-            &self.client.read(
-                ops::PROVIDER_SCOPE_LIST,
-                Params::new().selector(field::MACHINE, &self.selector),
-            )?,
-            "provider scopes",
-            "provider_scope",
-        )
-        .map(|snapshots| {
-            snapshots.into_iter().map(|snapshot| self.provider_scope(snapshot.id)).collect()
-        })
-    }
-
-    pub fn rename(&self, name: impl Into<String>) -> Result<MutationResult<MachineSnapshot>> {
-        self.rename_with(MachineRenameOptions::new(name), MutationOptions::unique()?)
-    }
-
-    pub fn rename_confirmed(
-        &self,
-        name: impl Into<String>,
-    ) -> Result<MutationResult<MachineSnapshot>> {
-        self.rename_with(MachineRenameOptions::new(name).confirmed(), MutationOptions::unique()?)
-    }
-
-    pub fn rename_with(
-        &self,
-        options: MachineRenameOptions,
-        mutation: MutationOptions,
-    ) -> Result<MutationResult<MachineSnapshot>> {
-        mutation_snapshot(
-            self.client.mutate(
-                ops::MACHINE_RENAME,
-                Params::new()
-                    .selector(field::MACHINE, &self.selector)
-                    .string(field::NAME, options.name)
-                    .optional_bool(field::CONFIRM_CLOSE, options.confirm_close.then_some(true)),
-                mutation,
-            )?,
-            "machine",
-        )
-    }
-
-    pub fn delete(&self) -> Result<MutationResult<MachineSnapshot>> {
-        self.delete_with(MutationOptions::unique()?)
-    }
-
-    pub fn delete_with(
-        &self,
-        mutation: MutationOptions,
-    ) -> Result<MutationResult<MachineSnapshot>> {
-        mutation_snapshot(
-            self.client.mutate(
-                ops::MACHINE_DELETE,
-                Params::new().selector(field::MACHINE, &self.selector),
-                mutation,
-            )?,
-            "machine",
-        )
-    }
-
-    pub fn restore(&self) -> Result<MutationResult<MachineSnapshot>> {
-        self.restore_with(MutationOptions::unique()?)
-    }
-
-    pub fn restore_with(
-        &self,
-        mutation: MutationOptions,
-    ) -> Result<MutationResult<MachineSnapshot>> {
-        mutation_snapshot(
-            self.client.mutate(
-                ops::MACHINE_RESTORE,
-                Params::new().selector(field::MACHINE, &self.selector),
-                mutation,
-            )?,
-            "machine",
-        )
-    }
-
-    pub fn purge(&self) -> Result<MutationReceipt> {
-        self.purge_with(MutationOptions::unique()?)
-    }
-
-    pub fn purge_with(&self, mutation: MutationOptions) -> Result<MutationReceipt> {
-        mutation_empty(self.client.mutate(
-            ops::MACHINE_PURGE,
-            Params::new().selector(field::MACHINE, &self.selector),
-            mutation,
-        )?)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -353,6 +247,29 @@ pub struct Session {
     client: Client,
     machine: Selector<MachineId>,
     selector: Selector<SessionId>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SessionCreation {
+    session: Session,
+}
+
+impl SessionCreation {
+    pub fn resolve(&self, correlation_key: impl Into<String>) -> Result<CreationResolution> {
+        let correlation_key = correlation_key.into();
+        if correlation_key.is_empty() || correlation_key.len() > 128 {
+            return Err(Error::InvalidArgument(
+                "correlation key must contain 1 to 128 UTF-8 bytes".to_string(),
+            ));
+        }
+        wire::decode_exact(
+            &self.session.client.read(
+                ops::SESSION_CREATION_RESOLVE,
+                self.session.params().string(field::CORRELATION_KEY, correlation_key),
+            )?,
+            "creation resolution",
+        )
+    }
 }
 
 impl Session {
@@ -377,15 +294,15 @@ impl Session {
         wire::snapshot(&self.client.read(ops::SESSION_GET, self.params())?, "session")
     }
 
-    pub fn snapshot(&self) -> Result<Snapshot> {
-        let value = self.client.read(ops::SESSION_SNAPSHOT, self.params())?;
-        let object = value.as_object().ok_or_else(|| {
-            Error::UnexpectedEnvelope("session snapshot must be an object".to_string())
-        })?;
-        let cursor = wire::parse_cursor(object.get("cursor").ok_or_else(|| {
-            Error::UnexpectedEnvelope("snapshot cursor is required".to_string())
-        })?)?;
-        Ok(Snapshot { cursor, document: Document(value) })
+    pub fn creation(&self) -> SessionCreation {
+        SessionCreation { session: self.clone() }
+    }
+
+    pub fn snapshot(&self) -> Result<ResourceSnapshot> {
+        wire::decode_exact(
+            &self.client.read(ops::SESSION_SNAPSHOT, self.params())?,
+            "resource snapshot",
+        )
     }
 
     pub fn events(&self, options: EventStreamOptions) -> Result<SessionEventStream> {
@@ -394,11 +311,14 @@ impl Session {
             .map(SessionEventStream::new)
     }
 
-    pub fn ping(&self) -> Result<Document> {
-        self.client.read(ops::SESSION_PING, self.params()).map(Document)
+    pub fn ping(&self) -> Result<PingResult> {
+        wire::decode_exact(
+            &self.client.read(ops::SESSION_PING, self.params())?,
+            "session ping result",
+        )
     }
 
-    pub fn shutdown(&self, options: ShutdownOptions) -> Result<MutationResult<Document>> {
+    pub fn shutdown(&self, options: ShutdownOptions) -> Result<MutationResult<ShutdownResult>> {
         self.shutdown_with(options, MutationOptions::unique()?)
     }
 
@@ -406,37 +326,39 @@ impl Session {
         &self,
         options: ShutdownOptions,
         mutation: MutationOptions,
-    ) -> Result<MutationResult<Document>> {
-        mutation_document(self.client.mutate(
-            ops::SESSION_SHUTDOWN,
-            self.params().optional_bool(field::FORCE, options.force),
-            mutation,
-        )?)
+    ) -> Result<MutationResult<ShutdownResult>> {
+        mutation_result(
+            self.client.mutate(
+                ops::SESSION_SHUTDOWN,
+                self.params().optional_bool(field::FORCE, options.force),
+                mutation,
+            )?,
+            |value| wire::decode_exact(value, "session shutdown result"),
+        )
     }
 
-    pub fn close(&self) -> Result<MutationResult<Document>> {
+    pub fn close(&self) -> Result<MutationResult<ShutdownResult>> {
         self.shutdown(ShutdownOptions::default())
     }
 
-    pub fn reload_config(&self) -> Result<MutationResult<Document>> {
+    pub fn reload_config(&self) -> Result<MutationResult<ReloadConfigResult>> {
         self.reload_config_with(MutationOptions::unique()?)
     }
 
     pub fn reload_config_with(
         &self,
         mutation: MutationOptions,
-    ) -> Result<MutationResult<Document>> {
-        mutation_document(self.client.mutate(
-            ops::SESSION_RELOAD_CONFIG,
-            self.params(),
-            mutation,
-        )?)
+    ) -> Result<MutationResult<ReloadConfigResult>> {
+        mutation_result(
+            self.client.mutate(ops::SESSION_RELOAD_CONFIG, self.params(), mutation)?,
+            |value| wire::decode_exact(value, "reload config result"),
+        )
     }
 
     pub fn update_terminal_defaults(
         &self,
         options: TerminalDefaultsOptions,
-    ) -> Result<MutationResult<Document>> {
+    ) -> Result<MutationResult<TerminalDefaultsSnapshot>> {
         self.update_terminal_defaults_with(options, MutationOptions::unique()?)
     }
 
@@ -444,12 +366,15 @@ impl Session {
         &self,
         options: TerminalDefaultsOptions,
         mutation: MutationOptions,
-    ) -> Result<MutationResult<Document>> {
-        mutation_document(self.client.mutate(
-            ops::SESSION_TERMINAL_DEFAULTS_UPDATE,
-            self.params().extend(wire::terminal_defaults(options)?),
-            mutation,
-        )?)
+    ) -> Result<MutationResult<TerminalDefaultsSnapshot>> {
+        mutation_result(
+            self.client.mutate(
+                ops::SESSION_TERMINAL_DEFAULTS_UPDATE,
+                self.params().extend(wire::terminal_defaults(options)?),
+                mutation,
+            )?,
+            |value| wire::decode_exact(value, "terminal defaults result"),
+        )
     }
 
     pub fn set_window_title(&self, title: impl Into<String>) -> Result<MutationReceipt> {
@@ -489,7 +414,7 @@ impl Session {
     }
 
     pub fn workspaces(&self) -> Result<Vec<Workspace>> {
-        wire::list::<WorkspaceId>(
+        wire::list::<WorkspaceSnapshot>(
             &self.client.read(ops::WORKSPACE_LIST, self.params())?,
             "workspaces",
             "workspace",
@@ -500,27 +425,35 @@ impl Session {
     }
 
     pub fn find_workspaces_by_name(&self, name: &str) -> Result<Vec<Workspace>> {
-        Ok(wire::list::<WorkspaceId>(
+        Ok(wire::list::<WorkspaceSnapshot>(
             &self.client.read(ops::WORKSPACE_LIST, self.params())?,
             "workspaces",
             "workspace",
         )?
         .into_iter()
-        .filter(|snapshot| snapshot.name.as_deref() == Some(name))
+        .filter(|snapshot| snapshot.name == name)
         .map(|snapshot| self.workspace(snapshot.id))
         .collect())
     }
 
     pub fn create_workspace(&self, name: Option<String>) -> Result<Created<Workspace>> {
         self.create_workspace_with(
-            CreateWorkspaceOptions { name, initial_content: InitialContent::Terminal },
+            CreateWorkspaceOptions {
+                name,
+                initial_content: InitialContent::Terminal,
+                correlation_key: None,
+            },
             MutationOptions::unique()?,
         )
     }
 
     pub fn create_empty_workspace(&self, name: Option<String>) -> Result<Created<Workspace>> {
         self.create_workspace_with(
-            CreateWorkspaceOptions { name, initial_content: InitialContent::Empty },
+            CreateWorkspaceOptions {
+                name,
+                initial_content: InitialContent::Empty,
+                correlation_key: None,
+            },
             MutationOptions::unique()?,
         )
     }
@@ -532,7 +465,7 @@ impl Session {
     ) -> Result<Created<Workspace>> {
         let value = self.client.mutate(
             ops::WORKSPACE_CREATE,
-            self.params().extend(wire::create_workspace(options)),
+            self.params().extend(wire::create_workspace(options)?),
             mutation,
         )?;
         created(value, |path| Ok(self.workspace(path.workspace_id().clone())))
@@ -739,10 +672,11 @@ impl Workspace {
         options: LayoutOptions,
         mutation: MutationOptions,
     ) -> Result<MutationResult<WorkspaceSnapshot>> {
+        let document = wire::layout_document(options.document)?;
         mutation_snapshot(
             self.session.client.mutate(
                 ops::WORKSPACE_LAYOUT_APPLY,
-                self.params().value(field::LAYOUT, options.document),
+                self.params().value(field::LAYOUT, document),
                 mutation,
             )?,
             "workspace",
@@ -758,7 +692,7 @@ impl Workspace {
     }
 
     pub fn screens(&self) -> Result<Vec<Screen>> {
-        wire::list::<ScreenId>(
+        wire::list::<ScreenSnapshot>(
             &self.session.client.read(ops::SCREEN_LIST, self.params())?,
             "screens",
             "screen",
@@ -767,7 +701,7 @@ impl Workspace {
     }
 
     pub fn find_screens_by_name(&self, name: &str) -> Result<Vec<Screen>> {
-        Ok(wire::list::<ScreenId>(
+        Ok(wire::list::<ScreenSnapshot>(
             &self.session.client.read(ops::SCREEN_LIST, self.params())?,
             "screens",
             "screen",
@@ -789,7 +723,7 @@ impl Workspace {
     ) -> Result<Created<Screen>> {
         let value = self.session.client.mutate(
             ops::SCREEN_CREATE,
-            self.params().extend(wire::create_screen(options)),
+            self.params().extend(wire::create_screen(options)?),
             mutation,
         )?;
         created(value, |path| {
@@ -883,8 +817,11 @@ impl Screen {
         )?)
     }
 
-    pub fn export_layout(&self) -> Result<Document> {
-        self.workspace.session.client.read(ops::SCREEN_LAYOUT_EXPORT, self.params()).map(Document)
+    pub fn export_layout(&self) -> Result<LayoutDocument> {
+        wire::decode_exact(
+            &self.workspace.session.client.read(ops::SCREEN_LAYOUT_EXPORT, self.params())?,
+            "layout document",
+        )
     }
 
     pub fn undo_layout(
@@ -899,11 +836,13 @@ impl Screen {
         options: UndoLayoutOptions,
         mutation: MutationOptions,
     ) -> Result<MutationResult<ScreenSnapshot>> {
+        options.validate()?;
         mutation_snapshot(
             self.workspace.session.client.mutate(
                 ops::SCREEN_LAYOUT_UNDO,
                 self.params()
-                    .optional_bool(field::CONFIRM_CLOSE, options.confirm_close.then_some(true)),
+                    .optional_bool(field::CONFIRM_CLOSE, options.confirm_close.then_some(true))
+                    .optional_string(field::CONFIRMATION_TOKEN, options.confirmation_token),
                 mutation,
             )?,
             "screen",
@@ -919,7 +858,7 @@ impl Screen {
     }
 
     pub fn panes(&self) -> Result<Vec<Pane>> {
-        wire::list::<PaneId>(
+        wire::list::<PaneSnapshot>(
             &self.workspace.session.client.read(ops::PANE_LIST, self.params())?,
             "panes",
             "pane",
@@ -928,7 +867,7 @@ impl Screen {
     }
 
     pub fn find_panes_by_name(&self, name: &str) -> Result<Vec<Pane>> {
-        Ok(wire::list::<PaneId>(
+        Ok(wire::list::<PaneSnapshot>(
             &self.workspace.session.client.read(ops::PANE_LIST, self.params())?,
             "panes",
             "pane",
@@ -1081,15 +1020,8 @@ impl Pane {
             ops::PANE_NEIGHBOR_GET,
             self.params().string(field::DIRECTION, direction.wire_name()),
         )?;
-        if value.is_null()
-            || value
-                .as_object()
-                .is_some_and(|object| object.get("pane").is_some_and(Value::is_null))
-        {
-            return Ok(None);
-        }
-        let snapshot = wire::snapshot::<PaneId>(&value, "pane")?;
-        Ok(Some(self.screen.pane(snapshot.id)))
+        let result: PaneNeighborResult = wire::decode_exact(&value, "pane neighbor result")?;
+        Ok(result.pane.map(|snapshot| self.screen.pane(snapshot.id)))
     }
 
     pub fn swap(&self, options: PaneSwapOptions) -> Result<MutationResult<PaneSnapshot>> {
@@ -1275,7 +1207,7 @@ impl Pane {
     }
 
     pub fn tabs(&self) -> Result<Vec<Tab>> {
-        wire::list::<TabId>(
+        wire::list::<TabSnapshot>(
             &self.screen.workspace.session.client.read(ops::TAB_LIST, self.params())?,
             "tabs",
             "tab",
@@ -1284,7 +1216,7 @@ impl Pane {
     }
 
     pub fn find_tabs_by_name(&self, name: &str) -> Result<Vec<Tab>> {
-        Ok(wire::list::<TabId>(
+        Ok(wire::list::<TabSnapshot>(
             &self.screen.workspace.session.client.read(ops::TAB_LIST, self.params())?,
             "tabs",
             "tab",
@@ -1405,7 +1337,7 @@ impl Tab {
 
 impl Session {
     pub fn terminals(&self) -> Result<Vec<Terminal>> {
-        wire::list::<TerminalId>(
+        wire::list::<TerminalSnapshot>(
             &self.client.read(ops::TERMINAL_LIST, self.params())?,
             "terminals",
             "terminal",
@@ -1414,19 +1346,19 @@ impl Session {
     }
 
     pub fn find_terminals_by_name(&self, name: &str) -> Result<Vec<Terminal>> {
-        Ok(wire::list::<TerminalId>(
+        Ok(wire::list::<TerminalSnapshot>(
             &self.client.read(ops::TERMINAL_LIST, self.params())?,
             "terminals",
             "terminal",
         )?
         .into_iter()
-        .filter(|snapshot| snapshot.name.as_deref() == Some(name))
+        .filter(|snapshot| snapshot.title == name)
         .map(|snapshot| self.terminal(snapshot.id))
         .collect())
     }
 
     pub fn browsers(&self) -> Result<Vec<Browser>> {
-        wire::list::<BrowserId>(
+        wire::list::<BrowserSnapshot>(
             &self.client.read(ops::BROWSER_LIST, self.params())?,
             "browsers",
             "browser",
@@ -1435,13 +1367,13 @@ impl Session {
     }
 
     pub fn find_browsers_by_name(&self, name: &str) -> Result<Vec<Browser>> {
-        Ok(wire::list::<BrowserId>(
+        Ok(wire::list::<BrowserSnapshot>(
             &self.client.read(ops::BROWSER_LIST, self.params())?,
             "browsers",
             "browser",
         )?
         .into_iter()
-        .filter(|snapshot| snapshot.name.as_deref() == Some(name))
+        .filter(|snapshot| snapshot.title == name)
         .map(|snapshot| self.browser(snapshot.id))
         .collect())
     }
@@ -1569,30 +1501,34 @@ impl Terminal {
         )?)
     }
 
-    pub fn read_screen(&self, _options: ReadScreenOptions) -> Result<Document> {
-        self.session.client.read(ops::TERMINAL_SCREEN_READ, self.params()).map(Document)
+    pub fn read_screen(&self, _options: ReadScreenOptions) -> Result<TerminalScreenResult> {
+        wire::decode_exact(
+            &self.session.client.read(ops::TERMINAL_SCREEN_READ, self.params())?,
+            "terminal screen result",
+        )
     }
 
-    pub fn read_state(&self) -> Result<Document> {
-        self.session.client.read(ops::TERMINAL_STATE_READ, self.params()).map(Document)
+    pub fn read_state(&self) -> Result<TerminalStateResult> {
+        wire::decode_exact(
+            &self.session.client.read(ops::TERMINAL_STATE_READ, self.params())?,
+            "terminal state result",
+        )
     }
 
-    pub fn read_history(&self, options: ReadHistoryOptions) -> Result<Document> {
+    pub fn read_history(&self, options: ReadHistoryOptions) -> Result<TerminalHistoryResult> {
         if options.limit.is_some_and(|limit| limit == 0 || limit > 10_000) {
             return Err(Error::InvalidArgument(
                 "history limit must be between 1 and 10000".to_string(),
             ));
         }
-        self.session
-            .client
-            .read(
-                ops::TERMINAL_HISTORY_READ,
-                self.params()
-                    .optional_u64(field::BEFORE, options.before)
-                    .optional_u32(field::LIMIT, options.limit)
-                    .optional_bool(field::STYLED, options.styled),
-            )
-            .map(Document)
+        let value = self.session.client.read(
+            ops::TERMINAL_HISTORY_READ,
+            self.params()
+                .optional_u64(field::BEFORE, options.before)
+                .optional_u32(field::LIMIT, options.limit)
+                .optional_bool(field::STYLED, options.styled),
+        )?;
+        wire::terminal_history(&value)
     }
 
     pub fn clear_history(&self) -> Result<MutationReceipt> {
@@ -1607,49 +1543,62 @@ impl Terminal {
         )?)
     }
 
-    pub fn wait(&self, options: WaitOptions) -> Result<Document> {
+    pub fn wait(&self, options: WaitOptions) -> Result<TerminalWaitResult> {
         if options.pattern.is_empty() {
             return Err(Error::InvalidArgument("wait pattern must not be empty".to_string()));
         }
-        self.session
-            .client
-            .read(
-                ops::TERMINAL_WAIT,
-                self.params()
-                    .string(field::PATTERN, options.pattern)
-                    .optional_u64(field::TIMEOUT_MS, options.timeout_ms),
-            )
-            .map(Document)
+        let value = self.session.client.read(
+            ops::TERMINAL_WAIT,
+            self.params()
+                .string(field::PATTERN, options.pattern)
+                .optional_u64(field::TIMEOUT_MS, options.timeout_ms),
+        )?;
+        wire::decode_exact(&value, "terminal wait result")
     }
 
-    pub fn copy(&self, options: CopyOptions) -> Result<Document> {
+    pub fn wait_exit(&self, timeout_ms: Option<u64>) -> Result<TerminalWaitExitResult> {
+        wire::decode_exact(
+            &self.session.client.read(
+                ops::TERMINAL_WAIT_EXIT,
+                self.params().optional_u64(field::TIMEOUT_MS, timeout_ms),
+            )?,
+            "terminal wait exit result",
+        )
+    }
+
+    pub fn copy(&self, options: CopyOptions) -> Result<TerminalCopyResult> {
         let params = match options.mode {
             Some(mode) => self.params().string(field::MODE, mode.wire_name()),
             None => self.params(),
         };
-        self.session.client.read(ops::TERMINAL_COPY, params).map(Document)
+        wire::decode_exact(
+            &self.session.client.read(ops::TERMINAL_COPY, params)?,
+            "terminal copy result",
+        )
     }
 
-    pub fn process(&self) -> Result<Document> {
-        self.session.client.read(ops::TERMINAL_PROCESS_GET, self.params()).map(Document)
+    pub fn process(&self) -> Result<ProcessInfoResult> {
+        wire::decode_exact(
+            &self.session.client.read(ops::TERMINAL_PROCESS_GET, self.params())?,
+            "terminal process result",
+        )
     }
 
-    pub fn viewer_resize(&self, options: Size) -> Result<Document> {
+    pub fn viewer_resize(&self, options: Size) -> Result<ViewerResizeResult> {
         wire::validate_size(options)?;
-        self.session
-            .client
-            .connection_control(
+        wire::decode_exact(
+            &self.session.client.connection_control(
                 ops::TERMINAL_VIEWER_RESIZE,
                 self.params().u16(field::COLS, options.cols).u16(field::ROWS, options.rows),
-            )
-            .map(Document)
+            )?,
+            "terminal viewer resize result",
+        )
     }
 
-    pub fn viewer_release(&self) -> Result<Document> {
-        self.session
-            .client
-            .connection_control(ops::TERMINAL_VIEWER_RELEASE, self.params())
-            .map(Document)
+    pub fn viewer_release(&self) -> Result<()> {
+        decode_empty(
+            &self.session.client.connection_control(ops::TERMINAL_VIEWER_RELEASE, self.params())?,
+        )
     }
 
     pub fn scroll(&self, options: ScrollOptions) -> Result<MutationReceipt> {
@@ -1707,6 +1656,19 @@ impl Terminal {
         let object = value.as_object().ok_or_else(|| {
             Error::UnexpectedEnvelope("renderer grant must be an object".to_string())
         })?;
+        let unknown = object
+            .keys()
+            .filter(|key| {
+                !matches!(key.as_str(), "token" | "endpoint" | "terminal_id" | "rights" | "ttl_ms")
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unknown.is_empty() {
+            return Err(Error::UnexpectedEnvelope(format!(
+                "renderer grant contains unknown fields: {}",
+                unknown.join(", ")
+            )));
+        }
         let token = object
             .get("token")
             .and_then(Value::as_str)
@@ -1946,24 +1908,23 @@ impl Browser {
         )?)
     }
 
-    pub fn viewer_resize(&self, options: PixelSize) -> Result<Document> {
+    pub fn viewer_resize(&self, options: PixelSize) -> Result<BrowserViewerResizeResult> {
         wire::validate_pixel_size(options)?;
-        self.session
-            .client
-            .connection_control(
+        wire::decode_exact(
+            &self.session.client.connection_control(
                 ops::BROWSER_VIEWER_RESIZE,
                 self.params()
                     .u32(field::WIDTH_PX, options.width_px)
                     .u32(field::HEIGHT_PX, options.height_px),
-            )
-            .map(Document)
+            )?,
+            "browser viewer resize result",
+        )
     }
 
-    pub fn viewer_release(&self) -> Result<Document> {
-        self.session
-            .client
-            .connection_control(ops::BROWSER_VIEWER_RELEASE, self.params())
-            .map(Document)
+    pub fn viewer_release(&self) -> Result<()> {
+        decode_empty(
+            &self.session.client.connection_control(ops::BROWSER_VIEWER_RELEASE, self.params())?,
+        )
     }
 
     pub fn attach(&self, options: BrowserAttachOptions) -> Result<BrowserAttachment> {
@@ -1991,7 +1952,7 @@ impl Session {
     }
 
     pub fn connected_clients(&self) -> Result<Vec<ConnectedClient>> {
-        wire::list::<ConnectedClientId>(
+        wire::list::<ClientSnapshot>(
             &self.client.read(ops::CLIENT_LIST, self.params())?,
             "clients",
             "client",
@@ -2009,7 +1970,7 @@ impl Session {
     }
 
     pub fn pairing_requests(&self) -> Result<Vec<PairingRequest>> {
-        wire::list::<PairingRequestId>(
+        wire::list::<PairingRequestSnapshot>(
             &self.client.read(ops::PAIRING_REQUEST_LIST, self.params())?,
             "pairing_requests",
             "pairing_request",
@@ -2040,7 +2001,7 @@ impl Session {
                 "notification limit must be between 1 and 1000".to_string(),
             ));
         }
-        wire::list::<NotificationId>(
+        wire::list::<NotificationSnapshot>(
             &self.client.read(
                 ops::NOTIFICATION_LIST,
                 self.params().optional_u32(field::LIMIT, options.limit),
@@ -2088,7 +2049,7 @@ impl Session {
     }
 
     pub fn agents(&self, options: AgentListOptions) -> Result<Vec<Agent>> {
-        wire::list::<AgentId>(
+        wire::list::<AgentSnapshot>(
             &self.client.read(
                 ops::AGENT_LIST,
                 self.params()
@@ -2178,64 +2139,64 @@ impl ConnectedClient {
         wire::snapshot(&self.session.client.read(ops::CLIENT_GET, self.params())?, "client")
     }
 
-    pub fn update_metadata(&self, options: ClientMetadataOptions) -> Result<Document> {
-        self.session
-            .client
-            .connection_control(
+    pub fn update_metadata(&self, options: ClientMetadataOptions) -> Result<ClientSnapshot> {
+        wire::decode_exact(
+            &self.session.client.connection_control(
                 ops::CLIENT_METADATA_UPDATE,
                 self.params().extend(metadata_params(options)?),
-            )
-            .map(Document)
+            )?,
+            "client metadata update result",
+        )
     }
 
     pub fn set_sizing(
         &self,
         terminal: &Terminal,
         options: ClientSizingOptions,
-    ) -> Result<Document> {
-        self.session
-            .client
-            .connection_control(
+    ) -> Result<ClientSnapshot> {
+        wire::decode_exact(
+            &self.session.client.connection_control(
                 ops::CLIENT_SIZING_SET,
                 self.params()
                     .extend(terminal.path.params())
                     .selector(field::TERMINAL, &terminal.selector)
                     .boolean(field::ENABLED, options.enabled)
                     .optional_bool(field::EXCLUSIVE, options.exclusive),
-            )
-            .map(Document)
+            )?,
+            "client sizing result",
+        )
     }
 
-    pub fn release_sizing(&self, terminal: &Terminal) -> Result<Document> {
-        self.session
-            .client
-            .connection_control(
+    pub fn release_sizing(&self, terminal: &Terminal) -> Result<ClientSnapshot> {
+        wire::decode_exact(
+            &self.session.client.connection_control(
                 ops::CLIENT_SIZING_RELEASE,
                 self.params()
                     .extend(terminal.path.params())
                     .selector(field::TERMINAL, &terminal.selector),
-            )
-            .map(Document)
+            )?,
+            "client sizing release result",
+        )
     }
 
-    pub fn set_cell_pixels(&self, options: CellPixelsOptions) -> Result<Document> {
+    pub fn set_cell_pixels(&self, options: CellPixelsOptions) -> Result<CellPixelsResult> {
         wire::validate_pixel_size(PixelSize {
             width_px: options.width_px,
             height_px: options.height_px,
         })?;
-        self.session
-            .client
-            .connection_control(
+        wire::decode_exact(
+            &self.session.client.connection_control(
                 ops::CLIENT_CELL_PIXELS_SET,
                 self.params()
                     .u32(field::WIDTH_PX, options.width_px)
                     .u32(field::HEIGHT_PX, options.height_px),
-            )
-            .map(Document)
+            )?,
+            "cell pixels result",
+        )
     }
 
-    pub fn detach(&self) -> Result<Document> {
-        self.session.client.connection_control(ops::CLIENT_DETACH, self.params()).map(Document)
+    pub fn detach(&self) -> Result<()> {
+        decode_empty(&self.session.client.connection_control(ops::CLIENT_DETACH, self.params())?)
     }
 }
 
@@ -2251,7 +2212,7 @@ impl PairingRequest {
     }
 
     pub fn refresh(&self) -> Result<PairingRequestSnapshot> {
-        let snapshots = wire::list::<PairingRequestId>(
+        let snapshots = wire::list::<PairingRequestSnapshot>(
             &self.session.client.read(ops::PAIRING_REQUEST_LIST, self.session.params())?,
             "pairing_requests",
             "pairing_request",
@@ -2272,7 +2233,10 @@ impl PairingRequest {
         })
     }
 
-    pub fn resolve(&self, options: PairingResolveOptions) -> Result<MutationResult<Document>> {
+    pub fn resolve(
+        &self,
+        options: PairingResolveOptions,
+    ) -> Result<MutationResult<PairingResolutionResult>> {
         self.resolve_with(options, MutationOptions::unique()?)
     }
 
@@ -2280,18 +2244,21 @@ impl PairingRequest {
         &self,
         options: PairingResolveOptions,
         mutation: MutationOptions,
-    ) -> Result<MutationResult<Document>> {
-        mutation_document(self.session.client.mutate(
-            ops::PAIRING_REQUEST_RESOLVE,
-            self.params().string(
-                field::DECISION,
-                match options.decision {
-                    PairingDecision::Approve => "approve",
-                    PairingDecision::Deny => "deny",
-                },
-            ),
-            mutation,
-        )?)
+    ) -> Result<MutationResult<PairingResolutionResult>> {
+        mutation_result(
+            self.session.client.mutate(
+                ops::PAIRING_REQUEST_RESOLVE,
+                self.params().string(
+                    field::DECISION,
+                    match options.decision {
+                        PairingDecision::Accept => "accept",
+                        PairingDecision::Reject => "reject",
+                    },
+                ),
+                mutation,
+            )?,
+            |value| wire::decode_exact(value, "pairing resolution result"),
+        )
     }
 }
 
@@ -2349,7 +2316,7 @@ impl Notification {
 
     pub fn refresh(&self) -> Result<NotificationSnapshot> {
         let id = id_selector(&self.selector, "notification")?;
-        wire::list::<NotificationId>(
+        wire::list::<NotificationSnapshot>(
             &self.session.client.read(ops::NOTIFICATION_LIST, self.session.params())?,
             "notifications",
             "notification",
@@ -2373,7 +2340,7 @@ impl Agent {
 
     pub fn refresh(&self) -> Result<AgentSnapshot> {
         let id = id_selector(&self.selector, "agent")?;
-        wire::list::<AgentId>(
+        wire::list::<AgentSnapshot>(
             &self.session.client.read(ops::AGENT_LIST, self.session.params())?,
             "agents",
             "agent",
@@ -2461,282 +2428,6 @@ impl SidebarView {
             self.session.client.mutate(ops::SIDEBAR_VIEW_RELOAD, self.params(), mutation)?,
             "sidebar_view",
         )
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ProviderScope {
-    client: Client,
-    machine: Option<Selector<MachineId>>,
-    selector: Selector<ProviderScopeId>,
-}
-
-impl ProviderScope {
-    pub fn selector(&self) -> &Selector<ProviderScopeId> {
-        &self.selector
-    }
-
-    pub fn refresh(&self) -> Result<ProviderScopeSnapshot> {
-        let machine = self.machine.as_ref().ok_or_else(|| {
-            Error::InvalidArgument(
-                "provider scope refresh requires a machine-scoped handle".to_string(),
-            )
-        })?;
-        let id = id_selector(&self.selector, "provider scope")?;
-        wire::list::<ProviderScopeId>(
-            &self
-                .client
-                .read(ops::PROVIDER_SCOPE_LIST, Params::new().selector(field::MACHINE, machine))?,
-            "provider_scopes",
-            "provider_scope",
-        )?
-        .into_iter()
-        .find(|snapshot| &snapshot.id == id)
-        .ok_or_else(|| not_found("provider scope", id))
-    }
-
-    fn workspace_params(&self, workspace: &Workspace) -> Result<Params> {
-        let machine = self.machine.as_ref().ok_or_else(|| {
-            Error::InvalidArgument(
-                "provider workspace management requires a machine-scoped provider handle"
-                    .to_string(),
-            )
-        })?;
-        Ok(Params::new()
-            .selector(field::MACHINE, machine)
-            .selector(field::PROVIDER_SCOPE, &self.selector)
-            .selector(field::SESSION, &workspace.session.selector)
-            .selector(field::WORKSPACE, &workspace.selector))
-    }
-
-    pub fn mark_workspace(
-        &self,
-        workspace: &Workspace,
-        managed: bool,
-    ) -> Result<MutationResult<WorkspaceSnapshot>> {
-        self.mark_workspace_with(workspace, managed, MutationOptions::unique()?)
-    }
-
-    pub fn mark_workspace_with(
-        &self,
-        workspace: &Workspace,
-        managed: bool,
-        mutation: MutationOptions,
-    ) -> Result<MutationResult<WorkspaceSnapshot>> {
-        mutation_snapshot(
-            self.client.mutate(
-                ops::PROVIDER_WORKSPACE_MARK,
-                self.workspace_params(workspace)?.boolean(field::MANAGED, managed),
-                mutation,
-            )?,
-            "workspace",
-        )
-    }
-
-    pub fn rename_workspace(
-        &self,
-        workspace: &Workspace,
-        name: impl Into<String>,
-    ) -> Result<MutationResult<WorkspaceSnapshot>> {
-        self.rename_workspace_with(workspace, name, MutationOptions::unique()?)
-    }
-
-    pub fn rename_workspace_with(
-        &self,
-        workspace: &Workspace,
-        name: impl Into<String>,
-        mutation: MutationOptions,
-    ) -> Result<MutationResult<WorkspaceSnapshot>> {
-        mutation_snapshot(
-            self.client.mutate(
-                ops::PROVIDER_WORKSPACE_RENAME,
-                self.workspace_params(workspace)?.string(field::NAME, name),
-                mutation,
-            )?,
-            "workspace",
-        )
-    }
-
-    pub fn close_workspace(&self, workspace: &Workspace) -> Result<MutationReceipt> {
-        self.close_workspace_with(workspace, MutationOptions::unique()?)
-    }
-
-    pub fn close_workspace_with(
-        &self,
-        workspace: &Workspace,
-        mutation: MutationOptions,
-    ) -> Result<MutationReceipt> {
-        mutation_empty(self.client.mutate(
-            ops::PROVIDER_WORKSPACE_CLOSE,
-            self.workspace_params(workspace)?,
-            mutation,
-        )?)
-    }
-
-    pub fn create_machine(&self) -> Result<MutationResult<MachineSnapshot>> {
-        self.create_machine_with(MutationOptions::unique()?)
-    }
-
-    pub fn create_machine_with(
-        &self,
-        mutation: MutationOptions,
-    ) -> Result<MutationResult<MachineSnapshot>> {
-        let value = self.client.mutate(
-            ops::MACHINE_CREATE,
-            Params::new().selector(field::PROVIDER_SCOPE, &self.selector),
-            mutation,
-        )?;
-        mutation_snapshot(value, "machine")
-    }
-
-    pub fn connect_external_machine(
-        &self,
-        options: MachineConnectOptions,
-    ) -> Result<MutationResult<MachineSnapshot>> {
-        self.connect_external_machine_with(options, MutationOptions::unique()?)
-    }
-
-    pub fn connect_external_machine_with(
-        &self,
-        options: MachineConnectOptions,
-        mutation: MutationOptions,
-    ) -> Result<MutationResult<MachineSnapshot>> {
-        let value = self.client.mutate(
-            ops::MACHINE_CONNECT_EXTERNAL,
-            Params::new()
-                .selector(field::PROVIDER_SCOPE, &self.selector)
-                .string(field::SPECIFIER, options.expose_specifier()),
-            mutation,
-        )?;
-        mutation_snapshot(value, "machine")
-    }
-
-    pub fn action(&self, selector: impl Into<Selector<ProviderActionId>>) -> ProviderAction {
-        ProviderAction {
-            client: self.client.clone(),
-            machine: self.machine.clone(),
-            scope: self.selector.clone(),
-            selector: selector.into(),
-        }
-    }
-
-    pub fn notice(&self, selector: impl Into<Selector<ProviderNoticeId>>) -> ProviderNotice {
-        ProviderNotice {
-            client: self.client.clone(),
-            machine: self.machine.clone(),
-            scope: self.selector.clone(),
-            selector: selector.into(),
-        }
-    }
-
-    pub fn notices(&self, options: EventStreamOptions) -> Result<ProviderNoticeStream> {
-        let machine = self.machine.as_ref().ok_or_else(|| {
-            Error::InvalidArgument(
-                "provider notice events require a machine-scoped provider handle".to_string(),
-            )
-        })?;
-        self.client
-            .stream(
-                ops::PROVIDER_NOTICE_EVENTS,
-                Params::new()
-                    .selector(field::MACHINE, machine)
-                    .selector(field::PROVIDER_SCOPE, &self.selector)
-                    .cursor(options.cursor.as_ref()),
-            )
-            .map(ProviderNoticeStream::new)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ProviderAction {
-    client: Client,
-    machine: Option<Selector<MachineId>>,
-    scope: Selector<ProviderScopeId>,
-    selector: Selector<ProviderActionId>,
-}
-
-impl ProviderAction {
-    pub fn selector(&self) -> &Selector<ProviderActionId> {
-        &self.selector
-    }
-
-    pub fn invoke(&self, options: ProviderActionOptions) -> Result<MutationResult<Document>> {
-        self.invoke_with(options, MutationOptions::unique()?)
-    }
-
-    pub fn invoke_with(
-        &self,
-        options: ProviderActionOptions,
-        mutation: MutationOptions,
-    ) -> Result<MutationResult<Document>> {
-        let machine = self.machine.as_ref().ok_or_else(|| {
-            Error::InvalidArgument(
-                "provider action invocation requires a machine-scoped handle".to_string(),
-            )
-        })?;
-        let parameters = options
-            .parameters
-            .into_iter()
-            .map(|(name, value)| {
-                let value = match value {
-                    ProviderActionValue::String(value) => Value::String(value),
-                    ProviderActionValue::Integer(value) => Value::from(value),
-                };
-                (name, value)
-            })
-            .collect::<Map<_, _>>();
-        mutation_document(
-            self.client.mutate(
-                ops::PROVIDER_ACTION_INVOKE,
-                Params::new()
-                    .selector(field::MACHINE, machine)
-                    .selector(field::PROVIDER_SCOPE, &self.scope)
-                    .selector(field::PROVIDER_ACTION, &self.selector)
-                    .value(field::PARAMETERS, Value::Object(parameters)),
-                mutation,
-            )?,
-        )
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ProviderNotice {
-    client: Client,
-    machine: Option<Selector<MachineId>>,
-    scope: Selector<ProviderScopeId>,
-    selector: Selector<ProviderNoticeId>,
-}
-
-impl ProviderNotice {
-    pub fn selector(&self) -> &Selector<ProviderNoticeId> {
-        &self.selector
-    }
-
-    pub fn provider_scope(&self) -> ProviderScope {
-        ProviderScope {
-            client: self.client.clone(),
-            machine: self.machine.clone(),
-            selector: self.scope.clone(),
-        }
-    }
-
-    /// Acknowledges a durable notice after the caller has painted it.
-    pub fn acknowledge(&self, sequence: u64) -> Result<()> {
-        let machine = self.machine.as_ref().ok_or_else(|| {
-            Error::InvalidArgument(
-                "provider notice acknowledgement requires a machine-scoped handle".to_string(),
-            )
-        })?;
-        self.client
-            .connection_control(
-                ops::PROVIDER_NOTICE_ACKNOWLEDGE,
-                Params::new()
-                    .selector(field::MACHINE, machine)
-                    .selector(field::PROVIDER_SCOPE, &self.scope)
-                    .selector(field::PROVIDER_NOTICE, &self.selector)
-                    .u64(field::SEQUENCE, sequence),
-            )
-            .map(|_| ())
     }
 }
 

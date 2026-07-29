@@ -10,6 +10,9 @@ use std::time::Duration;
 pub(crate) struct JsonLineConnection {
     writer: UnixStream,
     reader: BufReader<UnixStream>,
+    partial_frame: Vec<u8>,
+    read_timeout: Duration,
+    write_timeout: Duration,
     max_frame_bytes: usize,
 }
 
@@ -47,7 +50,14 @@ impl JsonLineConnection {
         let writer = stream
             .try_clone()
             .map_err(|error| CmuxError::Connection(format!("socket clone failed: {error}")))?;
-        Ok(Self { writer, reader: BufReader::new(stream), max_frame_bytes })
+        Ok(Self {
+            writer,
+            reader: BufReader::new(stream),
+            partial_frame: Vec::new(),
+            read_timeout: timeout,
+            write_timeout: timeout,
+            max_frame_bytes,
+        })
     }
 
     pub(crate) fn shutdown_clone(&self) -> Result<UnixStream> {
@@ -82,21 +92,36 @@ impl JsonLineConnection {
         timeout: Duration,
         operation: impl FnOnce(&mut Self) -> Result<T>,
     ) -> Result<T> {
-        let previous = self.reader.get_ref().read_timeout().map_err(|error| {
-            CmuxError::Connection(format!("read timeout lookup failed: {error}"))
-        })?;
+        let timeout = socket_timeout(timeout);
+        let previous = self.read_timeout;
         self.reader
             .get_ref()
             .set_read_timeout(Some(timeout))
             .map_err(|error| CmuxError::Connection(format!("set read timeout failed: {error}")))?;
+        self.read_timeout = timeout;
         let result = operation(self);
-        let restore = self.reader.get_ref().set_read_timeout(previous).map_err(|error| {
-            CmuxError::Connection(format!("restore read timeout failed: {error}"))
-        });
-        match (result, restore) {
-            (Ok(value), Ok(())) => Ok(value),
-            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        if self.reader.get_ref().set_read_timeout(Some(previous)).is_ok() {
+            self.read_timeout = previous;
         }
+        result
+    }
+
+    pub(crate) fn with_write_timeout<T>(
+        &mut self,
+        timeout: Duration,
+        operation: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        let timeout = socket_timeout(timeout);
+        let previous = self.write_timeout;
+        self.writer
+            .set_write_timeout(Some(timeout))
+            .map_err(|error| CmuxError::Connection(format!("set write timeout failed: {error}")))?;
+        self.write_timeout = timeout;
+        let result = operation(self);
+        if self.writer.set_write_timeout(Some(previous)).is_ok() {
+            self.write_timeout = previous;
+        }
+        result
     }
 
     pub(crate) fn close(&self) {
@@ -104,7 +129,10 @@ impl JsonLineConnection {
     }
 
     fn read_frame(&mut self) -> Result<Vec<u8>> {
-        let mut frame = Vec::with_capacity(self.max_frame_bytes.min(8 * 1024));
+        let mut frame = std::mem::take(&mut self.partial_frame);
+        if frame.capacity() == 0 {
+            frame.reserve(self.max_frame_bytes.min(8 * 1024));
+        }
         loop {
             let available = match self.reader.fill_buf() {
                 Ok([]) => {
@@ -117,6 +145,7 @@ impl JsonLineConnection {
                         std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
                     ) =>
                 {
+                    self.partial_frame = frame;
                     return Err(CmuxError::Timeout("session did not respond".to_string()));
                 }
                 Err(error) => {
@@ -142,6 +171,10 @@ impl JsonLineConnection {
             }
         }
     }
+}
+
+fn socket_timeout(timeout: Duration) -> Duration {
+    timeout.max(Duration::from_micros(1))
 }
 
 #[cfg(test)]

@@ -2,19 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import math
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Callable, Generic, List, Optional, TypeVar
+from typing import Any, AsyncIterator, Callable, Generic, List, Optional, Set, TypeVar
 
 from ._protocol import ResourceStream as SyncResourceStream
+from .errors import TimeoutError
 from .ids import (
     BrowserId,
     ConnectedClientId,
     MachineId,
+    PairingRequestId,
     PaneId,
-    ProviderActionId,
-    ProviderNoticeId,
-    ProviderScopeId,
     ScreenId,
     SelectorInput,
     SessionId,
@@ -23,7 +24,8 @@ from .ids import (
     TerminalId,
     WorkspaceId,
 )
-from .models import MutationResult, StreamItem
+from .models import CreationResolution, MutationResult, StreamItem
+from .options import RequestOptions
 from .resources import (
     Agent as SyncAgent,
     Browser as SyncBrowser,
@@ -35,11 +37,9 @@ from .resources import (
     Notification as SyncNotification,
     PairingRequest as SyncPairingRequest,
     Pane as SyncPane,
-    ProviderAction as SyncProviderAction,
-    ProviderNotice as SyncProviderNotice,
-    ProviderScope as SyncProviderScope,
     Screen as SyncScreen,
     Session as SyncSession,
+    SessionCreation as SyncSessionCreation,
     SidebarView as SyncSidebarView,
     Tab as SyncTab,
     Terminal as SyncTerminal,
@@ -51,9 +51,12 @@ ValueT = TypeVar("ValueT")
 _ITERATION_END = object()
 
 
-def _next_or_end(stream: SyncResourceStream[ValueT]) -> Any:
+def _next_or_end(
+    stream: SyncResourceStream[ValueT],
+    timeout: Optional[float],
+) -> Any:
     try:
-        return next(stream)
+        return stream.next(timeout)
     except StopIteration:
         return _ITERATION_END
 
@@ -68,6 +71,13 @@ class ResourceStream(Generic[ValueT], AsyncIterator[StreamItem[ValueT]]):
     ) -> None:
         self._owner = owner
         self._stream = stream
+        self._executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix=f"cmux-aio-stream-{stream.id}",
+        )
+        self._closed = False
+        self._next_lock = asyncio.Lock()
+        owner._register_stream(self)
 
     @property
     def id(self):
@@ -81,13 +91,53 @@ class ResourceStream(Generic[ValueT], AsyncIterator[StreamItem[ValueT]]):
         return self
 
     async def __anext__(self) -> StreamItem[ValueT]:
-        value = await self._owner._run(_next_or_end, self._stream)
+        return await self.next()
+
+    async def next(
+        self,
+        timeout: Optional[float] = None,
+    ) -> StreamItem[ValueT]:
+        if self._closed:
+            raise StopAsyncIteration
+        if timeout is not None and (
+            isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+        ):
+            raise TypeError("stream timeout must be a number")
+        if timeout is not None and (
+            not math.isfinite(timeout) or timeout <= 0
+        ):
+            raise ValueError("stream timeout must be finite and greater than zero")
+        async with self._next_lock:
+            loop = asyncio.get_running_loop()
+            future = loop.run_in_executor(
+                self._executor,
+                _next_or_end,
+                self._stream,
+                timeout,
+            )
+            try:
+                await asyncio.wait((future,))
+                value = future.result()
+            except asyncio.CancelledError:
+                await self.cancel()
+                raise
+            except TimeoutError:
+                raise
+            except BaseException:
+                await self._retire()
+                raise
         if value is _ITERATION_END:
+            await self._retire()
             raise StopAsyncIteration
         return value
 
     async def cancel(self) -> None:
-        await self._owner._run(self._stream.cancel)
+        if self._closed:
+            return
+        try:
+            await self._owner._run_internal(self._stream.cancel)
+        finally:
+            await self._retire()
 
     async def aclose(self) -> None:
         await self.cancel()
@@ -102,6 +152,17 @@ class ResourceStream(Generic[ValueT], AsyncIterator[StreamItem[ValueT]]):
         _traceback: object,
     ) -> None:
         await self.cancel()
+
+    async def _retire(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._owner._unregister_stream(self)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            functools.partial(self._executor.shutdown, wait=True),
+        )
 
 
 @dataclass(frozen=True)
@@ -122,9 +183,8 @@ class CreatedPath:
 class Client:
     """Standard-library asyncio adapter.
 
-    A canceled I/O task closes its underlying connection before returning
-    cancellation, which unblocks the single worker and prevents leaked
-    executor or reader threads.
+    Requests share a multiplexed connection. Stream reads use dedicated
+    workers, so waiting for one stream cannot occupy a request worker.
     """
 
     def __init__(
@@ -136,10 +196,12 @@ class Client:
     ) -> None:
         self._sync = SyncClient(socket_path, session, timeout, **options)
         self._executor = ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="cmux-aio",
+            max_workers=4,
+            thread_name_prefix="cmux-aio-request",
         )
         self._closed = False
+        self._closing = False
+        self._streams: Set[ResourceStream[Any]] = set()
 
     @property
     def socket_path(self) -> str:
@@ -160,30 +222,34 @@ class Client:
     ) -> "Session":
         return Session(self, self._sync.session(selector, machine=machine))
 
-    def provider_scope(
-        self, selector: SelectorInput[ProviderScopeId]
-    ) -> "ProviderScope":
-        return ProviderScope(self, self._sync.provider_scope(selector))
-
-    async def list_machines(self) -> List["Machine"]:
-        return await self._invoke(self._sync.list_machines)
-
-    async def create_machine(self, *args: Any, **kwargs: Any):
-        return await self._invoke(self._sync.create_machine, *args, **kwargs)
-
-    async def list_provider_scopes(self) -> List["ProviderScope"]:
-        return await self._invoke(self._sync.list_provider_scopes)
+    async def list_machines(
+        self,
+        *,
+        request_options: RequestOptions = RequestOptions(),
+    ) -> List["Machine"]:
+        return await self._invoke(
+            self._sync.list_machines,
+            request_options=request_options,
+        )
 
     async def close(self) -> None:
-        if self._closed:
+        if self._closed or self._closing:
             return
-        self._closed = True
-        self._sync.close()
+        self._closing = True
+        streams = tuple(self._streams)
+        if streams:
+            await asyncio.gather(
+                *(stream.cancel() for stream in streams),
+                return_exceptions=True,
+            )
         loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._sync.close)
         await loop.run_in_executor(
             None,
             functools.partial(self._executor.shutdown, wait=True),
         )
+        self._closed = True
+        self._closing = False
 
     async def __aenter__(self) -> "Client":
         return self
@@ -196,33 +262,75 @@ class Client:
     ) -> None:
         await self.close()
 
-    async def _run(self, function: Callable[..., ValueT], *args: Any) -> ValueT:
-        if self._closed:
+    async def _run_control(
+        self,
+        function: Callable[..., ValueT],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        request_options: RequestOptions,
+    ) -> ValueT:
+        if self._closed or self._closing:
             raise RuntimeError("async cmux client is closed")
+        if not isinstance(request_options, RequestOptions):
+            raise TypeError("request_options must be RequestOptions")
+        cancel_event = threading.Event()
         loop = asyncio.get_running_loop()
         future = loop.run_in_executor(
             self._executor,
-            functools.partial(function, *args),
+            self._sync._invoke_with_request_options,
+            function,
+            args,
+            kwargs,
+            request_options,
+            cancel_event,
         )
         try:
-            return await future
+            await asyncio.wait((future,))
+            return future.result()
         except asyncio.CancelledError:
-            self._closed = True
-            self._sync.close()
-            await loop.run_in_executor(
-                None,
-                functools.partial(self._executor.shutdown, wait=True),
-            )
+            cancel_event.set()
+            await asyncio.wait((future,))
+            try:
+                future.result()
+            except BaseException:
+                pass
             raise
+
+    async def _run_internal(
+        self,
+        function: Callable[..., ValueT],
+        *args: Any,
+    ) -> ValueT:
+        if self._closed:
+            raise RuntimeError("async cmux client is closed")
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            functools.partial(function, *args),
+        )
 
     async def _invoke(
         self,
         function: Callable[..., ValueT],
         *args: Any,
+        request_options: RequestOptions = RequestOptions(),
         **kwargs: Any,
     ) -> Any:
-        value = await self._run(functools.partial(function, *args, **kwargs))
+        value = await self._run_control(
+            function,
+            args,
+            kwargs,
+            request_options,
+        )
         return self._wrap(value)
+
+    def _register_stream(self, stream: ResourceStream[Any]) -> None:
+        if self._closed or self._closing:
+            raise RuntimeError("async cmux client is closed")
+        self._streams.add(stream)
+
+    def _unregister_stream(self, stream: ResourceStream[Any]) -> None:
+        self._streams.discard(stream)
 
     def _wrap(self, value: Any) -> Any:
         if isinstance(value, SyncResourceStream):
@@ -249,6 +357,21 @@ class Client:
                 value.revision,
                 value.replayed,
             )
+        if isinstance(value, CreationResolution):
+            return CreationResolution(
+                value.correlation_key,
+                value.state,
+                value.recovery,
+                value.operation,
+                value.idempotency_key,
+                (
+                    self._wrap(value.created_path)
+                    if value.created_path is not None
+                    else None
+                ),
+                value.generation,
+                value.revision,
+            )
         if isinstance(value, list):
             return [self._wrap(item) for item in value]
         return value
@@ -271,8 +394,15 @@ class _Handle:
     def snapshot(self):
         return self._sync.snapshot
 
-    async def refresh(self):
-        return await self._owner._invoke(self._sync.refresh)
+    async def refresh(
+        self,
+        *,
+        request_options: RequestOptions = RequestOptions(),
+    ):
+        return await self._owner._invoke(
+            self._sync.refresh,
+            request_options=request_options,
+        )
 
     def __getattr__(self, name: str):
         value = getattr(self._sync, name)
@@ -280,10 +410,19 @@ class _Handle:
             return value
 
         async def invoke(*args: Any, **kwargs: Any):
+            request_options = kwargs.pop(
+                "request_options",
+                RequestOptions(),
+            )
             unwrapped = [
                 item._sync if isinstance(item, _Handle) else item for item in args
             ]
-            return await self._owner._invoke(value, *unwrapped, **kwargs)
+            return await self._owner._invoke(
+                value,
+                *unwrapped,
+                request_options=request_options,
+                **kwargs,
+            )
 
         return invoke
 
@@ -294,6 +433,10 @@ class Machine(_Handle):
 
 
 class Session(_Handle):
+    @property
+    def creation(self) -> "SessionCreation":
+        return SessionCreation(self._owner, self._sync.creation)
+
     def workspace(self, selector: SelectorInput[WorkspaceId]) -> "Workspace":
         return Workspace(self._owner, self._sync.workspace(selector))
 
@@ -301,6 +444,12 @@ class Session(_Handle):
         self, selector: SelectorInput[ConnectedClientId]
     ) -> "ConnectedClient":
         return ConnectedClient(self._owner, self._sync.connected_client(selector))
+
+    def pairing_request(
+        self,
+        selector: SelectorInput[PairingRequestId],
+    ) -> "PairingRequest":
+        return PairingRequest(self._owner, self._sync.pairing_request(selector))
 
     def terminal(self, selector: SelectorInput[TerminalId]) -> "Terminal":
         return Terminal(self._owner, self._sync.terminal(selector))
@@ -312,6 +461,24 @@ class Session(_Handle):
         self, selector: SelectorInput[SidebarViewId]
     ) -> "SidebarView":
         return SidebarView(self._owner, self._sync.sidebar_view(selector))
+
+
+class SessionCreation:
+    def __init__(self, owner: Client, creation: SyncSessionCreation) -> None:
+        self._owner = owner
+        self._sync = creation
+
+    async def resolve(
+        self,
+        correlation_key: str,
+        *,
+        request_options: RequestOptions = RequestOptions(),
+    ):
+        return await self._owner._invoke(
+            self._sync.resolve,
+            correlation_key,
+            request_options=request_options,
+        )
 
 
 class Workspace(_Handle):
@@ -369,26 +536,6 @@ class SidebarView(_Handle):
     pass
 
 
-class ProviderScope(_Handle):
-    def action(
-        self, selector: SelectorInput[ProviderActionId]
-    ) -> "ProviderAction":
-        return ProviderAction(self._owner, self._sync.action(selector))
-
-    def notice(
-        self, selector: SelectorInput[ProviderNoticeId]
-    ) -> "ProviderNotice":
-        return ProviderNotice(self._owner, self._sync.notice(selector))
-
-
-class ProviderAction(_Handle):
-    pass
-
-
-class ProviderNotice(_Handle):
-    pass
-
-
 _WRAPPERS = {
     SyncMachine: Machine,
     SyncSession: Session,
@@ -404,9 +551,6 @@ _WRAPPERS = {
     SyncNotification: Notification,
     SyncAgent: Agent,
     SyncSidebarView: SidebarView,
-    SyncProviderScope: ProviderScope,
-    SyncProviderAction: ProviderAction,
-    SyncProviderNotice: ProviderNotice,
 }
 
 
@@ -421,9 +565,6 @@ __all__ = [
     "Notification",
     "PairingRequest",
     "Pane",
-    "ProviderAction",
-    "ProviderNotice",
-    "ProviderScope",
     "ResourceStream",
     "Screen",
     "Session",

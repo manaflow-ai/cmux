@@ -15,13 +15,8 @@ fn main() -> Result<()> {
 
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let screen =
-            terminal.resource.read_screen(ReadScreenOptions)?.deserialize::<serde_json::Value>()?;
-        if screen
-            .get("text")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|text| text.contains(&marker))
-        {
+        let screen = terminal.resource.read_screen(ReadScreenOptions)?;
+        if screen.text.contains(&marker) {
             break;
         }
         if Instant::now() >= deadline {

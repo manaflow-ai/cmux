@@ -1,7 +1,6 @@
 use cmux::{
-    Client, Config, CreatedPath, MachineConnectOptions, MutationOptions, ProviderActionOptions,
-    ProviderActionValue, RendererGrant, RunCommand, Selector, SessionId, Size, TerminalId, Update,
-    WorkspaceId,
+    Client, Config, CreatedPath, MutationOptions, RendererGrant, RunCommand, Selector, SessionId,
+    Size, TerminalId, Update, WorkspaceId,
 };
 use std::collections::HashSet;
 
@@ -81,11 +80,6 @@ fn sensitive_debug_output_is_redacted() {
     assert!(grant_debug.contains("[REDACTED]"));
     assert!(!grant_debug.contains("renderer-secret"));
 
-    let provider = MachineConnectOptions::new("ssh://user:super-secret@host").unwrap();
-    let debug = format!("{provider:?}");
-    assert!(debug.contains("[REDACTED]"));
-    assert!(!debug.contains("super-secret"));
-
     fn assert_renderer_api(_: fn(&RendererGrant) -> &str) {}
     assert_renderer_api(RendererGrant::expose_token);
     assert!(
@@ -129,15 +123,4 @@ fn generated_numeric_models_are_only_under_raw() {
     let numeric: cmux::raw::Id = 42;
     assert_eq!(numeric, 42);
     let _legacy_type: Option<cmux::raw::SurfaceResult> = None;
-}
-
-#[test]
-fn provider_action_arguments_are_catalog_typed() {
-    let options =
-        ProviderActionOptions::new().parameter("region", "west").parameter("replicas", 3_i32);
-    assert_eq!(
-        options.parameters.get("region"),
-        Some(&ProviderActionValue::String("west".to_string()))
-    );
-    assert_eq!(options.parameters.get("replicas"), Some(&ProviderActionValue::Integer(3)));
 }

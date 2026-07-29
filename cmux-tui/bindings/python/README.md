@@ -31,21 +31,59 @@ cryptographically random key, or supply one to control replay behavior.
 Snapshots update only through explicit `refresh()`. Handles close resources
 only through their explicit `close()` methods.
 
+Known catalog snapshots and results are exact dataclasses. Unknown sibling
+fields are rejected unless the catalog declares an `extra` map. Terminal reads
+return types such as `TerminalScreenResult`, `TerminalHistoryResult`, and
+`ProcessInfoResult`; empty mutations return `MutationReceipt`.
+
+If a mutation loses its response to a timeout or disconnect,
+`MutationTransportError` exposes its operation and exact supplied or
+generated key.
+
+Synchronous calls can apply one local deadline or cancellation signal:
+
+```python
+from cmux import CancellationToken, RequestOptions
+
+cancellation = CancellationToken()
+result = client.with_request_options(
+    RequestOptions(timeout=1.0, cancellation=cancellation),
+    session.ping,
+)
+```
+
 Streams retain at most 256 unread messages and 16 MiB. Overflow ends only that
 stream with a recoverable gap and sends best-effort cancellation. Close the
-stream or its client explicitly.
+stream or its client explicitly. `stream.next(timeout=...)` raises
+`cmux.TimeoutError` without closing the stream.
 
 The asyncio facade mirrors the resource graph:
 
 ```python
 import cmux.aio
+from cmux import RequestOptions
 
 async with cmux.aio.Client() as client:
-    machines = await client.list_machines()
+    machines = await client.list_machines(
+        request_options=RequestOptions(timeout=1.0)
+    )
 ```
 
-Canceling pending asyncio I/O closes that connection before returning
-cancellation, which releases its reader and executor threads.
+Creation recovery uses `session.creation.resolve(correlation_key)`. Terminal
+exit waits use `terminal.wait_exit(timeout_ms)` and return strict pending or
+exited dataclasses with typed exit, signal, and unknown outcomes.
+
+Destructive layout undo raises `ConfirmationRequiredError` with a typed preview
+token, revision, and panes. Retry with that token, its revision, and a new
+idempotency key.
+
+All eight creation option dataclasses expose `correlation_key`. Values contain
+1 to 128 UTF-8 bytes and remain stable across creation attempts.
+
+Each async stream owns its blocking reader worker. A waiting stream does not
+occupy a request worker. Canceling a call removes only that pending request;
+canceling a stream closes only that stream. Closing the client releases all
+remaining stream, request, and reader workers.
 
 The generated protocol-v10 client and numeric mux identities are available
 only from `cmux.raw`:

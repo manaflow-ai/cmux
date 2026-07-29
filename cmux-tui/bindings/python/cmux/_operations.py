@@ -26,11 +26,7 @@ class Operation:
 
     @property
     def accepts_expected_revision(self) -> bool:
-        return self.is_mutation and self.wire_name not in {
-            "machine.connect_external",
-            "machine.create",
-            "workspace.create",
-        }
+        return self.is_mutation and self.wire_name != "workspace.create"
 
 
 def _op(
@@ -45,20 +41,15 @@ def _op(
 class Operations:
     MACHINE_LIST = _op("machine.list", "read", result="machine_list")
     MACHINE_GET = _op("machine.get", "read", ("machine",), "machine")
-    MACHINE_CREATE = _op("machine.create", "mutation", result="machine")
-    MACHINE_RENAME = _op("machine.rename", "mutation", ("machine",), "machine")
-    MACHINE_DELETE = _op("machine.delete", "mutation", ("machine",))
-    MACHINE_RESTORE = _op("machine.restore", "mutation", ("machine",), "machine")
-    MACHINE_PURGE = _op("machine.purge", "mutation", ("machine",))
-    MACHINE_CONNECT_EXTERNAL = _op(
-        "machine.connect_external", "mutation", ("machine",), "machine"
-    )
 
     SESSION_LIST = _op("session.list", "read", ("machine",), "session_list")
     SESSION_OPEN = _op(
         "session.open", "mutation", ("machine", "session"), "session"
     )
     SESSION_GET = _op("session.get", "read", ("session",), "session")
+    SESSION_CREATION_RESOLVE = _op(
+        "session.creation.resolve", "read", ("session",), "creation_resolution"
+    )
     SESSION_SNAPSHOT = _op("session.snapshot", "read", ("session",), "session")
     SESSION_EVENTS = _op("session.events", "stream_open", ("session",), "stream")
     SESSION_PING = _op("session.ping", "read", ("session",))
@@ -355,6 +346,9 @@ class Operations:
     TERMINAL_WAIT = _op(
         "terminal.wait", "read", ("session", "terminal")
     )
+    TERMINAL_WAIT_EXIT = _op(
+        "terminal.wait_exit", "read", ("session", "terminal")
+    )
     TERMINAL_COPY = _op(
         "terminal.copy", "read", ("session", "terminal")
     )
@@ -471,40 +465,6 @@ class Operations:
     )
     SIDEBAR_VIEW_RELOAD = _op(
         "sidebar_view.reload", "mutation", ("session", "sidebar_view")
-    )
-
-    PROVIDER_SCOPE_LIST = _op(
-        "provider_scope.list", "read", result="provider_scope_list"
-    )
-    PROVIDER_ACTION_INVOKE = _op(
-        "provider_action.invoke",
-        "mutation",
-        ("provider_scope", "provider_action"),
-    )
-    PROVIDER_NOTICE_EVENTS = _op(
-        "provider_notice.events", "stream_open", ("provider_scope",), "stream"
-    )
-    PROVIDER_NOTICE_ACKNOWLEDGE = _op(
-        "provider_notice.acknowledge",
-        "connection_control",
-        ("machine", "provider_scope", "provider_notice"),
-    )
-    PROVIDER_WORKSPACE_MARK = _op(
-        "provider_workspace.mark",
-        "mutation",
-        ("provider_scope", "workspace"),
-        "workspace",
-    )
-    PROVIDER_WORKSPACE_RENAME = _op(
-        "provider_workspace.rename",
-        "mutation",
-        ("provider_scope", "workspace"),
-        "workspace",
-    )
-    PROVIDER_WORKSPACE_CLOSE = _op(
-        "provider_workspace.close",
-        "mutation",
-        ("provider_scope", "workspace"),
     )
 
     STREAM_CANCEL = _op(

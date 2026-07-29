@@ -85,6 +85,12 @@ class PackagedConsumerTests(unittest.TestCase):
                     (
                         "import cmux, cmux.raw, cmux.raw._generated;"
                         "assert hasattr(cmux, 'Client');"
+                        "assert hasattr(cmux, 'ConfirmationRequiredDetails');"
+                        "assert hasattr(cmux, 'ConfirmationRequiredError');"
+                        "assert cmux.CreateScreenOptions("
+                        "correlation_key='consumer-key'"
+                        ").correlation_key == 'consumer-key';"
+                        "assert not hasattr(cmux, 'ProviderScope');"
                         "assert not hasattr(cmux, 'CmuxClient');"
                         "assert hasattr(cmux.raw, 'CmuxClient');"
                         "assert hasattr(cmux.raw, 'COMMANDS');"

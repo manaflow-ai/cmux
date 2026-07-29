@@ -5,6 +5,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -145,7 +146,7 @@ def next_attach_output(stream, timeout: float) -> None:
     raise CmuxTimeoutError("attach output not observed")
 
 
-def find_workspace_for_surface(tree, surface: int) -> int | None:
+def find_workspace_for_surface(tree, surface: int) -> Optional[int]:
     for workspace in tree.workspaces:
         for screen in workspace.screens:
             for pane in screen.panes:
@@ -154,7 +155,7 @@ def find_workspace_for_surface(tree, surface: int) -> int | None:
     return None
 
 
-def find_pane_for_surface(tree, surface: int) -> int | None:
+def find_pane_for_surface(tree, surface: int) -> Optional[int]:
     for workspace in tree.workspaces:
         for screen in workspace.screens:
             for pane in screen.panes:

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Mapping, Optional, TypedDict
+from dataclasses import dataclass
+from typing import Any, Literal, Mapping, Optional, Tuple, TypedDict
+
+from .ids import PaneId
 
 
 class CmuxError(Exception):
@@ -44,6 +47,50 @@ class MutationIndeterminateError(ResourceError):
         super().__init__("mutation.indeterminate", message, details, False)
 
 
+@dataclass(frozen=True)
+class ConfirmationRequiredDetails:
+    confirmation_token: str
+    revision: str
+    closes_panes: Tuple[PaneId, ...]
+
+
+class ConfirmationRequiredError(ResourceError):
+    """A destructive layout mutation needs a fresh stale-state fence."""
+
+    code: Literal["confirmation.required"]
+    details: ConfirmationRequiredDetails
+
+    def __init__(
+        self,
+        message: str,
+        details: ConfirmationRequiredDetails,
+    ) -> None:
+        super().__init__("confirmation.required", message, details, False)
+
+
+class MutationTransportError(CmuxError):
+    """A mutation lost its response after transport failure.
+
+    The mutation may have completed. Inspect current state before deciding
+    whether to retry, and reuse ``idempotency_key`` for the same logical
+    attempt.
+    """
+
+    def __init__(
+        self,
+        operation: str,
+        idempotency_key: str,
+        cause: CmuxError,
+    ) -> None:
+        super().__init__(
+            f"{operation} transport failed after dispatch; mutation outcome is "
+            f"uncertain (idempotency_key={idempotency_key})"
+        )
+        self.operation = operation
+        self.idempotency_key = idempotency_key
+        self.cause = cause
+
+
 class CommandError(CmuxError):
     """Legacy raw-protocol command failure."""
 
@@ -81,6 +128,16 @@ class TimeoutError(CmuxError):
     """The server did not produce the next frame before the deadline."""
 
 
+class CancelledError(CmuxError):
+    """A local cancellation signal stopped a request."""
+
+    def __init__(self, operation: str, *, dispatched: bool) -> None:
+        when = "after dispatch" if dispatched else "before dispatch"
+        super().__init__(f"{operation} was canceled {when}")
+        self.operation = operation
+        self.dispatched = dispatched
+
+
 class StreamError(CmuxError):
     """A resource stream ended with an error or unrecoverable gap."""
 
@@ -104,12 +161,16 @@ class StreamError(CmuxError):
 
 __all__ = [
     "CmuxError",
+    "ConfirmationRequiredDetails",
+    "ConfirmationRequiredError",
     "MutationIndeterminateDetails",
     "MutationIndeterminateError",
+    "MutationTransportError",
     "ResourceError",
     "StreamError",
     "AuthorityError",
     "CommandError",
+    "CancelledError",
     "CmuxConnectionError",
     "ProtocolError",
     "TimeoutError",

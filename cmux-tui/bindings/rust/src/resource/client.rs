@@ -1,20 +1,91 @@
 use super::id::StreamId;
-use super::options::MutationOptions;
+use super::ops;
+use super::options::{MutationOptions, RequestOptions};
 use super::stream::{ResourceStream, StreamParts};
 use super::wire::{Params, field};
 use crate::codec::JsonLineConnection;
 use crate::{Error, Result};
 use serde_json::{Map, Value};
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::io::Write;
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, TryLockError};
+use std::time::{Duration, Instant};
 
 const PROTOCOL: &str = "cmux.protocol/1";
 const DEFAULT_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_STREAM_ITEMS: usize = 256;
 const DEFAULT_STREAM_BYTES: usize = 16 * 1024 * 1024;
+const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(1);
+
+thread_local! {
+    static REQUEST_SCOPES: RefCell<Vec<(usize, RequestOptions)>> = const {
+        RefCell::new(Vec::new())
+    };
+}
+
+struct RequestScopeGuard {
+    client: usize,
+}
+
+impl Drop for RequestScopeGuard {
+    fn drop(&mut self) {
+        REQUEST_SCOPES.with(|scopes| {
+            let popped = scopes.borrow_mut().pop();
+            debug_assert_eq!(popped.as_ref().map(|(client, _)| *client), Some(self.client));
+        });
+    }
+}
+
+struct CallBudget {
+    deadline: Instant,
+    cancellation: Option<super::options::CancellationToken>,
+}
+
+impl CallBudget {
+    fn new(options: RequestOptions, default_timeout: Duration) -> Result<Self> {
+        options.validate()?;
+        let timeout = options.timeout.unwrap_or(default_timeout);
+        if timeout.is_zero() {
+            return Err(Error::InvalidArgument(
+                "request timeout must be greater than zero".to_string(),
+            ));
+        }
+        let deadline = Instant::now().checked_add(timeout).ok_or_else(|| {
+            Error::InvalidArgument("request timeout exceeds the supported range".to_string())
+        })?;
+        Ok(Self { deadline, cancellation: options.cancellation })
+    }
+
+    fn check(&self, operation: &str) -> Result<()> {
+        if self.cancellation.as_ref().is_some_and(|token| token.is_cancelled()) {
+            return Err(Error::Cancelled(format!("{operation} was canceled")));
+        }
+        if Instant::now() >= self.deadline {
+            return Err(Error::Timeout(format!("{operation} did not respond before the deadline")));
+        }
+        Ok(())
+    }
+
+    fn remaining(&self, operation: &str) -> Result<Duration> {
+        self.check(operation)?;
+        Ok(self.deadline.saturating_duration_since(Instant::now()))
+    }
+
+    fn receive_timeout(&self, operation: &str) -> Result<Duration> {
+        let remaining = self.remaining(operation)?;
+        Ok(if self.cancellation.is_some() {
+            remaining.min(CANCELLATION_POLL_INTERVAL)
+        } else {
+            remaining
+        })
+    }
+}
 
 /// Connection and bound configuration for the resource SDK.
 #[derive(Clone, Debug)]
@@ -67,6 +138,9 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
+        if self.timeout.is_zero() {
+            return Err(Error::InvalidArgument("timeout must be greater than zero".to_string()));
+        }
         if self.max_request_bytes == 0 || self.max_request_bytes > DEFAULT_REQUEST_BYTES {
             return Err(Error::InvalidArgument(format!(
                 "max_request_bytes must be between 1 and {DEFAULT_REQUEST_BYTES}"
@@ -163,8 +237,33 @@ impl Client {
         self.shared.closed.load(Ordering::Acquire)
     }
 
+    /// Runs exactly one high-level SDK call with a local deadline and
+    /// cancellation signal.
+    pub fn with_request_options<T>(
+        &self,
+        options: RequestOptions,
+        call: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        options.validate()?;
+        if options.cancellation.as_ref().is_some_and(|token| token.is_cancelled()) {
+            return Err(Error::Cancelled("request was canceled before dispatch".to_string()));
+        }
+        let client = self.scope_id();
+        REQUEST_SCOPES.with(|scopes| scopes.borrow_mut().push((client, options)));
+        let _guard = RequestScopeGuard { client };
+        call()
+    }
+
     pub(crate) fn read(&self, operation: &'static str, params: Params) -> Result<Value> {
-        self.request(operation, params, None, OperationClass::Read)
+        let mut dispatched = false;
+        self.request(
+            operation,
+            params,
+            None,
+            OperationClass::Read,
+            self.scoped_request_options(),
+            &mut dispatched,
+        )
     }
 
     pub(crate) fn connection_control(
@@ -172,7 +271,15 @@ impl Client {
         operation: &'static str,
         params: Params,
     ) -> Result<Value> {
-        self.request(operation, params, None, OperationClass::ConnectionControl)
+        let mut dispatched = false;
+        self.request(
+            operation,
+            params,
+            None,
+            OperationClass::ConnectionControl,
+            self.scoped_request_options(),
+            &mut dispatched,
+        )
     }
 
     pub(crate) fn mutate(
@@ -181,6 +288,8 @@ impl Client {
         mut params: Params,
         options: MutationOptions,
     ) -> Result<Value> {
+        let request_options = options.request.merged_over(&self.scoped_request_options());
+        let idempotency_key = options.idempotency_key;
         if let Some(revision) = options.expected_revision {
             if !operation_accepts_revision(operation) {
                 return Err(Error::InvalidArgument(format!(
@@ -189,7 +298,26 @@ impl Client {
             }
             params = params.u64(field::EXPECTED_REVISION, revision);
         }
-        self.request(operation, params, Some(options.idempotency_key), OperationClass::Mutation)
+        let mut dispatched = false;
+        match self.request(
+            operation,
+            params,
+            Some(idempotency_key.clone()),
+            OperationClass::Mutation,
+            request_options,
+            &mut dispatched,
+        ) {
+            Err(error @ (Error::Connection(_) | Error::Timeout(_) | Error::Cancelled(_)))
+                if dispatched =>
+            {
+                Err(Error::MutationTransport {
+                    operation: operation.to_string(),
+                    idempotency_key,
+                    source: Box::new(error),
+                })
+            }
+            result => result,
+        }
     }
 
     pub(crate) fn stream(&self, operation: &'static str, params: Params) -> Result<ResourceStream> {
@@ -199,7 +327,14 @@ impl Client {
             )));
         }
         let id = self.next_request_id();
+        let budget = CallBudget::new(self.scoped_request_options(), self.shared.config.timeout)?;
+        budget.check(operation)?;
         let stream_id = random_stream_id()?;
+        let control_params = match operation {
+            ops::TERMINAL_ATTACH => params.only(&[field::MACHINE, field::SESSION, field::TERMINAL]),
+            ops::BROWSER_ATTACH => params.only(&[field::MACHINE, field::SESSION, field::BROWSER]),
+            _ => Params::new(),
+        };
         let params = params.id(field::STREAM_ID, &stream_id);
         let cancel_params = params.cancellation_scope(&stream_id);
         let envelope = request_envelope(&id, operation, params.into_value(), None);
@@ -208,9 +343,97 @@ impl Client {
             self.shared.config.timeout,
             self.shared.config.max_response_bytes,
         )?;
-        let writer = connection.shutdown_clone()?;
-        connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)?;
-        let response = receive_response(&mut connection, &id)?;
+        let mut writer = connection.shutdown_clone()?;
+        let send_timeout = budget.remaining(operation)?;
+        connection.with_write_timeout(send_timeout, |connection| {
+            connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
+        })?;
+        let mut initial_envelopes = VecDeque::new();
+        let mut initial_items = 0usize;
+        let mut initial_bytes = 0usize;
+        let mut initial_end_seen = false;
+        let response = loop {
+            let envelope = match receive_envelope_with_budget(&mut connection, operation, &budget) {
+                Ok(envelope) => envelope,
+                Err(error) => {
+                    cancel_stream_best_effort(
+                        &mut writer,
+                        &stream_id,
+                        &cancel_params,
+                        self.shared.config.max_request_bytes,
+                    );
+                    return Err(error);
+                }
+            };
+            match envelope.get("type").and_then(Value::as_str) {
+                Some("response") => {
+                    break match decode_response(envelope, &id) {
+                        Ok(response) => response,
+                        Err(error) => {
+                            cancel_stream_best_effort(
+                                &mut writer,
+                                &stream_id,
+                                &cancel_params,
+                                self.shared.config.max_request_bytes,
+                            );
+                            return Err(error);
+                        }
+                    };
+                }
+                Some("stream_item") => {
+                    if initial_end_seen
+                        || envelope.get("stream_id").and_then(Value::as_str)
+                            != Some(stream_id.as_str())
+                    {
+                        cancel_stream_best_effort(
+                            &mut writer,
+                            &stream_id,
+                            &cancel_params,
+                            self.shared.config.max_request_bytes,
+                        );
+                        return Err(Error::UnexpectedEnvelope(
+                            "invalid pre-ack stream item".to_string(),
+                        ));
+                    }
+                    let size = serde_json::to_vec(&envelope)
+                        .map_err(|error| Error::Decode(error.to_string()))?
+                        .len();
+                    if initial_items >= self.shared.config.max_stream_items
+                        || size > self.shared.config.max_stream_bytes.saturating_sub(initial_bytes)
+                    {
+                        cancel_stream_best_effort(
+                            &mut writer,
+                            &stream_id,
+                            &cancel_params,
+                            self.shared.config.max_request_bytes,
+                        );
+                        return Err(stream_overflow_error());
+                    }
+                    initial_items += 1;
+                    initial_bytes += size;
+                    initial_envelopes.push_back((envelope, size));
+                }
+                Some("stream_end")
+                    if !initial_end_seen
+                        && envelope.get("stream_id").and_then(Value::as_str)
+                            == Some(stream_id.as_str()) =>
+                {
+                    initial_end_seen = true;
+                    initial_envelopes.push_back((envelope, 0));
+                }
+                _ => {
+                    cancel_stream_best_effort(
+                        &mut writer,
+                        &stream_id,
+                        &cancel_params,
+                        self.shared.config.max_request_bytes,
+                    );
+                    return Err(Error::UnexpectedEnvelope(
+                        "expected stream response, stream_item, or stream_end".to_string(),
+                    ));
+                }
+            }
+        };
         if let Some(response_stream_id) =
             response.as_object().and_then(|object| object.get("stream_id")).and_then(Value::as_str)
             && response_stream_id != stream_id.as_str()
@@ -219,13 +442,17 @@ impl Client {
                 "stream response returned {response_stream_id}, expected {stream_id}"
             )));
         }
-        Ok(ResourceStream::from_parts(StreamParts {
+        ResourceStream::from_parts(StreamParts {
             id: stream_id,
             connection,
             writer,
             cancel_params,
+            control_params,
             max_request_bytes: self.shared.config.max_request_bytes,
-        }))
+            max_stream_items: self.shared.config.max_stream_items,
+            max_stream_bytes: self.shared.config.max_stream_bytes,
+            initial_envelopes,
+        })
     }
 
     fn request(
@@ -234,6 +461,8 @@ impl Client {
         params: Params,
         idempotency_key: Option<String>,
         expected_class: OperationClass,
+        request_options: RequestOptions,
+        dispatched: &mut bool,
     ) -> Result<Value> {
         if self.is_closed() {
             return Err(Error::Closed);
@@ -249,16 +478,52 @@ impl Client {
                 "{operation} has invalid idempotency policy"
             )));
         }
+        let budget = CallBudget::new(request_options, self.shared.config.timeout)?;
+        budget.check(operation)?;
         let id = self.next_request_id();
         let envelope = request_envelope(&id, operation, params.into_value(), idempotency_key);
-        let mut connection = self
-            .shared
-            .control
-            .lock()
-            .map_err(|_| Error::Connection("client connection lock poisoned".to_string()))?;
-        let connection = connection.as_mut().ok_or(Error::Closed)?;
-        connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)?;
-        receive_response(connection, &id)
+        let mut connection = loop {
+            match self.shared.control.try_lock() {
+                Ok(connection) => break connection,
+                Err(TryLockError::Poisoned(_)) => {
+                    return Err(Error::Connection("client connection lock poisoned".to_string()));
+                }
+                Err(TryLockError::WouldBlock) => {
+                    let remaining = budget.remaining(operation)?;
+                    std::thread::sleep(remaining.min(LOCK_POLL_INTERVAL));
+                }
+            }
+        };
+        if self.is_closed() {
+            return Err(Error::Closed);
+        }
+        if connection.is_none() {
+            budget.check(operation)?;
+            *connection = Some(JsonLineConnection::connect(
+                &self.shared.config.socket_path,
+                self.shared.config.timeout,
+                self.shared.config.max_response_bytes,
+            )?);
+        }
+        budget.check(operation)?;
+        *dispatched = true;
+        let result = {
+            let active = connection.as_mut().ok_or(Error::Closed)?;
+            budget
+                .remaining(operation)
+                .and_then(|send_timeout| {
+                    active.with_write_timeout(send_timeout, |active| {
+                        active.send_with_limit(&envelope, self.shared.config.max_request_bytes)
+                    })
+                })
+                .and_then(|()| receive_response_with_budget(active, &id, operation, &budget))
+        };
+        if result.as_ref().is_err_and(discard_connection_after) {
+            if let Some(active) = connection.take() {
+                active.close();
+            }
+        }
+        result
     }
 
     fn next_request_id(&self) -> String {
@@ -268,14 +533,40 @@ impl Client {
             self.shared.next_request.fetch_add(1, Ordering::Relaxed)
         )
     }
+
+    fn scope_id(&self) -> usize {
+        Arc::as_ptr(&self.shared) as usize
+    }
+
+    fn scoped_request_options(&self) -> RequestOptions {
+        let client = self.scope_id();
+        REQUEST_SCOPES.with(|scopes| {
+            scopes
+                .borrow()
+                .iter()
+                .rev()
+                .find(|(scope_client, _)| *scope_client == client)
+                .map(|(_, options)| options.clone())
+                .unwrap_or_default()
+        })
+    }
+}
+
+fn discard_connection_after(error: &Error) -> bool {
+    matches!(
+        error,
+        Error::Connection(_)
+            | Error::Timeout(_)
+            | Error::Cancelled(_)
+            | Error::Decode(_)
+            | Error::FrameTooLarge { .. }
+            | Error::UnexpectedEnvelope(_)
+    )
 }
 
 fn operation_accepts_revision(operation: &str) -> bool {
     use super::ops;
-    !matches!(
-        operation,
-        ops::MACHINE_CREATE | ops::MACHINE_CONNECT_EXTERNAL | ops::WORKSPACE_CREATE
-    )
+    operation != ops::WORKSPACE_CREATE
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -291,17 +582,12 @@ fn operation_class(operation: &str) -> OperationClass {
 
     if matches!(
         operation,
-        ops::SESSION_EVENTS
-            | ops::TERMINAL_ATTACH
-            | ops::BROWSER_ATTACH
-            | ops::SIDEBAR_VIEW_ATTACH
-            | ops::PROVIDER_NOTICE_EVENTS
+        ops::SESSION_EVENTS | ops::TERMINAL_ATTACH | ops::BROWSER_ATTACH | ops::SIDEBAR_VIEW_ATTACH
     ) {
         OperationClass::StreamOpen
     } else if matches!(
         operation,
         ops::STREAM_CANCEL
-            | ops::PROVIDER_NOTICE_ACKNOWLEDGE
             | ops::CLIENT_METADATA_UPDATE
             | ops::CLIENT_SIZING_SET
             | ops::CLIENT_SIZING_RELEASE
@@ -320,6 +606,7 @@ fn operation_class(operation: &str) -> OperationClass {
             | ops::MACHINE_GET
             | ops::SESSION_LIST
             | ops::SESSION_GET
+            | ops::SESSION_CREATION_RESOLVE
             | ops::SESSION_SNAPSHOT
             | ops::SESSION_PING
             | ops::CLIENT_LIST
@@ -342,6 +629,7 @@ fn operation_class(operation: &str) -> OperationClass {
             | ops::TERMINAL_STATE_READ
             | ops::TERMINAL_HISTORY_READ
             | ops::TERMINAL_WAIT
+            | ops::TERMINAL_WAIT_EXIT
             | ops::TERMINAL_COPY
             | ops::TERMINAL_PROCESS_GET
             | ops::BROWSER_LIST
@@ -349,7 +637,6 @@ fn operation_class(operation: &str) -> OperationClass {
             | ops::NOTIFICATION_LIST
             | ops::AGENT_LIST
             | ops::SIDEBAR_VIEW_GET
-            | ops::PROVIDER_SCOPE_LIST
     ) {
         OperationClass::Read
     } else {
@@ -357,7 +644,7 @@ fn operation_class(operation: &str) -> OperationClass {
     }
 }
 
-fn request_envelope(
+pub(crate) fn request_envelope(
     id: &str,
     operation: &str,
     params: Value,
@@ -376,9 +663,62 @@ fn request_envelope(
     Value::Object(envelope)
 }
 
-fn receive_response(connection: &mut JsonLineConnection, expected_id: &str) -> Result<Value> {
-    let response = connection.recv()?;
-    decode_response(response, expected_id)
+fn receive_response_with_budget(
+    connection: &mut JsonLineConnection,
+    expected_id: &str,
+    operation: &str,
+    budget: &CallBudget,
+) -> Result<Value> {
+    decode_response(receive_envelope_with_budget(connection, operation, budget)?, expected_id)
+}
+
+fn receive_envelope_with_budget(
+    connection: &mut JsonLineConnection,
+    operation: &str,
+    budget: &CallBudget,
+) -> Result<Value> {
+    loop {
+        let timeout = budget.receive_timeout(operation)?;
+        match connection.with_read_timeout(timeout, JsonLineConnection::recv) {
+            Err(Error::Timeout(_)) if budget.cancellation.is_some() => {
+                budget.check(operation)?;
+            }
+            Err(Error::Timeout(_)) => {
+                return Err(Error::Timeout(format!(
+                    "{operation} did not respond before the deadline"
+                )));
+            }
+            Err(error) => return Err(error),
+            Ok(response) => return Ok(response),
+        }
+    }
+}
+
+fn cancel_stream_best_effort(
+    writer: &mut UnixStream,
+    stream_id: &StreamId,
+    cancel_params: &Params,
+    max_request_bytes: usize,
+) {
+    let envelope = request_envelope(
+        &format!("rust-cancel-{}", stream_id.as_str()),
+        ops::STREAM_CANCEL,
+        cancel_params.clone().into_value(),
+        None,
+    );
+    if let Ok(encoded) = serde_json::to_vec(&envelope)
+        && encoded.len() <= max_request_bytes
+    {
+        let _ = writer.write_all(&encoded).and_then(|()| writer.write_all(b"\n"));
+    }
+}
+
+fn stream_overflow_error() -> Error {
+    Error::StreamEnded {
+        reason: "gap".to_string(),
+        recovery: Some("reopen the stream to obtain a fresh snapshot".to_string()),
+        error: None,
+    }
 }
 
 pub(crate) fn decode_response(response: Value, expected_id: &str) -> Result<Value> {
@@ -426,6 +766,15 @@ pub(crate) fn decode_protocol_error(value: &Value) -> Result<Error> {
     let retryable = object.get("retryable").and_then(Value::as_bool).ok_or_else(|| {
         Error::UnexpectedEnvelope("protocol error retryable is required".to_string())
     })?;
+    if code == "confirmation.required" {
+        if retryable {
+            return Err(Error::UnexpectedEnvelope(
+                "confirmation.required must not be retryable".to_string(),
+            ));
+        }
+        let details = super::wire::decode_exact(&details, "confirmation.required details")?;
+        return Ok(Error::ConfirmationRequired { message, details });
+    }
     Ok(Error::Protocol { code, message, details, retryable })
 }
 
@@ -448,14 +797,8 @@ mod tests {
 
     #[test]
     fn classification_matches_connection_control_exceptions() {
-        assert_eq!(operation_class(super::super::ops::TERMINAL_COPY), OperationClass::Read);
-        assert_eq!(
-            operation_class(super::super::ops::TERMINAL_VIEWER_RESIZE),
-            OperationClass::ConnectionControl
-        );
-        assert_eq!(
-            operation_class(super::super::ops::TAB_CREATE_TERMINAL),
-            OperationClass::Mutation
-        );
+        assert_eq!(operation_class(ops::TERMINAL_COPY), OperationClass::Read);
+        assert_eq!(operation_class(ops::TERMINAL_VIEWER_RESIZE), OperationClass::ConnectionControl);
+        assert_eq!(operation_class(ops::TAB_CREATE_TERMINAL), OperationClass::Mutation);
     }
 }

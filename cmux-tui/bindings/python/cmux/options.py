@@ -1,30 +1,84 @@
 from __future__ import annotations
 
+import math
+import threading
 from dataclasses import dataclass
-from typing import Literal, Mapping, Optional, Sequence, Tuple
+from typing import Literal, Optional, Sequence, Tuple
 
 from .ids import TerminalId
-from .models import Command, Cursor, LayoutDocument, ProviderActionValue
+from .models import Command, Cursor, LayoutDocument
 
 
 Direction = Literal["left", "right", "up", "down"]
 InitialContent = Literal["terminal", "empty"]
 
 
+def _validate_correlation_key(value: Optional[str]) -> None:
+    if value is None:
+        return
+    if not isinstance(value, str):
+        raise TypeError("correlation_key must be a string")
+    if not value or len(value.encode("utf-8")) > 128:
+        raise ValueError(
+            "correlation_key must contain 1 to 128 UTF-8 bytes"
+        )
+
+
+class CancellationToken:
+    """Thread-safe cancellation signal for one or more SDK calls."""
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._event.is_set()
+
+
 @dataclass(frozen=True)
-class CreateMachineOptions:
-    """Reserved for forward-compatible provider machine creation."""
+class RequestOptions:
+    """Local deadline and cancellation policy for one SDK call."""
+
+    timeout: Optional[float] = None
+    cancellation: Optional[CancellationToken] = None
+
+    def __post_init__(self) -> None:
+        if self.timeout is not None and (
+            isinstance(self.timeout, bool)
+            or not isinstance(self.timeout, (int, float))
+        ):
+            raise TypeError("request timeout must be a number")
+        if self.timeout is not None and (
+            not math.isfinite(self.timeout) or self.timeout <= 0
+        ):
+            raise ValueError("request timeout must be finite and greater than zero")
+        if self.cancellation is not None and not isinstance(
+            self.cancellation,
+            CancellationToken,
+        ):
+            raise TypeError("request cancellation must be a CancellationToken")
 
 
 @dataclass(frozen=True)
 class CreateWorkspaceOptions:
     name: Optional[str] = None
     initial_content: InitialContent = "terminal"
+    correlation_key: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        _validate_correlation_key(self.correlation_key)
 
 
 @dataclass(frozen=True)
 class CreateScreenOptions:
     name: Optional[str] = None
+    correlation_key: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        _validate_correlation_key(self.correlation_key)
 
 
 @dataclass(frozen=True)
@@ -32,6 +86,10 @@ class CreatePaneOptions:
     cwd: Optional[str] = None
     columns: Optional[int] = None
     rows: Optional[int] = None
+    correlation_key: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        _validate_correlation_key(self.correlation_key)
 
 
 @dataclass(frozen=True)
@@ -41,6 +99,10 @@ class SplitPaneOptions:
     cwd: Optional[str] = None
     columns: Optional[int] = None
     rows: Optional[int] = None
+    correlation_key: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        _validate_correlation_key(self.correlation_key)
 
 
 @dataclass(frozen=True)
@@ -49,6 +111,10 @@ class CreateTerminalOptions:
     name: Optional[str] = None
     columns: Optional[int] = None
     rows: Optional[int] = None
+    correlation_key: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        _validate_correlation_key(self.correlation_key)
 
 
 @dataclass(frozen=True)
@@ -57,6 +123,10 @@ class CreateBrowserOptions:
     name: Optional[str] = None
     width_px: Optional[int] = None
     height_px: Optional[int] = None
+    correlation_key: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        _validate_correlation_key(self.correlation_key)
 
 
 @dataclass(frozen=True)
@@ -65,6 +135,11 @@ class RunOptions:
     name: Optional[str] = None
     columns: Optional[int] = None
     rows: Optional[int] = None
+    cwd: Optional[str] = None
+    correlation_key: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        _validate_correlation_key(self.correlation_key)
 
 
 @dataclass(frozen=True)
@@ -160,11 +235,6 @@ class AgentReportOptions:
 
 
 @dataclass(frozen=True)
-class ProviderActionOptions:
-    parameters: Mapping[str, ProviderActionValue]
-
-
-@dataclass(frozen=True)
 class SidebarInputOptions:
     data_base64: str
 
@@ -185,8 +255,8 @@ __all__ = [
     "BrowserAttachOptions",
     "BrowserMouseOptions",
     "BrowserViewerSizeOptions",
+    "CancellationToken",
     "CreateBrowserOptions",
-    "CreateMachineOptions",
     "CreatePaneOptions",
     "CreateScreenOptions",
     "CreateTerminalOptions",
@@ -196,7 +266,7 @@ __all__ = [
     "KeyInputOptions",
     "LayoutApplyOptions",
     "NotificationOptions",
-    "ProviderActionOptions",
+    "RequestOptions",
     "RunOptions",
     "SessionEventsOptions",
     "SidebarEnsureOptions",

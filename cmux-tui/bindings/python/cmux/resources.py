@@ -4,6 +4,7 @@ import secrets
 import math
 import base64
 import binascii
+import threading
 from dataclasses import asdict, dataclass, fields
 from typing import (
     Any,
@@ -23,7 +24,13 @@ from typing import (
 from ._operations import Operation, Operations
 from ._protocol import ProtocolConnection, ResourceStream
 from .client_defaults import default_socket_path, env_socket_path
-from .errors import ProtocolError
+from .errors import (
+    CancelledError,
+    CmuxConnectionError,
+    MutationTransportError,
+    ProtocolError,
+    TimeoutError,
+)
 from .ids import (
     AgentId,
     BrowserId,
@@ -34,9 +41,6 @@ from .ids import (
     PairingRequestId,
     PaneId,
     ProjectionId,
-    ProviderActionId,
-    ProviderNoticeId,
-    ProviderScopeId,
     ResourceId,
     ScreenId,
     Selector,
@@ -56,12 +60,13 @@ from .models import (
     BrowserAttachSnapshot,
     BrowserAttachState,
     BrowserSnapshot,
+    BrowserViewerResizeResult,
+    CellPixelsResult,
     ClientTerminalSize,
     ClientSnapshot,
+    CreationResolution,
     Cursor,
-    Document,
     ExactCommand,
-    ExternalMachineSpecifier,
     FrontendProjectionSnapshot,
     JsonObject,
     LayoutColumn,
@@ -72,18 +77,15 @@ from .models import (
     LayoutStack,
     LayoutViewport,
     MachineSnapshot,
+    MutationReceipt,
     MutationResult,
     NotificationSnapshot,
     PairingCode,
     PairingRequestSnapshot,
+    PairingResolutionResult,
     PaneSnapshot,
-    ProviderActionField,
-    ProviderActionSnapshot,
-    ProviderNoticeKnown,
-    ProviderNoticeItem,
-    ProviderNoticeSnapshot,
-    ProviderScopeSnapshot,
-    ProviderCredential,
+    PingResult,
+    ProcessInfoResult,
     ResourceChange,
     ResourceDelete,
     ResourceEntitySnapshot,
@@ -97,12 +99,14 @@ from .models import (
     RenderRun,
     RenderScroll,
     RenderSnapshot,
+    ReloadConfigResult,
     ScreenSnapshot,
     SessionDelta,
     SessionEvent,
     SessionSnapshotItem,
     SessionSnapshot,
     ShellCommand,
+    ShutdownResult,
     SidebarAttachItem,
     SidebarAttachPatch,
     SidebarAttachScroll,
@@ -114,10 +118,26 @@ from .models import (
     TerminalAttachPatch,
     TerminalAttachScroll,
     TerminalAttachSnapshot,
+    TerminalCopyResult,
+    TerminalDefaultsSnapshot,
+    TerminalExit,
+    TerminalExitCode,
+    TerminalExitOutcome,
+    TerminalExitSignal,
+    TerminalExitUnknown,
+    TerminalHistoryResult,
+    TerminalLifecycle,
+    TerminalScreenResult,
     TerminalSnapshot,
+    TerminalStateResult,
+    TerminalWaitExitExited,
+    TerminalWaitExitPending,
+    TerminalWaitExitResult,
+    TerminalWaitResult,
     Size,
     PixelSize,
     Unknown,
+    ViewerResizeResult,
     WorkspaceSnapshot,
 )
 from .options import (
@@ -125,8 +145,8 @@ from .options import (
     BrowserAttachOptions,
     BrowserMouseOptions,
     BrowserViewerSizeOptions,
+    CancellationToken,
     CreateBrowserOptions,
-    CreateMachineOptions,
     CreatePaneOptions,
     CreateScreenOptions,
     CreateTerminalOptions,
@@ -135,7 +155,7 @@ from .options import (
     KeyInputOptions,
     LayoutApplyOptions,
     NotificationOptions,
-    ProviderActionOptions,
+    RequestOptions,
     RunOptions,
     SessionEventsOptions,
     SidebarEnsureOptions,
@@ -156,6 +176,31 @@ StreamValueT = TypeVar("StreamValueT")
 LocalExecutor = Callable[[str, Mapping[str, Any]], Any]
 RandomHex128 = Callable[[], str]
 _UNSET = object()
+
+
+@dataclass(frozen=True)
+class _RequestContext:
+    options: RequestOptions
+    cancel_event: Optional["_CancellationSignal"]
+
+
+class _CancellationSignal:
+    def __init__(
+        self,
+        token: Optional[CancellationToken],
+        task_event: Optional[threading.Event],
+    ) -> None:
+        self._token = token
+        self._task_event = task_event
+
+    def is_set(self) -> bool:
+        return (
+            self._token is not None
+            and self._token.is_cancelled
+        ) or (
+            self._task_event is not None
+            and self._task_event.is_set()
+        )
 
 
 def _selector(value: SelectorInput[IdT], expected: Type[IdT]) -> Selector[IdT]:
@@ -197,8 +242,6 @@ def _plain(value: Any) -> Any:
         return value.encode()
     if isinstance(value, (ExactCommand, ShellCommand)):
         return value.to_params()
-    if isinstance(value, ProviderCredential):
-        return value.to_params()
     if hasattr(value, "__dataclass_fields__"):
         return {
             key: _plain(item)
@@ -210,6 +253,17 @@ def _plain(value: Any) -> Any:
     if isinstance(value, (tuple, list)):
         return [_plain(item) for item in value]
     return value
+
+
+def _decimal_param(value: Any, label: str) -> str:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 0
+        or value > 18_446_744_073_709_551_615
+    ):
+        raise ValueError(f"{label} must be an unsigned 64-bit integer")
+    return str(value)
 
 
 def _mapping(value: Any, label: str) -> Mapping[str, Any]:
@@ -578,11 +632,10 @@ def _machine_snapshot(value: Any) -> MachineSnapshot:
         "origin",
         "status",
         "connectable",
-        "provider_scope_id",
         "deleted",
         "recoverable",
     )
-    origin = _required_enum(payload, "origin", ("local", "external"))
+    origin = _required_enum(payload, "origin", ("local",))
     status = _required_enum(
         payload,
         "status",
@@ -594,11 +647,6 @@ def _machine_snapshot(value: Any) -> MachineSnapshot:
         origin=origin,  # type: ignore[arg-type]
         status=status,  # type: ignore[arg-type]
         connectable=_required_bool(payload, "connectable"),
-        provider_scope_id=_optional_resource_id(
-            payload,
-            "provider_scope_id",
-            ProviderScopeId,
-        ),
         deleted=_required_bool(payload, "deleted"),
         recoverable=_required_bool(payload, "recoverable"),
     )
@@ -701,18 +749,48 @@ def _tab_snapshot(value: Any) -> TabSnapshot:
 
 def _terminal_snapshot(value: Any) -> TerminalSnapshot:
     payload = _unwrap_resource(value, ("terminal",))
+    lifecycle = _required_enum(
+        payload,
+        "lifecycle",
+        ("launching", "running", "exited"),
+    )
+    running = _required_bool(payload, "running")
+    exit_record = None
+    if "exit" in payload:
+        if payload["exit"] is None:
+            raise ProtocolError("terminal exit must be an object when present")
+        exit_record = _terminal_exit(payload["exit"])
+    if running != (lifecycle == "running"):
+        raise ProtocolError(
+            "terminal running must be true exactly when lifecycle is running"
+        )
+    if (exit_record is not None) != (lifecycle == "exited"):
+        raise ProtocolError(
+            "terminal exit must be present exactly when lifecycle is exited"
+        )
     return TerminalSnapshot(
         **_snapshot_fields(
             payload,
             TerminalId,
-            ("tab_id", "title", "cwd", "cols", "rows", "running"),
+            (
+                "tab_id",
+                "title",
+                "cwd",
+                "cols",
+                "rows",
+                "running",
+                "lifecycle",
+                "exit",
+            ),
         ),
         tab_id=_required_id(payload, ("tab_id",), TabId),
         title=_required_string(payload, "title"),
         cwd=_optional_present_string(payload, "cwd"),
         cols=_required_positive_uint16(payload, "cols"),
         rows=_required_positive_uint16(payload, "rows"),
-        running=_required_bool(payload, "running"),
+        running=running,
+        lifecycle=lifecycle,  # type: ignore[arg-type]
+        exit=exit_record,
     )
 
 
@@ -857,21 +935,6 @@ def _aux_snapshot(
             "rows",
             "running",
         ),
-        ProviderScopeSnapshot: ("name", "kind", "can_admin", "selected"),
-        ProviderActionSnapshot: (
-            "provider_scope_id",
-            "name",
-            "title",
-            "enabled",
-            "target",
-            "destructive",
-            "fields",
-        ),
-        ProviderNoticeSnapshot: (
-            "provider_scope_id",
-            "level",
-            "message",
-        ),
     }
     known = list(fields_by_type.get(snapshot_type, ()))
     if parent_key is not None and f"{parent_key}_id" not in known:
@@ -942,120 +1005,6 @@ def _aux_snapshot(
             rows=_required_positive_uint16(payload, "rows"),
             running=_required_bool(payload, "running"),
         )
-    elif snapshot_type is ProviderScopeSnapshot:
-        arguments.update(
-            name=_required_string(payload, "name"),
-            kind=_required_enum(payload, "kind", ("personal", "team")),
-            can_admin=_required_bool(payload, "can_admin"),
-            selected=_required_bool(payload, "selected"),
-        )
-    elif snapshot_type is ProviderActionSnapshot:
-        field_values = payload.get("fields")
-        if not isinstance(field_values, list):
-            raise ProtocolError("provider action fields must be an array")
-        decoded_fields: List[ProviderActionField] = []
-        for field_value in field_values:
-            field_payload = _mapping(field_value, "provider action field")
-            _strict_object(
-                field_payload,
-                (
-                    "id",
-                    "label",
-                    "kind",
-                    "required",
-                    "max_length",
-                    "minimum",
-                    "maximum",
-                    "placeholder",
-                ),
-                "provider action field",
-            )
-            field_id = _required_string(field_payload, "id")
-            if not field_id:
-                raise ProtocolError("provider action field id must be non-empty")
-            kind = _required_enum(
-                field_payload,
-                "kind",
-                ("text", "email", "integer"),
-            )
-            max_length = (
-                _required_int(field_payload, "max_length")
-                if "max_length" in field_payload
-                else None
-            )
-            if max_length == 0:
-                raise ProtocolError(
-                    "provider action field max_length must be positive"
-                )
-            minimum = (
-                _required_int32(field_payload, "minimum")
-                if "minimum" in field_payload
-                else None
-            )
-            maximum = (
-                _required_int32(field_payload, "maximum")
-                if "maximum" in field_payload
-                else None
-            )
-            if (
-                minimum is not None
-                and maximum is not None
-                and minimum > maximum
-            ):
-                raise ProtocolError(
-                    "provider action field minimum exceeds maximum"
-                )
-            if kind == "integer" and (
-                max_length is not None or "placeholder" in field_payload
-            ):
-                raise ProtocolError(
-                    "integer provider action fields cannot use text constraints"
-                )
-            if kind != "integer" and (
-                minimum is not None or maximum is not None
-            ):
-                raise ProtocolError(
-                    "text provider action fields cannot use integer constraints"
-                )
-            decoded_fields.append(
-                ProviderActionField(
-                    field_id,
-                    _required_string(field_payload, "label"),
-                    kind,  # type: ignore[arg-type]
-                    _required_bool(field_payload, "required"),
-                    max_length,
-                    minimum,
-                    maximum,
-                    _optional_present_string(field_payload, "placeholder"),
-                )
-            )
-        arguments.update(
-            provider_scope_id=_required_id(
-                payload, ("provider_scope_id",), ProviderScopeId
-            ),
-            name=_required_string(payload, "name"),
-            title=_required_string(payload, "title"),
-            enabled=_required_bool(payload, "enabled"),
-            target=_required_enum(
-                payload,
-                "target",
-                ("scope", "selected_machine", "selected_workspace"),
-            ),
-            destructive=_required_bool(payload, "destructive"),
-            fields=tuple(decoded_fields),
-        )
-    elif snapshot_type is ProviderNoticeSnapshot:
-        arguments.update(
-            provider_scope_id=_required_id(
-                payload, ("provider_scope_id",), ProviderScopeId
-            ),
-            level=_required_enum(
-                payload,
-                "level",
-                ("info", "warning", "error"),
-            ),
-            message=_required_string(payload, "message"),
-        )
     return snapshot_type(**arguments)
 
 
@@ -1065,14 +1014,377 @@ def _list_payload(value: Any, key: str) -> List[Any]:
     return value
 
 
-def _pairing_resolution(value: Any) -> PairingRequestSnapshot:
+def _pairing_resolution(value: Any) -> PairingResolutionResult:
     payload = _mapping(value, "pairing resolution")
     _strict_object(payload, ("pairing_request",), "pairing resolution")
-    return _aux_snapshot(
-        payload.get("pairing_request"),
-        "pairing_request",
-        PairingRequestId,
-        PairingRequestSnapshot,
+    return PairingResolutionResult(
+        _aux_snapshot(
+            payload.get("pairing_request"),
+            "pairing_request",
+            PairingRequestId,
+            PairingRequestSnapshot,
+        )
+    )
+
+
+def _empty_result(value: Any) -> None:
+    payload = _mapping(value, "empty result")
+    _strict_object(payload, (), "empty result")
+    return None
+
+
+def _ping_result(value: Any) -> PingResult:
+    payload = _mapping(value, "ping result")
+    _strict_object(payload, ("alive", "cursor"), "ping result")
+    return PingResult(
+        _required_bool(payload, "alive"),
+        _cursor(payload.get("cursor")),
+    )
+
+
+def _shutdown_result(value: Any) -> ShutdownResult:
+    payload = _mapping(value, "shutdown result")
+    _strict_object(payload, ("accepted",), "shutdown result")
+    return ShutdownResult(_required_bool(payload, "accepted"))
+
+
+def _reload_config_result(value: Any) -> ReloadConfigResult:
+    payload = _mapping(value, "reload config result")
+    _strict_object(payload, ("reloaded", "warnings"), "reload config result")
+    warnings = payload.get("warnings")
+    if not isinstance(warnings, list) or not all(
+        isinstance(item, str) for item in warnings
+    ):
+        raise ProtocolError("reload config warnings must be an array of strings")
+    return ReloadConfigResult(
+        _required_bool(payload, "reloaded"),
+        tuple(warnings),
+    )
+
+
+def _terminal_defaults_snapshot(value: Any) -> TerminalDefaultsSnapshot:
+    payload = _mapping(value, "terminal defaults")
+    allowed = (
+        "foreground",
+        "background",
+        "cursor",
+        "selection_background",
+        "selection_foreground",
+        "cursor_style",
+        "cursor_blink",
+        "palette",
+    )
+    _strict_object(payload, allowed, "terminal defaults")
+
+    def optional_string(key: str) -> Optional[str]:
+        if key not in payload or payload[key] is None:
+            return None
+        return _required_string(payload, key)
+
+    cursor_style = optional_string("cursor_style")
+    if cursor_style not in {None, "block", "bar", "underline"}:
+        raise ProtocolError("terminal defaults cursor_style is invalid")
+    cursor_blink = payload.get("cursor_blink")
+    if cursor_blink is not None and not isinstance(cursor_blink, bool):
+        raise ProtocolError("terminal defaults cursor_blink must be boolean or null")
+    raw_palette = payload.get("palette")
+    palette: Optional[Mapping[str, str]] = None
+    if raw_palette is not None:
+        if not isinstance(raw_palette, Mapping) or not all(
+            isinstance(key, str) and isinstance(item, str)
+            for key, item in raw_palette.items()
+        ):
+            raise ProtocolError("terminal defaults palette must map strings to strings")
+        palette = dict(raw_palette)
+    return TerminalDefaultsSnapshot(
+        foreground=optional_string("foreground"),
+        background=optional_string("background"),
+        cursor=optional_string("cursor"),
+        selection_background=optional_string("selection_background"),
+        selection_foreground=optional_string("selection_foreground"),
+        cursor_style=cursor_style,  # type: ignore[arg-type]
+        cursor_blink=cursor_blink,
+        palette=palette,
+    )
+
+
+def _terminal_screen_result(value: Any) -> TerminalScreenResult:
+    payload = _mapping(value, "terminal screen result")
+    _strict_object(
+        payload,
+        (
+            "text",
+            "cols",
+            "rows",
+            "cursor_row",
+            "cursor_col",
+            "cursor_visible",
+            "extra",
+        ),
+        "terminal screen result",
+    )
+    extra = payload.get("extra", {})
+    if not isinstance(extra, Mapping):
+        raise ProtocolError("terminal screen extra must be an object")
+    return TerminalScreenResult(
+        _required_string(payload, "text"),
+        _required_positive_uint16(payload, "cols"),
+        _required_positive_uint16(payload, "rows"),
+        _required_uint16(payload, "cursor_row"),
+        _required_uint16(payload, "cursor_col"),
+        _required_bool(payload, "cursor_visible"),
+        dict(extra),
+    )
+
+
+def _terminal_state_result(value: Any) -> TerminalStateResult:
+    payload = _mapping(value, "terminal state result")
+    _strict_object(
+        payload,
+        ("state_base64", "cols", "rows"),
+        "terminal state result",
+    )
+    encoded = _required_string(payload, "state_base64")
+    try:
+        state = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise ProtocolError("terminal state_base64 is invalid") from error
+    return TerminalStateResult(
+        state,
+        _required_positive_uint16(payload, "cols"),
+        _required_positive_uint16(payload, "rows"),
+    )
+
+
+def _terminal_history_result(value: Any) -> TerminalHistoryResult:
+    payload = _mapping(value, "terminal history result")
+    _strict_object(payload, ("start", "next", "rows"), "terminal history result")
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        raise ProtocolError("terminal history rows must be an array")
+    next_value = None
+    if payload.get("next") is not None:
+        next_value = _required_decimal(payload, "next")
+    return TerminalHistoryResult(
+        _required_decimal(payload, "start"),
+        next_value,
+        tuple(_render_row(item) for item in rows),
+    )
+
+
+def _terminal_wait_result(value: Any) -> TerminalWaitResult:
+    payload = _mapping(value, "terminal wait result")
+    _strict_object(payload, ("matched", "text"), "terminal wait result")
+    return TerminalWaitResult(
+        _required_bool(payload, "matched"),
+        _required_string(payload, "text"),
+    )
+
+
+def _terminal_exit_outcome(value: Any) -> TerminalExitOutcome:
+    payload = _mapping(value, "terminal exit outcome")
+    kind = _required_enum(payload, "kind", ("exit", "signal", "unknown"))
+    if kind == "exit":
+        _strict_object(payload, ("kind", "code"), "terminal exit outcome")
+        return TerminalExitCode("exit", _required_int32(payload, "code"))
+    if kind == "signal":
+        _strict_object(
+            payload,
+            ("kind", "signal", "core_dumped"),
+            "terminal signal outcome",
+        )
+        signal = _required_int32(payload, "signal")
+        if signal < 1:
+            raise ProtocolError("terminal signal must be greater than zero")
+        return TerminalExitSignal(
+            "signal",
+            signal,
+            _required_bool(payload, "core_dumped"),
+        )
+    _strict_object(payload, ("kind", "reason"), "unknown terminal outcome")
+    reason = _required_string(payload, "reason")
+    if not reason:
+        raise ProtocolError("unknown terminal outcome reason must not be empty")
+    return TerminalExitUnknown("unknown", reason)
+
+
+def _terminal_exit(value: Any) -> TerminalExit:
+    payload = _mapping(value, "terminal exit")
+    _strict_object(
+        payload,
+        ("outcome", "exited_at", "revision"),
+        "terminal exit",
+    )
+    if "outcome" not in payload:
+        raise ProtocolError("terminal exit omitted outcome")
+    return TerminalExit(
+        _terminal_exit_outcome(payload["outcome"]),
+        _required_decimal(payload, "exited_at"),
+        _required_decimal(payload, "revision"),
+    )
+
+
+def _terminal_wait_exit_result(value: Any) -> TerminalWaitExitResult:
+    payload = _mapping(value, "terminal wait exit result")
+    state = _required_enum(payload, "state", ("pending", "exited"))
+    if state == "pending":
+        _strict_object(
+            payload,
+            ("state", "terminal_id", "lifecycle", "revision"),
+            "pending terminal wait exit result",
+        )
+        return TerminalWaitExitPending(
+            "pending",
+            _required_id(payload, ("terminal_id",), TerminalId),
+            _required_enum(
+                payload,
+                "lifecycle",
+                ("launching", "running"),
+            ),  # type: ignore[arg-type]
+            _required_decimal(payload, "revision"),
+        )
+    _strict_object(
+        payload,
+        (
+            "state",
+            "terminal_id",
+            "lifecycle",
+            "outcome",
+            "exited_at",
+            "revision",
+        ),
+        "exited terminal wait exit result",
+    )
+    if _required_enum(payload, "lifecycle", ("exited",)) != "exited":
+        raise AssertionError("validated exited lifecycle")
+    if "outcome" not in payload:
+        raise ProtocolError("exited terminal result omitted outcome")
+    return TerminalWaitExitExited(
+        "exited",
+        _required_id(payload, ("terminal_id",), TerminalId),
+        "exited",
+        _terminal_exit_outcome(payload["outcome"]),
+        _required_decimal(payload, "exited_at"),
+        _required_decimal(payload, "revision"),
+    )
+
+
+def _terminal_copy_result(value: Any) -> TerminalCopyResult:
+    payload = _mapping(value, "terminal copy result")
+    _strict_object(payload, ("mode", "text"), "terminal copy result")
+    return TerminalCopyResult(
+        _required_enum(
+            payload,
+            "mode",
+            ("screen", "selection", "scrollback"),
+        ),  # type: ignore[arg-type]
+        _required_string(payload, "text"),
+    )
+
+
+def _process_info_result(value: Any) -> ProcessInfoResult:
+    payload = _mapping(value, "process info result")
+    _strict_object(
+        payload,
+        ("pid", "executable", "argv", "cwd", "children"),
+        "process info result",
+    )
+    argv = payload.get("argv")
+    children = payload.get("children")
+    if not isinstance(argv, list) or not all(isinstance(item, str) for item in argv):
+        raise ProtocolError("process argv must be an array of strings")
+    if not isinstance(children, list):
+        raise ProtocolError("process children must be an array")
+    decoded_children = tuple(
+        _required_int({"child": item}, "child") for item in children
+    )
+    return ProcessInfoResult(
+        _required_int(payload, "pid"),
+        _optional_present_string(payload, "executable"),
+        tuple(argv),
+        _optional_present_string(payload, "cwd"),
+        decoded_children,
+    )
+
+
+def _viewer_resize_result(value: Any) -> ViewerResizeResult:
+    payload = _mapping(value, "viewer resize result")
+    _strict_object(payload, ("accepted", "size"), "viewer resize result")
+    return ViewerResizeResult(
+        _required_bool(payload, "accepted"),
+        _size(payload.get("size")),
+    )
+
+
+def _browser_viewer_resize_result(value: Any) -> BrowserViewerResizeResult:
+    payload = _mapping(value, "browser viewer resize result")
+    _strict_object(payload, ("accepted", "size"), "browser viewer resize result")
+    size = _mapping(payload.get("size"), "pixel size")
+    _strict_object(size, ("width_px", "height_px"), "pixel size")
+    return BrowserViewerResizeResult(
+        _required_bool(payload, "accepted"),
+        PixelSize(
+            _required_positive_uint32(size, "width_px"),
+            _required_positive_uint32(size, "height_px"),
+        ),
+    )
+
+
+def _cell_pixels_result(value: Any) -> CellPixelsResult:
+    payload = _mapping(value, "cell pixels result")
+    _strict_object(
+        payload,
+        ("width_px", "height_px", "resized_terminals", "failures"),
+        "cell pixels result",
+    )
+    resized = payload.get("resized_terminals")
+    failures = payload.get("failures")
+    if not isinstance(resized, list):
+        raise ProtocolError("resized_terminals must be an array")
+    if not isinstance(failures, Mapping) or not all(
+        isinstance(key, str) and isinstance(item, str)
+        for key, item in failures.items()
+    ):
+        raise ProtocolError("cell pixel failures must map strings to strings")
+    return CellPixelsResult(
+        _required_positive_uint32(payload, "width_px"),
+        _required_positive_uint32(payload, "height_px"),
+        tuple(
+            _required_id({"id": item}, ("id",), TerminalId)
+            for item in resized
+        ),
+        dict(failures),
+    )
+
+
+def _renderer_grant_result(value: Any) -> RendererGrant:
+    payload = _mapping(value, "renderer grant result")
+    _strict_object(
+        payload,
+        ("endpoint", "terminal_id", "token", "rights", "ttl_ms"),
+        "renderer grant result",
+    )
+    rights = payload.get("rights")
+    if (
+        not isinstance(rights, list)
+        or not rights
+        or not all(isinstance(right, str) for right in rights)
+    ):
+        raise ProtocolError(
+            "renderer grant rights must be a non-empty array of strings"
+        )
+    ttl_ms = _required_int(payload, "ttl_ms")
+    if not 1 <= ttl_ms <= 60_000:
+        raise ProtocolError("renderer grant ttl_ms must be between 1 and 60000")
+    token = _required_string(payload, "token")
+    if not token:
+        raise ProtocolError("renderer grant token must be non-empty")
+    return RendererGrant(
+        token,
+        endpoint=_required_string(payload, "endpoint"),
+        terminal_id=_required_id(payload, ("terminal_id",), TerminalId),
+        rights=rights,
+        ttl_ms=ttl_ms,
     )
 
 
@@ -1190,9 +1502,6 @@ _RESOURCE_KINDS = (
     "pairing_request",
     "frontend_projection",
     "sidebar_view",
-    "provider_scope",
-    "provider_action",
-    "provider_notice",
 )
 
 
@@ -1232,21 +1541,6 @@ def _resource_entity_snapshot(
             SidebarViewId,
             SidebarViewSnapshot,
         ),
-        "provider_scope": (
-            "provider_scope",
-            ProviderScopeId,
-            ProviderScopeSnapshot,
-        ),
-        "provider_action": (
-            "provider_action",
-            ProviderActionId,
-            ProviderActionSnapshot,
-        ),
-        "provider_notice": (
-            "provider_notice",
-            ProviderNoticeId,
-            ProviderNoticeSnapshot,
-        ),
     }
     name, id_type, snapshot_type = auxiliary[resource]
     return _aux_snapshot(  # type: ignore[return-value, arg-type]
@@ -1278,9 +1572,6 @@ def _resource_change(value: Any) -> ResourceChange:
         "pairing_request": PairingRequestId,
         "frontend_projection": ProjectionId,
         "sidebar_view": SidebarViewId,
-        "provider_scope": ProviderScopeId,
-        "provider_action": ProviderActionId,
-        "provider_notice": ProviderNoticeId,
     }
     resource_id = _required_id(payload, ("id",), id_types[resource])
     sequence = _required_int(payload, "sequence")
@@ -1663,33 +1954,6 @@ def _sidebar_attach_item(value: Any) -> SidebarAttachItem:
     return Unknown(kind, dict(payload))
 
 
-def _provider_notice_item(value: Any) -> ProviderNoticeItem:
-    payload = _mapping(value, "provider notice item")
-    kind = payload.get("kind")
-    if not isinstance(kind, str):
-        raise ProtocolError("provider notice item omitted kind")
-    if kind != "notice":
-        return Unknown(kind, dict(payload))
-    _strict_object(
-        payload,
-        ("kind", "notice", "sequence"),
-        "provider notice item",
-    )
-    snapshot = _aux_snapshot(
-        payload.get("notice"),
-        "provider_notice",
-        ProviderNoticeId,
-        ProviderNoticeSnapshot,
-        parent_key="provider_scope",
-        parent_type=ProviderScopeId,
-    )
-    return ProviderNoticeKnown(
-        "notice",
-        snapshot,
-        _required_decimal(payload, "sequence"),
-    )
-
-
 class _Handle(Generic[IdT, SnapshotT]):
     _id_type: Type[IdT]
     _selector_key: str
@@ -1761,6 +2025,7 @@ class Client:
         self._connection = ProtocolConnection(self.socket_path, timeout)
         self._local_executor = local_executor
         self._random_hex_128 = random_hex_128 or (lambda: secrets.token_hex(16))
+        self._request_context = threading.local()
 
     @property
     def closed(self) -> bool:
@@ -1774,6 +2039,22 @@ class Client:
 
     def __exit__(self, _type: object, _value: object, _traceback: object) -> None:
         self.close()
+
+    def with_request_options(
+        self,
+        request_options: RequestOptions,
+        function: Callable[..., ValueT],
+        *args: Any,
+        **kwargs: Any,
+    ) -> ValueT:
+        """Runs exactly one SDK call with a local deadline and cancellation."""
+        return self._invoke_with_request_options(
+            function,
+            args,
+            kwargs,
+            request_options,
+            None,
+        )
 
     def machine(self, selector: SelectorInput[MachineId]) -> "Machine":
         return Machine(self, _selector(selector, MachineId))
@@ -1792,15 +2073,6 @@ class Client:
             )
         }
         return Session(self, _selector(selector, SessionId), scope)
-
-    def provider_scope(
-        self, selector: SelectorInput[ProviderScopeId]
-    ) -> "ProviderScope":
-        return ProviderScope(
-            self,
-            _selector(selector, ProviderScopeId),
-            {"machine": Selector.current().encode()},
-        )
 
     def list_machines(self) -> List["Machine"]:
         values = _list_payload(
@@ -1823,54 +2095,62 @@ class Client:
             if item.snapshot is not None and item.snapshot.name == name
         ]
 
-    def create_machine(
-        self,
-        provider_scope: SelectorInput[ProviderScopeId],
-        options: CreateMachineOptions = CreateMachineOptions(),
-        *,
-        idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult["Machine"]:
-        return self._mutation_handle(
-            Operations.MACHINE_CREATE,
-            {"provider_scope": encode_selector(provider_scope, ProviderScopeId)},
-            idempotency_key,
-            expected_revision,
-            _machine_snapshot,
-            lambda snapshot: Machine(
-                self, Selector.by_id(snapshot.id), snapshot=snapshot
-            ),
-        )
-
-    def list_provider_scopes(self) -> List["ProviderScope"]:
-        values = _list_payload(
-            self._read(
-                Operations.PROVIDER_SCOPE_LIST,
-                {"machine": Selector.current().encode()},
-            ),
-            "provider_scopes",
-        )
-        result: List[ProviderScope] = []
-        for value in values:
-            snapshot = _aux_snapshot(
-                value,
-                "provider_scope",
-                ProviderScopeId,
-                ProviderScopeSnapshot,
-            )
-            result.append(
-                ProviderScope(
-                    self,
-                    Selector.by_id(snapshot.id),
-                    {"machine": Selector.current().encode()},
-                    snapshot=snapshot,
-                )
-            )
-        return result
-
     def _read(self, operation: Operation, params: Mapping[str, Any]) -> Any:
         if operation.operation_class not in {"read", "connection_control"}:
             raise ValueError(f"{operation.wire_name} is not a read/control operation")
-        return self._connection.request(operation.wire_name, params)
+        return self._request(operation, params)
+
+    def _request(
+        self,
+        operation: Operation,
+        params: Mapping[str, Any],
+        *,
+        idempotency_key: Optional[str] = None,
+    ) -> Any:
+        context: Optional[_RequestContext] = getattr(
+            self._request_context,
+            "value",
+            None,
+        )
+        return self._connection.request(
+            operation.wire_name,
+            params,
+            idempotency_key=idempotency_key,
+            timeout=context.options.timeout if context is not None else None,
+            cancel_event=context.cancel_event if context is not None else None,
+        )
+
+    def _invoke_with_request_options(
+        self,
+        function: Callable[..., ValueT],
+        args: Sequence[Any],
+        kwargs: Mapping[str, Any],
+        request_options: RequestOptions,
+        task_cancel_event: Optional[threading.Event],
+    ) -> ValueT:
+        if not isinstance(request_options, RequestOptions):
+            raise TypeError("request_options must be RequestOptions")
+        cancel_event = _CancellationSignal(
+            request_options.cancellation,
+            task_cancel_event,
+        )
+        if cancel_event.is_set():
+            raise CancelledError(
+                getattr(function, "__name__", "request"),
+                dispatched=False,
+            )
+        previous = getattr(self._request_context, "value", _UNSET)
+        self._request_context.value = _RequestContext(
+            request_options,
+            cancel_event,
+        )
+        try:
+            return function(*args, **kwargs)
+        finally:
+            if previous is _UNSET:
+                del self._request_context.value
+            else:
+                self._request_context.value = previous
 
     def _mutation(
         self,
@@ -1915,11 +2195,20 @@ class Client:
             key = f"py-{random_value}"
         else:
             key = idempotency_key
-        raw = self._connection.request(
-            operation.wire_name,
-            request_params,
-            idempotency_key=key,
-        )
+        try:
+            raw = self._request(
+                operation,
+                request_params,
+                idempotency_key=key,
+            )
+        except (CmuxConnectionError, TimeoutError, CancelledError) as error:
+            if isinstance(error, CancelledError) and not error.dispatched:
+                raise
+            raise MutationTransportError(
+                operation.wire_name,
+                key,
+                error,
+            ) from error
         return self._decode_mutation(raw, decode, key, operation.wire_name)
 
     def _mutation_handle(
@@ -1958,11 +2247,11 @@ class Client:
         self,
         operation: Operation,
         params: Mapping[str, Any],
-    ) -> Document:
+        decode: Callable[[Any], ValueT],
+    ) -> ValueT:
         if operation.operation_class != "connection_control":
             raise ValueError(f"{operation.wire_name} is not connection control")
-        value = self._connection.request(operation.wire_name, params)
-        return Document(_mapping(value, "control result"))
+        return decode(self._request(operation, params))
 
     def _open_stream(
         self,
@@ -1972,10 +2261,17 @@ class Client:
     ) -> ResourceStream[StreamValueT]:
         if operation.operation_class != "stream_open":
             raise ValueError(f"{operation.wire_name} is not a stream operation")
+        context: Optional[_RequestContext] = getattr(
+            self._request_context,
+            "value",
+            None,
+        )
         return self._connection.open_stream(
             operation.wire_name,
             params,
             decode,
+            timeout=context.options.timeout if context is not None else None,
+            cancel_event=context.cancel_event if context is not None else None,
         )
 
     def _local(self, operation: Operation, params: Mapping[str, Any]) -> Any:
@@ -2083,6 +2379,110 @@ class Client:
             browser=Browser(self, Selector.by_id(browser_id), content_scope),
         )
 
+    def _decode_creation_resolution(
+        self,
+        value: Any,
+        request_params: Mapping[str, Any],
+    ) -> CreationResolution[CreatedPath]:
+        payload = _mapping(value, "creation resolution")
+        _strict_object(
+            payload,
+            (
+                "correlation_key",
+                "state",
+                "recovery",
+                "operation",
+                "idempotency_key",
+                "created_path",
+                "generation",
+                "revision",
+            ),
+            "creation resolution",
+        )
+        correlation_key = _required_string(payload, "correlation_key")
+        if not correlation_key or len(correlation_key.encode("utf-8")) > 128:
+            raise ProtocolError(
+                "creation correlation_key must contain 1 to 128 UTF-8 bytes"
+            )
+        state = _required_enum(
+            payload,
+            "state",
+            ("pending", "created", "not_applied", "indeterminate"),
+        )
+        recovery = _required_enum(
+            payload,
+            "recovery",
+            (
+                "retry_same_idempotency_key",
+                "retry_new_idempotency_key",
+                "wait",
+                "none",
+                "do_not_retry",
+            ),
+        )
+        valid_recovery = {
+            "pending": ("wait",),
+            "created": ("none",),
+            "not_applied": (
+                "retry_same_idempotency_key",
+                "retry_new_idempotency_key",
+            ),
+            "indeterminate": ("do_not_retry",),
+        }
+        if recovery not in valid_recovery[state]:
+            raise ProtocolError(
+                "creation state and recovery strategy do not match"
+            )
+
+        operation = _optional_present_string(payload, "operation")
+        if operation == "":
+            raise ProtocolError("creation operation must not be empty")
+        idempotency_key = _optional_present_string(
+            payload,
+            "idempotency_key",
+        )
+        if idempotency_key is not None and (
+            not idempotency_key
+            or len(idempotency_key.encode("utf-8")) > 128
+        ):
+            raise ProtocolError(
+                "creation idempotency_key must contain 1 to 128 UTF-8 bytes"
+            )
+        created_path = None
+        if "created_path" in payload:
+            if payload["created_path"] is None:
+                raise ProtocolError(
+                    "creation created_path must be an object when present"
+                )
+            created_path = self._decode_created_path(
+                payload["created_path"],
+                request_params,
+            )
+        generation = None
+        if "generation" in payload:
+            generation = _required_generation(payload, "generation")
+        revision = None
+        if "revision" in payload:
+            revision = _required_decimal(payload, "revision")
+        if state == "created" and (
+            created_path is None
+            or generation is None
+            or revision is None
+        ):
+            raise ProtocolError(
+                "created resolution requires created_path, generation, and revision"
+            )
+        return CreationResolution(
+            correlation_key,
+            state,  # type: ignore[arg-type]
+            recovery,  # type: ignore[arg-type]
+            operation,
+            idempotency_key,
+            created_path,
+            generation,
+            revision,
+        )
+
 
 class Machine(_Handle[MachineId, MachineSnapshot]):
     _id_type = MachineId
@@ -2149,64 +2549,45 @@ class Machine(_Handle[MachineId, MachineSnapshot]):
             ),
         )
 
-    def rename(
+class SessionCreation:
+    def __init__(self, session: "Session") -> None:
+        self._session = session
+
+    def resolve(
         self,
-        name: str,
-        *,
-        confirm_close: bool = False,
-        idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult["Machine"]:
-        return self._client._mutation_handle(
-            Operations.MACHINE_RENAME,
-            {**self._params(), "name": name, "confirm_close": confirm_close},
-            idempotency_key,
-            expected_revision,
-            _machine_snapshot,
-            lambda snapshot: Machine(
-                self._client, Selector.by_id(snapshot.id), snapshot=snapshot
+        correlation_key: str,
+    ) -> CreationResolution[CreatedPath]:
+        if not isinstance(correlation_key, str):
+            raise TypeError("correlation_key must be a string")
+        if (
+            not correlation_key
+            or len(correlation_key.encode("utf-8")) > 128
+        ):
+            raise ValueError(
+                "correlation_key must contain 1 to 128 UTF-8 bytes"
+            )
+        params = {
+            **self._session._params(),
+            "correlation_key": correlation_key,
+        }
+        return self._session._client._decode_creation_resolution(
+            self._session._client._read(
+                Operations.SESSION_CREATION_RESOLVE,
+                params,
             ),
+            params,
         )
 
-    def delete(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult["Machine"]:
-        return self._client._mutation_handle(
-            Operations.MACHINE_DELETE,
-            self._params(),
-            idempotency_key,
-            expected_revision,
-            _machine_snapshot,
-            lambda snapshot: Machine(
-                self._client,
-                Selector.by_id(snapshot.id),
-                snapshot=snapshot,
-            ),
-        )
-
-    def restore(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult["Machine"]:
-        return self._client._mutation_handle(
-            Operations.MACHINE_RESTORE,
-            self._params(),
-            idempotency_key,
-            expected_revision,
-            _machine_snapshot,
-            lambda snapshot: Machine(
-                self._client, Selector.by_id(snapshot.id), snapshot=snapshot
-            ),
-        )
-
-    def purge(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[Document]:
-        return self._client._mutation(
-            Operations.MACHINE_PURGE,
-            self._params(),
-            idempotency_key,
-            expected_revision,
-            lambda value: Document(_mapping(value, "machine purge result")),
-        )
 
 class Session(_Handle[SessionId, SessionSnapshot]):
     _id_type = SessionId
     _selector_key = "session"
     _get_operation = Operations.SESSION_GET
     _decode_snapshot = staticmethod(_session_snapshot)
+
+    @property
+    def creation(self) -> SessionCreation:
+        return SessionCreation(self)
 
     def workspace(self, selector: SelectorInput[WorkspaceId]) -> "Workspace":
         return Workspace(
@@ -2221,6 +2602,16 @@ class Session(_Handle[SessionId, SessionSnapshot]):
         return ConnectedClient(
             self._client,
             _selector(selector, ConnectedClientId),
+            {**self._scope, "session": self.selector.encode()},
+        )
+
+    def pairing_request(
+        self,
+        selector: SelectorInput[PairingRequestId],
+    ) -> "PairingRequest":
+        return PairingRequest(
+            self._client,
+            _selector(selector, PairingRequestId),
             {**self._scope, "session": self.selector.encode()},
         )
 
@@ -2253,12 +2644,9 @@ class Session(_Handle[SessionId, SessionSnapshot]):
         )
         return snapshot
 
-    def ping(self) -> Document:
-        return Document(
-            _mapping(
-                self._client._read(Operations.SESSION_PING, self._params()),
-                "session ping result",
-            )
+    def ping(self) -> PingResult:
+        return _ping_result(
+            self._client._read(Operations.SESSION_PING, self._params())
         )
 
     def events(
@@ -2270,7 +2658,7 @@ class Session(_Handle[SessionId, SessionSnapshot]):
             _event_item,
         )
 
-    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[Document]:
+    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[ShutdownResult]:
         return self.shutdown(
             idempotency_key=idempotency_key,
             expected_revision=expected_revision,
@@ -2281,24 +2669,24 @@ class Session(_Handle[SessionId, SessionSnapshot]):
         *,
         force: bool = False,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Document]:
+    ) -> MutationResult[ShutdownResult]:
         return self._client._mutation(
             Operations.SESSION_SHUTDOWN,
             {**self._params(), "force": force},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "session shutdown result")),
+            _shutdown_result,
         )
 
     def reload_config(
         self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None
-    ) -> MutationResult[Document]:
+    ) -> MutationResult[ReloadConfigResult]:
         return self._client._mutation(
             Operations.SESSION_RELOAD_CONFIG,
             self._params(),
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "reload result")),
+            _reload_config_result,
         )
 
     def update_terminal_defaults(
@@ -2306,35 +2694,35 @@ class Session(_Handle[SessionId, SessionSnapshot]):
         defaults: Mapping[str, Any],
         *,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Document]:
+    ) -> MutationResult[TerminalDefaultsSnapshot]:
         return self._client._mutation(
             Operations.SESSION_TERMINAL_DEFAULTS_UPDATE,
             {**self._params(), **dict(defaults)},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "terminal defaults result")),
+            _terminal_defaults_snapshot,
         )
 
     def set_window_title(
         self, title: str, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.WINDOW_TITLE_SET,
             {**self._params(), "title": title},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "title result")),
+            _empty_result,
         )
 
     def clear_window_title(
         self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.WINDOW_TITLE_CLEAR,
             self._params(),
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "title result")),
+            _empty_result,
         )
 
     def list_workspaces(self) -> List["Workspace"]:
@@ -2718,13 +3106,13 @@ class Workspace(_Handle[WorkspaceId, WorkspaceSnapshot]):
             ),
         )
 
-    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[Document]:
+    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationReceipt:
         return self._client._mutation(
             Operations.WORKSPACE_CLOSE,
             self._params(),
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "workspace close result")),
+            _empty_result,
         )
 
     def run(
@@ -2855,13 +3243,13 @@ class Screen(_Handle[ScreenId, ScreenSnapshot]):
             ),
         )
 
-    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[Document]:
+    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationReceipt:
         return self._client._mutation(
             Operations.SCREEN_CLOSE,
             self._params(),
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "screen close result")),
+            _empty_result,
         )
 
     def export_layout(self) -> LayoutDocument:
@@ -2876,11 +3264,32 @@ class Screen(_Handle[ScreenId, ScreenSnapshot]):
         self,
         *,
         confirm_close: bool = False,
+        confirmation_token: Optional[str] = None,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
     ) -> MutationResult["Screen"]:
+        if confirm_close and confirmation_token is None:
+            raise ValueError(
+                "confirmation_token is required when confirm_close is true"
+            )
+        if confirmation_token is not None:
+            if not isinstance(confirmation_token, str):
+                raise TypeError("confirmation_token must be a string")
+            if (
+                not confirmation_token
+                or len(confirmation_token.encode("utf-8")) > 128
+            ):
+                raise ValueError(
+                    "confirmation_token must contain 1 to 128 UTF-8 bytes"
+                )
+        params: Dict[str, Any] = {
+            **self._params(),
+            "confirm_close": confirm_close,
+        }
+        if confirmation_token is not None:
+            params["confirmation_token"] = confirmation_token
         return self._client._mutation_handle(
             Operations.SCREEN_LAYOUT_UNDO,
-            {**self._params(), "confirm_close": confirm_close},
+            params,
             idempotency_key,
             expected_revision,
             _screen_snapshot,
@@ -3150,13 +3559,13 @@ class Pane(_Handle[PaneId, PaneSnapshot]):
             expected_revision,
         )
 
-    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[Document]:
+    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationReceipt:
         return self._client._mutation(
             Operations.PANE_CLOSE,
             self._params(),
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "pane close result")),
+            _empty_result,
         )
 
 
@@ -3257,13 +3666,13 @@ class Tab(_Handle[TabId, TabSnapshot]):
             ),
         )
 
-    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[Document]:
+    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationReceipt:
         return self._client._mutation(
             Operations.TAB_CLOSE,
             self._params(),
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "tab close result")),
+            _empty_result,
         )
 
 
@@ -3275,13 +3684,13 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
 
     def write(
         self, text: str, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.TERMINAL_INPUT_WRITE,
             {**self._params(), "text": text},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "terminal write result")),
+            _empty_result,
         )
 
     def write_base64(
@@ -3289,13 +3698,13 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
         bytes_base64: str,
         *,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.TERMINAL_INPUT_WRITE,
             {**self._params(), "bytes_base64": bytes_base64},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "terminal write result")),
+            _empty_result,
         )
 
     def keys(
@@ -3303,13 +3712,13 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
         options: KeyInputOptions,
         *,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.TERMINAL_INPUT_KEYS,
             {**self._params(), **_options(options)},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "terminal key result")),
+            _empty_result,
         )
 
     def mouse(
@@ -3317,102 +3726,107 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
         options: TerminalMouseOptions,
         *,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.TERMINAL_INPUT_MOUSE,
             {**self._params(), **_options(options)},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "terminal mouse result")),
+            _empty_result,
         )
 
     def set_focused(
         self, focused: bool, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.TERMINAL_INPUT_FOCUS,
             {**self._params(), "focused": focused},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "terminal focus result")),
+            _empty_result,
         )
 
-    def read_screen(self) -> Document:
-        return Document(
-            _mapping(
-                self._client._read(
-                    Operations.TERMINAL_SCREEN_READ,
-                    self._params(),
-                ),
-                "terminal screen",
+    def read_screen(self) -> TerminalScreenResult:
+        return _terminal_screen_result(
+            self._client._read(
+                Operations.TERMINAL_SCREEN_READ,
+                self._params(),
             )
         )
 
-    def read_state(self) -> Document:
-        return Document(
-            _mapping(
-                self._client._read(
-                    Operations.TERMINAL_STATE_READ,
-                    self._params(),
-                ),
-                "terminal state",
+    def read_state(self) -> TerminalStateResult:
+        return _terminal_state_result(
+            self._client._read(
+                Operations.TERMINAL_STATE_READ,
+                self._params(),
             )
         )
 
     def read_history(
         self, options: TerminalHistoryOptions = TerminalHistoryOptions()
-    ) -> Document:
-        return Document(
-            _mapping(
-                self._client._read(
-                    Operations.TERMINAL_HISTORY_READ,
-                    {**self._params(), **_options(options)},
-                ),
-                "terminal history",
+    ) -> TerminalHistoryResult:
+        return _terminal_history_result(
+            self._client._read(
+                Operations.TERMINAL_HISTORY_READ,
+                {**self._params(), **_options(options)},
             )
         )
 
     def clear_history(
         self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.TERMINAL_HISTORY_CLEAR,
             self._params(),
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "history clear result")),
+            _empty_result,
         )
 
-    def wait(self, options: TerminalWaitOptions) -> Document:
-        return Document(
-            _mapping(
-                self._client._read(
-                    Operations.TERMINAL_WAIT,
-                    {**self._params(), **_options(options)},
-                ),
-                "terminal wait result",
+    def wait(self, options: TerminalWaitOptions) -> TerminalWaitResult:
+        params = {**self._params(), "pattern": options.pattern}
+        if options.timeout_ms is not None:
+            params["timeout_ms"] = _decimal_param(
+                options.timeout_ms,
+                "timeout_ms",
+            )
+        return _terminal_wait_result(
+            self._client._read(
+                Operations.TERMINAL_WAIT,
+                params,
             )
         )
 
-    def copy(self, mode: Optional[str] = None) -> Document:
+    def wait_exit(
+        self,
+        timeout_ms: Optional[int] = None,
+    ) -> TerminalWaitExitResult:
+        params = self._params()
+        if timeout_ms is not None:
+            params["timeout_ms"] = _decimal_param(
+                timeout_ms,
+                "timeout_ms",
+            )
+        return _terminal_wait_exit_result(
+            self._client._read(
+                Operations.TERMINAL_WAIT_EXIT,
+                params,
+            )
+        )
+
+    def copy(self, mode: Optional[str] = None) -> TerminalCopyResult:
         params = self._params()
         if mode is not None:
             params["mode"] = mode
-        return Document(
-            _mapping(
-                self._client._read(Operations.TERMINAL_COPY, params),
-                "terminal copy result",
-            )
+        return _terminal_copy_result(
+            self._client._read(Operations.TERMINAL_COPY, params)
         )
 
-    def process(self) -> Document:
-        return Document(
-            _mapping(
-                self._client._read(
-                    Operations.TERMINAL_PROCESS_GET,
-                    self._params(),
-                ),
-                "terminal process",
+    def process(self) -> ProcessInfoResult:
+        return _process_info_result(
+            self._client._read(
+                Operations.TERMINAL_PROCESS_GET,
+                self._params(),
             )
         )
 
@@ -3422,54 +3836,35 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
         params = self._params()
         if ttl_ms is not None:
             params["ttl_ms"] = ttl_ms
-        result = self._client._control(
+        return self._client._control(
             Operations.TERMINAL_RENDERER_GRANT_CREATE,
             params,
-        )
-        token = result.fields.get("token")
-        if not isinstance(token, str):
-            raise ProtocolError("renderer grant result omitted token")
-        endpoint = result.fields.get("endpoint")
-        terminal_id = result.fields.get("terminal_id")
-        rights = result.fields.get("rights")
-        ttl = result.fields.get("ttl_ms")
-        if (
-            not isinstance(endpoint, str)
-            or not isinstance(terminal_id, str)
-            or not isinstance(rights, list)
-            or not all(isinstance(right, str) for right in rights)
-            or not isinstance(ttl, int)
-        ):
-            raise ProtocolError("renderer grant result has invalid metadata")
-        return RendererGrant(
-            token,
-            endpoint=endpoint,
-            terminal_id=TerminalId(terminal_id),
-            rights=rights,
-            ttl_ms=ttl,
+            _renderer_grant_result,
         )
 
-    def resize_viewer(self, options: ViewerSizeOptions) -> Document:
+    def resize_viewer(self, options: ViewerSizeOptions) -> ViewerResizeResult:
         return self._client._control(
             Operations.TERMINAL_VIEWER_RESIZE,
             {**self._params(), **_options(options)},
+            _viewer_resize_result,
         )
 
-    def release_viewer(self) -> Document:
+    def release_viewer(self) -> None:
         return self._client._control(
             Operations.TERMINAL_VIEWER_RELEASE,
             self._params(),
+            _empty_result,
         )
 
     def scroll_viewport(
         self, delta_rows: int, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.TERMINAL_VIEWPORT_SCROLL,
             {**self._params(), "delta_rows": delta_rows},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "viewport result")),
+            _empty_result,
         )
 
     def move(
@@ -3516,13 +3911,13 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
             _terminal_attach_item,
         )
 
-    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[Document]:
+    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationReceipt:
         return self._client._mutation(
             Operations.TERMINAL_CLOSE,
             self._params(),
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "terminal close result")),
+            _empty_result,
         )
 
 
@@ -3569,7 +3964,7 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
         kind: Optional[str] = None,
         modifiers: Sequence[str] = (),
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         params: Dict[str, Any] = {
             **self._params(),
             "key": key,
@@ -3582,18 +3977,18 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
             params,
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "browser key result")),
+            _empty_result,
         )
 
     def text(
         self, text: str, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.BROWSER_INPUT_TEXT,
             {**self._params(), "text": text},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "browser text result")),
+            _empty_result,
         )
 
     def mouse(
@@ -3601,13 +3996,13 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
         options: BrowserMouseOptions,
         *,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.BROWSER_INPUT_MOUSE,
             {**self._params(), **_options(options)},
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "browser mouse result")),
+            _empty_result,
         )
 
     def wheel(
@@ -3618,7 +4013,7 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
         x_px: float,
         y_px: float,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.BROWSER_INPUT_WHEEL,
             {
@@ -3630,19 +4025,24 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
             },
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "browser wheel result")),
+            _empty_result,
         )
 
-    def resize_viewer(self, options: BrowserViewerSizeOptions) -> Document:
+    def resize_viewer(
+        self,
+        options: BrowserViewerSizeOptions,
+    ) -> BrowserViewerResizeResult:
         return self._client._control(
             Operations.BROWSER_VIEWER_RESIZE,
             {**self._params(), **_options(options)},
+            _browser_viewer_resize_result,
         )
 
-    def release_viewer(self) -> Document:
+    def release_viewer(self) -> None:
         return self._client._control(
             Operations.BROWSER_VIEWER_RELEASE,
             self._params(),
+            _empty_result,
         )
 
     def attach(
@@ -3654,13 +4054,13 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
             _browser_attach_item,
         )
 
-    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[Document]:
+    def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationReceipt:
         return self._client._mutation(
             Operations.BROWSER_CLOSE,
             self._params(),
             idempotency_key,
             expected_revision,
-            lambda value: Document(_mapping(value, "browser close result")),
+            _empty_result,
         )
 
     def _browser_mutation(
@@ -3743,7 +4143,11 @@ class ConnectedClient(_Handle[ConnectedClientId, ClientSnapshot]):
             },
         )
 
-    def set_cell_pixels(self, width_px: int, height_px: int) -> Document:
+    def set_cell_pixels(
+        self,
+        width_px: int,
+        height_px: int,
+    ) -> CellPixelsResult:
         return self._client._control(
             Operations.CLIENT_CELL_PIXELS_SET,
             {
@@ -3751,10 +4155,15 @@ class ConnectedClient(_Handle[ConnectedClientId, ClientSnapshot]):
                 "width_px": width_px,
                 "height_px": height_px,
             },
+            _cell_pixels_result,
         )
 
-    def detach(self) -> Document:
-        return self._client._control(Operations.CLIENT_DETACH, self._params())
+    def detach(self) -> None:
+        return self._client._control(
+            Operations.CLIENT_DETACH,
+            self._params(),
+            _empty_result,
+        )
 
     def _client_control(
         self,
@@ -3777,19 +4186,13 @@ class PairingRequest(_Handle[PairingRequestId, PairingRequestSnapshot]):
         decision: Literal["accept", "reject"],
         *,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult["PairingRequest"]:
-        return self._client._mutation_handle(
+    ) -> MutationResult[PairingResolutionResult]:
+        return self._client._mutation(
             Operations.PAIRING_REQUEST_RESOLVE,
             {**self._params(), "decision": decision},
             idempotency_key,
             expected_revision,
             _pairing_resolution,
-            lambda snapshot: PairingRequest(
-                self._client,
-                Selector.by_id(snapshot.id),
-                self._scope,
-                snapshot,
-            ),
         )
 
 
@@ -3911,15 +4314,13 @@ class SidebarView(_Handle[SidebarViewId, SidebarViewSnapshot]):
         options: SidebarInputOptions,
         *,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Document]:
+    ) -> MutationReceipt:
         return self._client._mutation(
             Operations.SIDEBAR_VIEW_INPUT,
             {**self._params(), **_options(options)},
             idempotency_key,
             expected_revision,
-            lambda value: Document(
-                _mapping(value, "sidebar input result")
-            ),
+            _empty_result,
         )
 
     def resize(
@@ -3966,218 +4367,6 @@ class SidebarView(_Handle[SidebarViewId, SidebarViewSnapshot]):
         )
 
 
-class ProviderScope(_Handle[ProviderScopeId, ProviderScopeSnapshot]):
-    _id_type = ProviderScopeId
-    _selector_key = "provider_scope"
-
-    def create_machine(
-        self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None
-    ) -> MutationResult["Machine"]:
-        return self._client._mutation_handle(
-            Operations.MACHINE_CREATE,
-            {"provider_scope": self.selector.encode()},
-            idempotency_key,
-            expected_revision,
-            _machine_snapshot,
-            lambda snapshot: Machine(
-                self._client, Selector.by_id(snapshot.id), snapshot=snapshot
-            ),
-        )
-
-    def connect_external_machine(
-        self,
-        specifier: ExternalMachineSpecifier,
-        *,
-        idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult["Machine"]:
-        return self._client._mutation_handle(
-            Operations.MACHINE_CONNECT_EXTERNAL,
-            {
-                "provider_scope": self.selector.encode(),
-                "specifier": specifier.take(),
-            },
-            idempotency_key,
-            expected_revision,
-            _machine_snapshot,
-            lambda snapshot: Machine(
-                self._client, Selector.by_id(snapshot.id), snapshot=snapshot
-            ),
-        )
-
-    def action(
-        self, selector: SelectorInput[ProviderActionId]
-    ) -> "ProviderAction":
-        return ProviderAction(
-            self._client,
-            _selector(selector, ProviderActionId),
-            {**self._scope, "provider_scope": self.selector.encode()},
-        )
-
-    def notice(
-        self, selector: SelectorInput[ProviderNoticeId]
-    ) -> "ProviderNotice":
-        return ProviderNotice(
-            self._client,
-            _selector(selector, ProviderNoticeId),
-            {**self._scope, "provider_scope": self.selector.encode()},
-        )
-
-    def invoke(
-        self,
-        action: SelectorInput[ProviderActionId],
-        options: ProviderActionOptions,
-        *,
-        idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Any]:
-        return self.action(action).invoke(
-            options,
-            idempotency_key=idempotency_key,
-            expected_revision=expected_revision,
-        )
-
-    def notices(
-        self, *, cursor: Optional[Cursor] = None
-    ) -> ResourceStream[ProviderNoticeItem]:
-        params: Dict[str, Any] = {
-            **self._scope,
-            "provider_scope": self.selector.encode(),
-        }
-        if cursor is not None:
-            params["cursor"] = asdict(cursor)
-        return self._client._open_stream(
-            Operations.PROVIDER_NOTICE_EVENTS,
-            params,
-            _provider_notice_item,
-        )
-
-    def mark_workspace(
-        self,
-        workspace: SelectorInput[WorkspaceId],
-        managed: bool,
-        *,
-        idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult["Workspace"]:
-        return self._workspace_mutation(
-            Operations.PROVIDER_WORKSPACE_MARK,
-            workspace,
-            {"managed": managed},
-            idempotency_key,
-            expected_revision,
-        )
-
-    def rename_workspace(
-        self,
-        workspace: SelectorInput[WorkspaceId],
-        name: str,
-        *,
-        idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult["Workspace"]:
-        return self._workspace_mutation(
-            Operations.PROVIDER_WORKSPACE_RENAME,
-            workspace,
-            {"name": name},
-            idempotency_key,
-            expected_revision,
-        )
-
-    def close_workspace(
-        self,
-        workspace: SelectorInput[WorkspaceId],
-        *,
-        idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Document]:
-        return self._client._mutation(
-            Operations.PROVIDER_WORKSPACE_CLOSE,
-            {
-                **self._scope,
-                "provider_scope": self.selector.encode(),
-                "session": "current",
-                "workspace": encode_selector(workspace, WorkspaceId),
-            },
-            idempotency_key,
-            expected_revision,
-            lambda value: Document(
-                _mapping(value, "provider workspace close result")
-            ),
-        )
-
-    def _workspace_mutation(
-        self,
-        operation: Operation,
-        workspace: SelectorInput[WorkspaceId],
-        params: Mapping[str, Any],
-        idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult["Workspace"]:
-        return self._client._mutation_handle(
-            operation,
-            {
-                **self._scope,
-                "provider_scope": self.selector.encode(),
-                "session": "current",
-                "workspace": encode_selector(workspace, WorkspaceId),
-                **params,
-            },
-            idempotency_key,
-            expected_revision,
-            _workspace_snapshot,
-            lambda snapshot: Workspace(
-                self._client,
-                Selector.by_id(snapshot.id),
-                {},
-                snapshot,
-            ),
-        )
-
-
-class ProviderAction(_Handle[ProviderActionId, ProviderActionSnapshot]):
-    _id_type = ProviderActionId
-    _selector_key = "provider_action"
-
-    def invoke(
-        self,
-        options: ProviderActionOptions,
-        *,
-        idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult[Any]:
-        for name, value in options.parameters.items():
-            if not isinstance(name, str):
-                raise TypeError("provider action parameter names must be strings")
-            if isinstance(value, bool) or not isinstance(value, (str, int)):
-                raise TypeError(
-                    "provider action values must be strings or int32 values"
-                )
-            if (
-                isinstance(value, int)
-                and not -2_147_483_648 <= value <= 2_147_483_647
-            ):
-                raise ValueError("provider action integer value must be an int32")
-        return self._client._mutation(
-            Operations.PROVIDER_ACTION_INVOKE,
-            {**self._params(), **_options(options)},
-            idempotency_key,
-            expected_revision,
-            lambda value: value,
-        )
-
-
-class ProviderNotice(_Handle[ProviderNoticeId, ProviderNoticeSnapshot]):
-    _id_type = ProviderNoticeId
-    _selector_key = "provider_notice"
-
-    def acknowledge(self, sequence: str) -> Document:
-        if (
-            not isinstance(sequence, str)
-            or not sequence
-            or not sequence.isascii()
-            or not sequence.isdecimal()
-        ):
-            raise ValueError("sequence must be an unsigned decimal string")
-        return self._client._control(
-            Operations.PROVIDER_NOTICE_ACKNOWLEDGE,
-            {**self._params(), "sequence": sequence},
-        )
-
-
 __all__ = [
     "Agent",
     "Browser",
@@ -4189,11 +4378,9 @@ __all__ = [
     "Notification",
     "PairingRequest",
     "Pane",
-    "ProviderAction",
-    "ProviderNotice",
-    "ProviderScope",
     "Screen",
     "Session",
+    "SessionCreation",
     "SidebarView",
     "Tab",
     "Terminal",

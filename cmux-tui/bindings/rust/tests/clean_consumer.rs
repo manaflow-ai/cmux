@@ -1,8 +1,10 @@
 //! This integration crate intentionally uses only installed public paths.
 
 use cmux::{
-    Browser, Client, Config, Machine, Pane, Screen, Selector, Session, Tab, Terminal, Workspace,
-    WorkspaceId,
+    Browser, BrowserAttachment, BrowserViewerResizeResult, Client, Config, CreateScreenOptions,
+    CreationResolution, Error, Machine, Pane, PixelSize, Screen, Selector, Session, Size, Tab,
+    Terminal, TerminalAttachment, TerminalWaitExitResult, UndoLayoutOptions, ViewerResizeResult,
+    Workspace, WorkspaceId,
 };
 
 #[test]
@@ -26,6 +28,31 @@ fn clean_consumer_imports_high_level_and_raw_namespaces_together() {
     high_level_types((None, None, None, None, None, None, None, None, None));
     raw_types(cmux::raw::PingRequest::default(), None);
     let _config = Config::from_env_or_default_session("consumer");
+
+    fn typed_recovery_reads(session: &Session, terminal: &Terminal) {
+        let _: cmux::Result<CreationResolution> =
+            session.creation().resolve("consumer-correlation");
+        let _: cmux::Result<TerminalWaitExitResult> = terminal.wait_exit(Some(0));
+    }
+    let _ = typed_recovery_reads as fn(&Session, &Terminal);
+    let _: fn(&mut TerminalAttachment, Size) -> cmux::Result<ViewerResizeResult> =
+        TerminalAttachment::resize;
+    let _: fn(&mut TerminalAttachment) -> cmux::Result<()> = TerminalAttachment::release;
+    let _: fn(&mut BrowserAttachment, PixelSize) -> cmux::Result<BrowserViewerResizeResult> =
+        BrowserAttachment::resize;
+    let _: fn(&mut BrowserAttachment) -> cmux::Result<()> = BrowserAttachment::release;
+    let _undo = UndoLayoutOptions {
+        confirm_close: true,
+        confirmation_token: Some("preview-token".to_string()),
+    };
+    let _creation = CreateScreenOptions::default().correlation_key("consumer-correlation").unwrap();
+    fn typed_confirmation(error: Error) -> Option<cmux::ConfirmationRequiredDetails> {
+        match error {
+            Error::ConfirmationRequired { details, .. } => Some(details),
+            _ => None,
+        }
+    }
+    let _ = typed_confirmation as fn(Error) -> Option<cmux::ConfirmationRequiredDetails>;
 }
 
 #[test]

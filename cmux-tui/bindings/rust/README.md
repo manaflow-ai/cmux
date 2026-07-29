@@ -14,8 +14,7 @@ let terminal = workspace
     .resource
     .run(RunCommand::argv(["cargo", "test"])?)?;
 let screen = terminal.resource.read_screen(ReadScreenOptions)?;
-let value: serde_json::Value = screen.deserialize()?;
-println!("{}", value["text"]);
+println!("{}", screen.text);
 client.close()?;
 # Ok(())
 # }
@@ -49,20 +48,56 @@ caller that may repeat a mutation supplies `MutationOptions::new("stable-key")`
 to the corresponding `_with` method. The SDK never retries a mutation. A
 `mutation.indeterminate` error retains its exact recovery details; inspect
 resource state before deciding whether to issue a new request with a new key.
+If a mutation loses its response to a timeout or disconnect,
+`Error::MutationTransport` exposes its operation and exact supplied or
+generated key.
 
-Session events and terminal, browser, sidebar, and provider attachments are
-owned typed iterators. Each item exposes its decimal sequence, optional resume
-cursor, and typed value. Owned `cancel` discards unread items and waits for the
-matching response and canceled end state; the cloneable cancellation handle
-sends a detached request for cross-thread shutdown. Terminal and sidebar
-attachments yield styled render snapshots, patches, and scroll positions.
-Unknown union variants retain their complete raw object. Provider notices
-require an explicit `notice.acknowledge(sequence)` call after the application
-paints them.
+Scope one call with a local deadline or cloneable cancellation signal:
 
-Machine-scoped provider handles expose provider-workspace mark, rename, and
-close operations. They take a typed workspace handle so machine, provider,
-session, and workspace routing remains explicit.
+```rust
+# use cmux::{CancellationToken, Client, RequestOptions};
+# use std::time::Duration;
+# fn scoped(client: &Client) -> cmux::Result<()> {
+let cancellation = CancellationToken::new();
+let options = RequestOptions::new()
+    .with_timeout(Duration::from_secs(1))?
+    .with_cancellation(cancellation);
+let ping = client.with_request_options(options, || {
+    client.current_session().ping()
+})?;
+assert!(ping.alive);
+# Ok(())
+# }
+```
+
+Catalog results and snapshots are exact structs. Known types reject unknown
+sibling fields; forward-compatible data appears only in catalog `extra` maps.
+`Document` remains only for catalog JSON and unknown union values. Screen
+layouts use typed leaf, split, stack, and viewport nodes.
+
+Session events and terminal, browser, and sidebar attachments are owned typed
+iterators. Each item exposes its decimal sequence, optional resume cursor, and
+typed value. Owned `cancel` discards unread items and waits for the matching
+response and canceled end state; the cloneable cancellation handle sends a
+detached request for cross-thread shutdown. Terminal and sidebar attachments
+yield styled render snapshots, patches, and scroll positions. Unknown union
+variants retain their complete raw object.
+
+Terminal and browser attachment `resize` and `release` methods use the
+attachment connection that owns the viewer lease. Session creation recovery is
+available through `session.creation().resolve(key)`. Terminal lifecycle waits
+use `terminal.wait_exit(timeout_ms)` and return strict pending or exited
+variants with typed exit, signal, and unknown outcomes.
+
+Destructive layout undo returns `Error::ConfirmationRequired` with a typed
+preview token, revision, and panes. Retry with that token, its revision, and a
+new idempotency key.
+
+All eight creation option types expose `correlation_key`. Values contain 1 to
+128 UTF-8 bytes and remain stable across creation attempts.
+
+`next_timeout(duration)` performs a bounded poll. `StreamPoll::TimedOut` leaves
+the stream open and is distinct from `StreamPoll::End` and stream errors.
 
 Generated low-level protocol models are isolated under `cmux::raw`:
 

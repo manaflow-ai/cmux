@@ -1,12 +1,18 @@
 use super::id::*;
-use super::model::{Cursor, Document, SidebarViewSnapshot, StreamEnd, TypedStreamItem};
-use super::options::{NotificationLevel, PixelSize, Size};
+use super::model::{
+    AgentSnapshot, BrowserSnapshot, ClientSnapshot, Cursor, Document, FrontendProjectionSnapshot,
+    MachineSnapshot, NotificationSnapshot, PairingRequestSnapshot, PaneSnapshot,
+    ResourceEntitySnapshot, ResourceSnapshot, ScreenSnapshot, SessionSnapshot, SidebarViewSnapshot,
+    StreamEnd, StreamPoll, TabSnapshot, TerminalSnapshot, TypedStreamItem, WorkspaceSnapshot,
+};
+use super::ops;
+use super::options::{PixelSize, Size};
 use super::stream::{ResourceStream, StreamCancellation};
-use super::wire;
+use super::wire::{self, Params, field};
 use crate::{Error, Result};
 use base64::Engine;
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResetReason {
@@ -31,9 +37,6 @@ pub enum ResourceKind {
     PairingRequest,
     FrontendProjection,
     SidebarView,
-    ProviderScope,
-    ProviderAction,
-    ProviderNotice,
 }
 
 impl ResourceKind {
@@ -53,9 +56,6 @@ impl ResourceKind {
             "pairing_request" => Self::PairingRequest,
             "frontend_projection" => Self::FrontendProjection,
             "sidebar_view" => Self::SidebarView,
-            "provider_scope" => Self::ProviderScope,
-            "provider_action" => Self::ProviderAction,
-            "provider_notice" => Self::ProviderNotice,
             _ => {
                 return Err(Error::UnexpectedEnvelope(format!("unknown resource kind {value}")));
             }
@@ -79,9 +79,6 @@ pub enum ResourceReference {
     PairingRequest(PairingRequestId),
     FrontendProjection(FrontendProjectionId),
     SidebarView(SidebarViewId),
-    ProviderScope(ProviderScopeId),
-    ProviderAction(ProviderActionId),
-    ProviderNotice(ProviderNoticeId),
 }
 
 impl ResourceReference {
@@ -101,25 +98,35 @@ impl ResourceReference {
             Self::PairingRequest(id) => id.as_str(),
             Self::FrontendProjection(id) => id.as_str(),
             Self::SidebarView(id) => id.as_str(),
-            Self::ProviderScope(id) => id.as_str(),
-            Self::ProviderAction(id) => id.as_str(),
-            Self::ProviderNotice(id) => id.as_str(),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum ResourceChange {
-    Upsert { sequence: u32, resource: ResourceKind, id: ResourceReference, value: Document },
-    Delete { sequence: u32, resource: ResourceKind, id: ResourceReference },
-    Unknown { kind: String, raw: Document },
+    Upsert {
+        sequence: u32,
+        resource: ResourceKind,
+        id: ResourceReference,
+        value: ResourceEntitySnapshot,
+    },
+    Delete {
+        sequence: u32,
+        resource: ResourceKind,
+        id: ResourceReference,
+    },
+    Unknown {
+        kind: String,
+        raw: Document,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionSnapshotEvent {
     pub cursor: Cursor,
     pub reset_reason: Option<ResetReason>,
-    pub snapshot: Document,
+    pub snapshot: ResourceSnapshot,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -131,6 +138,7 @@ pub struct SessionDeltaEvent {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum SessionEvent {
     Snapshot(SessionSnapshotEvent),
     Delta(SessionDeltaEvent),
@@ -260,7 +268,7 @@ pub enum BrowserFrameMime {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BrowserAttachmentItem {
-    Snapshot { browser: super::model::BrowserSnapshot, size: PixelSize },
+    Snapshot { browser: BrowserSnapshot, size: PixelSize },
     Frame { mime_type: BrowserFrameMime, data: Vec<u8>, size: PixelSize },
     State { url: String, title: String, loading: bool },
     Unknown { kind: String, raw: Document },
@@ -272,29 +280,6 @@ pub enum SidebarViewItem {
     Patch { sidebar_view_id: SidebarViewId, render: RenderPatch },
     Scroll { sidebar_view_id: SidebarViewId, scroll: RenderScroll },
     Unknown { kind: String, raw: Document },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ProviderNoticeRecord {
-    pub id: ProviderNoticeId,
-    pub provider_scope_id: ProviderScopeId,
-    pub level: NotificationLevel,
-    pub message: String,
-    pub extra: BTreeMap<String, Value>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ProviderNoticeItem {
-    Notice { sequence: u64, notice: ProviderNoticeRecord },
-    Unknown { sequence: u64, kind: String, raw: Document },
-}
-
-impl ProviderNoticeItem {
-    pub fn sequence(&self) -> u64 {
-        match self {
-            Self::Notice { sequence, .. } | Self::Unknown { sequence, .. } => *sequence,
-        }
-    }
 }
 
 macro_rules! typed_stream {
@@ -346,6 +331,29 @@ macro_rules! typed_stream {
                     }
                 }
             }
+
+            /// Waits at most `timeout` for one item while leaving the stream open on timeout.
+            pub fn next_timeout(
+                &mut self,
+                timeout: Duration,
+            ) -> Result<StreamPoll<TypedStreamItem<$item>>> {
+                if self.finished {
+                    return Ok(StreamPoll::End);
+                }
+                match self.inner.recv_timeout(timeout)? {
+                    StreamPoll::Item(item) => {
+                        let sequence = item.sequence;
+                        let cursor = item.cursor;
+                        let value = $decode(item.value, cursor.clone(), sequence)?;
+                        Ok(StreamPoll::Item(TypedStreamItem { sequence, cursor, value }))
+                    }
+                    StreamPoll::End => {
+                        self.finished = true;
+                        Ok(StreamPoll::End)
+                    }
+                    StreamPoll::TimedOut => Ok(StreamPoll::TimedOut),
+                }
+            }
         }
 
         impl Iterator for $name {
@@ -366,7 +374,77 @@ typed_stream!(SessionEventStream, SessionEvent, decode_session_event);
 typed_stream!(TerminalAttachment, TerminalAttachmentItem, decode_terminal_item);
 typed_stream!(BrowserAttachment, BrowserAttachmentItem, decode_browser_item);
 typed_stream!(SidebarViewStream, SidebarViewItem, decode_sidebar_item);
-typed_stream!(ProviderNoticeStream, ProviderNoticeItem, decode_provider_notice);
+
+impl TerminalAttachment {
+    /// Updates the viewer lease on this attachment's owned stream connection.
+    pub fn resize(&mut self, size: Size) -> Result<super::model::ViewerResizeResult> {
+        wire::validate_size(size)?;
+        wire::decode_exact(
+            &self.inner.connection_control(
+                ops::TERMINAL_VIEWER_RESIZE,
+                Params::new().u16(field::COLS, size.cols).u16(field::ROWS, size.rows),
+            )?,
+            "terminal viewer resize result",
+        )
+    }
+
+    pub fn release(&mut self) -> Result<()> {
+        decode_empty_control(
+            self.inner.connection_control(ops::TERMINAL_VIEWER_RELEASE, Params::new())?,
+        )
+    }
+
+    pub fn viewer_resize(&mut self, size: Size) -> Result<super::model::ViewerResizeResult> {
+        self.resize(size)
+    }
+
+    pub fn viewer_release(&mut self) -> Result<()> {
+        self.release()
+    }
+}
+
+impl BrowserAttachment {
+    /// Updates the viewer lease on this attachment's owned stream connection.
+    pub fn resize(&mut self, size: PixelSize) -> Result<super::model::BrowserViewerResizeResult> {
+        wire::validate_pixel_size(size)?;
+        wire::decode_exact(
+            &self.inner.connection_control(
+                ops::BROWSER_VIEWER_RESIZE,
+                Params::new()
+                    .u32(field::WIDTH_PX, size.width_px)
+                    .u32(field::HEIGHT_PX, size.height_px),
+            )?,
+            "browser viewer resize result",
+        )
+    }
+
+    pub fn release(&mut self) -> Result<()> {
+        decode_empty_control(
+            self.inner.connection_control(ops::BROWSER_VIEWER_RELEASE, Params::new())?,
+        )
+    }
+
+    pub fn viewer_resize(
+        &mut self,
+        size: PixelSize,
+    ) -> Result<super::model::BrowserViewerResizeResult> {
+        self.resize(size)
+    }
+
+    pub fn viewer_release(&mut self) -> Result<()> {
+        self.release()
+    }
+}
+
+fn decode_empty_control(value: Value) -> Result<()> {
+    if value.as_object().is_some_and(Map::is_empty) {
+        Ok(())
+    } else {
+        Err(Error::UnexpectedEnvelope(
+            "empty control result must be an object with no fields".to_string(),
+        ))
+    }
+}
 
 fn decode_session_event(
     value: Value,
@@ -391,7 +469,8 @@ fn decode_session_event(
                     )));
                 }
             };
-            let snapshot = Document(take_required(&mut object, "snapshot")?);
+            let snapshot =
+                wire::decode_exact(&take_required(&mut object, "snapshot")?, "resource snapshot")?;
             finish(object, "session snapshot item")?;
             Ok(SessionEvent::Snapshot(SessionSnapshotEvent { cursor, reset_reason, snapshot }))
         }
@@ -436,8 +515,9 @@ fn decode_resource_change(value: Value) -> Result<ResourceChange> {
                     "resource upsert value ID does not match change ID".to_string(),
                 ));
             }
+            let value = decode_resource_entity(resource, &value)?;
             finish(object, "resource upsert")?;
-            Ok(ResourceChange::Upsert { sequence, resource, id, value: Document(value) })
+            Ok(ResourceChange::Upsert { sequence, resource, id, value })
         }
         "delete" => {
             let sequence = take_u32(&mut object, "sequence")?;
@@ -491,8 +571,10 @@ fn decode_browser_item(
     let kind = take_required_string(&mut object, "kind")?;
     match kind.as_str() {
         "snapshot" => {
-            let browser =
-                wire::snapshot::<BrowserId>(&take_required(&mut object, "browser")?, "browser")?;
+            let browser = wire::snapshot::<BrowserSnapshot>(
+                &take_required(&mut object, "browser")?,
+                "browser",
+            )?;
             let size = decode_pixel_size(take_required(&mut object, "size")?)?;
             finish(object, "browser snapshot item")?;
             Ok(BrowserAttachmentItem::Snapshot { browser, size })
@@ -541,7 +623,7 @@ fn decode_sidebar_item(
     let kind = take_required_string(&mut object, "kind")?;
     match kind.as_str() {
         "snapshot" => {
-            let sidebar_view = wire::snapshot::<SidebarViewId>(
+            let sidebar_view = wire::snapshot::<SidebarViewSnapshot>(
                 &take_required(&mut object, "sidebar_view")?,
                 "sidebar_view",
             )?;
@@ -562,29 +644,6 @@ fn decode_sidebar_item(
             Ok(SidebarViewItem::Scroll { sidebar_view_id, scroll })
         }
         _ => Ok(SidebarViewItem::Unknown { kind, raw: Document(raw) }),
-    }
-}
-
-fn decode_provider_notice(
-    value: Value,
-    _cursor: Option<Cursor>,
-    envelope_sequence: u64,
-) -> Result<ProviderNoticeItem> {
-    let raw = value.clone();
-    let mut object = object(value, "provider notice item")?;
-    let kind = take_required_string(&mut object, "kind")?;
-    match kind.as_str() {
-        "notice" => {
-            let notice = decode_provider_notice_record(take_required(&mut object, "notice")?)?;
-            let sequence = take_decimal(&mut object, "sequence")?;
-            finish(object, "provider notice item")?;
-            Ok(ProviderNoticeItem::Notice { sequence, notice })
-        }
-        _ => Ok(ProviderNoticeItem::Unknown {
-            sequence: envelope_sequence,
-            kind,
-            raw: Document(raw),
-        }),
     }
 }
 
@@ -672,7 +731,7 @@ fn decode_render_cursor(value: Value) -> Result<RenderCursor> {
     Ok(RenderCursor { x, y, style, blink, visible, color })
 }
 
-fn decode_render_row(value: Value) -> Result<RenderRow> {
+pub(crate) fn decode_render_row(value: Value) -> Result<RenderRow> {
     let mut object = object(value, "render row")?;
     let row = take_u16(&mut object, "row")?;
     let runs = take_array(&mut object, "runs")?
@@ -734,32 +793,59 @@ fn decode_pixel_size(value: Value) -> Result<PixelSize> {
     Ok(size)
 }
 
-fn decode_provider_notice_record(value: Value) -> Result<ProviderNoticeRecord> {
-    let mut object = object(value, "provider notice")?;
-    let id = take_id(&mut object, "id")?;
-    let provider_scope_id = take_id(&mut object, "provider_scope_id")?;
-    let level = match take_required_string(&mut object, "level")?.as_str() {
-        "info" => NotificationLevel::Info,
-        "warning" => NotificationLevel::Warning,
-        "error" => NotificationLevel::Error,
-        other => {
-            return Err(Error::UnexpectedEnvelope(format!(
-                "invalid provider notice level {other}"
-            )));
+fn decode_resource_entity(resource: ResourceKind, value: &Value) -> Result<ResourceEntitySnapshot> {
+    Ok(match resource {
+        ResourceKind::Machine => {
+            ResourceEntitySnapshot::Machine(wire::snapshot::<MachineSnapshot>(value, "machine")?)
         }
-    };
-    let message = take_required_string(&mut object, "message")?;
-    let extra = match object.remove("extra") {
-        None => BTreeMap::new(),
-        Some(Value::Object(extra)) => extra.into_iter().collect(),
-        Some(_) => {
-            return Err(Error::UnexpectedEnvelope(
-                "provider notice extra must be an object".to_string(),
-            ));
+        ResourceKind::Session => {
+            ResourceEntitySnapshot::Session(wire::snapshot::<SessionSnapshot>(value, "session")?)
         }
-    };
-    finish(object, "provider notice")?;
-    Ok(ProviderNoticeRecord { id, provider_scope_id, level, message, extra })
+        ResourceKind::Workspace => ResourceEntitySnapshot::Workspace(wire::snapshot::<
+            WorkspaceSnapshot,
+        >(value, "workspace")?),
+        ResourceKind::Screen => {
+            ResourceEntitySnapshot::Screen(wire::snapshot::<ScreenSnapshot>(value, "screen")?)
+        }
+        ResourceKind::Pane => {
+            ResourceEntitySnapshot::Pane(wire::snapshot::<PaneSnapshot>(value, "pane")?)
+        }
+        ResourceKind::Tab => {
+            ResourceEntitySnapshot::Tab(wire::snapshot::<TabSnapshot>(value, "tab")?)
+        }
+        ResourceKind::Terminal => {
+            ResourceEntitySnapshot::Terminal(wire::snapshot::<TerminalSnapshot>(value, "terminal")?)
+        }
+        ResourceKind::Browser => {
+            ResourceEntitySnapshot::Browser(wire::snapshot::<BrowserSnapshot>(value, "browser")?)
+        }
+        ResourceKind::Client => {
+            ResourceEntitySnapshot::Client(wire::snapshot::<ClientSnapshot>(value, "client")?)
+        }
+        ResourceKind::Notification => {
+            ResourceEntitySnapshot::Notification(wire::snapshot::<NotificationSnapshot>(
+                value,
+                "notification",
+            )?)
+        }
+        ResourceKind::Agent => {
+            ResourceEntitySnapshot::Agent(wire::snapshot::<AgentSnapshot>(value, "agent")?)
+        }
+        ResourceKind::PairingRequest => {
+            ResourceEntitySnapshot::PairingRequest(wire::snapshot::<PairingRequestSnapshot>(
+                value,
+                "pairing_request",
+            )?)
+        }
+        ResourceKind::FrontendProjection => ResourceEntitySnapshot::FrontendProjection(
+            wire::snapshot::<FrontendProjectionSnapshot>(value, "frontend_projection")?,
+        ),
+        ResourceKind::SidebarView => ResourceEntitySnapshot::SidebarView(wire::snapshot::<
+            SidebarViewSnapshot,
+        >(
+            value, "sidebar_view"
+        )?),
+    })
 }
 
 fn parse_resource_id(kind: ResourceKind, id: &str) -> Result<ResourceReference> {
@@ -783,15 +869,6 @@ fn parse_resource_id(kind: ResourceKind, id: &str) -> Result<ResourceReference> 
             ResourceReference::FrontendProjection(FrontendProjectionId::parse(id)?)
         }
         ResourceKind::SidebarView => ResourceReference::SidebarView(SidebarViewId::parse(id)?),
-        ResourceKind::ProviderScope => {
-            ResourceReference::ProviderScope(ProviderScopeId::parse(id)?)
-        }
-        ResourceKind::ProviderAction => {
-            ResourceReference::ProviderAction(ProviderActionId::parse(id)?)
-        }
-        ResourceKind::ProviderNotice => {
-            ResourceReference::ProviderNotice(ProviderNoticeId::parse(id)?)
-        }
     })
 }
 
@@ -1010,26 +1087,24 @@ mod tests {
     }
 
     #[test]
-    fn provider_notice_delivery_retains_acknowledgement_sequence() {
-        let item = decode_provider_notice(
-            json!({
-                "kind": "notice",
-                "notice": {
-                    "id": "provider_notice_00000000000000000000000000000001",
-                    "provider_scope_id": "provider_scope_00000000000000000000000000000002",
-                    "level": "warning",
-                    "message": "capacity low"
-                },
-                "sequence": "42"
-            }),
-            None,
-            42,
-        )
-        .unwrap();
-        assert_eq!(item.sequence(), 42);
-        let ProviderNoticeItem::Notice { notice, .. } = item else {
-            panic!("expected notice");
-        };
-        assert_eq!(notice.level, NotificationLevel::Warning);
+    fn known_resource_upserts_reject_unknown_snapshot_siblings() {
+        let error = decode_resource_change(json!({
+            "kind": "upsert",
+            "sequence": 1,
+            "resource": "terminal",
+            "id": TERMINAL,
+            "value": {
+                "id": TERMINAL,
+                "tab_id": "tab_00000000000000000000000000000002",
+                "title": "strict",
+                "cols": 80,
+                "rows": 24,
+                "running": true,
+                "lifecycle": "running",
+                "future": "must use extra"
+            }
+        }))
+        .unwrap_err();
+        assert!(matches!(error, Error::UnexpectedEnvelope(_)));
     }
 }

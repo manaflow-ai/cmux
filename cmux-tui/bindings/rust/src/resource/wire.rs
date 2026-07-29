@@ -4,6 +4,8 @@ use super::options::*;
 use super::typed_stream::ColorHex;
 use crate::{Error, Result};
 use base64::Engine;
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
 pub(crate) mod field {
@@ -21,11 +23,7 @@ pub(crate) mod field {
     pub(crate) const PAIRING_REQUEST: &str = "pairing_request";
     pub(crate) const FRONTEND_PROJECTION: &str = "frontend_projection";
     pub(crate) const SIDEBAR_VIEW: &str = "sidebar_view";
-    pub(crate) const PROVIDER_SCOPE: &str = "provider_scope";
-    pub(crate) const PROVIDER_ACTION: &str = "provider_action";
-    pub(crate) const PROVIDER_NOTICE: &str = "provider_notice";
     pub(crate) const STREAM_ID: &str = "stream_id";
-    pub(crate) const SEQUENCE: &str = "sequence";
     pub(crate) const NAME: &str = "name";
     pub(crate) const KIND: &str = "kind";
     pub(crate) const INDEX: &str = "index";
@@ -77,9 +75,7 @@ pub(crate) mod field {
     pub(crate) const SOURCE: &str = "source";
     pub(crate) const SOURCE_SESSION: &str = "source_session";
     pub(crate) const RELAUNCH: &str = "relaunch";
-    pub(crate) const PARAMETERS: &str = "parameters";
     pub(crate) const INITIAL_CONTENT: &str = "initial_content";
-    pub(crate) const SPECIFIER: &str = "specifier";
     pub(crate) const FORCE: &str = "force";
     pub(crate) const TTL_MS: &str = "ttl_ms";
     pub(crate) const EXPECTED_REVISION: &str = "expected_revision";
@@ -98,7 +94,8 @@ pub(crate) mod field {
     pub(crate) const PALETTE: &str = "palette";
     pub(crate) const COMPLETE: &str = "complete";
     pub(crate) const CONFIRM_CLOSE: &str = "confirm_close";
-    pub(crate) const MANAGED: &str = "managed";
+    pub(crate) const CONFIRMATION_TOKEN: &str = "confirmation_token";
+    pub(crate) const CORRELATION_KEY: &str = "correlation_key";
 }
 
 #[derive(Clone, Debug, Default)]
@@ -121,6 +118,16 @@ impl Params {
     pub(crate) fn extend(mut self, other: Self) -> Self {
         self.0.extend(other.0);
         self
+    }
+
+    pub(crate) fn only(&self, keys: &[&'static str]) -> Self {
+        Self(
+            keys.iter()
+                .filter_map(|key| {
+                    self.0.get(*key).cloned().map(|value| ((*key).to_string(), value))
+                })
+                .collect(),
+        )
     }
 
     pub(crate) fn string(self, key: &'static str, value: impl Into<String>) -> Self {
@@ -305,22 +312,34 @@ pub(crate) fn validate_ratio(value: f64) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn create_workspace(options: CreateWorkspaceOptions) -> Params {
-    Params::new().optional_string(field::NAME, options.name).string(
+fn creation_correlation(params: Params, correlation_key: Option<String>) -> Result<Params> {
+    if let Some(value) = &correlation_key {
+        validate_correlation_key(value)?;
+    }
+    Ok(params.optional_string(field::CORRELATION_KEY, correlation_key))
+}
+
+pub(crate) fn create_workspace(options: CreateWorkspaceOptions) -> Result<Params> {
+    let params = Params::new().optional_string(field::NAME, options.name).string(
         field::INITIAL_CONTENT,
         match options.initial_content {
             InitialContent::Terminal => "terminal",
             InitialContent::Empty => "empty",
         },
+    );
+    creation_correlation(params, options.correlation_key)
+}
+
+pub(crate) fn create_screen(options: CreateScreenOptions) -> Result<Params> {
+    creation_correlation(
+        Params::new().optional_string(field::NAME, options.name),
+        options.correlation_key,
     )
 }
 
-pub(crate) fn create_screen(options: CreateScreenOptions) -> Params {
-    Params::new().optional_string(field::NAME, options.name)
-}
-
 pub(crate) fn create_pane(options: CreatePaneOptions) -> Result<Params> {
-    size(Params::new().optional_string(field::CWD, options.cwd), options.size)
+    let params = size(Params::new().optional_string(field::CWD, options.cwd), options.size)?;
+    creation_correlation(params, options.correlation_key)
 }
 
 pub(crate) fn run(options: RunOptions) -> Result<Params> {
@@ -330,44 +349,48 @@ pub(crate) fn run(options: RunOptions) -> Result<Params> {
             .optional_string(field::NAME, options.name),
         options.size,
     )?;
-    Ok(match options.command {
+    let params = match options.command {
         RunCommand::Exact { argv } => {
             params.value(field::ARGV, Value::Array(argv.into_iter().map(Value::String).collect()))
         }
         RunCommand::Shell { script } => params.string(field::SHELL, script),
-    })
+    };
+    creation_correlation(params, options.correlation_key)
 }
 
 pub(crate) fn split(options: SplitOptions) -> Result<Params> {
     if let Some(ratio) = options.ratio {
         validate_ratio(ratio)?;
     }
-    size(
+    let params = size(
         Params::new()
             .string(field::DIRECTION, options.direction.wire_name())
             .optional_f64(field::RATIO, options.ratio)
             .optional_string(field::CWD, options.cwd),
         options.size,
-    )
+    )?;
+    creation_correlation(params, options.correlation_key)
 }
 
 pub(crate) fn terminal_create(options: TerminalCreateOptions) -> Result<Params> {
-    size(
+    let params = size(
         Params::new()
             .optional_string(field::CWD, options.cwd)
             .optional_string(field::NAME, options.name),
         options.size,
-    )
+    )?;
+    creation_correlation(params, options.correlation_key)
 }
 
 pub(crate) fn browser_create(options: BrowserCreateOptions) -> Result<Params> {
     if options.url.is_empty() {
         return Err(Error::InvalidArgument("browser URL must not be empty".to_string()));
     }
-    pixel_size(
+    let params = pixel_size(
         Params::new().string(field::URL, options.url).optional_string(field::NAME, options.name),
         options.size,
-    )
+    )?;
+    creation_correlation(params, options.correlation_key)
 }
 
 pub(crate) fn terminal_attach(options: TerminalAttachOptions) -> Result<Params> {
@@ -554,6 +577,11 @@ pub(crate) fn terminal_defaults(options: TerminalDefaultsOptions) -> Result<Para
     Ok(params.optional_bool(field::COMPLETE, options.complete))
 }
 
+pub(crate) fn layout_document(document: LayoutDocument) -> Result<Value> {
+    document.validate()?;
+    serde_json::to_value(document).map_err(|error| Error::Decode(error.to_string()))
+}
+
 pub(crate) fn sidebar_input(options: SidebarInputOptions) -> Params {
     Params::new()
         .string(field::DATA_BASE64, base64::engine::general_purpose::STANDARD.encode(options.data))
@@ -574,21 +602,7 @@ pub(crate) fn parse_decimal(value: &Value, context: &str) -> Result<u64> {
 }
 
 pub(crate) fn parse_cursor(value: &Value) -> Result<Cursor> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| Error::UnexpectedEnvelope("cursor must be an object".to_string()))?;
-    let generation = object
-        .get("generation")
-        .and_then(Value::as_str)
-        .ok_or_else(|| Error::UnexpectedEnvelope("cursor.generation must be a string".to_string()))?
-        .to_string();
-    let revision = parse_decimal(
-        object
-            .get("revision")
-            .ok_or_else(|| Error::UnexpectedEnvelope("cursor.revision is required".to_string()))?,
-        "cursor.revision",
-    )?;
-    Ok(Cursor { generation, revision })
+    decode_exact(value, "cursor")
 }
 
 pub(crate) fn mutation_meta(value: &Value) -> Result<MutationReceipt> {
@@ -641,103 +655,97 @@ pub(crate) fn mutation_value(value: &Value) -> Result<&Value> {
 }
 
 pub(crate) fn created_path(value: &Value) -> Result<CreatedPath> {
-    let kind = value
+    let object = value
+        .as_object()
+        .ok_or_else(|| Error::UnexpectedEnvelope("created path must be an object".to_string()))?;
+    let kind = object
         .get("kind")
         .and_then(Value::as_str)
         .ok_or_else(|| Error::UnexpectedEnvelope("created path kind is required".to_string()))?;
     let workspace_id = find_required_id(value, "workspace_id")?;
-    match kind {
-        "workspace" => Ok(CreatedPath::Workspace { workspace_id }),
-        "terminal" => Ok(CreatedPath::Terminal {
-            workspace_id,
-            screen_id: find_required_id(value, "screen_id")?,
-            pane_id: find_required_id(value, "pane_id")?,
-            tab_id: find_required_id(value, "tab_id")?,
-            terminal_id: find_required_id(value, "terminal_id")?,
-        }),
-        "browser" => Ok(CreatedPath::Browser {
-            workspace_id,
-            screen_id: find_required_id(value, "screen_id")?,
-            pane_id: find_required_id(value, "pane_id")?,
-            tab_id: find_required_id(value, "tab_id")?,
-            browser_id: find_required_id(value, "browser_id")?,
-        }),
-        other => Err(Error::UnexpectedEnvelope(format!("unknown created path kind {other}"))),
-    }
-}
-
-pub(crate) fn snapshot<I: OpaqueId>(
-    value: &Value,
-    resource_key: &'static str,
-) -> Result<ResourceSnapshot<I>> {
-    let value = value.as_object().and_then(|object| object.get(resource_key)).unwrap_or(value);
-    let mut object = value
-        .as_object()
-        .cloned()
-        .ok_or_else(|| Error::UnexpectedEnvelope(format!("{resource_key} must be an object")))?;
-    let id = take_id::<I>(&mut object, &["id"])?;
-    let name = take_optional_string(&mut object, "name")?;
-    let revision = object
-        .remove("revision")
-        .map(|value| parse_decimal(&value, "resource.revision"))
-        .transpose()?;
-    let parents = ParentIds {
-        machine: take_optional_id(&mut object, &["machine_id"])?,
-        session: take_optional_id(&mut object, &["session_id"])?,
-        workspace: take_optional_id(&mut object, &["workspace_id"])?,
-        screen: take_optional_id(&mut object, &["screen_id"])?,
-        pane: take_optional_id(&mut object, &["pane_id"])?,
-        tab: take_optional_id(&mut object, &["tab_id"])?,
-    };
-    let mut extra = match object.remove("extra") {
-        None => Map::new(),
-        Some(Value::Object(extra)) => extra,
-        Some(_) => {
-            return Err(Error::UnexpectedEnvelope("resource extra must be an object".to_string()));
+    let (allowed, path) = match kind {
+        "workspace" => (&["kind", "workspace_id"][..], CreatedPath::Workspace { workspace_id }),
+        "terminal" => (
+            &["kind", "workspace_id", "screen_id", "pane_id", "tab_id", "terminal_id"][..],
+            CreatedPath::Terminal {
+                workspace_id,
+                screen_id: find_required_id(value, "screen_id")?,
+                pane_id: find_required_id(value, "pane_id")?,
+                tab_id: find_required_id(value, "tab_id")?,
+                terminal_id: find_required_id(value, "terminal_id")?,
+            },
+        ),
+        "browser" => (
+            &["kind", "workspace_id", "screen_id", "pane_id", "tab_id", "browser_id"][..],
+            CreatedPath::Browser {
+                workspace_id,
+                screen_id: find_required_id(value, "screen_id")?,
+                pane_id: find_required_id(value, "pane_id")?,
+                tab_id: find_required_id(value, "tab_id")?,
+                browser_id: find_required_id(value, "browser_id")?,
+            },
+        ),
+        other => {
+            return Err(Error::UnexpectedEnvelope(format!("unknown created path kind {other}")));
         }
     };
-    extra.extend(object);
-    Ok(ResourceSnapshot { id, name, parents, revision, extra: extra.into_iter().collect() })
+    let unknown =
+        object.keys().filter(|key| !allowed.contains(&key.as_str())).cloned().collect::<Vec<_>>();
+    if !unknown.is_empty() {
+        return Err(Error::UnexpectedEnvelope(format!(
+            "created path contains unknown fields: {}",
+            unknown.join(", ")
+        )));
+    }
+    Ok(path)
 }
 
-pub(crate) fn list<I: OpaqueId>(
+pub(crate) fn decode_exact<T: DeserializeOwned>(value: &Value, context: &str) -> Result<T> {
+    serde_json::from_value(value.clone())
+        .map_err(|error| Error::UnexpectedEnvelope(format!("invalid {context}: {error}")))
+}
+
+pub(crate) fn snapshot<T: DeserializeOwned>(
+    value: &Value,
+    resource_key: &'static str,
+) -> Result<T> {
+    decode_exact(value, resource_key)
+}
+
+pub(crate) fn list<T: DeserializeOwned>(
     value: &Value,
     collection_key: &'static str,
     resource_key: &'static str,
-) -> Result<Vec<ResourceSnapshot<I>>> {
+) -> Result<Vec<T>> {
     let values = value.as_array().ok_or_else(|| {
         Error::UnexpectedEnvelope(format!("{collection_key} result must be an array"))
     })?;
     values.iter().map(|value| snapshot(value, resource_key)).collect()
 }
 
-fn take_optional_string(object: &mut Map<String, Value>, key: &str) -> Result<Option<String>> {
-    match object.remove(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) => Ok(Some(value)),
-        Some(_) => Err(Error::UnexpectedEnvelope(format!("{key} must be a string or null"))),
+pub(crate) fn terminal_history(value: &Value) -> Result<TerminalHistoryResult> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Wire {
+        start: Value,
+        #[serde(default)]
+        next: Option<Value>,
+        rows: Vec<Value>,
     }
-}
 
-fn take_id<I: OpaqueId>(object: &mut Map<String, Value>, keys: &[&str]) -> Result<I> {
-    take_optional_id(object, keys)?
-        .ok_or_else(|| Error::UnexpectedEnvelope(format!("missing {} resource ID", I::PREFIX)))
-}
-
-fn take_optional_id<I: OpaqueId>(
-    object: &mut Map<String, Value>,
-    keys: &[&str],
-) -> Result<Option<I>> {
-    for key in keys {
-        if let Some(value) = object.remove(*key) {
-            return match value {
-                Value::Null => Ok(None),
-                Value::String(value) => I::parse(value).map(Some),
-                _ => Err(Error::UnexpectedEnvelope(format!("{key} must contain an ID"))),
-            };
-        }
-    }
-    Ok(None)
+    let wire: Wire = decode_exact(value, "terminal history result")?;
+    let start = parse_decimal(&wire.start, "terminal history start")?;
+    let next = wire
+        .next
+        .as_ref()
+        .map(|value| parse_decimal(value, "terminal history next"))
+        .transpose()?;
+    let rows = wire
+        .rows
+        .into_iter()
+        .map(super::typed_stream::decode_render_row)
+        .collect::<Result<Vec<_>>>()?;
+    Ok(TerminalHistoryResult { start, next, rows })
 }
 
 fn find_id<I: OpaqueId>(value: &Value, keys: &[&str]) -> Result<Option<I>> {

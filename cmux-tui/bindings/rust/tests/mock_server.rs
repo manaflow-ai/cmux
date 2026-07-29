@@ -1,14 +1,21 @@
 use cmux::{
-    ClientMetadataOptions, ClientSizingOptions, Config, Error, EventStreamOptions, InitialContent,
-    LabelOptions, MachineConnectOptions, MutationOptions, ProviderActionId, ProviderActionOptions,
-    ReadScreenOptions, RendererGrantOptions, RunCommand, Selector, SessionEvent, SessionId,
-    StreamEndReason, TerminalId, Update, WorkspaceId,
+    BrowserAttachOptions, BrowserCreateOptions, CancellationToken, CellPixelsOptions,
+    ClientMetadataOptions, ClientSizingOptions, Config, CopyOptions, CreatePaneOptions,
+    CreateScreenOptions, CreateWorkspaceOptions, CreationRecovery, CreationState, Direction, Error,
+    EventStreamOptions, InitialContent, LabelOptions, MutationOptions, PairingDecision,
+    PairingResolveOptions, PixelSize, ReadHistoryOptions, ReadScreenOptions, RendererGrantOptions,
+    RequestOptions, ResourceChange, ResourceEntitySnapshot, RunCommand, RunOptions, Selector,
+    SessionEvent, SessionId, ShutdownOptions, Size, SplitOptions, StreamEndReason, StreamPoll,
+    TerminalAttachOptions, TerminalCreateOptions, TerminalDefaultsOptions, TerminalExitOutcome,
+    TerminalId, TerminalLifecycle, TerminalSnapshot, TerminalWaitExitResult, UndoLayoutOptions,
+    Update, WaitOptions, WorkspaceId,
 };
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
@@ -20,9 +27,9 @@ const SCREEN: &str = "screen_00000000000000000000000000000005";
 const PANE: &str = "pane_00000000000000000000000000000006";
 const TAB: &str = "tab_00000000000000000000000000000007";
 const TERMINAL: &str = "term_00000000000000000000000000000008";
+const BROWSER: &str = "browser_0000000000000000000000000000000d";
 const CLIENT: &str = "client_00000000000000000000000000000009";
-const PROVIDER_SCOPE: &str = "provider_scope_0000000000000000000000000000000a";
-const PROVIDER_ACTION: &str = "provider_action_0000000000000000000000000000000b";
+const PAIRING_REQUEST: &str = "pairing_0000000000000000000000000000000c";
 
 static NEXT_SOCKET: AtomicU64 = AtomicU64::new(1);
 
@@ -67,6 +74,106 @@ fn mutation_result(request: &Value, value: Value) -> Value {
         "generation": "generation-a",
         "revision": "17",
         "replayed": false
+    })
+}
+
+fn machine_snapshot() -> Value {
+    json!({
+        "id": MACHINE,
+        "name": "fixture",
+        "origin": "local",
+        "status": "running",
+        "connectable": true,
+        "deleted": false,
+        "recoverable": false
+    })
+}
+
+fn client_snapshot() -> Value {
+    json!({
+        "id": CLIENT,
+        "session_id": SESSION,
+        "name": null,
+        "client_kind": null,
+        "transport": "unix",
+        "connected_seconds": "1",
+        "attached_terminal_ids": [],
+        "sizes": [],
+        "self": true
+    })
+}
+
+fn screen_snapshot(name: Value) -> Value {
+    json!({
+        "id": SCREEN,
+        "workspace_id": WORKSPACE_A,
+        "name": name,
+        "index": 0,
+        "focused": true,
+        "layout": {
+            "version": 1,
+            "screen_id": SCREEN,
+            "active_pane_id": PANE,
+            "zoomed_pane_id": null,
+            "root": {
+                "kind": "leaf",
+                "pane_id": PANE,
+                "tab_ids": []
+            }
+        }
+    })
+}
+
+fn terminal_screen(text: &str) -> Value {
+    json!({
+        "text": text,
+        "cols": 80,
+        "rows": 24,
+        "cursor_row": 0,
+        "cursor_col": 0,
+        "cursor_visible": true
+    })
+}
+
+fn session_snapshot(revision: &str) -> Value {
+    json!({
+        "id": SESSION,
+        "machine_id": MACHINE,
+        "generation": "g",
+        "revision": revision,
+        "connected": true
+    })
+}
+
+fn terminal_snapshot() -> Value {
+    json!({
+        "id": TERMINAL,
+        "tab_id": TAB,
+        "title": "fixture",
+        "cwd": "/tmp",
+        "cols": 80,
+        "rows": 24,
+        "running": true,
+        "lifecycle": "running"
+    })
+}
+
+fn resource_snapshot() -> Value {
+    json!({
+        "machine": machine_snapshot(),
+        "session": session_snapshot("1"),
+        "workspaces": [],
+        "screens": [],
+        "panes": [],
+        "tabs": [],
+        "terminals": [],
+        "browsers": [],
+        "clients": [],
+        "notifications": [],
+        "agents": [],
+        "frontend_projections": [],
+        "sidebar_views": [],
+        "cursor": {"generation": "g", "revision": "1"}
     })
 }
 
@@ -184,9 +291,10 @@ fn create_and_run_preserve_receipts_paths_and_command_modes() {
     let session = client.session(SessionId::parse(SESSION).unwrap());
     let created = session
         .create_workspace_with(
-            cmux::CreateWorkspaceOptions {
+            CreateWorkspaceOptions {
                 name: Some(String::new()),
                 initial_content: InitialContent::Empty,
+                correlation_key: None,
             },
             MutationOptions::new("create-key").unwrap(),
         )
@@ -201,6 +309,123 @@ fn create_and_run_preserve_receipts_paths_and_command_modes() {
     assert_eq!(exact.value.tab_id().unwrap().as_str(), TAB);
 
     created.resource.run(RunCommand::shell("printf '%s' \"$HOME\"").unwrap()).unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn every_created_path_operation_sends_a_validated_correlation_key() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        for operation in [
+            "workspace.create",
+            "workspace.run",
+            "screen.create",
+            "pane.create",
+            "pane.run",
+            "pane.split",
+            "tab.create_terminal",
+            "tab.create_browser",
+        ] {
+            let request = request(&mut reader);
+            assert_eq!(request["operation"], operation);
+            assert_eq!(request["params"]["correlation_key"], "creation-correlation");
+            writeln!(
+                stream,
+                "{}",
+                json!({
+                    "protocol": "cmux.protocol/1",
+                    "type": "response",
+                    "id": request["id"],
+                    "ok": false,
+                    "error": {
+                        "code": "operation.failed",
+                        "message": "fixture stop",
+                        "details": {
+                            "operation": operation,
+                            "reason": "fixture"
+                        },
+                        "retryable": false
+                    }
+                })
+            )
+            .unwrap();
+        }
+    });
+
+    let invalid = CreateScreenOptions::default().correlation_key("").unwrap_err();
+    assert!(matches!(invalid, Error::InvalidArgument(_)));
+    let invalid = CreateScreenOptions::default().correlation_key("🔥".repeat(33)).unwrap_err();
+    assert!(matches!(invalid, Error::InvalidArgument(_)));
+
+    let client = connect(&path);
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    let workspace = session.workspace(WorkspaceId::parse(WORKSPACE_A).unwrap());
+    let screen = workspace.screen(cmux::ScreenId::parse(SCREEN).unwrap());
+    let pane = screen.pane(cmux::PaneId::parse(PANE).unwrap());
+    session
+        .create_workspace_with(
+            CreateWorkspaceOptions::default().correlation_key("creation-correlation").unwrap(),
+            MutationOptions::new("correlation-1").unwrap(),
+        )
+        .err()
+        .unwrap();
+    workspace
+        .run_with(
+            RunOptions::command(RunCommand::argv(["true"]).unwrap())
+                .correlation_key("creation-correlation")
+                .unwrap(),
+            MutationOptions::new("correlation-2").unwrap(),
+        )
+        .err()
+        .unwrap();
+    workspace
+        .create_screen_with(
+            CreateScreenOptions::default().correlation_key("creation-correlation").unwrap(),
+            MutationOptions::new("correlation-3").unwrap(),
+        )
+        .err()
+        .unwrap();
+    screen
+        .create_pane_with(
+            CreatePaneOptions::default().correlation_key("creation-correlation").unwrap(),
+            MutationOptions::new("correlation-4").unwrap(),
+        )
+        .err()
+        .unwrap();
+    pane.run_with(
+        RunOptions::command(RunCommand::argv(["true"]).unwrap())
+            .correlation_key("creation-correlation")
+            .unwrap(),
+        MutationOptions::new("correlation-5").unwrap(),
+    )
+    .err()
+    .unwrap();
+    pane.split_with(
+        SplitOptions::new(Direction::Right).correlation_key("creation-correlation").unwrap(),
+        MutationOptions::new("correlation-6").unwrap(),
+    )
+    .err()
+    .unwrap();
+    pane.create_terminal_with(
+        TerminalCreateOptions::default().correlation_key("creation-correlation").unwrap(),
+        MutationOptions::new("correlation-7").unwrap(),
+    )
+    .err()
+    .unwrap();
+    pane.create_browser_with(
+        BrowserCreateOptions::new("https://example.com")
+            .correlation_key("creation-correlation")
+            .unwrap(),
+        MutationOptions::new("correlation-8").unwrap(),
+    )
+    .err()
+    .unwrap();
+
     client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
@@ -251,7 +476,7 @@ fn workspace_rename_preserves_the_flat_canonical_value_and_explicit_route() {
         )
         .unwrap();
     assert_eq!(renamed.value.id.as_str(), WORKSPACE_A);
-    assert_eq!(renamed.value.name.as_deref(), Some("renamed"));
+    assert_eq!(renamed.value.name, "renamed");
     assert_eq!(renamed.generation, "generation-a");
     assert_eq!(renamed.revision, 17);
     assert!(!renamed.replayed);
@@ -271,11 +496,7 @@ fn nullable_names_encode_clear_and_empty_distinctly() {
             let rename = request(&mut reader);
             assert_eq!(rename["operation"], "screen.rename");
             assert_eq!(rename["params"]["name"], expected);
-            success(
-                &mut stream,
-                &rename,
-                mutation_result(&rename, json!({"id": SCREEN, "name": expected})),
-            );
+            success(&mut stream, &rename, mutation_result(&rename, screen_snapshot(expected)));
         }
     });
 
@@ -325,6 +546,72 @@ fn structured_errors_retain_all_protocol_fields() {
             assert_eq!(message, "two workspaces match");
             assert_eq!(details["candidates"].as_array().unwrap().len(), 2);
             assert!(!retryable);
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn layout_undo_confirmation_token_and_details_are_typed() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = request(&mut BufReader::new(stream.try_clone().unwrap()));
+        assert_eq!(request["operation"], "screen.layout.undo");
+        assert_eq!(request["params"]["confirm_close"], true);
+        assert_eq!(request["params"]["confirmation_token"], "stale-preview");
+        assert_eq!(request["params"]["expected_revision"], "8");
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "response",
+                "id": request["id"],
+                "ok": false,
+                "error": {
+                    "code": "confirmation.required",
+                    "message": "layout preview changed",
+                    "details": {
+                        "confirmation_token": "fresh-preview",
+                        "revision": "9",
+                        "closes_panes": [PANE]
+                    },
+                    "retryable": false
+                }
+            })
+        )
+        .unwrap();
+    });
+
+    let client = connect(&path);
+    let screen = client
+        .current_session()
+        .workspace(WorkspaceId::parse(WORKSPACE_A).unwrap())
+        .screen(cmux::ScreenId::parse(SCREEN).unwrap());
+    let missing = screen
+        .undo_layout(UndoLayoutOptions { confirm_close: true, confirmation_token: None })
+        .unwrap_err();
+    assert!(matches!(missing, Error::InvalidArgument(_)));
+    let error = screen
+        .undo_layout_with(
+            UndoLayoutOptions {
+                confirm_close: true,
+                confirmation_token: Some("stale-preview".to_string()),
+            },
+            MutationOptions::new("undo-confirm").unwrap().with_expected_revision(8),
+        )
+        .unwrap_err();
+    match error {
+        Error::ConfirmationRequired { message, details } => {
+            assert_eq!(message, "layout preview changed");
+            assert_eq!(details.confirmation_token, "fresh-preview");
+            assert_eq!(details.revision, 9);
+            assert_eq!(details.closes_panes[0].as_str(), PANE);
         }
         other => panic!("unexpected error: {other:?}"),
     }
@@ -407,9 +694,48 @@ fn indeterminate_mutations_preserve_recovery_details_and_are_never_retried() {
 }
 
 #[test]
+fn exact_mutation_key_is_exposed_on_transport_disconnect() {
+    for explicit_key in [None, Some("caller-owned")] {
+        let path = socket_path();
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            request(&mut BufReader::new(stream))
+        });
+
+        let client = connect(&path);
+        let workspace =
+            client.current_session().workspace(WorkspaceId::parse(WORKSPACE_A).unwrap());
+        let error = match explicit_key {
+            Some(key) => {
+                workspace.rename_with("renamed", MutationOptions::new(key).unwrap()).unwrap_err()
+            }
+            None => workspace.rename("renamed").unwrap_err(),
+        };
+        let observed = server.join().unwrap();
+        assert_eq!(observed["operation"], "workspace.rename");
+        match (explicit_key, error) {
+            (_, Error::MutationTransport { operation, idempotency_key, source }) => {
+                assert_eq!(operation, "workspace.rename");
+                assert_eq!(observed["idempotency_key"], idempotency_key);
+                match explicit_key {
+                    Some(key) => assert_eq!(idempotency_key, key),
+                    None => assert!(idempotency_key.starts_with("rust-")),
+                }
+                assert!(matches!(*source, Error::Connection(_)));
+            }
+            (_, other) => panic!("unexpected disconnect error: {other:?}"),
+        }
+        client.close().unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
 fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let (release_tx, release_rx) = mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -418,6 +744,7 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
         assert_eq!(open["operation"], "session.events");
         let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
         success(&mut stream, &open, json!({"stream_id": stream_id}));
+        release_rx.recv().unwrap();
         writeln!(
             stream,
             "{}",
@@ -425,11 +752,50 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
                 "protocol": "cmux.protocol/1",
                 "type": "stream_item",
                 "stream_id": stream_id,
-                "sequence": "18446744073709551615",
-                "cursor": {
-                    "generation": "g",
-                    "revision": "18446744073709551615"
-                },
+                "sequence": "0",
+                "cursor": {"generation": "g", "revision": "1"},
+                "item": {
+                    "kind": "snapshot",
+                    "cursor": {"generation": "g", "revision": "1"},
+                    "reset_reason": "initial",
+                    "snapshot": resource_snapshot()
+                }
+            })
+        )
+        .unwrap();
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_item",
+                "stream_id": stream_id,
+                "sequence": "1",
+                "cursor": {"generation": "g", "revision": "2"},
+                "item": {
+                    "kind": "delta",
+                    "cursor": {"generation": "g", "revision": "2"},
+                    "previous_revision": "1",
+                    "revision": "2",
+                    "changes": [{
+                        "kind": "upsert",
+                        "sequence": 7,
+                        "resource": "terminal",
+                        "id": TERMINAL,
+                        "value": terminal_snapshot()
+                    }]
+                }
+            })
+        )
+        .unwrap();
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_item",
+                "stream_id": stream_id,
+                "sequence": "2",
                 "item": {"kind": "future_event", "payload": 1}
             })
         )
@@ -461,11 +827,35 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
         .session(SessionId::parse(SESSION).unwrap())
         .events(EventStreamOptions::default())
         .unwrap();
-    let item = events.recv().unwrap().unwrap();
-    assert_eq!(item.sequence, u64::MAX);
-    assert_eq!(item.cursor.as_ref().unwrap().generation, "g");
-    assert_eq!(item.cursor.as_ref().unwrap().revision, u64::MAX);
-    assert!(matches!(item.value, SessionEvent::Unknown { .. }));
+    assert!(matches!(
+        events.next_timeout(Duration::from_millis(20)).unwrap(),
+        StreamPoll::TimedOut
+    ));
+    assert!(events.end().is_none());
+    release_tx.send(()).unwrap();
+
+    let snapshot = events.recv().unwrap().unwrap();
+    match snapshot.value {
+        SessionEvent::Snapshot(event) => {
+            assert_eq!(event.snapshot.machine.id.as_str(), MACHINE);
+            assert_eq!(event.snapshot.session.id.as_str(), SESSION);
+        }
+        other => panic!("unexpected session event: {other:?}"),
+    }
+
+    let delta = events.recv().unwrap().unwrap();
+    match delta.value {
+        SessionEvent::Delta(event) => match &event.changes[0] {
+            ResourceChange::Upsert {
+                value: ResourceEntitySnapshot::Terminal(terminal), ..
+            } => assert_eq!(terminal.id.as_str(), TERMINAL),
+            other => panic!("unexpected resource change: {other:?}"),
+        },
+        other => panic!("unexpected session event: {other:?}"),
+    }
+
+    let unknown = events.recv().unwrap().unwrap();
+    assert!(matches!(unknown.value, SessionEvent::Unknown { .. }));
     events.cancel().unwrap();
     events.cancel().unwrap();
     assert!(events.recv().unwrap().is_none());
@@ -473,6 +863,247 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
     client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn attachment_resize_and_release_use_each_owned_stream_connection() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let control = listener.accept().unwrap().0;
+
+        let (mut terminal_stream, _) = listener.accept().unwrap();
+        let mut terminal_reader = BufReader::new(terminal_stream.try_clone().unwrap());
+        let terminal_open = request(&mut terminal_reader);
+        assert_eq!(terminal_open["operation"], "terminal.attach");
+        let terminal_stream_id = terminal_open["params"]["stream_id"].as_str().unwrap().to_string();
+        writeln!(
+            terminal_stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_item",
+                "stream_id": terminal_stream_id,
+                "sequence": "0",
+                "item": {"kind": "pre_ack_terminal_item"}
+            })
+        )
+        .unwrap();
+        success(&mut terminal_stream, &terminal_open, json!({"stream_id": terminal_stream_id}));
+
+        let terminal_resize = request(&mut terminal_reader);
+        assert_eq!(terminal_resize["operation"], "terminal.viewer.resize");
+        assert_eq!(
+            terminal_resize["params"],
+            json!({
+                "machine": "current",
+                "session": SESSION,
+                "terminal": TERMINAL,
+                "cols": 100,
+                "rows": 30
+            })
+        );
+        writeln!(
+            terminal_stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_item",
+                "stream_id": terminal_stream_id,
+                "sequence": "1",
+                "item": {"kind": "future_terminal_item"}
+            })
+        )
+        .unwrap();
+        success(
+            &mut terminal_stream,
+            &terminal_resize,
+            json!({"accepted": true, "size": {"cols": 100, "rows": 30}}),
+        );
+
+        let terminal_release = request(&mut terminal_reader);
+        assert_eq!(terminal_release["operation"], "terminal.viewer.release");
+        assert_eq!(
+            terminal_release["params"],
+            json!({
+                "machine": "current",
+                "session": SESSION,
+                "terminal": TERMINAL
+            })
+        );
+        success(&mut terminal_stream, &terminal_release, json!({}));
+
+        let terminal_cancel = request(&mut terminal_reader);
+        assert_eq!(terminal_cancel["operation"], "stream.cancel");
+        success(&mut terminal_stream, &terminal_cancel, json!({}));
+        writeln!(
+            terminal_stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_end",
+                "stream_id": terminal_stream_id,
+                "reason": "canceled"
+            })
+        )
+        .unwrap();
+
+        let (mut browser_stream, _) = listener.accept().unwrap();
+        let mut browser_reader = BufReader::new(browser_stream.try_clone().unwrap());
+        let browser_open = request(&mut browser_reader);
+        assert_eq!(browser_open["operation"], "browser.attach");
+        let browser_stream_id = browser_open["params"]["stream_id"].as_str().unwrap().to_string();
+        success(&mut browser_stream, &browser_open, json!({"stream_id": browser_stream_id}));
+
+        let browser_resize = request(&mut browser_reader);
+        assert_eq!(browser_resize["operation"], "browser.viewer.resize");
+        assert_eq!(
+            browser_resize["params"],
+            json!({
+                "machine": "current",
+                "session": SESSION,
+                "browser": BROWSER,
+                "width_px": 1280,
+                "height_px": 720
+            })
+        );
+        success(
+            &mut browser_stream,
+            &browser_resize,
+            json!({
+                "accepted": true,
+                "size": {"width_px": 1280, "height_px": 720}
+            }),
+        );
+
+        let browser_release = request(&mut browser_reader);
+        assert_eq!(browser_release["operation"], "browser.viewer.release");
+        assert_eq!(
+            browser_release["params"],
+            json!({
+                "machine": "current",
+                "session": SESSION,
+                "browser": BROWSER
+            })
+        );
+        success(&mut browser_stream, &browser_release, json!({}));
+
+        let browser_cancel = request(&mut browser_reader);
+        assert_eq!(browser_cancel["operation"], "stream.cancel");
+        success(&mut browser_stream, &browser_cancel, json!({}));
+        writeln!(
+            browser_stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_end",
+                "stream_id": browser_stream_id,
+                "reason": "canceled"
+            })
+        )
+        .unwrap();
+        drop(control);
+    });
+
+    let client = connect(&path);
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    let mut terminal = session
+        .terminal(TerminalId::parse(TERMINAL).unwrap())
+        .attach(TerminalAttachOptions::default())
+        .unwrap();
+    assert_eq!(terminal.resize(Size::new(100, 30).unwrap()).unwrap().size.cols, 100);
+    for _ in 0..2 {
+        assert!(matches!(
+            terminal.recv().unwrap().unwrap().value,
+            cmux::TerminalAttachmentItem::Unknown { .. }
+        ));
+    }
+    terminal.release().unwrap();
+    terminal.cancel().unwrap();
+
+    let mut browser = session
+        .browser(cmux::BrowserId::parse(BROWSER).unwrap())
+        .attach(BrowserAttachOptions::default())
+        .unwrap();
+    assert_eq!(browser.resize(PixelSize::new(1280, 720).unwrap()).unwrap().size.width_px, 1280);
+    browser.release().unwrap();
+    browser.cancel().unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn pre_ack_stream_limits_cancel_and_isolate_the_control_connection() {
+    for overflow_by_bytes in [false, true] {
+        let path = socket_path();
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let control = listener.accept().unwrap().0;
+            let mut control_reader = BufReader::new(control.try_clone().unwrap());
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut stream_reader = BufReader::new(stream.try_clone().unwrap());
+            let opened = request(&mut stream_reader);
+            assert_eq!(opened["operation"], "session.events");
+            let stream_id = opened["params"]["stream_id"].as_str().unwrap().to_string();
+
+            let item = |sequence: &str, blob: &str| {
+                json!({
+                    "protocol": "cmux.protocol/1",
+                    "type": "stream_item",
+                    "stream_id": stream_id,
+                    "sequence": sequence,
+                    "item": {"kind": "future.event", "blob": blob}
+                })
+            };
+            writeln!(
+                stream,
+                "{}",
+                item("1", &"x".repeat(if overflow_by_bytes { 1024 } else { 1 }))
+            )
+            .unwrap();
+            if !overflow_by_bytes {
+                writeln!(stream, "{}", item("2", "y")).unwrap();
+            }
+
+            let canceled = request(&mut stream_reader);
+            assert_eq!(canceled["operation"], "stream.cancel");
+            assert_eq!(canceled["params"]["stream"], stream_id);
+
+            let ping = request(&mut control_reader);
+            assert_eq!(ping["operation"], "session.ping");
+            success(
+                &mut control.try_clone().unwrap(),
+                &ping,
+                json!({
+                    "alive": true,
+                    "cursor": {"generation": "g", "revision": "1"}
+                }),
+            );
+        });
+
+        let (items, bytes) = if overflow_by_bytes { (4, 256) } else { (1, 4096) };
+        let client =
+            cmux::Client::connect(Config::from_socket_path(&path).with_stream_limits(items, bytes))
+                .unwrap();
+        let session = client.session(SessionId::parse(SESSION).unwrap());
+        let error = match session.events(EventStreamOptions::default()) {
+            Ok(_) => panic!("pre-ack overflow must fail the stream open"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            Error::StreamEnded {
+                ref reason,
+                recovery: Some(_),
+                error: None,
+            } if reason == "gap"
+        ));
+        assert!(session.ping().unwrap().alive);
+        client.close().unwrap();
+        server.join().unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
 }
 
 #[test]
@@ -643,144 +1274,6 @@ fn renderer_grant_is_typed_and_redacts_the_one_use_token() {
 }
 
 #[test]
-fn provider_machine_operations_are_scope_first_and_redacted() {
-    let path = socket_path();
-    let listener = UnixListener::bind(&path).unwrap();
-    let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-
-        let create = request(&mut reader);
-        assert_eq!(create["operation"], "machine.create");
-        assert_eq!(create["params"], json!({"provider_scope": PROVIDER_SCOPE}));
-        success(
-            &mut stream,
-            &create,
-            mutation_result(
-                &create,
-                json!({"id": MACHINE, "connection": "local", "deleted": false}),
-            ),
-        );
-
-        let connect = request(&mut reader);
-        assert_eq!(connect["operation"], "machine.connect_external");
-        assert_eq!(
-            connect["params"],
-            json!({
-                "provider_scope": PROVIDER_SCOPE,
-                "specifier": "ssh://user:secret@host"
-            })
-        );
-        success(
-            &mut stream,
-            &connect,
-            mutation_result(
-                &connect,
-                json!({"id": MACHINE, "connection": "external", "deleted": false}),
-            ),
-        );
-
-        let action = request(&mut reader);
-        assert_eq!(action["operation"], "provider_action.invoke");
-        assert_eq!(
-            action["params"],
-            json!({
-                "machine": MACHINE,
-                "provider_scope": PROVIDER_SCOPE,
-                "provider_action": PROVIDER_ACTION,
-                "parameters": {
-                    "region": "west",
-                    "replicas": 3
-                }
-            })
-        );
-        success(&mut stream, &action, mutation_result(&action, json!({"accepted": true})));
-
-        let mark = request(&mut reader);
-        assert_eq!(mark["operation"], "provider_workspace.mark");
-        assert_eq!(
-            mark["params"],
-            json!({
-                "machine": MACHINE,
-                "provider_scope": PROVIDER_SCOPE,
-                "session": SESSION,
-                "workspace": WORKSPACE_A,
-                "managed": true,
-                "expected_revision": "20"
-            })
-        );
-        success(
-            &mut stream,
-            &mark,
-            mutation_result(
-                &mark,
-                json!({
-                    "id": WORKSPACE_A,
-                    "session_id": SESSION,
-                    "name": "managed",
-                    "index": 0,
-                    "focused": true
-                }),
-            ),
-        );
-
-        let rename = request(&mut reader);
-        assert_eq!(rename["operation"], "provider_workspace.rename");
-        assert_eq!(rename["params"]["name"], "provider-renamed");
-        success(
-            &mut stream,
-            &rename,
-            mutation_result(
-                &rename,
-                json!({
-                    "id": WORKSPACE_A,
-                    "session_id": SESSION,
-                    "name": "provider-renamed",
-                    "index": 0,
-                    "focused": true
-                }),
-            ),
-        );
-
-        let close = request(&mut reader);
-        assert_eq!(close["operation"], "provider_workspace.close");
-        success(&mut stream, &close, mutation_result(&close, json!({})));
-    });
-
-    let client = connect(&path);
-    let provider = client.provider_scope(cmux::ProviderScopeId::parse(PROVIDER_SCOPE).unwrap());
-    provider.create_machine().unwrap();
-    let options = MachineConnectOptions::new("ssh://user:secret@host").unwrap();
-    assert!(!format!("{options:?}").contains("secret"));
-    provider.connect_external_machine(options).unwrap();
-    let scoped_provider = client
-        .machine(cmux::MachineId::parse(MACHINE).unwrap())
-        .provider_scope(cmux::ProviderScopeId::parse(PROVIDER_SCOPE).unwrap());
-    scoped_provider
-        .action(ProviderActionId::parse(PROVIDER_ACTION).unwrap())
-        .invoke(
-            ProviderActionOptions::new().parameter("region", "west").parameter("replicas", 3_i32),
-        )
-        .unwrap();
-    let workspace = client
-        .session(SessionId::parse(SESSION).unwrap())
-        .workspace(WorkspaceId::parse(WORKSPACE_A).unwrap());
-    let marked = scoped_provider
-        .mark_workspace_with(
-            &workspace,
-            true,
-            MutationOptions::new("provider-mark").unwrap().with_expected_revision(20),
-        )
-        .unwrap();
-    assert_eq!(marked.value.id.as_str(), WORKSPACE_A);
-    scoped_provider.rename_workspace(&workspace, "provider-renamed").unwrap();
-    scoped_provider.close_workspace(&workspace).unwrap();
-    client.close().unwrap();
-    server.join().unwrap();
-    std::fs::remove_file(path).unwrap();
-}
-
-#[test]
 fn connection_controls_have_no_idempotency_key_and_sizing_is_terminal_scoped() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
@@ -793,7 +1286,7 @@ fn connection_controls_have_no_idempotency_key_and_sizing_is_terminal_scoped() {
         assert!(metadata.get("idempotency_key").is_none());
         assert_eq!(metadata["params"]["name"], Value::Null);
         assert_eq!(metadata["params"]["kind"], "");
-        success(&mut stream, &metadata, json!({"id": CLIENT}));
+        success(&mut stream, &metadata, client_snapshot());
 
         let sizing = request(&mut reader);
         assert_eq!(sizing["operation"], "client.sizing.set");
@@ -809,7 +1302,7 @@ fn connection_controls_have_no_idempotency_key_and_sizing_is_terminal_scoped() {
                 "exclusive": false
             })
         );
-        success(&mut stream, &sizing, json!({"id": CLIENT}));
+        success(&mut stream, &sizing, client_snapshot());
     });
 
     let client = connect(&path);
@@ -842,7 +1335,7 @@ fn opaque_nested_ids_omit_structural_ancestors_but_names_supply_the_current_chai
             by_id["params"],
             json!({"machine": "current", "session": SESSION, "terminal": TERMINAL})
         );
-        success(&mut stream, &by_id, json!({"text": "id"}));
+        success(&mut stream, &by_id, terminal_screen("id"));
 
         let by_name = request(&mut reader);
         assert_eq!(
@@ -857,13 +1350,172 @@ fn opaque_nested_ids_omit_structural_ancestors_but_names_supply_the_current_chai
                 "terminal": "name:build"
             })
         );
-        success(&mut stream, &by_name, json!({"text": "name"}));
+        success(&mut stream, &by_name, terminal_screen("name"));
     });
 
     let client = connect(&path);
     let session = client.session(SessionId::parse(SESSION).unwrap());
     session.terminal(TerminalId::parse(TERMINAL).unwrap()).read_screen(ReadScreenOptions).unwrap();
     session.terminal(Selector::name("build")).read_screen(ReadScreenOptions).unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn catalog_terminal_session_client_and_pairing_results_are_concrete() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let steps = [
+            (
+                "session.ping",
+                json!({
+                    "alive": true,
+                    "cursor": {"generation": "g", "revision": "1"}
+                }),
+                false,
+            ),
+            ("session.reload_config", json!({"reloaded": true, "warnings": ["fixture"]}), true),
+            ("session.shutdown", json!({"accepted": true}), true),
+            (
+                "session.terminal_defaults.update",
+                json!({"cursor_blink": true, "palette": {"0": "#000000"}}),
+                true,
+            ),
+            ("terminal.screen.read", terminal_screen("screen"), false),
+            ("terminal.state.read", json!({"state_base64": "AP8=", "cols": 80, "rows": 24}), false),
+            (
+                "terminal.history.read",
+                json!({
+                    "start": "7",
+                    "next": null,
+                    "rows": [{
+                        "row": 0,
+                        "runs": [{"text": "history", "fg": null, "bg": null, "attrs": 0}]
+                    }]
+                }),
+                false,
+            ),
+            ("terminal.wait", json!({"matched": true, "text": "ready"}), false),
+            ("terminal.copy", json!({"mode": "screen", "text": "copied"}), false),
+            (
+                "terminal.process.get",
+                json!({
+                    "pid": 42,
+                    "executable": "/bin/zsh",
+                    "argv": ["/bin/zsh", "-l"],
+                    "cwd": "/tmp",
+                    "children": [43]
+                }),
+                false,
+            ),
+            (
+                "terminal.viewer.resize",
+                json!({"accepted": true, "size": {"cols": 100, "rows": 30}}),
+                false,
+            ),
+            ("terminal.viewer.release", json!({}), false),
+            (
+                "client.cell_pixels.set",
+                json!({
+                    "width_px": 9,
+                    "height_px": 18,
+                    "resized_terminals": [TERMINAL],
+                    "failures": {}
+                }),
+                false,
+            ),
+            ("client.detach", json!({}), false),
+            ("terminal.input.write", json!({}), true),
+            (
+                "pairing_request.resolve",
+                json!({
+                    "pairing_request": {
+                        "id": PAIRING_REQUEST,
+                        "session_id": SESSION,
+                        "peer": "iPhone",
+                        "code": "",
+                        "expires_in_seconds": "60",
+                        "status": "accepted"
+                    }
+                }),
+                true,
+            ),
+        ];
+        for (operation, value, mutation) in steps {
+            let item = request(&mut reader);
+            assert_eq!(item["operation"], operation);
+            if operation == "pairing_request.resolve" {
+                assert_eq!(item["params"]["decision"], "accept");
+            }
+            let result = if mutation { mutation_result(&item, value) } else { value };
+            success(&mut stream, &item, result);
+        }
+    });
+
+    let client = connect(&path);
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    let terminal = session.terminal(TerminalId::parse(TERMINAL).unwrap());
+    assert!(session.ping().unwrap().alive);
+    assert!(
+        session.reload_config_with(MutationOptions::new("reload").unwrap()).unwrap().value.reloaded
+    );
+    assert!(
+        session
+            .shutdown_with(ShutdownOptions::default(), MutationOptions::new("shutdown").unwrap(),)
+            .unwrap()
+            .value
+            .accepted
+    );
+    let defaults = session
+        .update_terminal_defaults_with(
+            TerminalDefaultsOptions {
+                cursor_blink: Update::Set(true),
+                ..TerminalDefaultsOptions::default()
+            },
+            MutationOptions::new("defaults").unwrap(),
+        )
+        .unwrap();
+    assert_eq!(defaults.value.cursor_blink, Some(true));
+    assert_eq!(terminal.read_screen(ReadScreenOptions).unwrap().text, "screen");
+    assert_eq!(terminal.read_state().unwrap().state, vec![0, 255]);
+    assert_eq!(
+        terminal.read_history(ReadHistoryOptions::default()).unwrap().rows[0].runs[0].text,
+        "history"
+    );
+    assert!(
+        terminal
+            .wait(WaitOptions { pattern: "ready".to_string(), timeout_ms: None })
+            .unwrap()
+            .matched
+    );
+    assert_eq!(terminal.copy(CopyOptions::default()).unwrap().text, "copied");
+    assert_eq!(terminal.process().unwrap().children, vec![43]);
+    assert_eq!(terminal.viewer_resize(Size::new(100, 30).unwrap()).unwrap().size.cols, 100);
+    terminal.viewer_release().unwrap();
+
+    let connected = session.connected_client(cmux::ConnectedClientId::parse(CLIENT).unwrap());
+    assert_eq!(
+        connected
+            .set_cell_pixels(CellPixelsOptions { width_px: 9, height_px: 18 })
+            .unwrap()
+            .resized_terminals[0]
+            .as_str(),
+        TERMINAL
+    );
+    connected.detach().unwrap();
+    terminal.write_text_with("input", MutationOptions::new("write").unwrap()).unwrap();
+    let resolution = session
+        .pairing_request(cmux::PairingRequestId::parse(PAIRING_REQUEST).unwrap())
+        .resolve_with(
+            PairingResolveOptions { decision: PairingDecision::Accept },
+            MutationOptions::new("pair").unwrap(),
+        )
+        .unwrap();
+    assert_eq!(resolution.value.pairing_request.code.expose(), "");
     client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
@@ -884,6 +1536,276 @@ fn dropping_handles_never_sends_delete_or_close() {
     {
         let _workspace = client.current_session().workspace(Selector::name(""));
     }
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn creation_resolution_and_terminal_exit_wait_are_strict_typed_reads() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        let resolve = request(&mut reader);
+        assert_eq!(resolve["operation"], "session.creation.resolve");
+        assert_eq!(resolve["params"]["correlation_key"], "create-1");
+        success(
+            &mut stream,
+            &resolve,
+            json!({
+                "correlation_key": "create-1",
+                "state": "created",
+                "recovery": "none",
+                "created_path": {
+                    "kind": "workspace",
+                    "workspace_id": WORKSPACE_A
+                },
+                "generation": "g",
+                "revision": "7"
+            }),
+        );
+
+        let pending = request(&mut reader);
+        assert_eq!(pending["operation"], "terminal.wait_exit");
+        assert_eq!(pending["params"]["timeout_ms"], "0");
+        success(
+            &mut stream,
+            &pending,
+            json!({
+                "state": "pending",
+                "terminal_id": TERMINAL,
+                "lifecycle": "running",
+                "revision": "8"
+            }),
+        );
+
+        let exited = request(&mut reader);
+        assert_eq!(exited["operation"], "terminal.wait_exit");
+        assert_eq!(exited["params"]["timeout_ms"], "250");
+        success(
+            &mut stream,
+            &exited,
+            json!({
+                "state": "exited",
+                "terminal_id": TERMINAL,
+                "lifecycle": "exited",
+                "outcome": {
+                    "kind": "signal",
+                    "signal": 15,
+                    "core_dumped": false
+                },
+                "exited_at": "1000",
+                "revision": "9"
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    let resolution = session.creation().resolve("create-1").unwrap();
+    assert_eq!(resolution.state, CreationState::Created);
+    assert_eq!(resolution.recovery, CreationRecovery::None);
+    assert_eq!(resolution.created_path.unwrap().workspace_id().as_str(), WORKSPACE_A);
+    let terminal = session.terminal(TerminalId::parse(TERMINAL).unwrap());
+    assert!(matches!(terminal.wait_exit(Some(0)).unwrap(), TerminalWaitExitResult::Pending(_)));
+    match terminal.wait_exit(Some(250)).unwrap() {
+        TerminalWaitExitResult::Exited(exited) => {
+            assert_eq!(exited.exited_at, 1000);
+            assert!(matches!(
+                exited.outcome,
+                TerminalExitOutcome::Signal { signal: 15, core_dumped: false }
+            ));
+        }
+        other => panic!("unexpected wait result: {other:?}"),
+    }
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn terminal_exit_unions_reject_cross_variant_fields_and_invalid_signals() {
+    for value in [
+        json!({
+            "state": "exited",
+            "terminal_id": TERMINAL,
+            "lifecycle": "exited",
+            "outcome": {"kind": "exit", "code": -1},
+            "exited_at": "1",
+            "revision": "2"
+        }),
+        json!({
+            "state": "exited",
+            "terminal_id": TERMINAL,
+            "lifecycle": "exited",
+            "outcome": {"kind": "unknown", "reason": "registry unavailable"},
+            "exited_at": "1",
+            "revision": "2"
+        }),
+    ] {
+        serde_json::from_value::<TerminalWaitExitResult>(value).unwrap();
+    }
+    assert!(
+        serde_json::from_value::<TerminalWaitExitResult>(json!({
+            "state": "pending",
+            "terminal_id": TERMINAL,
+            "lifecycle": "exited",
+            "revision": "2"
+        }))
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<TerminalWaitExitResult>(json!({
+            "state": "exited",
+            "terminal_id": TERMINAL,
+            "lifecycle": "exited",
+            "outcome": {"kind": "signal", "signal": 0, "core_dumped": false},
+            "exited_at": "1",
+            "revision": "2"
+        }))
+        .is_err()
+    );
+}
+
+#[test]
+fn terminal_snapshot_lifecycle_invariants_are_strict() {
+    let running: TerminalSnapshot = serde_json::from_value(terminal_snapshot()).unwrap();
+    assert_eq!(running.lifecycle, TerminalLifecycle::Running);
+
+    let mut inconsistent_running = terminal_snapshot();
+    inconsistent_running["running"] = json!(false);
+    assert!(serde_json::from_value::<TerminalSnapshot>(inconsistent_running).is_err());
+
+    let mut missing_exit = terminal_snapshot();
+    missing_exit["running"] = json!(false);
+    missing_exit["lifecycle"] = json!("exited");
+    assert!(serde_json::from_value::<TerminalSnapshot>(missing_exit).is_err());
+
+    let exited: TerminalSnapshot = serde_json::from_value(json!({
+        "id": TERMINAL,
+        "tab_id": TAB,
+        "title": "finished",
+        "cols": 80,
+        "rows": 24,
+        "running": false,
+        "lifecycle": "exited",
+        "exit": {
+            "outcome": {"kind": "exit", "code": 0},
+            "exited_at": "1000",
+            "revision": "9"
+        }
+    }))
+    .unwrap();
+    assert_eq!(exited.lifecycle, TerminalLifecycle::Exited);
+    assert!(exited.exit.is_some());
+}
+
+#[test]
+fn one_call_deadline_drops_the_stale_connection_and_reconnects() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (first, _) = listener.accept().unwrap();
+        let mut first_reader = BufReader::new(first);
+        let first_request = request(&mut first_reader);
+        assert_eq!(first_request["operation"], "session.ping");
+
+        let (mut second, _) = listener.accept().unwrap();
+        let second_request = request(&mut BufReader::new(second.try_clone().unwrap()));
+        assert_eq!(second_request["operation"], "session.ping");
+        success(
+            &mut second,
+            &second_request,
+            json!({
+                "alive": true,
+                "cursor": {"generation": "g", "revision": "1"}
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let options = RequestOptions::new().with_timeout(Duration::from_millis(20)).unwrap();
+    match client.with_request_options(options, || client.current_session().ping()) {
+        Err(Error::Timeout(_)) => {}
+        other => panic!("unexpected deadline result: {other:?}"),
+    }
+    assert!(client.current_session().ping().unwrap().alive);
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn cancellation_after_mutation_dispatch_preserves_the_exact_key() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let (seen_tx, seen_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let observed = request(&mut reader);
+        seen_tx.send(observed).unwrap();
+        release_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    });
+
+    let client = connect(&path);
+    let cancellation = CancellationToken::new();
+    let worker_client = client.clone();
+    let worker_cancellation = cancellation.clone();
+    let worker = thread::spawn(move || {
+        worker_client
+            .current_session()
+            .workspace(WorkspaceId::parse(WORKSPACE_A).unwrap())
+            .rename_with(
+                "renamed",
+                MutationOptions::new("cancel-key").unwrap().with_cancellation(worker_cancellation),
+            )
+            .unwrap_err()
+    });
+    let observed = seen_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(observed["idempotency_key"], "cancel-key");
+    cancellation.cancel();
+    match worker.join().unwrap() {
+        Error::MutationTransport { operation, idempotency_key, source } => {
+            assert_eq!(operation, "workspace.rename");
+            assert_eq!(idempotency_key, "cancel-key");
+            assert!(matches!(*source, Error::Cancelled(_)));
+        }
+        other => panic!("unexpected cancellation error: {other:?}"),
+    }
+    release_tx.send(()).unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn cancellation_before_dispatch_is_not_mutation_uncertainty() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        assert_eq!(reader.read_line(&mut line).unwrap(), 0);
+    });
+
+    let client = connect(&path);
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let error = client
+        .current_session()
+        .workspace(WorkspaceId::parse(WORKSPACE_A).unwrap())
+        .rename_with(
+            "renamed",
+            MutationOptions::new("never-sent").unwrap().with_cancellation(cancellation),
+        )
+        .unwrap_err();
+    assert!(matches!(error, Error::Cancelled(_)));
     client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();

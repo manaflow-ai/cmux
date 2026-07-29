@@ -86,18 +86,6 @@ class SidebarViewId(ResourceId):
     PREFIX = "sidebar_view"
 
 
-class ProviderScopeId(ResourceId):
-    PREFIX = "provider_scope"
-
-
-class ProviderActionId(ResourceId):
-    PREFIX = "provider_action"
-
-
-class ProviderNoticeId(ResourceId):
-    PREFIX = "provider_notice"
-
-
 IdT = TypeVar("IdT", bound=ResourceId)
 SelectorKind = Literal["id", "current", "name"]
 
@@ -157,9 +145,6 @@ __all__ = [
     "PairingRequestId",
     "PaneId",
     "ProjectionId",
-    "ProviderActionId",
-    "ProviderNoticeId",
-    "ProviderScopeId",
     "ResourceId",
     "ScreenId",
     "Selector",

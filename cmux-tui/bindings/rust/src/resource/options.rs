@@ -1,18 +1,96 @@
 use super::id::*;
-use super::model::Cursor;
+use super::model::{Cursor, LayoutDocument};
 use super::typed_stream::ColorHex;
 use crate::{Error, Result};
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+/// Cloneable cancellation signal for one or more explicitly scoped calls.
+#[derive(Clone, Default)]
+pub struct CancellationToken {
+    canceled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.canceled.store(true, Ordering::Release);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.canceled.load(Ordering::Acquire)
+    }
+}
+
+impl std::fmt::Debug for CancellationToken {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CancellationToken")
+            .field("cancelled", &self.is_cancelled())
+            .finish()
+    }
+}
+
+/// Local deadline and cancellation policy for exactly one SDK call.
+#[derive(Clone, Debug, Default)]
+pub struct RequestOptions {
+    pub timeout: Option<Duration>,
+    pub cancellation: Option<CancellationToken>,
+}
+
+impl RequestOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Result<Self> {
+        if timeout.is_zero() {
+            return Err(Error::InvalidArgument(
+                "request timeout must be greater than zero".to_string(),
+            ));
+        }
+        self.timeout = Some(timeout);
+        Ok(self)
+    }
+
+    pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+
+    pub(crate) fn merged_over(&self, fallback: &Self) -> Self {
+        Self {
+            timeout: self.timeout.or(fallback.timeout),
+            cancellation: self.cancellation.clone().or_else(|| fallback.cancellation.clone()),
+        }
+    }
+
+    pub(crate) fn validate(&self) -> Result<()> {
+        if self.timeout.is_some_and(|timeout| timeout.is_zero()) {
+            return Err(Error::InvalidArgument(
+                "request timeout must be greater than zero".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
 
 /// Idempotency and optimistic-concurrency policy for one mutation.
 ///
 /// The SDK never retries mutations. Reuse the same value explicitly when
 /// retrying an operation whose outcome is unknown.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct MutationOptions {
     pub idempotency_key: String,
     pub expected_revision: Option<u64>,
+    pub request: RequestOptions,
 }
 
 impl MutationOptions {
@@ -23,7 +101,7 @@ impl MutationOptions {
                 "idempotency key must contain 1 to 128 UTF-8 bytes".to_string(),
             ));
         }
-        Ok(Self { idempotency_key, expected_revision: None })
+        Ok(Self { idempotency_key, expected_revision: None, request: RequestOptions::default() })
     }
 
     /// Generates a cryptographically random key for a single, non-retried call.
@@ -32,11 +110,30 @@ impl MutationOptions {
         getrandom::fill(&mut bytes).map_err(|error| {
             Error::Connection(format!("cannot allocate idempotency key: {error}"))
         })?;
-        Ok(Self { idempotency_key: format!("rust-{}", encode_hex(bytes)), expected_revision: None })
+        Ok(Self {
+            idempotency_key: format!("rust-{}", encode_hex(bytes)),
+            expected_revision: None,
+            request: RequestOptions::default(),
+        })
     }
 
     pub fn with_expected_revision(mut self, revision: u64) -> Self {
         self.expected_revision = Some(revision);
+        self
+    }
+
+    pub fn with_request_options(mut self, request: RequestOptions) -> Self {
+        self.request = request;
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Result<Self> {
+        self.request = self.request.with_timeout(timeout)?;
+        Ok(self)
+    }
+
+    pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
+        self.request = self.request.with_cancellation(cancellation);
         self
     }
 }
@@ -121,11 +218,12 @@ pub struct RunOptions {
     pub cwd: Option<String>,
     pub name: Option<String>,
     pub size: Option<Size>,
+    pub correlation_key: Option<String>,
 }
 
 impl RunOptions {
     pub fn command(command: RunCommand) -> Self {
-        Self { command, cwd: None, name: None, size: None }
+        Self { command, cwd: None, name: None, size: None, correlation_key: None }
     }
 
     pub fn cwd(mut self, cwd: impl Into<String>) -> Self {
@@ -148,11 +246,12 @@ impl RunOptions {
 pub struct CreateWorkspaceOptions {
     pub name: Option<String>,
     pub initial_content: InitialContent,
+    pub correlation_key: Option<String>,
 }
 
 impl Default for CreateWorkspaceOptions {
     fn default() -> Self {
-        Self { name: None, initial_content: InitialContent::Terminal }
+        Self { name: None, initial_content: InitialContent::Terminal, correlation_key: None }
     }
 }
 
@@ -165,12 +264,14 @@ pub enum InitialContent {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CreateScreenOptions {
     pub name: Option<String>,
+    pub correlation_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CreatePaneOptions {
     pub cwd: Option<String>,
     pub size: Option<Size>,
+    pub correlation_key: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -198,11 +299,12 @@ pub struct SplitOptions {
     pub ratio: Option<f64>,
     pub cwd: Option<String>,
     pub size: Option<Size>,
+    pub correlation_key: Option<String>,
 }
 
 impl SplitOptions {
     pub fn new(direction: Direction) -> Self {
-        Self { direction, ratio: None, cwd: None, size: None }
+        Self { direction, ratio: None, cwd: None, size: None, correlation_key: None }
     }
 }
 
@@ -248,31 +350,33 @@ impl LabelOptions {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MachineRenameOptions {
-    pub name: String,
-    pub confirm_close: bool,
-}
-
-impl MachineRenameOptions {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), confirm_close: false }
-    }
-
-    pub fn confirmed(mut self) -> Self {
-        self.confirm_close = true;
-        self
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayoutOptions {
-    pub document: Value,
+    pub document: LayoutDocument,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UndoLayoutOptions {
     pub confirm_close: bool,
+    pub confirmation_token: Option<String>,
+}
+
+impl UndoLayoutOptions {
+    pub(crate) fn validate(&self) -> Result<()> {
+        if self.confirm_close && self.confirmation_token.is_none() {
+            return Err(Error::InvalidArgument(
+                "confirmation token is required when confirm_close is true".to_string(),
+            ));
+        }
+        if let Some(token) = &self.confirmation_token {
+            if token.is_empty() || token.len() > 128 {
+                return Err(Error::InvalidArgument(
+                    "confirmation token must contain 1 to 128 UTF-8 bytes".to_string(),
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -285,6 +389,7 @@ pub struct TerminalCreateOptions {
     pub cwd: Option<String>,
     pub name: Option<String>,
     pub size: Option<Size>,
+    pub correlation_key: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -292,7 +397,48 @@ pub struct BrowserCreateOptions {
     pub url: String,
     pub name: Option<String>,
     pub size: Option<PixelSize>,
+    pub correlation_key: Option<String>,
 }
+
+impl BrowserCreateOptions {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self { url: url.into(), name: None, size: None, correlation_key: None }
+    }
+}
+
+pub(crate) fn validate_correlation_key(value: &str) -> Result<()> {
+    if value.is_empty() || value.len() > 128 {
+        return Err(Error::InvalidArgument(
+            "correlation key must contain 1 to 128 UTF-8 bytes".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+macro_rules! impl_correlation_key_builder {
+    ($($options:ty),+ $(,)?) => {
+        $(
+            impl $options {
+                pub fn correlation_key(mut self, value: impl Into<String>) -> Result<Self> {
+                    let value = value.into();
+                    validate_correlation_key(&value)?;
+                    self.correlation_key = Some(value);
+                    Ok(self)
+                }
+            }
+        )+
+    };
+}
+
+impl_correlation_key_builder!(
+    RunOptions,
+    CreateWorkspaceOptions,
+    CreateScreenOptions,
+    CreatePaneOptions,
+    SplitOptions,
+    TerminalCreateOptions,
+    BrowserCreateOptions,
+);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TerminalKeysOptions {
@@ -385,7 +531,8 @@ pub struct WaitOptions {
     pub timeout_ms: Option<u64>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum CopyMode {
     Screen,
     Selection,
@@ -536,7 +683,8 @@ pub struct CellPixelsOptions {
     pub height_px: u32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum CursorStyle {
     Block,
     Bar,
@@ -573,8 +721,8 @@ pub struct ProjectionOptions {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PairingDecision {
-    Approve,
-    Deny,
+    Accept,
+    Reject,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -582,7 +730,8 @@ pub struct PairingResolveOptions {
     pub decision: PairingDecision,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum NotificationLevel {
     Info,
     Warning,
@@ -612,7 +761,8 @@ pub struct NotificationListOptions {
     pub limit: Option<u32>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum AgentState {
     Working,
     Blocked,
@@ -673,84 +823,9 @@ pub struct SidebarInputOptions {
     pub data: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ProviderActionOptions {
-    pub parameters: BTreeMap<String, ProviderActionValue>,
-}
-
-impl ProviderActionOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn parameter(
-        mut self,
-        name: impl Into<String>,
-        value: impl Into<ProviderActionValue>,
-    ) -> Self {
-        self.parameters.insert(name.into(), value.into());
-        self
-    }
-}
-
-/// A provider-action argument, restricted to the public catalog's value union.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProviderActionValue {
-    String(String),
-    Integer(i32),
-}
-
-impl From<String> for ProviderActionValue {
-    fn from(value: String) -> Self {
-        Self::String(value)
-    }
-}
-
-impl From<&str> for ProviderActionValue {
-    fn from(value: &str) -> Self {
-        Self::String(value.to_string())
-    }
-}
-
-impl From<i32> for ProviderActionValue {
-    fn from(value: i32) -> Self {
-        Self::Integer(value)
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EventStreamOptions {
     pub cursor: Option<Cursor>,
-}
-
-/// Sensitive external-machine connection specifier.
-#[derive(Clone, PartialEq, Eq)]
-pub struct MachineConnectOptions {
-    specifier: String,
-}
-
-impl MachineConnectOptions {
-    pub fn new(specifier: impl Into<String>) -> Result<Self> {
-        let specifier = specifier.into();
-        if specifier.is_empty() || specifier.len() > 512 || specifier.chars().any(char::is_control)
-        {
-            return Err(Error::InvalidArgument(
-                "external machine specifier must contain 1 to 512 bytes and no control characters"
-                    .to_string(),
-            ));
-        }
-        Ok(Self { specifier })
-    }
-
-    pub(crate) fn expose_specifier(&self) -> &str {
-        &self.specifier
-    }
-}
-
-impl std::fmt::Debug for MachineConnectOptions {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("MachineConnectOptions").field("specifier", &"[REDACTED]").finish()
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

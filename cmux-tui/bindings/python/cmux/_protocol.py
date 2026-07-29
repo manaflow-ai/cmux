@@ -1,15 +1,30 @@
 from __future__ import annotations
 
 import json
+import math
 import queue
 import secrets
 import threading
+import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Generic, Iterator, Mapping, Optional, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    Iterator,
+    Mapping,
+    Optional,
+    Protocol,
+    TypeVar,
+)
 
 from ._operations import Operations
 from .errors import (
+    CancelledError,
     CmuxConnectionError,
+    ConfirmationRequiredDetails,
+    ConfirmationRequiredError,
     MutationIndeterminateDetails,
     MutationIndeterminateError,
     ProtocolError,
@@ -17,7 +32,7 @@ from .errors import (
     StreamError,
     TimeoutError,
 )
-from .ids import StreamId
+from .ids import PaneId, StreamId
 from .models import Cursor, StreamEnd, StreamItem
 from .transport import JsonLineConnection
 
@@ -29,6 +44,11 @@ MAX_STREAM_MESSAGES = 256
 MAX_STREAM_BYTES = 16 * 1024 * 1024
 ItemT = TypeVar("ItemT")
 _END = object()
+
+
+class _CancellationSignal(Protocol):
+    def is_set(self) -> bool:
+        ...
 
 
 def _decimal(value: Any, label: str) -> str:
@@ -197,7 +217,20 @@ class ProtocolConnection:
         *,
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
+        cancel_event: Optional[_CancellationSignal] = None,
     ) -> Any:
+        if cancel_event is not None and cancel_event.is_set():
+            raise CancelledError(operation, dispatched=False)
+        wait_for = self.timeout if timeout is None else timeout
+        if (
+            isinstance(wait_for, bool)
+            or not isinstance(wait_for, (int, float))
+        ):
+            raise TypeError("request timeout must be a number")
+        if not math.isfinite(wait_for) or wait_for <= 0:
+            raise ValueError(
+                "request timeout must be finite and greater than zero"
+            )
         request_id = f"request-{secrets.token_hex(16)}"
         envelope: Dict[str, Any] = {
             "protocol": PROTOCOL,
@@ -225,17 +258,26 @@ class ProtocolConnection:
             if self._closed:
                 raise self._closed_error()
             self._pending[request_id] = pending
+        deadline = time.monotonic() + wait_for
         try:
             self._wire.send(envelope)
         except BaseException:
             with self._lock:
                 self._pending.pop(request_id, None)
             raise
-        wait_for = self.timeout if timeout is None else timeout
-        if not pending.event.wait(wait_for):
-            with self._lock:
-                self._pending.pop(request_id, None)
-            raise TimeoutError(f"{operation} did not respond before the deadline")
+        while not pending.event.is_set():
+            if cancel_event is not None and cancel_event.is_set():
+                with self._lock:
+                    self._pending.pop(request_id, None)
+                raise CancelledError(operation, dispatched=True)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                with self._lock:
+                    self._pending.pop(request_id, None)
+                raise TimeoutError(
+                    f"{operation} did not respond before the deadline"
+                )
+            pending.event.wait(min(remaining, 0.01))
         if pending.error is not None:
             raise pending.error
         assert pending.value is not None
@@ -246,6 +288,9 @@ class ProtocolConnection:
         operation: str,
         params: Mapping[str, Any],
         decode_item: Callable[[Any], ItemT],
+        *,
+        timeout: Optional[float] = None,
+        cancel_event: Optional[_CancellationSignal] = None,
     ) -> "ResourceStream[ItemT]":
         stream_id = StreamId(f"stream_{secrets.token_hex(16)}")
         cancel_route = {
@@ -269,7 +314,12 @@ class ProtocolConnection:
         stream_params = dict(params)
         stream_params["stream_id"] = str(stream_id)
         try:
-            self.request(operation, stream_params)
+            self.request(
+                operation,
+                stream_params,
+                timeout=timeout,
+                cancel_event=cancel_event,
+            )
         except BaseException:
             with self._lock:
                 self._streams.pop(stream_id, None)
@@ -281,18 +331,22 @@ class ProtocolConnection:
             state = self._streams.get(stream_id)
             if state is None:
                 return
-        self.request(
-            Operations.STREAM_CANCEL.wire_name,
-            {
-                **state.cancel_route,
-                "stream": str(stream_id),
-            },
-        )
         state.finish(
             StreamEnd(stream_id, "canceled"),
             purge=True,
         )
         self.forget_stream(stream_id)
+        try:
+            self.request(
+                Operations.STREAM_CANCEL.wire_name,
+                {
+                    **state.cancel_route,
+                    "stream": str(stream_id),
+                },
+                timeout=min(max(self.timeout, 0.1), 1.0),
+            )
+        except (CmuxConnectionError, TimeoutError):
+            pass
 
     def forget_stream(self, stream_id: StreamId) -> None:
         with self._lock:
@@ -432,7 +486,23 @@ class ResourceStream(Generic[ItemT], Iterator[StreamItem[ItemT]]):
         return self
 
     def __next__(self) -> StreamItem[ItemT]:
-        value = self._state.values.get()
+        return self.next()
+
+    def next(self, timeout: Optional[float] = None) -> StreamItem[ItemT]:
+        if timeout is not None and (
+            isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+        ):
+            raise TypeError("stream timeout must be a number")
+        if timeout is not None and (
+            not math.isfinite(timeout) or timeout <= 0
+        ):
+            raise ValueError("stream timeout must be finite and greater than zero")
+        try:
+            value = self._state.values.get(timeout=timeout)
+        except queue.Empty as error:
+            raise TimeoutError(
+                "stream did not produce an item before the deadline"
+            ) from error
         if value is _END:
             end = self._state.end
             if end is not None and end.reason in {"error", "gap"}:
@@ -506,6 +576,38 @@ def _decode_resource_error(error: Mapping[str, Any]) -> ResourceError:
     ):
         raise ProtocolError("error response has invalid structured fields")
     details = error["details"]
+    if code == "confirmation.required":
+        if (
+            retryable
+            or not isinstance(details, Mapping)
+            or set(details)
+            != {"confirmation_token", "revision", "closes_panes"}
+        ):
+            raise ProtocolError("confirmation.required has invalid details")
+        token = details.get("confirmation_token")
+        panes = details.get("closes_panes")
+        if (
+            not isinstance(token, str)
+            or not token
+            or len(token.encode("utf-8")) > 128
+            or not isinstance(panes, list)
+            or not panes
+        ):
+            raise ProtocolError("confirmation.required has invalid details")
+        try:
+            revision = _decimal(
+                details.get("revision"),
+                "confirmation.required revision",
+            )
+            closes_panes = tuple(PaneId(value) for value in panes)
+        except (TypeError, ValueError) as error:
+            raise ProtocolError(
+                "confirmation.required has invalid details"
+            ) from error
+        return ConfirmationRequiredError(
+            message,
+            ConfirmationRequiredDetails(token, revision, closes_panes),
+        )
     if code == "mutation.indeterminate":
         if (
             retryable

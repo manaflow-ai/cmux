@@ -120,9 +120,6 @@ opaque_id!(AgentId, "agent");
 opaque_id!(FrontendProjectionId, "projection");
 opaque_id!(PairingRequestId, "pairing");
 opaque_id!(SidebarViewId, "sidebar_view");
-opaque_id!(ProviderScopeId, "provider_scope");
-opaque_id!(ProviderActionId, "provider_action");
-opaque_id!(ProviderNoticeId, "provider_notice");
 opaque_id!(StreamId, "stream");
 
 /// An explicit ID, current-resource, or exact-name selector.
