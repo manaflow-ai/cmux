@@ -288,8 +288,17 @@ struct WorkspaceDetailView: View {
                 ) { reconnectToWorkspaceMac() }
             }
         }
-        .onChange(of: connectionStatus, initial: true) { previous, status in
-            presentConnectionStatusToast(from: previous, to: status)
+        .onChange(
+            of: ConnectionStatusChange(workspaceID: workspace.id, status: connectionStatus),
+            initial: true
+        ) { previous, current in
+            // Split layout reuses this view across selection changes, so a
+            // cross-workspace status diff is a selection, not a recovery;
+            // treat it like an initial attach.
+            let previousStatus = previous.workspaceID == current.workspaceID
+                ? previous.status
+                : current.status
+            presentConnectionStatusToast(from: previousStatus, to: current.status)
         }
         .onChange(of: toasts.isEnabled) { _, isEnabled in
             // Flipping the flag doesn't re-fire the status onChange, so a
@@ -358,6 +367,11 @@ struct WorkspaceDetailView: View {
             }
             await store.reconnectOrRefresh()
         }
+    }
+
+    private struct ConnectionStatusChange: Equatable {
+        var workspaceID: MobileWorkspacePreview.ID
+        var status: MobileMacConnectionStatus
     }
 
     private func presentConnectionStatusToast(
