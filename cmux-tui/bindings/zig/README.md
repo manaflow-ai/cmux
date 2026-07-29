@@ -41,8 +41,6 @@ Each mutation sends one caller-visible idempotency key and never retries
 implicitly. Typed mutation results contain their concrete value, generation,
 revision, and replayed fields. Results never echo the request’s idempotency
 key. Creation results expose typed workspace, terminal, or browser paths.
-`JsonMutationResult` exists only for provider actions whose catalog result is
-arbitrary `JsonValue`.
 
 If a fully written mutation loses its response to a timeout or disconnect,
 the call returns `error.MutationTransportUncertain`. Inspect
@@ -115,26 +113,53 @@ try replayVt(state.value.state);
 state, wait, copy, process, viewer resize/release, renderer grants, and empty
 history-clear mutation receipts all have owned typed results.
 
-Client metadata and cell-pixel controls, browser navigation and viewer
-resizing, and screen, pane, and tab rename/clear results are typed too.
-Provider action results remain arbitrary catalog `JsonValue` and are the only
-resource facade result that requires explicit raw-value traversal.
+Terminal snapshots expose `lifecycle` and an optional durable `exit` record.
+The exit record preserves exited-at time, revision, and an `exited`,
+`signaled`, or unknown outcome. `waitExit` returns either a pending lifecycle
+or the same durable exit record, so callers do not infer process completion
+from attachment closure.
 
-Names preserve exact bytes. Workspace and machine `clearName` set the empty
-string. Screen, pane, and tab `clearName` send JSON null.
+Client metadata and cell-pixel controls, browser navigation, notifications,
+agents, pairing requests, frontend projections, sidebar views, layouts, and
+every other catalog operation return concrete typed values. Names preserve
+exact bytes. Workspace `clearName` sets the empty string. Screen, pane, and
+tab `clearName` send JSON null.
 `ClientMetadataUpdate` distinguishes unchanged, set (including empty), and
 clear states.
+
+Destructive layout undo uses the capability returned by
+`confirmation.required`:
+
+```zig
+const details = switch (client.lastResourceError().?.details) {
+    .confirmation_required => |value| value,
+    else => return error.UnexpectedResourceError,
+};
+var undone = try screen.undoLayout(
+    .{
+        .confirm_close = true,
+        .confirmation_token = details.confirmation_token,
+    },
+    cmux.MutationOptions.random().expecting(details.revision),
+);
+defer undone.deinit();
+```
 
 `SessionEvent` is a tagged `snapshot`, `delta`, or `unknown` union. Delta
 changes are tagged `upsert`, `delete`, or `unknown` values. Unknown variants
 retain their discriminator and complete raw object. A malformed recognized
-variant is a decode error. Other typed streams retain unknown payload fields
-through each item’s `extra` value. Cancellation waits for both the response
-and terminal stream end, including end-before-response ordering. Structured
-end errors retain code, message, typed redacted details, and retryability.
-Provider notices are acknowledged explicitly with
-`try provider_scope.notice(id).acknowledge(sequence)` after the consumer
-paints the notice; iteration never acknowledges delivery.
+variant is a decode error. Terminal, browser, and sidebar attachment streams
+use the same unknown-discriminator rule. Stream queues are bounded to 256
+items and 16 MiB. Overflow closes only that stream connection and reports a
+gap with `sdk.buffer_overflow` recovery. Cancellation waits for both the
+response and terminal stream end, including end-before-response ordering.
+Structured end errors retain code, message, typed redacted details, and
+retryability.
+
+Attachments use dedicated connections. Resize and release methods live on
+`TerminalAttachmentStream` and `BrowserAttachmentStream`, so connection-local
+viewer state cannot accidentally be changed through the control client.
+Attach options accept a resume cursor and render preferences.
 
 Catalog errors use the `ResourceErrorDetails` tagged union. For example,
 `selector_ambiguous.candidates` contains typed `ErrorResourceId` values and
@@ -159,8 +184,8 @@ defer grant.deinit();
 try renderer.connect(grant.endpoint(), grant.token().reveal());
 ```
 
-Grant data is available only through accessors. Formatting a grant, token, or
-provider credential prints `[REDACTED]`.
+Grant data is available only through accessors. Formatting a grant or token
+prints `[REDACTED]`.
 
 Generated protocol-v10 compatibility APIs remain available only under the
 explicit raw namespace:
@@ -173,6 +198,10 @@ const RawClient = cmux.raw.Client;
 Every returned owned snapshot, list, result, mutation result, stream item,
 stream, and renderer grant documents ownership through a `deinit` method.
 Request slices are borrowed only until the call returns.
+
+Protocol `decimal` values are accepted only as canonical unsigned base-10
+JSON strings, including the full `u64` range. Numeric JSON, signs, and leading
+zeroes are rejected. Ordinary integer fields remain JSON numbers.
 
 Build and test:
 

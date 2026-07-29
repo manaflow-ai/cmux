@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step(
         "test",
-        "Run codec, transport, lifecycle, provider, and API tests",
+        "Run codec, transport, lifecycle, stream, and API tests",
     );
     test_step.dependOn(&run_unit_tests.step);
 

@@ -57,7 +57,7 @@ test "package consumer imports handwritten root and generated raw module" {
     try std.testing.expect(@hasDecl(cmux.Terminal, "readHistory"));
     try std.testing.expect(@hasDecl(cmux.Terminal, "processInfo"));
     try std.testing.expect(@hasDecl(cmux, "TerminalScreenResult"));
-    try std.testing.expect(@hasDecl(cmux, "JsonMutationResult"));
+    try std.testing.expect(@hasDecl(cmux, "UndoLayoutOptions"));
     try std.testing.expect(
         @hasDecl(cmux, "MutationTransportUncertain"),
     );
