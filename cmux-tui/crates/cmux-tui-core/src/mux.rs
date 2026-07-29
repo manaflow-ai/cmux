@@ -13920,6 +13920,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn exited_sidebar_surface_transfers_its_shutdown_owner_before_removal() {
+        let mux = test_mux();
+        mux.configure_sidebar_plugin(Some(SidebarPluginOptions {
+            command: vec!["sidebar-test".into()],
+            cwd: None,
+        }));
+        let status = mux.ensure_sidebar_plugin(80, 24, true);
+        let surface_id = status.surface.expect("sidebar surface was not created");
+        let surface = mux.surface(surface_id).unwrap();
+        surface.set_server_shutdown_failure_for_test(true);
+
+        mux.surface_exited(surface_id);
+
+        assert!(mux.surface(surface_id).is_none());
+        assert_eq!(
+            mux.shutdown_owners.len(),
+            1,
+            "sidebar exit discarded its still-retryable process owner"
+        );
+
+        surface.set_server_shutdown_failure_for_test(false);
+        let _ = mux.terminate_staged_shutdown_owners_until(Instant::now() + Duration::from_secs(1));
+        assert!(mux.shutdown_owners.is_empty());
+    }
+
     #[cfg(unix)]
     #[test]
     fn rejected_terminal_admission_does_not_launch_a_process() {
