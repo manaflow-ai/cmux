@@ -92,6 +92,23 @@ class DarwinCompatibilityTests(unittest.TestCase):
         ).read_text()
         self.assertGreaterEqual(workflow.count("dist/macos-deployment-target.txt"), 2)
 
+    def test_intel_release_uses_the_apple_linker_deployment_target(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[3]
+            / ".github"
+            / "workflows"
+            / "cmux-tui-build-package.yml"
+        ).read_text()
+        cross_build = workflow.split("- name: Build cmux-tui (cross)", 1)[1].split(
+            "- name: Stage binary", 1
+        )[0]
+
+        self.assertIn('if [[ "$RUNNER_OS" == macOS ]]; then', cross_build)
+        self.assertIn(
+            "cargo build -p cmux-tui --bin cmux-tui --release --locked --target",
+            cross_build,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
