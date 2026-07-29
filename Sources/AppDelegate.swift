@@ -541,7 +541,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
         var closeObserver: WindowCloseObserver?
-        weak var window: NSWindow?
+        private(set) var hasEverOwnedWindow: Bool
+        weak var window: NSWindow? {
+            didSet {
+                if window != nil {
+                    hasEverOwnedWindow = true
+                }
+            }
+        }
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
 
@@ -560,6 +567,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.sidebarSelectionState = sidebarSelectionState
             self.fileExplorerState = fileExplorerState
             self.cmuxConfigStore = cmuxConfigStore
+            self.hasEverOwnedWindow = window != nil
             self.window = window
             self.keyboardFocusCoordinator = MainWindowFocusController(
                 windowId: windowId,
