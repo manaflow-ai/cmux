@@ -3156,6 +3156,77 @@ import Testing
     }
 
     @Test
+    func notificationFeedRefreshStopsAfterOneTrailingStaleSnapshot()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "bounded-notification-refresh",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_588)
+        )
+        let router = LivenessHostRouter()
+        await router.scriptNotificationFeedRevisions([2, 2, 2, 2])
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "mmpool",
+            authenticatedInstanceTag: "mmpool",
+            supportedHostCapabilities: ["notification.feed.v1"],
+            actionCapabilities: .none,
+            displayName: "Mac B"
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = subscription
+        shell.notificationFeedKnownRevisionsByMac["mac-b"] = 3
+
+        shell.scheduleSecondaryNotificationFeedRefresh(
+            macDeviceID: "mac-b",
+            client: client,
+            displayName: "Mac B"
+        )
+
+        #expect(await router.waitForCount(
+            of: "notification.feed.list",
+            atLeast: 2
+        ))
+        #expect(try await pollUntil {
+            shell.notificationFeedRefreshTasksByMac["mac-b"] == nil
+        })
+        for _ in 0 ..< 8 { await Task.yield() }
+        #expect(await router.count(of: "notification.feed.list") == 2)
+        #expect(shell.notificationFeedSnapshotsByMac["mac-b"] == nil)
+
+        subscription.detachKeepingClient()
+        shell.secondaryMacSubscriptions["mac-b"] = nil
+        await client.disconnect()
+    }
+
+    @Test
     func controlGapActivationDoesNotAwaitTrailingNotificationCoalescer()
         async throws {
         let route = try CmxAttachRoute(

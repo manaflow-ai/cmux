@@ -13,6 +13,7 @@ nonisolated private let mobileShellNotificationFeedTitleByteLimit = 512
 nonisolated private let mobileShellNotificationFeedSubtitleByteLimit = 512
 nonisolated private let mobileShellNotificationFeedBodyByteLimit = 2_048
 nonisolated private let mobileShellNotificationFeedMetadataByteLimit = 512
+nonisolated private let mobileShellNotificationFeedMaximumImmediateRefreshAttempts = 2
 
 @MainActor
 extension MobileShellComposite {
@@ -579,20 +580,42 @@ extension MobileShellComposite {
         notificationFeedRefreshTokensByMac[macDeviceID] = token
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
+            var attemptCount = 0
+            var shouldStartFreshPass = false
             repeat {
                 self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
+                let requiredRevision =
+                    self.notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
                 _ = await self.fetchNotificationFeed(
                     macDeviceID: macDeviceID,
                     client: client,
-                    displayName: displayName
+                    displayName: displayName,
+                    requiredRevision: requiredRevision
                 )
-            } while !Task.isCancelled
+                attemptCount += 1
+                let knownRevision =
+                    self.notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
+                shouldStartFreshPass =
+                    self.notificationFeedRefreshPendingMacIDs.contains(macDeviceID)
+                    && knownRevision > requiredRevision
+            } while attemptCount
+                < mobileShellNotificationFeedMaximumImmediateRefreshAttempts
+                && !Task.isCancelled
                 && self.notificationFeedClient(for: macDeviceID) === client
                 && self.notificationFeedRefreshPendingMacIDs.contains(macDeviceID)
             guard self.notificationFeedRefreshTokensByMac[macDeviceID] == token else { return }
             self.notificationFeedRefreshTasksByMac[macDeviceID] = nil
             self.notificationFeedRefreshTokensByMac[macDeviceID] = nil
             self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
+            if shouldStartFreshPass,
+               !Task.isCancelled,
+               self.notificationFeedClient(for: macDeviceID) === client {
+                _ = self.scheduleNotificationFeedRefresh(
+                    macDeviceID: macDeviceID,
+                    client: client,
+                    displayName: displayName
+                )
+            }
             let connectedTargetIDs = Set(self.notificationFeedTargets().map(\.macDeviceID))
             let hasConnectedRefreshInFlight = self.notificationFeedRefreshTasksByMac.keys.contains {
                 connectedTargetIDs.contains($0)
