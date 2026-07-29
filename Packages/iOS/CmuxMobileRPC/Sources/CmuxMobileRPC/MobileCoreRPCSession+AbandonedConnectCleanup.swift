@@ -8,13 +8,17 @@ extension MobileCoreRPCSession {
             do {
                 let candidate = try await connecting.task.value
                 if let cancellationCloseTask =
-                    connecting.cancellationClose.task {
+                    await connecting.cancellationClose.task(
+                        waitForStart: !connecting.completed
+                    ) {
                     await cancellationCloseTask.value
                 }
                 await candidate.close()
             } catch {
                 if let cancellationCloseTask =
-                    connecting.cancellationClose.task {
+                    await connecting.cancellationClose.task(
+                        waitForStart: !connecting.completed
+                    ) {
                     await cancellationCloseTask.value
                 }
             }
@@ -57,6 +61,7 @@ extension MobileCoreRPCSession {
         lease: MobileRPCConnectAttemptLease?,
         cancellationClose: MobileRPCConnectCancellationClose =
             MobileRPCConnectCancellationClose(),
+        waitsForCancellationClose: Bool = false,
         cleanupTimeoutNanoseconds: UInt64,
         lateCloseTimeoutNanoseconds: UInt64
     ) {
@@ -67,7 +72,8 @@ extension MobileCoreRPCSession {
             let cleaner = MobileRPCAbandonedConnectCleaner(
                 registry: connectAttemptRegistry,
                 lease: lease,
-                cancellationClose: cancellationClose
+                cancellationClose: cancellationClose,
+                waitsForCancellationClose: waitsForCancellationClose
             )
             do {
                 let candidate = try await taskTimeout.value(

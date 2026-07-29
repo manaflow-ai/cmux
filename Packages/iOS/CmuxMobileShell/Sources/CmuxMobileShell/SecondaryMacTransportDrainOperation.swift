@@ -5,15 +5,10 @@ import Foundation
 /// start another transport close or completion watcher for that peer.
 @MainActor
 final class SecondaryMacTransportDrainOperation {
-    private struct Waiter {
-        let continuation: CheckedContinuation<Bool, Never>
-        let timeoutTask: Task<Void, Never>
-    }
-
     let task: Task<Void, Never>
     var completionTask: Task<Void, Never>?
     private var hasCompleted = false
-    private var waiters: [UUID: Waiter] = [:]
+    private var waiters: [UUID: SecondaryMacTransportDrainWaiter] = [:]
 
     init(task: Task<Void, Never>) {
         self.task = task
@@ -44,7 +39,7 @@ final class SecondaryMacTransportDrainOperation {
                     }
                     self?.resolveWaiter(waiterID, value: false)
                 }
-                waiters[waiterID] = Waiter(
+                waiters[waiterID] = SecondaryMacTransportDrainWaiter(
                     continuation: continuation,
                     timeoutTask: timeoutTask
                 )

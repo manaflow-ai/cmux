@@ -981,9 +981,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Coalesced retry after any control-pool dial or stream failure. One task
     /// covers all online Macs so simultaneous cellular path loss does not fan
     /// out timers.
-    private var secondaryAggregationRetryTask: Task<Void, Never>?
+    var secondaryAggregationRetryTask: Task<Void, Never>?
     private var secondaryAggregationRetryTaskGeneration = UUID()
-    private var secondaryAggregationRetryMacIDs: Set<String> = []
+    var secondaryAggregationRetryMacIDs: Set<String> = []
     private var secondaryAggregationRetryEvidenceGeneration: UInt64 = 0
     private var secondaryAggregationRetryState = MobileControlPoolRetryState()
     /// One timer owner for the whole online control pool. Each tick reasserts
@@ -3429,7 +3429,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// so a stale reply (the user re-paired while the request was in flight)
     /// can never adopt the OLD Mac's identity onto the NEW connection's
     /// empty-id ticket or persist a mixed paired-Mac record.
-    private func applyHostReportedIdentity(
+    func applyHostReportedIdentity(
         client: MobileCoreRPCClient,
         deviceID: String?,
         displayName: String?,
@@ -5335,7 +5335,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func cancelSecondaryAggregationRetry() {
+    func cancelSecondaryAggregationRetry() {
         secondaryAggregationRetryEvidenceGeneration &+= 1
         secondaryAggregationRetryTaskGeneration = UUID()
         secondaryAggregationRetryTask?.cancel()
@@ -5950,33 +5950,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markSecondaryMacUnavailable(macID)
     }
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
-    func beginSecondaryRetryBackoffForTesting(
-        macDeviceIDs: Set<String> = ["test-retry"]
-    ) {
-        scheduleSecondaryAggregationRetry(macDeviceIDs: macDeviceIDs)
-    }
-    func resetSecondaryRetryBackoffForTesting() {
-        cancelSecondaryAggregationRetry()
-    }
-    func secondaryRetryBackoffIsScheduledForTesting() -> Bool {
-        secondaryAggregationRetryTask != nil
-    }
-    func secondaryRetryMacIDsForTesting() -> Set<String> {
-        secondaryAggregationRetryMacIDs
-    }
-    func applyHostReportedIdentityForTesting(
-        deviceID: String,
-        displayName: String?,
-        instanceTag: String?
-    ) async {
-        guard let client = remoteClient else { return }
-        await applyHostReportedIdentity(
-            client: client,
-            deviceID: deviceID,
-            displayName: displayName,
-            instanceTag: instanceTag
-        )
-    }
     func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
         connections[macDeviceID]?.route
     }

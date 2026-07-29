@@ -9,13 +9,7 @@ import Foundation
 /// stable physical endpoint boundary. Cleanup debt therefore survives hint,
 /// credential, and anonymous ticket identity changes.
 struct MobileRPCConnectAttemptKey: Hashable, Sendable {
-    enum EndpointIdentity: Hashable, Sendable {
-        case iroh(endpointID: String)
-        case hostPort(kind: String, host: String, port: Int)
-        case url(kind: String, endpoint: String)
-    }
-
-    let endpointIdentity: EndpointIdentity
+    let endpointIdentity: MobileRPCConnectEndpointIdentity
 
     init(route: CmxAttachRoute) {
         switch route.endpoint {

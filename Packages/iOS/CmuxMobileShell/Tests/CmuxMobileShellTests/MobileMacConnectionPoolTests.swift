@@ -1319,7 +1319,7 @@ import Testing
         )
         #expect(shell.workspacesByMac["mac-permanent-refresh"]?.status
             == .unavailable)
-        #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
+        #expect(shell.secondaryAggregationRetryTask == nil)
         let workspaceRequests = await router.count(of: "workspace.list")
         clock.advance(by: .seconds(60))
         for _ in 0 ..< 8 { await Task.yield() }
@@ -1426,11 +1426,11 @@ import Testing
                 "mac-authority-replacement"
             ] != nil
         )
-        #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
+        #expect(shell.secondaryAggregationRetryTask == nil)
 
         await closeGate.release()
         #expect(try await pollUntil {
-            shell.secondaryRetryBackoffIsScheduledForTesting()
+            shell.secondaryAggregationRetryTask != nil
         })
         clock.advance(by: .seconds(2))
         #expect(await router.waitForCount(
@@ -1565,18 +1565,18 @@ import Testing
         }
         await pairedStore.waitUntilLoadStarted(teamID: "team-1")
 
-        shell.beginSecondaryRetryBackoffForTesting(
+        shell.scheduleSecondaryAggregationRetry(
             macDeviceIDs: ["mac-newer-targeted-failure"]
         )
-        #expect(shell.secondaryRetryBackoffIsScheduledForTesting())
+        #expect(shell.secondaryAggregationRetryTask != nil)
 
         await pairedStore.release(teamID: "team-1")
         await staleFullPass.value
 
-        #expect(shell.secondaryRetryBackoffIsScheduledForTesting())
-        #expect(shell.secondaryRetryMacIDsForTesting()
+        #expect(shell.secondaryAggregationRetryTask != nil)
+        #expect(shell.secondaryAggregationRetryMacIDs
             == ["mac-newer-targeted-failure"])
-        shell.resetSecondaryRetryBackoffForTesting()
+        shell.cancelSecondaryAggregationRetry()
     }
 
     @Test func staleRetryCompletionCannotClearReplacementTimer() async throws {
@@ -1586,22 +1586,22 @@ import Testing
             presence: IdlePresence(),
             controlPlaneSchedulingClock: clock
         )
-        shell.beginSecondaryRetryBackoffForTesting()
+        shell.scheduleSecondaryAggregationRetry(macDeviceIDs: ["test-retry"])
         #expect(try await pollUntil { clock.sleeperCount == 1 })
 
         // Wake the old task without yielding the MainActor, then replace it.
         // Its continuation is queued but must not own the new timer's state.
         clock.advance(by: .seconds(2))
-        shell.resetSecondaryRetryBackoffForTesting()
-        shell.beginSecondaryRetryBackoffForTesting()
+        shell.cancelSecondaryAggregationRetry()
+        shell.scheduleSecondaryAggregationRetry(macDeviceIDs: ["test-retry"])
         #expect(try await pollUntil { clock.sleeperCount == 1 })
         for _ in 0..<10 {
             await Task.yield()
         }
 
-        #expect(shell.secondaryRetryBackoffIsScheduledForTesting())
-        #expect(shell.secondaryRetryMacIDsForTesting() == ["test-retry"])
-        shell.resetSecondaryRetryBackoffForTesting()
+        #expect(shell.secondaryAggregationRetryTask != nil)
+        #expect(shell.secondaryAggregationRetryMacIDs == ["test-retry"])
+        shell.cancelSecondaryAggregationRetry()
     }
 
     @Test func sharedCooldownQueuesNewlyOnlineMac() async throws {
@@ -1646,7 +1646,7 @@ import Testing
             teamIDProvider: { "team-1" },
             controlPlaneSchedulingClock: clock
         )
-        shell.beginSecondaryRetryBackoffForTesting()
+        shell.scheduleSecondaryAggregationRetry(macDeviceIDs: ["test-retry"])
         shell.applyPresenceUpdate(
             Self.snapshot([
                 Self.instance(
@@ -1663,10 +1663,10 @@ import Testing
         )
 
         #expect(try await pollUntil {
-            shell.secondaryRetryMacIDsForTesting().contains("mac-new")
+            shell.secondaryAggregationRetryMacIDs.contains("mac-new")
         })
         #expect(shell.secondaryMacSubscriptions["mac-new"] == nil)
-        shell.resetSecondaryRetryBackoffForTesting()
+        shell.cancelSecondaryAggregationRetry()
     }
 
     @Test func aggregationDefersSubscriptionClaimedByPromotion() async throws {
@@ -1909,7 +1909,7 @@ import Testing
         }
 
         #expect(shell.secondaryMacSubscriptions["mac-permanent"] == nil)
-        #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
+        #expect(shell.secondaryAggregationRetryTask == nil)
     }
 
     @Test func transientTransportFailureStillSchedulesPoolRetry() async throws {
@@ -1972,7 +1972,7 @@ import Testing
             attempts.count > 0
         })
         #expect(try await pollUntil {
-            shell.secondaryRetryBackoffIsScheduledForTesting()
+            shell.secondaryAggregationRetryTask != nil
         })
         #expect(shell.secondaryMacSubscriptions["mac-transient"] == nil)
     }
@@ -2050,7 +2050,7 @@ import Testing
         })
         #expect(await router.count(of: "mobile.host.status") == 2)
         #expect(tokenRequests.count > 0)
-        #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
+        #expect(shell.secondaryAggregationRetryTask == nil)
         if let subscription = shell.secondaryMacSubscriptions["mac-auth"] {
             subscription.cancel()
             shell.secondaryMacSubscriptions["mac-auth"] = nil
@@ -3838,7 +3838,7 @@ import Testing
         #expect(shell.liveMacConnections.first {
             $0.macDeviceID == "mac-a"
         }?.role == .control)
-        #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
+        #expect(shell.secondaryAggregationRetryTask == nil)
         #expect(shell.workspacesByMac["mac-b"]?.status == .connected)
         #expect(shell.connections["mac-b"]?.supportedHostCapabilities
             == Set(targetCapabilities))
@@ -3894,7 +3894,8 @@ import Testing
         shell.activeRoute = route
         shell.supportedHostCapabilities = ["workspace.actions.v1"]
 
-        await shell.applyHostReportedIdentityForTesting(
+        await shell.applyHostReportedIdentity(
+            client: client,
             deviceID: "mac-late",
             displayName: "Late Mac",
             instanceTag: "mmpool"
@@ -4189,7 +4190,8 @@ import Testing
         shell.activeRoute = route
         shell.secondaryMacSubscriptions["mac-claimed"] = control
 
-        await shell.applyHostReportedIdentityForTesting(
+        await shell.applyHostReportedIdentity(
+            client: anonymousClient,
             deviceID: "mac-claimed",
             displayName: "Untrusted Alias",
             instanceTag: nil
@@ -4364,8 +4366,8 @@ import Testing
             supportedHostCapabilities: [],
             actionCapabilities: .none
         )
-        shell.beginSecondaryRetryBackoffForTesting()
-        #expect(shell.secondaryRetryBackoffIsScheduledForTesting())
+        shell.scheduleSecondaryAggregationRetry(macDeviceIDs: ["test-retry"])
+        #expect(shell.secondaryAggregationRetryTask != nil)
         shell.applyPresenceUpdate(
             Self.snapshot([
                 Self.instance(

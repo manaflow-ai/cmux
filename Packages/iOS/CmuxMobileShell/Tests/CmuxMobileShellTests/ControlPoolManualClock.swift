@@ -1,31 +1,11 @@
 import Foundation
 
 final class ControlPoolManualClock: Clock, @unchecked Sendable {
-    struct Instant: InstantProtocol {
-        var offset: Duration
-
-        func advanced(by duration: Duration) -> Instant {
-            Instant(offset: offset + duration)
-        }
-
-        func duration(to other: Instant) -> Duration {
-            other.offset - offset
-        }
-
-        static func < (lhs: Instant, rhs: Instant) -> Bool {
-            lhs.offset < rhs.offset
-        }
-    }
-
-    private struct Sleeper {
-        let id: UUID
-        let deadline: Instant
-        let continuation: UnsafeContinuation<Void, any Error>
-    }
+    typealias Instant = ControlPoolManualClockInstant
 
     private let lock = NSLock()
     private var current = Instant(offset: .zero)
-    private var sleepers: [Sleeper] = []
+    private var sleepers: [ControlPoolManualClockSleeper] = []
     private var preCancelledIDs: Set<UUID> = []
 
     var now: Instant { lock.withLock { current } }
@@ -45,7 +25,7 @@ final class ControlPoolManualClock: Clock, @unchecked Sendable {
                     lock.unlock()
                     continuation.resume()
                 } else {
-                    sleepers.append(Sleeper(
+                    sleepers.append(ControlPoolManualClockSleeper(
                         id: id,
                         deadline: deadline,
                         continuation: continuation

@@ -1,14 +1,10 @@
 internal import CMUXMobileCore
 
 struct MobileRPCAbandonedConnectCleaner: Sendable {
-    struct CandidateClose: Sendable {
-        let completedWithinDeadline: Bool
-        let task: Task<Void, any Error>
-    }
-
     let registry: MobileRPCConnectAttemptRegistry
     let lease: MobileRPCConnectAttemptLease?
     let cancellationClose: MobileRPCConnectCancellationClose
+    let waitsForCancellationClose: Bool
 
     func finishLateAbandonedCandidate(
         task: Task<any CmxByteTransport, any Error>,
@@ -44,13 +40,17 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
             do {
                 let candidate = try await task.value
                 if let cancellationCloseTask =
-                    cancellationClose.task {
+                    await cancellationClose.task(
+                        waitForStart: waitsForCancellationClose
+                    ) {
                     await cancellationCloseTask.value
                 }
                 await candidate.close()
             } catch {
                 if let cancellationCloseTask =
-                    cancellationClose.task {
+                    await cancellationClose.task(
+                        waitForStart: waitsForCancellationClose
+                    ) {
                     await cancellationCloseTask.value
                 }
             }
@@ -68,9 +68,11 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
     func closeCandidate(
         _ candidate: any CmxByteTransport,
         timeoutNanoseconds: UInt64
-    ) async -> CandidateClose {
+    ) async -> MobileRPCAbandonedCandidateClose {
         let closeTask = Task<Void, any Error> {
-            if let cancellationCloseTask = cancellationClose.task {
+            if let cancellationCloseTask = await cancellationClose.task(
+                waitForStart: waitsForCancellationClose
+            ) {
                 await cancellationCloseTask.value
             }
             await candidate.close()
@@ -80,12 +82,12 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
                 closeTask,
                 timeoutNanoseconds: timeoutNanoseconds
             )
-            return CandidateClose(
+            return MobileRPCAbandonedCandidateClose(
                 completedWithinDeadline: true,
                 task: closeTask
             )
         } catch {
-            return CandidateClose(
+            return MobileRPCAbandonedCandidateClose(
                 completedWithinDeadline: false,
                 task: closeTask
             )
@@ -95,7 +97,9 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
     func finishCancellationClose(
         timeoutNanoseconds: UInt64
     ) async {
-        guard let cancellationCloseTask = cancellationClose.task else {
+        guard let cancellationCloseTask = await cancellationClose.task(
+            waitForStart: waitsForCancellationClose
+        ) else {
             await clearFinishedConnectGate()
             return
         }

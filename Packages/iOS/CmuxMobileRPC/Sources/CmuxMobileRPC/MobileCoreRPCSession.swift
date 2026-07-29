@@ -159,13 +159,17 @@ actor MobileCoreRPCSession {
                     do {
                         let candidate = try await connecting.task.value
                         if let cancellationCloseTask =
-                            connecting.cancellationClose.task {
+                            await connecting.cancellationClose.task(
+                                waitForStart: !connecting.completed
+                            ) {
                             await cancellationCloseTask.value
                         }
                         await candidate.close()
                     } catch {
                         if let cancellationCloseTask =
-                            connecting.cancellationClose.task {
+                            await connecting.cancellationClose.task(
+                                waitForStart: !connecting.completed
+                            ) {
                             await cancellationCloseTask.value
                         }
                     }
@@ -480,7 +484,9 @@ actor MobileCoreRPCSession {
                     try await withTaskCancellationHandler {
                         try await candidate.connect()
                     } onCancel: {
-                        cancellationClose.start(candidate)
+                        Task {
+                            await cancellationClose.start(candidate)
+                        }
                     }
                     // A cancellation-ignoring transport must still return its
                     // late candidate to the existing abandoned-connect cleanup
@@ -706,6 +712,7 @@ actor MobileCoreRPCSession {
             lease: lease,
             cancellationClose: cancellationClose
                 ?? MobileRPCConnectCancellationClose(),
+            waitsForCancellationClose: true,
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )
@@ -737,6 +744,7 @@ actor MobileCoreRPCSession {
             lease: lease,
             cancellationClose: cancellationClose
                 ?? MobileRPCConnectCancellationClose(),
+            waitsForCancellationClose: true,
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )
