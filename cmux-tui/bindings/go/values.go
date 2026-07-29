@@ -127,6 +127,24 @@ type Cursor struct {
 	Revision   Decimal `json:"revision"`
 }
 
+func (c *Cursor) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Generation *string  `json:"generation"`
+		Revision   *Decimal `json:"revision"`
+	}
+	if err := strictDecode(data, &wire); err != nil {
+		return err
+	}
+	if wire.Generation == nil || len(*wire.Generation) < 1 ||
+		len(*wire.Generation) > 128 || wire.Revision == nil {
+		return fmt.Errorf(
+			"cursor requires a 1 to 128 character generation and revision",
+		)
+	}
+	*c = Cursor{Generation: *wire.Generation, Revision: *wire.Revision}
+	return nil
+}
+
 type MutationResult[T any] struct {
 	Value      T
 	Generation string
@@ -134,7 +152,145 @@ type MutationResult[T any] struct {
 	Replayed   bool
 }
 
+// JSONValue marks catalog fields that intentionally accept arbitrary JSON.
+// Decoding uses json.Number so integers are never silently rounded.
+type JSONValue = any
+
 type EmptyResult struct{}
+
+type MutationReceipt = MutationResult[EmptyResult]
+
+type StreamOpened struct {
+	StreamID StreamID `json:"stream_id"`
+	Cursor   *Cursor  `json:"cursor,omitempty"`
+}
+
+type CreationResolutionState string
+
+const (
+	CreationResolutionPending       CreationResolutionState = "pending"
+	CreationResolutionCreated       CreationResolutionState = "created"
+	CreationResolutionNotApplied    CreationResolutionState = "not_applied"
+	CreationResolutionIndeterminate CreationResolutionState = "indeterminate"
+)
+
+type CreationRecovery string
+
+const (
+	CreationRetrySameIdempotencyKey CreationRecovery = "retry_same_idempotency_key"
+	CreationRetryNewIdempotencyKey  CreationRecovery = "retry_new_idempotency_key"
+	CreationWait                    CreationRecovery = "wait"
+	CreationNoRecovery              CreationRecovery = "none"
+	CreationDoNotRetry              CreationRecovery = "do_not_retry"
+)
+
+type CreationResolution struct {
+	CorrelationKey string                  `json:"correlation_key"`
+	State          CreationResolutionState `json:"state"`
+	Recovery       CreationRecovery        `json:"recovery"`
+	Operation      *string                 `json:"operation,omitempty"`
+	IdempotencyKey *string                 `json:"idempotency_key,omitempty"`
+	CreatedPath    *CreatedPath            `json:"created_path,omitempty"`
+	Generation     *string                 `json:"generation,omitempty"`
+	Revision       *Decimal                `json:"revision,omitempty"`
+}
+
+func (r *CreationResolution) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		CorrelationKey *string                  `json:"correlation_key"`
+		State          *CreationResolutionState `json:"state"`
+		Recovery       *CreationRecovery        `json:"recovery"`
+		Operation      *string                  `json:"operation,omitempty"`
+		IdempotencyKey *string                  `json:"idempotency_key,omitempty"`
+		CreatedPath    *CreatedPath             `json:"created_path,omitempty"`
+		Generation     *string                  `json:"generation,omitempty"`
+		Revision       *Decimal                 `json:"revision,omitempty"`
+	}
+	if err := strictDecode(data, &wire); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for _, field := range []string{
+		"operation", "idempotency_key", "created_path", "generation", "revision",
+	} {
+		if raw, ok := fields[field]; ok &&
+			bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("creation resolution %s cannot be null", field)
+		}
+	}
+	if wire.CorrelationKey == nil ||
+		len(*wire.CorrelationKey) < 1 || len(*wire.CorrelationKey) > 128 {
+		return fmt.Errorf(
+			"creation resolution requires a 1 to 128 character correlation_key",
+		)
+	}
+	if wire.State == nil || wire.Recovery == nil {
+		return fmt.Errorf("creation resolution requires state and recovery")
+	}
+	if wire.Operation != nil && *wire.Operation == "" {
+		return fmt.Errorf("creation resolution operation must be non-empty")
+	}
+	if wire.IdempotencyKey != nil &&
+		(len(*wire.IdempotencyKey) < 1 || len(*wire.IdempotencyKey) > 128) {
+		return fmt.Errorf(
+			"creation resolution idempotency_key must contain 1 to 128 characters",
+		)
+	}
+	if wire.Generation != nil &&
+		(len(*wire.Generation) < 1 || len(*wire.Generation) > 128) {
+		return fmt.Errorf(
+			"creation resolution generation must contain 1 to 128 characters",
+		)
+	}
+	switch *wire.State {
+	case CreationResolutionPending:
+		if *wire.Recovery != CreationWait {
+			return fmt.Errorf("pending creation resolution requires wait recovery")
+		}
+	case CreationResolutionCreated:
+		if *wire.Recovery != CreationNoRecovery ||
+			wire.CreatedPath == nil || wire.Generation == nil ||
+			wire.Revision == nil {
+			return fmt.Errorf(
+				"created resolution requires none recovery, created_path, generation, and revision",
+			)
+		}
+	case CreationResolutionNotApplied:
+		if *wire.Recovery != CreationRetrySameIdempotencyKey &&
+			*wire.Recovery != CreationRetryNewIdempotencyKey {
+			return fmt.Errorf(
+				"not_applied creation resolution requires a retry recovery",
+			)
+		}
+	case CreationResolutionIndeterminate:
+		if *wire.Recovery != CreationDoNotRetry {
+			return fmt.Errorf(
+				"indeterminate creation resolution requires do_not_retry recovery",
+			)
+		}
+	default:
+		return fmt.Errorf("unsupported creation resolution state %q", *wire.State)
+	}
+	*r = CreationResolution{
+		CorrelationKey: *wire.CorrelationKey,
+		State:          *wire.State,
+		Recovery:       *wire.Recovery,
+		Operation:      wire.Operation,
+		IdempotencyKey: wire.IdempotencyKey,
+		CreatedPath:    wire.CreatedPath,
+		Generation:     wire.Generation,
+		Revision:       wire.Revision,
+	}
+	return nil
+}
+
+type PingResult struct {
+	Alive  bool   `json:"alive"`
+	Cursor Cursor `json:"cursor"`
+}
 
 type ShutdownResult struct {
 	Accepted bool `json:"accepted"`
@@ -160,8 +316,388 @@ type PairingResolutionResult struct {
 	PairingRequest PairingRequestSnapshot `json:"pairing_request"`
 }
 
-type Document struct {
-	Fields map[string]any
+type PaneNeighborResult struct {
+	Pane *PaneSnapshot `json:"pane,omitempty"`
+}
+
+type TerminalScreenResult struct {
+	Text          string               `json:"text"`
+	Cols          uint16               `json:"cols"`
+	Rows          uint16               `json:"rows"`
+	CursorRow     uint16               `json:"cursor_row"`
+	CursorColumn  uint16               `json:"cursor_col"`
+	CursorVisible bool                 `json:"cursor_visible"`
+	Extra         map[string]JSONValue `json:"extra,omitempty"`
+}
+
+type TerminalStateResult struct {
+	State []byte `json:"state_base64"`
+	Cols  uint16 `json:"cols"`
+	Rows  uint16 `json:"rows"`
+}
+
+type TerminalHistoryResult struct {
+	Start Decimal     `json:"start"`
+	Next  *Decimal    `json:"next,omitempty"`
+	Rows  []RenderRow `json:"rows"`
+}
+
+type TerminalWaitResult struct {
+	Matched bool   `json:"matched"`
+	Text    string `json:"text"`
+}
+
+type TerminalLifecycle string
+
+const (
+	TerminalLifecycleLaunching TerminalLifecycle = "launching"
+	TerminalLifecycleRunning   TerminalLifecycle = "running"
+	TerminalLifecycleExited    TerminalLifecycle = "exited"
+)
+
+type TerminalExitKind string
+
+const (
+	TerminalExitedNormally  TerminalExitKind = "exit"
+	TerminalExitedBySignal  TerminalExitKind = "signal"
+	TerminalExitKindUnknown TerminalExitKind = "unknown"
+)
+
+type TerminalExitOutcome interface {
+	terminalExitOutcome()
+}
+
+type TerminalExitCode struct {
+	Kind TerminalExitKind `json:"kind"`
+	Code int32            `json:"code"`
+}
+
+type TerminalExitSignal struct {
+	Kind       TerminalExitKind `json:"kind"`
+	Signal     int32            `json:"signal"`
+	CoreDumped bool             `json:"core_dumped"`
+}
+
+type TerminalExitUnknown struct {
+	Kind   TerminalExitKind `json:"kind"`
+	Reason string           `json:"reason"`
+}
+
+func (TerminalExitCode) terminalExitOutcome()    {}
+func (TerminalExitSignal) terminalExitOutcome()  {}
+func (TerminalExitUnknown) terminalExitOutcome() {}
+
+type TerminalExit struct {
+	Outcome  TerminalExitOutcome `json:"outcome"`
+	ExitedAt Decimal             `json:"exited_at"`
+	Revision Decimal             `json:"revision"`
+}
+
+func (e *TerminalExit) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Outcome  json.RawMessage `json:"outcome"`
+		ExitedAt *Decimal        `json:"exited_at"`
+		Revision *Decimal        `json:"revision"`
+	}
+	if err := strictDecode(data, &wire); err != nil {
+		return err
+	}
+	if len(wire.Outcome) == 0 ||
+		bytes.Equal(bytes.TrimSpace(wire.Outcome), []byte("null")) ||
+		wire.ExitedAt == nil || wire.Revision == nil {
+		return fmt.Errorf("terminal exit omitted a required field")
+	}
+	outcome, err := decodeTerminalExitOutcome(wire.Outcome)
+	if err != nil {
+		return err
+	}
+	*e = TerminalExit{
+		Outcome: outcome, ExitedAt: *wire.ExitedAt, Revision: *wire.Revision,
+	}
+	return nil
+}
+
+type TerminalWaitExitState string
+
+const (
+	TerminalWaitExitStatePending TerminalWaitExitState = "pending"
+	TerminalWaitExitStateExited  TerminalWaitExitState = "exited"
+)
+
+type TerminalWaitExitResult interface {
+	terminalWaitExitResult()
+}
+
+type TerminalWaitExitPending struct {
+	State      TerminalWaitExitState `json:"state"`
+	TerminalID TerminalID            `json:"terminal_id"`
+	Lifecycle  TerminalLifecycle     `json:"lifecycle"`
+	Revision   Decimal               `json:"revision"`
+}
+
+type TerminalWaitExitExited struct {
+	State      TerminalWaitExitState `json:"state"`
+	TerminalID TerminalID            `json:"terminal_id"`
+	Lifecycle  TerminalLifecycle     `json:"lifecycle"`
+	Outcome    TerminalExitOutcome   `json:"outcome"`
+	ExitedAt   Decimal               `json:"exited_at"`
+	Revision   Decimal               `json:"revision"`
+}
+
+func (TerminalWaitExitPending) terminalWaitExitResult() {}
+func (TerminalWaitExitExited) terminalWaitExitResult()  {}
+
+func decodeTerminalExitOutcome(data json.RawMessage) (TerminalExitOutcome, error) {
+	var discriminator struct {
+		Kind *TerminalExitKind `json:"kind"`
+	}
+	if err := json.Unmarshal(data, &discriminator); err != nil {
+		return nil, err
+	}
+	if discriminator.Kind == nil {
+		return nil, fmt.Errorf("terminal exit outcome requires kind")
+	}
+	switch *discriminator.Kind {
+	case TerminalExitedNormally:
+		var wire struct {
+			Kind *TerminalExitKind `json:"kind"`
+			Code *int32            `json:"code"`
+		}
+		if err := strictDecode(data, &wire); err != nil {
+			return nil, err
+		}
+		if wire.Kind == nil || wire.Code == nil {
+			return nil, fmt.Errorf("terminal exit outcome requires kind and code")
+		}
+		return TerminalExitCode{Kind: *wire.Kind, Code: *wire.Code}, nil
+	case TerminalExitedBySignal:
+		var wire struct {
+			Kind       *TerminalExitKind `json:"kind"`
+			Signal     *int32            `json:"signal"`
+			CoreDumped *bool             `json:"core_dumped"`
+		}
+		if err := strictDecode(data, &wire); err != nil {
+			return nil, err
+		}
+		if wire.Kind == nil || wire.Signal == nil || *wire.Signal < 1 ||
+			wire.CoreDumped == nil {
+			return nil, fmt.Errorf(
+				"terminal signal outcome requires a positive signal and core_dumped",
+			)
+		}
+		return TerminalExitSignal{
+			Kind: *wire.Kind, Signal: *wire.Signal, CoreDumped: *wire.CoreDumped,
+		}, nil
+	case TerminalExitKindUnknown:
+		var wire struct {
+			Kind   *TerminalExitKind `json:"kind"`
+			Reason *string           `json:"reason"`
+		}
+		if err := strictDecode(data, &wire); err != nil {
+			return nil, err
+		}
+		if wire.Kind == nil || wire.Reason == nil || *wire.Reason == "" {
+			return nil, fmt.Errorf(
+				"unknown terminal exit outcome requires a non-empty reason",
+			)
+		}
+		return TerminalExitUnknown{
+			Kind: *wire.Kind, Reason: *wire.Reason,
+		}, nil
+	default:
+		return nil, fmt.Errorf(
+			"unsupported terminal exit outcome kind %q",
+			*discriminator.Kind,
+		)
+	}
+}
+
+func decodeTerminalWaitExitResult(
+	data json.RawMessage,
+) (TerminalWaitExitResult, error) {
+	var discriminator struct {
+		State *TerminalWaitExitState `json:"state"`
+	}
+	if err := json.Unmarshal(data, &discriminator); err != nil {
+		return nil, err
+	}
+	if discriminator.State == nil {
+		return nil, fmt.Errorf("terminal wait exit result requires state")
+	}
+	switch *discriminator.State {
+	case TerminalWaitExitStatePending:
+		var wire struct {
+			State      *TerminalWaitExitState `json:"state"`
+			TerminalID *TerminalID            `json:"terminal_id"`
+			Lifecycle  *TerminalLifecycle     `json:"lifecycle"`
+			Revision   *Decimal               `json:"revision"`
+		}
+		if err := strictDecode(data, &wire); err != nil {
+			return nil, err
+		}
+		if wire.State == nil || wire.TerminalID == nil ||
+			wire.Lifecycle == nil || wire.Revision == nil {
+			return nil, fmt.Errorf(
+				"pending terminal wait exit result omitted a required field",
+			)
+		}
+		if *wire.Lifecycle != TerminalLifecycleLaunching &&
+			*wire.Lifecycle != TerminalLifecycleRunning {
+			return nil, fmt.Errorf(
+				"pending terminal wait exit result has invalid lifecycle %q",
+				*wire.Lifecycle,
+			)
+		}
+		return TerminalWaitExitPending{
+			State: *wire.State, TerminalID: *wire.TerminalID,
+			Lifecycle: *wire.Lifecycle, Revision: *wire.Revision,
+		}, nil
+	case TerminalWaitExitStateExited:
+		var wire struct {
+			State      *TerminalWaitExitState `json:"state"`
+			TerminalID *TerminalID            `json:"terminal_id"`
+			Lifecycle  *TerminalLifecycle     `json:"lifecycle"`
+			Outcome    json.RawMessage        `json:"outcome"`
+			ExitedAt   *Decimal               `json:"exited_at"`
+			Revision   *Decimal               `json:"revision"`
+		}
+		if err := strictDecode(data, &wire); err != nil {
+			return nil, err
+		}
+		if wire.State == nil || wire.TerminalID == nil ||
+			wire.Lifecycle == nil || len(wire.Outcome) == 0 ||
+			bytes.Equal(bytes.TrimSpace(wire.Outcome), []byte("null")) ||
+			wire.ExitedAt == nil || wire.Revision == nil {
+			return nil, fmt.Errorf(
+				"exited terminal wait exit result omitted a required field",
+			)
+		}
+		if *wire.Lifecycle != TerminalLifecycleExited {
+			return nil, fmt.Errorf(
+				"exited terminal wait exit result has invalid lifecycle %q",
+				*wire.Lifecycle,
+			)
+		}
+		outcome, err := decodeTerminalExitOutcome(wire.Outcome)
+		if err != nil {
+			return nil, err
+		}
+		return TerminalWaitExitExited{
+			State: *wire.State, TerminalID: *wire.TerminalID,
+			Lifecycle: *wire.Lifecycle, Outcome: outcome,
+			ExitedAt: *wire.ExitedAt, Revision: *wire.Revision,
+		}, nil
+	default:
+		return nil, fmt.Errorf(
+			"unsupported terminal wait exit state %q",
+			*discriminator.State,
+		)
+	}
+}
+
+type TerminalCopyMode string
+
+const (
+	TerminalCopyScreen     TerminalCopyMode = "screen"
+	TerminalCopySelection  TerminalCopyMode = "selection"
+	TerminalCopyScrollback TerminalCopyMode = "scrollback"
+)
+
+type TerminalCopyResult struct {
+	Mode TerminalCopyMode `json:"mode"`
+	Text string           `json:"text"`
+}
+
+type ProcessInfoResult struct {
+	PID        uint32   `json:"pid"`
+	Executable *string  `json:"executable,omitempty"`
+	Argv       []string `json:"argv"`
+	CWD        *string  `json:"cwd,omitempty"`
+	Children   []uint32 `json:"children"`
+}
+
+type CellPixelsResult struct {
+	WidthPX          uint32            `json:"width_px"`
+	HeightPX         uint32            `json:"height_px"`
+	ResizedTerminals []TerminalID      `json:"resized_terminals"`
+	Failures         map[string]string `json:"failures"`
+}
+
+type ViewerResizeResult struct {
+	Accepted bool `json:"accepted"`
+	Size     Size `json:"size"`
+}
+
+type BrowserViewerResizeResult struct {
+	Accepted bool      `json:"accepted"`
+	Size     PixelSize `json:"size"`
+}
+
+type Document map[string]JSONValue
+
+type RenderCursorStyle string
+
+const (
+	RenderCursorBlock     RenderCursorStyle = "block"
+	RenderCursorUnderline RenderCursorStyle = "underline"
+	RenderCursorBar       RenderCursorStyle = "bar"
+)
+
+type RenderUnderline string
+
+const (
+	RenderUnderlineSingle RenderUnderline = "single"
+	RenderUnderlineDouble RenderUnderline = "double"
+	RenderUnderlineCurly  RenderUnderline = "curly"
+	RenderUnderlineDotted RenderUnderline = "dotted"
+	RenderUnderlineDashed RenderUnderline = "dashed"
+)
+
+type RenderCursor struct {
+	X       uint16            `json:"x"`
+	Y       uint16            `json:"y"`
+	Style   RenderCursorStyle `json:"style"`
+	Blink   bool              `json:"blink"`
+	Visible bool              `json:"visible"`
+	Color   *string           `json:"color"`
+}
+
+type RenderRun struct {
+	Text       string           `json:"text"`
+	Foreground *string          `json:"fg"`
+	Background *string          `json:"bg"`
+	Attributes uint32           `json:"attrs"`
+	Underline  *RenderUnderline `json:"underline,omitempty"`
+	WidthHint  *uint16          `json:"width_hint,omitempty"`
+}
+
+type RenderRow struct {
+	Row  uint16      `json:"row"`
+	Runs []RenderRun `json:"runs"`
+}
+
+type RenderSnapshot struct {
+	Size           Size         `json:"size"`
+	Cursor         RenderCursor `json:"cursor"`
+	DefaultFG      string       `json:"default_fg"`
+	DefaultBG      string       `json:"default_bg"`
+	ScrollbackRows uint32       `json:"scrollback_rows"`
+	Rows           []RenderRow  `json:"rows"`
+}
+
+type RenderPatch struct {
+	Cursor         RenderCursor `json:"cursor"`
+	FullReset      bool         `json:"full_reset"`
+	Size           *Size        `json:"size,omitempty"`
+	DefaultFG      *string      `json:"default_fg,omitempty"`
+	DefaultBG      *string      `json:"default_bg,omitempty"`
+	ScrollbackRows *uint32      `json:"scrollback_rows,omitempty"`
+	Rows           []RenderRow  `json:"rows"`
+}
+
+type RenderScroll struct {
+	Offset   Decimal `json:"offset"`
+	AtBottom bool    `json:"at_bottom"`
 }
 
 // Secret is an explicitly revealable sensitive wire string. Formatting never
@@ -238,6 +774,8 @@ type RendererGrant struct {
 	TTLMS      uint32
 }
 
+type RendererGrantResult = RendererGrant
+
 func (g RendererGrant) String() string {
 	return fmt.Sprintf(
 		"RendererGrant{Endpoint:%q TerminalID:%s Token:<redacted> Rights:%v TTLMS:%d}",
@@ -262,19 +800,20 @@ type SessionEvent struct {
 	Kind             string
 	Cursor           *Cursor
 	ResetReason      *string
-	Snapshot         map[string]any
+	Snapshot         *ResourceSnapshot
 	PreviousRevision Decimal
 	Revision         Decimal
-	Changes          []map[string]any
-	Raw              map[string]any
+	Changes          []ResourceChange
+	Raw              Document
 }
 
 type TerminalAttachmentItem struct {
-	Kind       string
-	TerminalID TerminalID
-	Render     map[string]any
-	Scroll     map[string]any
-	Raw        map[string]any
+	Kind           string
+	TerminalID     TerminalID
+	RenderSnapshot *RenderSnapshot
+	RenderPatch    *RenderPatch
+	Scroll         *RenderScroll
+	Raw            Document
 }
 
 type BrowserAttachmentItem struct {
@@ -288,23 +827,24 @@ type BrowserAttachmentItem struct {
 	Frame    []byte
 	WidthPX  uint32
 	HeightPX uint32
-	Raw      map[string]any
+	Raw      Document
 }
 
 type SidebarViewItem struct {
-	Kind          string
-	SidebarView   *SidebarViewSnapshot
-	SidebarViewID SidebarViewID
-	Render        map[string]any
-	Scroll        map[string]any
-	Raw           map[string]any
+	Kind           string
+	SidebarView    *SidebarViewSnapshot
+	SidebarViewID  SidebarViewID
+	RenderSnapshot *RenderSnapshot
+	RenderPatch    *RenderPatch
+	Scroll         *RenderScroll
+	Raw            Document
 }
 
 type ProviderNoticeItem struct {
 	Kind     string
 	Notice   *ProviderNotice
 	Sequence Decimal
-	Raw      map[string]any
+	Raw      Document
 }
 
 type CreatedPath struct {
@@ -385,8 +925,8 @@ func (p *CreatedPath) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func decodeJSONFields(raw json.RawMessage) (map[string]any, error) {
-	var fields map[string]any
+func decodeJSONFields(raw json.RawMessage) (map[string]JSONValue, error) {
+	var fields map[string]JSONValue
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if err := decoder.Decode(&fields); err != nil {

@@ -218,6 +218,14 @@ func (c *Client) do(
 	if idempotencyKey != "" {
 		request[wirev1.FieldIdempotencyKey] = idempotencyKey
 	}
+	uncertain := func(err error) error {
+		if operation.Class != wirev1.Mutation {
+			return err
+		}
+		return &MutationTransportUncertainError{
+			Operation: operation.Name, IdempotencyKey: idempotencyKey, Err: err,
+		}
+	}
 	waiter := make(chan pendingResponse, 1)
 	c.mu.Lock()
 	if c.closed {
@@ -230,13 +238,17 @@ func (c *Client) do(
 	}
 	c.pending[requestID] = waiter
 	c.mu.Unlock()
-	if err := c.write(ctx, operation.Name, request); err != nil {
+	mayHaveSent, err := c.write(ctx, operation.Name, request)
+	if err != nil {
 		c.removePending(requestID)
+		if mayHaveSent {
+			return uncertain(err)
+		}
 		return err
 	}
 	handleResponse := func(response pendingResponse) error {
 		if response.err != nil {
-			return response.err
+			return uncertain(response.err)
 		}
 		if !response.envelope.OK {
 			if response.envelope.Error == nil {
@@ -264,7 +276,7 @@ func (c *Client) do(
 		return handleResponse(response)
 	case <-ctx.Done():
 		c.removePending(requestID)
-		return ctx.Err()
+		return uncertain(ctx.Err())
 	case <-c.done:
 		// Preserve a response that raced with transport shutdown.
 		select {
@@ -274,23 +286,34 @@ func (c *Client) do(
 			}
 		default:
 		}
-		return c.connectionError()
+		return uncertain(c.connectionError())
 	}
 }
 
-func (c *Client) write(ctx context.Context, operation string, value any) error {
+func (c *Client) write(
+	ctx context.Context,
+	operation string,
+	value any,
+) (bool, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {
-		return &ProtocolError{Message: "cannot encode " + operation + ": " + err.Error()}
+		return false, &ProtocolError{
+			Message: "cannot encode " + operation + ": " + err.Error(),
+		}
 	}
 	if len(encoded) > c.maxRequestBytes {
-		return fmt.Errorf("%w: %s request exceeds %d bytes", ErrInvalidArgument, operation, c.maxRequestBytes)
+		return false, fmt.Errorf(
+			"%w: %s request exceeds %d bytes",
+			ErrInvalidArgument,
+			operation,
+			c.maxRequestBytes,
+		)
 	}
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return false, ctx.Err()
 	case <-c.done:
-		return c.connectionError()
+		return false, c.connectionError()
 	case <-c.writer:
 	}
 	defer func() { c.writer <- struct{}{} }()
@@ -299,20 +322,28 @@ func (c *Client) write(ctx context.Context, operation string, value any) error {
 		deadline = contextDeadline
 	}
 	if err := c.conn.SetWriteDeadline(deadline); err != nil {
-		return &TransportError{Operation: operation, Err: err}
+		return false, &TransportError{Operation: operation, Err: err}
 	}
 	encoded = append(encoded, '\n')
+	written := false
 	for len(encoded) > 0 {
 		if err := ctx.Err(); err != nil {
-			return err
+			return written, err
 		}
 		count, err := c.conn.Write(encoded)
+		written = written || count > 0
 		if err != nil {
-			return &TransportError{Operation: operation, Err: err}
+			return written, &TransportError{Operation: operation, Err: err}
+		}
+		if count == 0 {
+			return written, &TransportError{
+				Operation: operation,
+				Err:       io.ErrNoProgress,
+			}
 		}
 		encoded = encoded[count:]
 	}
-	return nil
+	return true, nil
 }
 
 func (c *Client) readLoop() {

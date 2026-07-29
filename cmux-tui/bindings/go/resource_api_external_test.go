@@ -27,6 +27,37 @@ func TestResourceCollectionsExposePointerHandles(t *testing.T) {
 	var _ func(*cmux.Session, context.Context, string) ([]*cmux.Browser, error) = (*cmux.Session).FindBrowsersByName
 }
 
+func TestCatalogResultMethodsCompileForExternalConsumers(t *testing.T) {
+	var _ func(*cmux.Session, context.Context, cmux.SessionSnapshotOptions) (cmux.ResourceSnapshot, error) = (*cmux.Session).Snapshot
+	var _ func(*cmux.Session, context.Context, string, cmux.SessionCreationResolveOptions) (cmux.CreationResolution, error) = (*cmux.Session).ResolveCreation
+	var _ func(*cmux.Session, context.Context, cmux.SessionPingOptions) (cmux.PingResult, error) = (*cmux.Session).Ping
+	var _ func(*cmux.Session, context.Context, cmux.SessionShutdownOptions) (cmux.MutationResult[cmux.ShutdownResult], error) = (*cmux.Session).Shutdown
+	var _ func(*cmux.Session, context.Context, cmux.SessionReloadConfigOptions) (cmux.MutationResult[cmux.ReloadConfigResult], error) = (*cmux.Session).ReloadConfig
+	var _ func(*cmux.Session, context.Context, cmux.SessionTerminalDefaultsUpdateOptions) (cmux.MutationResult[cmux.TerminalDefaultsSnapshot], error) = (*cmux.Session).UpdateTerminalDefaults
+	var _ func(*cmux.Terminal, context.Context, cmux.TerminalScreenReadOptions) (cmux.TerminalScreenResult, error) = (*cmux.Terminal).ReadScreen
+	var _ func(*cmux.Terminal, context.Context, cmux.TerminalStateReadOptions) (cmux.TerminalStateResult, error) = (*cmux.Terminal).ReadState
+	var _ func(*cmux.Terminal, context.Context, cmux.TerminalHistoryReadOptions) (cmux.TerminalHistoryResult, error) = (*cmux.Terminal).ReadHistory
+	var _ func(*cmux.Terminal, context.Context, cmux.TerminalWaitOptions) (cmux.TerminalWaitResult, error) = (*cmux.Terminal).Wait
+	var _ func(*cmux.Terminal, context.Context, cmux.TerminalWaitExitOptions) (cmux.TerminalWaitExitResult, error) = (*cmux.Terminal).WaitExit
+	var _ func(*cmux.Terminal, context.Context, cmux.TerminalCopyOptions) (cmux.TerminalCopyResult, error) = (*cmux.Terminal).Copy
+	var _ func(*cmux.Terminal, context.Context, cmux.TerminalProcessGetOptions) (cmux.ProcessInfoResult, error) = (*cmux.Terminal).Process
+	var _ func(*cmux.Terminal, context.Context, cmux.TerminalViewerResizeOptions) (cmux.ViewerResizeResult, error) = (*cmux.Terminal).ResizeViewer
+	var _ func(*cmux.Browser, context.Context, cmux.BrowserViewerResizeOptions) (cmux.BrowserViewerResizeResult, error) = (*cmux.Browser).ResizeViewer
+	var _ func(*cmux.ConnectedClient, context.Context, cmux.ConnectedClientCellPixelsSetOptions) (cmux.CellPixelsResult, error) = (*cmux.ConnectedClient).SetCellPixels
+	var _ func(*cmux.Machine, context.Context, cmux.MachineRenameOptions) (cmux.MutationResult[*cmux.Machine], error) = (*cmux.Machine).Rename
+	var _ func(*cmux.Workspace, context.Context, cmux.WorkspaceRenameOptions) (cmux.MutationResult[*cmux.Workspace], error) = (*cmux.Workspace).Rename
+	var _ func(*cmux.Screen, context.Context, cmux.ScreenRenameOptions) (cmux.MutationResult[*cmux.Screen], error) = (*cmux.Screen).Rename
+	var _ func(*cmux.Pane, context.Context, cmux.PaneRenameOptions) (cmux.MutationResult[*cmux.Pane], error) = (*cmux.Pane).Rename
+	var _ func(*cmux.Tab, context.Context, cmux.TabRenameOptions) (cmux.MutationResult[*cmux.Tab], error) = (*cmux.Tab).Rename
+	var _ func(*cmux.Terminal, context.Context, cmux.TerminalMoveOptions) (cmux.MutationResult[*cmux.Terminal], error) = (*cmux.Terminal).Move
+	var _ func(*cmux.Browser, context.Context, cmux.BrowserNavigateOptions) (cmux.MutationResult[*cmux.Browser], error) = (*cmux.Browser).Navigate
+	var _ func(*cmux.PairingRequest, context.Context, cmux.PairingRequestResolveOptions) (cmux.MutationResult[*cmux.PairingRequest], error) = (*cmux.PairingRequest).Resolve
+	var _ func(*cmux.FrontendProjection, context.Context, cmux.FrontendProjectionPutOptions) (cmux.MutationResult[*cmux.FrontendProjection], error) = (*cmux.FrontendProjection).Put
+	var _ func(*cmux.Agent, context.Context, cmux.AgentReportOptions) (cmux.MutationResult[*cmux.Agent], error) = (*cmux.Agent).Report
+	var _ func(*cmux.SidebarView, context.Context, cmux.SidebarViewResizeOptions) (cmux.MutationResult[*cmux.SidebarView], error) = (*cmux.SidebarView).Resize
+	var _ func(*cmux.ProviderScope, context.Context, cmux.ProviderWorkspaceMarkOptions) (cmux.MutationResult[*cmux.Workspace], error) = (*cmux.ProviderScope).MarkWorkspace
+}
+
 func externalConsumerCompiles(
 	client *cmux.Client,
 	highLevel cmux.WorkspaceID,

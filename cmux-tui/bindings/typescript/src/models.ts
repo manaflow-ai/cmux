@@ -21,7 +21,14 @@ import type {
   WorkspaceId,
 } from "./ids.js";
 
-export type Document = Readonly<Record<string, unknown>>;
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+export type Document = Readonly<Record<string, JsonValue>>;
 export type ProviderActionValue = string | number;
 
 class Secret {
@@ -60,6 +67,8 @@ export class RendererGrant extends Secret {
     super(value, "renderer grant");
   }
 }
+
+export type RendererGrantResult = RendererGrant;
 
 /** Provider credential whose value is never publicly enumerable. */
 export class ProviderCredential extends Secret {
@@ -128,6 +137,7 @@ export interface TabSnapshot extends Snapshot<TabId> {
   readonly contentKind: "terminal" | "browser";
   readonly contentId: TerminalId | BrowserId;
 }
+export type TerminalLifecycle = "launching" | "running" | "exited";
 export interface TerminalSnapshot extends Snapshot<TerminalId> {
   readonly tabId: TabId;
   readonly title: string;
@@ -135,6 +145,8 @@ export interface TerminalSnapshot extends Snapshot<TerminalId> {
   readonly cols: number;
   readonly rows: number;
   readonly running: boolean;
+  readonly lifecycle: TerminalLifecycle;
+  readonly exit?: TerminalExit;
 }
 export interface BrowserSnapshot extends Snapshot<BrowserId> {
   readonly tabId: TabId;
@@ -205,7 +217,7 @@ export interface PairingRequestSnapshot extends Snapshot<PairingRequestId> {
 }
 export interface FrontendProjectionSnapshot extends Snapshot<ProjectionId> {
   readonly sessionId: SessionId;
-  readonly projection: unknown;
+  readonly projection: JsonValue;
 }
 export interface SidebarViewSnapshot extends Snapshot<SidebarViewId> {
   readonly sessionId: SessionId;
@@ -254,6 +266,146 @@ export interface MutationResult<Value> {
   readonly generation: string;
   readonly revision: DecimalString;
   readonly replayed: boolean;
+}
+
+/** Commit metadata for a mutation whose catalog value is `EmptyResult`. */
+export type MutationReceipt = MutationResult<void>;
+
+export interface PingResult {
+  readonly alive: boolean;
+  readonly cursor: Cursor;
+}
+
+export interface ShutdownResult {
+  readonly accepted: boolean;
+}
+
+export interface ReloadConfigResult {
+  readonly reloaded: boolean;
+  readonly warnings: readonly string[];
+}
+
+export interface TerminalDefaultsSnapshot {
+  readonly foreground?: string | null;
+  readonly background?: string | null;
+  readonly cursor?: string | null;
+  readonly selectionBackground?: string | null;
+  readonly selectionForeground?: string | null;
+  readonly cursorStyle?: "block" | "bar" | "underline" | null;
+  readonly cursorBlink?: boolean | null;
+  readonly palette?: Readonly<Record<string, string>>;
+}
+
+export interface PairingResolutionResult {
+  readonly pairingRequest: PairingRequestSnapshot;
+}
+
+export interface PaneNeighborResult {
+  readonly pane?: PaneSnapshot | null;
+}
+
+export interface TerminalScreenResult {
+  readonly text: string;
+  readonly cols: number;
+  readonly rows: number;
+  readonly cursorRow: number;
+  readonly cursorCol: number;
+  readonly cursorVisible: boolean;
+  readonly extra: Document;
+}
+
+export interface TerminalHistoryResult {
+  readonly start: DecimalString;
+  readonly next?: DecimalString | null;
+  readonly rows: readonly RenderRow[];
+}
+
+export interface TerminalStateResult {
+  readonly state: Uint8Array;
+  readonly cols: number;
+  readonly rows: number;
+}
+
+export interface TerminalWaitResult {
+  readonly matched: boolean;
+  readonly text: string;
+}
+
+export interface TerminalExitCode {
+  readonly kind: "exit";
+  readonly code: number;
+}
+
+export interface TerminalExitSignal {
+  readonly kind: "signal";
+  readonly signal: number;
+  readonly coreDumped: boolean;
+}
+
+export interface TerminalExitUnknown {
+  readonly kind: "unknown";
+  readonly reason: string;
+}
+
+export type TerminalExitOutcome =
+  | TerminalExitCode
+  | TerminalExitSignal
+  | TerminalExitUnknown;
+
+export interface TerminalExit {
+  readonly outcome: TerminalExitOutcome;
+  readonly exitedAt: DecimalString;
+  readonly revision: DecimalString;
+}
+
+export interface TerminalWaitExitPending {
+  readonly state: "pending";
+  readonly terminalId: TerminalId;
+  readonly lifecycle: "launching" | "running";
+  readonly revision: DecimalString;
+}
+
+export interface TerminalWaitExitExited {
+  readonly state: "exited";
+  readonly terminalId: TerminalId;
+  readonly lifecycle: "exited";
+  readonly outcome: TerminalExitOutcome;
+  readonly exitedAt: DecimalString;
+  readonly revision: DecimalString;
+}
+
+export type TerminalWaitExitResult =
+  | TerminalWaitExitPending
+  | TerminalWaitExitExited;
+
+export interface TerminalCopyResult {
+  readonly mode: "screen" | "selection" | "scrollback";
+  readonly text: string;
+}
+
+export interface ProcessInfoResult {
+  readonly pid: number;
+  readonly executable?: string;
+  readonly argv: readonly string[];
+  readonly cwd?: string;
+  readonly children: readonly number[];
+}
+
+export interface CellPixelsResult {
+  readonly widthPx: number;
+  readonly heightPx: number;
+  readonly resizedTerminalIds: readonly TerminalId[];
+  readonly failures: Readonly<Record<string, string>>;
+}
+
+export interface ViewerResizeResult {
+  readonly accepted: boolean;
+  readonly size: Size;
+}
+
+export interface BrowserViewerResizeResult {
+  readonly accepted: boolean;
+  readonly size: PixelSize;
 }
 
 export interface ExactCommand {
@@ -462,39 +614,67 @@ export type ResourceChangeId =
   | ProviderActionId
   | ProviderNoticeId;
 
+export interface ResourceEntityByKind {
+  readonly machine: MachineSnapshot;
+  readonly session: SessionSnapshot;
+  readonly workspace: WorkspaceSnapshot;
+  readonly screen: ScreenSnapshot;
+  readonly pane: PaneSnapshot;
+  readonly tab: TabSnapshot;
+  readonly terminal: TerminalSnapshot;
+  readonly browser: BrowserSnapshot;
+  readonly client: ClientSnapshot;
+  readonly notification: NotificationSnapshot;
+  readonly agent: AgentSnapshot;
+  readonly pairing_request: PairingRequestSnapshot;
+  readonly frontend_projection: FrontendProjectionSnapshot;
+  readonly sidebar_view: SidebarViewSnapshot;
+  readonly provider_scope: ProviderScopeSnapshot;
+  readonly provider_action: ProviderActionSnapshot;
+  readonly provider_notice: ProviderNoticeSnapshot;
+}
+
+export interface ResourceIdByKind {
+  readonly machine: MachineId;
+  readonly session: SessionId;
+  readonly workspace: WorkspaceId;
+  readonly screen: ScreenId;
+  readonly pane: PaneId;
+  readonly tab: TabId;
+  readonly terminal: TerminalId;
+  readonly browser: BrowserId;
+  readonly client: ConnectedClientId;
+  readonly notification: NotificationId;
+  readonly agent: AgentId;
+  readonly pairing_request: PairingRequestId;
+  readonly frontend_projection: ProjectionId;
+  readonly sidebar_view: SidebarViewId;
+  readonly provider_scope: ProviderScopeId;
+  readonly provider_action: ProviderActionId;
+  readonly provider_notice: ProviderNoticeId;
+}
+
 export type ResourceEntitySnapshot =
-  | MachineSnapshot
-  | SessionSnapshot
-  | WorkspaceSnapshot
-  | ScreenSnapshot
-  | PaneSnapshot
-  | TabSnapshot
-  | TerminalSnapshot
-  | BrowserSnapshot
-  | ClientSnapshot
-  | NotificationSnapshot
-  | AgentSnapshot
-  | PairingRequestSnapshot
-  | FrontendProjectionSnapshot
-  | SidebarViewSnapshot
-  | ProviderScopeSnapshot
-  | ProviderActionSnapshot
-  | ProviderNoticeSnapshot;
+  ResourceEntityByKind[keyof ResourceEntityByKind];
 
-export interface ResourceUpsert {
-  readonly kind: "upsert";
-  readonly sequence: number;
-  readonly resource: ResourceKind;
-  readonly id: ResourceChangeId;
-  readonly value: ResourceEntitySnapshot;
-}
+export type ResourceUpsert = {
+  readonly [Kind in ResourceKind]: {
+    readonly kind: "upsert";
+    readonly sequence: number;
+    readonly resource: Kind;
+    readonly id: ResourceIdByKind[Kind];
+    readonly value: ResourceEntityByKind[Kind];
+  };
+}[ResourceKind];
 
-export interface ResourceDelete {
-  readonly kind: "delete";
-  readonly sequence: number;
-  readonly resource: ResourceKind;
-  readonly id: ResourceChangeId;
-}
+export type ResourceDelete = {
+  readonly [Kind in ResourceKind]: {
+    readonly kind: "delete";
+    readonly sequence: number;
+    readonly resource: Kind;
+    readonly id: ResourceIdByKind[Kind];
+  };
+}[ResourceKind];
 
 export interface Unknown {
   readonly kind: string;

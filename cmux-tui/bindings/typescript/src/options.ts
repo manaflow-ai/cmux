@@ -5,6 +5,7 @@ import type {
 import type {
   Command,
   Cursor,
+  JsonValue,
   LayoutDocument,
   ProviderActionValue,
 } from "./models.js";
@@ -55,9 +56,14 @@ export interface RunOptions {
   readonly rows?: number;
 }
 
-export interface SessionEventsOptions {
-  readonly cursor?: Cursor;
+export interface RequestOptions {
   readonly signal?: AbortSignal;
+  /** Overrides the client request deadline for this call. Zero disables it. */
+  readonly timeoutMs?: number;
+}
+
+export interface SessionEventsOptions extends RequestOptions {
+  readonly cursor?: Cursor;
 }
 
 export interface TerminalHistoryOptions {
@@ -68,21 +74,21 @@ export interface TerminalHistoryOptions {
 
 export interface TerminalWaitOptions {
   readonly pattern: string;
-  readonly timeoutMs?: number;
+  /** Server-side pattern wait bound, separate from the request deadline. */
+  readonly timeoutMs?: DecimalString;
+  /** @deprecated Pass the signal in the second `wait` argument. */
   readonly signal?: AbortSignal;
 }
 
-export interface TerminalAttachOptions {
+export interface TerminalAttachOptions extends RequestOptions {
   readonly columns?: number;
   readonly rows?: number;
   readonly readOnly?: boolean;
-  readonly signal?: AbortSignal;
 }
 
-export interface BrowserAttachOptions {
+export interface BrowserAttachOptions extends RequestOptions {
   readonly widthPx?: number;
   readonly heightPx?: number;
-  readonly signal?: AbortSignal;
 }
 
 export interface LayoutApplyOptions {
@@ -94,19 +100,19 @@ export interface KeyInputOptions {
 }
 
 export interface TerminalMouseOptions {
-  readonly kind: string;
+  readonly kind: "down" | "up" | "move" | "wheel";
   readonly row: number;
   readonly column: number;
-  readonly button?: string;
+  readonly button?: "left" | "middle" | "right";
   readonly deltaRows?: number;
-  readonly modifiers?: readonly string[];
+  readonly modifiers?: readonly ("shift" | "control" | "alt" | "meta")[];
 }
 
 export interface BrowserMouseOptions {
-  readonly kind: string;
+  readonly kind: "down" | "up" | "move";
   readonly xPx: number;
   readonly yPx: number;
-  readonly button?: string;
+  readonly button?: "left" | "middle" | "right" | "back" | "forward";
   readonly clickCount?: number;
 }
 
@@ -123,7 +129,7 @@ export interface BrowserViewerSizeOptions {
 export interface NotificationOptions {
   readonly title: string;
   readonly body: string;
-  readonly level?: string;
+  readonly level?: "info" | "warning" | "error";
   readonly terminalId?: TerminalId;
 }
 
@@ -151,11 +157,21 @@ export interface SidebarEnsureOptions extends SidebarResizeOptions {
   readonly relaunch?: boolean;
 }
 
-export interface RequestOptions {
-  readonly signal?: AbortSignal;
+export interface TerminalDefaultsOptions {
+  readonly foreground?: string | null;
+  readonly background?: string | null;
+  readonly cursor?: string | null;
+  readonly selectionBackground?: string | null;
+  readonly selectionForeground?: string | null;
+  readonly cursorStyle?: "block" | "bar" | "underline" | null;
+  readonly cursorBlink?: boolean | null;
+  readonly palette?: Readonly<Record<string, string>> | null;
+  readonly complete?: boolean;
 }
 
 export interface MutationOptions extends RequestOptions {
   readonly idempotencyKey?: string;
   readonly expectedRevision?: DecimalString;
 }
+
+export type ProjectionValue = JsonValue;

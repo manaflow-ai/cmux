@@ -1,7 +1,6 @@
 package cmux
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -151,8 +150,14 @@ func (s *Stream[T]) isFinished() bool {
 }
 
 func (c *Client) cancelStream(ctx context.Context, params map[string]any) error {
-	var result EmptyResult
-	return c.do(ctx, wirev1.StreamCancel, copyParams(params), "", &result)
+	_, err := readValue[EmptyResult](
+		ctx,
+		c,
+		wirev1.StreamCancel,
+		copyParams(params),
+		"stream cancellation",
+	)
+	return err
 }
 
 func openStream[T any](
@@ -188,13 +193,35 @@ func openStream[T any](
 	cancelParams["stream"] = id
 	route.cancelParams = cancelParams
 	params[wirev1.FieldStreamID] = id
-	var ignored map[string]any
-	if err := client.do(ctx, operation, params, "", &ignored); err != nil {
+	var raw json.RawMessage
+	if err := client.do(ctx, operation, params, "", &raw); err != nil {
 		client.mu.Lock()
 		delete(client.streams, id)
 		client.mu.Unlock()
 		route.finish(ErrClosed)
 		return nil, err
+	}
+	opened, err := decodeValue[StreamOpened](raw, operation.Name+" result")
+	if err != nil {
+		client.mu.Lock()
+		delete(client.streams, id)
+		client.mu.Unlock()
+		route.finish(ErrClosed)
+		return nil, err
+	}
+	if opened.StreamID != id {
+		client.mu.Lock()
+		delete(client.streams, id)
+		client.mu.Unlock()
+		route.finish(ErrClosed)
+		return nil, &ProtocolError{
+			Message: fmt.Sprintf(
+				"%s returned stream %s for %s",
+				operation.Name,
+				opened.StreamID,
+				id,
+			),
+		}
 	}
 	return &Stream[T]{
 		client: client, id: id, route: route, decode: decode,
@@ -218,16 +245,6 @@ func streamEndFromEnvelope(envelope streamEnvelope) *StreamEndError {
 		ResourceError: resourceError,
 		Recovery:      envelope.Recovery,
 	}
-}
-
-func decodeDocument(raw json.RawMessage) (Document, error) {
-	var fields map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&fields); err != nil {
-		return Document{}, &ProtocolError{Message: "cannot decode stream item: " + err.Error()}
-	}
-	return Document{Fields: fields}, nil
 }
 
 func copyParams(params map[string]any) map[string]any {

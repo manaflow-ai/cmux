@@ -3,8 +3,11 @@ import test from "node:test";
 
 import {
   Client,
+  CmuxAbortError,
+  CmuxTimeoutError,
   ExternalMachineSpecifier,
   MutationIndeterminateError,
+  MutationTransportUncertainError,
   ProviderCredential,
   machineId,
   paneId,
@@ -295,11 +298,359 @@ test("indeterminate mutations are typed and never retried", async () => {
   client.close();
 });
 
+test("dropped mutation responses expose supplied and generated idempotency keys", async () => {
+  const transport = new FakeTransport(() => {
+    // Simulate a request that may have reached the server but lost its response.
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => HEX_C,
+  });
+
+  await assert.rejects(
+    () => client.machine(MACHINE).rename("supplied", {
+      idempotencyKey: "supplied-key",
+      timeoutMs: 5,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof MutationTransportUncertainError);
+      assert.equal(error.operation, "machine.rename");
+      assert.equal(error.idempotencyKey, "supplied-key");
+      assert.ok(error.cause instanceof CmuxTimeoutError);
+      return true;
+    },
+  );
+  await assert.rejects(
+    () => client.machine(MACHINE).rename("generated", { timeoutMs: 5 }),
+    (error: unknown) => {
+      assert.ok(error instanceof MutationTransportUncertainError);
+      assert.equal(error.operation, "machine.rename");
+      assert.equal(error.idempotencyKey, `ts-${HEX_C}`);
+      assert.ok(error.cause instanceof CmuxTimeoutError);
+      return true;
+    },
+  );
+
+  assert.equal(transport.requests.length, 2);
+  assert.deepEqual(
+    transport.requests.map((request) => request.idempotency_key),
+    ["supplied-key", `ts-${HEX_C}`],
+  );
+  client.close();
+});
+
+test("a mutation canceled before send is not reported as uncertain", async () => {
+  const transport = new FakeTransport(() => {
+    assert.fail("pre-aborted mutation reached the transport");
+  });
+  const client = new Client({ transport });
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    () => client.machine(MACHINE).rename("never-sent", {
+      signal: controller.signal,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof CmuxAbortError);
+      assert.ok(!(error instanceof MutationTransportUncertainError));
+      return true;
+    },
+  );
+  assert.equal(transport.requests.length, 0);
+  client.close();
+});
+
+test("request and stream receive bounds are operation-scoped", async () => {
+  let openedStream = "";
+  let pingCount = 0;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
+    }
+    if (request.operation === "session.ping") {
+      pingCount += 1;
+      if (pingCount === 1) return;
+      current.ok(request, {
+        alive: true,
+        cursor: { generation: "generation-a", revision: "11" },
+      });
+      return;
+    }
+    current.ok(request, {});
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => HEX_B,
+  });
+  const session = client.session(SESSION);
+
+  await assert.rejects(
+    () => session.ping({ timeoutMs: 5 }),
+    CmuxTimeoutError,
+  );
+  assert.equal((await session.ping({ timeoutMs: 50 })).alive, true);
+
+  const stream = await session.events();
+  await assert.rejects(
+    () => stream.next({ timeoutMs: 5 }),
+    CmuxTimeoutError,
+  );
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "0",
+    item: { kind: "future", value: 1 },
+  });
+  assert.equal((await stream.next()).value?.value.kind, "future");
+
+  const abort = new AbortController();
+  const pending = stream.next({ signal: abort.signal });
+  abort.abort();
+  await assert.rejects(() => pending, CmuxAbortError);
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "1",
+    item: { kind: "future", value: 2 },
+  });
+  assert.equal((await stream.next()).value?.sequence, "1");
+  assert.equal(
+    transport.requests.filter((request) => request.operation === "stream.cancel").length,
+    0,
+  );
+
+  await stream.cancel();
+  client.close();
+});
+
+test("mutations update and return the receiver handle", async () => {
+  const transport = new FakeTransport((request, current) => {
+    current.ok(request, {
+      value: {
+        id: MACHINE,
+        name: "renamed",
+        origin: "local",
+        status: "running",
+        connectable: true,
+        deleted: false,
+        recoverable: true,
+      },
+      generation: "generation-a",
+      revision: "12",
+      replayed: false,
+    });
+  });
+  const client = new Client({ transport });
+  const machine = client.machine(MACHINE);
+  const result = await machine.rename("renamed", {
+    idempotencyKey: "machine-rename",
+  });
+
+  assert.equal(result.value, machine);
+  assert.equal(machine.snapshot?.name, "renamed");
+  assert.equal(result.revision, "12");
+  client.close();
+});
+
+test("terminal snapshots expose lifecycle and durable exit details", async () => {
+  let refreshes = 0;
+  const transport = new FakeTransport((request, current) => {
+    refreshes += 1;
+    const base = {
+      id: TERMINAL,
+      tab_id: TAB,
+      title: "job",
+      cols: 80,
+      rows: 24,
+    };
+    if (refreshes === 1) {
+      current.ok(request, {
+        ...base,
+        running: true,
+        lifecycle: "running",
+      });
+      return;
+    }
+    current.ok(request, {
+      ...base,
+      running: refreshes === 3,
+      lifecycle: "exited",
+      exit: {
+        outcome: { kind: "exit", code: 0 },
+        exited_at: "20",
+        revision: "21",
+      },
+    });
+  });
+  const client = new Client({ transport });
+  const terminal = client.session(SESSION).terminal(TERMINAL);
+
+  const running = await terminal.refresh();
+  assert.equal(running.lifecycle, "running");
+  assert.equal(running.exit, undefined);
+
+  const exited = await terminal.refresh();
+  assert.equal(exited.lifecycle, "exited");
+  assert.deepEqual(exited.exit, {
+    outcome: { kind: "exit", code: 0 },
+    exitedAt: "20",
+    revision: "21",
+  });
+
+  await assert.rejects(() => terminal.refresh(), /running must be true exactly/);
+  client.close();
+});
+
+test("creation resolution and terminal exit reads expose strict typed variants", async () => {
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.creation.resolve") {
+      const correlationKey = (request.params as Envelope).correlation_key;
+      if (correlationKey === "pending-create") {
+        current.ok(request, {
+          correlation_key: correlationKey,
+          state: "pending",
+          recovery: "wait",
+          operation: "workspace.create",
+          idempotency_key: "create-key",
+        });
+        return;
+      }
+      current.ok(request, {
+        correlation_key: correlationKey,
+        state: "created",
+        recovery: "none",
+        operation: "workspace.create",
+        idempotency_key: "create-key",
+        created_path: {
+          kind: "terminal",
+          workspace_id: WORKSPACE,
+          screen_id: SCREEN,
+          pane_id: PANE,
+          tab_id: TAB,
+          terminal_id: TERMINAL,
+        },
+        generation: "generation-a",
+        revision: "15",
+      });
+      return;
+    }
+    current.ok(request, {
+      state: "exited",
+      terminal_id: TERMINAL,
+      lifecycle: "exited",
+      outcome: {
+        kind: "signal",
+        signal: 15,
+        core_dumped: false,
+      },
+      exited_at: "1234",
+      revision: "16",
+    });
+  });
+  const client = new Client({ transport });
+  const session = client.session(SESSION);
+
+  const pending = await session.creation.resolve("pending-create");
+  assert.equal(pending.state, "pending");
+  assert.equal(pending.recovery, "wait");
+
+  const created = await session.creation.resolve("created");
+  assert.equal(created.state, "created");
+  if (created.state !== "created") assert.fail("expected created resolution");
+  assert.equal(created.createdPath.terminal?.id, TERMINAL);
+  assert.equal(created.revision, "15");
+
+  const exited = await session.terminal(TERMINAL).waitExit(decimalString("250"));
+  assert.equal(exited.state, "exited");
+  if (exited.state !== "exited") assert.fail("expected exited terminal");
+  assert.deepEqual(exited.outcome, {
+    kind: "signal",
+    signal: 15,
+    coreDumped: false,
+  });
+
+  assert.deepEqual(transport.requests.map((request) => request.operation), [
+    "session.creation.resolve",
+    "session.creation.resolve",
+    "terminal.wait_exit",
+  ]);
+  assert.equal(
+    (transport.requests[2]?.params as Envelope).timeout_ms,
+    "250",
+  );
+  client.close();
+});
+
+test("creation and exit discriminators reject malformed catalog variants", async () => {
+  const invalidResults = [
+    {
+      operation: "session.creation.resolve",
+      result: {
+        correlation_key: "created",
+        state: "created",
+        recovery: "wait",
+        created_path: {
+          kind: "workspace",
+          workspace_id: WORKSPACE,
+        },
+        generation: "generation-a",
+        revision: "1",
+      },
+      call: (client: Client) =>
+        client.session(SESSION).creation.resolve("created"),
+    },
+    {
+      operation: "terminal.wait_exit",
+      result: {
+        state: "pending",
+        terminal_id: TERMINAL,
+        lifecycle: "running",
+        revision: "1",
+        outcome: { kind: "exit", code: 0 },
+      },
+      call: (client: Client) => client.session(SESSION).terminal(TERMINAL).waitExit(),
+    },
+    {
+      operation: "terminal.wait_exit",
+      result: {
+        state: "exited",
+        terminal_id: TERMINAL,
+        lifecycle: "exited",
+        outcome: {
+          kind: "signal",
+          signal: 0,
+          core_dumped: false,
+        },
+        exited_at: "2",
+        revision: "3",
+      },
+      call: (client: Client) => client.session(SESSION).terminal(TERMINAL).waitExit(),
+    },
+  ] as const;
+
+  for (const invalid of invalidResults) {
+    const transport = new FakeTransport((request, current) => {
+      assert.equal(request.operation, invalid.operation);
+      current.ok(request, invalid.result);
+    });
+    const client = new Client({ transport });
+    await assert.rejects(() => invalid.call(client));
+    client.close();
+  }
+});
+
 test("stream cancellation uses the opened route and purges buffered items", async () => {
   let openedStream = "";
   const transport = new FakeTransport((request, current) => {
     if (request.operation === "session.events") {
       openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
     }
     current.ok(request, {});
   });
@@ -344,6 +695,13 @@ test("stream overflow is isolated and sends best-effort selector cancellation", 
       current.ok(request, { stream_id: openedStream });
       return;
     }
+    if (request.operation === "session.ping") {
+      current.ok(request, {
+        alive: true,
+        cursor: { generation: "generation-a", revision: "9" },
+      });
+      return;
+    }
     current.ok(request, {});
   });
   const client = new Client({
@@ -364,7 +722,10 @@ test("stream overflow is isolated and sends best-effort selector cancellation", 
   await assert.rejects(() => stream.next(), StreamError);
 
   const ping = await session.ping();
-  assert.deepEqual(ping, {});
+  assert.deepEqual(ping, {
+    alive: true,
+    cursor: { generation: "generation-a", revision: "9" },
+  });
   const cancel = transport.requests.find(
     (request) => request.operation === "stream.cancel",
   );

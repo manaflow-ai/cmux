@@ -50,6 +50,7 @@ var (
 	SessionOpen                   = Operation{"session.open", Mutation}
 	SessionGet                    = Operation{"session.get", Read}
 	SessionSnapshot               = Operation{"session.snapshot", Read}
+	SessionCreationResolve        = Operation{"session.creation.resolve", Read}
 	SessionEvents                 = Operation{"session.events", StreamOpen}
 	SessionPing                   = Operation{"session.ping", Read}
 	SessionShutdown               = Operation{"session.shutdown", Mutation}
@@ -125,6 +126,7 @@ var (
 	TerminalHistoryRead         = Operation{"terminal.history.read", Read}
 	TerminalHistoryClear        = Operation{"terminal.history.clear", Mutation}
 	TerminalWait                = Operation{"terminal.wait", Read}
+	TerminalWaitExit            = Operation{"terminal.wait_exit", Read}
 	TerminalCopy                = Operation{"terminal.copy", Read}
 	TerminalProcessGet          = Operation{"terminal.process.get", Read}
 	TerminalViewerResize        = Operation{"terminal.viewer.resize", ConnectionControl}

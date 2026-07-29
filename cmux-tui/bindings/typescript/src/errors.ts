@@ -42,6 +42,26 @@ export class CmuxProtocolError extends CmuxError {}
 export class CmuxTimeoutError extends CmuxError {}
 export class CmuxAbortError extends CmuxError {}
 
+/**
+ * A mutation may have reached the server, but its structured response was not
+ * observed. Inspect state before retrying with a new idempotency key.
+ */
+export class MutationTransportUncertainError extends CmuxError {
+  readonly operation: string;
+  readonly idempotencyKey: string;
+  readonly cause: Error;
+  readonly recovery = "inspect_state_then_retry_with_new_key" as const;
+
+  constructor(operation: string, idempotencyKey: string, cause: Error) {
+    super(
+      `${operation} transport failed before a response; outcome is uncertain`,
+    );
+    this.operation = operation;
+    this.idempotencyKey = idempotencyKey;
+    this.cause = cause;
+  }
+}
+
 export class StreamError extends CmuxError {
   readonly reason: string;
   readonly error: ResourceError | undefined;

@@ -2,14 +2,14 @@ package cmux
 
 // Extra fields are copied before typed fields are applied. This permits
 // forward-compatible callers without allowing Extra to override typed fields.
-type ReadOptions struct{ Extra map[string]any }
+type ReadOptions struct{ Extra map[string]JSONValue }
 type MutationOptions struct {
 	IdempotencyKey   string
 	ExpectedRevision *Decimal
-	Extra            map[string]any
+	Extra            map[string]JSONValue
 }
-type ControlOptions struct{ Extra map[string]any }
-type StreamOptions struct{ Extra map[string]any }
+type ControlOptions struct{ Extra map[string]JSONValue }
+type StreamOptions struct{ Extra map[string]JSONValue }
 
 // NullableString represents a three-state optional nullable field. Its zero
 // value omits the field, NullString sends JSON null, and ValueString sends the
@@ -79,6 +79,7 @@ type SessionOpenOptions struct {
 	Session Selector[SessionID]
 }
 type SessionSnapshotOptions struct{ ReadOptions }
+type SessionCreationResolveOptions struct{ ReadOptions }
 type SessionEventsOptions struct {
 	StreamOptions
 	Cursor *Cursor
@@ -144,7 +145,7 @@ type FrontendProjectionGetOptions struct {
 }
 type FrontendProjectionPutOptions struct {
 	MutationOptions
-	Projection any
+	Projection JSONValue
 }
 
 type WorkspaceListOptions struct{ ReadOptions }
@@ -173,7 +174,7 @@ type WorkspaceRunOptions struct {
 }
 type WorkspaceLayoutApplyOptions struct {
 	MutationOptions
-	Layout map[string]any
+	Layout LayoutDocument
 }
 
 type ScreenListOptions struct{ ReadOptions }
@@ -316,9 +317,13 @@ type TerminalWaitOptions struct {
 	Pattern   string
 	TimeoutMS *Decimal
 }
+type TerminalWaitExitOptions struct {
+	ReadOptions
+	TimeoutMS *Decimal
+}
 type TerminalCopyOptions struct {
 	ReadOptions
-	Mode *string
+	Mode *TerminalCopyMode
 }
 type TerminalProcessGetOptions struct{ ReadOptions }
 type TerminalRendererGrantCreateOptions struct {
@@ -443,7 +448,7 @@ type SidebarViewReloadOptions struct{ MutationOptions }
 type ProviderScopeListOptions struct{ ReadOptions }
 type ProviderActionInvokeOptions struct {
 	MutationOptions
-	Parameters map[string]any
+	Parameters map[string]JSONValue
 }
 type ProviderNoticeEventsOptions struct {
 	StreamOptions

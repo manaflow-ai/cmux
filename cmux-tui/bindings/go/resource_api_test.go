@@ -19,6 +19,9 @@ const (
 	testSessionID   = SessionID("session_00000000000000000000000000000002")
 	testWorkspaceID = WorkspaceID("ws_00000000000000000000000000000003")
 	testScreenID    = ScreenID("screen_00000000000000000000000000000004")
+	testPaneID      = PaneID("pane_00000000000000000000000000000005")
+	testTabID       = TabID("tab_00000000000000000000000000000006")
+	testTerminalID  = TerminalID("term_00000000000000000000000000000007")
 )
 
 func TestIDsSelectorsAndDecimals(t *testing.T) {
@@ -59,6 +62,284 @@ func TestIDsSelectorsAndDecimals(t *testing.T) {
 	}
 }
 
+func TestCatalogResultsDecodeStrictly(t *testing.T) {
+	state, err := decodeValue[TerminalStateResult](
+		json.RawMessage(`{"state_base64":"AAEC","cols":80,"rows":24}`),
+		"terminal state",
+	)
+	if err != nil || !strings.EqualFold(fmt.Sprintf("%x", state.State), "000102") {
+		t.Fatalf("terminal state = %#v, %v", state, err)
+	}
+	if _, err := decodeValue[TerminalCopyResult](
+		json.RawMessage(`{"mode":"future","text":"x"}`),
+		"terminal copy",
+	); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("invalid copy mode error = %T %v", err, err)
+	}
+	terminal, err := decodeValue[TerminalSnapshot](
+		json.RawMessage(
+			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"title":"job","cols":80,"rows":24,"running":false,`+
+				`"lifecycle":"exited","exit":{`+
+				`"outcome":{"kind":"exit","code":0},`+
+				`"exited_at":"20","revision":"21"}}`,
+		),
+		"terminal snapshot",
+	)
+	if err != nil || terminal.Exit == nil {
+		t.Fatalf("exited terminal snapshot = %#v, %v", terminal, err)
+	}
+	if outcome, ok := terminal.Exit.Outcome.(TerminalExitCode); !ok ||
+		outcome.Code != 0 {
+		t.Fatalf(
+			"terminal snapshot exit outcome = %T %#v",
+			terminal.Exit.Outcome,
+			terminal.Exit.Outcome,
+		)
+	}
+	if _, err := decodeValue[TerminalSnapshot](
+		json.RawMessage(
+			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"title":"job","cols":80,"rows":24,"running":true,`+
+				`"lifecycle":"exited","exit":{`+
+				`"outcome":{"kind":"exit","code":0},`+
+				`"exited_at":"20","revision":"21"}}`,
+		),
+		"terminal snapshot",
+	); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("inconsistent terminal lifecycle error = %T %v", err, err)
+	}
+	if _, err := decodeValue[TerminalScreenResult](
+		json.RawMessage(
+			`{"text":"","cols":80,"rows":24,"cursor_row":0,"cursor_col":0,`+
+				`"cursor_visible":true,"unexpected":1}`,
+		),
+		"terminal screen",
+	); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("unknown terminal screen field error = %T %v", err, err)
+	}
+	if _, err := decodeValue[PingResult](
+		json.RawMessage(`{"alive":true,"cursor":{"generation":"g"}}`),
+		"ping",
+	); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("incomplete nested cursor error = %T %v", err, err)
+	}
+	layout, err := decodeValue[LayoutDocument](
+		json.RawMessage(
+			`{"version":1,`+
+				`"screen_id":"screen_00000000000000000000000000000004",`+
+				`"active_pane_id":"pane_00000000000000000000000000000005",`+
+				`"zoomed_pane_id":null,`+
+				`"root":{"kind":"leaf",`+
+				`"pane_id":"pane_00000000000000000000000000000005",`+
+				`"tab_ids":[]}}`,
+		),
+		"layout",
+	)
+	if err != nil {
+		t.Fatalf("valid layout: %v", err)
+	}
+	if _, ok := layout.Root.(LayoutLeaf); !ok {
+		t.Fatalf("layout root type = %T", layout.Root)
+	}
+	if _, err := decodeValue[LayoutDocument](
+		json.RawMessage(
+			`{"version":1,`+
+				`"screen_id":"screen_00000000000000000000000000000004",`+
+				`"active_pane_id":"pane_00000000000000000000000000000005",`+
+				`"zoomed_pane_id":null,`+
+				`"root":{"kind":"leaf",`+
+				`"pane_id":"pane_00000000000000000000000000000005",`+
+				`"tab_ids":[],"future":true}}`,
+		),
+		"layout",
+	); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("unknown nested layout field error = %T %v", err, err)
+	}
+
+	creation, err := decodeValue[CreationResolution](
+		json.RawMessage(
+			`{"correlation_key":"create-1","state":"created","recovery":"none",`+
+				`"created_path":{"kind":"terminal",`+
+				`"workspace_id":"ws_00000000000000000000000000000003",`+
+				`"screen_id":"screen_00000000000000000000000000000004",`+
+				`"pane_id":"pane_00000000000000000000000000000005",`+
+				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"terminal_id":"term_00000000000000000000000000000007"},`+
+				`"generation":"g","revision":"4"}`,
+		),
+		"creation resolution",
+	)
+	if err != nil || creation.CreatedPath == nil ||
+		creation.CreatedPath.Terminal != testTerminalID {
+		t.Fatalf("created resolution = %#v, %v", creation, err)
+	}
+	if _, err := decodeValue[CreationResolution](
+		json.RawMessage(
+			`{"correlation_key":"create-1","state":"created","recovery":"wait",`+
+				`"created_path":null,"generation":"g","revision":"4"}`,
+		),
+		"creation resolution",
+	); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("invalid creation resolution error = %T %v", err, err)
+	}
+
+	waitExit, err := decodeTerminalWaitExitResult(
+		json.RawMessage(
+			`{"state":"exited",` +
+				`"terminal_id":"term_00000000000000000000000000000007",` +
+				`"lifecycle":"exited",` +
+				`"outcome":{"kind":"exit","code":0},` +
+				`"exited_at":"5","revision":"6"}`,
+		),
+	)
+	exited, ok := waitExit.(TerminalWaitExitExited)
+	if err != nil || !ok {
+		t.Fatalf("terminal wait exit = %T %#v, %v", waitExit, waitExit, err)
+	}
+	if outcome, ok := exited.Outcome.(TerminalExitCode); !ok || outcome.Code != 0 {
+		t.Fatalf("terminal exit outcome = %T %#v", exited.Outcome, exited.Outcome)
+	}
+	if _, err := decodeTerminalWaitExitResult(
+		json.RawMessage(
+			`{"state":"exited",` +
+				`"terminal_id":"term_00000000000000000000000000000007",` +
+				`"lifecycle":"exited",` +
+				`"outcome":{"kind":"signal","signal":0,"core_dumped":false},` +
+				`"exited_at":"5","revision":"6"}`,
+		),
+	); err == nil {
+		t.Fatal("zero terminal exit signal was accepted")
+	}
+}
+
+func TestCreationResolveAndWaitExitFacades(t *testing.T) {
+	client, requests := pipeClient(t, nil, 2)
+	defer client.Close(context.Background()) //nolint:errcheck
+
+	session := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID))
+	resolution, err := session.ResolveCreation(
+		context.Background(),
+		"create-1",
+		SessionCreationResolveOptions{},
+	)
+	if err != nil {
+		t.Fatalf("resolve creation: %v", err)
+	}
+	if resolution.State != CreationResolutionPending ||
+		resolution.Recovery != CreationWait {
+		t.Fatalf("creation resolution = %#v", resolution)
+	}
+
+	timeout := Decimal(250)
+	terminal := session.Workspace(SelectID(testWorkspaceID)).
+		Screen(SelectID(testScreenID)).
+		Pane(SelectID(testPaneID)).
+		Tab(SelectID(testTabID)).
+		Terminal(SelectID(testTerminalID))
+	result, err := terminal.WaitExit(context.Background(), TerminalWaitExitOptions{
+		TimeoutMS: &timeout,
+	})
+	if err != nil {
+		t.Fatalf("wait exit: %v", err)
+	}
+	exited, ok := result.(TerminalWaitExitExited)
+	if !ok {
+		t.Fatalf("wait exit result = %T %#v", result, result)
+	}
+	signal, ok := exited.Outcome.(TerminalExitSignal)
+	if !ok || signal.Signal != 15 || signal.CoreDumped {
+		t.Fatalf("exit outcome = %T %#v", exited.Outcome, exited.Outcome)
+	}
+
+	creationRequest := <-requests
+	if creationRequest["operation"] != "session.creation.resolve" {
+		t.Fatalf("creation operation = %#v", creationRequest["operation"])
+	}
+	requireParam(t, creationRequest, "correlation_key", "create-1")
+	exitRequest := <-requests
+	if exitRequest["operation"] != "terminal.wait_exit" {
+		t.Fatalf("exit operation = %#v", exitRequest["operation"])
+	}
+	requireParam(t, exitRequest, "timeout_ms", "250")
+}
+
+func TestKnownResourceChangesAreTypedAndNeverDowngradeToUnknown(t *testing.T) {
+	machine := map[string]any{
+		"id":          testMachineID,
+		"name":        "local",
+		"origin":      "local",
+		"status":      "running",
+		"connectable": true,
+		"deleted":     false,
+		"recoverable": true,
+	}
+	encoded, err := json.Marshal(map[string]any{
+		"kind":              "delta",
+		"cursor":            map[string]any{"generation": "g", "revision": "2"},
+		"previous_revision": "1",
+		"revision":          "2",
+		"changes": []any{map[string]any{
+			"kind": "upsert", "sequence": 0, "resource": "machine",
+			"id": testMachineID, "value": machine,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := decodeSessionEvent(encoded)
+	if err != nil {
+		t.Fatalf("decode typed delta: %v", err)
+	}
+	if len(event.Changes) != 1 {
+		t.Fatalf("changes = %#v", event.Changes)
+	}
+	snapshot, ok := event.Changes[0].Value.(MachineSnapshot)
+	if !ok || snapshot.ID != testMachineID {
+		t.Fatalf("typed resource value = %T %#v", event.Changes[0].Value, snapshot)
+	}
+
+	mismatch := make(map[string]any, len(machine))
+	for key, value := range machine {
+		mismatch[key] = value
+	}
+	mismatch["id"] = "machine_00000000000000000000000000000009"
+	bad, err := json.Marshal(map[string]any{
+		"kind": "upsert", "sequence": 0, "resource": "machine",
+		"id": testMachineID, "value": mismatch,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeResourceChange(bad); err == nil {
+		t.Fatal("mismatched known resource upsert was accepted")
+	}
+
+	knownWithExtra, err := json.Marshal(map[string]any{
+		"kind": "delete", "sequence": 1, "resource": "machine",
+		"id": testMachineID, "value": machine,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeResourceChange(knownWithExtra); err == nil {
+		t.Fatal("malformed known delete downgraded to Unknown")
+	}
+
+	unknown, err := decodeResourceChange(
+		json.RawMessage(`{"kind":"future","nested":{"revision":18446744073709551615}}`),
+	)
+	if err != nil || unknown.Kind != "future" || unknown.Raw == nil {
+		t.Fatalf("unknown resource change = %#v, %v", unknown, err)
+	}
+	if _, ok := unknown.Raw["nested"].(map[string]any); !ok {
+		t.Fatalf("unknown raw object = %#v", unknown.Raw)
+	}
+}
+
 func TestMutationIdempotencyAndNameNullability(t *testing.T) {
 	var generated atomic.Int32
 	client, requests := pipeClient(t, func() (string, error) {
@@ -70,6 +351,19 @@ func TestMutationIdempotencyAndNameNullability(t *testing.T) {
 	workspace := client.Machine(SelectID(testMachineID)).
 		Session(SelectID(testSessionID)).
 		Workspace(SelectID(testWorkspaceID))
+	canceledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := workspace.Rename(
+		canceledContext,
+		WorkspaceRenameOptions{Name: "never-sent"},
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("pre-canceled mutation error = %T %v", err, err)
+	} else {
+		var uncertain *MutationTransportUncertainError
+		if errors.As(err, &uncertain) {
+			t.Fatalf("pre-canceled mutation was reported uncertain: %#v", uncertain)
+		}
+	}
 	first, err := workspace.Rename(context.Background(), WorkspaceRenameOptions{Name: ""})
 	if err != nil {
 		t.Fatalf("workspace rename: %v", err)
@@ -77,14 +371,24 @@ func TestMutationIdempotencyAndNameNullability(t *testing.T) {
 	if first.Revision.Uint64() != ^uint64(0) {
 		t.Fatalf("revision = %s", first.Revision)
 	}
+	if first.Value != workspace {
+		t.Fatalf("workspace rename returned a different handle: %p != %p", first.Value, workspace)
+	}
+	if snapshot, ok := workspace.Cached(); !ok || snapshot.Name != "" {
+		t.Fatalf("workspace cache after rename = %#v, %v", snapshot, ok)
+	}
 
 	empty := ""
 	screen := workspace.Screen(SelectID(testScreenID))
-	if _, err := screen.Rename(context.Background(), ScreenRenameOptions{
+	screenRename, err := screen.Rename(context.Background(), ScreenRenameOptions{
 		MutationOptions: MutationOptions{IdempotencyKey: "same-key"},
 		Name:            &empty,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("screen empty-label rename: %v", err)
+	}
+	if screenRename.Value != screen {
+		t.Fatalf("screen rename returned a different handle: %p != %p", screenRename.Value, screen)
 	}
 	if _, err := screen.Rename(context.Background(), ScreenRenameOptions{
 		MutationOptions: MutationOptions{IdempotencyKey: "same-key"},
@@ -216,6 +520,156 @@ func TestStructuredErrorsAndNoImplicitRetry(t *testing.T) {
 	}
 }
 
+func TestDroppedMutationResponseExposesExactIdempotencyKey(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		explicit  string
+		generated string
+		expected  string
+	}{
+		{
+			name: "supplied", explicit: "supplied-key",
+			generated: "must-not-be-used", expected: "supplied-key",
+		},
+		{
+			name: "generated", generated: "generated-key",
+			expected: "generated-key",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			clientSide, serverSide := net.Pipe()
+			requests := make(chan map[string]any, 1)
+			release := make(chan struct{})
+			go func() {
+				defer serverSide.Close()
+				requests <- readRequest(t, bufio.NewReader(serverSide))
+				<-release
+			}()
+			client, err := NewClient(context.Background(), ClientOptions{
+				IdempotencyKey: func() (string, error) {
+					return testCase.generated, nil
+				},
+				DialContext: func(context.Context, string, string) (net.Conn, error) {
+					return clientSide, nil
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				close(release)
+				_ = client.Close(context.Background())
+			})
+			workspace := client.Machine(SelectID(testMachineID)).
+				Session(SelectID(testSessionID)).
+				Workspace(SelectID(testWorkspaceID))
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+			defer cancel()
+			_, err = workspace.Rename(ctx, WorkspaceRenameOptions{
+				MutationOptions: MutationOptions{
+					IdempotencyKey: testCase.explicit,
+				},
+				Name: "uncertain",
+			})
+			var uncertain *MutationTransportUncertainError
+			if !errors.As(err, &uncertain) {
+				t.Fatalf("error type = %T: %v", err, err)
+			}
+			if uncertain.Operation != "workspace.rename" ||
+				uncertain.IdempotencyKey != testCase.expected ||
+				uncertain.Recovery() != "inspect_state_then_retry_with_new_key" ||
+				!errors.Is(uncertain, context.DeadlineExceeded) {
+				t.Fatalf("uncertain mutation error = %#v", uncertain)
+			}
+			request := <-requests
+			if request["idempotency_key"] != testCase.expected {
+				t.Fatalf("wire idempotency key = %#v", request["idempotency_key"])
+			}
+		})
+	}
+}
+
+func TestStreamRecvDeadlineIsOperationScoped(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		open := readRequest(t, reader)
+		streamID := requestParams(t, open)["stream_id"]
+		writeSuccess(t, serverSide, open["id"], map[string]any{
+			"stream_id": streamID,
+		})
+
+		ping := readRequest(t, reader)
+		if ping["operation"] != "session.ping" {
+			t.Errorf("request after receive timeout = %#v", ping["operation"])
+			return
+		}
+		writeSuccess(t, serverSide, ping["id"], map[string]any{
+			"alive": true,
+			"cursor": map[string]any{
+				"generation": "g",
+				"revision":   "17",
+			},
+		})
+		writeEnvelope(t, serverSide, map[string]any{
+			"protocol":  "cmux.protocol/1",
+			"type":      "stream_item",
+			"stream_id": streamID,
+			"sequence":  "18",
+			"item": map[string]any{
+				"kind":  "future-session-item",
+				"value": true,
+			},
+		})
+
+		cancel := readRequest(t, reader)
+		writeEnvelope(t, serverSide, map[string]any{
+			"protocol":  "cmux.protocol/1",
+			"type":      "stream_end",
+			"stream_id": streamID,
+			"reason":    "canceled",
+		})
+		writeSuccess(t, serverSide, cancel["id"], map[string]any{})
+	}()
+	client, err := NewClient(context.Background(), ClientOptions{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return clientSide, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background()) //nolint:errcheck
+	session := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID))
+	stream, err := session.Events(context.Background(), SessionEventsOptions{})
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+
+	receiveContext, cancelReceive := context.WithTimeout(
+		context.Background(),
+		10*time.Millisecond,
+	)
+	_, err = stream.Recv(receiveContext)
+	cancelReceive()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("bounded receive error = %T %v", err, err)
+	}
+	ping, err := session.Ping(context.Background(), SessionPingOptions{})
+	if err != nil || !ping.Alive || ping.Cursor.Revision != Decimal(17) {
+		t.Fatalf("ping after receive timeout = %#v, %v", ping, err)
+	}
+	item, err := stream.Recv(context.Background())
+	if err != nil || item.Sequence != Decimal(18) ||
+		item.Value.Kind != "future-session-item" {
+		t.Fatalf("stream after receive timeout = %#v, %v", item, err)
+	}
+	if err := stream.Cancel(context.Background()); err != nil {
+		t.Fatalf("cancel stream: %v", err)
+	}
+}
+
 func TestTypedStreamEndAndCancellation(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
 	cancelRequests := make(chan int, 1)
@@ -224,7 +678,9 @@ func TestTypedStreamEndAndCancellation(t *testing.T) {
 		reader := bufio.NewReader(serverSide)
 		open := readRequest(t, reader)
 		streamID := requestParams(t, open)["stream_id"]
-		writeSuccess(t, serverSide, open["id"], map[string]any{})
+		writeSuccess(t, serverSide, open["id"], map[string]any{
+			"stream_id": streamID,
+		})
 		writeEnvelope(t, serverSide, map[string]any{
 			"protocol":  "cmux.protocol/1",
 			"type":      "stream_item",
@@ -304,7 +760,9 @@ func TestCancelPreservesOpeningRouteAndServerEnd(t *testing.T) {
 		open := readRequest(t, reader)
 		openParams := requestParams(t, open)
 		streamID := openParams["stream_id"]
-		writeSuccess(t, serverSide, open["id"], map[string]any{})
+		writeSuccess(t, serverSide, open["id"], map[string]any{
+			"stream_id": streamID,
+		})
 		cancel := readRequest(t, reader)
 		cancelParams := requestParams(t, cancel)
 		cancelRequests <- cancelParams
@@ -519,8 +977,51 @@ func pipeClient(
 						"name":         nil,
 						"index":        0,
 						"focused":      true,
-						"layout":       map[string]any{},
+						"layout": map[string]any{
+							"version":        1,
+							"screen_id":      testScreenID,
+							"active_pane_id": "pane_00000000000000000000000000000005",
+							"zoomed_pane_id": nil,
+							"root": map[string]any{
+								"kind":    "leaf",
+								"pane_id": "pane_00000000000000000000000000000005",
+								"tab_ids": []any{},
+							},
+						},
 					},
+				}
+			case "client.metadata.update":
+				result = map[string]any{
+					"id":                    "client_00000000000000000000000000000005",
+					"session_id":            testSessionID,
+					"name":                  nil,
+					"client_kind":           "",
+					"transport":             "unix",
+					"connected_seconds":     "0",
+					"attached_terminal_ids": []any{},
+					"sizes":                 []any{},
+					"self":                  true,
+				}
+			case "session.creation.resolve":
+				result = map[string]any{
+					"correlation_key": "create-1",
+					"state":           "pending",
+					"recovery":        "wait",
+					"operation":       "workspace.create",
+					"idempotency_key": "create-key",
+				}
+			case "terminal.wait_exit":
+				result = map[string]any{
+					"state":       "exited",
+					"terminal_id": testTerminalID,
+					"lifecycle":   "exited",
+					"outcome": map[string]any{
+						"kind":        "signal",
+						"signal":      15,
+						"core_dumped": false,
+					},
+					"exited_at": "10",
+					"revision":  "11",
 				}
 			}
 			writeSuccess(t, serverSide, request["id"], result)
@@ -547,9 +1048,9 @@ func createdPathResult() map[string]any {
 			"kind":         "terminal",
 			"workspace_id": testWorkspaceID,
 			"screen_id":    testScreenID,
-			"pane_id":      "pane_00000000000000000000000000000005",
-			"tab_id":       "tab_00000000000000000000000000000006",
-			"terminal_id":  "term_00000000000000000000000000000007",
+			"pane_id":      testPaneID,
+			"tab_id":       testTabID,
+			"terminal_id":  testTerminalID,
 		},
 	}
 }

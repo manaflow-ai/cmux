@@ -49,6 +49,28 @@ func (e *TransportError) Is(target error) bool {
 	return target == ErrTransport
 }
 
+// MutationTransportUncertainError means a mutation request may have reached
+// the server, but no structured response was observed. The SDK never retries
+// automatically. Inspect state before retrying with a new idempotency key.
+type MutationTransportUncertainError struct {
+	Operation      string
+	IdempotencyKey string
+	Err            error
+}
+
+func (e *MutationTransportUncertainError) Error() string {
+	return fmt.Sprintf(
+		"cmux %s transport failed before a response; mutation outcome is uncertain",
+		e.Operation,
+	)
+}
+
+func (e *MutationTransportUncertainError) Unwrap() error { return e.Err }
+
+func (e *MutationTransportUncertainError) Recovery() string {
+	return "inspect_state_then_retry_with_new_key"
+}
+
 type ProtocolError struct {
 	Message string
 }

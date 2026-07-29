@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "1b8a57b0dffa84316597445e49286dc47f4168f2a1cf9790c6f206e6646fd1de",
+  "catalog_sha256": "72a1594964336541c80727690baf6e7553b0f6af7f97aed0faadf0b167073aee",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -202,6 +202,9 @@
     "screen.rename": {
       "class": "mutation"
     },
+    "session.creation.resolve": {
+      "class": "read"
+    },
     "session.events": {
       "class": "stream_open"
     },
@@ -338,6 +341,9 @@
       "class": "mutation"
     },
     "terminal.wait": {
+      "class": "read"
+    },
+    "terminal.wait_exit": {
       "class": "read"
     },
     "workspace.close": {

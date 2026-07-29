@@ -4,6 +4,7 @@ import {
   CmuxProtocolError,
   CmuxTimeoutError,
   MutationIndeterminateError,
+  MutationTransportUncertainError,
   ResourceError,
   StreamError,
 } from "./errors.js";
@@ -44,6 +45,8 @@ interface StreamState<Value> {
   readonly waiters: Array<{
     resolve(value: IteratorResult<StreamItem<Value>>): void;
     reject(error: unknown): void;
+    timer?: ReturnType<typeof setTimeout>;
+    removeAbort?: () => void;
   }>;
   queuedBytes: number;
   end?: StreamEnd;
@@ -114,6 +117,7 @@ export class ResourceProtocol {
         value: await this.localExecutor(operation.name, Object.freeze({ ...params })),
       };
     }
+    if (options.signal?.aborted) throw abortError();
     let idempotencyKey: string | undefined;
     if (operation.class === "mutation") {
       idempotencyKey = options.idempotencyKey ?? `ts-${this.randomHex128()}`;
@@ -123,12 +127,31 @@ export class ResourceProtocol {
     } else if (options.idempotencyKey !== undefined) {
       throw new TypeError(`${operation.name} does not accept an idempotency key`);
     }
-    const value = await this.sendRequest(
-      operation.name,
-      params,
-      idempotencyKey,
-      options.signal,
-    );
+    let value: unknown;
+    try {
+      value = await this.sendRequest(
+        operation.name,
+        params,
+        idempotencyKey,
+        options.signal,
+        options.timeoutMs,
+      );
+    } catch (error) {
+      if (
+        operation.class === "mutation"
+        && idempotencyKey !== undefined
+        && !(error instanceof ResourceError)
+        && !(error instanceof CmuxProtocolError)
+        && !(error instanceof TypeError)
+      ) {
+        throw new MutationTransportUncertainError(
+          operation.name,
+          idempotencyKey,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+      throw error;
+    }
     return { value, ...(idempotencyKey ? { idempotencyKey } : {}) };
   }
 
@@ -136,7 +159,7 @@ export class ResourceProtocol {
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     decode: (value: unknown) => Value,
-    signal?: AbortSignal,
+    options: RequestOptions = {},
   ): Promise<ResourceStream<Value>> {
     if (operation.class !== "stream_open") {
       throw new TypeError(`${operation.name} is not a stream operation`);
@@ -163,26 +186,48 @@ export class ResourceProtocol {
     };
     this.streams.set(id, state as StreamState<unknown>);
     try {
-      await this.sendRequest(operation.name, { ...params, stream_id: id }, undefined, signal);
+      const opened = await this.sendRequest(
+        operation.name,
+        { ...params, stream_id: id },
+        undefined,
+        options.signal,
+        options.timeoutMs,
+      );
+      if (!isRecord(opened)) {
+        throw new CmuxProtocolError(`${operation.name} result must be an object`);
+      }
+      const allowed = new Set(["stream_id", "cursor"]);
+      const unknown = Object.keys(opened).find((key) => !allowed.has(key));
+      if (unknown !== undefined) {
+        throw new CmuxProtocolError(
+          `${operation.name} result contains unknown field ${JSON.stringify(unknown)}`,
+        );
+      }
+      if (opened.stream_id !== id) {
+        throw new CmuxProtocolError(
+          `${operation.name} returned stream ${String(opened.stream_id)} for ${id}`,
+        );
+      }
+      if (Object.hasOwn(opened, "cursor")) decodeCursor(opened.cursor);
     } catch (error) {
       this.streams.delete(id);
-      if (signal?.aborted && !this.closed) {
+      if (options.signal?.aborted && !this.closed) {
         void this.sendRequest(
           operations.streamCancel.name,
           { ...state.cancelRoute, stream: id },
           undefined,
           undefined,
-        ).catch(() => {});
+        ).then(decodeEmptyResult).catch(() => {});
       }
       throw error;
     }
     const stream = new ResourceStream(this, state);
-    if (signal) {
-      if (signal.aborted) await stream.cancel();
+    if (options.signal) {
+      if (options.signal.aborted) await stream.cancel();
       else {
         const cancel = () => void stream.cancel().catch(() => {});
-        signal.addEventListener("abort", cancel, { once: true });
-        stream.setAbortCleanup(() => signal.removeEventListener("abort", cancel));
+        options.signal.addEventListener("abort", cancel, { once: true });
+        stream.setAbortCleanup(() => options.signal?.removeEventListener("abort", cancel));
       }
     }
     return stream;
@@ -191,11 +236,13 @@ export class ResourceProtocol {
   async cancelStream(id: StreamId, signal?: AbortSignal): Promise<void> {
     const state = this.streams.get(id);
     if (!state) return;
-    await this.sendRequest(
-      operations.streamCancel.name,
-      { ...state.cancelRoute, stream: id },
-      undefined,
-      signal,
+    decodeEmptyResult(
+      await this.sendRequest(
+        operations.streamCancel.name,
+        { ...state.cancelRoute, stream: id },
+        undefined,
+        signal,
+      ),
     );
     this.finishStream(
       state,
@@ -219,9 +266,20 @@ export class ResourceProtocol {
     params: Readonly<Record<string, unknown>>,
     idempotencyKey?: string,
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(this.failure ?? new CmuxConnectionError("closed"));
     if (signal?.aborted) return Promise.reject(abortError());
+    const effectiveTimeout = timeoutMs ?? this.timeoutMs;
+    if (
+      !Number.isFinite(effectiveTimeout)
+      || effectiveTimeout < 0
+      || effectiveTimeout > 0x7fff_ffff
+    ) {
+      return Promise.reject(
+        new TypeError("timeoutMs must be between 0 and 2147483647"),
+      );
+    }
     const requestId = `ts-${++this.nextRequest}`;
     const envelope = {
       protocol: PROTOCOL,
@@ -250,12 +308,12 @@ export class ResourceProtocol {
     }
     return new Promise<unknown>((resolve, reject) => {
       const pending: Pending = { resolve, reject };
-      if (this.timeoutMs > 0) {
+      if (effectiveTimeout > 0) {
         pending.timer = setTimeout(() => {
           this.pending.delete(requestId);
           pending.removeAbort?.();
           reject(new CmuxTimeoutError(`${operation} timed out`));
-        }, this.timeoutMs);
+        }, effectiveTimeout);
       }
       if (signal) {
         const abort = () => {
@@ -333,7 +391,10 @@ export class ResourceProtocol {
             value: state.decode(value.item),
           });
           const waiter = state.waiters.shift();
-          if (waiter) waiter.resolve({ done: false, value: item });
+          if (waiter) {
+            finishStreamWaiter(waiter);
+            waiter.resolve({ done: false, value: item });
+          }
           else {
             const bytes = new TextEncoder().encode(json).byteLength;
             if (
@@ -411,6 +472,7 @@ export class ResourceProtocol {
       state.queuedBytes = 0;
     }
     for (const waiter of state.waiters.splice(0)) {
+      finishStreamWaiter(waiter);
       if (end.reason === "gap" || end.reason === "error") {
         waiter.reject(
           end.error instanceof ResourceError
@@ -432,7 +494,7 @@ export class ResourceProtocol {
       { ...state.cancelRoute, stream: state.id },
       undefined,
       undefined,
-    ).catch(() => {});
+    ).then(decodeEmptyResult).catch(() => {});
   }
 
   private finishPending(pending: Pending): void {
@@ -479,7 +541,9 @@ implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
     return this;
   }
 
-  next(): Promise<IteratorResult<StreamItem<Value>>> {
+  next(
+    options: RequestOptions = {},
+  ): Promise<IteratorResult<StreamItem<Value>>> {
     const queued = this.state.values.shift();
     if (queued) {
       this.state.queuedBytes -= queued.bytes;
@@ -499,8 +563,46 @@ implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
       }
       return Promise.resolve({ done: true, value: undefined });
     }
+    if (options.signal?.aborted) return Promise.reject(abortError());
+    const timeoutMs = options.timeoutMs;
+    if (
+      timeoutMs !== undefined
+      && (
+        !Number.isFinite(timeoutMs)
+        || timeoutMs < 0
+        || timeoutMs > 0x7fff_ffff
+      )
+    ) {
+      return Promise.reject(
+        new TypeError("timeoutMs must be between 0 and 2147483647"),
+      );
+    }
     return new Promise((resolve, reject) => {
-      this.state.waiters.push({ resolve, reject });
+      const waiter: StreamState<Value>["waiters"][number] = {
+        resolve,
+        reject,
+      };
+      const remove = () => {
+        const index = this.state.waiters.indexOf(waiter);
+        if (index >= 0) this.state.waiters.splice(index, 1);
+        finishStreamWaiter(waiter);
+      };
+      if (timeoutMs !== undefined && timeoutMs > 0) {
+        waiter.timer = setTimeout(() => {
+          remove();
+          reject(new CmuxTimeoutError("stream receive timed out"));
+        }, timeoutMs);
+      }
+      if (options.signal) {
+        const abort = () => {
+          remove();
+          reject(abortError());
+        };
+        options.signal.addEventListener("abort", abort, { once: true });
+        waiter.removeAbort = () =>
+          options.signal?.removeEventListener("abort", abort);
+      }
+      this.state.waiters.push(waiter);
     });
   }
 
@@ -538,8 +640,24 @@ function abortError(): CmuxAbortError {
   return new CmuxAbortError("operation aborted");
 }
 
+function finishStreamWaiter(
+  waiter: {
+    timer?: ReturnType<typeof setTimeout>;
+    removeAbort?: () => void;
+  },
+): void {
+  if (waiter.timer) clearTimeout(waiter.timer);
+  waiter.removeAbort?.();
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function decodeEmptyResult(value: unknown): void {
+  if (!isRecord(value) || Object.keys(value).length !== 0) {
+    throw new CmuxProtocolError("empty result must be an object with no fields");
+  }
 }
 
 function requireString(value: unknown, name: string): string {

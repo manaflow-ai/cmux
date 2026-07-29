@@ -1,4 +1,5 @@
 import { CmuxProtocolError } from "./errors.js";
+import { decodeBase64, encodeBase64 } from "./base64.js";
 import {
   agentId,
   browserId,
@@ -55,6 +56,8 @@ import {
   type BrowserAttachSnapshot,
   type BrowserAttachState,
   type BrowserSnapshot,
+  type BrowserViewerResizeResult,
+  type CellPixelsResult,
   type Command,
   type ClientTerminalSize,
   type ClientSnapshot,
@@ -65,11 +68,15 @@ import {
   type LayoutDocument,
   type LayoutNode,
   type MachineSnapshot,
+  type MutationReceipt,
   type MutationResult,
   type NotificationSnapshot,
+  type PairingResolutionResult,
   type PairingRequestSnapshot,
   type PaneSnapshot,
+  type PingResult,
   type PixelSize,
+  type ProcessInfoResult,
   type ProviderActionField,
   type ProviderActionSnapshot,
   type ProviderNoticeItem,
@@ -81,7 +88,6 @@ import {
   type ResourceEntitySnapshot,
   type ResourceKind,
   type ResourceSnapshot,
-  type ResourceUpsert,
   type RenderCursor,
   type RenderPatch,
   type RenderRow,
@@ -93,6 +99,7 @@ import {
   type SessionDelta,
   type SessionSnapshotItem,
   type SessionSnapshot,
+  type ShutdownResult,
   type SidebarAttachItem,
   type SidebarAttachPatch,
   type SidebarAttachScroll,
@@ -101,12 +108,24 @@ import {
   type Snapshot,
   type Size,
   type TabSnapshot,
+  type TerminalCopyResult,
+  type TerminalDefaultsSnapshot,
+  type TerminalExit,
+  type TerminalHistoryResult,
   type TerminalAttachItem,
   type TerminalAttachPatch,
   type TerminalAttachScroll,
   type TerminalAttachSnapshot,
   type TerminalSnapshot,
+  type TerminalScreenResult,
+  type TerminalStateResult,
+  type TerminalWaitResult,
+  type TerminalWaitExitResult,
+  type TerminalExitOutcome,
   type Unknown,
+  type ReloadConfigResult,
+  type ViewerResizeResult,
+  type JsonValue,
   type WorkspaceSnapshot,
 } from "./models.js";
 import type {
@@ -134,6 +153,7 @@ import type {
   SidebarResizeOptions,
   SplitPaneOptions,
   TerminalAttachOptions,
+  TerminalDefaultsOptions,
   TerminalHistoryOptions,
   TerminalMouseOptions,
   TerminalWaitOptions,
@@ -156,6 +176,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!isRecord(value)) throw new CmuxProtocolError(`${label} must be an object`);
   return value;
+}
+
+function jsonValue(value: unknown, label = "JSON value"): JsonValue {
+  if (
+    value === null
+    || typeof value === "string"
+    || typeof value === "boolean"
+  ) return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new CmuxProtocolError(`${label} contains a non-finite number`);
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return Object.freeze(
+      value.map((item, index) => jsonValue(item, `${label}[${index}]`)),
+    );
+  }
+  if (isRecord(value)) {
+    const result: Record<string, JsonValue> = {};
+    for (const [key, item] of Object.entries(value)) {
+      result[key] = jsonValue(item, `${label}.${key}`);
+    }
+    return Object.freeze(result);
+  }
+  throw new CmuxProtocolError(`${label} is not valid JSON`);
+}
+
+function document(value: unknown, label = "JSON object"): Document {
+  const decoded = jsonValue(value, label);
+  if (decoded === null || Array.isArray(decoded) || typeof decoded !== "object") {
+    throw new CmuxProtocolError(`${label} must be an object`);
+  }
+  return decoded as Document;
 }
 
 function unwrap(value: unknown, names: readonly string[]): Record<string, unknown> {
@@ -371,7 +426,7 @@ function snapshotFields<Id extends string>(
   strictObject(payload, ["id", ...fields, "extra"], "resource snapshot");
   const declaredExtra = payload.extra === undefined
     ? {}
-    : record(payload.extra, "resource extra");
+    : document(payload.extra, "resource extra");
   return Object.freeze({
     id: requiredId(payload, ["id"], factory),
     extra: Object.freeze({ ...declaredExtra }),
@@ -485,23 +540,64 @@ function tabSnapshot(value: unknown): TabSnapshot {
 
 function terminalSnapshot(value: unknown): TerminalSnapshot {
   const payload = unwrap(value, ["terminal"]);
+  const running = requiredBoolean(payload, "running");
+  const lifecycle = requiredEnum(
+    payload,
+    "lifecycle",
+    ["launching", "running", "exited"] as const,
+  );
+  const exit = Object.hasOwn(payload, "exit")
+    ? terminalExit(payload.exit)
+    : undefined;
+  if (running !== (lifecycle === "running")) {
+    throw new CmuxProtocolError(
+      "terminal running must be true exactly while lifecycle is running",
+    );
+  }
+  if ((exit !== undefined) !== (lifecycle === "exited")) {
+    throw new CmuxProtocolError(
+      "terminal exit must be present exactly while lifecycle is exited",
+    );
+  }
   return Object.freeze({
     ...snapshotFields(
       payload,
       terminalId,
-      ["tab_id", "title", "cwd", "cols", "rows", "running"],
+      [
+        "tab_id", "title", "cwd", "cols", "rows", "running", "lifecycle",
+        "exit",
+      ],
     ),
     tabId: requiredId(payload, ["tab_id"], tabId),
     title: requiredString(payload, "title"),
     ...optionalProperty("cwd", optionalString(payload, "cwd")),
     cols: requiredPositiveUint16(payload, "cols"),
     rows: requiredPositiveUint16(payload, "rows"),
-    running: requiredBoolean(payload, "running"),
+    running,
+    lifecycle,
+    ...optionalProperty("exit", exit),
   });
 }
 
 function browserSnapshot(value: unknown): BrowserSnapshot {
   const payload = unwrap(value, ["browser"]);
+  const loading = requiredBoolean(payload, "loading");
+  const status = requiredEnum(
+    payload,
+    "status",
+    ["starting", "live", "failed"] as const,
+  );
+  const error = requiredNullableString(payload, "error");
+  if (loading !== (status === "starting")) {
+    throw new CmuxProtocolError(
+      "browser loading must be true exactly while status is starting",
+    );
+  }
+  if ((error !== null) !== (status === "failed")) {
+    throw new CmuxProtocolError(
+      "browser error must be non-null exactly while status is failed",
+    );
+  }
   return Object.freeze({
     ...snapshotFields(payload, browserId, [
       "tab_id", "url", "title", "loading", "source", "status", "error",
@@ -510,10 +606,10 @@ function browserSnapshot(value: unknown): BrowserSnapshot {
     tabId: requiredId(payload, ["tab_id"], tabId),
     url: requiredString(payload, "url"),
     title: requiredString(payload, "title"),
-    loading: requiredBoolean(payload, "loading"),
+    loading,
     source: requiredEnum(payload, "source", ["external", "launched"] as const),
-    status: requiredEnum(payload, "status", ["starting", "live", "failed"] as const),
-    error: requiredNullableString(payload, "error"),
+    status,
+    error,
     framesStalled: requiredBoolean(payload, "frames_stalled"),
     size: size(payload.size),
   });
@@ -690,7 +786,7 @@ function layoutDocument(value: unknown): LayoutDocument {
     : requiredId(payload, ["zoomed_pane_id"], paneId);
   const extra = payload.extra === undefined
     ? {}
-    : record(payload.extra, "layout document extra");
+    : document(payload.extra, "layout document extra");
   return Object.freeze({
     version: requiredUnsignedInteger(payload, "version"),
     screenId: requiredId(payload, ["screen_id"], screenId),
@@ -742,7 +838,7 @@ function auxiliarySnapshot<Id extends string, Value extends Snapshot<Id>>(
       return Object.freeze({
         ...base,
         sessionId: requiredId(payload, ["session_id"], sessionId),
-        projection: payload.projection,
+        projection: jsonValue(payload.projection, "frontend projection"),
       }) as unknown as Value;
     }
     case "notification":
@@ -924,16 +1020,6 @@ function listPayload(value: unknown, key: string): unknown[] {
   return value;
 }
 
-function pairingResolution(value: unknown): PairingRequestSnapshot {
-  const payload = record(value, "pairing resolution");
-  strictObject(payload, ["pairing_request"], "pairing resolution");
-  return auxiliarySnapshot<PairingRequestId, PairingRequestSnapshot>(
-    payload.pairing_request,
-    "pairing_request",
-    pairingRequestId,
-  );
-}
-
 function commandFields(command: Command): Record<string, unknown> {
   return {
     ...(command.kind === "argv" ? { argv: [...command.argv] } : { shell: command.shell }),
@@ -997,6 +1083,7 @@ function optionFields(options: object): Record<string, unknown> {
     if (
       value === undefined
       || key === "signal"
+      || key === "timeoutMs"
       || key === "idempotencyKey"
       || key === "expectedRevision"
     ) continue;
@@ -1010,7 +1097,6 @@ function optionFields(options: object): Record<string, unknown> {
     }
     const wireKey: string = {
       initialContent: "initial_content",
-      timeoutMs: "timeout_ms",
       columns: "cols",
       widthPx: "width_px",
       heightPx: "height_px",
@@ -1021,6 +1107,10 @@ function optionFields(options: object): Record<string, unknown> {
       clickCount: "click_count",
       terminalId: "terminal_id",
       sourceSession: "source_session",
+      selectionBackground: "selection_background",
+      selectionForeground: "selection_foreground",
+      cursorStyle: "cursor_style",
+      cursorBlink: "cursor_blink",
       dataBase64: "data_base64",
       pluginId: "plugin_id",
     }[key] ?? key;
@@ -1049,10 +1139,6 @@ function mutationParams(
     ...params,
     expected_revision: decimalString(options.expectedRevision),
   };
-}
-
-function document(value: unknown, label = "operation result"): Document {
-  return Object.freeze({ ...record(value, label) });
 }
 
 function cursor(value: unknown): Cursor {
@@ -1090,7 +1176,7 @@ function resourceSnapshot(value: unknown): ResourceSnapshot {
   );
   const extra = payload.extra === undefined
     ? {}
-    : record(payload.extra, "resource snapshot extra");
+    : document(payload.extra, "resource snapshot extra");
   return Object.freeze({
     machine: machineSnapshot(payload.machine),
     session: sessionSnapshot(payload.session),
@@ -1233,7 +1319,7 @@ function resourceChange(value: unknown): ResourceChange {
   if (kind !== "upsert" && kind !== "delete") {
     return Object.freeze({
       kind,
-      raw: Object.freeze({ ...payload }),
+      raw: document(payload, "unknown resource change"),
     }) satisfies Unknown;
   }
   const resource = requiredEnum(payload, "resource", RESOURCE_KINDS);
@@ -1260,7 +1346,7 @@ function resourceChange(value: unknown): ResourceChange {
   const sequence = requiredUnsignedInteger(payload, "sequence");
   if (kind === "delete") {
     strictObject(payload, ["kind", "sequence", "resource", "id"], "resource delete");
-    return Object.freeze({ kind, sequence, resource, id });
+    return Object.freeze({ kind, sequence, resource, id }) as ResourceChange;
   }
   strictObject(
     payload,
@@ -1277,7 +1363,7 @@ function resourceChange(value: unknown): ResourceChange {
     resource,
     id,
     value: snapshot,
-  }) satisfies ResourceUpsert;
+  }) as ResourceChange;
 }
 
 function sessionEvent(value: unknown): SessionEvent {
@@ -1322,7 +1408,7 @@ function sessionEvent(value: unknown): SessionEvent {
   }
   return Object.freeze({
     kind,
-    raw: Object.freeze({ ...payload }),
+    raw: document(payload, "unknown session event"),
   }) satisfies Unknown;
 }
 
@@ -1537,7 +1623,7 @@ function terminalAttachItem(value: unknown): TerminalAttachItem {
   }
   return Object.freeze({
     kind,
-    raw: Object.freeze({ ...payload }),
+    raw: document(payload, "unknown terminal attach item"),
   }) satisfies Unknown;
 }
 
@@ -1607,7 +1693,7 @@ function browserAttachItem(value: unknown): BrowserAttachItem {
   }
   return Object.freeze({
     kind,
-    raw: Object.freeze({ ...payload }),
+    raw: document(payload, "unknown browser attach item"),
   }) satisfies Unknown;
 }
 
@@ -1664,7 +1750,7 @@ function sidebarAttachItem(value: unknown): SidebarAttachItem {
   }
   return Object.freeze({
     kind,
-    raw: Object.freeze({ ...payload }),
+    raw: document(payload, "unknown sidebar attach item"),
   }) satisfies Unknown;
 }
 
@@ -1676,7 +1762,7 @@ function providerNoticeItem(value: unknown): ProviderNoticeItem {
   if (payload.kind !== "notice") {
     return Object.freeze({
       kind: payload.kind,
-      raw: Object.freeze({ ...payload }),
+      raw: document(payload, "unknown provider notice item"),
     }) satisfies Unknown;
   }
   strictObject(
@@ -1698,6 +1784,421 @@ function providerNoticeItem(value: unknown): ProviderNoticeItem {
     ),
     sequence: requiredDecimal(payload, "sequence"),
   }) satisfies ProviderNoticeKnown;
+}
+
+function emptyResult(value: unknown): void {
+  const payload = record(value, "empty result");
+  strictObject(payload, [], "empty result");
+}
+
+function pingResult(value: unknown): PingResult {
+  const payload = record(value, "ping result");
+  strictObject(payload, ["alive", "cursor"], "ping result");
+  return Object.freeze({
+    alive: requiredBoolean(payload, "alive"),
+    cursor: cursor(payload.cursor),
+  });
+}
+
+function shutdownResult(value: unknown): ShutdownResult {
+  const payload = record(value, "shutdown result");
+  strictObject(payload, ["accepted"], "shutdown result");
+  return Object.freeze({ accepted: requiredBoolean(payload, "accepted") });
+}
+
+function reloadConfigResult(value: unknown): ReloadConfigResult {
+  const payload = record(value, "reload config result");
+  strictObject(payload, ["reloaded", "warnings"], "reload config result");
+  if (
+    !Array.isArray(payload.warnings)
+    || !payload.warnings.every((item) => typeof item === "string")
+  ) {
+    throw new CmuxProtocolError("reload config warnings must be an array of strings");
+  }
+  return Object.freeze({
+    reloaded: requiredBoolean(payload, "reloaded"),
+    warnings: Object.freeze([...payload.warnings]),
+  });
+}
+
+function optionalNullableStringProperty(
+  payload: Record<string, unknown>,
+  key: string,
+): string | null | undefined {
+  return Object.hasOwn(payload, key)
+    ? requiredNullableString(payload, key)
+    : undefined;
+}
+
+function terminalDefaultsSnapshot(value: unknown): TerminalDefaultsSnapshot {
+  const payload = record(value, "terminal defaults snapshot");
+  strictObject(
+    payload,
+    [
+      "foreground", "background", "cursor", "selection_background",
+      "selection_foreground", "cursor_style", "cursor_blink", "palette",
+    ],
+    "terminal defaults snapshot",
+  );
+  let palette: Readonly<Record<string, string>> | undefined;
+  if (Object.hasOwn(payload, "palette")) {
+    const source = record(payload.palette, "terminal defaults palette");
+    const decoded: Record<string, string> = {};
+    for (const [key, item] of Object.entries(source)) {
+      if (typeof item !== "string") {
+        throw new CmuxProtocolError(
+          `terminal defaults palette ${JSON.stringify(key)} must be a string`,
+        );
+      }
+      decoded[key] = item;
+    }
+    palette = Object.freeze(decoded);
+  }
+  let cursorStyle: TerminalDefaultsSnapshot["cursorStyle"];
+  if (Object.hasOwn(payload, "cursor_style")) {
+    cursorStyle = payload.cursor_style === null
+      ? null
+      : requiredEnum(
+        payload,
+        "cursor_style",
+        ["block", "bar", "underline"] as const,
+      );
+  }
+  let cursorBlink: boolean | null | undefined;
+  if (Object.hasOwn(payload, "cursor_blink")) {
+    cursorBlink = payload.cursor_blink === null
+      ? null
+      : requiredBoolean(payload, "cursor_blink");
+  }
+  return Object.freeze({
+    ...optionalProperty(
+      "foreground",
+      optionalNullableStringProperty(payload, "foreground"),
+    ),
+    ...optionalProperty(
+      "background",
+      optionalNullableStringProperty(payload, "background"),
+    ),
+    ...optionalProperty("cursor", optionalNullableStringProperty(payload, "cursor")),
+    ...optionalProperty(
+      "selectionBackground",
+      optionalNullableStringProperty(payload, "selection_background"),
+    ),
+    ...optionalProperty(
+      "selectionForeground",
+      optionalNullableStringProperty(payload, "selection_foreground"),
+    ),
+    ...optionalProperty("cursorStyle", cursorStyle),
+    ...optionalProperty("cursorBlink", cursorBlink),
+    ...optionalProperty("palette", palette),
+  });
+}
+
+function terminalScreenResult(value: unknown): TerminalScreenResult {
+  const payload = record(value, "terminal screen result");
+  strictObject(
+    payload,
+    [
+      "text", "cols", "rows", "cursor_row", "cursor_col", "cursor_visible",
+      "extra",
+    ],
+    "terminal screen result",
+  );
+  return Object.freeze({
+    text: requiredString(payload, "text"),
+    cols: requiredPositiveUint16(payload, "cols"),
+    rows: requiredPositiveUint16(payload, "rows"),
+    cursorRow: requiredUint16(payload, "cursor_row"),
+    cursorCol: requiredUint16(payload, "cursor_col"),
+    cursorVisible: requiredBoolean(payload, "cursor_visible"),
+    extra: payload.extra === undefined
+      ? Object.freeze({})
+      : document(payload.extra, "terminal screen extra"),
+  });
+}
+
+function requiredBase64(
+  payload: Record<string, unknown>,
+  key: string,
+): string {
+  const encoded = requiredString(payload, key);
+  if (
+    encoded.length % 4 !== 0
+    || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      encoded,
+    )
+  ) {
+    throw new CmuxProtocolError(`${key} must be canonical base64`);
+  }
+  return encoded;
+}
+
+function terminalStateResult(value: unknown): TerminalStateResult {
+  const payload = record(value, "terminal state result");
+  strictObject(payload, ["state_base64", "cols", "rows"], "terminal state result");
+  return Object.freeze({
+    state: decodeBase64(requiredBase64(payload, "state_base64")),
+    cols: requiredPositiveUint16(payload, "cols"),
+    rows: requiredPositiveUint16(payload, "rows"),
+  });
+}
+
+function terminalHistoryResult(value: unknown): TerminalHistoryResult {
+  const payload = record(value, "terminal history result");
+  strictObject(payload, ["start", "next", "rows"], "terminal history result");
+  if (!Array.isArray(payload.rows)) {
+    throw new CmuxProtocolError("terminal history rows must be an array");
+  }
+  let next: DecimalString | null | undefined;
+  if (Object.hasOwn(payload, "next")) {
+    next = payload.next === null ? null : requiredDecimal(payload, "next");
+  }
+  return Object.freeze({
+    start: requiredDecimal(payload, "start"),
+    ...optionalProperty("next", next),
+    rows: Object.freeze(payload.rows.map(renderRow)),
+  });
+}
+
+function terminalWaitResult(value: unknown): TerminalWaitResult {
+  const payload = record(value, "terminal wait result");
+  strictObject(payload, ["matched", "text"], "terminal wait result");
+  return Object.freeze({
+    matched: requiredBoolean(payload, "matched"),
+    text: requiredString(payload, "text"),
+  });
+}
+
+function terminalExitOutcome(value: unknown): TerminalExitOutcome {
+  const payload = record(value, "terminal exit outcome");
+  const kind = requiredEnum(
+    payload,
+    "kind",
+    ["exit", "signal", "unknown"] as const,
+  );
+  if (kind === "exit") {
+    strictObject(payload, ["kind", "code"], "terminal exit outcome");
+    return Object.freeze({
+      kind,
+      code: requiredInt32(payload, "code"),
+    });
+  }
+  if (kind === "signal") {
+    strictObject(
+      payload,
+      ["kind", "signal", "core_dumped"],
+      "terminal exit outcome",
+    );
+    const signal = requiredInt32(payload, "signal");
+    if (signal < 1) {
+      throw new CmuxProtocolError("terminal exit signal must be positive");
+    }
+    return Object.freeze({
+      kind,
+      signal,
+      coreDumped: requiredBoolean(payload, "core_dumped"),
+    });
+  }
+  strictObject(payload, ["kind", "reason"], "terminal exit outcome");
+  const reason = requiredString(payload, "reason");
+  if (reason.length === 0) {
+    throw new CmuxProtocolError("terminal exit unknown reason must be non-empty");
+  }
+  return Object.freeze({ kind, reason });
+}
+
+function terminalExit(value: unknown): TerminalExit {
+  const payload = record(value, "terminal exit");
+  strictObject(
+    payload,
+    ["outcome", "exited_at", "revision"],
+    "terminal exit",
+  );
+  return Object.freeze({
+    outcome: terminalExitOutcome(payload.outcome),
+    exitedAt: requiredDecimal(payload, "exited_at"),
+    revision: requiredDecimal(payload, "revision"),
+  });
+}
+
+function terminalWaitExitResult(value: unknown): TerminalWaitExitResult {
+  const payload = record(value, "terminal wait exit result");
+  const state = requiredEnum(payload, "state", ["pending", "exited"] as const);
+  if (state === "pending") {
+    strictObject(
+      payload,
+      ["state", "terminal_id", "lifecycle", "revision"],
+      "terminal wait exit pending result",
+    );
+    return Object.freeze({
+      state,
+      terminalId: requiredId(payload, ["terminal_id"], terminalId),
+      lifecycle: requiredEnum(
+        payload,
+        "lifecycle",
+        ["launching", "running"] as const,
+      ),
+      revision: requiredDecimal(payload, "revision"),
+    });
+  }
+  strictObject(
+    payload,
+    [
+      "state", "terminal_id", "lifecycle", "outcome", "exited_at",
+      "revision",
+    ],
+    "terminal wait exit exited result",
+  );
+  return Object.freeze({
+    state,
+    terminalId: requiredId(payload, ["terminal_id"], terminalId),
+    lifecycle: requiredEnum(payload, "lifecycle", ["exited"] as const),
+    outcome: terminalExitOutcome(payload.outcome),
+    exitedAt: requiredDecimal(payload, "exited_at"),
+    revision: requiredDecimal(payload, "revision"),
+  });
+}
+
+function terminalCopyResult(value: unknown): TerminalCopyResult {
+  const payload = record(value, "terminal copy result");
+  strictObject(payload, ["mode", "text"], "terminal copy result");
+  return Object.freeze({
+    mode: requiredEnum(
+      payload,
+      "mode",
+      ["screen", "selection", "scrollback"] as const,
+    ),
+    text: requiredString(payload, "text"),
+  });
+}
+
+function processInfoResult(value: unknown): ProcessInfoResult {
+  const payload = record(value, "process info result");
+  strictObject(
+    payload,
+    ["pid", "executable", "argv", "cwd", "children"],
+    "process info result",
+  );
+  if (
+    !Array.isArray(payload.argv)
+    || !payload.argv.every((item) => typeof item === "string")
+  ) {
+    throw new CmuxProtocolError("process argv must be an array of strings");
+  }
+  if (!Array.isArray(payload.children)) {
+    throw new CmuxProtocolError("process children must be an array");
+  }
+  return Object.freeze({
+    pid: requiredUnsignedInteger(payload, "pid"),
+    ...optionalProperty("executable", optionalString(payload, "executable")),
+    argv: Object.freeze([...payload.argv]),
+    ...optionalProperty("cwd", optionalString(payload, "cwd")),
+    children: Object.freeze(
+      payload.children.map((item) =>
+        requiredUnsignedInteger({ child: item }, "child")),
+    ),
+  });
+}
+
+function rendererGrantResult(value: unknown): RendererGrant {
+  const payload = record(value, "renderer grant result");
+  strictObject(
+    payload,
+    ["endpoint", "terminal_id", "token", "rights", "ttl_ms"],
+    "renderer grant result",
+  );
+  const token = requiredString(payload, "token");
+  if (token.length === 0) {
+    throw new CmuxProtocolError("renderer grant token must be non-empty");
+  }
+  if (
+    !Array.isArray(payload.rights)
+    || payload.rights.length === 0
+    || !payload.rights.every((right) => typeof right === "string")
+  ) {
+    throw new CmuxProtocolError(
+      "renderer grant rights must be a non-empty array of strings",
+    );
+  }
+  const ttlMs = requiredPositiveUint32(payload, "ttl_ms");
+  if (ttlMs > 60_000) {
+    throw new CmuxProtocolError("renderer grant ttl_ms must not exceed 60000");
+  }
+  return new RendererGrant(
+    token,
+    requiredString(payload, "endpoint"),
+    requiredId(payload, ["terminal_id"], terminalId),
+    Object.freeze([...payload.rights]),
+    ttlMs,
+  );
+}
+
+function viewerResizeResult(value: unknown): ViewerResizeResult {
+  const payload = record(value, "viewer resize result");
+  strictObject(payload, ["accepted", "size"], "viewer resize result");
+  return Object.freeze({
+    accepted: requiredBoolean(payload, "accepted"),
+    size: size(payload.size),
+  });
+}
+
+function browserViewerResizeResult(
+  value: unknown,
+): BrowserViewerResizeResult {
+  const payload = record(value, "browser viewer resize result");
+  strictObject(
+    payload,
+    ["accepted", "size"],
+    "browser viewer resize result",
+  );
+  return Object.freeze({
+    accepted: requiredBoolean(payload, "accepted"),
+    size: pixelSize(payload.size),
+  });
+}
+
+function cellPixelsResult(value: unknown): CellPixelsResult {
+  const payload = record(value, "cell pixels result");
+  strictObject(
+    payload,
+    ["width_px", "height_px", "resized_terminals", "failures"],
+    "cell pixels result",
+  );
+  if (!Array.isArray(payload.resized_terminals)) {
+    throw new CmuxProtocolError("resized_terminals must be an array");
+  }
+  const failuresSource = record(payload.failures, "cell pixel failures");
+  const failures: Record<string, string> = {};
+  for (const [key, item] of Object.entries(failuresSource)) {
+    if (typeof item !== "string") {
+      throw new CmuxProtocolError(
+        `cell pixel failure ${JSON.stringify(key)} must be a string`,
+      );
+    }
+    failures[key] = item;
+  }
+  return Object.freeze({
+    widthPx: requiredPositiveUint32(payload, "width_px"),
+    heightPx: requiredPositiveUint32(payload, "height_px"),
+    resizedTerminalIds: Object.freeze(
+      payload.resized_terminals.map((item) =>
+        requiredId({ id: item }, ["id"], terminalId)),
+    ),
+    failures: Object.freeze(failures),
+  });
+}
+
+function pairingResolutionResult(value: unknown): PairingResolutionResult {
+  const payload = record(value, "pairing resolution result");
+  strictObject(payload, ["pairing_request"], "pairing resolution result");
+  return Object.freeze({
+    pairingRequest:
+      auxiliarySnapshot<PairingRequestId, PairingRequestSnapshot>(
+        payload.pairing_request,
+        "pairing_request",
+        pairingRequestId,
+      ),
+  });
 }
 
 abstract class Handle<Id extends string, Value extends Snapshot<Id>> {
@@ -1729,12 +2230,23 @@ abstract class Handle<Id extends string, Value extends Snapshot<Id>> {
     return { ...this.scope, [this.selectorKey]: encodeSelector(this.selector) };
   }
 
+  protected acceptSnapshot(snapshot: Value): this {
+    const expectedId = this.cached?.id ?? this.id;
+    if (expectedId !== undefined && snapshot.id !== expectedId) {
+      throw new CmuxProtocolError(
+        `${this.selectorKey} mutation returned ${snapshot.id} for ${expectedId}`,
+      );
+    }
+    this.cached = snapshot;
+    return this;
+  }
+
   protected async refreshWith(
     operation: Operation,
     decode: SnapshotDecoder<Value>,
     options: RequestOptions = {},
   ): Promise<Value> {
-    const result = await this.client.read(operation, this.params(), options);
+    const result = await this.client[readOperation](operation, this.params(), options);
     const snapshot = decode(result);
     this.cached = snapshot;
     return snapshot;
@@ -1757,7 +2269,62 @@ export class CreatedPath {
   }
 }
 
+interface CreationResolutionCommon {
+  readonly correlationKey: string;
+  readonly operation?: string;
+  readonly idempotencyKey?: string;
+  readonly createdPath?: CreatedPath;
+  readonly generation?: string;
+  readonly revision?: DecimalString;
+}
+
+export interface CreationResolutionPending extends CreationResolutionCommon {
+  readonly state: "pending";
+  readonly recovery: "wait";
+}
+
+export interface CreationResolutionCreated extends CreationResolutionCommon {
+  readonly state: "created";
+  readonly recovery: "none";
+  readonly createdPath: CreatedPath;
+  readonly generation: string;
+  readonly revision: DecimalString;
+}
+
+export interface CreationResolutionNotApplied extends CreationResolutionCommon {
+  readonly state: "not_applied";
+  readonly recovery:
+    | "retry_same_idempotency_key"
+    | "retry_new_idempotency_key";
+}
+
+export interface CreationResolutionIndeterminate extends CreationResolutionCommon {
+  readonly state: "indeterminate";
+  readonly recovery: "do_not_retry";
+}
+
+export type CreationResolution =
+  | CreationResolutionPending
+  | CreationResolutionCreated
+  | CreationResolutionNotApplied
+  | CreationResolutionIndeterminate;
+
+export interface SessionCreationOperations {
+  resolve(
+    correlationKey: string,
+    options?: RequestOptions,
+  ): Promise<CreationResolution>;
+}
+
 export interface ClientOptions extends ResourceProtocolOptions {}
+
+const readOperation = Symbol("readOperation");
+const controlOperation = Symbol("controlOperation");
+const mutateOperation = Symbol("mutateOperation");
+const mutateEmptyOperation = Symbol("mutateEmptyOperation");
+const createdOperation = Symbol("createdOperation");
+const creationResolutionOperation = Symbol("creationResolutionOperation");
+const streamOperation = Symbol("streamOperation");
 
 /** Transport-neutral resource API client. */
 export class Client {
@@ -1797,7 +2364,7 @@ export class Client {
   }
 
   async listMachines(options: RequestOptions = {}): Promise<Machine[]> {
-    const values = listPayload(await this.read(operations.machineList, {}, options), "machines");
+    const values = listPayload(await this[readOperation](operations.machineList, {}, options), "machines");
     return values.map((value) => {
       const snapshot = machineSnapshot(value);
       return new Machine(this, selectId(snapshot.id), {}, snapshot);
@@ -1813,7 +2380,7 @@ export class Client {
     _create: CreateMachineOptions = {},
     options: MutationOptions = {},
   ): Promise<MutationResult<Machine>> {
-    return this.mutate(
+    return this[mutateOperation](
       operations.machineCreate,
       { provider_scope: encodeSelector(providerScope) },
       options,
@@ -1824,7 +2391,7 @@ export class Client {
 
   async listProviderScopes(options: RequestOptions = {}): Promise<ProviderScope[]> {
     const values = listPayload(
-      await this.read(
+      await this[readOperation](
         operations.providerScopeList,
         { machine: "current" },
         options,
@@ -1846,7 +2413,7 @@ export class Client {
     });
   }
 
-  async read(
+  async [readOperation](
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     options: RequestOptions = {},
@@ -1857,18 +2424,19 @@ export class Client {
     return (await this.protocol.request(operation, params, options)).value;
   }
 
-  async control(
+  async [controlOperation]<Value>(
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
+    decode: (value: unknown) => Value,
     options: RequestOptions = {},
-  ): Promise<Document> {
+  ): Promise<Value> {
     if (operation.class !== "connection_control") {
       throw new TypeError(`${operation.name} is not connection control`);
     }
-    return document((await this.protocol.request(operation, params, options)).value);
+    return decode((await this.protocol.request(operation, params, options)).value);
   }
 
-  async mutate<Value, Result>(
+  async [mutateOperation]<Value, Result>(
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     options: MutationOptions,
@@ -1884,15 +2452,21 @@ export class Client {
     return decodeMutation(response, operation.name, (value) => transform(decode(value)));
   }
 
-  async mutateDocument(
+  async [mutateEmptyOperation](
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     options: MutationOptions = {},
-  ): Promise<MutationResult<Document>> {
-    return this.mutate(operation, params, options, document, (value) => value);
+  ): Promise<MutationReceipt> {
+    return this[mutateOperation](
+      operation,
+      params,
+      options,
+      emptyResult,
+      (value) => value,
+    );
   }
 
-  async created(
+  async [createdOperation](
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     options: MutationOptions = {},
@@ -1909,13 +2483,37 @@ export class Client {
     );
   }
 
-  async stream<Value>(
+  async [creationResolutionOperation](
+    params: Readonly<Record<string, unknown>>,
+    correlationKey: string,
+    options: RequestOptions = {},
+  ): Promise<CreationResolution> {
+    if (correlationKey.length < 1 || correlationKey.length > 128) {
+      throw new TypeError("correlation key must contain 1 to 128 characters");
+    }
+    const requestParams = { ...params, correlation_key: correlationKey };
+    const value = await this[readOperation](
+      operations.sessionCreationResolve,
+      requestParams,
+      options,
+    );
+    const result = this.creationResolution(value, requestParams);
+    if (result.correlationKey !== correlationKey) {
+      throw new CmuxProtocolError(
+        `creation resolution returned correlation key ${JSON.stringify(result.correlationKey)} `
+        + `for ${JSON.stringify(correlationKey)}`,
+      );
+    }
+    return result;
+  }
+
+  async [streamOperation]<Value>(
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     decode: (value: unknown) => Value,
-    signal?: AbortSignal,
+    options: RequestOptions = {},
   ): Promise<ResourceStream<Value>> {
-    return this.protocol.openStream(operation, params, decode, signal);
+    return this.protocol.openStream(operation, params, decode, options);
   }
 
   private createdPath(
@@ -1987,6 +2585,102 @@ export class Client {
       new Browser(this, browser, tabScope),
     );
   }
+
+  private creationResolution(
+    value: unknown,
+    requestParams: Readonly<Record<string, unknown>>,
+  ): CreationResolution {
+    const payload = record(value, "creation resolution");
+    strictObject(
+      payload,
+      [
+        "correlation_key", "state", "recovery", "operation",
+        "idempotency_key", "created_path", "generation", "revision",
+      ],
+      "creation resolution",
+    );
+    const correlationKey = requiredGeneration(payload, "correlation_key");
+    const state = requiredEnum(
+      payload,
+      "state",
+      ["pending", "created", "not_applied", "indeterminate"] as const,
+    );
+    const recovery = requiredEnum(
+      payload,
+      "recovery",
+      [
+        "retry_same_idempotency_key", "retry_new_idempotency_key", "wait",
+        "none", "do_not_retry",
+      ] as const,
+    );
+    const operation = optionalString(payload, "operation");
+    if (operation !== undefined && operation.length === 0) {
+      throw new CmuxProtocolError("creation resolution operation must be non-empty");
+    }
+    const idempotencyKey = Object.hasOwn(payload, "idempotency_key")
+      ? requiredGeneration(payload, "idempotency_key")
+      : undefined;
+    const createdPath = Object.hasOwn(payload, "created_path")
+      ? this.createdPath(payload.created_path, requestParams)
+      : undefined;
+    const generation = Object.hasOwn(payload, "generation")
+      ? requiredGeneration(payload, "generation")
+      : undefined;
+    const revision = Object.hasOwn(payload, "revision")
+      ? requiredDecimal(payload, "revision")
+      : undefined;
+    const common = {
+      correlationKey,
+      ...optionalProperty("operation", operation),
+      ...optionalProperty("idempotencyKey", idempotencyKey),
+      ...optionalProperty("createdPath", createdPath),
+      ...optionalProperty("generation", generation),
+      ...optionalProperty("revision", revision),
+    };
+    if (state === "pending") {
+      if (recovery !== "wait") {
+        throw new CmuxProtocolError("pending creation resolution requires wait recovery");
+      }
+      return Object.freeze({ ...common, state, recovery });
+    }
+    if (state === "created") {
+      if (
+        recovery !== "none"
+        || createdPath === undefined
+        || generation === undefined
+        || revision === undefined
+      ) {
+        throw new CmuxProtocolError(
+          "created resolution requires none recovery, created path, generation, and revision",
+        );
+      }
+      return Object.freeze({
+        ...common,
+        state,
+        recovery,
+        createdPath,
+        generation,
+        revision,
+      });
+    }
+    if (state === "not_applied") {
+      if (
+        recovery !== "retry_same_idempotency_key"
+        && recovery !== "retry_new_idempotency_key"
+      ) {
+        throw new CmuxProtocolError(
+          "not_applied creation resolution requires a retry recovery",
+        );
+      }
+      return Object.freeze({ ...common, state, recovery });
+    }
+    if (recovery !== "do_not_retry") {
+      throw new CmuxProtocolError(
+        "indeterminate creation resolution requires do_not_retry recovery",
+      );
+    }
+    return Object.freeze({ ...common, state, recovery });
+  }
 }
 
 function decodeMutation<Value>(
@@ -2027,7 +2721,7 @@ export class Machine extends Handle<MachineId, MachineSnapshot> {
   async listSessions(options: RequestOptions = {}): Promise<Session[]> {
     const scope = { machine: encodeSelector(this.selector) };
     return listPayload(
-      await this.client.read(operations.sessionList, scope, options),
+      await this.client[readOperation](operations.sessionList, scope, options),
       "sessions",
     ).map((value) => {
       const snapshot = sessionSnapshot(value);
@@ -2044,7 +2738,7 @@ export class Machine extends Handle<MachineId, MachineSnapshot> {
     options: MutationOptions = {},
   ): Promise<MutationResult<Session>> {
     const scope = { machine: encodeSelector(this.selector) };
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.sessionOpen,
       { ...scope, session: encodeSelector(selector) },
       options,
@@ -2057,7 +2751,7 @@ export class Machine extends Handle<MachineId, MachineSnapshot> {
     name: string,
     options: MutationOptions & { readonly confirmClose?: boolean } = {},
   ): Promise<MutationResult<Machine>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.machineRename,
       {
         ...this.params(),
@@ -2066,38 +2760,50 @@ export class Machine extends Handle<MachineId, MachineSnapshot> {
       },
       options,
       machineSnapshot,
-      (snapshot) => new Machine(this.client, selectId(snapshot.id), {}, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 
   delete(options: MutationOptions = {}): Promise<MutationResult<Machine>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.machineDelete,
       this.params(),
       options,
       machineSnapshot,
-      (snapshot) => new Machine(this.client, selectId(snapshot.id), {}, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 
   restore(options: MutationOptions = {}): Promise<MutationResult<Machine>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.machineRestore,
       this.params(),
       options,
       machineSnapshot,
-      (snapshot) => new Machine(this.client, selectId(snapshot.id), {}, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 
-  purge(options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(operations.machinePurge, this.params(), options);
+  purge(options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](operations.machinePurge, this.params(), options);
   }
 
 }
 
 export class Session extends Handle<SessionId, SessionSnapshot> {
   protected readonly selectorKey = "session";
+  readonly creation: SessionCreationOperations = Object.freeze({
+    resolve: (
+      correlationKey: string,
+      options: RequestOptions = {},
+    ): Promise<CreationResolution> =>
+      this.client[creationResolutionOperation](
+        this.params(),
+        correlationKey,
+        options,
+      ),
+  });
+
   private nestedScope(): Record<string, string> {
     return { ...this.scope, session: encodeSelector(this.selector) };
   }
@@ -2128,63 +2834,77 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
 
   async fullSnapshot(options: RequestOptions = {}): Promise<ResourceSnapshot> {
     return resourceSnapshot(
-      await this.client.read(operations.sessionSnapshot, this.params(), options),
+      await this.client[readOperation](operations.sessionSnapshot, this.params(), options),
     );
   }
 
-  async ping(options: RequestOptions = {}): Promise<Document> {
-    return document(await this.client.read(operations.sessionPing, this.params(), options));
+  async ping(options: RequestOptions = {}): Promise<PingResult> {
+    return pingResult(
+      await this.client[readOperation](operations.sessionPing, this.params(), options),
+    );
   }
 
   events(options: SessionEventsOptions = {}): Promise<ResourceStream<SessionEvent>> {
-    return this.client.stream(
+    return this.client[streamOperation](
       operations.sessionEvents,
       { ...this.params(), ...optionFields(options) },
       sessionEvent,
-      options.signal,
+      options,
     );
   }
 
   shutdown(
     force = false,
     options: MutationOptions = {},
-  ): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  ): Promise<MutationResult<ShutdownResult>> {
+    return this.client[mutateOperation](
       operations.sessionShutdown,
       { ...this.params(), force },
       options,
+      shutdownResult,
+      (result) => result,
     );
   }
 
-  close(options: MutationOptions = {}): Promise<MutationResult<Document>> {
+  close(options: MutationOptions = {}): Promise<MutationResult<ShutdownResult>> {
     return this.shutdown(false, options);
   }
 
-  reloadConfig(options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(operations.sessionReloadConfig, this.params(), options);
-  }
-
-  updateTerminalDefaults(
-    value: Readonly<Record<string, unknown>>,
+  reloadConfig(
     options: MutationOptions = {},
-  ): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
-      operations.sessionTerminalDefaultsUpdate,
-      { ...this.params(), ...value },
+  ): Promise<MutationResult<ReloadConfigResult>> {
+    return this.client[mutateOperation](
+      operations.sessionReloadConfig,
+      this.params(),
       options,
+      reloadConfigResult,
+      (result) => result,
     );
   }
 
-  setWindowTitle(title: string, options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  updateTerminalDefaults(
+    value: TerminalDefaultsOptions,
+    options: MutationOptions = {},
+  ): Promise<MutationResult<TerminalDefaultsSnapshot>> {
+    return this.client[mutateOperation](
+      operations.sessionTerminalDefaultsUpdate,
+      { ...this.params(), ...optionFields(value) },
+      options,
+      terminalDefaultsSnapshot,
+      (snapshot) => snapshot,
+    );
+  }
+
+  setWindowTitle(title: string, options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.sessionWindowTitleSet,
       { ...this.params(), title },
       options,
     );
   }
 
-  clearWindowTitle(options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  clearWindowTitle(options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.sessionWindowTitleClear,
       this.params(),
       options,
@@ -2194,7 +2914,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
   async listWorkspaces(options: RequestOptions = {}): Promise<Workspace[]> {
     const scope = this.nestedScope();
     return listPayload(
-      await this.client.read(operations.workspaceList, scope, options),
+      await this.client[readOperation](operations.workspaceList, scope, options),
       "workspaces",
     ).map((value) => {
       const snapshot = workspaceSnapshot(value);
@@ -2218,13 +2938,13 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       initial_content: create.initialContent ?? "terminal",
       ...(create.name !== undefined ? { name: create.name } : {}),
     };
-    return this.client.created(operations.workspaceCreate, params, options);
+    return this.client[createdOperation](operations.workspaceCreate, params, options);
   }
 
   async listConnectedClients(options: RequestOptions = {}): Promise<ConnectedClient[]> {
     const scope = this.nestedScope();
     return listPayload(
-      await this.client.read(operations.clientList, scope, options),
+      await this.client[readOperation](operations.clientList, scope, options),
       "clients",
     ).map((value) => {
       const snapshot = connectedClientSnapshot(value);
@@ -2235,7 +2955,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
   async listTerminals(options: RequestOptions = {}): Promise<Terminal[]> {
     const scope = this.nestedScope();
     return listPayload(
-      await this.client.read(operations.terminalList, scope, options),
+      await this.client[readOperation](operations.terminalList, scope, options),
       "terminals",
     ).map((value) => {
       const snapshot = terminalSnapshot(value);
@@ -2246,7 +2966,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
   async listBrowsers(options: RequestOptions = {}): Promise<Browser[]> {
     const scope = this.nestedScope();
     return listPayload(
-      await this.client.read(operations.browserList, scope, options),
+      await this.client[readOperation](operations.browserList, scope, options),
       "browsers",
     ).map((value) => {
       const snapshot = browserSnapshot(value);
@@ -2257,7 +2977,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
   async listPairingRequests(options: RequestOptions = {}): Promise<PairingRequest[]> {
     const scope = this.nestedScope();
     return listPayload(
-      await this.client.read(operations.pairingRequestList, scope, options),
+      await this.client[readOperation](operations.pairingRequestList, scope, options),
       "pairing_requests",
     ).map((value) => {
       const snapshot = auxiliarySnapshot<PairingRequestId, PairingRequestSnapshot>(
@@ -2276,7 +2996,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
   ): Promise<FrontendProjection> {
     const scope = this.nestedScope();
     const snapshot = auxiliarySnapshot<ProjectionId, FrontendProjectionSnapshot>(
-      await this.client.read(
+      await this.client[readOperation](
         operations.frontendProjectionGet,
         { ...scope, frontend_projection: encodeSelector(selector) },
         options,
@@ -2293,7 +3013,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
   ): Promise<Notification[]> {
     const scope = this.nestedScope();
     return listPayload(
-      await this.client.read(
+      await this.client[readOperation](
         operations.notificationList,
         { ...scope, ...optionFields(options) },
         options,
@@ -2315,7 +3035,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
     options: MutationOptions = {},
   ): Promise<MutationResult<Notification>> {
     const scope = this.nestedScope();
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.notificationCreate,
       { ...scope, ...optionFields(create) },
       options,
@@ -2337,7 +3057,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
   ): Promise<Agent[]> {
     const scope = this.nestedScope();
     return listPayload(
-      await this.client.read(
+      await this.client[readOperation](
         operations.agentList,
         { ...scope, ...optionFields(options) },
         options,
@@ -2372,7 +3092,7 @@ export class Workspace extends Handle<WorkspaceId, WorkspaceSnapshot> {
   async listScreens(options: RequestOptions = {}): Promise<Screen[]> {
     const scope = this.nestedScope();
     return listPayload(
-      await this.client.read(operations.screenList, scope, options),
+      await this.client[readOperation](operations.screenList, scope, options),
       "screens",
     ).map((value) => {
       const snapshot = screenSnapshot(value);
@@ -2389,7 +3109,7 @@ export class Workspace extends Handle<WorkspaceId, WorkspaceSnapshot> {
     options: MutationOptions = {},
   ): Promise<MutationResult<CreatedPath>> {
     const scope = this.nestedScope();
-    return this.client.created(
+    return this.client[createdOperation](
       operations.screenCreate,
       { ...scope, ...optionFields(create) },
       options,
@@ -2397,12 +3117,12 @@ export class Workspace extends Handle<WorkspaceId, WorkspaceSnapshot> {
   }
 
   rename(name: string, options: MutationOptions = {}): Promise<MutationResult<Workspace>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.workspaceRename,
       { ...this.params(), name },
       options,
       workspaceSnapshot,
-      (snapshot) => new Workspace(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 
@@ -2410,7 +3130,7 @@ export class Workspace extends Handle<WorkspaceId, WorkspaceSnapshot> {
     index: number,
     options: MutationOptions = {},
   ): Promise<MutationResult<Workspace>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.workspaceMove,
       {
         ...this.params(),
@@ -2418,26 +3138,26 @@ export class Workspace extends Handle<WorkspaceId, WorkspaceSnapshot> {
       },
       options,
       workspaceSnapshot,
-      (snapshot) => new Workspace(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 
   focus(options: MutationOptions = {}): Promise<MutationResult<Workspace>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.workspaceFocus,
       this.params(),
       options,
       workspaceSnapshot,
-      (snapshot) => new Workspace(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 
-  close(options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(operations.workspaceClose, this.params(), options);
+  close(options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](operations.workspaceClose, this.params(), options);
   }
 
   run(run: RunOptions, options: MutationOptions = {}): Promise<MutationResult<CreatedPath>> {
-    return this.client.created(
+    return this.client[createdOperation](
       operations.workspaceRun,
       { ...this.params(), ...optionFields(run) },
       options,
@@ -2448,17 +3168,12 @@ export class Workspace extends Handle<WorkspaceId, WorkspaceSnapshot> {
     apply: LayoutApplyOptions,
     options: MutationOptions = {},
   ): Promise<MutationResult<Workspace>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.workspaceLayoutApply,
       { ...this.params(), ...optionFields(apply) },
       options,
       workspaceSnapshot,
-      (snapshot) => new Workspace(
-        this.client,
-        selectId(snapshot.id),
-        this.scope,
-        snapshot,
-      ),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 }
@@ -2480,7 +3195,7 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
   async listPanes(options: RequestOptions = {}): Promise<Pane[]> {
     const scope = this.nestedScope();
     return listPayload(
-      await this.client.read(operations.paneList, scope, options),
+      await this.client[readOperation](operations.paneList, scope, options),
       "panes",
     ).map((value) => {
       const snapshot = paneSnapshot(value);
@@ -2497,7 +3212,7 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
     options: MutationOptions = {},
   ): Promise<MutationResult<CreatedPath>> {
     const scope = this.nestedScope();
-    return this.client.created(
+    return this.client[createdOperation](
       operations.paneCreate,
       { ...scope, ...optionFields(create) },
       options,
@@ -2505,12 +3220,12 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
   }
 
   rename(name: string | null, options: MutationOptions = {}): Promise<MutationResult<Screen>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.screenRename,
       { ...this.params(), name },
       options,
       screenSnapshot,
-      (snapshot) => new Screen(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 
@@ -2519,39 +3234,34 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
   }
 
   focus(options: MutationOptions = {}): Promise<MutationResult<Screen>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.screenFocus,
       this.params(),
       options,
       screenSnapshot,
-      (snapshot) => new Screen(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 
-  close(options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(operations.screenClose, this.params(), options);
+  close(options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](operations.screenClose, this.params(), options);
   }
 
   async exportLayout(options: RequestOptions = {}): Promise<LayoutDocument> {
     return layoutDocument(
-      await this.client.read(operations.screenLayoutExport, this.params(), options),
+      await this.client[readOperation](operations.screenLayoutExport, this.params(), options),
     );
   }
 
   undoLayout(
     options: MutationOptions & { readonly confirmClose?: boolean } = {},
   ): Promise<MutationResult<Screen>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.screenLayoutUndo,
       { ...this.params(), confirm_close: options.confirmClose ?? false },
       options,
       screenSnapshot,
-      (snapshot) => new Screen(
-        this.client,
-        selectId(snapshot.id),
-        this.scope,
-        snapshot,
-      ),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 }
@@ -2573,7 +3283,7 @@ export class Pane extends Handle<PaneId, PaneSnapshot> {
   async listTabs(options: RequestOptions = {}): Promise<Tab[]> {
     const scope = this.nestedScope();
     return listPayload(
-      await this.client.read(operations.tabList, scope, options),
+      await this.client[readOperation](operations.tabList, scope, options),
       "tabs",
     ).map((value) => {
       const snapshot = tabSnapshot(value);
@@ -2589,7 +3299,7 @@ export class Pane extends Handle<PaneId, PaneSnapshot> {
     create: CreateTerminalOptions,
     options: MutationOptions = {},
   ): Promise<MutationResult<CreatedPath>> {
-    return this.client.created(
+    return this.client[createdOperation](
       operations.tabCreateTerminal,
       { ...this.params(), ...optionFields(create) },
       options,
@@ -2600,7 +3310,7 @@ export class Pane extends Handle<PaneId, PaneSnapshot> {
     create: CreateBrowserOptions,
     options: MutationOptions = {},
   ): Promise<MutationResult<CreatedPath>> {
-    return this.client.created(
+    return this.client[createdOperation](
       operations.tabCreateBrowser,
       { ...this.params(), ...optionFields(create) },
       options,
@@ -2611,7 +3321,7 @@ export class Pane extends Handle<PaneId, PaneSnapshot> {
     create: SplitPaneOptions,
     options: MutationOptions = {},
   ): Promise<MutationResult<CreatedPath>> {
-    return this.client.created(
+    return this.client[createdOperation](
       operations.paneSplit,
       { ...this.params(), ...optionFields(create) },
       options,
@@ -2642,7 +3352,7 @@ export class Pane extends Handle<PaneId, PaneSnapshot> {
     options: RequestOptions = {},
   ): Promise<Pane | null> {
     const payload = record(
-      await this.client.read(
+      await this.client[readOperation](
         operations.paneNeighborGet,
         { ...this.params(), direction },
         options,
@@ -2699,15 +3409,15 @@ export class Pane extends Handle<PaneId, PaneSnapshot> {
   }
 
   run(run: RunOptions, options: MutationOptions = {}): Promise<MutationResult<CreatedPath>> {
-    return this.client.created(
+    return this.client[createdOperation](
       operations.paneRun,
       { ...this.params(), ...optionFields(run) },
       options,
     );
   }
 
-  close(options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(operations.paneClose, this.params(), options);
+  close(options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](operations.paneClose, this.params(), options);
   }
 
   private paneMutation(
@@ -2715,12 +3425,12 @@ export class Pane extends Handle<PaneId, PaneSnapshot> {
     params: Readonly<Record<string, unknown>>,
     options: MutationOptions,
   ): Promise<MutationResult<Pane>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operation,
       { ...this.params(), ...params },
       options,
       paneSnapshot,
-      (snapshot) => new Pane(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 }
@@ -2778,8 +3488,8 @@ export class Tab extends Handle<TabId, TabSnapshot> {
     return this.tabMutation(operations.tabFocus, {}, options);
   }
 
-  close(options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(operations.tabClose, this.params(), options);
+  close(options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](operations.tabClose, this.params(), options);
   }
 
   private tabMutation(
@@ -2787,12 +3497,12 @@ export class Tab extends Handle<TabId, TabSnapshot> {
     params: Readonly<Record<string, unknown>>,
     options: MutationOptions,
   ): Promise<MutationResult<Tab>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operation,
       { ...this.params(), ...params },
       options,
       tabSnapshot,
-      (snapshot) => new Tab(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 }
@@ -2803,8 +3513,8 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
     return this.refreshWith(operations.terminalGet, terminalSnapshot, options);
   }
 
-  write(text: string, options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  write(text: string, options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.terminalInputWrite,
       { ...this.params(), text },
       options,
@@ -2814,41 +3524,49 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
   writeBase64(
     bytesBase64: string,
     options: MutationOptions = {},
-  ): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  ): Promise<MutationReceipt> {
+    requiredBase64({ bytes_base64: bytesBase64 }, "bytes_base64");
+    return this.client[mutateEmptyOperation](
       operations.terminalInputWrite,
       { ...this.params(), bytes_base64: bytesBase64 },
       options,
     );
   }
 
-  keys(input: KeyInputOptions, options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  writeBytes(
+    bytes: Uint8Array,
+    options: MutationOptions = {},
+  ): Promise<MutationReceipt> {
+    return this.writeBase64(encodeBase64(bytes), options);
+  }
+
+  keys(input: KeyInputOptions, options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.terminalInputKeys,
       { ...this.params(), ...optionFields(input) },
       options,
     );
   }
 
-  mouse(input: TerminalMouseOptions, options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  mouse(input: TerminalMouseOptions, options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.terminalInputMouse,
       { ...this.params(), ...optionFields(input) },
       options,
     );
   }
 
-  setFocused(focused: boolean, options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  setFocused(focused: boolean, options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.terminalInputFocus,
       { ...this.params(), focused },
       options,
     );
   }
 
-  async readScreen(options: RequestOptions = {}): Promise<Document> {
-    return document(
-      await this.client.read(
+  async readScreen(options: RequestOptions = {}): Promise<TerminalScreenResult> {
+    return terminalScreenResult(
+      await this.client[readOperation](
         operations.terminalScreenRead,
         this.params(),
         options,
@@ -2856,16 +3574,22 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
     );
   }
 
-  async readState(options: RequestOptions = {}): Promise<Document> {
-    return document(await this.client.read(operations.terminalStateRead, this.params(), options));
+  async readState(options: RequestOptions = {}): Promise<TerminalStateResult> {
+    return terminalStateResult(
+      await this.client[readOperation](
+        operations.terminalStateRead,
+        this.params(),
+        options,
+      ),
+    );
   }
 
   async readHistory(
     history: TerminalHistoryOptions = {},
     options: RequestOptions = {},
-  ): Promise<Document> {
-    return document(
-      await this.client.read(
+  ): Promise<TerminalHistoryResult> {
+    return terminalHistoryResult(
+      await this.client[readOperation](
         operations.terminalHistoryRead,
         { ...this.params(), ...optionFields(history) },
         options,
@@ -2873,23 +3597,63 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
     );
   }
 
-  clearHistory(options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(operations.terminalHistoryClear, this.params(), options);
+  clearHistory(options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](operations.terminalHistoryClear, this.params(), options);
   }
 
-  async wait(wait: TerminalWaitOptions): Promise<Document> {
-    return document(
-      await this.client.read(
+  async wait(
+    wait: TerminalWaitOptions,
+    options: RequestOptions = {},
+  ): Promise<TerminalWaitResult> {
+    return terminalWaitResult(
+      await this.client[readOperation](
         operations.terminalWait,
-        { ...this.params(), ...optionFields(wait) },
-        wait,
+        {
+          ...this.params(),
+          pattern: wait.pattern,
+          ...(wait.timeoutMs !== undefined
+            ? { timeout_ms: wait.timeoutMs }
+            : {}),
+        },
+        {
+          ...options,
+          ...(options.signal === undefined && wait.signal !== undefined
+            ? { signal: wait.signal }
+            : {}),
+        },
       ),
     );
   }
 
-  async copy(mode?: string, options: RequestOptions = {}): Promise<Document> {
-    return document(
-      await this.client.read(
+  async waitExit(
+    timeoutMs?: DecimalString,
+    options: RequestOptions = {},
+  ): Promise<TerminalWaitExitResult> {
+    const result = terminalWaitExitResult(
+      await this.client[readOperation](
+        operations.terminalWaitExit,
+        {
+          ...this.params(),
+          ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
+        },
+        options,
+      ),
+    );
+    const expectedId = this.cached?.id ?? this.id;
+    if (expectedId !== undefined && result.terminalId !== expectedId) {
+      throw new CmuxProtocolError(
+        `terminal wait_exit returned ${result.terminalId} for ${expectedId}`,
+      );
+    }
+    return result;
+  }
+
+  async copy(
+    mode?: "screen" | "selection" | "scrollback",
+    options: RequestOptions = {},
+  ): Promise<TerminalCopyResult> {
+    return terminalCopyResult(
+      await this.client[readOperation](
         operations.terminalCopy,
         { ...this.params(), ...(mode !== undefined ? { mode } : {}) },
         options,
@@ -2897,57 +3661,61 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
     );
   }
 
-  async process(options: RequestOptions = {}): Promise<Document> {
-    return document(await this.client.read(operations.terminalProcessGet, this.params(), options));
+  async process(options: RequestOptions = {}): Promise<ProcessInfoResult> {
+    return processInfoResult(
+      await this.client[readOperation](
+        operations.terminalProcessGet,
+        this.params(),
+        options,
+      ),
+    );
   }
 
   async createRendererGrant(
     ttlMs?: number,
     options: RequestOptions = {},
   ): Promise<RendererGrant> {
-    const result = await this.client.control(
+    const result = await this.client[controlOperation](
       operations.terminalRendererGrantCreate,
       {
         ...this.params(),
         ...(ttlMs !== undefined ? { ttl_ms: ttlMs } : {}),
       },
+      rendererGrantResult,
       options,
     );
-    if (typeof result.token !== "string") {
-      throw new CmuxProtocolError("renderer grant result omitted token");
+    const expectedId = this.cached?.id ?? this.id;
+    if (expectedId !== undefined && result.terminalId !== expectedId) {
+      throw new CmuxProtocolError(
+        `renderer grant returned ${result.terminalId} for ${expectedId}`,
+      );
     }
-    if (
-      typeof result.endpoint !== "string"
-      || typeof result.terminal_id !== "string"
-      || !Array.isArray(result.rights)
-      || !result.rights.every((right) => typeof right === "string")
-      || typeof result.ttl_ms !== "number"
-    ) {
-      throw new CmuxProtocolError("renderer grant result has invalid metadata");
-    }
-    return new RendererGrant(
-      result.token,
-      result.endpoint,
-      terminalId(result.terminal_id),
-      Object.freeze([...result.rights]),
-      result.ttl_ms,
-    );
+    return result;
   }
 
-  resizeViewer(size: ViewerSizeOptions, options: RequestOptions = {}): Promise<Document> {
-    return this.client.control(
+  resizeViewer(
+    size: ViewerSizeOptions,
+    options: RequestOptions = {},
+  ): Promise<ViewerResizeResult> {
+    return this.client[controlOperation](
       operations.terminalViewerResize,
       { ...this.params(), ...optionFields(size) },
+      viewerResizeResult,
       options,
     );
   }
 
-  releaseViewer(options: RequestOptions = {}): Promise<Document> {
-    return this.client.control(operations.terminalViewerRelease, this.params(), options);
+  releaseViewer(options: RequestOptions = {}): Promise<void> {
+    return this.client[controlOperation](
+      operations.terminalViewerRelease,
+      this.params(),
+      emptyResult,
+      options,
+    );
   }
 
-  scrollViewport(deltaRows: number, options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  scrollViewport(deltaRows: number, options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.terminalViewportScroll,
       { ...this.params(), delta_rows: deltaRows },
       options,
@@ -2963,7 +3731,7 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
     },
     options: MutationOptions = {},
   ): Promise<MutationResult<Terminal>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.terminalMove,
       {
         ...this.params(),
@@ -2974,23 +3742,23 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
       },
       options,
       terminalSnapshot,
-      (snapshot) => new Terminal(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 
   attach(
     options: TerminalAttachOptions = {},
   ): Promise<ResourceStream<TerminalAttachItem>> {
-    return this.client.stream(
+    return this.client[streamOperation](
       operations.terminalAttach,
       { ...this.params(), ...optionFields(options) },
       terminalAttachItem,
-      options.signal,
+      options,
     );
   }
 
-  close(options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(operations.terminalClose, this.params(), options);
+  close(options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](operations.terminalClose, this.params(), options);
   }
 }
 
@@ -3022,26 +3790,29 @@ export class Browser extends Handle<BrowserId, BrowserSnapshot> {
 
   key(
     key: string,
-    input: { kind?: "down" | "up" | "press"; modifiers?: readonly string[] } = {},
+    input: {
+      kind?: "down" | "up" | "press";
+      modifiers?: readonly ("shift" | "control" | "alt" | "meta")[];
+    } = {},
     options: MutationOptions = {},
-  ): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  ): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.browserInputKey,
       { ...this.params(), key, ...input },
       options,
     );
   }
 
-  text(text: string, options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  text(text: string, options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.browserInputText,
       { ...this.params(), text },
       options,
     );
   }
 
-  mouse(input: BrowserMouseOptions, options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  mouse(input: BrowserMouseOptions, options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.browserInputMouse,
       { ...this.params(), ...optionFields(input) },
       options,
@@ -3053,8 +3824,8 @@ export class Browser extends Handle<BrowserId, BrowserSnapshot> {
     deltaY: number,
     position: { xPx: number; yPx: number },
     options: MutationOptions = {},
-  ): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  ): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.browserInputWheel,
       {
         ...this.params(),
@@ -3066,29 +3837,38 @@ export class Browser extends Handle<BrowserId, BrowserSnapshot> {
     );
   }
 
-  resizeViewer(size: BrowserViewerSizeOptions, options: RequestOptions = {}): Promise<Document> {
-    return this.client.control(
+  resizeViewer(
+    size: BrowserViewerSizeOptions,
+    options: RequestOptions = {},
+  ): Promise<BrowserViewerResizeResult> {
+    return this.client[controlOperation](
       operations.browserViewerResize,
       { ...this.params(), ...optionFields(size) },
+      browserViewerResizeResult,
       options,
     );
   }
 
-  releaseViewer(options: RequestOptions = {}): Promise<Document> {
-    return this.client.control(operations.browserViewerRelease, this.params(), options);
-  }
-
-  attach(options: BrowserAttachOptions = {}): Promise<ResourceStream<BrowserAttachItem>> {
-    return this.client.stream(
-      operations.browserAttach,
-      { ...this.params(), ...optionFields(options) },
-      browserAttachItem,
-      options.signal,
+  releaseViewer(options: RequestOptions = {}): Promise<void> {
+    return this.client[controlOperation](
+      operations.browserViewerRelease,
+      this.params(),
+      emptyResult,
+      options,
     );
   }
 
-  close(options: MutationOptions = {}): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(operations.browserClose, this.params(), options);
+  attach(options: BrowserAttachOptions = {}): Promise<ResourceStream<BrowserAttachItem>> {
+    return this.client[streamOperation](
+      operations.browserAttach,
+      { ...this.params(), ...optionFields(options) },
+      browserAttachItem,
+      options,
+    );
+  }
+
+  close(options: MutationOptions = {}): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](operations.browserClose, this.params(), options);
   }
 
   private browserMutation(
@@ -3096,12 +3876,12 @@ export class Browser extends Handle<BrowserId, BrowserSnapshot> {
     params: Readonly<Record<string, unknown>>,
     options: MutationOptions,
   ): Promise<MutationResult<Browser>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operation,
       { ...this.params(), ...params },
       options,
       browserSnapshot,
-      (snapshot) => new Browser(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 }
@@ -3159,16 +3939,26 @@ export class ConnectedClient extends Handle<ConnectedClientId, ClientSnapshot> {
     );
   }
 
-  setCellPixels(widthPx: number, heightPx: number, options: RequestOptions = {}): Promise<Document> {
-    return this.client.control(
+  setCellPixels(
+    widthPx: number,
+    heightPx: number,
+    options: RequestOptions = {},
+  ): Promise<CellPixelsResult> {
+    return this.client[controlOperation](
       operations.clientCellPixelsSet,
       { ...this.params(), width_px: widthPx, height_px: heightPx },
+      cellPixelsResult,
       options,
     );
   }
 
-  detach(options: RequestOptions = {}): Promise<Document> {
-    return this.client.control(operations.clientDetach, this.params(), options);
+  detach(options: RequestOptions = {}): Promise<void> {
+    return this.client[controlOperation](
+      operations.clientDetach,
+      this.params(),
+      emptyResult,
+      options,
+    );
   }
 
   private async clientControl(
@@ -3177,7 +3967,7 @@ export class ConnectedClient extends Handle<ConnectedClientId, ClientSnapshot> {
     options: RequestOptions,
   ): Promise<ClientSnapshot> {
     const snapshot = connectedClientSnapshot(
-      await this.client.read(operation, params, options),
+      await this.client[readOperation](operation, params, options),
     );
     this.cached = snapshot;
     return snapshot;
@@ -3190,12 +3980,12 @@ export class PairingRequest extends Handle<PairingRequestId, PairingRequestSnaps
     decision: "accept" | "reject",
     options: MutationOptions = {},
   ): Promise<MutationResult<PairingRequest>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.pairingRequestResolve,
       { ...this.params(), decision },
       options,
-      pairingResolution,
-      (snapshot) => new PairingRequest(this.client, selectId(snapshot.id), this.scope, snapshot),
+      pairingResolutionResult,
+      (result) => this.acceptSnapshot(result.pairingRequest),
     );
   }
 }
@@ -3203,10 +3993,10 @@ export class PairingRequest extends Handle<PairingRequestId, PairingRequestSnaps
 export class FrontendProjection extends Handle<ProjectionId, FrontendProjectionSnapshot> {
   protected readonly selectorKey = "frontend_projection";
   put(
-    projection: Readonly<Record<string, unknown>>,
+    projection: JsonValue,
     options: MutationOptions = {},
   ): Promise<MutationResult<FrontendProjection>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.frontendProjectionPut,
       { ...this.params(), projection },
       options,
@@ -3216,8 +4006,7 @@ export class FrontendProjection extends Handle<ProjectionId, FrontendProjectionS
         projectionId,
         { key: "session", property: "sessionId", factory: sessionId },
       ),
-      (snapshot) =>
-        new FrontendProjection(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 }
@@ -3232,7 +4021,7 @@ export class Agent extends Handle<AgentId, AgentSnapshot> {
     report: AgentReportOptions,
     options: MutationOptions = {},
   ): Promise<MutationResult<Agent>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.agentReport,
       { ...this.scope, ...optionFields(report) },
       options,
@@ -3242,7 +4031,7 @@ export class Agent extends Handle<AgentId, AgentSnapshot> {
         agentId,
         { key: "session", property: "sessionId", factory: sessionId },
       ),
-      (snapshot) => new Agent(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 }
@@ -3266,7 +4055,7 @@ export class SidebarView extends Handle<SidebarViewId, SidebarViewSnapshot> {
     ensure: SidebarEnsureOptions,
     options: MutationOptions = {},
   ): Promise<MutationResult<SidebarView>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.sidebarViewEnsure,
       { ...this.scope, ...optionFields(ensure) },
       options,
@@ -3285,20 +4074,20 @@ export class SidebarView extends Handle<SidebarViewId, SidebarViewSnapshot> {
     );
   }
 
-  attach(options: { signal?: AbortSignal } = {}): Promise<ResourceStream<SidebarAttachItem>> {
-    return this.client.stream(
+  attach(options: RequestOptions = {}): Promise<ResourceStream<SidebarAttachItem>> {
+    return this.client[streamOperation](
       operations.sidebarViewAttach,
       this.params(),
       sidebarAttachItem,
-      options.signal,
+      options,
     );
   }
 
   input(
     input: SidebarInputOptions,
     options: MutationOptions = {},
-  ): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  ): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.sidebarViewInput,
       { ...this.params(), ...optionFields(input) },
       options,
@@ -3321,7 +4110,7 @@ export class SidebarView extends Handle<SidebarViewId, SidebarViewSnapshot> {
     params: Readonly<Record<string, unknown>>,
     options: MutationOptions,
   ): Promise<MutationResult<SidebarView>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operation,
       { ...this.params(), ...params },
       options,
@@ -3331,7 +4120,7 @@ export class SidebarView extends Handle<SidebarViewId, SidebarViewSnapshot> {
         sidebarViewId,
         { key: "session", property: "sessionId", factory: sessionId },
       ),
-      (snapshot) => new SidebarView(this.client, selectId(snapshot.id), this.scope, snapshot),
+      (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
 }
@@ -3340,7 +4129,7 @@ export class ProviderScope extends Handle<ProviderScopeId, ProviderScopeSnapshot
   protected readonly selectorKey = "provider_scope";
 
   createMachine(options: MutationOptions = {}): Promise<MutationResult<Machine>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.machineCreate,
       { provider_scope: encodeSelector(this.selector) },
       options,
@@ -3353,7 +4142,7 @@ export class ProviderScope extends Handle<ProviderScopeId, ProviderScopeSnapshot
     specifier: ExternalMachineSpecifier,
     options: MutationOptions = {},
   ): Promise<MutationResult<Machine>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.machineConnectExternal,
       {
         provider_scope: encodeSelector(this.selector),
@@ -3383,14 +4172,14 @@ export class ProviderScope extends Handle<ProviderScopeId, ProviderScopeSnapshot
     action: SelectorInput<ProviderActionId>,
     input: ProviderActionOptions,
     options: MutationOptions = {},
-  ): Promise<MutationResult<unknown>> {
+  ): Promise<MutationResult<JsonValue>> {
     return this.action(action).invoke(input, options);
   }
 
   notices(
-    options: { cursor?: Cursor; signal?: AbortSignal } = {},
+    options: RequestOptions & { readonly cursor?: Cursor } = {},
   ): Promise<ResourceStream<ProviderNoticeItem>> {
-    return this.client.stream(
+    return this.client[streamOperation](
       operations.providerNoticeEvents,
       {
         ...this.scope,
@@ -3398,7 +4187,7 @@ export class ProviderScope extends Handle<ProviderScopeId, ProviderScopeSnapshot
         ...(options.cursor !== undefined ? { cursor: options.cursor } : {}),
       },
       providerNoticeItem,
-      options.signal,
+      options,
     );
   }
 
@@ -3431,8 +4220,8 @@ export class ProviderScope extends Handle<ProviderScopeId, ProviderScopeSnapshot
   closeWorkspace(
     workspace: SelectorInput<WorkspaceId>,
     options: MutationOptions = {},
-  ): Promise<MutationResult<Document>> {
-    return this.client.mutateDocument(
+  ): Promise<MutationReceipt> {
+    return this.client[mutateEmptyOperation](
       operations.providerWorkspaceClose,
       {
         ...this.scope,
@@ -3450,7 +4239,7 @@ export class ProviderScope extends Handle<ProviderScopeId, ProviderScopeSnapshot
     params: Readonly<Record<string, unknown>>,
     options: MutationOptions,
   ): Promise<MutationResult<Workspace>> {
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operation,
       {
         ...this.scope,
@@ -3471,7 +4260,7 @@ export class ProviderAction extends Handle<ProviderActionId, ProviderActionSnaps
   invoke(
     input: ProviderActionOptions,
     options: MutationOptions = {},
-  ): Promise<MutationResult<unknown>> {
+  ): Promise<MutationResult<JsonValue>> {
     for (const value of Object.values(input.parameters)) {
       if (
         typeof value !== "string"
@@ -3487,11 +4276,11 @@ export class ProviderAction extends Handle<ProviderActionId, ProviderActionSnaps
         );
       }
     }
-    return this.client.mutate(
+    return this.client[mutateOperation](
       operations.providerActionInvoke,
       { ...this.params(), ...optionFields(input) },
       options,
-      (value) => value,
+      (value) => jsonValue(value, "provider action result"),
       (value) => value,
     );
   }
@@ -3503,10 +4292,11 @@ export class ProviderNotice extends Handle<ProviderNoticeId, ProviderNoticeSnaps
   acknowledge(
     sequence: DecimalString,
     options: RequestOptions = {},
-  ): Promise<Document> {
-    return this.client.control(
+  ): Promise<void> {
+    return this.client[controlOperation](
       operations.providerNoticeAcknowledge,
       { ...this.params(), sequence },
+      emptyResult,
       options,
     );
   }

@@ -27,6 +27,7 @@ export const operations = Object.freeze({
   sessionOpen: op("session.open", "mutation"),
   sessionGet: op("session.get", "read"),
   sessionSnapshot: op("session.snapshot", "read"),
+  sessionCreationResolve: op("session.creation.resolve", "read"),
   sessionEvents: op("session.events", "stream_open"),
   sessionPing: op("session.ping", "read"),
   sessionShutdown: op("session.shutdown", "mutation"),
@@ -102,6 +103,7 @@ export const operations = Object.freeze({
   terminalHistoryRead: op("terminal.history.read", "read"),
   terminalHistoryClear: op("terminal.history.clear", "mutation"),
   terminalWait: op("terminal.wait", "read"),
+  terminalWaitExit: op("terminal.wait_exit", "read"),
   terminalCopy: op("terminal.copy", "read"),
   terminalProcessGet: op("terminal.process.get", "read"),
   terminalRendererGrantCreate: op(

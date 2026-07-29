@@ -53,8 +53,10 @@ import {
   selectCurrent,
   sessionId,
   terminalId,
-  type MutationResult,
+  type CreationResolution,
+  type MutationReceipt,
   type Terminal,
+  type TerminalWaitExitResult,
   type Transport,
 } from "cmux";
 import { WebSocketTransport } from "cmux/browser";
@@ -65,10 +67,14 @@ declare const transport: Transport;
 const client = new Client({ transport, timeoutMs: 5_000 });
 const session = client.session(sessionId("session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
 const terminal = session.terminal(terminalId("term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
-const write: Promise<MutationResult<Record<string, unknown>>> = terminal.write(
+const write: Promise<MutationReceipt> = terminal.write(
   "printf",
   { idempotencyKey: "consumer-write", expectedRevision: decimalString("7") },
 );
+const creation: Promise<CreationResolution> =
+  session.creation.resolve("create-key");
+const exit: Promise<TerminalWaitExitResult> =
+  terminal.waitExit(decimalString("1000"));
 const current = selectCurrent();
 const command = exact(["printf", "%s", "$HOME"]);
 const browser = new WebSocketTransport("ws://127.0.0.1/cmux");
@@ -78,7 +84,9 @@ void COMMAND_METADATA;
 void browser;
 void client;
 void command;
+void creation;
 void current;
+void exit;
 void node;
 void raw;
 void session;
