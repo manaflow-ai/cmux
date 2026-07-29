@@ -142,8 +142,8 @@ struct AgentConversationCrossHarnessForkTests {
 
         #expect(turns.map(\.text) == [
             "OpenCode turn 0",
-            "OpenCode turn 10",
             "OpenCode turn 11",
+            "OpenCode turn 12",
         ])
     }
 
@@ -252,8 +252,16 @@ struct AgentConversationCrossHarnessForkTests {
 
     @Test
     func crossHarnessForkCancelsWhenConversationChangesDuringExport() async throws {
-        let snapshot = SessionRestorableAgentSnapshot(kind: .codex, sessionId: "original-session")
-        let replacement = SessionRestorableAgentSnapshot(kind: .codex, sessionId: "replacement-session")
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "original-session",
+            transcriptPath: "/unused/original-transcript.jsonl"
+        )
+        let replacement = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "replacement-session",
+            transcriptPath: "/unused/replacement-transcript.jsonl"
+        )
         let transcriptGate = SuspendingTranscriptGate()
         let exportService = AgentConversationExportService(
             readerRegistry: AgentConversationReaderRegistry(adapters: [
@@ -279,6 +287,61 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(await forkTask.value == false)
         #expect(workspace.bonsplitController.allPaneIds.count == 1)
         #expect(workspace.focusedPanelId == sourcePanelId)
+    }
+
+    @Test
+    func cancelledCrossHarnessForkRemovesPrivateLauncher() async throws {
+        let sessionID = "cancel-\(UUID().uuidString)"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            transcriptPath: "/unused/cancelled-transcript.jsonl"
+        )
+        let transcriptGate = SuspendingTranscriptGate()
+        let exportService = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                SuspendingSourceAdapter(gate: transcriptGate),
+            ])
+        )
+        let workspace = Workspace()
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelID)
+
+        let launcherDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume", isDirectory: true)
+        let launcherNamePrefix = "codex-\(sessionID.prefix(12))-"
+        let launcherURLsBefore = launcherScripts(
+            in: launcherDirectory,
+            namePrefix: launcherNamePrefix
+        )
+        defer {
+            let launcherURLsAfter = launcherScripts(
+                in: launcherDirectory,
+                namePrefix: launcherNamePrefix
+            )
+            for url in launcherURLsAfter.subtracting(launcherURLsBefore) {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        let forkTask = Task { @MainActor in
+            await workspace.forkAgentConversation(
+                fromPanelId: sourcePanelID,
+                snapshot: snapshot,
+                request: .init(targetHarness: .claude, destination: .right),
+                exportService: exportService
+            )
+        }
+        await transcriptGate.waitUntilReadStarts()
+        forkTask.cancel()
+        await transcriptGate.finishRead()
+
+        #expect(await forkTask.value == false)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        #expect(
+            launcherScripts(in: launcherDirectory, namePrefix: launcherNamePrefix)
+                == launcherURLsBefore
+        )
     }
 
     @Test
@@ -491,11 +554,11 @@ struct AgentConversationCrossHarnessForkTests {
             throw OpenCodeFixtureError.sqlite
         }
         defer { sqlite3_close(database) }
-        let messages = (0..<12).map { index in
+        let messages = (0..<13).map { index in
             let role = index.isMultiple(of: 2) ? "user" : "assistant"
             return "INSERT INTO message VALUES ('m\(index)', 'retention-session', \(index), '{\"role\":\"\(role)\"}');"
         }
-        let parts = (0..<12).map { index in
+        let parts = (0..<13).map { index in
             "INSERT INTO part VALUES ('p\(index)', 'm\(index)', \(index), '{\"type\":\"text\",\"text\":\"OpenCode turn \(index)\"}');"
         }
         let sql = ([
