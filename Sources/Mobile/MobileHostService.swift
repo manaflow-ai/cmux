@@ -1845,9 +1845,12 @@ actor MobileHostConnection {
     private var firstFrameTimeoutTask: Task<Void, Never>?
     private var idleTimeoutTask: Task<Void, Never>?
     private var responseTasks: [UUID: ResponseTask] = [:]
-    private var orderedRequestQueue = MobileHostOrderedRequestQueue()
-    private var orderedRequestWorkerTask: Task<Void, Never>?
-    private var orderedRequestRunningFrameByteCount: Int?
+    /// PTY-writing requests are ordered PER SURFACE: ordering is only a
+    /// property of one terminal, and a connection-wide FIFO would let one
+    /// surface's slow request (a large paste_image) block typing on another.
+    private var orderedRequestQueuesBySurfaceKey: [String: MobileHostOrderedRequestQueue] = [:]
+    private var orderedRequestWorkerTasksBySurfaceKey: [String: Task<Void, Never>] = [:]
+    private var orderedRequestRunningFrameByteCountsBySurfaceKey: [String: Int] = [:]
     private var receiveTask: Task<Void, Never>?
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
@@ -1991,10 +1994,12 @@ actor MobileHostConnection {
         for task in tasks {
             task.cancel()
         }
-        orderedRequestWorkerTask?.cancel()
-        orderedRequestWorkerTask = nil
-        orderedRequestQueue.removeAll()
-        orderedRequestRunningFrameByteCount = nil
+        for (_, workerTask) in orderedRequestWorkerTasksBySurfaceKey {
+            workerTask.cancel()
+        }
+        orderedRequestWorkerTasksBySurfaceKey.removeAll()
+        orderedRequestQueuesBySurfaceKey.removeAll()
+        orderedRequestRunningFrameByteCountsBySurfaceKey.removeAll()
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
         for subscription in previousSubscriptions where !subscription.topics.isEmpty {
@@ -2088,21 +2093,25 @@ actor MobileHostConnection {
         }
         let decodedRequest = MobileHostRPCEnvelope.decodeRequest(frame)
         var activeFrameByteCounts = responseTasks.values.map(\.frameByteCount)
-        activeFrameByteCounts.append(contentsOf: orderedRequestQueue.frameByteCounts)
-        if let orderedRequestRunningFrameByteCount {
-            activeFrameByteCounts.append(orderedRequestRunningFrameByteCount)
+        for (_, queue) in orderedRequestQueuesBySurfaceKey {
+            activeFrameByteCounts.append(contentsOf: queue.frameByteCounts)
         }
+        activeFrameByteCounts.append(
+            contentsOf: orderedRequestRunningFrameByteCountsBySurfaceKey.values
+        )
         guard responseWorkQuota.allowsAdmission(
             frameByteCount: frame.count,
             activeFrameByteCounts: activeFrameByteCounts
         ) else { return false }
         if case let .success(request) = decodedRequest,
            request.isOrderedTerminalInput {
-            orderedRequestQueue.enqueue(MobileHostOrderedRequest(
-                frameByteCount: frame.count,
-                decodedRequest: decodedRequest
-            ))
-            startOrderedRequestWorkerIfNeeded()
+            let surfaceKey = request.orderedInputSurfaceKey
+            orderedRequestQueuesBySurfaceKey[surfaceKey, default: MobileHostOrderedRequestQueue()]
+                .enqueue(MobileHostOrderedRequest(
+                    frameByteCount: frame.count,
+                    decodedRequest: decodedRequest
+                ))
+            startOrderedRequestWorkerIfNeeded(surfaceKey: surfaceKey)
             return true
         }
         let taskID = UUID()
@@ -2117,17 +2126,17 @@ actor MobileHostConnection {
         return true
     }
 
-    private func startOrderedRequestWorkerIfNeeded() {
-        guard orderedRequestWorkerTask == nil else { return }
-        orderedRequestWorkerTask = Task { [weak self] in
-            await self?.drainOrderedRequests()
+    private func startOrderedRequestWorkerIfNeeded(surfaceKey: String) {
+        guard orderedRequestWorkerTasksBySurfaceKey[surfaceKey] == nil else { return }
+        orderedRequestWorkerTasksBySurfaceKey[surfaceKey] = Task { [weak self] in
+            await self?.drainOrderedRequests(surfaceKey: surfaceKey)
         }
     }
 
-    private func drainOrderedRequests() async {
+    private func drainOrderedRequests(surfaceKey: String) async {
         while !Task.isCancelled, !isClosed,
-              let request = orderedRequestQueue.dequeue() {
-            orderedRequestRunningFrameByteCount = request.frameByteCount
+              let request = orderedRequestQueuesBySurfaceKey[surfaceKey]?.dequeue() {
+            orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = request.frameByteCount
             // Serialize authorization + application only. The response write
             // goes to a tracked concurrent task: a peer that stops reading
             // stalls the serialized transport writer (issue #8842), and an
@@ -2145,14 +2154,17 @@ actor MobileHostConnection {
                 // defensive path identical to the concurrent one.
                 await respond(to: request.decodedRequest)
             }
-            orderedRequestRunningFrameByteCount = nil
+            orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = nil
         }
-        orderedRequestRunningFrameByteCount = nil
-        orderedRequestWorkerTask = nil
-        if !orderedRequestQueue.isEmpty, !isClosed {
-            startOrderedRequestWorkerIfNeeded()
-        } else if !hasActiveResponseWork {
-            startIdleTimeout()
+        orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = nil
+        orderedRequestWorkerTasksBySurfaceKey[surfaceKey] = nil
+        if orderedRequestQueuesBySurfaceKey[surfaceKey]?.isEmpty == false, !isClosed {
+            startOrderedRequestWorkerIfNeeded(surfaceKey: surfaceKey)
+        } else {
+            orderedRequestQueuesBySurfaceKey[surfaceKey] = nil
+            if !hasActiveResponseWork {
+                startIdleTimeout()
+            }
         }
     }
 
@@ -2171,9 +2183,9 @@ actor MobileHostConnection {
 
     private var hasActiveResponseWork: Bool {
         !responseTasks.isEmpty
-            || orderedRequestWorkerTask != nil
-            || orderedRequestRunningFrameByteCount != nil
-            || !orderedRequestQueue.isEmpty
+            || !orderedRequestWorkerTasksBySurfaceKey.isEmpty
+            || !orderedRequestRunningFrameByteCountsBySurfaceKey.isEmpty
+            || orderedRequestQueuesBySurfaceKey.values.contains { !$0.isEmpty }
     }
 
     private func finishResponseTask(_ taskID: UUID) {

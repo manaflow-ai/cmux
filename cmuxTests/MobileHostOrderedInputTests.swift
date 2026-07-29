@@ -81,6 +81,49 @@ struct MobileHostOrderedInputTests {
     }
 
     @Test
+    func orderedInputOnAnotherSurfaceIsNotBlocked() async throws {
+        let transport = OrderedInputRecordingTransport()
+        let gate = OrderedInputHandlerGate()
+        let connection = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                await gate.handle(request)
+                return .ok(["handled": request.id ?? NSNull()])
+            },
+            onClose: { _ in }
+        )
+        // input-1 is held on surface s1; input-2 targets surface s2 and must
+        // run concurrently: ordering is a per-PTY property, and one surface's
+        // slow request must not block typing on another.
+        let batch = try Self.framedBatch(
+            [
+                ("input-1", "terminal.input"),
+                ("input-2", "terminal.input"),
+            ],
+            surfaceIDsByRequestID: [
+                "input-1": "surface-1",
+                "input-2": "surface-2",
+            ]
+        )
+
+        await connection.debugHandleReceiveDataForTesting(batch)
+        await gate.waitUntilFirstInputStarts()
+        await gate.waitUntilSecondInputStarts()
+        #expect(await gate.secondInputStarted())
+
+        await gate.releaseFirstInput()
+        _ = await transport.waitForResponseCount(2)
+        let inputResponseIDs = await transport.responseIDs().filter {
+            $0.hasPrefix("input-")
+        }
+        #expect(Set(inputResponseIDs) == Set(["input-1", "input-2"]))
+        await connection.close(reason: "test complete")
+    }
+
+    @Test
     func stalledResponseWriteDoesNotBlockLaterOrderedInput() async throws {
         let transport = OrderedInputRecordingTransport()
         await transport.setHoldSends(true)
@@ -125,16 +168,21 @@ struct MobileHostOrderedInputTests {
     }
 
     private static func framedBatch(
-        _ requests: [(id: String, method: String)]
+        _ requests: [(id: String, method: String)],
+        surfaceIDsByRequestID: [String: String] = [:]
     ) throws -> Data {
         var batch = Data()
         for request in requests {
+            var params: [String: Any] = request.method == "terminal.input"
+                ? ["text": request.id]
+                : [:]
+            if let surfaceID = surfaceIDsByRequestID[request.id] {
+                params["surface_id"] = surfaceID
+            }
             let payload: [String: Any] = [
                 "id": request.id,
                 "method": request.method,
-                "params": request.method == "terminal.input"
-                    ? ["text": request.id]
-                    : [:],
+                "params": params,
             ]
             batch.append(try MobileSyncFrameCodec.encodeFrame(
                 JSONSerialization.data(withJSONObject: payload)
