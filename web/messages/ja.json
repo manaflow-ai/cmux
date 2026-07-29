@@ -136,7 +136,7 @@
         "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
         "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
         "testflightTitle": "cmux iOSアプリを入手",
-        "testflightBody": "iOSベータは、有効なProユーザーがTestFlightで利用できます。",
+        "testflightBody": "iOSベータは、有効な個人向けProサブスクリプションでTestFlightから利用できます。",
         "testflightCta": "iOSベータに参加"
       },
       "pro": {

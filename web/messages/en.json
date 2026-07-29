@@ -136,7 +136,7 @@
         "upsellTitle": "Upgrade when you need cloud agents or team billing.",
         "upsellBody": "Choose Pro for personal cloud features, or Team for shared billing and seats.",
         "testflightTitle": "Get the cmux iOS app",
-        "testflightBody": "The iOS beta is available through TestFlight for active Pro users.",
+        "testflightBody": "The iOS beta is available through TestFlight for active personal Pro subscribers.",
         "testflightCta": "Join the iOS beta"
       },
       "pro": {
