@@ -38,6 +38,7 @@ class HookSocketServer:
         self.stop = threading.Event()
         self.error: Exception | None = None
         self.delivery_target_available = True
+        self.listed_surface_ids = [surface_id]
         self.root = tempfile.TemporaryDirectory(prefix="cmux-claude-clear-")
         self.socket_path = os.path.join(self.root.name, "cmux.sock")
         self.thread = threading.Thread(target=self._run, daemon=True)
@@ -139,11 +140,14 @@ class HookSocketServer:
             result = {
                 "surfaces": [
                     {
-                        "index": 0,
-                        "id": self.surface_id,
-                        "ref": "surface:1",
-                        "focused": True,
+                        "index": index,
+                        "id": listed_surface_id,
+                        "ref": f"surface:{index + 1}",
+                        "focused": index == 0,
                     }
+                    for index, listed_surface_id in enumerate(
+                        self.listed_surface_ids
+                    )
                 ]
             }
         elif method == "workspace.current":
@@ -969,6 +973,176 @@ def verify_repeated_clear_end_does_not_retire_replacement(cli_path: str) -> None
             )
 
 
+def verify_guessed_clear_end_uses_stored_surface(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    guessed_surface_id = str(uuid.uuid4()).upper()
+    old_session_id = f"guessed-end-old-{uuid.uuid4().hex}"
+    clear_session_id = f"guessed-end-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "guessed-end-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+
+        fallback_env = env.copy()
+        fallback_env.pop("CMUX_SURFACE_ID")
+        server.delivery_target_available = False
+        server.listed_surface_ids = [guessed_surface_id, surface_id]
+        end_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            fallback_env,
+        )
+        end_commands = server.commands[end_start:]
+        if has_command(
+            end_commands,
+            f"clear_agent_pid claude_code --tab={workspace_id} --panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "A guessed SessionEnd route cleared live background work:\n"
+                f"end_commands={end_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        transfers = state.get("clearBackgroundWorkTransfersBySurface", {})
+        if surface_id not in transfers or guessed_surface_id in transfers:
+            raise RuntimeError(
+                "A guessed SessionEnd surface replaced the stored ownership key:\n"
+                f"state={state!r}"
+            )
+
+        server.delivery_target_available = True
+        server.listed_surface_ids = [surface_id]
+        clear_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
+            env,
+        )
+        clear_commands = server.commands[clear_start:]
+        if not has_command_with(
+            clear_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "The stored surface could not consume its clear handoff:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+
+
+def verify_authoritative_resume_supersedes_clear_tombstone(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    session_id = f"resume-source-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "resume-clear-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        resume_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": session_id, "source": "resume", "cwd": "/tmp"},
+            env,
+        )
+        resume_commands = server.commands[resume_start:]
+        if not has_command_with(
+            resume_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "An authoritative resume could not supersede its clear tombstone:\n"
+                f"resume_commands={resume_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        transfers = state.get("clearBackgroundWorkTransfersBySurface", {})
+        if surface_id in transfers:
+            raise RuntimeError(
+                "An authoritative resume left its clear tombstone active:\n"
+                f"state={state!r}"
+            )
+
+        prompt_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": session_id, "turn_id": "turn-2", "cwd": "/tmp"},
+            env,
+        )
+        prompt_commands = server.commands[prompt_start:]
+        if not has_command_with(
+            prompt_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "The resumed session remained blocked by its clear tombstone:\n"
+                f"prompt_commands={prompt_commands!r}"
+            )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -1171,6 +1345,8 @@ def main() -> int:
         verify_stale_clear_start_preserves_handoff(cli_path)
         verify_clear_handoff_outlives_session_end_budget(cli_path)
         verify_repeated_clear_end_does_not_retire_replacement(cli_path)
+        verify_guessed_clear_end_uses_stored_surface(cli_path)
+        verify_authoritative_resume_supersedes_clear_tombstone(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
