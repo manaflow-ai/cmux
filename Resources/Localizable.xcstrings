@@ -258656,7 +258656,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースを作成"
+            "value": "ワークスペースを作成しました"
           }
         }
       }
@@ -258673,7 +258673,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペース名を変更"
+            "value": "ワークスペース名を変更しました"
           }
         }
       }

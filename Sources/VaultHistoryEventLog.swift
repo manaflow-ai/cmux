@@ -16,10 +16,15 @@ final class VaultHistoryEventLog {
     )
 
     /// Monotonic count of recorded events this launch; observed by the
-    /// History view to refresh after new activity.
+    /// History view to refresh after new activity. Bumped only after the
+    /// event reached the store, so a refresh triggered by the bump always
+    /// sees the event it announces.
     private(set) var revision: UInt64 = 0
 
     private let store: VaultHistoryEventStore
+    /// Tail of the serialized append chain; each record awaits its
+    /// predecessor so events persist in call order.
+    private var pendingRecordTask: Task<Void, Never>?
 
     init(store: VaultHistoryEventStore) {
         self.store = store
@@ -33,10 +38,12 @@ final class VaultHistoryEventLog {
     }
 
     func record(_ event: VaultHistoryEvent) {
-        revision &+= 1
         let store = store
-        Task.detached(priority: .utility) {
+        let previous = pendingRecordTask
+        pendingRecordTask = Task(priority: .utility) { [weak self] in
+            await previous?.value
             await store.append(event)
+            self?.revision &+= 1
         }
     }
 
