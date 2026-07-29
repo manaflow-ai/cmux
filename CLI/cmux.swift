@@ -268,7 +268,8 @@ struct ClaudeHookSessionStoreFile: Codable {
 final class ClaudeHookSessionStore {
     private enum ProcessGenerationComparison: Equatable {
         case same
-        case different
+        case newer
+        case older
         case unavailable
     }
 
@@ -1645,7 +1646,7 @@ final class ClaudeHookSessionStore {
                     recordedStartSeconds: stoppedSession.pidStartSeconds,
                     recordedStartMicroseconds: stoppedSession.pidStartMicroseconds,
                     incomingPID: incomingPID
-                ) == .different
+                ) == .newer
         } else {
             replacesStoppedOwnerFromNewGeneration = false
         }
@@ -1662,7 +1663,7 @@ final class ClaudeHookSessionStore {
                     recordedStartSeconds: activeSession.pidStartSeconds,
                     recordedStartMicroseconds: activeSession.pidStartMicroseconds,
                     incomingPID: incomingPID
-                ) == .different
+                ) == .newer
             }
             return replacesStoppedOwnerFromNewGeneration
         }
@@ -1678,7 +1679,7 @@ final class ClaudeHookSessionStore {
         let resumesPendingClear =
             transferSourceMatches && transferGeneration == .same
         let supersedesRetiredTransfer =
-            transferSourceMatches && transferGeneration == .different
+            transferSourceMatches && transferGeneration == .newer
         guard resumesPendingClear
             || supersedesRetiredTransfer
             || replacesStoppedOwnerFromNewGeneration else {
@@ -1737,21 +1738,34 @@ final class ClaudeHookSessionStore {
         recordedStartMicroseconds: Int64?,
         incomingPID: Int?
     ) -> ProcessGenerationComparison {
-        guard let recordedPID, let incomingPID else {
-            return .unavailable
-        }
-        guard recordedPID == incomingPID else {
-            return .different
-        }
-        guard let recordedStartSeconds,
+        guard let recordedPID,
+              let incomingPID,
+              let recordedStartSeconds,
               let recordedStartMicroseconds,
               let incomingIdentity = processStartIdentity(pid: incomingPID) else {
             return .unavailable
         }
-        return recordedStartSeconds == incomingIdentity.seconds
-            && recordedStartMicroseconds == incomingIdentity.microseconds
-            ? .same
-            : .different
+        if recordedPID == incomingPID,
+           recordedStartSeconds == incomingIdentity.seconds,
+           recordedStartMicroseconds == incomingIdentity.microseconds {
+            return .same
+        }
+        if incomingIdentity.seconds > recordedStartSeconds
+            || (
+                incomingIdentity.seconds == recordedStartSeconds
+                    && incomingIdentity.microseconds > recordedStartMicroseconds
+            ) {
+            return .newer
+        }
+        if incomingIdentity.seconds < recordedStartSeconds
+            || (
+                incomingIdentity.seconds == recordedStartSeconds
+                    && incomingIdentity.microseconds < recordedStartMicroseconds
+            ) {
+            return .older
+        }
+        // Distinct PIDs with the same start timestamp are not ordered.
+        return .unavailable
     }
 
     func consume(
