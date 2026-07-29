@@ -7,7 +7,7 @@ struct AgentResumeArgvTests {
         ("claude", "claude", ["claude", "--resume", "SID"]),
         ("grok", "grok", ["grok", "-r", "SID"]),
         ("pi", "pi", ["pi", "--session", "SID"]),
-        ("omp", "omp", ["omp", "--session", "SID"]),
+        ("omp", "omp", ["omp", "--resume", "SID"]),
         ("campfire", "campfire", ["campfire", "--session", "SID"]),
         ("cursor", "cursor-agent", ["cursor-agent", "--resume", "SID"]),
         ("gemini", "gemini", ["gemini", "--resume", "SID"]),
@@ -22,6 +22,32 @@ struct AgentResumeArgvTests {
             AgentResumeArgv().builtInKind(
                 kind: kind, sessionId: "SID", executablePath: nil, arguments: [executable]
             ) == expected
+        )
+    }
+
+    @Test("OMP uses documented --resume and preserves a complete profile option")
+    func ompResumePreservesProfileOption() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "omp",
+                sessionId: "SID",
+                executablePath: "/opt/bin/omp",
+                arguments: [
+                    "/opt/bin/omp",
+                    "--profile",
+                    "work",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                ]
+            ) == [
+                "/opt/bin/omp",
+                "--resume",
+                "SID",
+                "--profile",
+                "work",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+            ]
         )
     }
 

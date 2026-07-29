@@ -47,6 +47,32 @@ struct AgentForkArgvTests {
         )
     }
 
+    @Test("OMP fork preserves a complete profile option")
+    func ompForkPreservesProfileOption() {
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "omp",
+                sessionId: "SID",
+                executablePath: "/opt/bin/omp",
+                arguments: [
+                    "/opt/bin/omp",
+                    "--profile",
+                    "work",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                ]
+            ) == [
+                "/opt/bin/omp",
+                "--fork",
+                "SID",
+                "--profile",
+                "work",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+            ]
+        )
+    }
+
     @Test("Codex one-shot commands are not forkable")
     func codexOneShotCommandsAreNotForkable() {
         #expect(
