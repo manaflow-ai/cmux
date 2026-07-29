@@ -157,14 +157,12 @@ private struct NotificationFeedUnreadIndicator: View {
     let isRead: Bool
 
     var body: some View {
+        // No overlay: the previous read-state overlay stroked Color.clear
+        // (invisible) while still costing a layout node in every cell's
+        // self-sizing pass.
         Circle()
             .fill(isRead ? Color.clear : Color.accentColor)
             .frame(width: 6, height: 6)
-            .overlay {
-                if isRead {
-                    Circle().stroke(Color.clear, lineWidth: 1)
-                }
-            }
             .padding(.top, 5)
             .accessibilityHidden(true)
     }

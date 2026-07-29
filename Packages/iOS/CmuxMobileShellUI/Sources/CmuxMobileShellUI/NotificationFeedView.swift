@@ -31,10 +31,12 @@ struct NotificationFeedView: View {
                 sourceItemCount: projection.sourceItemCount,
                 isSourceRebuilding: projection.isSourceRebuilding,
                 hasStaleSourceSections: projection.hasStaleSourceSections,
+                hasMoreRows: projection.hasMoreRows,
                 filter: projection.filter,
                 hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
-                actions: actions
+                actions: actions,
+                loadMoreRows: { projection.extendRowWindow() }
             )
         }
         .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Notifications"))
@@ -92,10 +94,12 @@ private struct NotificationFeedList: View {
     let sourceItemCount: Int
     let isSourceRebuilding: Bool
     let hasStaleSourceSections: Bool
+    let hasMoreRows: Bool
     let filter: MobileNotificationFeedFilter
     let hasSearchQuery: Bool
     let status: MobileNotificationFeedStatus
     let actions: NotificationFeedActions
+    let loadMoreRows: @MainActor () -> Void
 
     var body: some View {
         List {
@@ -121,6 +125,9 @@ private struct NotificationFeedList: View {
                         NotificationFeedDayHeader(section: section)
                     }
                 }
+                if hasMoreRows {
+                    NotificationFeedLoadMoreRow(loadMore: loadMoreRows)
+                }
             }
         }
         .listStyle(.plain)
@@ -138,6 +145,29 @@ private struct NotificationFeedList: View {
             isSourceRebuilding: isSourceRebuilding,
             status: status
         )
+    }
+}
+
+/// The sentinel row after the last mounted section. Its appearance means the
+/// user reached the mounted span's end, so the projection mounts the next
+/// window of rows; appending below the viewport never shifts scroll position.
+private struct NotificationFeedLoadMoreRow: View {
+    let loadMore: @MainActor () -> Void
+
+    var body: some View {
+        HStack {
+            Spacer()
+            ProgressView()
+            Spacer()
+        }
+        .padding(.vertical, 10)
+        .listRowSeparator(.hidden)
+        .accessibilityLabel(L10n.string(
+            "mobile.notificationFeed.loadingMore",
+            defaultValue: "Loading more notifications"
+        ))
+        .accessibilityIdentifier("MobileNotificationFeedLoadMore")
+        .onAppear(perform: loadMore)
     }
 }
 

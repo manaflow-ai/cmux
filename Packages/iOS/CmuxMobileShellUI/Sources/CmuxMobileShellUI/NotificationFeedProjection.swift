@@ -18,6 +18,13 @@ struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
 }
 
 nonisolated let notificationFeedProjectionMaxSourceItemCount = MobileNotificationFeedAggregation.maxItemCount
+/// Rows mounted before the list shows its load-more sentinel. Bounding the
+/// mounted span keeps the initial publish, whole-list diffs, and far-jump
+/// layout resolution proportional to what the user can reach, not to the
+/// full retained history.
+nonisolated let notificationFeedProjectionInitialRowWindow = 300
+/// Rows added each time the load-more sentinel becomes visible.
+nonisolated let notificationFeedProjectionRowWindowIncrement = 300
 nonisolated let notificationFeedProjectionMaxSearchQueryUnicodeScalars = MobileSearchQueryBounds().maxUnicodeScalars
 nonisolated let notificationFeedProjectionMaxSearchQueryUTF8Bytes = MobileSearchQueryBounds().maxUTF8Bytes
 nonisolated private let notificationFeedProjectionMaxMetadataSearchableCharactersPerField = 512
@@ -35,6 +42,7 @@ final class NotificationFeedProjection {
     var filter: MobileNotificationFeedFilter = .all {
         didSet {
             guard filter != oldValue else { return }
+            rowWindow = notificationFeedProjectionInitialRowWindow
             scheduleRebuild()
         }
     }
@@ -45,6 +53,7 @@ final class NotificationFeedProjection {
                 searchText = normalized.value
             }
             guard normalized.value != oldValue else { return }
+            rowWindow = notificationFeedProjectionInitialRowWindow
             scheduleRebuild(
                 debounce: notificationFeedProjectionNormalizedSearchQuery(normalized.value).isEmpty
                     ? nil
@@ -58,6 +67,9 @@ final class NotificationFeedProjection {
     private(set) var sourceUnreadCount = 0
     private(set) var isSourceRebuilding = false
     private(set) var hasStaleSourceSections = false
+    /// Whether filtered rows exist beyond the mounted window, so the list
+    /// shows the load-more sentinel.
+    private(set) var hasMoreRows = false
 
     @ObservationIgnored private var sourceItems: [MobileNotificationFeedItem] = []
     @ObservationIgnored private var referenceDate: Date
@@ -66,6 +78,10 @@ final class NotificationFeedProjection {
     @ObservationIgnored private var rebuildRevision = 0
     @ObservationIgnored private var rebuildTask: Task<Void, Never>?
     @ObservationIgnored private let searchQueryBounds = MobileSearchQueryBounds()
+    /// The mounted-row cap. Feed updates preserve it so background refreshes
+    /// never collapse how deep the user has scrolled; filter and search
+    /// changes reset it.
+    @ObservationIgnored private var rowWindow = notificationFeedProjectionInitialRowWindow
 
     init(referenceDate: Date = .now, calendar: Calendar = .autoupdatingCurrent) {
         self.referenceDate = referenceDate
@@ -92,6 +108,14 @@ final class NotificationFeedProjection {
         await rebuildTask?.value
     }
 
+    /// Mounts the next chunk of rows when the load-more sentinel appears.
+    /// Appending below the viewport never moves the user's scroll anchor.
+    func extendRowWindow() {
+        guard hasMoreRows else { return }
+        rowWindow += notificationFeedProjectionRowWindowIncrement
+        scheduleRebuild()
+    }
+
     /// Debounces query changes and cancels superseded work. The last completed
     /// sections stay visible during rebuilds, and results publish atomically
     /// only while both captured revisions still match the current projection.
@@ -104,6 +128,7 @@ final class NotificationFeedProjection {
         let requestedReferenceDate = referenceDate
         let requestedCalendar = calendar
         let requestedSourceItems = sourceItems
+        let requestedRowWindow = rowWindow
 
         isSourceRebuilding = true
 
@@ -124,7 +149,8 @@ final class NotificationFeedProjection {
                     filter: requestedFilter,
                     query: query,
                     referenceDate: requestedReferenceDate,
-                    calendar: requestedCalendar
+                    calendar: requestedCalendar,
+                    rowWindow: requestedRowWindow
                 )
             }
             let output = await withTaskCancellationHandler(
@@ -146,6 +172,9 @@ final class NotificationFeedProjection {
             // a source recompute that produced the same items) publish nothing.
             if self.sections != output.sections {
                 self.sections = output.sections
+            }
+            if self.hasMoreRows != output.hasMoreRows {
+                self.hasMoreRows = output.hasMoreRows
             }
             self.hasStaleSourceSections = false
             self.isSourceRebuilding = false
@@ -170,7 +199,8 @@ nonisolated private func notificationFeedProjectionBuild(
     filter: MobileNotificationFeedFilter,
     query: String,
     referenceDate: Date,
-    calendar: Calendar
+    calendar: Calendar,
+    rowWindow: Int
 ) -> NotificationFeedProjectionOutput? {
     let today = calendar.startOfDay(for: referenceDate)
     let yesterday = calendar.date(byAdding: .day, value: -1, to: today)
@@ -178,6 +208,8 @@ nonisolated private func notificationFeedProjectionBuild(
     sections.reserveCapacity(min(items.count, 8))
     var currentDay: Date?
     var currentItems: [NotificationFeedRowModel] = []
+    var mountedRowCount = 0
+    var hasMoreRows = false
 
     func flushCurrentSection() {
         guard let day = currentDay, !currentItems.isEmpty else { return }
@@ -205,17 +237,25 @@ nonisolated private func notificationFeedProjectionBuild(
         if !query.isEmpty, !notificationFeedProjectionMatchesSearchQuery(item: item, query: query) {
             continue
         }
+        if mountedRowCount == rowWindow {
+            // A filtered row exists past the window, so the list shows the
+            // load-more sentinel instead of mounting the rest now.
+            hasMoreRows = true
+            break
+        }
         let day = calendar.startOfDay(for: item.createdAt)
         if let currentDay, currentDay != day {
             flushCurrentSection()
         }
         currentDay = day
         currentItems.append(NotificationFeedRowModel(item: item))
+        mountedRowCount += 1
     }
     guard !Task.isCancelled else { return nil }
     flushCurrentSection()
     return NotificationFeedProjectionOutput(
-        sections: sections
+        sections: sections,
+        hasMoreRows: hasMoreRows
     )
 }
 

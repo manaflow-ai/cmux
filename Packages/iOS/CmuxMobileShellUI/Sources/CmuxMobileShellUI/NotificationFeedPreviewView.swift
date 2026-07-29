@@ -219,32 +219,51 @@ public struct NotificationFeedPreviewView: View {
                 do { try await clock.sleep(for: .milliseconds(50)) } catch { return }
             }
         }
-        let ids = projection.sections.flatMap { section in section.items.map(\.id) }
-        guard ids.count > 1 else { return }
+        guard !projection.sections.isEmpty else { return }
         let signposter = OSSignposter(
             subsystem: "dev.cmux.ios",
             category: "NotificationFeedScrollStress"
         )
-        signposter.emitEvent("scrollStressStart", "\(ids.count) rows")
+        signposter.emitEvent("scrollStressStart")
         let monitor = NotificationFeedScrollStressFrameMonitor()
         monitor.start()
         let hop = 10
+        // The down pass re-reads mounted row ids per hop so it follows the
+        // projection's row window as the load-more sentinel extends it, and
+        // waits briefly at the mounted edge while an extension rebuild runs.
+        var mountedIDs = projection.sections.flatMap { section in section.items.map(\.id) }
+        var index = 0
+        var stalledRounds = 0
         let downState = signposter.beginInterval("scrollDown")
-        for index in stride(from: 0, to: ids.count, by: hop) {
-            withAnimation(.linear(duration: 0.14)) { proxy.scrollTo(ids[index], anchor: .top) }
-            do { try await clock.sleep(for: .milliseconds(150)) } catch { return }
+        while stalledRounds < 40 {
+            mountedIDs = projection.sections.flatMap { section in section.items.map(\.id) }
+            if index < mountedIDs.count {
+                stalledRounds = 0
+                withAnimation(.linear(duration: 0.14)) { proxy.scrollTo(mountedIDs[index], anchor: .top) }
+                index += hop
+                do { try await clock.sleep(for: .milliseconds(150)) } catch { return }
+            } else if projection.hasMoreRows || projection.isSourceRebuilding {
+                stalledRounds += 1
+                if let last = mountedIDs.last {
+                    withAnimation(.linear(duration: 0.14)) { proxy.scrollTo(last, anchor: .top) }
+                }
+                await projection.waitForPendingRebuild()
+                do { try await clock.sleep(for: .milliseconds(100)) } catch { return }
+            } else {
+                break
+            }
         }
         signposter.endInterval("scrollDown", downState)
         let upState = signposter.beginInterval("scrollUp")
-        for index in stride(from: ids.count - 1, through: 0, by: -hop) {
-            withAnimation(.linear(duration: 0.14)) { proxy.scrollTo(ids[index], anchor: .top) }
+        for index in stride(from: mountedIDs.count - 1, through: 0, by: -hop) {
+            withAnimation(.linear(duration: 0.14)) { proxy.scrollTo(mountedIDs[index], anchor: .top) }
             do { try await clock.sleep(for: .milliseconds(150)) } catch { return }
         }
         signposter.endInterval("scrollUp", upState)
         monitor.stop()
         signposter.emitEvent("scrollStressComplete")
         Logger(subsystem: "dev.cmux.ios", category: "NotificationFeedScrollStress").notice(
-            "NFSCROLLSTRESS result rows=\(ids.count) frames=\(monitor.frameCount) hitches=\(monitor.hitchCount) hitchTotalMs=\(Int(monitor.hitchTotal * 1000)) worstHitchMs=\(Int(monitor.worstHitch * 1000))"
+            "NFSCROLLSTRESS result rows=\(mountedIDs.count) frames=\(monitor.frameCount) hitches=\(monitor.hitchCount) hitchTotalMs=\(Int(monitor.hitchTotal * 1000)) worstHitchMs=\(Int(monitor.worstHitch * 1000))"
         )
     }
 
