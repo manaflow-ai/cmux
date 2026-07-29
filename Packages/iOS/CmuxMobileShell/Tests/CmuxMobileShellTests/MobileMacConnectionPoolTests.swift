@@ -78,6 +78,89 @@ import Testing
         #expect(candidates.map(\.macDeviceID) == ["mac-online"])
     }
 
+    @Test func unknownPresenceKeepsCandidatesInsideBoundedPool() throws {
+        let shell = MobileShellComposite(
+            isSignedIn: false,
+            presence: IdlePresence()
+        )
+        let mac = try Self.pairedMac(
+            id: "mac-before-snapshot",
+            instanceTag: "tag-before-snapshot"
+        )
+
+        let candidates = shell.secondaryAggregationCandidateMacs(
+            from: [mac]
+        )
+
+        #expect(candidates.map(\.macDeviceID) == ["mac-before-snapshot"])
+    }
+
+    @Test func onlineAliasKeepsLogicalMacInPool() async throws {
+        let route = try CmxAttachRoute(
+            id: "alias-route",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 50_922)
+        )
+        func paired(_ id: String, seenAt: Date) -> MobilePairedMac {
+            MobilePairedMac(
+                macDeviceID: id,
+                displayName: "Alias Mac",
+                routes: [route],
+                createdAt: .distantPast,
+                lastSeenAt: seenAt,
+                isActive: false,
+                stackUserID: "user-1",
+                teamID: "team-1",
+                instanceTag: "alias-tag"
+            )
+        }
+        let oldAlias = paired("mac-old-alias", seenAt: .distantPast)
+        let representative = paired("mac-new-alias", seenAt: Date())
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-1": [oldAlias, representative],
+            ],
+            blockedTeams: []
+        )
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: LivenessHostRouter(),
+                    box: TransportBox()
+                ),
+                now: { Date() },
+                supportedRouteKinds: [.tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        await shell.loadPairedMacs()
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: oldAlias.macDeviceID,
+                    tag: "alias-tag",
+                    online: true
+                ),
+            ]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+
+        let candidates = shell.secondaryAggregationCandidateMacs(
+            from: [oldAlias, representative]
+        )
+
+        #expect(candidates.count == 1)
+        #expect(candidates.first?.macDeviceID == representative.macDeviceID)
+    }
+
     @Test func teardownCancelsDeferredPostRouteAggregation() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -825,6 +908,7 @@ import Testing
             now: Date()
         )
         let router = LivenessHostRouter()
+        let closeGate = LivenessTransportCloseGate()
         await router.setHostIdentity(
             deviceID: "mac-permanent-refresh",
             instanceTag: "permanent-tag",
@@ -836,7 +920,8 @@ import Testing
             runtime: LivenessTestRuntime(
                 transportFactory: LivenessTransportFactory(
                     router: router,
-                    box: TransportBox()
+                    box: TransportBox(),
+                    closeGate: closeGate
                 ),
                 now: { Date() }
             ),
@@ -845,7 +930,8 @@ import Testing
             presence: IdlePresence(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-1" },
-            controlPlaneSchedulingClock: clock
+            controlPlaneSchedulingClock: clock,
+            connectionHandoffDrainTimeoutNanoseconds: 1_000_000
         )
         shell.applyPresenceUpdate(
             Self.snapshot([
@@ -884,6 +970,11 @@ import Testing
         #expect(try await pollUntil {
             shell.secondaryMacSubscriptions["mac-permanent-refresh"] == nil
         })
+        await closeGate.waitUntilCloseStarted()
+        #expect(
+            shell.secondaryMacDrainReservations["mac-permanent-refresh"]
+                != nil
+        )
         #expect(shell.workspacesByMac["mac-permanent-refresh"]?.status
             == .unavailable)
         #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
@@ -891,6 +982,11 @@ import Testing
         clock.advance(by: .seconds(60))
         for _ in 0 ..< 8 { await Task.yield() }
         #expect(await router.count(of: "workspace.list") == workspaceRequests)
+        await closeGate.release()
+        #expect(try await pollUntil {
+            shell.secondaryMacDrainReservations["mac-permanent-refresh"]
+                == nil
+        })
     }
 
     @Test func retryStateCoalescesPoolFailuresAndCapsBackoff() {

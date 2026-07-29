@@ -334,7 +334,8 @@ import Testing
         #expect(await transport.waitUntilCloseCount(2))
     }
 
-    @Test func abandonedConnectCleanupCountsCandidateCloseTimeoutBeforeRetry() async throws {
+    @Test func abandonedConnectCleanupKeepsRouteReservedUntilPhysicalClose()
+        async throws {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = "debugLoopback|test|127.0.0.1:59135"
         let lease = try #require(await registry.beginConnect(key: key))
@@ -364,12 +365,14 @@ import Testing
         }
         #expect(blockedRetryObserved)
 
-        var retryLease: MobileRPCConnectAttemptLease?
-        for _ in 0..<200 {
-            retryLease = await registry.beginConnect(key: key)
-            if retryLease != nil { break }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+        #expect(await registry.beginConnect(key: key) == nil)
+        #expect(await session.abandonedConnectionCleanupTasks.count == 1)
+
+        await transport.releaseClose()
+        await session.waitForTransportDrain()
+        #expect(await session.abandonedConnectionCleanupTasks.isEmpty)
+        let retryLease = await registry.beginConnect(key: key)
         #expect(retryLease != nil)
         await registry.clearFinishedConnect(lease: retryLease)
     }

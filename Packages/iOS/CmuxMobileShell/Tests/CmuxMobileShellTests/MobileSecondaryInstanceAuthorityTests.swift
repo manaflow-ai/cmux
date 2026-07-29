@@ -6,6 +6,12 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
+enum PromotionFocusRepairFailure: Sendable {
+    case hostIdentity
+    case terminalSubscription
+    case workspaceRefresh
+}
+
 @MainActor
 @Suite struct MobileSecondaryInstanceAuthorityTests {
     @Test func promotionTransfersAuthenticatedTagFromSecondaryClient() async throws {
@@ -166,9 +172,13 @@ import Testing
         #expect(foregroundStillWarm != nil)
     }
 
-    @Test(arguments: [true, false])
+    @Test(arguments: [
+        PromotionFocusRepairFailure.hostIdentity,
+        .terminalSubscription,
+        .workspaceRefresh,
+    ])
     func promotionFailsClosedWhenRequiredFocusRepairFails(
-        rejectsTerminalSubscription: Bool
+        failure: PromotionFocusRepairFailure
     ) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -196,15 +206,23 @@ import Testing
             now: Date()
         )
         let router = LivenessHostRouter()
-        if rejectsTerminalSubscription {
+        let closeGate = LivenessTransportCloseGate()
+        if failure != .hostIdentity {
+            await router.setHostIdentity(
+                deviceID: "mac-b",
+                instanceTag: "feature-b"
+            )
+        }
+        if failure == .terminalSubscription {
             await router.invalidateSubscribeRequest(number: 1)
-        } else {
+        } else if failure == .workspaceRefresh {
             await router.failWorkspaceListRequest(number: 2)
         }
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(
                 router: router,
-                box: TransportBox()
+                box: TransportBox(),
+                closeGate: closeGate
             ),
             now: { Date() }
         )
@@ -228,7 +246,8 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
-            reachability: AlwaysOnlineReachability()
+            reachability: AlwaysOnlineReachability(),
+            connectionHandoffDrainTimeoutNanoseconds: 1_000_000
         )
         shell.workspacesByMac["mac-b"] = MacWorkspaceState(
             macDeviceID: "mac-b",
@@ -249,7 +268,7 @@ import Testing
             ],
             status: .connected
         )
-        shell.secondaryMacSubscriptions["mac-b"] = SecondaryMacSubscription(
+        let subscription = SecondaryMacSubscription(
             macDeviceID: "mac-b",
             client: client,
             route: route,
@@ -260,6 +279,7 @@ import Testing
             actionCapabilities: .none,
             displayName: "Studio B"
         )
+        shell.secondaryMacSubscriptions["mac-b"] = subscription
         let switchAttemptID = UUID()
         shell.macSwitchAttemptID = switchAttemptID
         shell.macSwitchAttemptSignInGeneration = shell.signInGeneration
@@ -276,6 +296,14 @@ import Testing
         #expect(!shell.isRecoveringConnection)
         #expect(!shell.liveMacConnections.contains {
             $0.macDeviceID == "mac-b"
+        })
+        await closeGate.waitUntilCloseStarted()
+        #expect(shell.secondaryMacDrainReservations["mac-b"]
+            === subscription)
+        shell.finishMacSwitchAttempt(switchAttemptID)
+        await closeGate.release()
+        #expect(try await pollUntil {
+            shell.secondaryMacDrainReservations["mac-b"] == nil
         })
         await client.disconnect()
     }

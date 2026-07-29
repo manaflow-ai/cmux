@@ -3484,7 +3484,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.error("disconnecting mismatched authenticated Mac identity reason=\(reason, privacy: .public)")
         connectionState = .disconnected
         macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
+        clearRemoteConnectionContext(
+            preservingOtherMacWorkspaceState: true
+        )
     }
 
     /// `true` on a physical iPhone/iPad; `false` in the simulator and in
@@ -4548,15 +4550,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         instanceTag: String?
     ) -> Bool {
         guard presence != nil else { return true }
-        let summary = if let instanceTag {
-            presenceMap.instanceSummary(
-                deviceId: macDeviceID,
-                tag: instanceTag
-            )
-        } else {
-            presenceMap.deviceSummary(deviceId: macDeviceID)
-        }
-        return summary?.online == true
+        // Presence is snapshot-first. Before that snapshot, and when this
+        // logical Mac is represented by an unseen stored alias, absence is
+        // unknown rather than confirmed offline. Keep unknown candidates under
+        // the fixed pool cap; only an explicit offline summary excludes them.
+        return presenceSummary(
+            for: macDeviceID,
+            instanceTag: instanceTag
+        )?.online ?? true
     }
 
     /// Open a persistent read-only connection to `mac`, seed its workspace state,
@@ -5179,11 +5180,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         if subscription.eventStreamEndedDuringFocusTransition {
-            subscription.detachKeepingClient()
-            secondaryMacSubscriptions[macDeviceID] = nil
-            markSecondaryMacUnavailable(macDeviceID)
-            await subscription.client.disconnect()
-            scheduleSecondaryAggregationRetry(macDeviceIDs: [macDeviceID])
+            await retireSecondaryControlOwner(
+                subscription,
+                macDeviceID: macDeviceID,
+                shouldRetry: true
+            )
             return
         }
         subscription.isTransitioningToFocus = false
@@ -5220,16 +5221,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             subscription.eventStreamEndedDuringFocusTransition = true
             return
         }
-        subscription.detachKeepingClient()
-        secondaryMacSubscriptions[macDeviceID] = nil
-        markSecondaryMacUnavailable(macDeviceID)
-        await client.disconnect()
-        if shouldRetry {
-            scheduleSecondaryAggregationRetry(macDeviceIDs: [macDeviceID])
-        }
+        await retireSecondaryControlOwner(
+            subscription,
+            macDeviceID: macDeviceID,
+            shouldRetry: shouldRetry
+        )
     }
 
-    private func scheduleSecondaryAggregationRetry(
+    func scheduleSecondaryAggregationRetry(
         macDeviceIDs: Set<String>
     ) {
         secondaryAggregationRetryMacIDs.formUnion(
@@ -5422,14 +5421,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   !subscription.isTransitioningToFocus else {
                 return
             }
-            subscription.task?.cancel()
-            subscription.task = nil
-            self.secondaryMacSubscriptions[macID] = nil
-            self.markSecondaryMacUnavailable(macID)
-            await client.disconnect()
-            if refreshShouldRetry {
-                self.scheduleSecondaryAggregationRetry(macDeviceIDs: [macID])
-            }
+            await self.retireSecondaryControlOwner(
+                subscription,
+                macDeviceID: macID,
+                shouldRetry: refreshShouldRetry
+            )
         }
         subscription.refreshTask = refreshTask
         return refreshTask
@@ -7065,14 +7061,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         self.finishRetiredSecondaryPromotionCandidate(
                             displacedControlReservation,
                             macDeviceID:
-                                displacedControlReservation.macDeviceID
+                                displacedControlReservation.macDeviceID,
+                            forceRemovalDuringMacSwitch: true
                         )
                     }
                 } else {
                     finishRetiredSecondaryPromotionCandidate(
                         displacedControlReservation,
                         macDeviceID:
-                            displacedControlReservation.macDeviceID
+                            displacedControlReservation.macDeviceID,
+                        forceRemovalDuringMacSwitch: true
                     )
                 }
             }
@@ -7810,15 +7808,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Their current scoped pairing is the only available eligibility
         // authority. Production compositions with presence remain online-only.
         guard presence != nil else { return true }
-        let summary = if let instanceTag = stored.instanceTag {
-            presenceMap.instanceSummary(
-                deviceId: stored.macDeviceID,
-                tag: instanceTag
-            )
-        } else {
-            presenceMap.deviceSummary(deviceId: stored.macDeviceID)
-        }
-        return summary?.online == true
+        return presenceSummary(
+            for: stored.macDeviceID,
+            instanceTag: stored.instanceTag
+        )?.online ?? true
     }
 
     static func warmControlPoolHasCapacity(

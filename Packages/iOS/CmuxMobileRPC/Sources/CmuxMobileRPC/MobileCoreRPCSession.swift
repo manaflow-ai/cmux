@@ -288,6 +288,15 @@ actor MobileCoreRPCSession {
             throw MobileShellConnectionError.connectionClosed
         }
         if let transport { return transport }
+        // A cancellation-ignoring connect or close still owns this client's
+        // production route until physical cleanup finishes. Do not let
+        // repeated requests append more retained cleanup graphs behind that
+        // unresolved owner. Direct untracked sessions have no shared route
+        // authority and retain their cooperative-cancellation retry semantics.
+        if connectAttemptKey != nil,
+           !abandonedConnectionCleanupTasks.isEmpty {
+            throw MobileShellConnectionError.requestTimedOut
+        }
         // One active close plus one queued close is the cleanup capacity. A
         // non-cooperative close can delay one later recovery, but cannot retain
         // an unbounded chain of transports.

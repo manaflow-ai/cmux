@@ -34,6 +34,12 @@ actor MobileTerminalEventSubscriptionReadiness {
     }
 }
 
+enum SecondaryMacPostDrainAction {
+    case none
+    case refreshPresence
+    case retry
+}
+
 /// One non-focused Mac's persistent control connection plus its event consumer.
 @MainActor
 final class SecondaryMacSubscription {
@@ -78,6 +84,11 @@ final class SecondaryMacSubscription {
     /// Set before promotion waits on any RPC. Keepalive reassertions skip this
     /// subscription until it either becomes focused or promotion is abandoned.
     var isTransitioningToFocus = false
+    /// Physical close finished for a non-public drain reservation. Completed
+    /// reservations stay claimed until the active Mac switch either consumes
+    /// them in its fresh-dial fallback or ends.
+    var hasCompletedTransportDrain = false
+    var postDrainAction: SecondaryMacPostDrainAction = .none
     /// Keepalive ticks skip a newly inserted subscription until its consumer's
     /// first server-side activation has completed.
     var hasActivatedControlStream = false

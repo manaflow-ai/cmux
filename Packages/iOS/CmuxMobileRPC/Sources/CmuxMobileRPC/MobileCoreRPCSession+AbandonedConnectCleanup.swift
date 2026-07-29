@@ -57,13 +57,10 @@ extension MobileCoreRPCSession {
                 if close.completedWithinDeadline {
                     await cleaner.clearFinishedConnectGate()
                 } else {
-                    await cleaner.clearTimedOutAbandonedCleanupGate()
                     _ = await close.task.result
+                    await cleaner.clearFinishedConnectGate()
                 }
             } catch MobileShellConnectionError.requestTimedOut {
-                if tracksRouteGate {
-                    await connectAttemptRegistry.clearTimedOutAbandonedCleanup(lease: lease)
-                }
                 await cleaner.closeLateAbandonedCandidate(
                     task: task,
                     timeoutNanoseconds: lateCloseTimeoutNanoseconds
@@ -105,10 +102,7 @@ private struct MobileRPCAbandonedConnectCleaner: Sendable {
                 candidate,
                 timeoutNanoseconds: timeoutNanoseconds
             )
-            if close.completedWithinDeadline {
-                await clearFinishedConnectGate()
-            } else {
-                await clearTimedOutAbandonedCleanupGate()
+            if !close.completedWithinDeadline {
                 _ = await close.task.result
             }
         } catch {
@@ -121,6 +115,10 @@ private struct MobileRPCAbandonedConnectCleaner: Sendable {
             } catch {
             }
         }
+        // Admission stays closed throughout both bounded observation windows
+        // and any cancellation-ignoring tail. A physically unresolved owner
+        // must not be traded for a retry budget that can accumulate transports.
+        await clearFinishedConnectGate()
     }
 
     func closeCandidate(
@@ -148,11 +146,5 @@ private struct MobileRPCAbandonedConnectCleaner: Sendable {
     func clearFinishedConnectGate() async {
         guard tracksRouteGate else { return }
         await registry.clearFinishedConnect(lease: lease)
-    }
-
-    func clearTimedOutAbandonedCleanupGate() async {
-        guard tracksRouteGate else { return }
-        await registry.markAbandoned(lease: lease)
-        await registry.clearTimedOutAbandonedCleanup(lease: lease)
     }
 }
