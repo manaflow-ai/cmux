@@ -32,7 +32,7 @@ The public resource roots are:
 ```text
 machine  session  client  workspace  screen  pane  tab
 terminal browser  notification  agent  sidebar
-pairing  projection provider raw
+pairing  projection raw
 ```
 
 Structural resources may be addressed directly by opaque ID or through their
@@ -69,6 +69,11 @@ never chooses one or changes state.
 
 `--machine` and `--session` provide routing defaults. `--socket` selects an
 exact local socket.
+
+One endpoint describes exactly one local mux session. `machine list`,
+`machine get`, `session list`, `session get`, and `session open` expose that
+local route. Cross-machine discovery and provider lifecycle require a later
+broker protocol.
 
 ## Output
 
@@ -130,8 +135,8 @@ The client never reads or expands `$SHELL`.
 ## Resource paths
 
 ```text
-machine list|create|connect external
-machine <selector> show|rename|delete|restore|purge
+machine list
+machine <selector> show
 machine <selector> session list
 machine <selector> session <selector> open
 
@@ -191,13 +196,6 @@ projection <selector> show|put
 
 sidebar view show|ensure|attach|input|resize|reload
 sidebar plugin list|install|use|update|remove
-
-provider scope list
-provider scope <selector> action <selector> invoke
-provider scope <selector> notice watch
-provider scope <selector> notice <selector> acknowledge
-provider scope <selector> workspace <selector> mark|rename|close
-provider authority install
 
 ```
 

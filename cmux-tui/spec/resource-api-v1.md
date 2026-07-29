@@ -25,6 +25,11 @@ Machine
 A tab owns exactly one terminal or browser. Sidebar extensions are
 session-scoped auxiliary resources and cannot become tabs.
 
+One `cmux.protocol/1` endpoint describes exactly one local mux session. Its
+machine and session resources provide stable routing handles for that local
+session. Cross-machine discovery, aggregation, and provider lifecycle are
+reserved for a later broker protocol.
+
 All public IDs are JSON strings with one registered prefix and 128 bits of
 lowercase hexadecimal entropy:
 
@@ -47,9 +52,6 @@ lowercase hexadecimal entropy:
 | Pairing request | `pairing_` |
 | Sidebar view | `sidebar_view_` |
 | Sidebar plugin | `sidebar_plugin_` |
-| Provider scope | `provider_scope_` |
-| Provider action | `provider_action_` |
-| Provider notice | `provider_notice_` |
 
 IDs are immutable and never reused. A durable session stores IDs with the
 logical resource and restores every ID for every resource that remains alive
@@ -182,12 +184,11 @@ Their initial snapshot is delivered after the open response. Overflow
 requires a fresh attachment snapshot.
 
 Every domain stream item union is open for SDK decoding. `session.events`,
-`terminal.attach`, `browser.attach`, `sidebar_view.attach`, and
-`provider_notice.events` expose an `Unknown` variant that retains the
-unrecognized discriminator and complete raw object. A recognized
-discriminator must decode against its exact known schema; malformed known
-payloads are errors and never become `Unknown`. Servers emit only cataloged
-known variants.
+`terminal.attach`, `browser.attach`, and `sidebar_view.attach` expose an
+`Unknown` variant that retains the unrecognized discriminator and complete
+raw object. A recognized discriminator must decode against its exact known
+schema; malformed known payloads are errors and never become `Unknown`.
+Servers emit only cataloged known variants.
 
 `terminal.attach` is the public server-rendered stream. Its snapshot and
 patches contain styled rows and runs, cursor state, resolved default colors,
@@ -202,7 +203,7 @@ terminal history uses the same `RenderRow` and `RenderRun` model.
 typed resource ID and matching snapshot; deletes carry the typed ID and no
 value. A screen snapshot includes its complete typed layout. One transaction
 produces one batch bounded by `previous_revision` and `revision`, so frontends
-can apply it without parsing provider JSON or refetching layout.
+can apply it without parsing generic JSON or refetching layout.
 
 `stream_end.error`, when present, is the full structured error object with
 `code`, `message`, `details`, and `retryable`. End reasons retain optional
@@ -225,10 +226,10 @@ defines the catalog format. Unknown parameter and result fields are rejected.
 
 | Class | Operations |
 | --- | --- |
-| read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `frontend_projection.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `provider_scope.list`, `screen.get`, `screen.layout.export`, `screen.list`, `session.creation.resolve`, `session.get`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `workspace.get`, `workspace.list` |
-| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `machine.connect_external`, `machine.create`, `machine.delete`, `machine.purge`, `machine.rename`, `machine.restore`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `provider_action.invoke`, `provider_workspace.close`, `provider_workspace.mark`, `provider_workspace.rename`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
-| stream_open | `browser.attach`, `provider_notice.events`, `session.events`, `sidebar_view.attach`, `terminal.attach` |
-| connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `provider_notice.acknowledge`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
+| read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `frontend_projection.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `screen.get`, `screen.layout.export`, `screen.list`, `session.creation.resolve`, `session.get`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `workspace.get`, `workspace.list` |
+| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
+| stream_open | `browser.attach`, `session.events`, `sidebar_view.attach`, `terminal.attach` |
+| connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
 
 A selector is a flat object of scope strings. A nested target includes every
@@ -308,18 +309,9 @@ its platform default shell and `-lc`; SDKs never inspect or expand `$SHELL`.
 To choose a specific executable, callers send
 `argv: [executable, "-lc", script]`.
 
-`machine.create` selects one provider scope and carries no provider transport
-or credential fields. `machine.connect_external` selects a provider scope and
-sends one sensitive, bounded `specifier`. Provider authentication and tickets
-remain inside the provider.
-
-Provider scopes contain display metadata and one selected flag, not a
-singular machine. Machine snapshots separate local/external origin from
-lifecycle status and recovery metadata. Provider actions include target,
-destructive status, and typed form fields. Provider notice delivery is
-durable: consumers call `provider_notice.acknowledge` with its decimal
-sequence only after painting the notice. Iterators never acknowledge on
-delivery.
+`machine.list` returns one local machine, and `machine.get` resolves only that
+machine. Its origin is always `local`. `session.list`, `session.get`, and
+`session.open` operate only on the mux session owned by this endpoint.
 
 Sidebar plugin installation and selection are local filesystem operations.
 Transported sidebar view operations never send a `sidebar_plugin_` ID.
@@ -331,14 +323,14 @@ IDs before journaling or idempotency commit. A confirmed retry uses that
 revision and a new mutation key.
 
 Fields marked `sensitive: true` must be redacted from SDK Debug, `toString`,
-exceptions, and logs. External-machine specifiers and renderer grant tokens
-are sensitive. Renderer grants expose endpoint, terminal ID, token, rights,
-and TTL. They are connection-bound, one-use capabilities.
+exceptions, and logs. Pairing codes and renderer grant tokens are sensitive.
+Renderer grants expose endpoint, terminal ID, token, rights, and TTL. They are
+connection-bound, one-use capabilities.
 
 `JsonValue` is limited to audited extension points: explicit snapshot `extra`
 maps, frontend projection payloads, structured error details, and
-provider-defined action results. Core resource, stream, layout, render, and
-session change shapes never use generic JSON.
+operation failure extras. Core resource, stream, layout, render, and session
+change shapes never use generic JSON.
 
 Input modifiers are `shift|control|alt|meta`; terminal transport maps public
 `meta` to its raw `super` bit. Browser coordinates and wheel deltas must be
@@ -363,13 +355,12 @@ cmux sidebar plugin list
 
 Root control scopes are `machine`, `session`, `client`, `workspace`, `screen`,
 `pane`, `tab`, `terminal`, `browser`, `notification`, `agent`, `sidebar`,
-`pairing`, `projection`, `provider`, `stream`, and `raw`. Sidebar resources
+`pairing`, `projection`, `stream`, and `raw`. Sidebar resources
 use the nested `sidebar view` and `sidebar plugin` grammars.
 Hyphenated action-first commands are usage errors with exit code 2.
 
 Global routing flags are `--machine`, `--session`, and advanced `--socket`.
-Machine providers expose typed session discovery and open operations. A
-provider with one session returns one default session through the same API.
+They select the one local machine and mux session exposed by the endpoint.
 
 Human output follows the selected locale, currently English and Japanese.
 `--json` prints one result object. `--jsonl` prints one object per result or
@@ -404,14 +395,13 @@ Protocol errors retain `code`, `message`, `details`, and `retryable` in every
 language. All seven SDKs implement the same fake-server and live-server
 conformance cases.
 
-Client, Stream, Notification, Agent, PairingRequest, FrontendProjection,
-SidebarView, ProviderScope, ProviderAction, and ProviderNotice are typed
-session or provider auxiliary resources. They are not inserted into the
-workspace tree. Split IDs appear only in raw layout documents.
+Client, Stream, Notification, Agent, PairingRequest, FrontendProjection, and
+SidebarView are typed session auxiliary resources. They are not inserted into
+the workspace tree. Split IDs appear only in raw layout documents.
 
 ## Separate protocols
 
 Terminal-host, machine-agent, and machine-provider transports keep separate
-version numbers. The machine-provider protocol includes typed
-`session_snapshot(machine_id)` and `open_session(machine_id, session_id)`
-messages. They translate to this API only at the provider adapter.
+version numbers. The machine-provider protocol remains an internal transport.
+A future cross-machine broker must define a later public protocol instead of
+extending this one-session endpoint implicitly.

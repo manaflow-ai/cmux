@@ -12,7 +12,7 @@ The split is deliberate:
   handwritten in each language.
 - Mechanical protocol-v10 models are generated deterministically and exposed
   only through `raw`.
-- A catalog descriptor in every package proves that all 124 transported
+- A catalog descriptor in every package proves that all 111 transported
   operations have the same class and wire name.
 - The six sidebar plugin operations are local CLI/filesystem APIs. Transported
   SDK roots expose sidebar views, not plugin resource handles.
@@ -37,7 +37,7 @@ Every high-level SDK must provide:
 | Errors | Transport, timeout, decode, and structured resource errors retain code, message, details, and retryability |
 | Streams | Typed items, explicit cancellation, bounded unread queues, structured end state, and per-stream overflow isolation |
 | Evolution | Unknown stream variants retain their discriminator and complete raw object; malformed known variants fail decoding |
-| Secrets | Provider specifiers, pairing codes, provider credentials, and renderer tokens are redacted from formatting and errors |
+| Secrets | Pairing codes and renderer tokens are redacted from formatting and errors |
 | Raw access | Private protocol-v10 APIs are reachable only through a package path containing `raw` |
 
 Decimal wire values remain strings. TypeScript never converts them to
@@ -72,17 +72,13 @@ The public stream families are:
 - session snapshots and atomic resource-change batches;
 - styled terminal render snapshots, patches, and scroll state;
 - browser state and frames;
-- styled sidebar render snapshots, patches, and scroll state;
-- provider notices.
+- styled sidebar render snapshots, patches, and scroll state.
 
 Each stream has a caller-generated typed ID. The server installs its event tap
 before acknowledging the open request and releases the initial snapshot after
 that response. Cancellation is connection-local. A queue holds at most 256
 messages and 16 MiB. Overflow ends only that stream with a gap and recovery
 cursor.
-
-Provider notice iterators never acknowledge delivery. The application calls
-the typed acknowledge method after it has painted or persisted the notice.
 
 ## Language mapping
 

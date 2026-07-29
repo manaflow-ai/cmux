@@ -148,9 +148,6 @@ PUBLIC_ID_TYPES = (
     ("PairingRequestPublicId", "pairing"),
     ("SidebarViewPublicId", "sidebar_view"),
     ("SidebarPluginPublicId", "sidebar_plugin"),
-    ("ProviderScopePublicId", "provider_scope"),
-    ("ProviderActionPublicId", "provider_action"),
-    ("ProviderNoticePublicId", "provider_notice"),
 )
 EXPECTED_PREFIXES = tuple(prefix for _, prefix in PUBLIC_ID_TYPES)
 RESOURCE_PREFIXES = tuple(prefix for prefix in EXPECTED_PREFIXES if prefix != "stream")
@@ -172,9 +169,6 @@ MARKDOWN_ID_TYPES = (
     ("Pairing request", "pairing"),
     ("Sidebar view", "sidebar_view"),
     ("Sidebar plugin", "sidebar_plugin"),
-    ("Provider scope", "provider_scope"),
-    ("Provider action", "provider_action"),
-    ("Provider notice", "provider_notice"),
 )
 
 TRANSPORT_OPERATION_CLASSES = (
@@ -201,20 +195,11 @@ EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
         "browser.input.wheel",
         "browser.navigate",
         "browser.reload",
-        "machine.connect_external",
-        "machine.create",
-        "machine.delete",
-        "machine.purge",
-        "machine.restore",
         "notification.create",
         "pane.close",
         "pane.create",
         "pane.run",
         "pane.split",
-        "provider_action.invoke",
-        "provider_workspace.close",
-        "provider_workspace.mark",
-        "provider_workspace.rename",
         "screen.close",
         "screen.create",
         "screen.layout.undo",
@@ -1056,7 +1041,6 @@ def _validate_catalog_type(
                 "types.StreamError.fields.details",
                 "errors.operation.failed.details.fields.extra.values",
                 "operations.frontend_projection.put.params.fields.projection",
-                "operations.provider_action.invoke.result.arguments[0]",
             }
             is_explicit_extra = (
                 context.startswith("types.")
@@ -1309,7 +1293,6 @@ def _operation_catalog(
         "TerminalAttachItem",
         "BrowserAttachItem",
         "SidebarAttachItem",
-        "ProviderNoticeItem",
         "ResourceChange",
     )
     for name in open_union_types:
@@ -1923,55 +1906,9 @@ def _operation_catalog(
                 "workspace.create",
             )
 
-    machine_create = operations.get("machine.create")
-    if isinstance(machine_create, dict) and (
-        machine_create.get("ancestors") != ["provider_scope"]
-        or machine_create.get("params", {}).get("selectors")
-        != {"provider_scope": "required"}
-        or machine_create.get("params", {}).get("fields") != {}
-    ):
-        _catalog_diagnostic(
-            diagnostics,
-            path,
-            text,
-            "machine.create must select only provider_scope and carry no transport credentials",
-            "machine.create",
-        )
-    connect_external = operations.get("machine.connect_external")
-    if isinstance(connect_external, dict):
-        connect_params = connect_external.get("params", {})
-        specifier = connect_params.get("fields", {}).get("specifier")
-        expected_specifier_type = {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 512,
-        }
-        if (
-            connect_external.get("ancestors") != ["provider_scope"]
-            or connect_params.get("selectors") != {"provider_scope": "required"}
-            or set(connect_params.get("fields", {})) != {"specifier"}
-            or not isinstance(specifier, dict)
-            or specifier.get("required") is not True
-            or specifier.get("type") != expected_specifier_type
-            or specifier.get("sensitive") is not True
-            or not any(
-                "no control characters" in constraint
-                for constraint in connect_params.get("constraints", [])
-            )
-        ):
-            _catalog_diagnostic(
-                diagnostics,
-                path,
-                text,
-                "machine.connect_external must select provider_scope and require one sensitive bounded specifier",
-                "machine.connect_external",
-            )
-
     required_sensitive_paths = (
         ("types", "RendererGrantResult", "fields", "token"),
         ("types", "PairingRequestSnapshot", "fields", "code"),
-        ("operations", "machine.connect_external", "params", "fields", "specifier"),
     )
     for parts in required_sensitive_paths:
         owner = document.get(parts[0])
@@ -2011,11 +1948,7 @@ def _operation_catalog(
             "client.metadata.update name must encode omitted/string/null distinctly",
             "client.metadata.update",
         )
-    for operation in (
-        "machine.rename",
-        "workspace.rename",
-        "provider_workspace.rename",
-    ):
+    for operation in ("workspace.rename",):
         if operation not in operations:
             continue
         name_field = (
@@ -2397,7 +2330,6 @@ def _operation_catalog(
             "origin",
             "status",
             "connectable",
-            "provider_scope_id",
             "deleted",
             "recoverable",
             "extra",
@@ -2406,7 +2338,7 @@ def _operation_catalog(
             set(machine_fields) != expected_machine_fields
             or machine_fields.get("name", {}).get("required") is not True
             or machine_fields.get("origin", {}).get("type", {}).get("values")
-            != ["local", "external"]
+            != ["local"]
             or machine_fields.get("status", {}).get("type", {}).get("values")
             != ["running", "connecting", "sleeping", "stopped", "unavailable"]
         ):
@@ -2414,95 +2346,8 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "MachineSnapshot must separate origin, lifecycle, connectability, and recovery metadata",
+                "MachineSnapshot must describe only the endpoint's local machine",
                 "MachineSnapshot",
-            )
-
-    if "ProviderScopeSnapshot" in types:
-        provider_scope_fields = types.get("ProviderScopeSnapshot", {}).get("fields", {})
-        if set(provider_scope_fields) != {
-            "id",
-            "name",
-            "kind",
-            "can_admin",
-            "selected",
-            "extra",
-        }:
-            _catalog_diagnostic(
-                diagnostics,
-                path,
-                text,
-                "ProviderScopeSnapshot must match provider descriptor scope metadata without singular machine state",
-                "ProviderScopeSnapshot",
-            )
-
-    if "ProviderActionSnapshot" in types:
-        provider_action_fields = types.get("ProviderActionSnapshot", {}).get("fields", {})
-        action_form_fields = types.get("ProviderActionField", {}).get("fields", {})
-        invoke_values = (
-            operations.get("provider_action.invoke", {})
-            .get("params", {})
-            .get("fields", {})
-            .get("parameters", {})
-            .get("type", {})
-            .get("values")
-        )
-        if (
-            not {"target", "destructive", "fields"} <= set(provider_action_fields)
-            or "parameters" in provider_action_fields
-            or set(action_form_fields)
-            != {
-                "id",
-                "label",
-                "kind",
-                "required",
-                "max_length",
-                "minimum",
-                "maximum",
-                "placeholder",
-            }
-            or invoke_values != {"kind": "ref", "name": "ProviderActionValue"}
-        ):
-            _catalog_diagnostic(
-                diagnostics,
-                path,
-                text,
-                "provider actions must carry typed renderable form descriptors and typed invocation values",
-                "ProviderActionSnapshot",
-            )
-
-    if "ProviderNoticeSnapshot" in types:
-        notice_fields = types.get("ProviderNoticeSnapshot", {}).get("fields", {})
-        acknowledge = operations.get("provider_notice.acknowledge")
-        acknowledge_fields = (
-            acknowledge.get("params", {}).get("fields", {})
-            if isinstance(acknowledge, dict)
-            else {}
-        )
-        if (
-            "created_at" in notice_fields
-            or not isinstance(acknowledge, dict)
-            or acknowledge.get("class") != "connection_control"
-            or acknowledge.get("params", {}).get("selectors")
-            != {
-                "machine": "required",
-                "provider_scope": "required",
-                "provider_notice": "required",
-            }
-            or acknowledge_fields
-            != {
-                "sequence": {
-                    "required": True,
-                    "type": {"kind": "primitive", "name": "decimal"},
-                }
-            }
-        ):
-            _catalog_diagnostic(
-                diagnostics,
-                path,
-                text,
-                "provider notices require explicit post-paint decimal-sequence acknowledgment",
-                "provider_notice.acknowledge",
             )
 
     if "SidebarViewSnapshot" in types:

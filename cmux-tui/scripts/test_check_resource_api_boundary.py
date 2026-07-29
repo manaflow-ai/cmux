@@ -452,7 +452,6 @@ class ContractRegistryTests(unittest.TestCase):
             "TerminalAttachItem",
             "BrowserAttachItem",
             "SidebarAttachItem",
-            "ProviderNoticeItem",
             "ResourceChange",
         ):
             union = catalog["types"][name]
@@ -508,7 +507,7 @@ class ContractRegistryTests(unittest.TestCase):
             {"kind": "ref", "name": "LayoutDocument"},
         )
 
-    def test_live_mutation_client_provider_and_sensitive_shapes_are_exact(self) -> None:
+    def test_live_mutation_client_and_sensitive_shapes_are_exact(self) -> None:
         catalog = json.loads(
             (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
         )
@@ -535,10 +534,9 @@ class ContractRegistryTests(unittest.TestCase):
                 "extra",
             },
         )
-        self.assertEqual(
-            set(types["ProviderScopeSnapshot"]["fields"]),
-            {"id", "name", "kind", "can_admin", "selected", "extra"},
-        )
+        self.assertNotIn("ProviderScopeSnapshot", types)
+        self.assertNotIn("ProviderActionSnapshot", types)
+        self.assertNotIn("ProviderNoticeSnapshot", types)
         self.assertNotIn("plugin_id", types["SidebarViewSnapshot"]["fields"])
         self.assertNotIn(
             "plugin_id",
@@ -626,22 +624,28 @@ class ContractRegistryTests(unittest.TestCase):
             ))
         )
 
-    def test_live_catalog_counts_and_explicit_provider_notice_ack_are_frozen(self) -> None:
+    def test_live_catalog_counts_and_local_endpoint_scope_are_frozen(self) -> None:
         catalog = json.loads(
             (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(len(catalog["operations"]), 124)
+        self.assertEqual(len(catalog["operations"]), 111)
         self.assertEqual(len(catalog["local_operations"]), 6)
-        acknowledge = catalog["operations"]["provider_notice.acknowledge"]
-        self.assertEqual(acknowledge["class"], "connection_control")
         self.assertEqual(
-            acknowledge["params"]["fields"],
+            set(catalog["types"]["MachineSnapshot"]["fields"]),
             {
-                "sequence": {
-                    "required": True,
-                    "type": {"kind": "primitive", "name": "decimal"},
-                }
+                "id",
+                "name",
+                "origin",
+                "status",
+                "connectable",
+                "deleted",
+                "recoverable",
+                "extra",
             },
+        )
+        self.assertEqual(
+            catalog["types"]["MachineSnapshot"]["fields"]["origin"]["type"]["values"],
+            ["local"],
         )
 
     def test_live_creation_correlation_is_exactly_the_eight_created_path_operations(

@@ -19,10 +19,7 @@
     "frontend_projection",
     "pairing_request",
     "sidebar_view",
-    "sidebar_plugin",
-    "provider_scope",
-    "provider_action",
-    "provider_notice"
+    "sidebar_plugin"
   ],
   "types": {
     "JsonValue": {
@@ -167,30 +164,6 @@
             "resource": "sidebar_plugin"
           },
           "description": "Exact sidebar_plugin scope selector."
-        },
-        "provider_scope": {
-          "required": false,
-          "type": {
-            "kind": "selector",
-            "resource": "provider_scope"
-          },
-          "description": "Exact provider_scope scope selector."
-        },
-        "provider_action": {
-          "required": false,
-          "type": {
-            "kind": "selector",
-            "resource": "provider_action"
-          },
-          "description": "Exact provider_action scope selector."
-        },
-        "provider_notice": {
-          "required": false,
-          "type": {
-            "kind": "selector",
-            "resource": "provider_notice"
-          },
-          "description": "Exact provider_notice scope selector."
         }
       },
       "extra": false,
@@ -649,8 +622,7 @@
           "type": {
             "kind": "enum",
             "values": [
-              "local",
-              "external"
+              "local"
             ]
           }
         },
@@ -672,13 +644,6 @@
           "type": {
             "kind": "primitive",
             "name": "boolean"
-          }
-        },
-        "provider_scope_id": {
-          "required": false,
-          "type": {
-            "kind": "resource_id",
-            "resource": "provider_scope"
           }
         },
         "deleted": {
@@ -709,8 +674,8 @@
       },
       "extra": false,
       "constraints": [
-        "Local machines have origin local, status running, and no provider_scope_id.",
-        "origin identifies provenance; status identifies lifecycle. deleted and recoverable remain independent metadata."
+        "This endpoint returns the one local machine that owns its mux session.",
+        "Cross-machine discovery, lifecycle, and provider metadata are reserved for a later broker protocol."
       ]
     },
     "SessionSnapshot": {
@@ -1848,275 +1813,6 @@
           "type": {
             "kind": "primitive",
             "name": "boolean"
-          }
-        },
-        "extra": {
-          "required": false,
-          "type": {
-            "kind": "map",
-            "values": {
-              "kind": "ref",
-              "name": "JsonValue"
-            }
-          },
-          "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
-        }
-      },
-      "extra": false
-    },
-    "ProviderScopeSnapshot": {
-      "kind": "object",
-      "fields": {
-        "id": {
-          "required": true,
-          "type": {
-            "kind": "resource_id",
-            "resource": "provider_scope"
-          }
-        },
-        "name": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        },
-        "kind": {
-          "required": true,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "personal",
-              "team"
-            ]
-          }
-        },
-        "can_admin": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        "selected": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        "extra": {
-          "required": false,
-          "type": {
-            "kind": "map",
-            "values": {
-              "kind": "ref",
-              "name": "JsonValue"
-            }
-          },
-          "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
-        }
-      },
-      "extra": false
-    },
-    "ProviderActionField": {
-      "kind": "object",
-      "fields": {
-        "id": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1
-          }
-        },
-        "label": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        },
-        "kind": {
-          "required": true,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "text",
-              "email",
-              "integer"
-            ]
-          }
-        },
-        "required": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        "max_length": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "uint32",
-            "minimum": 1
-          }
-        },
-        "minimum": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "int32"
-          }
-        },
-        "maximum": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "int32"
-          }
-        },
-        "placeholder": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        }
-      },
-      "extra": false,
-      "constraints": [
-        "text and email may use max_length and placeholder; integer may use minimum and maximum.",
-        "minimum must be less than or equal to maximum when both are present."
-      ]
-    },
-    "ProviderActionValue": {
-      "kind": "union",
-      "variants": [
-        {
-          "kind": "primitive",
-          "name": "string"
-        },
-        {
-          "kind": "primitive",
-          "name": "int32"
-        }
-      ]
-    },
-    "ProviderActionSnapshot": {
-      "kind": "object",
-      "fields": {
-        "id": {
-          "required": true,
-          "type": {
-            "kind": "resource_id",
-            "resource": "provider_action"
-          }
-        },
-        "provider_scope_id": {
-          "required": true,
-          "type": {
-            "kind": "resource_id",
-            "resource": "provider_scope"
-          }
-        },
-        "name": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        },
-        "title": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        },
-        "enabled": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        "target": {
-          "required": true,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "scope",
-              "selected_machine",
-              "selected_workspace"
-            ]
-          }
-        },
-        "destructive": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        "fields": {
-          "required": true,
-          "type": {
-            "kind": "array",
-            "items": {
-              "kind": "ref",
-              "name": "ProviderActionField"
-            }
-          }
-        },
-        "extra": {
-          "required": false,
-          "type": {
-            "kind": "map",
-            "values": {
-              "kind": "ref",
-              "name": "JsonValue"
-            }
-          },
-          "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
-        }
-      },
-      "extra": false
-    },
-    "ProviderNoticeSnapshot": {
-      "kind": "object",
-      "fields": {
-        "id": {
-          "required": true,
-          "type": {
-            "kind": "resource_id",
-            "resource": "provider_notice"
-          }
-        },
-        "provider_scope_id": {
-          "required": true,
-          "type": {
-            "kind": "resource_id",
-            "resource": "provider_scope"
-          }
-        },
-        "level": {
-          "required": true,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "info",
-              "warning",
-              "error"
-            ]
-          }
-        },
-        "message": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string"
           }
         },
         "extra": {
@@ -3436,54 +3132,129 @@
         "agent",
         "pairing_request",
         "frontend_projection",
-        "sidebar_view",
-        "provider_scope",
-        "provider_action",
-        "provider_notice"
+        "sidebar_view"
       ]
     },
     "ResourceChangeId": {
       "kind": "union",
       "variants": [
-        {"kind": "resource_id", "resource": "machine"},
-        {"kind": "resource_id", "resource": "session"},
-        {"kind": "resource_id", "resource": "workspace"},
-        {"kind": "resource_id", "resource": "screen"},
-        {"kind": "resource_id", "resource": "pane"},
-        {"kind": "resource_id", "resource": "tab"},
-        {"kind": "resource_id", "resource": "terminal"},
-        {"kind": "resource_id", "resource": "browser"},
-        {"kind": "resource_id", "resource": "client"},
-        {"kind": "resource_id", "resource": "notification"},
-        {"kind": "resource_id", "resource": "agent"},
-        {"kind": "resource_id", "resource": "pairing_request"},
-        {"kind": "resource_id", "resource": "frontend_projection"},
-        {"kind": "resource_id", "resource": "sidebar_view"},
-        {"kind": "resource_id", "resource": "provider_scope"},
-        {"kind": "resource_id", "resource": "provider_action"},
-        {"kind": "resource_id", "resource": "provider_notice"}
+        {
+          "kind": "resource_id",
+          "resource": "machine"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "session"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "workspace"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "screen"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "pane"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "tab"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "terminal"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "browser"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "client"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "notification"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "agent"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "pairing_request"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "frontend_projection"
+        },
+        {
+          "kind": "resource_id",
+          "resource": "sidebar_view"
+        }
       ]
     },
     "ResourceEntitySnapshot": {
       "kind": "union",
       "variants": [
-        {"kind": "ref", "name": "MachineSnapshot"},
-        {"kind": "ref", "name": "SessionSnapshot"},
-        {"kind": "ref", "name": "WorkspaceSnapshot"},
-        {"kind": "ref", "name": "ScreenSnapshot"},
-        {"kind": "ref", "name": "PaneSnapshot"},
-        {"kind": "ref", "name": "TabSnapshot"},
-        {"kind": "ref", "name": "TerminalSnapshot"},
-        {"kind": "ref", "name": "BrowserSnapshot"},
-        {"kind": "ref", "name": "ClientSnapshot"},
-        {"kind": "ref", "name": "NotificationSnapshot"},
-        {"kind": "ref", "name": "AgentSnapshot"},
-        {"kind": "ref", "name": "PairingRequestSnapshot"},
-        {"kind": "ref", "name": "FrontendProjectionSnapshot"},
-        {"kind": "ref", "name": "SidebarViewSnapshot"},
-        {"kind": "ref", "name": "ProviderScopeSnapshot"},
-        {"kind": "ref", "name": "ProviderActionSnapshot"},
-        {"kind": "ref", "name": "ProviderNoticeSnapshot"}
+        {
+          "kind": "ref",
+          "name": "MachineSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SessionSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "WorkspaceSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "ScreenSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "PaneSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "TabSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "TerminalSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "BrowserSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "ClientSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "NotificationSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "AgentSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "PairingRequestSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "FrontendProjectionSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarViewSnapshot"
+        }
       ],
       "constraints": [
         "The enclosing ResourceChange.resource selects the exact snapshot type and its typed public ID prefix."
@@ -3496,7 +3267,9 @@
           "required": true,
           "type": {
             "kind": "enum",
-            "values": ["upsert"]
+            "values": [
+              "upsert"
+            ]
           }
         },
         "sequence": {
@@ -3540,7 +3313,9 @@
           "required": true,
           "type": {
             "kind": "enum",
-            "values": ["delete"]
+            "values": [
+              "delete"
+            ]
           }
         },
         "sequence": {
@@ -3573,8 +3348,14 @@
     "ResourceChange": {
       "kind": "union",
       "variants": [
-        {"kind": "ref", "name": "ResourceUpsert"},
-        {"kind": "ref", "name": "ResourceDelete"}
+        {
+          "kind": "ref",
+          "name": "ResourceUpsert"
+        },
+        {
+          "kind": "ref",
+          "name": "ResourceDelete"
+        }
       ],
       "discriminator": "kind",
       "unknown_variant": {
@@ -4074,55 +3855,6 @@
         "A recognized kind with a malformed known payload is a decoding error, never Unknown."
       ]
     },
-    "ProviderNoticeKnown": {
-      "kind": "object",
-      "fields": {
-        "kind": {
-          "required": true,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "notice"
-            ]
-          }
-        },
-        "notice": {
-          "required": true,
-          "type": {
-            "kind": "ref",
-            "name": "ProviderNoticeSnapshot"
-          }
-        },
-        "sequence": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
-        }
-      },
-      "extra": false
-    },
-    "ProviderNoticeItem": {
-      "kind": "union",
-      "variants": [
-        {
-          "kind": "ref",
-          "name": "ProviderNoticeKnown"
-        }
-      ],
-      "discriminator": "kind",
-      "unknown_variant": {
-        "sdk_name": "Unknown",
-        "when": "unrecognized_discriminator",
-        "preserve_discriminator": true,
-        "preserve_raw_object": true
-      },
-      "constraints": [
-        "Unknown is used only for an unrecognized kind and retains that kind plus the complete raw object.",
-        "A recognized kind with a malformed known payload is a decoding error, never Unknown."
-      ]
-    },
     "StreamError": {
       "kind": "object",
       "fields": {
@@ -4320,22 +4052,6 @@
     }
   },
   "errors": {
-    "authority.denied": {
-      "retryable": false,
-      "details": {
-        "kind": "object",
-        "fields": {
-          "operation": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          }
-        },
-        "extra": false
-      }
-    },
     "confirmation.required": {
       "retryable": false,
       "details": {
@@ -4591,10 +4307,7 @@
                 "frontend_projection",
                 "pairing_request",
                 "sidebar_view",
-                "sidebar_plugin",
-                "provider_scope",
-                "provider_action",
-                "provider_notice"
+                "sidebar_plugin"
               ]
             }
           },
@@ -4658,10 +4371,7 @@
                 "frontend_projection",
                 "pairing_request",
                 "sidebar_view",
-                "sidebar_plugin",
-                "provider_scope",
-                "provider_action",
-                "provider_notice"
+                "sidebar_plugin"
               ]
             }
           },
@@ -4713,10 +4423,7 @@
                 "frontend_projection",
                 "pairing_request",
                 "sidebar_view",
-                "sidebar_plugin",
-                "provider_scope",
-                "provider_action",
-                "provider_notice"
+                "sidebar_plugin"
               ]
             }
           },
@@ -4764,10 +4471,7 @@
                 "frontend_projection",
                 "pairing_request",
                 "sidebar_view",
-                "sidebar_plugin",
-                "provider_scope",
-                "provider_action",
-                "provider_notice"
+                "sidebar_plugin"
               ]
             }
           },
@@ -6302,139 +6006,6 @@
         "validation.invalid"
       ]
     },
-    "machine.connect_external": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "machine",
-      "ancestors": [
-        "provider_scope"
-      ],
-      "params": {
-        "selectors": {
-          "provider_scope": "required"
-        },
-        "fields": {
-          "specifier": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 512
-            },
-            "sensitive": true,
-            "description": "Provider-owned machine specifier. SDK Debug, toString, exception, and log rendering must redact this field."
-          }
-        },
-        "extra": false,
-        "constraints": [
-          "specifier contains 1 to 512 UTF-8 bytes and no control characters."
-        ]
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "MachineSnapshot"
-          }
-        ]
-      },
-      "errors": [
-        "authority.denied",
-        "idempotency.conflict",
-        "mutation.indeterminate",
-        "operation.failed",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ],
-      "constraints": [
-        "Provider authentication and tickets remain inside the selected provider scope."
-      ]
-    },
-    "machine.create": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "machine",
-      "ancestors": [
-        "provider_scope"
-      ],
-      "params": {
-        "selectors": {
-          "provider_scope": "required"
-        },
-        "fields": {},
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "MachineSnapshot"
-          }
-        ]
-      },
-      "errors": [
-        "authority.denied",
-        "idempotency.conflict",
-        "mutation.indeterminate",
-        "operation.failed",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ],
-      "constraints": [
-        "Provider authentication and tickets remain inside the selected provider scope."
-      ]
-    },
-    "machine.delete": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "machine",
-      "ancestors": [],
-      "params": {
-        "selectors": {
-          "machine": "required"
-        },
-        "fields": {
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "MachineSnapshot"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "mutation.indeterminate",
-        "operation.failed",
-        "revision.conflict",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
     "machine.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -6478,148 +6049,6 @@
       },
       "errors": [
         "operation.failed",
-        "validation.invalid"
-      ]
-    },
-    "machine.purge": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "machine",
-      "ancestors": [],
-      "params": {
-        "selectors": {
-          "machine": "required"
-        },
-        "fields": {
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "EmptyResult"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "mutation.indeterminate",
-        "operation.failed",
-        "revision.conflict",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
-    "machine.rename": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "machine",
-      "ancestors": [],
-      "params": {
-        "selectors": {
-          "machine": "required"
-        },
-        "fields": {
-          "name": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string"
-            },
-            "description": "Exact name bytes. Empty, whitespace, and Unicode strings are preserved."
-          },
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          },
-          "confirm_close": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            },
-            "default": false
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "MachineSnapshot"
-          }
-        ]
-      },
-      "errors": [
-        "confirmation.required",
-        "idempotency.conflict",
-        "operation.failed",
-        "revision.conflict",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
-    "machine.restore": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "machine",
-      "ancestors": [],
-      "params": {
-        "selectors": {
-          "machine": "required"
-        },
-        "fields": {
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "MachineSnapshot"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "mutation.indeterminate",
-        "operation.failed",
-        "revision.conflict",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
         "validation.invalid"
       ]
     },
@@ -6896,19 +6325,19 @@
           "session": "required",
           "workspace": "optional",
           "screen": "optional"
-      },
-      "fields": {
-        "correlation_key": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          },
-          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "cwd": {
+        "fields": {
+          "correlation_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
+          },
+          "cwd": {
             "required": false,
             "type": {
               "kind": "primitive",
@@ -7278,19 +6707,19 @@
           "workspace": "optional",
           "screen": "optional",
           "pane": "required"
-      },
-      "fields": {
-        "correlation_key": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          },
-          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "argv": {
+        "fields": {
+          "correlation_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
+          },
+          "argv": {
             "required": false,
             "type": {
               "kind": "array",
@@ -7420,19 +6849,19 @@
           "workspace": "optional",
           "screen": "optional",
           "pane": "required"
-      },
-      "fields": {
-        "correlation_key": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          },
-          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "direction": {
+        "fields": {
+          "correlation_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
+          },
+          "direction": {
             "required": true,
             "type": {
               "kind": "enum",
@@ -7769,354 +7198,6 @@
         "validation.invalid"
       ]
     },
-    "provider_action.invoke": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "provider_action",
-      "ancestors": [
-        "machine",
-        "provider_scope"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "provider_scope": "required",
-          "provider_action": "required"
-        },
-        "fields": {
-          "parameters": {
-            "required": true,
-            "type": {
-              "kind": "map",
-              "values": {
-                "kind": "ref",
-                "name": "ProviderActionValue"
-              }
-            }
-          },
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JsonValue"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "mutation.indeterminate",
-        "operation.failed",
-        "revision.conflict",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
-    "provider_notice.acknowledge": {
-      "class": "connection_control",
-      "idempotency": "forbidden",
-      "target": "provider_notice",
-      "ancestors": [
-        "machine",
-        "provider_scope"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "provider_scope": "required",
-          "provider_notice": "required"
-        },
-        "fields": {
-          "sequence": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            }
-          }
-        },
-        "extra": false,
-        "constraints": [
-          "Consumers acknowledge only after painting the notice; iterator delivery never auto-acknowledges."
-        ]
-      },
-      "result": {
-        "kind": "ref",
-        "name": "EmptyResult"
-      },
-      "errors": [
-        "operation.failed",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "selector.wrong_parent",
-        "transport.closed",
-        "validation.invalid"
-      ]
-    },
-    "provider_notice.events": {
-      "class": "stream_open",
-      "idempotency": "forbidden",
-      "target": "provider_notice",
-      "ancestors": [
-        "machine",
-        "provider_scope"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "provider_scope": "required"
-        },
-        "fields": {
-          "stream_id": {
-            "required": true,
-            "type": {
-              "kind": "resource_id",
-              "resource": "stream"
-            }
-          },
-          "cursor": {
-            "required": false,
-            "type": {
-              "kind": "ref",
-              "name": "Cursor"
-            }
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "ref",
-        "name": "StreamOpened"
-      },
-      "stream": {
-        "item": {
-          "kind": "ref",
-          "name": "ProviderNoticeItem"
-        },
-        "end": {
-          "kind": "ref",
-          "name": "StreamEnd"
-        },
-        "cursor": true,
-        "initial_snapshot": false
-      },
-      "errors": [
-        "cursor.gap",
-        "cursor.invalid",
-        "operation.failed",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "transport.closed",
-        "validation.invalid"
-      ]
-    },
-    "provider_scope.list": {
-      "class": "read",
-      "idempotency": "forbidden",
-      "target": "provider_scope",
-      "ancestors": [
-        "machine"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required"
-        },
-        "fields": {},
-        "extra": false
-      },
-      "result": {
-        "kind": "array",
-        "items": {
-          "kind": "ref",
-          "name": "ProviderScopeSnapshot"
-        }
-      },
-      "errors": [
-        "operation.failed",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
-    "provider_workspace.close": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "workspace",
-      "ancestors": [
-        "machine",
-        "provider_scope",
-        "session"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "provider_scope": "required",
-          "session": "required",
-          "workspace": "required"
-        },
-        "fields": {
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "EmptyResult"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "mutation.indeterminate",
-        "operation.failed",
-        "revision.conflict",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
-    "provider_workspace.mark": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "workspace",
-      "ancestors": [
-        "machine",
-        "provider_scope",
-        "session"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "provider_scope": "required",
-          "session": "required",
-          "workspace": "required"
-        },
-        "fields": {
-          "managed": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            }
-          },
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "WorkspaceSnapshot"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "mutation.indeterminate",
-        "operation.failed",
-        "revision.conflict",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
-    "provider_workspace.rename": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "workspace",
-      "ancestors": [
-        "machine",
-        "provider_scope",
-        "session"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "provider_scope": "required",
-          "session": "required",
-          "workspace": "required"
-        },
-        "fields": {
-          "name": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string"
-            },
-            "description": "Exact name bytes. Empty, whitespace, and Unicode strings are preserved."
-          },
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "WorkspaceSnapshot"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "mutation.indeterminate",
-        "operation.failed",
-        "revision.conflict",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
     "screen.close": {
       "class": "mutation",
       "idempotency": "required",
@@ -8181,19 +7262,19 @@
           "machine": "required",
           "session": "required",
           "workspace": "optional"
-      },
-      "fields": {
-        "correlation_key": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          },
-          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "name": {
+        "fields": {
+          "correlation_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
+          },
+          "name": {
             "required": false,
             "type": {
               "kind": "primitive",
@@ -9159,7 +8240,7 @@
           "session": "required"
         },
         "fields": {
-        "cols": {
+          "cols": {
             "required": true,
             "type": {
               "kind": "primitive",
@@ -9512,19 +8593,19 @@
           "workspace": "optional",
           "screen": "optional",
           "pane": "optional"
-      },
-      "fields": {
-        "correlation_key": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          },
-          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "url": {
+        "fields": {
+          "correlation_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
+          },
+          "url": {
             "required": true,
             "type": {
               "kind": "primitive",
@@ -9611,19 +8692,19 @@
           "workspace": "optional",
           "screen": "optional",
           "pane": "optional"
-      },
-      "fields": {
-        "correlation_key": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          },
-          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "cwd": {
+        "fields": {
+          "correlation_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
+          },
+          "cwd": {
             "required": false,
             "type": {
               "kind": "primitive",
@@ -11274,26 +10355,26 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
-        "initial_content": {
-          "required": true,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "terminal",
-              "empty"
-            ]
-          }
-        },
-        "correlation_key": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
+          "initial_content": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "terminal",
+                "empty"
+              ]
+            }
           },
-          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
-        }
+          "correlation_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
+          }
         },
         "extra": false,
         "constraints": [
@@ -11309,10 +10390,10 @@
             "name": "CreatedPath"
           }
         ]
-    },
-    "errors": [
-      "creation.conflict",
-      "idempotency.conflict",
+      },
+      "errors": [
+        "creation.conflict",
+        "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
         "revision.conflict",
@@ -11602,19 +10683,19 @@
           "machine": "required",
           "session": "required",
           "workspace": "required"
-      },
-      "fields": {
-        "correlation_key": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 128
-          },
-          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "argv": {
+        "fields": {
+          "correlation_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
+          },
+          "argv": {
             "required": false,
             "type": {
               "kind": "array",
