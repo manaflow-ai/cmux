@@ -449,10 +449,13 @@ struct ClosedMainWindowRoutingTests {
             surfaceID: nil,
             paneID: nil
         )
-        #expect(app.recoverableMainWindowRoute(windowId: windowCId)?.tabManager === managerC)
+        // The registered context is the sole live routing owner.
+        #expect(app.recoverableMainWindowRoute(windowId: windowCId) == nil)
 
         app.unregisterMainWindowContextForTesting(windowId: windowCId)
 
+        // Detachment transfers non-focus routing authority to the recovery ledger.
+        #expect(app.recoverableMainWindowRoute(windowId: windowCId)?.tabManager === managerC)
         #expect(windowC.isVisible)
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.tabManagerFor(windowId: windowCId) === managerC)
