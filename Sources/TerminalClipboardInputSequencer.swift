@@ -1,9 +1,15 @@
-import CmuxFoundation
 import Foundation
+import os
 
 /// Preserves terminal input order while Ghostty is resolving a clipboard read.
 @MainActor
-final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
+final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendable> {
+    typealias ReservedOverflowHandler = @MainActor @Sendable () -> Void
+
+    private struct ReservedAdmissionState: Sendable {
+        var overflowHandlersByID: [RequestID: ReservedOverflowHandler] = [:]
+    }
+
     private struct BufferedEvent {
         let event: Event
         let discardWhenFull: Bool
@@ -23,10 +29,11 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
         let onOverflow: () -> Void
     }
 
-    private nonisolated let reservedRequestAdmissionCount =
-        AtomicUInt64Generation()
-    private nonisolated let admittedRequestAdmissionCount =
-        AtomicUInt64Generation()
+    // Synchronous C callbacks reserve off-actor; this lock only transfers their
+    // bounded overflow handlers to main-actor admission and cancellation.
+    private nonisolated let reservedAdmissions = OSAllocatedUnfairLock(
+        initialState: ReservedAdmissionState()
+    )
     private let maximumBufferedEvents: Int
     private var activeRequests: [RequestID: ActiveRequest] = [:]
     private var confirmationRequestIDs: Set<RequestID> = []
@@ -40,8 +47,13 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
     }
 
     /// Marks a callback-issued request before its main-actor admission can run.
-    nonisolated func reserveRequestAdmission() {
-        _ = reservedRequestAdmissionCount.advanceRelease()
+    nonisolated func reserveRequestAdmission(
+        id: RequestID,
+        onOverflow: @escaping ReservedOverflowHandler
+    ) {
+        reservedAdmissions.withLock { state in
+            state.overflowHandlersByID[id] = onOverflow
+        }
     }
 
     func beginRequest(
@@ -61,11 +73,14 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
         epoch: UInt64 = 0,
         onOverflow: @escaping () -> Void = {}
     ) {
+        let hadReservation = reservedAdmissions.withLock { state in
+            state.overflowHandlersByID.removeValue(forKey: id) != nil
+        }
+        guard hadReservation else { return }
         activeRequests[id] = ActiveRequest(
             epoch: epoch,
             onOverflow: onOverflow
         )
-        _ = admittedRequestAdmissionCount.advanceRelease()
     }
 
     func requireConfirmation(for id: RequestID) {
@@ -91,10 +106,12 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
             ].firstIndex(where: \.discardWhenFull) {
                 buffer.events.remove(at: discardableIndex)
             } else {
-                let overflowHandlers = activeRequests.values
+                let activeOverflowHandlers = activeRequests.values
                     .filter { $0.epoch == epoch }
                     .map(\.onOverflow)
-                overflowHandlers.forEach { $0() }
+                let reservedOverflowHandlers = takeReservedOverflowHandlers()
+                activeOverflowHandlers.forEach { $0() }
+                reservedOverflowHandlers.forEach { $0() }
                 return hasRequestInFlight(for: epoch)
             }
         }
@@ -123,10 +140,13 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
     /// Consumes an admission that became stale before it could be associated
     /// with a request. Only input from the currently attached runtime survives.
     func cancelReservedRequest(
+        id: RequestID,
         currentEpoch: UInt64,
         replay: (Event) -> Void
     ) {
-        _ = admittedRequestAdmissionCount.advanceRelease()
+        _ = reservedAdmissions.withLock { state in
+            state.overflowHandlersByID.removeValue(forKey: id)
+        }
         buffersByEpoch = buffersByEpoch.filter { epoch, _ in
             epoch == currentEpoch
         }
@@ -156,11 +176,17 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
     }
 
     private nonisolated var hasRequestAwaitingAdmission: Bool {
-        // Read admitted first so an admission racing these loads can only cause
-        // a harmless extra deferral, never let post-paste input overtake paste.
-        let admitted = admittedRequestAdmissionCount.loadAcquire()
-        let reserved = reservedRequestAdmissionCount.loadAcquire()
-        return admitted < reserved
+        reservedAdmissions.withLock { state in
+            !state.overflowHandlersByID.isEmpty
+        }
+    }
+
+    private func takeReservedOverflowHandlers() -> [ReservedOverflowHandler] {
+        reservedAdmissions.withLock { state in
+            let handlers = Array(state.overflowHandlersByID.values)
+            state.overflowHandlersByID.removeAll(keepingCapacity: false)
+            return handlers
+        }
     }
 
     private func hasRequestInFlight(for epoch: UInt64) -> Bool {
@@ -188,13 +214,14 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable> {
         }
         defer {
             replayingEpochs.remove(epoch)
-            guard var buffer = buffersByEpoch[epoch] else { return }
-            if buffer.nextEventIndex == buffer.events.count {
-                buffersByEpoch.removeValue(forKey: epoch)
-            } else if buffer.nextEventIndex > 0 {
-                buffer.events.removeFirst(buffer.nextEventIndex)
-                buffer.nextEventIndex = 0
-                buffersByEpoch[epoch] = buffer
+            if var buffer = buffersByEpoch[epoch] {
+                if buffer.nextEventIndex == buffer.events.count {
+                    buffersByEpoch.removeValue(forKey: epoch)
+                } else if buffer.nextEventIndex > 0 {
+                    buffer.events.removeFirst(buffer.nextEventIndex)
+                    buffer.nextEventIndex = 0
+                    buffersByEpoch[epoch] = buffer
+                }
             }
         }
 

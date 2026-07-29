@@ -1,8 +1,14 @@
 import AppKit
 
 extension GhosttyNSView {
-    nonisolated func reserveClipboardReadAdmission() {
-        terminalClipboardInputSequencer.reserveRequestAdmission()
+    nonisolated func reserveClipboardReadAdmission(
+        _ requestID: UInt,
+        onOverflow: @escaping @MainActor @Sendable () -> Void
+    ) {
+        terminalClipboardInputSequencer.reserveRequestAdmission(
+            id: requestID,
+            onOverflow: onOverflow
+        )
     }
 
     func beginReservedClipboardRead(
@@ -49,8 +55,12 @@ extension GhosttyNSView {
         }
     }
 
-    func cancelReservedClipboardRead(currentEpoch: UInt64) {
+    func cancelReservedClipboardRead(
+        _ requestID: UInt,
+        currentEpoch: UInt64
+    ) {
         terminalClipboardInputSequencer.cancelReservedRequest(
+            id: requestID,
             currentEpoch: currentEpoch
         ) { [weak self] event in
             self?.replayClipboardDeferredInput(event)

@@ -15,8 +15,16 @@ extension GhosttySurfaceCallbackContext {
         }
         guard registerRuntimeClipboardRequest(
             id: id,
-            reserveAdmission: { [weak surfaceView] in
-                surfaceView?.reserveClipboardReadAdmission()
+            reserveAdmission: { [weak self, weak surfaceView] in
+                surfaceView?.reserveClipboardReadAdmission(
+                    id,
+                    onOverflow: { @MainActor [weak self] in
+                        self?.invalidateRuntimeClipboardRequest(
+                            id,
+                            completingNativeRequest: true
+                        )
+                    }
+                )
             },
             onInvalidation: { @MainActor [weak surfaceView] wasAdmitted, completesNativeRequest in
                 _ = operation.cancel()
@@ -49,6 +57,7 @@ extension GhosttySurfaceCallbackContext {
                     )
                 } else {
                     surfaceView?.cancelReservedClipboardRead(
+                        id,
                         currentEpoch: currentEpoch
                     )
                 }

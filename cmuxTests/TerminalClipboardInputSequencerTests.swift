@@ -19,7 +19,7 @@ struct TerminalClipboardInputSequencerTests {
         var delivered: [String] = []
 
         await Task.detached {
-            sequencer.reserveRequestAdmission()
+            sequencer.reserveRequestAdmission(id: 1, onOverflow: {})
         }.value
 
         #expect(sequencer.shouldDefer("suffix"))
@@ -80,8 +80,8 @@ struct TerminalClipboardInputSequencerTests {
         var delivered: [String] = []
 
         await Task.detached {
-            sequencer.reserveRequestAdmission()
-            sequencer.reserveRequestAdmission()
+            sequencer.reserveRequestAdmission(id: 1, onOverflow: {})
+            sequencer.reserveRequestAdmission(id: 2, onOverflow: {})
         }.value
         #expect(sequencer.shouldDefer("suffix"))
 

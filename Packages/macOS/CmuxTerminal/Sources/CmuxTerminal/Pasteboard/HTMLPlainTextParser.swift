@@ -137,6 +137,7 @@ struct HTMLPlainTextParser: Sendable {
             from: root,
             depth: 0,
             preservingWhitespace: false,
+            visibilityHidden: false,
             to: &output,
             outputCharacterCount: &outputCharacterCount,
             hiddenTemplateAttributeName: hiddenTemplateAttributeName
@@ -155,6 +156,7 @@ struct HTMLPlainTextParser: Sendable {
         from node: XMLNode,
         depth: Int,
         preservingWhitespace: Bool,
+        visibilityHidden: Bool,
         to output: inout String,
         outputCharacterCount: inout Int,
         hiddenTemplateAttributeName: String
@@ -162,6 +164,7 @@ struct HTMLPlainTextParser: Sendable {
         guard depth <= Self.maximumNestingDepth else { return false }
         switch node.kind {
         case .text:
+            guard !visibilityHidden else { return true }
             guard let text = node.stringValue else { return true }
             return appendText(
                 text,
@@ -176,13 +179,17 @@ struct HTMLPlainTextParser: Sendable {
                 && element?.attribute(
                     forName: hiddenTemplateAttributeName
                 ) != nil
+            let visibility = Self.visibilityState(element)
             guard !Self.hiddenBlockTags.contains(name),
                   !isNormalizedTemplate,
-                  !Self.isHidden(element) else {
+                  !visibility.hidesSubtree else {
                 return true
             }
+            let elementVisibilityHidden = visibility.isHidden
+                ?? visibilityHidden
 
             if name == "br" {
+                guard !elementVisibilityHidden else { return true }
                 return appendBlockBoundary(
                     to: &output,
                     outputCharacterCount: &outputCharacterCount
@@ -205,6 +212,7 @@ struct HTMLPlainTextParser: Sendable {
                     from: child,
                     depth: depth + 1,
                     preservingWhitespace: childPreservesWhitespace,
+                    visibilityHidden: elementVisibilityHidden,
                     to: &output,
                     outputCharacterCount: &outputCharacterCount,
                     hiddenTemplateAttributeName: hiddenTemplateAttributeName
@@ -225,22 +233,28 @@ struct HTMLPlainTextParser: Sendable {
         }
     }
 
-    private static func isHidden(_ element: XMLElement?) -> Bool {
-        guard let attributes = element?.attributes else { return false }
+    private static func visibilityState(
+        _ element: XMLElement?
+    ) -> (hidesSubtree: Bool, isHidden: Bool?) {
+        guard let attributes = element?.attributes else {
+            return (false, nil)
+        }
         if attributes.contains(where: {
             $0.name?.caseInsensitiveCompare("hidden") == .orderedSame
         }) {
-            return true
+            return (true, nil)
         }
         guard let style = attributes.first(where: {
             $0.name?.caseInsensitiveCompare("style") == .orderedSame
         })?.stringValue else {
-            return false
+            return (false, nil)
         }
-        return inlineStyleHidesElement(style)
+        return inlineStyleVisibility(style)
     }
 
-    private static func inlineStyleHidesElement(_ style: String) -> Bool {
+    private static func inlineStyleVisibility(
+        _ style: String
+    ) -> (hidesSubtree: Bool, isHidden: Bool?) {
         var display: (value: String, important: Bool)?
         var visibility: (value: String, important: Bool)?
         for declaration in style.split(separator: ";") {
@@ -271,7 +285,16 @@ struct HTMLPlainTextParser: Sendable {
                 visibility = candidate
             }
         }
-        return display?.value == "none" || visibility?.value == "hidden"
+        let isHidden: Bool?
+        switch visibility?.value {
+        case "hidden", "collapse":
+            isHidden = true
+        case "visible", "initial":
+            isHidden = false
+        default:
+            isHidden = nil
+        }
+        return (display?.value == "none", isHidden)
     }
 
     private func appendText(
