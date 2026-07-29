@@ -188,8 +188,19 @@ extension DockSplitStore {
             snapshotPanelId: snapshot.id,
             shouldAutoResume: shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
         )
+        // When enabled, a panel that would otherwise auto-resume its agent
+        // immediately instead defers to the same synthetic hibernation state
+        // used for a snapshot that was already hibernated at quit time, so
+        // startup doesn't fire dozens of concurrent resume commands. The
+        // existing focus/visibility-triggered resume (`resumeAgentHibernation`)
+        // then fires it lazily the first time the user actually looks at the
+        // panel.
+        let deferAgentResumeUntilFocus = AgentSessionDeferredResumeSettings.isEnabled(
+            defaults: agentSessionAutoResumeDefaults
+        ) && shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
+            && !agentSessionAlreadyActive && restorableAgent?.resumeCommand != nil
         let agentLaunch = shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
-            && !agentSessionAlreadyActive
+            && !agentSessionAlreadyActive && !deferAgentResumeUntilFocus
             ? restorableAgent?.resumeStartupInput(requireLauncherScript: true).map {
                 WorkspaceSurfaceResumeStartupLaunch.input($0)
                     .restoringWorkingDirectory(resumeSessionWorkingDirectory)
@@ -264,6 +275,12 @@ extension DockSplitStore {
                 agent: restorableAgent,
                 lastActivityAt: Date(timeIntervalSince1970: hibernation.lastActivityAt),
                 hibernatedAt: Date(timeIntervalSince1970: hibernation.hibernatedAt)
+            )
+        } else if deferAgentResumeUntilFocus, let restorableAgent {
+            terminal.enterAgentHibernation(
+                agent: restorableAgent,
+                lastActivityAt: Date(),
+                hibernatedAt: Date()
             )
         }
         if willRunAgentCommand || willRunAgentInput,

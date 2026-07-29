@@ -1390,9 +1390,18 @@ extension Workspace {
                     sessionId: restorableAgent.sessionId
                 )
             }()
+            // When enabled, defer this panel's resume the same way the dock
+            // split restore path does: skip firing it now and instead enter
+            // the existing synthetic-hibernation state below so the
+            // focus/visibility-triggered resume fires it lazily (avoids a
+            // startup thundering herd of concurrent agent resumes).
+            let deferAgentResumeUntilFocus = AgentSessionDeferredResumeSettings.isEnabled(
+                defaults: agentSessionAutoResumeDefaults
+            ) && shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
+                && !agentSessionAlreadyActive && restorableAgent?.resumeCommand != nil
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
-                    && !agentSessionAlreadyActive {
+                    && !agentSessionAlreadyActive && !deferAgentResumeUntilFocus {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
@@ -1636,6 +1645,12 @@ extension Workspace {
                         agent: restorableAgent,
                         lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
                         hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
+                    )
+                } else if deferAgentResumeUntilFocus {
+                    terminalPanel.enterAgentHibernation(
+                        agent: restorableAgent,
+                        lastActivityAt: Date(),
+                        hibernatedAt: Date()
                     )
                 }
             } else {

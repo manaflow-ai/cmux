@@ -255,6 +255,58 @@ enum AgentSessionAutoResumeSettings {
     }
 }
 
+/// Whether a restored agent's resume command is deferred until the user
+/// actually focuses or views the restored panel, instead of firing
+/// immediately for every restorable panel at startup. Only takes effect
+/// when ``AgentSessionAutoResumeSettings`` is also enabled; a restored panel
+/// that would otherwise auto-resume instead enters the same synthetic
+/// "agent hibernation" state used for a panel that was already hibernated
+/// when quit, and the existing focus/visibility-triggered resume picks it
+/// up on first look. Prevents a startup thundering herd where dozens of
+/// restored panels all fire their resume commands concurrently.
+enum AgentSessionDeferredResumeSettings {
+    static let deferUntilFirstFocusKey = "terminal.deferAgentResumeUntilFirstFocus"
+    static let defaultDeferUntilFirstFocus = false
+    static let didChangeNotification = Notification.Name("cmux.agentSessionDeferredResumeSettingsDidChange")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: deferUntilFirstFocusKey) != nil else {
+            return defaultDeferUntilFirstFocus
+        }
+        return defaults.bool(forKey: deferUntilFirstFocusKey)
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.set(enabled, forKey: deferUntilFirstFocusKey)
+        if wasEnabled != enabled {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.removeObject(forKey: deferUntilFirstFocusKey)
+        let didChange = wasEnabled != isEnabled(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum AgentHibernationSettings {
     struct Values: Equatable, Sendable {
         var enabled: Bool
