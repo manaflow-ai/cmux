@@ -152,8 +152,7 @@ describe("subrouter accounts route", () => {
     process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "1";
     currentUser = {
       ...stackUser(),
-      hasPermission: async (...args: unknown[]) =>
-        args.at(-1) === "subrouter:use",
+      listPermissions: async () => [{ id: "subrouter:use" }],
     };
 
     const listResponse = await accountsRoute.GET(
@@ -784,7 +783,7 @@ describe("subrouter accounts route", () => {
     const listPermissions = mock(async () => {
       active += 1;
       maxActive = Math.max(maxActive, active);
-      await Bun.sleep(5);
+      await new Promise((resolve) => setTimeout(resolve, 5));
       active -= 1;
       return [
         { id: "subrouter:use" },

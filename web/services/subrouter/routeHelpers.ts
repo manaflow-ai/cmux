@@ -67,9 +67,11 @@ export async function resolveTeam(
   };
 }
 
-// Resolve team permissions only for Subrouter callers. This is intentionally
-// sequential so a large Stack team list cannot fan out permission API calls
-// through shared authentication.
+const SUBROUTER_PERMISSION_CONCURRENCY = 8;
+const SUBROUTER_PERMISSION_DEADLINE_MS = 10_000;
+
+// Resolve team permissions only for Subrouter callers. A small worker pool
+// avoids serial Stack round trips without creating unbounded request fanout.
 export async function authorizedSubrouterTeams(
   user: AuthedUser,
 ): Promise<readonly AuthorizedSubrouterTeam[]> {
@@ -85,23 +87,81 @@ export async function authorizedSubrouterTeams(
       personal: true,
     },
   ];
-  const teams: AuthorizedSubrouterTeam[] = [];
   const seen = new Set<string>();
-  for (const candidate of candidates) {
+  const uniqueCandidates = candidates.filter((candidate) => {
     if (
       seen.has(candidate.teamId) ||
       !subrouterTeamAllowed(candidate.teamId)
     ) {
-      continue;
+      return false;
     }
     seen.add(candidate.teamId);
-    const permissions = await user.resolveSubrouterPermissions(
-      candidate.teamId,
-    );
-    if (!permissions.use && !permissions.manageAccounts) continue;
-    teams.push({ ...candidate, ...permissions });
+    return true;
+  });
+  const deadline = Date.now() + SUBROUTER_PERMISSION_DEADLINE_MS;
+  const resolved = await mapWithConcurrency(
+    uniqueCandidates,
+    SUBROUTER_PERMISSION_CONCURRENCY,
+    async (candidate) => {
+      const permissions = await resolveBeforeDeadline(
+        () => user.resolveSubrouterPermissions(candidate.teamId),
+        deadline,
+      );
+      if (
+        !permissions ||
+        (!permissions.use && !permissions.manageAccounts)
+      ) {
+        return null;
+      }
+      return { ...candidate, ...permissions };
+    },
+  );
+  return resolved.filter(
+    (team): team is AuthorizedSubrouterTeam => team !== null,
+  );
+}
+
+async function mapWithConcurrency<T, U>(
+  values: readonly T[],
+  concurrency: number,
+  transform: (value: T) => Promise<U>,
+): Promise<readonly U[]> {
+  const results = new Array<U>(values.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= values.length) return;
+      results[index] = await transform(values[index]);
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(concurrency, values.length) },
+      () => worker(),
+    ),
+  );
+  return results;
+}
+
+async function resolveBeforeDeadline<T>(
+  resolve: () => Promise<T>,
+  deadline: number,
+): Promise<T | null> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return null;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      resolve(),
+      new Promise<null>((done) => {
+        timeout = setTimeout(() => done(null), remaining);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
-  return teams;
 }
 
 export function subrouterTeamAllowed(

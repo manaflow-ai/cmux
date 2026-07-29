@@ -71,6 +71,14 @@ async function readLeaseInput(
   const userEmail = normalizedString(value.userEmail, 320);
   const preferAccountId = normalizedString(value.preferAccountId, 256);
   const model = normalizedString(value.model, 256);
+  const requiredAuthMode = value.requiredAuthMode;
+  if (
+    requiredAuthMode !== undefined &&
+    requiredAuthMode !== "oauth" &&
+    requiredAuthMode !== "apikey"
+  ) {
+    return { ok: false, status: 400 };
+  }
   return {
     ok: true,
     value: {
@@ -80,6 +88,7 @@ async function readLeaseInput(
       ...(userEmail ? { userEmail } : {}),
       ...(preferAccountId ? { preferAccountId } : {}),
       ...(model ? { model } : {}),
+      ...(requiredAuthMode ? { requiredAuthMode } : {}),
     },
   };
 }

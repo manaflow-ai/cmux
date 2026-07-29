@@ -148,6 +148,10 @@ async function authedUserFromStackUser(
     displayName: team.displayName,
     billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
   }));
+  const subrouterPermissionCache = new Map<
+    string,
+    Promise<SubrouterPermissions>
+  >();
 
   return {
     id: user.id,
@@ -161,20 +165,26 @@ async function authedUserFromStackUser(
     userBillingPlanId,
     billingPlanId,
     resolveSubrouterPermissions: async (teamId) => {
-      if (teamId === user.id) {
-        return subrouterPermissions(
+      const cached = subrouterPermissionCache.get(teamId);
+      if (cached) return cached;
+      const pending = teamId === user.id
+        ? subrouterPermissions(
           user,
           undefined,
           enforceSubrouterPermissions,
-        );
-      }
-      const rawTeam = rawTeams.get(teamId);
-      if (!rawTeam) return { use: false, manageAccounts: false };
-      return subrouterPermissions(
-        user,
-        rawTeam,
-        enforceSubrouterPermissions,
-      );
+        )
+        : (() => {
+          const rawTeam = rawTeams.get(teamId);
+          return rawTeam
+            ? subrouterPermissions(
+              user,
+              rawTeam,
+              enforceSubrouterPermissions,
+            )
+            : Promise.resolve({ use: false, manageAccounts: false });
+        })();
+      subrouterPermissionCache.set(teamId, pending);
+      return pending;
     },
   };
 }
@@ -185,17 +195,18 @@ async function subrouterPermissions(
   enforce: boolean,
 ): Promise<SubrouterPermissions> {
   if (!enforce) return { use: true, manageAccounts: true };
-  if (typeof user.hasPermission !== "function") {
+  if (typeof user.listPermissions !== "function") {
     return { use: false, manageAccounts: false };
   }
   try {
-    const use = team
-      ? await user.hasPermission(team as Team, "subrouter:use")
-      : await user.hasPermission("subrouter:use");
-    const manageAccounts = team
-      ? await user.hasPermission(team as Team, "subrouter:manage_accounts")
-      : await user.hasPermission("subrouter:manage_accounts");
-    return { use, manageAccounts };
+    const permissions = team
+      ? await user.listPermissions(team as Team)
+      : await user.listPermissions();
+    const permissionIds = new Set(permissions.map((permission) => permission.id));
+    return {
+      use: permissionIds.has("subrouter:use"),
+      manageAccounts: permissionIds.has("subrouter:manage_accounts"),
+    };
   } catch {
     return { use: false, manageAccounts: false };
   }
@@ -259,9 +270,14 @@ type StackUserLike = {
   readonly listTeams?: (
     options?: { readonly cursor?: string; readonly limit?: number },
   ) => Promise<readonly unknown[] & { readonly nextCursor?: string | null }>;
-  readonly hasPermission?: {
-    (permissionId: string): Promise<boolean>;
-    (scope: Team, permissionId: string): Promise<boolean>;
+  readonly listPermissions?: {
+    (
+      scope: Team,
+      options?: { readonly recursive?: boolean },
+    ): Promise<readonly { readonly id: string }[]>;
+    (
+      options?: { readonly recursive?: boolean },
+    ): Promise<readonly { readonly id: string }[]>;
   };
 };
 

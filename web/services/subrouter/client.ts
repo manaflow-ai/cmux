@@ -67,6 +67,7 @@ export type SubrouterCredentialLeaseInput = {
   readonly userEmail?: string;
   readonly preferAccountId?: string;
   readonly model?: string;
+  readonly requiredAuthMode?: "oauth" | "apikey";
 };
 
 export type SubrouterCredentialLease = {
