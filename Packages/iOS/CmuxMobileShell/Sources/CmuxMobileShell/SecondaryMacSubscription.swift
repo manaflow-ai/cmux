@@ -63,6 +63,9 @@ final class SecondaryMacSubscription {
     var task: Task<Void, Never>?
     /// Coalesces hot `workspace.updated` bursts to one leading and one trailing fetch.
     var refreshTask: Task<Void, Never>?
+    /// Identifies the current per-Mac workspace refresh owner so an older task
+    /// cannot clear a replacement after cancellation or role transition.
+    var refreshOperationID: UUID?
     var refreshPending = false
     /// Increments for every workspace event, including events coalesced behind
     /// an in-flight refresh, so independent catch-up fetches cannot overwrite
@@ -107,6 +110,7 @@ final class SecondaryMacSubscription {
         task = nil
         refreshTask?.cancel()
         refreshTask = nil
+        refreshOperationID = nil
         let client = self.client
         Task { await client.disconnect() }
     }
@@ -117,5 +121,6 @@ final class SecondaryMacSubscription {
         task = nil
         refreshTask?.cancel()
         refreshTask = nil
+        refreshOperationID = nil
     }
 }

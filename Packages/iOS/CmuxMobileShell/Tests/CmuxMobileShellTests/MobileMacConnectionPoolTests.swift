@@ -259,6 +259,89 @@ import Testing
         ])
     }
 
+    @Test func incrementalOnlineEdgeDoesNotRetryUnrelatedMissingMacs() throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: false,
+            presence: IdlePresence()
+        )
+        let existing = try Self.pairedMac(
+            id: "mac-existing",
+            instanceTag: "existing-tag"
+        )
+        let requested = try Self.pairedMac(
+            id: "mac-requested",
+            instanceTag: "requested-tag"
+        )
+        let unrelated = try Self.pairedMac(
+            id: "mac-unrelated",
+            instanceTag: "unrelated-tag"
+        )
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: existing.macDeviceID,
+                    tag: existing.instanceTag ?? "",
+                    online: true
+                ),
+                Self.instance(
+                    deviceID: requested.macDeviceID,
+                    tag: requested.instanceTag ?? "",
+                    online: true
+                ),
+                Self.instance(
+                    deviceID: unrelated.macDeviceID,
+                    tag: unrelated.instanceTag ?? "",
+                    online: true
+                ),
+            ]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+        let route = try #require(existing.routes.first)
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: existing.macDeviceID,
+            macDisplayName: existing.displayName,
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        shell.secondaryMacSubscriptions[existing.macDeviceID] =
+            SecondaryMacSubscription(
+                macDeviceID: existing.macDeviceID,
+                client: MobileCoreRPCClient(
+                    runtime: runtime,
+                    route: route,
+                    ticket: ticket,
+                    allowsStackAuthFallback: true
+                ),
+                route: route,
+                ticket: ticket,
+                storedInstanceTag: existing.instanceTag,
+                supportedHostCapabilities: [],
+                actionCapabilities: .none
+            )
+
+        let targets = shell.secondaryAggregationTargets(
+            from: [existing, requested, unrelated],
+            requestedCanonicalIDs: ["mac-requested"]
+        )
+
+        #expect(targets.map(\.macDeviceID) == ["mac-requested"])
+    }
+
     @Test func promotedControlSlotMakesRoomForPreviousFocus() {
         let capacity =
             MobileShellComposite.maximumWarmControlConnectionCount
@@ -412,14 +495,24 @@ import Testing
                     == .connected
         })
         #expect(await router.count(of: "mobile.events.subscribe") == 0)
-        #expect(clock.sleeperCount == 0)
+        #expect(try await pollUntil { clock.sleeperCount == 1 })
 
-        if let subscription =
-            shell.secondaryMacSubscriptions["mac-refresh-only"] {
-            subscription.cancel()
-            shell.secondaryMacSubscriptions["mac-refresh-only"] = nil
-            await subscription.client.disconnect()
+        await router.failWorkspaceListRequest(number: 2)
+        for tick in 1 ... 3 {
+            clock.advance(by: .seconds(20))
+            if tick < 3 {
+                #expect(try await pollUntil {
+                    clock.sleeperCount == 1
+                })
+                #expect(await router.count(of: "workspace.list") == 1)
+            }
         }
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 2))
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions["mac-refresh-only"] == nil
+        })
+        #expect(shell.workspacesByMac["mac-refresh-only"]?.status
+            == .unavailable)
     }
 
     @Test func retryStateCoalescesPoolFailuresAndCapsBackoff() {
@@ -1584,7 +1677,10 @@ import Testing
             ticket: ticket,
             storedInstanceTag: "mmpool",
             authenticatedInstanceTag: "mmpool",
-            supportedHostCapabilities: ["notification.feed.v1"],
+            supportedHostCapabilities: [
+                "events.v1",
+                "notification.feed.v1",
+            ],
             actionCapabilities: .none,
             displayName: "Mac B"
         )
@@ -1615,6 +1711,7 @@ import Testing
         )
 
         await router.holdWorkspaceListRequest(number: 2)
+        await router.failWorkspaceListRequest(number: 2)
         await router.scriptNotificationFeedRevisions([2, 3])
         shell.notificationFeedKnownRevisionsByMac["mac-b"] = 3
         await router.dropSubscription()
@@ -1635,11 +1732,13 @@ import Testing
         await transport.deliver(
             try controlPoolWorkspaceUpdatedEventFrame()
         )
+        for _ in 0 ..< 8 { await Task.yield() }
+        #expect(await router.count(of: "workspace.list") == 2)
+        await router.releaseAllHeld()
         #expect(await router.waitForCount(
             of: "workspace.list",
             atLeast: 3
         ))
-        await router.releaseAllHeld()
         #expect(try await pollUntil {
             let feedFetchCount = await router.count(
                 of: "notification.feed.list"
