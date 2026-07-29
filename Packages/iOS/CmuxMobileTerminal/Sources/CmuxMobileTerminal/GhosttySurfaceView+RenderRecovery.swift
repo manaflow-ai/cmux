@@ -55,6 +55,7 @@ extension GhosttySurfaceView {
         if let pending = pendingVerifiedReplayViewportAnchorRestore,
            now - pending.startedAt >= Self.visibleSnapshotTimeout {
             pendingVerifiedReplayViewportAnchorRestore = nil
+            viewportRestoreGate.withLock { $0.activeRestoreTicket = nil }
             pending.continuation.resume(returning: false)
         }
 

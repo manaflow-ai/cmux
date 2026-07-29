@@ -32,28 +32,30 @@ extension GhosttySurfaceView {
             generation: surfaceGeneration
         )
         let workQueue = outputQueue
+        let gate = viewportRestoreGate
         return await withCheckedContinuation { continuation in
-            let interactionGeneration = userViewportInteractionClock.withLock { $0 }
             let operationID = registerPendingVerifiedReplayViewportAnchorCapture(
                 continuation: continuation
             )
             workQueue.async {
                 var scrollbar = ghostty_surface_scrollbar_s()
-                let anchor: VerifiedReplayViewportAnchor?
+                let captured: VerifiedReplayCapturedViewportAnchor?
                 if ghostty_surface_scrollbar(operation.surface, &scrollbar) {
-                    anchor = VerifiedReplayViewportAnchor(
+                    // Label after the snapshot so a concurrent scroll can only
+                    // make the generation newer, causing a safe skipped restore.
+                    let interactionGeneration = gate.withLock { $0.interactionGeneration }
+                    captured = VerifiedReplayViewportAnchor(
                         scrollbarTotal: scrollbar.total,
                         offset: scrollbar.offset,
                         len: scrollbar.len
-                    )
+                    ).map {
+                        VerifiedReplayCapturedViewportAnchor(
+                            anchor: $0,
+                            interactionGeneration: interactionGeneration
+                        )
+                    }
                 } else {
-                    anchor = nil
-                }
-                let captured = anchor.map {
-                    VerifiedReplayCapturedViewportAnchor(
-                        anchor: $0,
-                        interactionGeneration: interactionGeneration
-                    )
+                    captured = nil
                 }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -98,7 +100,7 @@ extension GhosttySurfaceView {
             generation: surfaceGeneration
         )
         let workQueue = outputQueue
-        let clock = userViewportInteractionClock
+        let gate = viewportRestoreGate
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingVerifiedReplayViewportAnchorRestore(
                 continuation: continuation
@@ -116,23 +118,28 @@ extension GhosttySurfaceView {
                     )
                     : nil
                 let postReplayRevision = postReplay.row_space_revision
-                let restored = clock.withLock { generation -> Bool in
-                    guard generation == captured.interactionGeneration else {
+                let claimed = gate.withLock { state -> Bool in
+                    guard state.activeRestoreTicket == operationID,
+                          state.interactionGeneration == captured.interactionGeneration else {
                         return false
                     }
-                    var restoredScrollbar = ghostty_surface_scrollbar_s()
-                    return targetTopRow.map {
+                    state.activeRestoreTicket = nil
+                    return true
+                }
+                var restoredScrollbar = ghostty_surface_scrollbar_s()
+                // A gesture between the claim and C call composes with the
+                // restored frozen viewport, so this unlocked window is benign.
+                let restored = claimed
+                    ? (targetTopRow.map {
                         ghostty_surface_scroll_to_row_if_revision(
                             operation.surface,
                             $0,
                             postReplayRevision,
                             &restoredScrollbar
                         )
-                    } ?? false
-                }
-                if !restored,
-                   targetTopRow != nil,
-                   clock.withLock({ $0 }) != captured.interactionGeneration {
+                    } ?? false)
+                    : false
+                if !claimed, targetTopRow != nil {
                     MobileDebugLog.anchormux(
                         "verified_replay.viewport_restore.skipped reason=user_interaction_late"
                     )
@@ -210,6 +217,7 @@ extension GhosttySurfaceView {
             startedAt: CACurrentMediaTime(),
             continuation: continuation
         )
+        viewportRestoreGate.withLock { $0.activeRestoreTicket = operationID }
         ensureSurfaceOperationDeadlinePump()
         return operationID
     }

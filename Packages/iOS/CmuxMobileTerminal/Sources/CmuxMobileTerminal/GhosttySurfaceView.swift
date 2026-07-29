@@ -219,16 +219,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             || pendingVerifiedReplayViewportAnchorRestore != nil
             || pendingCopyableTextRead != nil || pendingVerifiedReplayPresentation != nil
     }
-    /// User viewport-interaction clock. Its lock is held across at most one
-    /// viewport-scroll C call, so a main-actor bump blocks only for that call
-    /// and no path acquires Ghostty's lock before this clock.
-    nonisolated let userViewportInteractionClock =
-        OSAllocatedUnfairLock<UInt64>(initialState: 0)
+    /// Viewport-restore gate. The lock is held only for field reads/writes —
+    /// NEVER across a Ghostty C call — so a main-actor generation bump can
+    /// never wait on the renderer lock. The ticket lets the deadline pump and
+    /// recovery invalidate a queued restore whose continuation already
+    /// resumed, so a late-running queue block cannot scroll after reveal.
+    nonisolated struct ViewportRestoreGate {
+        var interactionGeneration: UInt64 = 0
+        var activeRestoreTicket: UInt64?
+    }
+    nonisolated let viewportRestoreGate =
+        OSAllocatedUnfairLock<ViewportRestoreGate>(initialState: .init())
     var userViewportInteractionGeneration: UInt64 {
-        userViewportInteractionClock.withLock { $0 }
+        viewportRestoreGate.withLock { $0.interactionGeneration }
     }
     func bumpUserViewportInteractionGeneration() {
-        userViewportInteractionClock.withLock { $0 &+= 1 }
+        viewportRestoreGate.withLock { $0.interactionGeneration &+= 1 }
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -2223,6 +2229,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         if let pending = pendingVerifiedReplayViewportAnchorRestore {
             pendingVerifiedReplayViewportAnchorRestore = nil
+            viewportRestoreGate.withLock { $0.activeRestoreTicket = nil }
             pending.continuation.resume(returning: false)
             completed = true
         }
