@@ -24351,7 +24351,8 @@ struct CMUXCLI {
                     lifecycle: .running,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    sessionId: parsedInput.sessionId
+                    sessionId: parsedInput.sessionId,
+                    startsNewOccupant: true
                 )
                 try setClaudeStatus(
                     client: client,

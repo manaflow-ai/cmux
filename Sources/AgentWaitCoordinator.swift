@@ -43,7 +43,7 @@ struct AgentWaitCoordinator {
             eventBus.unsubscribe(subscriptionSnapshot.subscription)
         }
 
-        guard let surface = snapshot() else {
+        guard var surface = snapshot() else {
             return .failure(.surfaceNotFound)
         }
         guard let occupant = surface.occupant else {
@@ -121,6 +121,10 @@ struct AgentWaitCoordinator {
                     }
                     continue
                 }
+                if let routing = transition.routing,
+                   routing.surfaceID == surfaceID {
+                    surface = routing
+                }
                 pinnedState = transition.state
                 if until.isSatisfied(by: pinnedState) {
                     return .success(
@@ -150,7 +154,11 @@ struct AgentWaitCoordinator {
 
     private func transition(
         from event: [String: Any]
-    ) -> (record: AgentLifecycleRecord, state: AgentLifecyclePublicState)? {
+    ) -> (
+        record: AgentLifecycleRecord,
+        state: AgentLifecyclePublicState,
+        routing: AgentWaitSurfaceSnapshot?
+    )? {
         guard event["name"] as? String == "agent.state.changed",
               let payload = event["payload"] as? [String: Any],
               let agent = payload["agent"] as? String,
@@ -174,6 +182,18 @@ struct AgentWaitCoordinator {
         case .exit:
             lifecycle = .unknown
         }
+        let routing: AgentWaitSurfaceSnapshot?
+        if let workspaceID = (event["workspace_id"] as? String).flatMap(UUID.init(uuidString:)),
+           let surfaceID = (event["surface_id"] as? String).flatMap(UUID.init(uuidString:)) {
+            routing = AgentWaitSurfaceSnapshot(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                paneID: (event["pane_id"] as? String).flatMap(UUID.init(uuidString:)),
+                occupant: nil
+            )
+        } else {
+            routing = nil
+        }
         return (
             AgentLifecycleRecord(
                 agent: agent,
@@ -181,7 +201,8 @@ struct AgentWaitCoordinator {
                 sessionID: sessionID,
                 revision: UInt64(revisionValue)
             ),
-            state
+            state,
+            routing
         )
     }
 

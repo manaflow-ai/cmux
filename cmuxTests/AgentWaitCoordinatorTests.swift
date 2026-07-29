@@ -339,6 +339,8 @@ struct AgentWaitCoordinatorTests {
     @Test
     func transferClosureKeepsWaitingForTheStableSurfaceOccupant() throws {
         let fixture = Fixture(state: .running)
+        let destinationWorkspaceID = UUID()
+        let destinationPaneID = UUID()
 
         let result = AgentWaitCoordinator(eventBus: fixture.bus).wait(
             surfaceID: fixture.surfaceID,
@@ -354,10 +356,13 @@ struct AgentWaitCoordinatorTests {
                     paneId: fixture.paneID.uuidString,
                     payload: ["origin": "detach"]
                 )
-                fixture.publish(
+                fixture.bus.publishAgentStateChanged(
+                    workspaceID: destinationWorkspaceID,
+                    surfaceID: fixture.surfaceID,
+                    paneID: destinationPaneID,
                     record: fixture.original,
                     state: .idle,
-                    previous: .running
+                    previousState: .running
                 )
                 return fixture.snapshot(occupant: fixture.original)
             }
@@ -366,6 +371,9 @@ struct AgentWaitCoordinatorTests {
         let value = try result.get()
         #expect(value.status == .satisfied)
         #expect(value.state == .idle)
+        #expect(value.workspaceID == destinationWorkspaceID)
+        #expect(value.surfaceID == fixture.surfaceID)
+        #expect(value.paneID == destinationPaneID)
     }
 
     @Test
