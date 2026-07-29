@@ -45,6 +45,7 @@ use crate::resource_selector::{
 };
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
+use crate::terminal_host_protocol::TerminalExit;
 use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
@@ -1347,13 +1348,59 @@ impl Mux {
     #[cfg(unix)]
     fn adopt_terminal_hosts(self: &Arc<Self>) -> anyhow::Result<()> {
         let options = self.surface_options.lock().unwrap().clone();
+        let exit_records = match options.terminal_host_root.as_deref() {
+            Some(root) => crate::terminal_host_runtime::load_terminal_host_exit_records(root)?,
+            None => Vec::new(),
+        };
         let records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_records(root)?,
             None => Vec::new(),
         };
         let mut handled_terminals = HashSet::new();
+        // Sidecars are host-owned write-ahead completion records. Reconcile
+        // them before live discovery records so a daemon crash after host
+        // completion cannot collapse the exact status into "host missing".
+        for (exit_path, record) in exit_records {
+            let Some(terminal) =
+                self.workspace_registry.lock().unwrap().terminal_record(&record.terminal_id)?
+            else {
+                continue;
+            };
+            if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
+                    &exit_path, &record,
+                )?;
+                handled_terminals.insert(record.terminal_id);
+                continue;
+            }
+            if terminal
+                .incarnation
+                .as_deref()
+                .is_some_and(|incarnation| incarnation != record.incarnation)
+            {
+                // Retain evidence from the non-current incarnation. It must
+                // never be allowed to terminate a replacement process.
+                continue;
+            }
+            self.persist_terminal_exit(
+                &record.terminal_id,
+                Some(&record.incarnation),
+                &record.exit,
+            )?;
+            self.materialize_exited_terminal(&record.terminal_id, &options)?;
+            let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
+                &exit_path, &record,
+            )?;
+            handled_terminals.insert(record.terminal_id);
+        }
         for (record_path, record) in records {
             let terminal_id = record.terminal_id.clone();
+            if handled_terminals.contains(&terminal_id) {
+                if !cleanup_terminal_host_record(&record, &record_path) {
+                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                }
+                continue;
+            }
             let mut terminal =
                 self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
             if terminal.is_none() {
@@ -1702,7 +1749,7 @@ impl Mux {
     fn mark_terminal_exited_and_materialize(
         self: &Arc<Self>,
         terminal_id: &str,
-        operation: &str,
+        _operation: &str,
         reason: &str,
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
@@ -1711,25 +1758,37 @@ impl Mux {
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
             return Ok(());
         }
-        if terminal.lifecycle != TerminalLifecycle::Exited
-            && let Err(error) = self.transition_terminal_lifecycle(
-                "terminal-exited",
-                operation,
-                terminal_id,
-                TerminalLifecycle::Exited,
-                terminal.incarnation.as_deref(),
-                Some(serde_json::json!({"reason":reason})),
-            )
-        {
-            let current = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
-            if !current.as_ref().is_some_and(|terminal| {
-                matches!(
-                    terminal.lifecycle,
-                    TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-                )
-            }) {
-                return Err(error);
-            }
+        let sidecar = options
+            .terminal_host_root
+            .as_ref()
+            .map(|root| root.join(format!("{terminal_id}.json")))
+            .map(|record_path| {
+                crate::terminal_host_runtime::terminal_host_exit_record(&record_path)
+            })
+            .transpose()?
+            .flatten()
+            .filter(|(_, record)| {
+                record.terminal_id == terminal_id
+                    && terminal
+                        .incarnation
+                        .as_deref()
+                        .is_none_or(|incarnation| incarnation == record.incarnation)
+            });
+        if terminal.lifecycle != TerminalLifecycle::Exited {
+            let observed = sidecar
+                .as_ref()
+                .map(|(_, record)| record.exit.clone())
+                .unwrap_or_else(|| TerminalExit::unknown(reason));
+            let incarnation = sidecar
+                .as_ref()
+                .map(|(_, record)| record.incarnation.as_str())
+                .or(terminal.incarnation.as_deref());
+            self.persist_terminal_exit(terminal_id, incarnation, &observed)?;
+        }
+        if let Some((path, record)) = sidecar {
+            let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
+                &path, &record,
+            )?;
         }
         self.materialize_exited_terminal(terminal_id, options)?;
         Ok(())
@@ -3058,6 +3117,119 @@ impl Mux {
             .content
             .get(&ContentPublicId::Terminal(terminal_id.clone()))
             .copied()
+    }
+
+    /// Read only public terminal completion state. The host UUID and
+    /// incarnation remain an internal fencing mechanism and never enter the
+    /// resource API result.
+    pub(crate) fn terminal_exit_state(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<Value> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let revision = registry.snapshot()?.resource_revision;
+        let host_id = registry
+            .terminal_host_id(terminal_id)?
+            .ok_or_else(|| anyhow::anyhow!("terminal {} is not live", terminal_id))?;
+        let terminal = registry
+            .terminal_record(&host_id)?
+            .ok_or_else(|| anyhow::anyhow!("terminal {} has no durable placement", terminal_id))?;
+        if terminal.lifecycle == TerminalLifecycle::Exited {
+            let exit = terminal.exit.as_ref().and_then(Value::as_object).ok_or_else(|| {
+                anyhow::anyhow!("exited terminal {} omitted exit metadata", terminal_id)
+            })?;
+            let outcome = exit.get("outcome").cloned().ok_or_else(|| {
+                anyhow::anyhow!("exited terminal {} omitted its outcome", terminal_id)
+            })?;
+            let exited_at = exit.get("exited_at").and_then(Value::as_str).ok_or_else(|| {
+                anyhow::anyhow!("exited terminal {} omitted exited_at", terminal_id)
+            })?;
+            let exit_revision = exit.get("revision").and_then(Value::as_str).ok_or_else(|| {
+                anyhow::anyhow!("exited terminal {} omitted its revision", terminal_id)
+            })?;
+            return Ok(serde_json::json!({
+                "state": "exited",
+                "terminal_id": terminal_id,
+                "lifecycle": "exited",
+                "outcome": outcome,
+                "exited_at": exited_at,
+                "revision": exit_revision,
+            }));
+        }
+        let lifecycle = match terminal.lifecycle {
+            TerminalLifecycle::Launching | TerminalLifecycle::Adopting => "launching",
+            TerminalLifecycle::Running => "running",
+            TerminalLifecycle::Exited => "exited",
+            TerminalLifecycle::Tombstoned => {
+                anyhow::bail!("terminal {} is tombstoned", terminal_id)
+            }
+        };
+        Ok(serde_json::json!({
+            "state": "pending",
+            "terminal_id": terminal_id,
+            "lifecycle": lifecycle,
+            "revision": revision.to_string(),
+        }))
+    }
+
+    pub(crate) fn wait_for_terminal_exit(
+        &self,
+        terminal_id: &TerminalPublicId,
+        timeout: Option<Duration>,
+    ) -> anyhow::Result<Value> {
+        let deadline = timeout
+            .map(|timeout| {
+                Instant::now()
+                    .checked_add(timeout)
+                    .ok_or_else(|| anyhow::anyhow!("terminal exit timeout exceeds deadline range"))
+            })
+            .transpose()?;
+        loop {
+            let state = self.terminal_exit_state(terminal_id)?;
+            if state["state"] == "exited" {
+                return Ok(state);
+            }
+            if timeout == Some(Duration::ZERO) {
+                return Ok(state);
+            }
+            let epoch = self.resource_event_epoch();
+            // Close the query/epoch race before sleeping.
+            let state = self.terminal_exit_state(terminal_id)?;
+            if state["state"] == "exited" {
+                return Ok(state);
+            }
+            let wait = match deadline {
+                Some(deadline) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return Ok(state);
+                    };
+                    remaining.min(Duration::from_millis(250))
+                }
+                None => Duration::from_millis(250),
+            };
+            self.wait_for_resource_event(epoch, wait);
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return self.terminal_exit_state(terminal_id);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn persist_terminal_exit_for_test(
+        &self,
+        terminal_id: &TerminalPublicId,
+        exit: &TerminalExit,
+    ) -> anyhow::Result<bool> {
+        let (host_id, incarnation) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let host_id = registry
+                .terminal_host_id(terminal_id)?
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
+            let incarnation =
+                registry.terminal_record(&host_id)?.and_then(|terminal| terminal.incarnation);
+            (host_id, incarnation)
+        };
+        self.persist_terminal_exit(&host_id, incarnation.as_deref(), exit)
     }
 
     fn publish_resource_event(&self) {
@@ -8256,15 +8428,73 @@ impl Mux {
         let Some(identity) = surface.terminal_host_identity() else {
             return Ok(());
         };
-        self.transition_terminal_lifecycle(
-            "terminal-exited",
-            "terminal-host-exited",
-            &identity.terminal_id,
-            TerminalLifecycle::Exited,
-            Some(&identity.incarnation),
-            Some(serde_json::json!({"reason":reason})),
-        )?;
+        let exit = surface.terminal_exit().unwrap_or_else(|| TerminalExit::unknown(reason));
+        self.persist_terminal_exit(&identity.terminal_id, Some(&identity.incarnation), &exit)?;
+        #[cfg(unix)]
+        if let Some((path, expected)) = surface.terminal_host_exit_sidecar() {
+            crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(&path, &expected)?;
+        }
         Ok(())
+    }
+
+    /// Commit terminal lifecycle, public snapshot, and exactly one session
+    /// event in one registry transaction. Callers may observe the same exit
+    /// through the live frame, sidecar recovery, and dead-host reconciliation;
+    /// the first commit is the latch and all later observations are no-ops.
+    fn persist_terminal_exit(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        exit: &TerminalExit,
+    ) -> anyhow::Result<bool> {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let terminal = registry
+            .terminal_record(terminal_id)?
+            .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
+        if !matches!(terminal.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned)
+            && registry.terminal_resource_id(terminal_id)?.is_none()
+        {
+            // One-release compatibility for pre-resource terminal rows. They
+            // have no public identity to emit, but still retain the exact
+            // outcome in the terminal timeline and remain first-writer wins.
+            let resource_revision = registry.snapshot()?.resource_revision;
+            let (_, terminal_revision) = commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-exited",
+                "terminal-host-exited",
+                terminal_id,
+                TerminalLifecycle::Exited,
+                incarnation,
+                Some(serde_json::json!({
+                    "outcome": &exit.outcome,
+                    "exited_at": exit.exited_at_ms.to_string(),
+                    "revision": resource_revision.to_string(),
+                })),
+            )?;
+            self.emit_terminal_registry_changed(&registry, terminal_revision);
+            return Ok(true);
+        }
+        let mut state = self.state.lock().unwrap();
+        let terminal_snapshot = if matches!(
+            terminal.lifecycle,
+            TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+        ) {
+            Value::Null
+        } else {
+            terminal_exit_snapshot_in_state(&registry, &state, terminal_id)?
+        };
+        let (_, terminal_revision, resource_revision, replayed) =
+            registry.commit_terminal_exit(terminal_id, incarnation, exit, terminal_snapshot)?;
+        if !replayed {
+            state.resource_revision = resource_revision;
+            self.emit_terminal_registry_changed(&registry, terminal_revision);
+        }
+        drop(state);
+        drop(registry);
+        if !replayed {
+            self.publish_resource_event();
+        }
+        Ok(!replayed)
     }
 
     fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {
@@ -9947,6 +10177,38 @@ fn run_placement_for_surface(state: &State, surface: SurfaceId) -> Option<RunPla
     })
 }
 
+fn terminal_exit_snapshot_in_state(
+    registry: &WorkspaceRegistry,
+    state: &State,
+    terminal_id: &str,
+) -> anyhow::Result<Value> {
+    let public_id = registry
+        .terminal_resource_id(terminal_id)?
+        .ok_or_else(|| anyhow::anyhow!("terminal {terminal_id} has no public resource id"))?;
+    let content_id = ContentPublicId::Terminal(public_id.clone());
+    let topology = registry.resource_topology_snapshot()?;
+    let tab = topology
+        .tabs
+        .iter()
+        .find(|tab| tab.content_id == content_id)
+        .ok_or_else(|| anyhow::anyhow!("terminal {public_id} has no durable tab"))?;
+    let surface =
+        state.resource_indexes.content.get(&content_id).and_then(|slot| state.surfaces.get(slot));
+    let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
+    let mut snapshot = serde_json::json!({
+        "id": public_id,
+        "tab_id": tab.public_id,
+        "title": surface.map(|surface| surface.title()).unwrap_or_default(),
+        "cols": cols.max(1),
+        "rows": rows.max(1),
+        "running": false,
+    });
+    if let Some(cwd) = surface.and_then(|surface| surface.spawn_cwd()) {
+        snapshot["cwd"] = serde_json::json!(cwd);
+    }
+    Ok(snapshot)
+}
+
 type FocusIdentity = (WorkspaceId, ScreenId, PaneId);
 
 fn current_focus_identity(state: &State) -> Option<FocusIdentity> {
@@ -11206,6 +11468,10 @@ mod tests {
 
     fn restore_browser_id(value: u128) -> BrowserPublicId {
         BrowserPublicId::parse(format!("browser_{value:032x}")).unwrap()
+    }
+
+    fn restore_terminal_id(value: u128) -> TerminalPublicId {
+        TerminalPublicId::parse(format!("term_{value:032x}")).unwrap()
     }
 
     fn restore_split_id(value: u128) -> SplitPublicId {
@@ -15892,10 +16158,201 @@ mod tests {
         let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
         assert_eq!(resolved.surface, None);
         assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
-        assert_eq!(resolved.terminal.exit.unwrap()["reason"], "missing-host-record");
+        let exit = resolved.terminal.exit.unwrap();
+        assert_eq!(exit["outcome"]["kind"], "unknown");
+        assert_eq!(exit["outcome"]["reason"], "missing-host-record");
+        assert!(exit["exited_at"].as_str().is_some());
+        assert_eq!(exit["revision"], "1");
         assert_eq!(resolved.terminal_revision, 2);
         mux.shutdown();
         drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restart_sidecar_restores_exact_wait_exit_and_emits_one_public_event() {
+        use std::fs::{File, OpenOptions};
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        const TERMINAL: &str = "0000000000004000800000000000002a";
+        const INCARNATION: &str = "1000000000004000800000000000002a";
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-terminal-exit-sidecar-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "recover-exact-exit";
+        let workspace = RegistryWorkspace {
+            id: 1,
+            public_id: restore_workspace_id(42),
+            key: "workspace-exit".into(),
+            name: "Exit".into(),
+            group_key: session.into(),
+        };
+        let screen = restore_screen_id(42);
+        let pane = restore_pane_id(42);
+        let tab = restore_tab_id(42);
+        let terminal_public_id = restore_terminal_id(42);
+        let terminal = RegistryTerminal {
+            terminal_id: TERMINAL.into(),
+            workspace_key: workspace.key.clone(),
+            incarnation: None,
+            lifecycle: TerminalLifecycle::Launching,
+            launch_spec: serde_json::json!({"command":["/bin/sh"]}),
+            exit: None,
+        };
+        {
+            let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+            registry
+                .commit_resource_patch(
+                    &WorkspaceMutation::new("seed-terminal-exit", "test").unwrap(),
+                    "workspace.create",
+                    &serde_json::json!({"fixture":"terminal-exit"}),
+                    None,
+                    Some(0),
+                    &ResourcePatch {
+                        changes: vec![
+                            ResourceChange::UpsertWorkspace {
+                                workspace: workspace.clone(),
+                                position: 0,
+                                active_screen: Some(screen.clone()),
+                            },
+                            ResourceChange::UpsertScreen(RegistryScreen {
+                                public_id: screen.clone(),
+                                workspace_id: workspace.public_id.clone(),
+                                position: 0,
+                                name: None,
+                                layout: RegistryLayoutNode::Leaf { pane: pane.clone() },
+                                active_pane: pane.clone(),
+                                zoomed_pane: None,
+                                auto_layout: None,
+                                viewport: RegistryViewport::default(),
+                            }),
+                            ResourceChange::UpsertPane(RegistryPane {
+                                public_id: pane.clone(),
+                                screen_id: screen.clone(),
+                                name: None,
+                                active_tab: Some(tab.clone()),
+                                creation_ordinal: 1,
+                            }),
+                            ResourceChange::UpsertTerminal {
+                                public_id: terminal_public_id.clone(),
+                                terminal: terminal.clone(),
+                            },
+                            ResourceChange::UpsertTab(RegistryTab {
+                                public_id: tab.clone(),
+                                pane_id: pane.clone(),
+                                position: 0,
+                                content_id: ContentPublicId::Terminal(terminal_public_id.clone()),
+                                name: None,
+                                browser_url: None,
+                                terminal_id: Some(TERMINAL.into()),
+                            }),
+                            ResourceChange::SetWorkspaceOrder {
+                                workspace_ids: vec![workspace.public_id.clone()],
+                            },
+                            ResourceChange::SetScreenOrder {
+                                workspace_id: workspace.public_id.clone(),
+                                screen_ids: vec![screen],
+                            },
+                            ResourceChange::SetTabOrder { pane_id: pane, tab_ids: vec![tab] },
+                            ResourceChange::SetActiveWorkspace {
+                                workspace_id: Some(workspace.public_id.clone()),
+                            },
+                        ],
+                    },
+                    &serde_json::json!({"created":true}),
+                    &serde_json::json!([{"kind":"fixture.created"}]),
+                )
+                .unwrap();
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "seed-running-terminal",
+                TERMINAL,
+                TerminalLifecycle::Running,
+                Some(INCARNATION),
+                None,
+            )
+            .unwrap();
+        }
+
+        let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+        std::fs::create_dir_all(&host_root).unwrap();
+        std::fs::set_permissions(&host_root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                signal: libc::SIGTERM,
+                core_dumped: false,
+            },
+            exited_at_ms: 1_234_567,
+        };
+        let sidecar = crate::terminal_host_runtime::TerminalHostExitRecord::new(
+            &TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
+            exit.clone(),
+        );
+        let sidecar_path = sidecar.record_path(&host_root);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&sidecar_path)
+            .unwrap();
+        file.write_all(&serde_json::to_vec(&sidecar).unwrap()).unwrap();
+        file.sync_all().unwrap();
+        File::open(&host_root).unwrap().sync_all().unwrap();
+
+        let options =
+            SurfaceOptions { terminal_host_root: Some(host_root), ..SurfaceOptions::default() };
+        let failing_registry = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            registry.set_resource_patch_failure(true).unwrap();
+            registry
+        };
+        let failure = Mux::from_workspace_registry(
+            session.to_string(),
+            options.clone(),
+            failing_registry,
+            ProviderWorkspaceState::default(),
+            false,
+        )
+        .err()
+        .expect("injected resource event failure must abort sidecar recovery");
+        assert!(failure.to_string().contains("forced resource patch failure"));
+        assert!(
+            sidecar_path.exists(),
+            "a rolled-back SQLite transaction must retain restart evidence"
+        );
+
+        let mux = Mux::open_persistent(session, options.clone(), &root).unwrap();
+        let waited = mux.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
+        assert_eq!(waited["state"], "exited");
+        assert_eq!(
+            waited["outcome"],
+            serde_json::json!({
+                "kind":"signal",
+                "signal":libc::SIGTERM,
+                "core_dumped":false,
+            })
+        );
+        assert_eq!(waited["exited_at"], "1234567");
+        assert_eq!(waited["revision"], "2");
+        assert!(!sidecar_path.exists(), "SQLite commit acknowledges the exact sidecar");
+        let events = mux.resource_events_after(1).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        assert_eq!(events.batches[0].changes.as_array().unwrap().len(), 1);
+        mux.shutdown();
+        drop(mux);
+
+        let reopened = Mux::open_persistent(session, options, &root).unwrap();
+        assert_eq!(
+            reopened.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap(),
+            waited
+        );
+        assert_eq!(reopened.resource_events_after(1).unwrap().batches.len(), 1);
+        reopened.shutdown();
+        drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -15950,7 +16407,11 @@ mod tests {
                 TERMINAL,
                 TerminalLifecycle::Exited,
                 Some(INCARNATION),
-                Some(serde_json::json!({"reason":"persisted-exit"})),
+                Some(serde_json::json!({
+                    "outcome":{"kind":"unknown","reason":"persisted-exit"},
+                    "exited_at":"1234567",
+                    "revision":"0",
+                })),
             )
             .unwrap();
         }
@@ -15964,7 +16425,7 @@ mod tests {
         let mux = Mux::open_persistent("recover-exited", options.clone(), &root).unwrap();
         let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
         assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
-        assert_eq!(resolved.terminal.exit.as_ref().unwrap()["reason"], "persisted-exit");
+        assert_eq!(resolved.terminal.exit.as_ref().unwrap()["outcome"]["reason"], "persisted-exit");
         let surface = resolved.surface.expect("Exited terminal remains addressable");
         let placement = mux
             .with_state(|state| run_placement_for_surface(state, surface))
@@ -15976,7 +16437,7 @@ mod tests {
         mux.surface_exited(surface);
         let after_exit = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
         assert_eq!(after_exit.surface, Some(surface));
-        assert_eq!(after_exit.terminal.exit.unwrap()["reason"], "persisted-exit");
+        assert_eq!(after_exit.terminal.exit.unwrap()["outcome"]["reason"], "persisted-exit");
         let closed = mux.close_terminal(TERMINAL, INCARNATION).unwrap();
         assert_eq!(closed.surface, Some(surface));
         let closed = mux.resolve_terminal(TERMINAL).unwrap().unwrap();

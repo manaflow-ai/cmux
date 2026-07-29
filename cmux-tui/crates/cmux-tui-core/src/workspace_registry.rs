@@ -24,6 +24,7 @@ use crate::resource::{
 
 mod effect_store;
 mod resource_store;
+mod terminal_exit_store;
 
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,

@@ -43,6 +43,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::TerminalHistoryRead
             | ResourceOperation::TerminalHistoryClear
             | ResourceOperation::TerminalWait
+            | ResourceOperation::TerminalWaitExit
             | ResourceOperation::TerminalCopy
             | ResourceOperation::TerminalProcessGet
             | ResourceOperation::TerminalViewportScroll
@@ -70,6 +71,7 @@ pub(super) fn dispatch(
         ResourceOperation::TerminalStateRead => terminal_state_read(mux, &request),
         ResourceOperation::TerminalHistoryRead => terminal_history_read(mux, &request),
         ResourceOperation::TerminalWait => terminal_wait(mux, &request),
+        ResourceOperation::TerminalWaitExit => terminal_wait_exit(mux, &request),
         ResourceOperation::TerminalCopy => terminal_copy(mux, &request),
         ResourceOperation::TerminalProcessGet => terminal_process_get(mux, &request),
         ResourceOperation::TerminalMove => terminal_move(mux, request),
@@ -266,6 +268,17 @@ fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
             }
         }
     }
+}
+
+fn terminal_wait_exit(
+    mux: &Arc<Mux>,
+    request: &ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let path = mux.resolve_resource_path(ResourceTarget::Terminal, &request.selectors)?;
+    let terminal_id =
+        path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    let timeout = optional_decimal(&request.fields, "timeout_ms")?.map(Duration::from_millis);
+    mux.wait_for_terminal_exit(&terminal_id, timeout).map_err(resource_operation_error)
 }
 
 fn terminal_copy(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -1627,6 +1640,7 @@ mod tests {
             ResourceOperation::TerminalHistoryRead,
             ResourceOperation::TerminalHistoryClear,
             ResourceOperation::TerminalWait,
+            ResourceOperation::TerminalWaitExit,
             ResourceOperation::TerminalCopy,
             ResourceOperation::TerminalProcessGet,
             ResourceOperation::TerminalViewportScroll,
@@ -1648,6 +1662,82 @@ mod tests {
         assert!(!handles(ResourceOperation::BrowserAttach));
         assert!(!handles(ResourceOperation::TerminalViewerResize));
         assert!(!handles(ResourceOperation::BrowserViewerResize));
+    }
+
+    #[test]
+    fn terminal_wait_exit_latches_one_public_event_without_host_identity() {
+        let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let durable = mux.terminal_registry_snapshot().unwrap();
+        let internal = durable.terminals.first().expect("fixture has one durable terminal");
+        let internal_id = internal.terminal_id.as_str();
+        let incarnation = internal.incarnation.as_deref().unwrap_or_default();
+
+        let pending = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap();
+        assert_eq!(pending["state"], "pending");
+        assert_eq!(pending["terminal_id"], public_id.as_str());
+        assert!(pending.get("incarnation").is_none());
+        let before = pending["revision"].as_str().unwrap().parse::<u64>().unwrap();
+
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                signal: libc::SIGTERM,
+                core_dumped: false,
+            },
+            exited_at_ms: 1_234_567,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
+        assert!(
+            !mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap(),
+            "duplicate observations must not mint another revision"
+        );
+
+        let exited = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"1000"}), None),
+        )
+        .unwrap();
+        assert_eq!(
+            exited,
+            json!({
+                "state":"exited",
+                "terminal_id":public_id,
+                "lifecycle":"exited",
+                "outcome":{"kind":"signal","signal":libc::SIGTERM,"core_dumped":false},
+                "exited_at":"1234567",
+                "revision":(before + 1).to_string(),
+            })
+        );
+
+        let events = mux.resource_events_after(before).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        let changes = events.batches[0].changes.as_array().unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["kind"], "upsert");
+        assert_eq!(changes[0]["sequence"], 0);
+        assert_eq!(changes[0]["resource"], "terminal");
+        assert_eq!(changes[0]["id"], public_id.as_str());
+        assert_eq!(changes[0]["value"]["lifecycle"], "exited");
+        assert_eq!(changes[0]["value"]["exit"]["outcome"], exited["outcome"]);
+        let public_json = serde_json::to_string(&changes[0]).unwrap();
+        assert!(!public_json.contains("\"incarnation\""));
+        assert!(!public_json.contains(internal_id));
+        assert!(incarnation.is_empty() || !public_json.contains(incarnation));
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == public_id.as_str())
+            .unwrap();
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
+        surface.kill();
     }
 
     #[test]

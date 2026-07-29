@@ -25,6 +25,7 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 
 use crate::platform;
 use crate::resource::TabResourceIdentity;
+use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status};
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
@@ -32,7 +33,9 @@ pub use crate::browser::{
 };
 use crate::browser::{BrowserResizeWaiter, BrowserSurface, PendingBrowserResize};
 #[cfg(unix)]
-use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
+use crate::terminal_host_protocol::{
+    FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION, decode_terminal_exit,
+};
 use cmux_tui_cdp::BrowserMode;
 
 /// How to spawn surface children.
@@ -243,7 +246,7 @@ enum HostedTransition {
     OutputWithColors { output: Vec<u8>, colors: TerminalColorOverrides },
     ResizedWithColors { cols: u16, rows: u16, replay: Vec<u8>, colors: TerminalColorOverrides },
     Metadata(MessageKind),
-    Exit,
+    Exit(TerminalExit),
     ResyncRequired,
 }
 
@@ -323,7 +326,14 @@ impl HostedFrameStager {
             MessageKind::Title | MessageKind::Pwd | MessageKind::Bell if frame.flags == 0 => {
                 Ok(Some(HostedTransition::Metadata(frame.kind)))
             }
-            MessageKind::Exit if frame.flags == 0 => Ok(Some(HostedTransition::Exit)),
+            MessageKind::Exit if frame.flags == 0 => {
+                let exit = if frame.payload.is_empty() {
+                    TerminalExit::unknown("terminal host omitted exit status")
+                } else {
+                    decode_terminal_exit(&frame.payload).map_err(|_| "invalid Exit payload")?
+                };
+                Ok(Some(HostedTransition::Exit(exit)))
+            }
             MessageKind::ResyncRequired if frame.flags == 0 => {
                 Ok(Some(HostedTransition::ResyncRequired))
             }
@@ -568,9 +578,14 @@ pub struct PtySurface {
     runtime: Mutex<PtyRuntime>,
     supports_clear_history_key_fallback: AtomicBool,
     host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
+    #[cfg(unix)]
+    host_exit_record_path: Option<PathBuf>,
     pid: Option<u32>,
     command: Vec<String>,
     cwd: Option<String>,
+    exit: Mutex<Option<TerminalExit>>,
+    local_pty_drained: AtomicBool,
+    exit_notified: AtomicBool,
     dead: AtomicBool,
     /// The daemon is intentionally dropping its compatibility proxy while
     /// leaving the terminal host alive for a later daemon to adopt.
@@ -1005,6 +1020,21 @@ fn mark_hosted_runtime_exited(
     }
 }
 
+fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
+    let Some(pty) = surface.as_pty() else { return };
+    if !pty.local_pty_drained.load(Ordering::Acquire) || pty.exit.lock().unwrap().is_none() {
+        return;
+    }
+    if pty.exit_notified.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err()
+    {
+        return;
+    }
+    pty.dead.store(true, Ordering::Release);
+    if let Some(mux) = pty.mux.upgrade() {
+        mux.surface_exited(surface.id);
+    }
+}
+
 impl std::fmt::Debug for Surface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Surface").field("id", &self.id).field("kind", &self.kind()).finish()
@@ -1183,9 +1213,14 @@ impl Surface {
                 supports_clear_history_key_fallback,
             ),
             host_identity: None,
+            #[cfg(unix)]
+            host_exit_record_path: None,
             pid,
             command: argv,
             cwd,
+            exit: Mutex::new(None),
+            local_pty_drained: AtomicBool::new(false),
+            exit_notified: AtomicBool::new(false),
             dead: AtomicBool::new(false),
             owner_detaching: AtomicBool::new(false),
             host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
@@ -1294,17 +1329,23 @@ impl Surface {
                     }
                 }
                 if let Some(pty) = surface.as_pty() {
-                    pty.dead.store(true, Ordering::Release);
+                    pty.local_pty_drained.store(true, Ordering::Release);
                 }
-                if let Some(mux) = mux.upgrade() {
-                    mux.surface_exited(surface.id);
-                }
+                publish_local_exit_if_ready(&surface);
             }
         })?;
 
-        // Child reaper: avoid zombies; the reader thread handles EOF.
-        std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn(move || {
-            let _ = child.wait();
+        // Child reaper: retain the native status and rendezvous with PTY EOF
+        // so final output is visible before the mux observes completion.
+        std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
+            let surface = surface.clone();
+            move || {
+                let exit = wait_for_native_child_status(child.as_mut());
+                if let Some(pty) = surface.as_pty() {
+                    *pty.exit.lock().unwrap() = Some(exit);
+                }
+                publish_local_exit_if_ready(&surface);
+            }
         })?;
 
         Ok(surface)
@@ -1351,6 +1392,7 @@ impl Surface {
         mouse_encoders.sync_from_terminal(&term);
         let sequence_boundary = snapshot.sequence_boundary;
         let host_identity = attachment.identity();
+        let host_exit_record_path = attachment.exit_record_path();
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
@@ -1369,9 +1411,13 @@ impl Surface {
                 supports_clear_history_key_fallback,
             ),
             host_identity: Some(host_identity),
+            host_exit_record_path: Some(host_exit_record_path),
             pid: snapshot.pid,
             command: snapshot.command,
             cwd: snapshot.cwd,
+            exit: Mutex::new(None),
+            local_pty_drained: AtomicBool::new(true),
+            exit_notified: AtomicBool::new(false),
             dead: AtomicBool::new(false),
             owner_detaching: AtomicBool::new(false),
             host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
@@ -1406,7 +1452,7 @@ impl Surface {
                 let mut sequence_boundary = sequence_boundary;
                 'connection: loop {
                     let mut stager = HostedFrameStager::new(sequence_boundary);
-                    let mut received_exit = false;
+                    let mut received_exit = None;
                     'host_stream: while let Ok(Some(frame)) =
                         crate::terminal_host_protocol::read_frame(
                             &mut reader,
@@ -1604,8 +1650,8 @@ impl Surface {
                             // the sequenced metadata frames are still consumed so
                             // they cannot hide a stream gap.
                             HostedTransition::Metadata(_kind) => {}
-                            HostedTransition::Exit => {
-                                received_exit = true;
+                            HostedTransition::Exit(exit) => {
+                                received_exit = Some(exit);
                                 break;
                             }
                             HostedTransition::ResyncRequired => break,
@@ -1617,7 +1663,8 @@ impl Surface {
                         return;
                     }
                     let Some(identity) = pty.host_identity.clone() else { return };
-                    if received_exit {
+                    if let Some(exit) = received_exit {
+                        *pty.exit.lock().unwrap() = Some(exit);
                         mark_hosted_runtime_exited(pty, &identity);
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
@@ -1657,6 +1704,22 @@ impl Surface {
                             &record,
                         ) {
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead) => {
+                                let exit = crate::terminal_host_runtime::terminal_host_exit_record(
+                                    &record_path,
+                                )
+                                .ok()
+                                .flatten()
+                                .filter(|(_, exit)| {
+                                    exit.terminal_id == identity.terminal_id
+                                        && exit.incarnation == identity.incarnation
+                                })
+                                .map(|(_, exit)| exit.exit)
+                                .unwrap_or_else(|| {
+                                    TerminalExit::unknown(
+                                        "terminal host ended without a durable exit sidecar",
+                                    )
+                                });
+                                *pty.exit.lock().unwrap() = Some(exit);
                                 mark_hosted_runtime_exited(pty, &identity);
                                 pty.host_connection_state.store(
                                     TerminalHostConnectionState::Exited as u8,
@@ -1914,9 +1977,13 @@ impl Surface {
             runtime: Mutex::new(PtyRuntime::ExitedHosted),
             supports_clear_history_key_fallback: AtomicBool::new(false),
             host_identity: Some(identity),
+            host_exit_record_path: None,
             pid: None,
             command,
             cwd: opts.cwd,
+            exit: Mutex::new(None),
+            local_pty_drained: AtomicBool::new(true),
+            exit_notified: AtomicBool::new(true),
             dead: AtomicBool::new(true),
             owner_detaching: AtomicBool::new(false),
             host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
@@ -2012,9 +2079,14 @@ impl Surface {
             }),
             supports_clear_history_key_fallback: AtomicBool::new(false),
             host_identity: None,
+            #[cfg(unix)]
+            host_exit_record_path: None,
             pid: Some(id as u32),
             command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
             cwd: opts.cwd,
+            exit: Mutex::new(None),
+            local_pty_drained: AtomicBool::new(false),
+            exit_notified: AtomicBool::new(false),
             dead: AtomicBool::new(false),
             owner_detaching: AtomicBool::new(false),
             host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
@@ -2602,6 +2674,21 @@ impl Surface {
 
     pub fn spawn_cwd(&self) -> Option<String> {
         self.as_pty().and_then(|pty| pty.cwd.clone())
+    }
+
+    pub fn terminal_exit(&self) -> Option<TerminalExit> {
+        self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn terminal_host_exit_sidecar(
+        &self,
+    ) -> Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)> {
+        let pty = self.as_pty()?;
+        let path = pty.host_exit_record_path.clone()?;
+        let identity = pty.host_identity.as_ref()?;
+        let exit = pty.exit.lock().unwrap().clone()?;
+        Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
     }
 
     /// Process-stable identity for hosted terminals. Surface ids remain
@@ -3717,6 +3804,52 @@ mod tests {
         assert!(colors.cursor_style.is_some() && colors.cursor_blink.is_some());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn local_surface_retains_real_status_after_final_pty_bytes() {
+        fn run(mux: &Arc<Mux>, id: SurfaceId, script: &str, final_text: &str) -> TerminalExit {
+            let surface = Surface::spawn(
+                id,
+                SurfaceOptions {
+                    command: Some(vec!["/bin/sh".into(), "-c".into(), script.into()]),
+                    ..SurfaceOptions::default()
+                },
+                Arc::downgrade(mux),
+            )
+            .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let exit = loop {
+                if let Some(exit) = surface.terminal_exit()
+                    && surface.is_dead()
+                {
+                    break exit;
+                }
+                assert!(Instant::now() < deadline, "local PTY did not publish its exit");
+                std::thread::sleep(Duration::from_millis(5));
+            };
+            let text =
+                surface.try_with_terminal(|terminal| terminal.viewport_text()).unwrap().unwrap();
+            assert!(
+                text.contains(final_text),
+                "exit became visible before final PTY bytes: {text:?}"
+            );
+            exit
+        }
+
+        let mux = Mux::new_for_test("local-exit-status", SurfaceOptions::default());
+        assert_eq!(
+            run(&mux, 101, "printf final-exit; exit 17", "final-exit").outcome,
+            crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 }
+        );
+        assert_eq!(
+            run(&mux, 102, "printf final-signal; kill -TERM $$", "final-signal").outcome,
+            crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                signal: libc::SIGTERM,
+                core_dumped: false,
+            }
+        );
+    }
+
     #[test]
     fn terminal_color_override_delta_sets_and_resets_sparse_state() {
         let mut colors = TerminalColorOverrides {
@@ -3937,6 +4070,29 @@ mod tests {
             stager.push(colors_frame).unwrap(),
             Some(HostedTransition::OutputWithColors { .. })
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_stager_decodes_authoritative_exit_payload() {
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+            exited_at_ms: 1_234_567,
+        };
+        let mut frame = Frame::new(
+            MessageKind::Exit,
+            crate::terminal_host_protocol::encode_terminal_exit(&exit),
+        );
+        frame.sequence = 1;
+        let mut stager = HostedFrameStager::new(0);
+        match stager.push(frame).unwrap() {
+            Some(HostedTransition::Exit(observed)) => assert_eq!(observed, exit),
+            other => panic!("unexpected staged transition: {other:?}"),
+        }
+
+        let mut malformed = Frame::new(MessageKind::Exit, vec![1, 0, 2]);
+        malformed.sequence = 1;
+        assert!(HostedFrameStager::new(0).push(malformed).is_err());
     }
 
     #[cfg(unix)]
