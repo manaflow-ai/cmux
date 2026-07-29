@@ -658,6 +658,25 @@ mod tests {
     }
 
     #[test]
+    fn user_time_derives_missing_start_from_completion_and_duration() {
+        let now: i64 =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().try_into().unwrap();
+        let mut conversation = stopped_conversation();
+        conversation.turns[0].started_at = None;
+        conversation.turns[0].completed_at = Some(now - 10);
+        conversation.turns[0].duration_ms = Some(90_000);
+        let view = build_trajectory(
+            &conversation,
+            80,
+            Catalog::new(crate::localization::Locale::English),
+            &ExpansionState::default(),
+        );
+
+        assert!(view.lines.iter().any(|line| line.text == "you · 1m"));
+        assert!(view.lines.iter().any(|line| line.text.starts_with("codex · ")));
+    }
+
+    #[test]
     fn work_group_includes_reasoning_and_commentary_thinking_blocks() {
         let conversation = Conversation {
             id: "thread".into(),
