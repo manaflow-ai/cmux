@@ -11,6 +11,8 @@ import Testing
 
 @Suite(.serialized)
 struct SSHRemoteCommandChainingTests {
+    private let processSupport = CLINotifyProcessIntegrationRegressionTests(invocation: nil)
+
     @Test
     func resolvedSSHConfigurationDistinguishesConfiguredCommandFromNone() {
         let policy = SSHHostConfiguredRemoteCommand()
@@ -67,31 +69,25 @@ struct SSHRemoteCommandChainingTests {
             shellFeatures: "ssh-env,ssh-terminfo",
             configuredRemoteCommand: configuredRemoteCommand
         )
-        let process = Process()
-        let standardError = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [
-            "-i",
-            "HOME=\(home.path)",
-            "SHELL=/bin/sh",
-            "PATH=/usr/bin:/bin",
-            "USER=\(NSUserName())",
-            "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(helper.path)",
-            "/bin/sh",
-            "-c",
-            script,
-        ]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = standardError
-        try process.run()
-        process.waitUntilExit()
+        let result = processSupport.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(home.path)",
+                "SHELL=/bin/sh",
+                "PATH=/usr/bin:/bin",
+                "USER=\(NSUserName())",
+                "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(helper.path)",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
 
-        let stderr = String(
-            data: standardError.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
-        #expect(process.terminationStatus == 0, Comment(rawValue: stderr))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(
             try String(contentsOf: helperMarker, encoding: .utf8) == "yes\n",
             "Configured commands must retain persistent-PTY hangup protection"

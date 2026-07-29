@@ -207,6 +207,74 @@ struct SSHConfiguredRemoteCommandHostTests {
         )
     }
 
+    @Test
+    func sshStartupContinuesWhenConfigurationResolutionIsUnavailable() throws {
+        let cliPath = try processSupport.bundledCLIPath()
+        let socketPath = processSupport.makeSocketPath("ssh-config-unavailable")
+        let listenerFD = try processSupport.bindUnixSocket(at: socketPath)
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = MockSocketServerState()
+        let handled = processSupport.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = processSupport.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return processSupport.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.create":
+                return processSupport.v2Response(id: id, ok: true, result: [
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ])
+            case "workspace.remote.configure":
+                return processSupport.v2Response(id: id, ok: true, result: [
+                    "workspace_id": workspaceID,
+                    "workspace_ref": "workspace:9",
+                    "remote": ["enabled": true, "state": "connecting"],
+                ])
+            default:
+                return processSupport.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = processSupport.runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh",
+                "--no-focus",
+                "--ssh-option", "CmuxTestInvalidOption=yes",
+                "cmux-config-unavailable-host",
+            ],
+            environment: environment,
+            timeout: 20
+        )
+        processSupport.wait(for: [handled], timeout: 5)
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let methods = state.commands.compactMap {
+            processSupport.jsonObject($0)?["method"] as? String
+        }
+        #expect(methods.contains("workspace.create"), "\(methods)")
+        #expect(methods.contains("workspace.remote.configure"), "\(methods)")
+    }
+
     /// `cmux ssh` bootstrap-install flow (ControlMaster disabled → staged
     /// installer hop + interactive session hop): a caller-supplied
     /// `RemoteCommand` is captured as the program to chain and retained in

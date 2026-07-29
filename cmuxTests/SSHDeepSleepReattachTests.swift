@@ -135,6 +135,19 @@ struct SSHDeepSleepReattachTests {
             focus: false,
             remotePTYSessionID: customSessionID
         ))
+        let resumeCommand = "printf resumed-session"
+        #expect(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                command: resumeCommand,
+                source: "process-detected",
+                launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                    workspaceID: workspace.id,
+                    surfaceID: panel.id,
+                    persistentPTYSessionID: customSessionID
+                ))
+            ),
+            panelId: panel.id
+        ))
         let originalSurface = panel.surface
         #expect(panel.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
@@ -162,11 +175,18 @@ struct SSHDeepSleepReattachTests {
         #expect(command.contains("workspace.remote.foreground_auth_ready"))
         #expect(command.contains(foregroundAuthToken))
         #expect(command.contains("ssh-session-end"))
-        let expectedRestartCommand = SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
-            relayPort: 64007,
-            configuredRemoteCommand: configuredRemoteCommand
+        let commandRange = try #require(
+            command.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)
         )
-        #expect(command.contains(Data(expectedRestartCommand.utf8).base64EncodedString()))
+        let encodedCommand = String(command[commandRange])
+            .split(separator: " ", maxSplits: 1)
+            .last
+            .map(String.init)
+        let commandData = try #require(encodedCommand.flatMap { Data(base64Encoded: $0) })
+        let decodedCommand = try #require(String(data: commandData, encoding: .utf8))
+        #expect(decodedCommand.contains(configuredRemoteCommand))
+        #expect(decodedCommand.contains(Data((resumeCommand + "\n").utf8).base64EncodedString()))
+        #expect(decodedCommand.contains("64007"))
         #expect(restarted.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
         #expect(!workspace.endedPersistentRemotePTYAttachSurfaceIds.contains(panel.id))
