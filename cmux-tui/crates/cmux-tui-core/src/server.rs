@@ -2647,6 +2647,33 @@ pub fn connect_existing_until(
     }
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SocketPublicationStage {
+    StaleProbeComplete,
+    Bound,
+}
+
+#[cfg(test)]
+type SocketPublicationHook = Arc<dyn Fn(&Path, SocketPublicationStage) + Send + Sync + 'static>;
+
+#[cfg(test)]
+static SOCKET_PUBLICATION_HOOK: std::sync::OnceLock<Mutex<Option<SocketPublicationHook>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn set_socket_publication_hook(hook: Option<SocketPublicationHook>) {
+    *SOCKET_PUBLICATION_HOOK.get_or_init(Default::default).lock().unwrap() = hook;
+}
+
+#[cfg(test)]
+fn socket_publication_hook(path: &Path, stage: SocketPublicationStage) {
+    let hook = SOCKET_PUBLICATION_HOOK.get_or_init(Default::default).lock().unwrap().clone();
+    if let Some(hook) = hook {
+        hook(path, stage);
+    }
+}
+
 #[cfg(any(not(unix), test))]
 fn cleanup_without_stable_identity(_path: &Path) {
     // Windows does not expose a race-free socket publication identity through
@@ -2794,14 +2821,20 @@ pub fn serve_owned(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Publi
                 "session socket {} is already in use (another instance running?)",
                 path.display()
             ),
-            None => match std::fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error.into()),
-            },
+            None => {
+                #[cfg(test)]
+                socket_publication_hook(&path, SocketPublicationStage::StaleProbeComplete);
+                match std::fs::remove_file(&path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
         }
     }
     let listener = transport::listen(&path)?;
+    #[cfg(test)]
+    socket_publication_hook(&path, SocketPublicationStage::Bound);
     let published = match PublishedSocket::claim(path.clone()) {
         Ok(published) => published,
         Err(error) => {
@@ -6217,6 +6250,119 @@ mod tests {
         assert_eq!(
             replacement.expect("unverified cleanup removed a replacement publication"),
             b"replacement"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn concurrent_stale_socket_reclamation_has_one_owner() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_CONCURRENT_SOCKET_RECLAMATION";
+        const TEST_NAME: &str = "server::tests::concurrent_stale_socket_reclamation_has_one_owner";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "socket reclamation subprocess failed: {status}");
+            return;
+        }
+
+        #[derive(Default)]
+        struct RaceState {
+            second_probed: bool,
+            first_bound: bool,
+            second_bound: bool,
+        }
+
+        struct ClearPublicationHook;
+        impl Drop for ClearPublicationHook {
+            fn drop(&mut self) {
+                set_socket_publication_hook(None);
+            }
+        }
+
+        let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-concurrent-publication-{}-{sequence:x}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("server.sock");
+        std::os::unix::net::UnixListener::bind(&path).unwrap();
+
+        let state = Arc::new((Mutex::new(RaceState::default()), Condvar::new()));
+        let hook_path = path.clone();
+        let hook_state = state.clone();
+        set_socket_publication_hook(Some(Arc::new(move |path, stage| {
+            if path != hook_path {
+                return;
+            }
+            let thread_name = std::thread::current().name().unwrap_or_default().to_string();
+            let (state, changed) = &*hook_state;
+            let mut state = state.lock().unwrap();
+            match (thread_name.as_str(), stage) {
+                ("socket-startup-second", SocketPublicationStage::StaleProbeComplete) => {
+                    state.second_probed = true;
+                    changed.notify_all();
+                    let (next, _) = changed
+                        .wait_timeout_while(state, Duration::from_secs(1), |state| {
+                            !state.first_bound
+                        })
+                        .unwrap();
+                    drop(next);
+                }
+                ("socket-startup-first", SocketPublicationStage::Bound) => {
+                    state.first_bound = true;
+                    changed.notify_all();
+                    let (next, _) = changed
+                        .wait_timeout_while(state, Duration::from_secs(1), |state| {
+                            !state.second_bound
+                        })
+                        .unwrap();
+                    drop(next);
+                }
+                ("socket-startup-second", SocketPublicationStage::Bound) => {
+                    state.second_bound = true;
+                    changed.notify_all();
+                }
+                _ => {}
+            }
+        })));
+        let _clear_hook = ClearPublicationHook;
+
+        let second_path = path.clone();
+        let second = std::thread::Builder::new()
+            .name("socket-startup-second".into())
+            .spawn(move || serve_owned(test_mux(), Some(second_path)))
+            .unwrap();
+        {
+            let (state, changed) = &*state;
+            let state = state.lock().unwrap();
+            let (state, timeout) = changed
+                .wait_timeout_while(state, Duration::from_secs(2), |state| !state.second_probed)
+                .unwrap();
+            assert!(!timeout.timed_out() && state.second_probed);
+        }
+        let first_path = path.clone();
+        let first = std::thread::Builder::new()
+            .name("socket-startup-first".into())
+            .spawn(move || serve_owned(test_mux(), Some(first_path)))
+            .unwrap();
+
+        let first = first.join().unwrap();
+        let second = second.join().unwrap();
+        let first_error = first.as_ref().err().map(ToString::to_string);
+        let second_error = second.as_ref().err().map(ToString::to_string);
+        let publications: Vec<_> = [first.ok(), second.ok()].into_iter().flatten().collect();
+        let owners = publications.len();
+        for publication in publications {
+            publication.cleanup();
+        }
+        let _ = std::fs::remove_file(&path);
+        std::fs::remove_dir(&directory).unwrap();
+
+        assert_eq!(
+            owners, 1,
+            "concurrent startup created {owners} owners; first={first_error:?}, second={second_error:?}"
         );
     }
 
