@@ -1680,15 +1680,24 @@ final class ClaudeHookSessionStore {
             return canReplaceStoppedOwner
         }
 
-        let resumesPendingClear = clearBackgroundWorkTransferMatchesSource(
-            transfer,
-            sessionId: sessionId,
+        let transferSourceMatches =
+            normalizeOptional(transfer.sourceSessionId) == sessionId
+        let transferGeneration = compareProcessGeneration(
+            recordedPID: transfer.pid,
+            recordedStartSeconds: transfer.pidStartSeconds,
+            recordedStartMicroseconds: transfer.pidStartMicroseconds,
             incomingPID: incomingPID
         )
-        guard resumesPendingClear || canReplaceStoppedOwner else {
+        let resumesPendingClear =
+            transferSourceMatches && transferGeneration == .same
+        let supersedesRetiredTransfer =
+            transferSourceMatches && transferGeneration == .different
+        guard resumesPendingClear
+            || supersedesRetiredTransfer
+            || canReplaceStoppedOwner else {
             return false
         }
-        if resumesPendingClear,
+        if resumesPendingClear || supersedesRetiredTransfer,
            let activeOwner,
            activeOwner.sessionId != sessionId,
            activeOwner.allowsNewSessionReplacement != true {
