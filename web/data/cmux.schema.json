@@ -590,6 +590,11 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
+        "deferAgentResumeUntilFirstFocus": {
+          "type": "boolean",
+          "default": false,
+          "description": "Only takes effect when autoResumeAgentSessions is true. Set true to wait until you actually focus or view a restored agent terminal's tab before running its resume command, instead of running every restorable terminal's resume command immediately on restore."
+        },
         "autoRetryAgentSessions": {
           "type": "boolean",
           "default": false,

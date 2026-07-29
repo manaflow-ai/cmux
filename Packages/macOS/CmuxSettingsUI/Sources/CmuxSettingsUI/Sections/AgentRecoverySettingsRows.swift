@@ -44,6 +44,32 @@ struct AgentRecoverySettingsRows: View {
         }
         SettingsCardDivider()
         SettingsCardRow(
+            configurationReview: .json("terminal.deferAgentResumeUntilFirstFocus"),
+            String(
+                localized: "settings.terminal.agentDeferResumeUntilFirstFocus",
+                defaultValue: "Resume Agents on First Focus"
+            ),
+            subtitle: model.deferResumeUntilFirstFocus.current
+                ? String(
+                    localized: "settings.terminal.agentDeferResumeUntilFirstFocus.subtitleOn",
+                    defaultValue: "Restored agent terminals wait until you focus or view their tab before running their resume command, so opening many sessions at once doesn't launch them all immediately."
+                )
+                : String(
+                    localized: "settings.terminal.agentDeferResumeUntilFirstFocus.subtitleOff",
+                    defaultValue: "Restored agent terminals run their resume command immediately, even for tabs you haven't looked at yet."
+                )
+        ) {
+            Toggle("", isOn: Binding(
+                get: { model.deferResumeUntilFirstFocus.current },
+                set: { model.setDeferResumeUntilFirstFocus($0) }
+            ))
+            .labelsHidden()
+            .controlSize(.small)
+            .disabled(!model.autoResume.current)
+            .accessibilityIdentifier("SettingsTerminalAgentDeferResumeToggle")
+        }
+        SettingsCardDivider()
+        SettingsCardRow(
             configurationReview: .json("terminal.autoRetryAgentSessions"),
             String(
                 localized: "settings.terminal.agentAutoRetry",

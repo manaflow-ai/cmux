@@ -230,6 +230,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: "terminal.autoResumeAgentSessions"
         ),
         .init(
+            jsonKey: "deferAgentResumeUntilFirstFocus",
+            defaultsKey: AgentSessionDeferredResumeSettings.deferUntilFirstFocusKey,
+            invalidPath: "terminal.deferAgentResumeUntilFirstFocus"
+        ),
+        .init(
             jsonKey: "autoRetryAgentSessions",
             defaultsKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey,
             invalidPath: "terminal.autoRetryAgentSessions"
@@ -423,6 +428,7 @@ extension CmuxSettingsFileStore {
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.deferAgentResumeUntilFirstFocus",
         "terminal.autoRetryAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",

@@ -1529,6 +1529,7 @@ final class CmuxSettingsFileStore {
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
+            var agentSessionDeferredResumeDidChange = false
             var agentSessionAutoRetryDidChange = false
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
@@ -1549,6 +1550,9 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
                     agentSessionAutoResumeDidChange = true
+                }
+                if change.defaultsKey == AgentSessionDeferredResumeSettings.deferUntilFirstFocusKey {
+                    agentSessionDeferredResumeDidChange = true
                 }
                 if change.defaultsKey == AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey {
                     agentSessionAutoRetryDidChange = true
@@ -1577,6 +1581,9 @@ final class CmuxSettingsFileStore {
 
             if agentSessionAutoResumeDidChange {
                 AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if agentSessionDeferredResumeDidChange {
+                AgentSessionDeferredResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
             if agentSessionAutoRetryDidChange {
                 AgentSessionAutoRetrySettings(

@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class AgentRecoverySettingsModel {
     let autoResume: DefaultsValueModel<Bool>
+    let deferResumeUntilFirstFocus: DefaultsValueModel<Bool>
     let autoRetry: DefaultsValueModel<Bool>
 
     @ObservationIgnored private let hostActions: any SettingsHostActions
@@ -19,6 +20,10 @@ final class AgentRecoverySettingsModel {
             store: defaultsStore,
             key: catalog.terminal.autoResumeAgentSessions
         )
+        deferResumeUntilFirstFocus = DefaultsValueModel(
+            store: defaultsStore,
+            key: catalog.terminal.deferAgentResumeUntilFirstFocus
+        )
         autoRetry = DefaultsValueModel(
             store: defaultsStore,
             key: catalog.terminal.autoRetryAgentSessions
@@ -28,11 +33,16 @@ final class AgentRecoverySettingsModel {
 
     func startObserving() {
         autoResume.startObserving()
+        deferResumeUntilFirstFocus.startObserving()
         autoRetry.startObserving()
     }
 
     func setAutoResume(_ enabled: Bool) {
         autoResume.set(enabled)
+    }
+
+    func setDeferResumeUntilFirstFocus(_ enabled: Bool) {
+        deferResumeUntilFirstFocus.set(enabled)
     }
 
     func setAutoRetry(_ enabled: Bool) {

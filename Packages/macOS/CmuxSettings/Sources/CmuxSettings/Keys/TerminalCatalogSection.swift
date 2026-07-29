@@ -49,6 +49,15 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
+    /// Whether a restored agent's resume command waits for the panel's first
+    /// focus instead of firing immediately for every restorable panel at
+    /// startup. Only takes effect while `autoResumeAgentSessions` is enabled.
+    public let deferAgentResumeUntilFirstFocus = DefaultsKey<Bool>(
+        id: "terminal.deferAgentResumeUntilFirstFocus",
+        defaultValue: false,
+        userDefaultsKey: "terminal.deferAgentResumeUntilFirstFocus"
+    )
+
     /// Whether failed active agent sessions automatically resume with bounded retries.
     public let autoRetryAgentSessions = DefaultsKey<Bool>(
         id: "terminal.autoRetryAgentSessions",

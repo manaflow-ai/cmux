@@ -385,6 +385,7 @@ enum SettingsSearchIndex {
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "font size text scale terminal browser pane tab title surface-tab-bar-font-size"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
+        setting(.terminal, "agent-defer-resume-until-focus", String(localized: "settings.terminal.agentDeferResumeUntilFirstFocus", defaultValue: "Resume Agents on First Focus"), "terminal.deferAgentResumeUntilFirstFocus defer lazy resume focus startup thundering herd many sessions agents claude code codex opencode toggle"),
         setting(
             .terminal,
             "agent-auto-retry",
@@ -570,6 +571,7 @@ enum SettingsSearchIndex {
         "terminal.sessionContentMaxWidth": settingID(for: .terminal, idSuffix: "session-content-width"),
         "terminal.sessionContentAlignment": settingID(for: .terminal, idSuffix: "session-content-alignment"),
         "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
+        "terminal.deferAgentResumeUntilFirstFocus": settingID(for: .terminal, idSuffix: "agent-defer-resume-until-focus"),
         "terminal.autoRetryAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-retry"),
         "terminal.agentHibernation.enabled": settingID(for: .terminal, idSuffix: "agent-hibernation"),
         "terminal.agentHibernation.idleSeconds": settingID(for: .terminal, idSuffix: "agent-hibernation"),
