@@ -234,7 +234,8 @@ extension TerminalController: ControlSurfaceContext {
             typeRawValue: panel.panelType.rawValue,
             inWindow: inWindow,
             applicationCaptureState: applicationPanel?.captureStateDescription,
-            applicationCaptureError: applicationPanel?.captureFailureDetail,
+            applicationCaptureError: applicationPanel?.captureFailureCode,
+            applicationCaptureErrorDetail: applicationPanel?.captureFailureDetail,
             applicationWindowID: applicationPanel?.windowID,
             applicationProcessID: applicationPanel?.processID
         )

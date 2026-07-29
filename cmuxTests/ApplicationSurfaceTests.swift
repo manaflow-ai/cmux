@@ -273,7 +273,7 @@ struct ApplicationSurfaceTests {
                 kind: .scroll,
                 x: 0.25,
                 y: 0.75,
-                modifiers: NSEvent.ModifierFlags.shift.rawValue,
+                modifiers: UInt64(NSEvent.ModifierFlags.shift.rawValue),
                 deltaX: 1,
                 deltaY: -2
             )) == .accepted)
@@ -285,7 +285,7 @@ struct ApplicationSurfaceTests {
                 kind: .scroll,
                 x: 0.25,
                 y: 0.75,
-                modifiers: NSEvent.ModifierFlags.shift.rawValue,
+                modifiers: UInt64(NSEvent.ModifierFlags.shift.rawValue),
                 deltaX: 100,
                 deltaY: -200
             ),

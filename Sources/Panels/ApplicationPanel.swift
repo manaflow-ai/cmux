@@ -17,7 +17,7 @@ final class ApplicationPanel: Panel {
 
     private(set) var windowID: CGWindowID?
     private(set) var processID: pid_t?
-    private(set) var captureState: ApplicationCaptureState = .starting
+    private(set) var captureState: ApplicationCaptureState = .suspended
     private(set) var captureGeneration = UUID()
 
     private var targetTitle: String?
@@ -84,11 +84,15 @@ final class ApplicationPanel: Panel {
         case .failed: return "failed"
         }
     }
-    var captureFailureDetail: String? {
-        if case .failed(let detail) = pickerModel.phase {
-            return detail
+    var captureFailureCode: String? {
+        if case .failed = pickerModel.phase {
+            return "window_list_failed"
         }
         return captureState == .failed ? "capture_failed" : nil
+    }
+    var captureFailureDetail: String? {
+        guard case .failed(let detail) = pickerModel.phase else { return nil }
+        return detail
     }
 
     init?(
@@ -115,9 +119,6 @@ final class ApplicationPanel: Panel {
         self.targetFrameRate = min(max(targetFrameRate, 1), 120)
         self.runtime = runtime
         self.runtimeLease = runtimeLease
-        if windowID == nil {
-            captureState = .starting
-        }
     }
 
     func beginWindowSelectionIfNeeded() {
@@ -191,7 +192,7 @@ final class ApplicationPanel: Panel {
         targetTitle = window.title
         displayTitleDidChange?(displayTitle)
         pickerModel.selectedWindowID = window.windowID
-        captureState = .starting
+        captureState = .suspended
         captureGeneration = UUID()
     }
 
@@ -202,7 +203,7 @@ final class ApplicationPanel: Panel {
         processID = nil
         targetTitle = nil
         displayTitleDidChange?(displayTitle)
-        captureState = .starting
+        captureState = .suspended
         captureGeneration = UUID()
         pickerModel.query = ""
         pickerModel.phase = .idle
@@ -369,7 +370,9 @@ final class ApplicationPanel: Panel {
     }
 
     func retryCaptureAfterPermissions() {
-        captureState = .starting
+        captureState = captureVisibleInUI && canvasRendering
+            ? .starting
+            : .suspended
         applyCaptureVisibility()
     }
 
@@ -395,6 +398,10 @@ final class ApplicationPanel: Panel {
     }
 
     private func applyCaptureVisibility() {
-        hostedView?.setCaptureActive(captureVisibleInUI && canvasRendering)
+        let shouldCapture = captureVisibleInUI && canvasRendering
+        if !shouldCapture, captureTarget != nil {
+            captureState = .suspended
+        }
+        hostedView?.setCaptureActive(shouldCapture)
     }
 }

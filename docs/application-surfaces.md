@@ -50,3 +50,7 @@ CMUX CLI.
 
 `surface.split` does not accept `type=application`; use `surface.create` with
 `window_id_native` and `process_id`.
+
+`surface.health` reports a stable machine-readable `capture_error` code.
+When the helper supplies localized diagnostic text, it is returned separately
+as `capture_error_detail`.

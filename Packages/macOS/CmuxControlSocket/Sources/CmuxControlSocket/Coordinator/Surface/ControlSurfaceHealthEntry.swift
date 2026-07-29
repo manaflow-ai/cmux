@@ -18,6 +18,8 @@ public struct ControlSurfaceHealthEntry: Sendable, Equatable {
     public let applicationCaptureState: String?
     /// Stable capture failure code, when capture initialization failed.
     public let applicationCaptureError: String?
+    /// Localized capture failure detail for display, when available.
+    public let applicationCaptureErrorDetail: String?
     /// Captured native window identifier, when known.
     public let applicationWindowID: UInt32?
     /// Captured native process identifier, when known.
@@ -32,6 +34,7 @@ public struct ControlSurfaceHealthEntry: Sendable, Equatable {
     ///     for unsupported panel types.
     ///   - applicationCaptureState: Stable application capture lifecycle state.
     ///   - applicationCaptureError: Stable application capture failure code.
+    ///   - applicationCaptureErrorDetail: Localized failure detail for display.
     ///   - applicationWindowID: Captured native window identifier.
     ///   - applicationProcessID: Captured native process identifier.
     public init(
@@ -40,6 +43,7 @@ public struct ControlSurfaceHealthEntry: Sendable, Equatable {
         inWindow: Bool?,
         applicationCaptureState: String? = nil,
         applicationCaptureError: String? = nil,
+        applicationCaptureErrorDetail: String? = nil,
         applicationWindowID: UInt32? = nil,
         applicationProcessID: Int32? = nil
     ) {
@@ -48,6 +52,7 @@ public struct ControlSurfaceHealthEntry: Sendable, Equatable {
         self.inWindow = inWindow
         self.applicationCaptureState = applicationCaptureState
         self.applicationCaptureError = applicationCaptureError
+        self.applicationCaptureErrorDetail = applicationCaptureErrorDetail
         self.applicationWindowID = applicationWindowID
         self.applicationProcessID = applicationProcessID
     }

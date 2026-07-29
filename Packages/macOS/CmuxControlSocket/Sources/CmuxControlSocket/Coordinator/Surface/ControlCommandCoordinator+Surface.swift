@@ -277,6 +277,8 @@ extension ControlCommandCoordinator {
                 item["capture_state"] = .string(state)
                 item["capture_error"] = entry.applicationCaptureError
                     .map(JSONValue.string) ?? .null
+                item["capture_error_detail"] = entry.applicationCaptureErrorDetail
+                    .map(JSONValue.string) ?? .null
                 item["native_window_id"] = entry.applicationWindowID
                     .map { .int(Int64($0)) } ?? .null
                 item["process_id"] = entry.applicationProcessID

@@ -30,6 +30,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     private var helperTerminationObservationTask: Task<Void, Never>?
     private var helperHealthTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
+    private var finalHelperCleanupTask: Task<Void, Never>?
+    private var finalHelperCleanupGeneration = UUID()
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
     private var acceptsNewLaunches = true
@@ -74,6 +76,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         helperTerminationObservationTask?.cancel()
         helperHealthTask?.cancel()
         recoveryTask?.cancel()
+        finalHelperCleanupTask?.cancel()
     }
 
     var helperAppURL: URL? {
@@ -136,6 +139,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         permissionRefreshGeneration &+= 1
         computerUseEnabled = newValue
         if desiredEnabled {
+            cancelFinalHelperCleanup()
             await startIfNeeded()
             startMonitoringHelperHealth()
         } else {
@@ -289,6 +293,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         let identifier = UUID()
         applicationSurfaceLeaseIdentifiers.insert(identifier)
         applicationSurfaceSessionIDsByLease[identifier] = []
+        cancelFinalHelperCleanup()
         permissionRefreshGeneration &+= 1
         await startIfNeeded()
         startMonitoringHelperHealth()
@@ -1058,11 +1063,77 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             return await self.stopDaemon()
         }
         if helperStopped {
-            applicationSurfacePendingStops.removeAll()
+            clearApplicationSurfaceSessionsAfterHelperExit()
+            cancelFinalHelperCleanup()
+        } else if Self.shouldScheduleFinalHelperCleanup(
+            desiredEnabled: desiredEnabled,
+            helperStopped: helperStopped
+        ) {
+            scheduleFinalHelperCleanup()
         }
         guard !desiredEnabled else { return }
         try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
         cachedStatus = .unknown
+    }
+
+    nonisolated static func shouldScheduleFinalHelperCleanup(
+        desiredEnabled: Bool,
+        helperStopped: Bool
+    ) -> Bool {
+        !desiredEnabled && !helperStopped
+    }
+
+    /// Keeps one serialized, rate-limited cleanup owner alive after the last
+    /// pane closes. It exits only after helper termination is confirmed or new
+    /// demand takes ownership of the helper again.
+    private func scheduleFinalHelperCleanup() {
+        guard finalHelperCleanupTask == nil else { return }
+        let generation = UUID()
+        finalHelperCleanupGeneration = generation
+        finalHelperCleanupTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            while !Task.isCancelled {
+                do {
+                    try await clock.sleep(for: .seconds(1))
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled else { break }
+                guard await self?.retryFinalHelperCleanupOnce() == true else {
+                    break
+                }
+            }
+            guard
+                let self,
+                self.finalHelperCleanupGeneration == generation
+            else {
+                return
+            }
+            self.finalHelperCleanupTask = nil
+        }
+    }
+
+    private func retryFinalHelperCleanupOnce() async -> Bool {
+        guard !desiredEnabled else { return false }
+        let helperStopped = await serializeHelperLifecycle(
+            cancelledResult: false
+        ) { [weak self] in
+            guard let self, !self.desiredEnabled else { return false }
+            return await self.stopDaemon()
+        }
+        if helperStopped {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+        }
+        return Self.shouldScheduleFinalHelperCleanup(
+            desiredEnabled: desiredEnabled,
+            helperStopped: helperStopped
+        )
+    }
+
+    private func cancelFinalHelperCleanup() {
+        finalHelperCleanupGeneration = UUID()
+        finalHelperCleanupTask?.cancel()
+        finalHelperCleanupTask = nil
     }
 
     private func serializeHelperLifecycle<Result: Sendable>(
@@ -1448,6 +1519,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         missedHelperHealthChecks = 0
         recoveryTask?.cancel()
         recoveryTask = nil
+        cancelFinalHelperCleanup()
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         clearTrackedHelperProcess()
         try? FileManager.default.removeItem(at: paths.daemonSocketURL)

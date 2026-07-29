@@ -23,6 +23,16 @@ final class ApplicationSurfaceInputPump {
 
     @discardableResult
     func enqueue(_ event: ApplicationSurfaceInputEvent) -> ApplicationSurfaceInputEnqueueResult {
+        if event.kind == .scroll,
+           let lastIndex = queue.indices.last,
+           queue[lastIndex].kind == .scroll,
+           queue[lastIndex].modifiers == event.modifiers {
+            var coalesced = event
+            coalesced.deltaX += queue[lastIndex].deltaX
+            coalesced.deltaY += queue[lastIndex].deltaY
+            queue[lastIndex] = coalesced
+            return .accepted
+        }
         if event.kind.isCoalescibleMotion,
            let lastIndex = queue.indices.last,
            queue[lastIndex].kind.isCoalescibleMotion {
