@@ -1494,6 +1494,12 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
     }
 }
+struct SessionApplicationPanelSnapshot: Codable, Sendable {
+    var windowID: UInt32?
+    var processID: Int32?
+    var title: String?
+    var targetFrameRate: Int?
+}
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
@@ -1546,6 +1552,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var ttyName: String?
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
+    var application: SessionApplicationPanelSnapshot? = nil
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?

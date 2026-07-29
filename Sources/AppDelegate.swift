@@ -13620,7 +13620,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                ) {
                 return true
             }
-            return false
+            if !applicationPaneExplicitCmuxShortcutMatches(
+                event: event,
+                configuredActions: configuredCmuxShortcutActions
+            ) {
+                return false
+            }
         }
         if handleFocusedFileExplorerOpenSelectionShortcut(
             event,
@@ -15640,6 +15645,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for context: MainWindowContext?
     ) -> [CmuxResolvedConfigAction] {
         context?.cmuxConfigStore?.shortcutActions() ?? []
+    }
+
+    private func applicationPaneExplicitCmuxShortcutMatches(
+        event: NSEvent,
+        configuredActions: [CmuxResolvedConfigAction]
+    ) -> Bool {
+        for action in KeyboardShortcutSettings.Action.allCases
+        where !action.isSystemWideHotkey {
+            guard
+                let shortcut =
+                    KeyboardShortcutSettings
+                        .explicitlyConfiguredShortcutIfBound(for: action),
+                shortcutWhenClauseAllows(action: action, event: event),
+                matchConfiguredShortcut(event: event, shortcut: shortcut)
+            else {
+                continue
+            }
+            return true
+        }
+        return configuredActions.contains { action in
+            guard let shortcut = action.shortcut else { return false }
+            return matchConfiguredShortcut(event: event, shortcut: shortcut)
+        }
     }
 
     private func handleConfiguredCmuxShortcut(

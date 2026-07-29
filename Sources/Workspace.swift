@@ -437,6 +437,7 @@ extension Workspace {
         let ttyName = surfaceTTYNames[panelId]
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
+        var applicationSnapshot: SessionApplicationPanelSnapshot? = nil
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?; var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
@@ -583,7 +584,22 @@ extension Workspace {
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .application:
-            return nil
+            guard let applicationPanel = panel as? ApplicationPanel else {
+                return nil
+            }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            applicationSnapshot = SessionApplicationPanelSnapshot(
+                windowID: applicationPanel.windowID,
+                processID: applicationPanel.processID,
+                title: applicationPanel.selectedWindowTitle,
+                targetFrameRate: applicationPanel.targetFrameRate
+            )
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
+            projectSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
@@ -676,6 +692,7 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
+            application: applicationSnapshot,
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot,
@@ -1679,7 +1696,38 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
         case .application:
-            return nil
+            let applicationSnapshot = snapshot.application
+            let target: (windowID: CGWindowID, processID: pid_t)? = {
+                guard
+                    let windowID = applicationSnapshot?.windowID,
+                    let processID = applicationSnapshot?.processID,
+                    windowID > 0,
+                    processID > 0
+                else {
+                    return nil
+                }
+                return (CGWindowID(windowID), pid_t(processID))
+            }()
+            let requestedFrameRate =
+                applicationSnapshot?.targetFrameRate ?? 60
+            let targetFrameRate = (1...120).contains(requestedFrameRate)
+                ? requestedFrameRate
+                : 60
+            guard let applicationPanel = newApplicationSurface(
+                inPane: paneId,
+                windowID: target?.windowID,
+                processID: target?.processID,
+                title: target == nil ? nil : applicationSnapshot?.title,
+                targetFrameRate: targetFrameRate,
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(
+                snapshot,
+                toPanelId: applicationPanel.id
+            )
+            return applicationPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
                   let markdownPanel = newMarkdownSurface(

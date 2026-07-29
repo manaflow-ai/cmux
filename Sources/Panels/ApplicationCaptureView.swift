@@ -529,8 +529,7 @@ final class ApplicationCaptureView: NSView {
         else {
             return super.performKeyEquivalent(with: event)
         }
-        keyDown(with: event)
-        return true
+        return enqueueKey(event, keyDown: true)
     }
 
     override func keyUp(with event: NSEvent) {
