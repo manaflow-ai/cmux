@@ -51,14 +51,16 @@ public final class CmuxRemoteFrameView: NSView {
     }
 
     /// Replaces the current frame transport with the supplied descriptor.
-    public func adopt(_ descriptor: SimulatorFrameTransportDescriptor) {
-        guard !isTornDown, descriptor != frameTransportDescriptor else { return }
+    @discardableResult
+    public func adopt(_ descriptor: SimulatorFrameTransportDescriptor) -> Bool {
+        guard !isTornDown else { return false }
+        guard descriptor != frameTransportDescriptor else { return true }
         let source: SimulatorFrameSurfaceSource
         do {
             source = try SimulatorFrameSurfaceSource(descriptor: descriptor)
         } catch {
             onTransportFailure?(error)
-            return
+            return false
         }
 
         stopPresentationTimer()
@@ -76,6 +78,13 @@ public final class CmuxRemoteFrameView: NSView {
             source: source,
             presentationDidComplete: { [weak self] in
                 self?.renderLatestFrame()
+            },
+            sourceFailureDidOccur: { [weak self] in
+                self?.onTransportFailure?(
+                    SimulatorFrameLayoutError(
+                        "The frame producer reported a capture failure."
+                    )
+                )
             }
         )
         frameTransportDescriptor = descriptor
@@ -83,6 +92,7 @@ public final class CmuxRemoteFrameView: NSView {
         layoutFrameLayer()
         renderLatestFrame()
         reconcilePresentation()
+        return true
     }
 
     /// Enables or pauses presentation without releasing the current transport.

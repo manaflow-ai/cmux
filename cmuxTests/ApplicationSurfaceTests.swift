@@ -979,6 +979,11 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
         sessionID: String
     ) async {}
 
+    func acknowledgeApplicationSurfaceAttachment(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) async throws {}
+
     func sendApplicationSurfaceEvent(
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String,

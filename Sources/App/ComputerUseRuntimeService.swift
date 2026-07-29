@@ -25,8 +25,10 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
 
     private let bundledHelperAppURL: URL?
     private let transport: SocketTransport
-    private let applicationSurfaceInputConnection:
-        PersistentSocketLineConnection
+    private let applicationSurfaceInputConnections:
+        ApplicationSurfaceInputConnectionRegistry
+    private let applicationSurfaceFailureEventRegistry =
+        ApplicationSurfaceFailureEventRegistry()
     private var installedHelperURL: URL?
     private var helperLifecycleTask: Task<Void, Never>?
     private var helperLifecycleCancellationActions: [Int: @Sendable () -> Void] = [:]
@@ -62,8 +64,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     ) {
         self.paths = paths
         self.transport = transport
-        applicationSurfaceInputConnection =
-            PersistentSocketLineConnection(transport: transport)
+        applicationSurfaceInputConnections =
+            ApplicationSurfaceInputConnectionRegistry(transport: transport)
         stateAuthenticationKey = Self.makeStateAuthenticationKey()
         let nestedURL = bundle.bundleURL
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app", isDirectory: true)
@@ -338,6 +340,10 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 }
             }
         }
+        for sessionID in sessionIDs {
+            applicationSurfaceInputConnections.removeConnection(for: sessionID)
+            applicationSurfaceFailureEventRegistry.finish(sessionID: sessionID)
+        }
         applicationSurfaceSessionIDsByLease.removeValue(forKey: identifier)
         applicationSurfaceLeaseIdentifiers.remove(identifier)
         permissionRefreshGeneration &+= 1
@@ -432,6 +438,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
         applicationSurfaceSessionIDsByLease[lease.identifier, default: []]
             .insert(sessionID)
+        _ = applicationSurfaceInputConnections.connection(for: sessionID)
         return descriptor
     }
 
@@ -446,6 +453,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         else {
             return
         }
+        applicationSurfaceInputConnections.removeConnection(for: sessionID)
+        applicationSurfaceFailureEventRegistry.finish(sessionID: sessionID)
         guard let identity = try? validatedApplicationSurfaceIdentity(lease: lease) else {
             applicationSurfaceSessionIDsByLease[lease.identifier]?.remove(sessionID)
             return
@@ -465,38 +474,50 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
     }
 
-    func checkApplicationSurfaceHealth(
+    func applicationSurfaceFailureEvents(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) -> AsyncStream<ApplicationSurfaceRuntimeError> {
+        guard
+            !sessionID.isEmpty,
+            lease.service === self,
+            applicationSurfaceSessionIDsByLease[lease.identifier]?
+                .contains(sessionID) == true
+        else {
+            return AsyncStream { continuation in
+                continuation.yield(.helperUnavailable)
+                continuation.finish()
+            }
+        }
+        return applicationSurfaceFailureEventRegistry.events(for: sessionID)
+    }
+
+    func acknowledgeApplicationSurfaceAttachment(
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String
     ) async throws {
         let identity = try validatedApplicationSurfaceIdentity(lease: lease)
         guard
             !sessionID.isEmpty,
-            applicationSurfaceSessionIDsByLease[lease.identifier]?.contains(sessionID) == true
+            applicationSurfaceSessionIDsByLease[lease.identifier]?
+                .contains(sessionID) == true
         else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
-        guard let response = await Self.sendDaemonRequest(
+        let response = await Self.sendDaemonRequest(
             [
-                "method": "application_surface_event",
-                "args": [
-                    "session": sessionID,
-                    "kind": "health",
-                ],
+                "method": "application_surface_attach",
+                "args": ["session": sessionID],
             ],
             paths: paths,
             transport: transport,
             timeout: 3,
             expectedPeerIdentity: identity,
-            socketURL: paths.daemonSocketURL,
-            persistentConnection: Self.applicationSurfacePersistentConnection(
-                for: .health,
-                inputConnection: applicationSurfaceInputConnection
-            )
-        ) else {
+            socketURL: paths.daemonSocketURL
+        )
+        guard Self.applicationSurfaceAttachmentWasAcknowledged(response) else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
-        try Self.throwApplicationSurfaceResponseError(response)
     }
 
     func sendApplicationSurfaceEvent(
@@ -544,10 +565,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             timeout: 3,
             expectedPeerIdentity: identity,
             socketURL: paths.daemonSocketURL,
-            persistentConnection: Self.applicationSurfacePersistentConnection(
-                for: .input,
-                inputConnection: applicationSurfaceInputConnection
-            )
+            persistentConnection:
+                applicationSurfaceInputConnections.connection(for: sessionID)
         ) else {
             throw ApplicationSurfaceRuntimeError.helperUnavailable
         }
@@ -616,6 +635,18 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             return false
         }
         return true
+    }
+
+    nonisolated static func applicationSurfaceAttachmentWasAcknowledged(
+        _ response: [String: Any]?
+    ) -> Bool {
+        guard
+            response?["ok"] as? Bool == true,
+            let result = response?["result"] as? [String: Any]
+        else {
+            return false
+        }
+        return result["attached"] as? Bool == true
     }
 
     nonisolated static func applicationSurfaceStopShouldRetry(
@@ -830,26 +861,18 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
 
     private func clearApplicationSurfaceSessionsAfterHelperExit() {
         applicationSurfacePendingStops.removeAll()
+        applicationSurfaceInputConnections.removeAllConnections()
+        applicationSurfaceFailureEventRegistry.failAll(with: .helperUnavailable)
         for leaseIdentifier in Array(applicationSurfaceSessionIDsByLease.keys) {
             applicationSurfaceSessionIDsByLease[leaseIdentifier]?.removeAll()
         }
     }
 
     private func removeTrackedApplicationSurfaceSession(_ sessionID: String) {
+        applicationSurfaceInputConnections.removeConnection(for: sessionID)
+        applicationSurfaceFailureEventRegistry.finish(sessionID: sessionID)
         for leaseIdentifier in Array(applicationSurfaceSessionIDsByLease.keys) {
             applicationSurfaceSessionIDsByLease[leaseIdentifier]?.remove(sessionID)
-        }
-    }
-
-    nonisolated static func applicationSurfacePersistentConnection(
-        for lane: ApplicationSurfaceRequestLane,
-        inputConnection: PersistentSocketLineConnection
-    ) -> PersistentSocketLineConnection? {
-        switch lane {
-        case .health:
-            nil
-        case .input:
-            inputConnection
         }
     }
 
@@ -1602,6 +1625,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         computerUseEnabled = false
         applicationSurfaceLeaseIdentifiers.removeAll()
         applicationSurfaceSessionIDsByLease.removeAll()
+        applicationSurfaceInputConnections.removeAllConnections()
+        applicationSurfaceFailureEventRegistry.finishAll()
         applicationSurfacePendingStops.removeAll()
         acceptsNewLaunches = false
         permissionRefreshGeneration &+= 1
@@ -1845,6 +1870,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         ) else {
             return
         }
+        clearApplicationSurfaceSessionsAfterHelperExit()
         scheduleHelperRecovery()
     }
 
@@ -1900,6 +1926,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         ) else {
             return
         }
+        clearApplicationSurfaceSessionsAfterHelperExit()
         scheduleHelperRecovery()
     }
 

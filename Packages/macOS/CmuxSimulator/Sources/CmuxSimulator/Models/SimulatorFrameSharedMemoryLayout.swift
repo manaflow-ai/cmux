@@ -3,6 +3,7 @@ import Foundation
 
 private let frameHeaderByteCount = 64
 private let framePublishedWordOffset = 32
+private let frameSourceFailureWord = Int64.min
 private let frameSlotVersionOffset = 40
 private let frameSlotVersionStride = 8
 private let frameMagic: UInt32 = 0x434D_5846
@@ -137,6 +138,11 @@ package struct SimulatorFrameSharedMemoryLayout: Sendable {
               frameSequence <= UInt64(Int64.max) >> 2,
               (0..<slotCount).contains(slot) else { return nil }
         return Int64((frameSequence << 2) | UInt64(slot))
+    }
+
+    /// Returns whether the producer permanently failed this frame ring.
+    package func publishedWordReportsSourceFailure(_ word: Int64) -> Bool {
+        word == frameSourceFailureWord
     }
 
     /// Decodes an atomic publication word into its frame sequence and slot.

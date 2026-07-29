@@ -14,10 +14,14 @@ protocol ApplicationSurfaceRuntime: AnyObject {
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String
     ) async
-    func checkApplicationSurfaceHealth(
+    func acknowledgeApplicationSurfaceAttachment(
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String
     ) async throws
+    func applicationSurfaceFailureEvents(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) -> AsyncStream<ApplicationSurfaceRuntimeError>
     func sendApplicationSurfaceEvent(
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String,
@@ -31,6 +35,17 @@ protocol ApplicationSurfaceRuntime: AnyObject {
 }
 
 extension ApplicationSurfaceRuntime {
+    func applicationSurfaceFailureEvents(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) -> AsyncStream<ApplicationSurfaceRuntimeError> {
+        _ = lease
+        _ = sessionID
+        return AsyncStream { continuation in
+            continuation.finish()
+        }
+    }
+
     func sendApplicationSurfaceEvents(
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String,

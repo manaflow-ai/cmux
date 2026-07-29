@@ -97,6 +97,7 @@ final class ApplicationCaptureView: NSView {
     private var stopTask: Task<Void, Never>?
     private var inputReleaseTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
+    private var runtimeFailureTask: Task<Void, Never>?
     private var livenessState: ApplicationCaptureLivenessState?
     private var captureGeneration = UUID()
     private var inputReleaseGeneration = UUID()
@@ -313,8 +314,28 @@ final class ApplicationCaptureView: NSView {
                     return
                 }
                 self.session = session
+                self.beginRuntimeFailureObservation(
+                    lease: lease,
+                    session: session,
+                    generation: generation
+                )
                 self.beginLivenessWatchdog(generation: generation)
-                self.remoteFrameView.adopt(session.frameTransport)
+                guard self.remoteFrameView.adopt(session.frameTransport) else {
+                    return
+                }
+                do {
+                    try await self.runtime
+                        .acknowledgeApplicationSurfaceAttachment(
+                            lease: lease,
+                            sessionID: session.sessionID
+                        )
+                } catch {
+                    self.handleRuntimeFailure(
+                        .failed,
+                        failureDetail: error.localizedDescription
+                    )
+                    return
+                }
                 if self.window?.firstResponder === self {
                     self.synchronizeForwardedModifierKeys()
                 }
@@ -364,6 +385,8 @@ final class ApplicationCaptureView: NSView {
     private func suspendCapture(reportState: Bool) {
         captureGeneration = UUID()
         captureTask?.cancel()
+        runtimeFailureTask?.cancel()
+        runtimeFailureTask = nil
         stopLivenessWatchdog()
         remoteFrameView.setActive(false)
         remoteFrameView.resetTransport()
@@ -714,47 +737,53 @@ final class ApplicationCaptureView: NSView {
                     )
                     return
                 }
-                guard
-                    self.livenessState?.hasPresentedFrame == true,
-                    let lease = self.lease,
-                    let sessionID = self.session?.sessionID
-                else {
-                    continue
-                }
-                do {
-                    try await self.runtime.checkApplicationSurfaceHealth(
-                        lease: lease,
-                        sessionID: sessionID
-                    )
-                } catch ApplicationSurfaceRuntimeError.windowUnavailable {
-                    guard self.captureGeneration == generation else { return }
-                    self.handleRuntimeFailure(
-                        .windowUnavailable,
-                        failureDetail: ApplicationSurfaceRuntimeError
-                            .windowUnavailable.localizedDescription
-                    )
+                if self.livenessState?.hasPresentedFrame == true {
                     return
-                } catch ApplicationSurfaceRuntimeError.permissionRequired {
-                    guard self.captureGeneration == generation else { return }
+                }
+            }
+        }
+    }
+
+    private func beginRuntimeFailureObservation(
+        lease: ApplicationSurfaceRuntimeLease,
+        session: ApplicationSurfaceSessionDescriptor,
+        generation: UUID
+    ) {
+        runtimeFailureTask?.cancel()
+        let failures = runtime.applicationSurfaceFailureEvents(
+            lease: lease,
+            sessionID: session.sessionID
+        )
+        runtimeFailureTask = Task { @MainActor [weak self] in
+            for await failure in failures {
+                guard
+                    let self,
+                    !Task.isCancelled,
+                    self.captureGeneration == generation,
+                    self.session?.sessionID == session.sessionID
+                else {
+                    return
+                }
+                switch failure {
+                case .permissionRequired:
                     self.handleRuntimeFailure(
                         .permissionRequired,
-                        failureDetail: ApplicationSurfaceRuntimeError
-                            .permissionRequired.localizedDescription
+                        failureDetail: failure.localizedDescription
                     )
-                    return
-                } catch {
-                    guard self.captureGeneration == generation else { return }
-                    cmuxDebugLog(
-                        "applicationSurface.health.failed"
-                            + " window=\(self.sourceWindowID)"
-                            + " error=\(error.localizedDescription)"
+                case .windowUnavailable:
+                    self.handleRuntimeFailure(
+                        .windowUnavailable,
+                        failureDetail: failure.localizedDescription
                     )
+                case .helperUnavailable, .invalidResponse, .failed:
                     self.handleRuntimeFailure(
                         .failed,
-                        failureDetail: error.localizedDescription
+                        failureDetail: failure.localizedDescription
                     )
-                    return
+                case .pointOutsideContent:
+                    continue
                 }
+                return
             }
         }
     }
@@ -768,6 +797,7 @@ final class ApplicationCaptureView: NSView {
     private func recordPresentedFrame() {
         guard shouldCaptureNow, session != nil else { return }
         livenessState?.recordFrame(at: ProcessInfo.processInfo.systemUptime)
+        stopLivenessWatchdog()
     }
 
     @objc private func hostWindowDidResignKey(_ notification: Notification) {

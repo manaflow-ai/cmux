@@ -357,6 +357,37 @@ final class ApplicationPanel: Panel {
         window.makeFirstResponder(nil)
     }
 
+    func ownedFocusIntent(
+        for responder: NSResponder,
+        in window: NSWindow
+    ) -> PanelFocusIntent? {
+        guard
+            let hostedView,
+            hostedView.window === window,
+            let responderView = responder as? NSView,
+            responderView.window === window,
+            responderView === hostedView || responderView.isDescendant(of: hostedView)
+        else {
+            return nil
+        }
+        return .panel
+    }
+
+    func yieldFocusIntent(
+        _ intent: PanelFocusIntent,
+        in window: NSWindow
+    ) -> Bool {
+        guard
+            intent == .panel,
+            let responder = window.firstResponder,
+            ownedFocusIntent(for: responder, in: window) == intent
+        else {
+            return false
+        }
+        hostedView?.releaseForwardedInputs()
+        return window.makeFirstResponder(nil)
+    }
+
     func sendNamedKey(_ name: String) -> ApplicationNamedKeySendResult {
         guard let parsed = ApplicationCaptureView.parseNamedKey(name) else {
             return .unknownKey

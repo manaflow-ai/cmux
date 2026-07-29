@@ -1,6 +1,6 @@
 import Foundation
 
-enum ApplicationSurfaceRuntimeError: LocalizedError, Equatable {
+enum ApplicationSurfaceRuntimeError: LocalizedError, Equatable, Sendable {
     case permissionRequired
     case windowUnavailable
     case helperUnavailable
