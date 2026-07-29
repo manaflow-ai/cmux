@@ -148,6 +148,17 @@ def javascript_string_array(text: str, name: str) -> tuple[str, ...]:
     return tuple(values)
 
 
+def github_expression_containing(text: str, needle: str) -> str:
+    matches = [
+        line.strip()
+        for line in text.splitlines()
+        if needle in line and "${{" in line
+    ]
+    assert len(matches) == 1, f"expected one expression containing {needle}"
+    expression = matches[0]
+    return expression.split("${{", 1)[1].rsplit("}}", 1)[0].strip()
+
+
 def run_decision_scenario(
     *,
     event_name: str,
@@ -161,6 +172,10 @@ def run_decision_scenario(
 ) -> dict[str, object]:
     decision_job = mapping_block(workflow_text(), "decide", indent=2)
     decision_script = literal_block(decision_job, "script", indent=10)
+    artifact_expression = github_expression_containing(
+        workflow_text(),
+        "ios-testflight-build-metadata-override",
+    )
     scenario = {
         "eventName": event_name,
         "schedule": schedule,
@@ -204,6 +219,12 @@ const context = {{
   sha: scenario.headSha,
 }};
 const github = {{
+  event: {{
+    inputs: {{
+      marketing_version_override: '',
+      variant: scenario.inputVariant,
+    }},
+  }},
   rest: {{
     actions: {{
       listWorkflowRuns: async () => {{
@@ -266,12 +287,15 @@ async function runDecision() {{
 {decision_script}
 }}
 await runDecision();
+const needs = {{ decide: {{ outputs }} }};
+const producedArtifactName = {artifact_expression};
 process.stdout.write(JSON.stringify({{
   outputs,
   compareCalls,
   warnings,
   waitCalls,
   workflowRunCalls,
+  producedArtifactName,
 }}));
 """
     assert BUN is not None, "bun is required to execute the decide job harness"
@@ -343,11 +367,26 @@ def test_schedule_decision_executes_ios_path_filter() -> None:
 
 
 def test_schedule_decision_routes_demo_cron_to_demo_history() -> None:
+    first_run = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[1],
+        input_variant="",
+    )
+    produced_artifact = first_run["producedArtifactName"]
+    assert isinstance(produced_artifact, str)
+    assert first_run["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "",
+        "variant": "demo",
+    }
+    assert produced_artifact == "ios-testflight-build-metadata-demo"
+
     result = run_decision_scenario(
         event_name="schedule",
         schedule=IOS_SCHEDULES[1],
+        input_variant="",
         prior_sha="demo-base-sha",
-        prior_artifact="ios-testflight-build-metadata-demo",
+        prior_artifact=produced_artifact,
         changed_files=("docs/cli-contract.md",),
     )
 
