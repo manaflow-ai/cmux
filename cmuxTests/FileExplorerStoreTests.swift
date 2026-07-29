@@ -120,6 +120,7 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
     private(set) var reloadRowsCallCount = 0
     private(set) var lastReloadedRowCount = 0
     private(set) var itemAtRowCallCount = 0
+    private(set) var cellViewLookupCallCount = 0
 
     override func reloadItem(_ item: Any?, reloadChildren: Bool) {
         reloadItemCallCount += 1
@@ -145,12 +146,28 @@ private final class CountingFileExplorerOutlineView: NSOutlineView {
         return super.item(atRow: row)
     }
 
+    override func view(
+        atColumn column: Int,
+        row: Int,
+        makeIfNecessary: Bool
+    ) -> NSView? {
+        if !makeIfNecessary {
+            cellViewLookupCallCount += 1
+        }
+        return super.view(
+            atColumn: column,
+            row: row,
+            makeIfNecessary: makeIfNecessary
+        )
+    }
+
     func resetMetrics() {
         reloadDataCallCount = 0
         reloadItemCallCount = 0
         reloadRowsCallCount = 0
         lastReloadedRowCount = 0
         itemAtRowCallCount = 0
+        cellViewLookupCallCount = 0
     }
 }
 
@@ -274,7 +291,7 @@ struct FileExplorerStoreTests {
 
         store.expand(node: directory)
         try await waitFor("scoped node refresh") {
-            outlineView.reloadRowsCallCount > 0
+            outlineView.cellViewLookupCallCount > 0
         }
         coordinator.reloadIfNeeded()
 
@@ -311,10 +328,10 @@ struct FileExplorerStoreTests {
         }
 
         try await waitFor("coalesced outline refresh") {
-            outlineView.reloadRowsCallCount == 1
+            outlineView.cellViewLookupCallCount == 1
         }
-        #expect(outlineView.reloadRowsCallCount == 1)
-        #expect(outlineView.lastReloadedRowCount == 1)
+        #expect(outlineView.cellViewLookupCallCount == 1)
+        #expect(outlineView.reloadRowsCallCount == 0)
         #expect(outlineView.reloadItemCallCount == 0)
     }
 

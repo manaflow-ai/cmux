@@ -142,6 +142,28 @@ import Testing
         #expect(result.exitStatus == nil)
     }
 
+    @Test func taskCancellationBeforeRunReturnsWithoutCrashing() async throws {
+        let command = Task {
+            withUnsafeCurrentTask { task in
+                task?.cancel()
+            }
+            return await runner.run(
+                directory: tempDir,
+                executable: "sh",
+                arguments: ["-c", "sleep 10 & wait"],
+                timeout: 30
+            )
+        }
+
+        let result = try await expectCompletes(within: 4) {
+            await command.value
+        }
+
+        #expect(result.executionError == "cancelled")
+        #expect(result.timedOut == false)
+        #expect(result.exitStatus == nil)
+    }
+
     @Test func handlesLargeOutputWithoutDeadlock() async {
         // ~1 MiB of output exceeds the pipe buffer; concurrent draining must avoid deadlock.
         let result = await runner.run(
@@ -176,6 +198,28 @@ import Testing
         )
         #expect(runner.resolvedCommandPath(executable: name) == executableURL.path)
         #expect(runner.resolvedCommandPath(executable: "cmux-missing-\(UUID().uuidString)") == nil)
+    }
+
+    @Test func passesConfiguredEnvironmentToChildProcess() async {
+        let runner = CommandRunner(
+            environment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_COMMAND_RUNNER_TEST_VALUE": "configured",
+            ],
+            bundledBinPath: nil,
+            fallbackSearchDirectories: []
+        )
+
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "sh",
+            arguments: ["-c", "printf %s \"$CMUX_COMMAND_RUNNER_TEST_VALUE\""],
+            timeout: 10
+        )
+
+        #expect(result.executionError == nil)
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout == "configured")
     }
 
     @Test func unresolvableCommandRunsViaEnvAndExitsNonZero() async {
