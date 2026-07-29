@@ -306,6 +306,133 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
     }
 
+    @Test("Dock transfer drops a restored snapshot superseded by a live hook session")
+    @MainActor
+    func dockTransferDropsRestoredSnapshotSupersededByLiveHookSession() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let staleSessionId = "omp-dock-stale-\(UUID().uuidString)"
+        let currentSessionId = "omp-dock-current-\(UUID().uuidString)"
+        let staleAgent = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: staleSessionId,
+            workingDirectory: "/tmp/cmux-omp-stale",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omp",
+                executablePath: "/usr/local/bin/omp",
+                arguments: ["/usr/local/bin/omp", "--resume", staleSessionId],
+                workingDirectory: "/tmp/cmux-omp-stale",
+                capturedAt: 1_777_777_777,
+                source: "process"
+            )
+        )
+        let staleBinding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(staleSessionId)'",
+            cwd: "/tmp/cmux-omp-stale",
+            checkpointId: staleSessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_777_777_777
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: staleAgent,
+            restorableAgentResumeState: .autoResumeCommandRunning,
+            resumeBinding: staleBinding
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        store.surfaceResumeBindingsByPanelId[panel.id] = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(currentSessionId)'",
+            cwd: "/tmp/cmux-omp-current",
+            checkpointId: currentSessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        store.recordAgentPID(
+            key: "omp.\(currentSessionId)",
+            pid: getpid(),
+            panelId: panel.id
+        )
+        store.setAgentLifecycle(key: "omp", panelId: panel.id, lifecycle: .running)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.resumeBinding?.checkpointId == currentSessionId)
+        #expect(roundTripped.agentRuntime?.agentPIDs["omp.\(currentSessionId)"] == getpid())
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == nil)
+        #expect(roundTripped.restoredAgentCompletedGeneration == nil)
+    }
+
+    @Test("Registered lifecycle command reaches a panel in a global Dock")
+    @MainActor
+    func registeredLifecycleCommandReachesGlobalDockPanel() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-dock-lifecycle-\(UUID().uuidString)", isDirectory: true)
+        let configDirectory = root.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try """
+        {
+          "vault": {
+            "agents": [
+              {
+                "id": "local-agent",
+                "name": "Local Agent",
+                "detect": { "processName": "local-agent" },
+                "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
+                "resumeCommand": "local-agent --session {{sessionId}}",
+                "cwd": "preserve"
+              }
+            ]
+          }
+        }
+        """.write(to: configDirectory.appendingPathComponent("cmux.json"), atomically: true, encoding: .utf8)
+
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            workingDirectory: root.path,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { root.path }
+        )
+        defer {
+            TerminalMutationBus.shared.drainForTesting()
+            store.closeAllPanels()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            directory: root.path
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        let response = TerminalController.shared.handleSocketLine(
+            "set_agent_lifecycle local-agent idle "
+                + "--tab=\(store.workspaceId.uuidString) --panel=\(panel.id.uuidString)"
+        )
+        #expect(response == "OK")
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(store.agentRuntimeByPanelId[panel.id]?.agentLifecycleStates["local-agent"] == .idle)
+    }
+
     @Test("Dock detach drops agent metadata whose recorded processes all exited")
     @MainActor
     func dockDetachDropsAgentMetadataWhoseRecordedProcessesAllExited() throws {
