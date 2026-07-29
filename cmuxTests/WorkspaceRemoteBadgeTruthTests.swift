@@ -246,6 +246,146 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceDockMoveKeepsTerminalLaunchWorkspaceOwnership() throws {
+        let sourceWorkspace = Workspace()
+        let configuration = remoteConfiguration(
+            preserveAfterTerminalExit: false,
+            relayPort: 64007
+        )
+        sourceWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let surfaceId = try seededTerminalSurfaceID(in: sourceWorkspace)
+        let terminal = try XCTUnwrap(sourceWorkspace.panels[surfaceId] as? TerminalPanel)
+
+        let destinationWorkspace = Workspace()
+        let dock = destinationWorkspace.dockSplit
+        defer { dock.closeAllPanels() }
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: surfaceId))
+        XCTAssertNotNil(
+            dock.attachDetachedSurface(detached, inPane: dockPane, focus: false)
+        )
+
+        XCTAssertTrue(
+            dock.ownsRemoteTerminalTransfer(
+                panelId: surfaceId,
+                presentationWorkspaceID: sourceWorkspace.id
+            )
+        )
+        XCTAssertFalse(
+            dock.ownsRemoteTerminalTransfer(
+                panelId: surfaceId,
+                presentationWorkspaceID: destinationWorkspace.id
+            )
+        )
+        XCTAssertTrue(
+            sourceWorkspace.markDockRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                authority: .relayPort(64007),
+                terminalLifecycleID: terminal.surface.terminalLifecycleId,
+                dock: dock
+            )
+        )
+        XCTAssertTrue(
+            sourceWorkspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
+        )
+
+        sourceWorkspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Auxiliary daemon reconnecting",
+            target: "host",
+            externalRemoteTerminalDocks: [dock]
+        )
+
+        XCTAssertEqual(sourceWorkspace.remoteConnectionState, .connected)
+    }
+
+    @MainActor
+    func testDockEndedGenerationRejectsLateConnectedCallback() throws {
+        let workspace = Workspace()
+        let configuration = remoteConfiguration(
+            preserveAfterTerminalExit: false,
+            relayPort: 64007
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let surfaceId = try seededTerminalSurfaceID(in: workspace)
+        let terminal = try XCTUnwrap(workspace.panels[surfaceId] as? TerminalPanel)
+        let terminalLifecycleID = terminal.surface.terminalLifecycleId
+
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        let detached = try XCTUnwrap(workspace.detachSurface(panelId: surfaceId))
+        XCTAssertNotNil(
+            dock.attachDetachedSurface(detached, inPane: dockPane, focus: false)
+        )
+
+        XCTAssertTrue(
+            dock.markRemoteTerminalSessionConnected(
+                panelId: surfaceId,
+                authority: .relayPort(64007),
+                terminalLifecycleID: terminalLifecycleID
+            )
+        )
+        XCTAssertTrue(
+            dock.markRemoteTerminalSessionEnded(
+                panelId: surfaceId,
+                authority: .relayPort(64007),
+                terminalLifecycleID: terminalLifecycleID
+            )
+        )
+        XCTAssertFalse(
+            dock.markRemoteTerminalSessionConnected(
+                panelId: surfaceId,
+                authority: .relayPort(64007),
+                terminalLifecycleID: terminalLifecycleID
+            )
+        )
+        XCTAssertEqual(
+            dock.detachedSurfaceTransfersByPanelId[surfaceId]?.remoteTerminalSessionPhase,
+            .ended
+        )
+    }
+
+    @MainActor
+    func testPendingEndedGenerationRejectsLateConnectedCallback() throws {
+        let workspace = Workspace()
+        let surfaceId = try seededTerminalSurfaceID(in: workspace)
+        let terminal = try XCTUnwrap(workspace.panels[surfaceId] as? TerminalPanel)
+        let terminalLifecycleID = terminal.surface.terminalLifecycleId
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                authority: .relayPort(64007),
+                terminalLifecycleID: terminalLifecycleID
+            )
+        )
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionEnded(
+                surfaceId: surfaceId,
+                relayPort: 64007,
+                terminalLifecycleID: terminalLifecycleID
+            )
+        )
+        XCTAssertFalse(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                authority: .relayPort(64007),
+                terminalLifecycleID: terminalLifecycleID
+            )
+        )
+        XCTAssertNil(workspace.pendingRemoteTerminalConnectionsBySurfaceId[surfaceId])
+        XCTAssertEqual(
+            workspace.remoteTerminalSessionStatesBySurfaceId[surfaceId]?.phase,
+            .ended
+        )
+    }
+
+    @MainActor
     func testTerminalConnectedBeforeRemoteConfigurationIsAppliedAfterSeeding() throws {
         let workspace = Workspace()
         let surfaceId = try seededTerminalSurfaceID(in: workspace)

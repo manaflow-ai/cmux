@@ -3925,7 +3925,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 3
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4045,7 +4049,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 3
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4154,7 +4162,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 2
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4244,7 +4256,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 3
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4385,7 +4401,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         try setPTYSize(cols: 40, rows: 12)
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 3
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4550,7 +4570,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandler: (String) -> String = { line in
+        let socketHandler: (String) -> String? = { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4594,7 +4614,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertNotNil(
                     (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
                 )
-                return self.v2Response(id: id, ok: true, result: ["connected": true])
+                return nil
             case "workspace.remote.pty_sessions":
                 return self.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_attach_end":
@@ -4616,7 +4636,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
-        let socketHandled = (0..<2).map { _ in startMockServer(listenerFD: listenerFD, state: state, handler: socketHandler) }
+        let socketHandled = (0..<3).map {
+            _ in startMockServerAllowingNoResponse(
+                listenerFD: listenerFD,
+                state: state,
+                handler: socketHandler
+            )
+        }
 
         let bridgeHandled = expectation(description: "controlled bridge handled")
         DispatchQueue.global(qos: .userInitiated).async {
