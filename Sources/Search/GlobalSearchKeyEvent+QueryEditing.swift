@@ -19,8 +19,10 @@ extension GlobalSearchKeyEvent {
         if commandControlOption == [.option] {
             // Native field editors own Option-only input. AppKit decides
             // whether the active layout starts composition, navigates by word,
-            // or inserts text; cmux must not reproduce that decision.
-            return true
+            // or inserts text. Function and media keys remain available to
+            // configured application shortcuts.
+            return isPrintableTextInput ||
+                Self.isPrintableText(charactersIgnoringModifiers)
         }
         if commandControlOption.isEmpty {
             return isPrintableTextInput

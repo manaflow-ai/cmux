@@ -6,7 +6,8 @@ public struct TerminalKeyInputSnapshot: Sendable, Equatable {
     /// Whether marked text exists after AppKit interpreted the key.
     public let hasMarkedText: Bool
 
-    /// Whether the Cocoa text input context consumed the native event.
+    /// Whether AppKit claimed the event through a text-input callback or
+    /// selected input-source transition.
     public let textInputConsumed: Bool
 
     /// Whether text input delegated a command back to the terminal client.
@@ -23,7 +24,8 @@ public struct TerminalKeyInputSnapshot: Sendable, Equatable {
     /// - Parameters:
     ///   - hadMarkedText: Whether composition was active before interpretation.
     ///   - hasMarkedText: Whether composition remains active after interpretation.
-    ///   - textInputConsumed: Whether Cocoa text input consumed the event.
+    ///   - textInputConsumed: Whether AppKit text interpretation claimed the
+    ///     event.
     ///   - textInputCommandPerformed: Whether text input delegated a command.
     ///   - committedText: Text committed during interpretation.
     ///   - event: The translated native key description.

@@ -2,33 +2,28 @@ import AppKit
 import Carbon
 
 class KeyboardLayout {
-    /// Whether the selected source is an input method rather than a direct
-    /// keyboard layout.
-    ///
-    /// This uses Carbon's semantic input-source type. It deliberately avoids
-    /// source identifiers, languages, scripts, and layout names.
-    static var currentInputSourceUsesInputMethod: Bool {
-        guard let source = TISCopyCurrentKeyboardInputSource()?
-            .takeRetainedValue(),
-              let typePointer = TISGetInputSourceProperty(
-                  source,
-                  kTISPropertyInputSourceType
-              ) else {
-            return false
-        }
+    /// Retains the selected platform input source across one native key event.
+    struct InputSourceSnapshot {
+        fileprivate let source: TISInputSource
+    }
 
-        let sourceType = Unmanaged<CFString>
-            .fromOpaque(typePointer)
-            .takeUnretainedValue()
-        return CFEqual(
-            sourceType,
-            kTISTypeKeyboardInputMethodWithoutModes
-        ) ||
-            CFEqual(
-                sourceType,
-                kTISTypeKeyboardInputMethodModeEnabled
-            ) ||
-            CFEqual(sourceType, kTISTypeKeyboardInputMode)
+    /// Captures the selected input source without inspecting its identifier,
+    /// language, script, or display name.
+    static func inputSourceSnapshot() -> InputSourceSnapshot? {
+        guard let source = TISCopyCurrentKeyboardInputSource()?
+            .takeRetainedValue() else {
+            return nil
+        }
+        return InputSourceSnapshot(source: source)
+    }
+
+    /// Whether the selected platform input source changed since a snapshot.
+    static func inputSourceChanged(since snapshot: InputSourceSnapshot?) -> Bool {
+        guard let current = inputSourceSnapshot() else {
+            return snapshot != nil
+        }
+        guard let snapshot else { return true }
+        return !CFEqual(snapshot.source, current.source)
     }
 
     /// Translate a physical keyCode to the character AppKit would use for shortcut matching,

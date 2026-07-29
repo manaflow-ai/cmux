@@ -12,40 +12,6 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CJKIMEMarkedSelectionTests {
-    private final class ReplacementEditingSurfaceView: GhosttyNSView {
-        var textInputEventHandler: ((NSEvent) -> Bool)?
-
-        override func handleTextInputEvent(_ event: NSEvent) -> Bool {
-            textInputEventHandler?(event) ?? super.handleTextInputEvent(event)
-        }
-
-        override func currentTextInputSourceKind()
-            -> TerminalTextInputSourceKind {
-            .inputMethod
-        }
-    }
-
-    private struct ReplacementEditingSurfaceViewFactory: TerminalSurfaceViewProviding {
-        func makeSurfaceViews(
-            initialFrame: NSRect
-        ) -> (
-            surfaceView: any TerminalSurfaceNativeViewing,
-            paneHost: any TerminalSurfacePaneHosting
-        ) {
-            let surfaceView = ReplacementEditingSurfaceView(frame: initialFrame)
-            return (
-                surfaceView,
-                GhosttySurfaceScrollView(surfaceView: surfaceView)
-            )
-        }
-    }
-
-    private struct HostedReplacementEditingTerminal {
-        let surface: TerminalSurface
-        let surfaceView: ReplacementEditingSurfaceView
-        let window: NSWindow
-    }
-
     @Test func selectedRangeTracksMarkedTextSelection() {
         let view = GhosttyNSView(frame: .zero)
 
@@ -176,164 +142,47 @@ struct CJKIMEMarkedSelectionTests {
         }
     }
 
-    @Test func consumedReplacementEditsStayProvisionalUntilFullRangeCommit() throws {
-        let terminal = try makeHostedReplacementEditingTerminal()
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            terminal.window.orderOut(nil)
+    @Test func markedTextCallbacksStayProvisionalUntilInsertTextCommit() {
+        let view = GhosttyNSView(frame: .zero)
+        defer { view.setKeyTextAccumulatorForTesting(nil) }
+        view.setKeyTextAccumulatorForTesting([])
+
+        for (text, selection) in [
+            ("α", NSRange(location: 1, length: 0)),
+            ("αβ", NSRange(location: 2, length: 0)),
+            ("αγ", NSRange(location: 2, length: 0)),
+        ] {
+            view.setMarkedText(
+                text,
+                selectedRange: selection,
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            #expect(view.attributedString().string == text)
+            #expect(view.selectedRange() == selection)
+            #expect(view.keyTextAccumulatorForTesting == [])
         }
 
-        terminal.surfaceView.textInputEventHandler = { event in
-            switch event.keyCode {
-            case UInt16(kVK_ANSI_1):
-                terminal.surfaceView.insertText(
-                    "α",
-                    replacementRange: NSRange(location: NSNotFound, length: 0)
-                )
-            case UInt16(kVK_ANSI_2):
-                terminal.surfaceView.insertText(
-                    "β",
-                    replacementRange: NSRange(location: NSNotFound, length: 0)
-                )
-            case UInt16(kVK_ANSI_3):
-                terminal.surfaceView.insertText(
-                    "γ",
-                    replacementRange: NSRange(location: 1, length: 1)
-                )
-            case UInt16(kVK_Return):
-                terminal.surfaceView.insertText(
-                    "Ω",
-                    replacementRange: NSRange(location: 0, length: 2)
-                )
-            default:
-                return false
-            }
-            return true
-        }
-
-        var forwardedPressText: [String] = []
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS,
-                  let text = keyEvent.text else {
-                return
-            }
-            forwardedPressText.append(String(cString: text))
-        }
-
-        try sendKey(
-            text: "1",
-            keyCode: UInt16(kVK_ANSI_1),
-            to: terminal
+        view.insertText(
+            "Ω",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
         )
-        #expect(terminal.surfaceView.attributedString().string == "α")
-        #expect(terminal.surfaceView.hasMarkedText())
-        #expect(forwardedPressText.isEmpty)
 
-        try sendKey(
-            text: "2",
-            keyCode: UInt16(kVK_ANSI_2),
-            to: terminal
-        )
-        #expect(terminal.surfaceView.attributedString().string == "αβ")
-        #expect(forwardedPressText.isEmpty)
-
-        try sendKey(
-            text: "3",
-            keyCode: UInt16(kVK_ANSI_3),
-            to: terminal
-        )
-        #expect(terminal.surfaceView.attributedString().string == "αγ")
-        #expect(forwardedPressText.isEmpty)
-
-        try sendKey(
-            text: "\r",
-            keyCode: UInt16(kVK_Return),
-            to: terminal
-        )
-        #expect(!terminal.surfaceView.hasMarkedText())
-        #expect(forwardedPressText == ["Ω"])
+        #expect(!view.hasMarkedText())
+        #expect(view.keyTextAccumulatorForTesting == ["Ω"])
     }
 
-    private func makeHostedReplacementEditingTerminal() throws
-        -> HostedReplacementEditingTerminal {
-        _ = NSApplication.shared
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil,
-            dependencies: replacementEditingRuntimeDependencies()
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        let contentView = try #require(window.contentView)
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.setVisibleInUI(true)
-        hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    @Test func oneShotInsertTextCommitIsAccumulatedImmediately() {
+        let view = GhosttyNSView(frame: .zero)
+        defer { view.setKeyTextAccumulatorForTesting(nil) }
+        view.setKeyTextAccumulatorForTesting([])
 
-        return HostedReplacementEditingTerminal(
-            surface: surface,
-            surfaceView: try #require(
-                findGhosttyNSView(in: hostedView)
-                    as? ReplacementEditingSurfaceView
-            ),
-            window: window
+        view.insertText(
+            "Ω",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
         )
-    }
 
-    private func replacementEditingRuntimeDependencies()
-        -> TerminalSurfaceRuntimeDependencies {
-        let live = GhosttyApp.terminalSurfaceRuntimeDependencies
-        return TerminalSurfaceRuntimeDependencies(
-            registry: live.registry,
-            engine: live.engine,
-            viewProvider: ReplacementEditingSurfaceViewFactory(),
-            spawnPolicy: live.spawnPolicy,
-            byteTee: live.byteTee,
-            rendererRealization: live.rendererRealization,
-            hibernationRecorder: live.hibernationRecorder,
-            runtimeTeardown: live.runtimeTeardown,
-            restoreSpawnScheduler: live.restoreSpawnScheduler,
-            runtimeFilesystem: live.runtimeFilesystem,
-            sessionPortBase: live.sessionPortBase,
-            sessionPortRangeSize: live.sessionPortRangeSize,
-            scrollbackReplayEnvironmentKey: live.scrollbackReplayEnvironmentKey,
-            globalFontMagnificationPercent: live.globalFontMagnificationPercent
-        )
-    }
-
-    private func sendKey(
-        text: String,
-        keyCode: UInt16,
-        to terminal: HostedReplacementEditingTerminal
-    ) throws {
-        let event = try #require(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: terminal.window.windowNumber,
-            context: nil,
-            characters: text,
-            charactersIgnoringModifiers: text,
-            isARepeat: false,
-            keyCode: keyCode
-        ))
-        #expect(terminal.window.makeFirstResponder(terminal.surfaceView))
-        withExtendedLifetime(terminal.surface) {
-            terminal.surfaceView.keyDown(with: event)
-        }
+        #expect(!view.hasMarkedText())
+        #expect(view.keyTextAccumulatorForTesting == ["Ω"])
     }
 
 }
