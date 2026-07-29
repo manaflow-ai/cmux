@@ -416,6 +416,52 @@ struct SSHStartupManualReconnectTests {
         #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "3")
     }
 
+    @Test func persistentStartupIgnoresInheritedInternalPendingSignalState() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-inherited-pending-signal-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try Self.writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
+            "count=$((count + 1))",
+            "printf '%s' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "exit 0",
+        ])
+        for executable in [fakeCLI, fakeSSH] {
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        }
+
+        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_SSH_PENDING_SIGNAL"] = "130"
+        environment["CMUX_SSH_PENDING_SIGNAL_NAME"] = "INT"
+
+        let result = Self.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "2")
+    }
+
     @MainActor
     @Test func reconnectRejectsUnendedTerminalSurfaceId() throws {
         let workspace = Workspace()
