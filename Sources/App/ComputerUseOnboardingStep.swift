@@ -36,11 +36,16 @@ enum ComputerUseOnboardingAdvance: Equatable, Sendable {
         directCaptureReady: Bool
     ) -> Self {
         guard statusIsKnown, accessibilityGranted else { return .none }
-        if activeStep == .accessibility, !screenRecordingGranted {
+        if screenRecordingGranted, directCaptureReady {
+            return .complete
+        }
+        if activeStep == .accessibility {
             return .requestSecondAllow
         }
-        guard screenRecordingGranted else { return .none }
-        return directCaptureReady ? .complete : .verifyScreenCapture
+        guard activeStep == .screenRecording, screenRecordingGranted else {
+            return .none
+        }
+        return .verifyScreenCapture
     }
 }
 
