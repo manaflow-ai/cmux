@@ -192,6 +192,7 @@ def hook_environment(
     state_path: Path,
 ) -> dict[str, str]:
     env = os.environ.copy()
+    env.pop("CMUX_CLAUDE_PID", None)
     env["CMUX_SOCKET_PATH"] = server.socket_path
     env["CMUX_WORKSPACE_ID"] = workspace_id
     env["CMUX_SURFACE_ID"] = surface_id
@@ -434,6 +435,7 @@ def verify_failed_clear_store_preserves_visible_state(cli_path: str) -> None:
         forbidden_fragments = [
             "set_agent_lifecycle claude_code idle ",
             "set_status claude_code Idle ",
+            f"clear_status claude_code --tab={workspace_id}",
             "clear_notifications ",
             '"method":"surface.resume.set"',
         ]

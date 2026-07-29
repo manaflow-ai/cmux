@@ -751,6 +751,7 @@ final class ClaudeHookSessionStore {
                        sessionId: normalized,
                        incomingPID: pid
                    ) {
+                    // A new active owner makes a mismatched clear tombstone stale.
                     state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
                 }
             case .discardTransfer:
