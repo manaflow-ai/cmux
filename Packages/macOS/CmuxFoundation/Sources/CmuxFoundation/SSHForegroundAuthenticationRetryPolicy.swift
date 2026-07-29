@@ -23,18 +23,21 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     public init() {
         transientFailurePattern = [
             "network is unreachable",
+            "network is down",
             "no route to host",
+            "host is down",
             "operation timed out",
             "connection timed out",
+            "connection to .* timed out",
             "timeout, server .* not responding",
             "connection refused",
             "connection reset by peer",
             "connection reset by .* port [0-9]+",
             "connection closed by remote host",
             "connection closed by .* port [0-9]+",
+            "connection to .* closed by remote host",
             "temporary failure in name resolution",
-            "connection closed by unknown port 65535",
-            "connection to unknown port 65535: broken pipe",
+            "connection to .* port [0-9]+: broken pipe",
         ].joined(separator: "|")
         permanentFailurePattern = [
             "permission denied",
