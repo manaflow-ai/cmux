@@ -356,6 +356,70 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func unrestrictedHTMLNewTabPreservesSymlinkDocumentURL() throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousShared
+        }
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let linkDirectory = fixtureDirectory.appendingPathComponent("link", isDirectory: true)
+        let targetDirectory = fixtureDirectory.appendingPathComponent("target", isDirectory: true)
+        let openerURL = linkDirectory.appendingPathComponent("opener.html")
+        let symlinkURL = linkDirectory.appendingPathComponent("child.html")
+        let targetURL = targetDirectory.appendingPathComponent("child.html")
+        try FileManager.default.createDirectory(at: linkDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>unrestricted opener</title>".write(
+            to: openerURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<!doctype html><title>unrestricted child target</title>".write(
+            to: targetURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: targetURL)
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: sourcePanelId))
+        let browser = try #require(workspace.newBrowserSurface(
+            inPane: paneId,
+            url: openerURL,
+            focus: true,
+            localFileReadAccessPolicy: .containingDirectory
+        ))
+
+        browser.openLinkInNewTab(url: symlinkURL)
+
+        let child = try #require(
+            workspace.panels.values
+                .compactMap { $0 as? BrowserPanel }
+                .first(where: { $0.id != browser.id })
+        )
+        #expect(child.localFileReadAccessPolicy == .containingDirectory)
+        #expect(child.currentURL?.standardizedFileURL == symlinkURL.standardizedFileURL)
+    }
+
+    @Test
     func restrictedHTMLPopupContextPreservesFileOnlyReadAccess() throws {
         _ = NSApplication.shared
 

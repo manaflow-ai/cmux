@@ -55,18 +55,19 @@ struct BrowserUserAgentPolicyWebKitTests {
         }
     }
 
-    @Test func restartRequestIgnoresNonWebDestinations() {
+    @Test func restartRequestClearsCustomIdentityForNonWebDestinationsWithoutReplaying() {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
 
         for url in [
             URL(fileURLWithPath: "/tmp/example.html"),
             URL(string: "about:blank")!,
             URL(string: "data:text/html,example")!,
         ] {
+            webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
             #expect(webView.browserUserAgentPolicyRestartRequest(
                 for: URLRequest(url: url)
             ) == nil)
+            #expect(webView.customUserAgent?.isEmpty != false)
         }
     }
 }
