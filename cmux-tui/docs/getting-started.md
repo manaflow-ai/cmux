@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Builds need zig 0.15.2, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts.
+Builds need the Zig version reported by `./scripts/ghostty-required-zig-version.sh`, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts.
 
 ```bash
 cd cmux-tui

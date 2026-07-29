@@ -16,7 +16,7 @@
 
 ## Build
 
-Builds need zig 0.15.2, a Rust toolchain, and the `ghostty` submodule initialized. The `ghostty-vt-sys` crate builds `libghostty-vt.a` from the submodule with zig before compiling the Rust crates.
+Builds need the Zig version reported by `./scripts/ghostty-required-zig-version.sh`, a Rust toolchain, and the `ghostty` submodule initialized. The `ghostty-vt-sys` crate builds `libghostty-vt.a` from the submodule with Zig before compiling the Rust crates.
 
 ```bash
 cd cmux-tui

@@ -9,6 +9,7 @@ ZIG_EXPECTED_SHA256="${ZIG_EXPECTED_SHA256:-}"
 ZIG_WORK_PARENT="${RUNNER_TEMP:-/tmp/cmux-zig-ci}"
 ZIG_SYSTEM_PREFIX="${ZIG_SYSTEM_PREFIX:-/usr/local}"
 ZIG_SYSTEM_PREFIX="${ZIG_SYSTEM_PREFIX%/}"
+ZIG_PATH_OUTPUT="${ZIG_PATH_OUTPUT:-}"
 export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
 export HOMEBREW_NO_INSTALL_CLEANUP="${HOMEBREW_NO_INSTALL_CLEANUP:-1}"
 export HOMEBREW_NO_ENV_HINTS="${HOMEBREW_NO_ENV_HINTS:-1}"
@@ -23,6 +24,20 @@ publish_zig_for_later_steps() {
   fi
   if [ -n "${GITHUB_ENV:-}" ]; then
     echo "CMUX_ZIG=$zig_path" >> "$GITHUB_ENV"
+  fi
+  if [ -n "$ZIG_PATH_OUTPUT" ]; then
+    case "$ZIG_PATH_OUTPUT" in
+      /*) ;;
+      *)
+        echo "ZIG_PATH_OUTPUT must be an absolute path: $ZIG_PATH_OUTPUT" >&2
+        exit 1
+        ;;
+    esac
+    if [ ! -d "$(dirname "$ZIG_PATH_OUTPUT")" ]; then
+      echo "ZIG_PATH_OUTPUT parent does not exist: $(dirname "$ZIG_PATH_OUTPUT")" >&2
+      exit 1
+    fi
+    printf '%s\n' "$zig_path" > "$ZIG_PATH_OUTPUT"
   fi
 }
 
@@ -54,8 +69,16 @@ use_existing_zig_if_available() {
   fi
 
   local candidate
+  local cached_candidate=""
   local seen=" "
-  for candidate in "$(command -v zig 2>/dev/null || true)" /opt/homebrew/bin/zig /usr/local/bin/zig; do
+  if [ -n "${ZIG_INSTALL_ROOT:-}" ]; then
+    cached_candidate="${ZIG_INSTALL_ROOT%/}"
+    if [ "$(basename "$cached_candidate")" != "$ZIG_NAME" ]; then
+      cached_candidate="${cached_candidate}/${ZIG_NAME}"
+    fi
+    cached_candidate="${cached_candidate}/zig"
+  fi
+  for candidate in "${CMUX_ZIG:-}" "$cached_candidate" "$(command -v zig 2>/dev/null || true)" /opt/homebrew/bin/zig /usr/local/bin/zig; do
     [ -n "$candidate" ] || continue
     [ -x "$candidate" ] || continue
     candidate="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"
@@ -70,8 +93,6 @@ use_existing_zig_if_available() {
     fi
   done
 }
-
-use_existing_zig_if_available
 
 case "$(uname -s)" in
   Darwin)
@@ -98,6 +119,7 @@ case "$(uname -m)" in
 esac
 
 ZIG_NAME="zig-${ZIG_ARCH}-${ZIG_OS}-${ZIG_REQUIRED}"
+use_existing_zig_if_available
 mkdir -p "$ZIG_WORK_PARENT"
 ZIG_WORK_ROOT="$(mktemp -d "${ZIG_WORK_PARENT%/}/cmux-zig-install-${ZIG_REQUIRED}.XXXXXX")"
 cleanup_work_root() {
@@ -198,6 +220,8 @@ install_zig_without_sudo() {
   fi
   if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" = "1" ]; then
     echo "ZIG_FORCE_LOCAL_INSTALL=1; installing zig under ${target_root}"
+  elif [ "${ZIG_LOCAL_INSTALL_ONLY:-0}" = "1" ]; then
+    echo "ZIG_LOCAL_INSTALL_ONLY=1; installing zig under ${target_root}"
   else
     echo "sudo unavailable; installing zig under ${target_root}"
   fi
@@ -254,7 +278,10 @@ fi
 
 rm -rf "$ZIG_DIR"
 tar xf "$ZIG_TAR" -C "$ZIG_WORK_ROOT"
-if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" != "1" ] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" != "1" ] \
+  && [ "${ZIG_LOCAL_INSTALL_ONLY:-0}" != "1" ] \
+  && command -v sudo >/dev/null 2>&1 \
+  && sudo -n true >/dev/null 2>&1; then
   install_zig_with_sudo
   exit 0
 fi
