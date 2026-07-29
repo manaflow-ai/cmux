@@ -63,15 +63,11 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// - Returns: Shell source lines implementing reconnect and no-progress budgets.
     public static func retryLoopLines(command: String, reauthenticates: Bool) -> [String] {
         let reauthenticate = reauthenticates ? "cmux_ssh_attach_reauth_required=1" : ":"
+        let noProgressPolicy = noProgressShellPolicy()
         let reattachingFormat = String(
             localized: "cli.sshPtyAttach.bridgeClosedReattaching",
             defaultValue: "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s)."
         ).remoteCommandShellQuoted
-        let noProgressFormat = String(
-            localized: "cli.sshPtyAttach.noProgressRetryLimitReached",
-            defaultValue: "[cmux] remote PTY bridge made no progress after %s attempts; stopping retries."
-        ).remoteCommandShellQuoted
-        let noProgressStatus = bridgeClosedWithoutProgress.rawValue
         let sessionRunningStatus = bridgeClosedSessionRunning.rawValue
         let transientStatus = retryableTransient.rawValue
 
@@ -84,8 +80,7 @@ public enum SSHPTYAttachExitCode: Int32 {
             "case \"$cmux_ssh_attach_reconnect_max_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_max_delay=30 ;; esac",
             "if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi",
             "cmux_ssh_attach_reconnect_initial_delay=\"$cmux_ssh_attach_reconnect_delay\"",
-            "cmux_ssh_attach_no_progress_limit=\"${CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT:-3}\"",
-            "case \"$cmux_ssh_attach_no_progress_limit\" in ''|*[!0-9]*|0*) cmux_ssh_attach_no_progress_limit=3 ;; esac",
+        ] + noProgressPolicy.configurationLines + [
             "cmux_ssh_attach_no_progress_retry=0",
             "cmux_ssh_attach_retry=0",
             "cmux_ssh_attach_reauth_required=0",
@@ -100,7 +95,7 @@ public enum SSHPTYAttachExitCode: Int32 {
             "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\" \(command)",
             "  cmux_ssh_attach_status=$?",
             "  case \"$cmux_ssh_attach_status\" in",
-            "    \(noProgressStatus)) cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1)); cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\"; if [ \"$cmux_ssh_attach_no_progress_retry\" -ge \"$cmux_ssh_attach_no_progress_limit\" ]; then printf '\\n\\033[31m%s\\033[0m\\n' \"$(printf \(noProgressFormat) \"$cmux_ssh_attach_no_progress_limit\")\" >&2 || true; exit 1; fi ;;",
+            "    \(noProgressPolicy.status)) cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1)); cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\"; \(noProgressPolicy.limitReachedCommand) ;;",
             "    \(sessionRunningStatus)) cmux_ssh_attach_no_progress_retry=0; cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;;",
             "    \(transientStatus)) cmux_ssh_attach_no_progress_retry=0; \(reauthenticate) ;;",
             "    *) exit \"$cmux_ssh_attach_status\" ;;",
@@ -113,6 +108,50 @@ public enum SSHPTYAttachExitCode: Int32 {
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -lt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=$((cmux_ssh_attach_reconnect_delay * 2)); if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi; fi",
             "done",
         ]
+    }
+
+    /// Builds a bounded no-progress sub-loop for a wrapper that already owns
+    /// general reconnect and foreground-authentication policy.
+    ///
+    /// Status 252 is consumed until its health budget is exhausted. All other
+    /// statuses, including 254 and 255, return unchanged to the enclosing
+    /// wrapper so its existing reconnect and reauthentication behavior remains
+    /// the single owner of those transitions.
+    ///
+    /// - Parameter command: The shell command that performs one attach attempt.
+    /// - Returns: Shell source lines implementing the no-progress budget.
+    public static func noProgressRetryLoopLines(command: String) -> [String] {
+        let policy = noProgressShellPolicy()
+
+        return policy.configurationLines + [
+            "cmux_ssh_attach_no_progress_retry=0",
+            "while :; do",
+            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\" \(command)",
+            "  cmux_ssh_attach_status=$?",
+            "  if [ \"$cmux_ssh_attach_status\" -ne \(policy.status) ]; then exit \"$cmux_ssh_attach_status\"; fi",
+            "  cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1))",
+            "  \(policy.limitReachedCommand)",
+            "done",
+        ]
+    }
+
+    private static func noProgressShellPolicy() -> (
+        configurationLines: [String],
+        status: Int32,
+        limitReachedCommand: String
+    ) {
+        let format = String(
+            localized: "cli.sshPtyAttach.noProgressRetryLimitReached",
+            defaultValue: "[cmux] remote PTY bridge made no progress after %s attempts; stopping retries."
+        ).remoteCommandShellQuoted
+        return (
+            configurationLines: [
+                "cmux_ssh_attach_no_progress_limit=\"${CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT:-3}\"",
+                "case \"$cmux_ssh_attach_no_progress_limit\" in ''|*[!0-9]*|0*) cmux_ssh_attach_no_progress_limit=3 ;; esac",
+            ],
+            status: bridgeClosedWithoutProgress.rawValue,
+            limitReachedCommand: "if [ \"$cmux_ssh_attach_no_progress_retry\" -ge \"$cmux_ssh_attach_no_progress_limit\" ]; then printf '\\n\\033[31m%s\\033[0m\\n' \"$(printf \(format) \"$cmux_ssh_attach_no_progress_limit\")\" >&2 || true; exit 1; fi"
+        )
     }
 
     /// Classifies a textual bridge-establishment failure into its attach exit status.

@@ -10259,9 +10259,13 @@ struct CMUXCLI {
         var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options))
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
-        let attachScript = buildSSHPTYAttachScriptBody(
+        let attachAttemptScript = buildSSHPTYAttachScriptBody(
             remoteShellCommand: remoteShellCommand
         )
+        let attachAttemptCommand = "/bin/sh -c \(shellQuote(attachAttemptScript))"
+        let attachScript = SSHPTYAttachExitCode.noProgressRetryLoopLines(
+            command: attachAttemptCommand
+        ).joined(separator: "\n")
         var authScriptLines: [String] = []
         let sharingOptions = SSHConnectionSharingOptions()
         let authenticationLockPath = sharingOptions.foregroundAuthenticationLockPath(

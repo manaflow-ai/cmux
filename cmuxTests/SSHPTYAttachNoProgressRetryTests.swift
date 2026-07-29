@@ -102,9 +102,56 @@ struct SSHPTYAttachNoProgressRetryTests {
         )
     }
 
+    @Test("A nested no-progress policy returns general retry statuses to its owner")
+    func nestedPolicyReturnsGeneralRetryStatus() throws {
+        let scenario = try Self.runNoProgressScenario(
+            namePrefix: "nested-boundary",
+            decisionLines: [
+                "    if [ \"$count\" -eq 3 ]; then exit \(SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue); fi",
+                "    exit \(SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue)",
+            ],
+            commandBuilder: Self.nestedPolicyCommand
+        )
+
+        #expect(!scenario.process.timedOut, Comment(rawValue: scenario.process.stderr))
+        #expect(
+            scenario.process.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue,
+            Comment(rawValue: scenario.process.stderr)
+        )
+        #expect(scenario.attempts == "3")
+        #expect(
+            scenario.policyLog == """
+            0/3
+            1/3
+            2/3
+
+            """
+        )
+    }
+
+    @Test("A nested no-progress policy stops at the shared health budget")
+    func nestedPolicyStopsRepeatedNoProgress() throws {
+        let scenario = try Self.runNoProgressScenario(
+            namePrefix: "nested-exhaustion",
+            decisionLines: [
+                "    exit \(SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue)",
+            ],
+            commandBuilder: Self.nestedPolicyCommand
+        )
+
+        #expect(!scenario.process.timedOut, Comment(rawValue: scenario.process.stderr))
+        #expect(scenario.process.status == 1, Comment(rawValue: scenario.process.stderr))
+        #expect(scenario.attempts == "3")
+        #expect(
+            scenario.process.stderr.contains("made no progress after 3 attempts"),
+            Comment(rawValue: scenario.process.stderr)
+        )
+    }
+
     private static func runNoProgressScenario(
         namePrefix: String,
-        decisionLines: [String]
+        decisionLines: [String],
+        commandBuilder: ((URL) -> String)? = nil
     ) throws -> ScenarioResult {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -145,9 +192,11 @@ struct SSHPTYAttachNoProgressRetryTests {
         environment["CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT"] = "3"
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "1"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "1"
+        environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
 
         let process = Self.run(
-            command: SSHPTYAttachStartupCommandBuilder.command(sessionID: "ssh-test-session"),
+            command: commandBuilder?(fakeCLI) ??
+                SSHPTYAttachStartupCommandBuilder.command(sessionID: "ssh-test-session"),
             environment: environment
         )
 
@@ -156,6 +205,18 @@ struct SSHPTYAttachNoProgressRetryTests {
             policyLog: try String(contentsOf: policyLog, encoding: .utf8),
             process: process
         )
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func nestedPolicyCommand(fakeCLI: URL) -> String {
+        let attachCommand = "\(shellQuote(fakeCLI.path)) ssh-pty-attach"
+        let script = SSHPTYAttachExitCode.noProgressRetryLoopLines(
+            command: attachCommand
+        ).joined(separator: "\n")
+        return "/bin/sh -c \(shellQuote(script))"
     }
 
     private static func writeShellFile(at url: URL, lines: [String]) throws {
