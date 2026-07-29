@@ -42,6 +42,12 @@ import Testing
     }
 
     @Test func secondaryStatusRequiresDeviceAndStoredTagWhileLegacyAllowsSameDevice() {
+        #expect(MobileMacInstanceTagAuthority.secondaryStatusAuthority(
+            expectedDeviceID: "mac-a",
+            storedInstanceTag: "feature-a",
+            reportedDeviceID: nil,
+            reportedInstanceTag: nil
+        ) == .identityUnavailable)
         #expect(MobileMacInstanceTagAuthority.secondaryStatusMatches(
             expectedDeviceID: "mac-a",
             storedInstanceTag: "feature-a",
@@ -60,6 +66,12 @@ import Testing
             reportedDeviceID: "mac-c",
             reportedInstanceTag: "feature-a"
         ))
+        #expect(MobileMacInstanceTagAuthority.secondaryStatusAuthority(
+            expectedDeviceID: "mac-a",
+            storedInstanceTag: "feature-a",
+            reportedDeviceID: "mac-c",
+            reportedInstanceTag: "feature-a"
+        ) == .rejected)
         #expect(MobileMacInstanceTagAuthority.secondaryStatusMatches(
             expectedDeviceID: "mac-a",
             storedInstanceTag: nil,

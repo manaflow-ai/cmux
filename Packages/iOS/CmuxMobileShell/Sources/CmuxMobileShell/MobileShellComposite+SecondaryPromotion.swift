@@ -173,7 +173,8 @@ extension MobileShellComposite {
         ) else {
             return false
         }
-        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+        guard secondaryMacSubscriptions[macID] === sub,
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
             await resumeSecondarySubscriptionAfterAbortedPromotion(
                 sub,
                 macDeviceID: macID
@@ -193,7 +194,8 @@ extension MobileShellComposite {
             }
             return false
         }
-        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+        guard secondaryMacSubscriptions[macID] === sub,
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
             sub.cancel()
             if secondaryMacSubscriptions[macID] === sub {
                 secondaryMacSubscriptions[macID] = nil
@@ -217,7 +219,8 @@ extension MobileShellComposite {
                 await previousForegroundConnection.client.disconnect()
             }
         }
-        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+        guard secondaryMacSubscriptions[macID] === sub,
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
             sub.cancel()
             if secondaryMacSubscriptions[macID] === sub {
                 secondaryMacSubscriptions[macID] = nil

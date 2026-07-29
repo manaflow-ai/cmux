@@ -136,6 +136,170 @@ import Testing
         #expect(state.schedule() == .seconds(2))
     }
 
+    @Test func staleRetryCompletionCannotClearReplacementTimer() async throws {
+        let clock = ControlPoolManualClock()
+        let shell = MobileShellComposite(
+            isSignedIn: true,
+            presence: IdlePresence(),
+            controlPlaneSchedulingClock: clock
+        )
+        shell.beginSecondaryRetryBackoffForTesting()
+        #expect(try await pollUntil { clock.sleeperCount == 1 })
+
+        // Wake the old task without yielding the MainActor, then replace it.
+        // Its continuation is queued but must not own the new timer's state.
+        clock.advance(by: .seconds(2))
+        shell.resetSecondaryRetryBackoffForTesting()
+        shell.beginSecondaryRetryBackoffForTesting()
+        #expect(try await pollUntil { clock.sleeperCount == 1 })
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        #expect(shell.secondaryRetryBackoffIsScheduledForTesting())
+        #expect(shell.secondaryRetryMacIDsForTesting() == ["test-retry"])
+        shell.resetSecondaryRetryBackoffForTesting()
+    }
+
+    @Test func sharedCooldownQueuesNewlyOnlineMac() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "suppressed-online",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-new",
+            displayName: "New Mac",
+            routes: [route],
+            instanceTag: "new-tag",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let clock = ControlPoolManualClock()
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: LivenessHostRouter(),
+                    box: TransportBox()
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock
+        )
+        shell.beginSecondaryRetryBackoffForTesting()
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: "mac-new",
+                    tag: "new-tag",
+                    online: true
+                ),
+            ]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+
+        #expect(try await pollUntil {
+            shell.secondaryRetryMacIDsForTesting().contains("mac-new")
+        })
+        #expect(shell.secondaryMacSubscriptions["mac-new"] == nil)
+        shell.resetSecondaryRetryBackoffForTesting()
+    }
+
+    @Test func aggregationDefersSubscriptionClaimedByPromotion() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "promotion-claim",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-promoting",
+            displayName: "Promoting Mac",
+            routes: [route],
+            instanceTag: "promoting-tag",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-promoting",
+            macDisplayName: "Promoting Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-promoting",
+            client: MobileCoreRPCClient(
+                runtime: runtime,
+                route: route,
+                ticket: ticket,
+                allowsStackAuthFallback: true
+            ),
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "promoting-tag",
+            authenticatedInstanceTag: "promoting-tag",
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        subscription.isTransitioningToFocus = true
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        shell.secondaryMacSubscriptions["mac-promoting"] = subscription
+
+        await shell.refreshSecondaryMacWorkspaces()
+
+        #expect(shell.secondaryMacSubscriptions["mac-promoting"] === subscription)
+        #expect(await router.count(of: "workspace.list") == 0)
+        subscription.cancel()
+    }
+
     @Test func permanentIdentityMismatchDoesNotSchedulePoolRetry() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

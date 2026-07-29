@@ -17,6 +17,14 @@ enum MobileMacInstanceTagResolution: Equatable, Sendable {
     case reject
 }
 
+enum MobileSecondaryStatusAuthority: Equatable, Sendable {
+    case accepted
+    /// Stack-authenticated status can temporarily omit all host identity when
+    /// verification capacity or the best-effort status token is unavailable.
+    case identityUnavailable
+    case rejected
+}
+
 struct MobileMacInstanceTagAuthority {
     private init() {}
 
@@ -66,12 +74,35 @@ struct MobileMacInstanceTagAuthority {
         reportedDeviceID: String?,
         reportedInstanceTag: String?
     ) -> Bool {
+        secondaryStatusAuthority(
+            expectedDeviceID: expectedDeviceID,
+            storedInstanceTag: storedInstanceTag,
+            reportedDeviceID: reportedDeviceID,
+            reportedInstanceTag: reportedInstanceTag
+        ) == .accepted
+    }
+
+    static func secondaryStatusAuthority(
+        expectedDeviceID: String,
+        storedInstanceTag: String?,
+        reportedDeviceID: String?,
+        reportedInstanceTag: String?
+    ) -> MobileSecondaryStatusAuthority {
+        guard normalized(reportedDeviceID) != nil else {
+            return .identityUnavailable
+        }
         guard authenticatedDeviceMatches(
             reportedDeviceID: reportedDeviceID,
             expectedDeviceID: expectedDeviceID
-        ) else { return false }
-        guard let stored = normalized(storedInstanceTag) else { return true }
+        ) else {
+            return .rejected
+        }
+        guard let stored = normalized(storedInstanceTag) else {
+            return .accepted
+        }
         return normalized(reportedInstanceTag) == stored
+            ? .accepted
+            : .rejected
     }
 
     static func normalized(_ value: String?) -> String? {
