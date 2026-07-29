@@ -510,6 +510,7 @@ impl WorkspaceRegistry {
                 deltas_json,
             ],
         )?;
+        prune_resource_events(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -743,6 +744,76 @@ pub struct ResourcePatchCommit {
     pub revision: u64,
     pub result: Value,
     pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResourceEventBatch {
+    pub previous_revision: u64,
+    pub revision: u64,
+    pub changes: Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResourceEventPage {
+    pub generation: String,
+    pub head_revision: u64,
+    pub oldest_revision: Option<u64>,
+    pub batches: Vec<ResourceEventBatch>,
+}
+
+impl WorkspaceRegistry {
+    pub fn resource_events_after(&self, revision: u64) -> anyhow::Result<ResourceEventPage> {
+        let head_revision = current_resource_revision(&self.connection)?;
+        if revision > head_revision {
+            anyhow::bail!(
+                "cursor.invalid: revision {revision} is ahead of current revision {head_revision}"
+            );
+        }
+        let oldest_revision = self
+            .connection
+            .query_row("SELECT MIN(revision) FROM resource_events", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })?
+            .map(|revision| {
+                u64::try_from(revision).context("stored resource event revision is negative")
+            })
+            .transpose()?;
+        if oldest_revision.is_some_and(|oldest| revision < oldest.saturating_sub(1))
+            || (oldest_revision.is_none() && revision < head_revision)
+        {
+            anyhow::bail!(
+                "cursor.gap: revision {revision} is older than retained history at {oldest_revision:?}"
+            );
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT previous_revision, revision, deltas_json
+             FROM resource_events
+             WHERE revision > ?1
+             ORDER BY revision ASC",
+        )?;
+        let batches = statement
+            .query_map(
+                [i64::try_from(revision).context("resource revision exceeds SQLite range")?],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
+            )?
+            .map(|row| {
+                let (previous_revision, revision, changes) = row?;
+                Ok(ResourceEventBatch {
+                    previous_revision: u64::try_from(previous_revision)
+                        .context("stored previous resource revision is negative")?,
+                    revision: u64::try_from(revision)
+                        .context("stored resource revision is negative")?,
+                    changes: serde_json::from_str(&changes)?,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(ResourceEventPage {
+            generation: self.generation.clone(),
+            head_revision,
+            oldest_revision,
+            batches,
+        })
+    }
 }
 
 pub(super) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut Vec<String>) {

@@ -6,7 +6,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -44,9 +44,9 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryBrowser, RegistryBrowserReconnect,
     RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
-    RegistryViewport, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
-    ResourceTopologySnapshot, TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation,
-    WorkspaceRegistry,
+    RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
+    ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
+    TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -61,6 +61,29 @@ const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
+
+fn workspace_resource_upsert(
+    sequence: usize,
+    session_id: &str,
+    workspace_id: &WorkspacePublicId,
+    name: &str,
+    index: usize,
+    focused: bool,
+) -> Value {
+    serde_json::json!({
+        "kind":"upsert",
+        "sequence":sequence,
+        "resource":"workspace",
+        "id":workspace_id,
+        "value":{
+            "id":workspace_id,
+            "session_id":session_id,
+            "name":name,
+            "index":index,
+            "focused":focused,
+        },
+    })
+}
 
 /// An opaque per-mux credential provisioned by the external machine
 /// provider. Debug output is deliberately redacted.
@@ -951,6 +974,8 @@ pub struct Mux {
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
+    resource_event_epoch: Mutex<u64>,
+    resource_event_changed: Condvar,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Fences the interval between accepting a browser daemon-handoff request
     /// and queueing its acknowledgement. ClientRegistry consults this under
@@ -1220,6 +1245,8 @@ impl Mux {
             surface_notifications: Mutex::new(HashMap::new()),
             notification_ledger: Mutex::new(VecDeque::new()),
             resource_machine_service: OnceLock::new(),
+            resource_event_epoch: Mutex::new(0),
+            resource_event_changed: Condvar::new(),
             terminal_adoptions: Mutex::new(HashSet::new()),
             daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
@@ -2304,6 +2331,9 @@ impl Mux {
         plan.apply(&mut state, &commit);
         drop(state);
         drop(registry);
+        if !commit.replayed {
+            self.publish_resource_event();
+        }
         Ok(commit)
     }
 
@@ -2331,7 +2361,7 @@ impl Mux {
             &fingerprint,
             expected_generation,
             expected_revision,
-            move |state, _registry| {
+            move |state, registry| {
                 anyhow::ensure!(
                     state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
                     "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
@@ -2360,11 +2390,25 @@ impl Mux {
                     "name": name,
                     "index": index,
                 });
-                let deltas = serde_json::json!([{
-                    "kind": "workspace.created",
-                    "workspace": public_id.as_str(),
-                    "index": index,
-                }]);
+                let mut deltas = Vec::with_capacity(2);
+                if let Some(previous) = state.workspaces.get(state.active_workspace) {
+                    deltas.push(workspace_resource_upsert(
+                        0,
+                        registry.session_id().as_str(),
+                        &previous.public_id,
+                        &previous.name,
+                        state.active_workspace,
+                        false,
+                    ));
+                }
+                deltas.push(workspace_resource_upsert(
+                    deltas.len(),
+                    registry.session_id().as_str(),
+                    &public_id,
+                    &name,
+                    index,
+                    true,
+                ));
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch {
                         changes: vec![
@@ -2386,7 +2430,7 @@ impl Mux {
                         ],
                     },
                     result,
-                    deltas,
+                    Value::Array(deltas),
                     move |state| {
                         state.push_workspace(workspace);
                         state.active_workspace = index;
@@ -2424,7 +2468,7 @@ impl Mux {
             &fingerprint,
             expected_generation,
             expected_revision,
-            move |state, _registry| {
+            move |state, registry| {
                 let slot = *state
                     .resource_indexes
                     .workspaces
@@ -2451,12 +2495,14 @@ impl Mux {
                     "name": name,
                     "changed": changed,
                 });
-                let deltas = serde_json::json!([{
-                    "kind": "workspace.renamed",
-                    "workspace": target.as_str(),
-                    "name": name,
-                    "changed": changed,
-                }]);
+                let deltas = Value::Array(vec![workspace_resource_upsert(
+                    0,
+                    registry.session_id().as_str(),
+                    &target,
+                    &name,
+                    index,
+                    index == state.active_workspace,
+                )]);
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch {
                         changes: vec![ResourceChange::UpsertWorkspace {
@@ -2544,12 +2590,14 @@ impl Mux {
                     "name": name,
                     "changed": changed,
                 });
-                let deltas = serde_json::json!([{
-                    "kind": "workspace.renamed",
-                    "workspace": target.as_str(),
-                    "name": name,
-                    "changed": changed,
-                }]);
+                let deltas = Value::Array(vec![workspace_resource_upsert(
+                    0,
+                    registry.session_id().as_str(),
+                    &target,
+                    &name,
+                    index,
+                    index == state.active_workspace,
+                )]);
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch {
                         changes: vec![ResourceChange::UpsertWorkspace {
@@ -2595,7 +2643,7 @@ impl Mux {
             &fingerprint,
             expected_generation,
             expected_revision,
-            move |state, _registry| {
+            move |state, registry| {
                 let slot = *state
                     .resource_indexes
                     .workspaces
@@ -2641,12 +2689,27 @@ impl Mux {
                     "index": new_index,
                     "changed": changed,
                 });
-                let deltas = serde_json::json!([{
-                    "kind": "workspace.moved",
-                    "workspace": target.as_str(),
-                    "index": new_index,
-                    "changed": changed,
-                }]);
+                let deltas = Value::Array(
+                    order
+                        .iter()
+                        .enumerate()
+                        .map(|(position, workspace_id)| {
+                            let workspace = state
+                                .workspaces
+                                .iter()
+                                .find(|workspace| &workspace.public_id == workspace_id)
+                                .expect("workspace order was built from live workspaces");
+                            workspace_resource_upsert(
+                                position,
+                                registry.session_id().as_str(),
+                                workspace_id,
+                                &workspace.name,
+                                position,
+                                active_slot == Some(workspace.id),
+                            )
+                        })
+                        .collect(),
+                );
                 let order_entries = usize::from(changed) * order.len();
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch { changes },
@@ -2761,12 +2824,27 @@ impl Mux {
                     "index": new_index,
                     "changed": changed,
                 });
-                let deltas = serde_json::json!([{
-                    "kind": "workspace.moved",
-                    "workspace": target.as_str(),
-                    "index": new_index,
-                    "changed": changed,
-                }]);
+                let deltas = Value::Array(
+                    order
+                        .iter()
+                        .enumerate()
+                        .map(|(position, workspace_id)| {
+                            let workspace = state
+                                .workspaces
+                                .iter()
+                                .find(|workspace| &workspace.public_id == workspace_id)
+                                .expect("workspace order was built from live workspaces");
+                            workspace_resource_upsert(
+                                position,
+                                registry.session_id().as_str(),
+                                workspace_id,
+                                &workspace.name,
+                                position,
+                                active_slot == Some(workspace.id),
+                            )
+                        })
+                        .collect(),
+                );
                 let order_entries = usize::from(changed) * order.len();
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch { changes },
@@ -2854,6 +2932,119 @@ impl Mux {
         let registry = self.workspace_registry.lock().unwrap();
         let state = self.state.lock().unwrap();
         project(&registry, &state)
+    }
+
+    pub(crate) fn lookup_resource_effect(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+    ) -> anyhow::Result<Option<ResourceEffectPreparation>> {
+        self.workspace_registry.lock().unwrap().lookup_resource_effect(
+            idempotency_key,
+            operation,
+            fingerprint,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn prepare_resource_effect(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        intent: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<ResourceEffectPreparation> {
+        self.workspace_registry.lock().unwrap().prepare_resource_effect(
+            idempotency_key,
+            operation,
+            fingerprint,
+            intent,
+            expected_generation,
+            expected_revision,
+        )
+    }
+
+    pub(crate) fn mark_resource_effect_executing(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+    ) -> anyhow::Result<Value> {
+        self.workspace_registry.lock().unwrap().mark_resource_effect_executing(
+            idempotency_key,
+            operation,
+            fingerprint,
+        )
+    }
+
+    pub(crate) fn commit_resource_effect(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        outcome: &ResourceEffectOutcome,
+        deltas: Option<&Value>,
+    ) -> anyhow::Result<u64> {
+        let revision = self.workspace_registry.lock().unwrap().commit_resource_effect(
+            idempotency_key,
+            operation,
+            fingerprint,
+            outcome,
+            deltas,
+        )?;
+        if deltas.is_some() {
+            self.publish_resource_event();
+        }
+        Ok(revision)
+    }
+
+    pub(crate) fn mark_resource_effect_indeterminate(
+        &self,
+        idempotency_key: &str,
+    ) -> anyhow::Result<()> {
+        self.workspace_registry.lock().unwrap().mark_resource_effect_indeterminate(idempotency_key)
+    }
+
+    pub(crate) fn resource_surface_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<SurfaceId> {
+        self.state
+            .lock()
+            .unwrap()
+            .resource_indexes
+            .content
+            .get(&ContentPublicId::Terminal(terminal_id.clone()))
+            .copied()
+    }
+
+    fn publish_resource_event(&self) {
+        let mut epoch = self.resource_event_epoch.lock().unwrap();
+        *epoch = epoch.wrapping_add(1);
+        self.resource_event_changed.notify_all();
+    }
+
+    pub(crate) fn resource_event_epoch(&self) -> u64 {
+        *self.resource_event_epoch.lock().unwrap()
+    }
+
+    pub(crate) fn wait_for_resource_event(&self, epoch: u64, timeout: Duration) -> u64 {
+        let current = self.resource_event_epoch.lock().unwrap();
+        if *current != epoch {
+            return *current;
+        }
+        let (current, _) = self.resource_event_changed.wait_timeout(current, timeout).unwrap();
+        *current
+    }
+
+    pub(crate) fn resource_events_after(
+        &self,
+        revision: u64,
+    ) -> anyhow::Result<crate::workspace_registry::ResourceEventPage> {
+        self.workspace_registry.lock().unwrap().resource_events_after(revision)
     }
 
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
@@ -4585,7 +4776,6 @@ impl Mux {
         level: NotificationLevel,
         surface: Option<SurfaceId>,
     ) -> anyhow::Result<u64> {
-        let id = self.next_notification_id();
         let public_id = NotificationPublicId::random()?;
         let terminal_id = surface.and_then(|surface| {
             self.state.lock().unwrap().resource_indexes.content_ids.get(&surface).and_then(
@@ -4595,6 +4785,29 @@ impl Mux {
                 },
             )
         });
+        Ok(self.post_resource_notification(
+            public_id,
+            title,
+            body,
+            level,
+            surface,
+            terminal_id,
+            now_ms(),
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn post_resource_notification(
+        &self,
+        public_id: NotificationPublicId,
+        title: String,
+        body: String,
+        level: NotificationLevel,
+        surface: Option<SurfaceId>,
+        terminal_id: Option<TerminalPublicId>,
+        created_at_ms: u64,
+    ) -> u64 {
+        let id = self.next_notification_id();
         {
             const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
             let mut ledger = self.notification_ledger.lock().unwrap();
@@ -4604,7 +4817,7 @@ impl Mux {
                 body: body.clone(),
                 level,
                 terminal_id,
-                created_at_ms: now_ms(),
+                created_at_ms,
                 surface,
             });
             while ledger.len() > NOTIFICATION_LEDGER_CAPACITY {
@@ -4631,7 +4844,7 @@ impl Mux {
         if unread_changed {
             self.emit(MuxEvent::TreeChanged);
         }
-        Ok(id)
+        id
     }
 
     pub fn resource_notifications(&self, limit: usize) -> Vec<ResourceNotification> {
@@ -11682,7 +11895,7 @@ mod tests {
         let surface_id = surface.id;
         let pause_first = Arc::new(AtomicBool::new(true));
         let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
-        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
         let hook_release = release.clone();
         mux.set_client_resize_before_apply(Some(Arc::new(move || {
             if pause_first.swap(false, Ordering::SeqCst) {
@@ -11733,7 +11946,7 @@ mod tests {
 
         let pause_first = Arc::new(AtomicBool::new(true));
         let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
-        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
         let hook_release = release.clone();
         mux.set_client_resize_before_apply(Some(Arc::new(move || {
             if pause_first.swap(false, Ordering::SeqCst) {

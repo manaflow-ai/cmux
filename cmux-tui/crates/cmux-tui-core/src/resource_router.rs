@@ -5,15 +5,17 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use serde_json::{Map, Value, json};
 
 use crate::resource::{
-    RequestEnvelope, RequestId, ResourceError, ResourceOperation, ResponseEnvelope, Selector,
-    WireDecimal,
+    NotificationPublicId, RequestEnvelope, RequestId, ResourceError, ResourceOperation,
+    ResponseEnvelope, Selector, TerminalPublicId, WireDecimal,
 };
 use crate::resource_api::{ResourceMachineRequest, operation_failed, public_session_snapshot};
+use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget, WorkspaceMutation};
 
 const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v1.json");
@@ -621,6 +623,13 @@ pub(crate) fn handle_resource_message(
     message: &str,
 ) -> Result<Value, ResourceError> {
     let request = parse_resource_request(message)?;
+    handle_parsed_resource_request(mux, request)
+}
+
+pub(crate) fn handle_parsed_resource_request(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
     let id = request.envelope.id.clone();
     let result = dispatch_resource_request(mux, request);
     serde_json::to_value(match result {
@@ -685,7 +694,8 @@ fn dispatch_resource_request(
         }
         ResourceOperation::SessionPing => {
             ensure_session_route(mux, &request.selectors)?;
-            Ok(json!({}))
+            let snapshot = public_session_snapshot(mux)?;
+            Ok(json!({"alive":true,"cursor":snapshot["cursor"]}))
         }
         ResourceOperation::WorkspaceList => list_resources(mux, &request.selectors, "workspaces"),
         ResourceOperation::ScreenList => list_resources(mux, &request.selectors, "screens"),
@@ -725,6 +735,7 @@ fn dispatch_resource_request(
                     .collect(),
             ))
         }
+        ResourceOperation::NotificationCreate => create_notification(mux, request),
         ResourceOperation::WorkspaceCreate => create_workspace(mux, request),
         ResourceOperation::WorkspaceRename => rename_workspace(mux, request),
         ResourceOperation::WorkspaceMove => move_workspace(mux, request),
@@ -885,6 +896,251 @@ fn get_resource(
         .and_then(|values| values.iter().find(|value| value["id"] == public_id))
         .cloned()
         .ok_or_else(|| ResourceError::not_found(collection.trim_end_matches('s'), &public_id))
+}
+
+fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
+    let operation = "notification.create";
+    let idempotency_key = request
+        .envelope
+        .idempotency_key
+        .as_deref()
+        .expect("validated mutations have an idempotency key");
+    let fingerprint = json!({
+        "operation": operation,
+        "selectors": request.selectors,
+        "fields": request.fields,
+    });
+    if let Some(preparation) = mux
+        .lookup_resource_effect(idempotency_key, operation, &fingerprint)
+        .map_err(resource_operation_error)?
+    {
+        return finish_notification_effect(mux, idempotency_key, &fingerprint, preparation);
+    }
+
+    ensure_session_route(mux, &request.selectors)?;
+    let terminal_id = request
+        .fields
+        .get("terminal_id")
+        .map(|value| {
+            TerminalPublicId::parse(
+                value.as_str().expect("catalog resource-id validation").to_string(),
+            )
+        })
+        .transpose()?;
+    if let Some(terminal_id) = &terminal_id
+        && mux.resource_surface_for_terminal(terminal_id).is_none()
+    {
+        return Err(ResourceError::not_found("terminal", terminal_id.as_str()));
+    }
+    let notification_id = NotificationPublicId::random()?;
+    let created_at_ms: u64 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| {
+            ResourceError::new(
+                "operation.failed",
+                "system clock is before the Unix epoch",
+                json!({"error":error.to_string()}),
+                false,
+            )
+        })?
+        .as_millis()
+        .try_into()
+        .map_err(|_| {
+            ResourceError::new(
+                "operation.failed",
+                "notification timestamp exceeds uint64",
+                json!({}),
+                false,
+            )
+        })?;
+    let intent = json!({
+        "notification_id": notification_id,
+        "title": required_string(&request.fields, "title")?,
+        "body": required_string(&request.fields, "body")?,
+        "level": required_string(&request.fields, "level")?,
+        "terminal_id": terminal_id,
+        "created_at_ms": created_at_ms,
+    });
+    let preparation = mux
+        .prepare_resource_effect(
+            idempotency_key,
+            operation,
+            &fingerprint,
+            &intent,
+            None,
+            expected_revision(&request.fields)?,
+        )
+        .map_err(resource_operation_error)?;
+    finish_notification_effect(mux, idempotency_key, &fingerprint, preparation)
+}
+
+fn finish_notification_effect(
+    mux: &Mux,
+    idempotency_key: &str,
+    fingerprint: &Value,
+    preparation: ResourceEffectPreparation,
+) -> Result<Value, ResourceError> {
+    match preparation {
+        ResourceEffectPreparation::Committed { outcome, revision } => match outcome {
+            ResourceEffectOutcome::Success(value) => mutation_result(mux, value, revision, true),
+            ResourceEffectOutcome::Failure(error) => Err(error),
+        },
+        ResourceEffectPreparation::Indeterminate => {
+            Err(indeterminate_error(idempotency_key, "notification.create"))
+        }
+        ResourceEffectPreparation::Execute { .. } => {
+            let intent = mux
+                .mark_resource_effect_executing(idempotency_key, "notification.create", fingerprint)
+                .map_err(resource_operation_error)?;
+            execute_notification_effect(mux, idempotency_key, fingerprint, &intent)
+        }
+    }
+}
+
+fn execute_notification_effect(
+    mux: &Mux,
+    idempotency_key: &str,
+    fingerprint: &Value,
+    intent: &Value,
+) -> Result<Value, ResourceError> {
+    let notification_id: NotificationPublicId =
+        serde_json::from_value(intent["notification_id"].clone()).map_err(|error| {
+            ResourceError::new(
+                "operation.failed",
+                "stored notification intent has an invalid identity",
+                json!({"error":error.to_string()}),
+                false,
+            )
+        })?;
+    let terminal_id = intent
+        .get("terminal_id")
+        .filter(|value| !value.is_null())
+        .map(|value| serde_json::from_value::<TerminalPublicId>(value.clone()))
+        .transpose()
+        .map_err(|error| {
+            ResourceError::new(
+                "operation.failed",
+                "stored notification intent has an invalid terminal identity",
+                json!({"error":error.to_string()}),
+                false,
+            )
+        })?;
+    let surface =
+        terminal_id.as_ref().and_then(|terminal_id| mux.resource_surface_for_terminal(terminal_id));
+    if terminal_id.is_some() && surface.is_none() {
+        let terminal_id = terminal_id.expect("checked present");
+        let error = ResourceError::not_found("terminal", terminal_id.as_str());
+        let outcome = ResourceEffectOutcome::Failure(error.clone());
+        if mux
+            .commit_resource_effect(
+                idempotency_key,
+                "notification.create",
+                fingerprint,
+                &outcome,
+                None,
+            )
+            .is_err()
+        {
+            let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
+            return Err(indeterminate_error(idempotency_key, "notification.create"));
+        }
+        return Err(error);
+    }
+    let level = match required_string(
+        intent
+            .as_object()
+            .ok_or_else(|| validation_error("stored effect intent is not an object", json!({})))?,
+        "level",
+    )? {
+        "info" => crate::NotificationLevel::Info,
+        "warning" => crate::NotificationLevel::Warning,
+        "error" => crate::NotificationLevel::Error,
+        other => {
+            return Err(ResourceError::new(
+                "operation.failed",
+                "stored notification intent has an invalid level",
+                json!({"level":other}),
+                false,
+            ));
+        }
+    };
+    let title = intent.get("title").and_then(Value::as_str).ok_or_else(|| {
+        ResourceError::new(
+            "operation.failed",
+            "stored notification intent has an invalid title",
+            json!({}),
+            false,
+        )
+    })?;
+    let body = intent.get("body").and_then(Value::as_str).ok_or_else(|| {
+        ResourceError::new(
+            "operation.failed",
+            "stored notification intent has an invalid body",
+            json!({}),
+            false,
+        )
+    })?;
+    let created_at_ms = intent.get("created_at_ms").and_then(Value::as_u64).ok_or_else(|| {
+        ResourceError::new(
+            "operation.failed",
+            "stored notification intent has an invalid timestamp",
+            json!({}),
+            false,
+        )
+    })?;
+    mux.post_resource_notification(
+        notification_id.clone(),
+        title.to_string(),
+        body.to_string(),
+        level,
+        surface,
+        terminal_id,
+        created_at_ms,
+    );
+    let value = match public_session_snapshot(mux)
+        .and_then(|snapshot| find_snapshot(&snapshot, "notifications", notification_id.as_str()))
+    {
+        Ok(value) => value,
+        Err(_) => {
+            let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
+            return Err(indeterminate_error(idempotency_key, "notification.create"));
+        }
+    };
+    let outcome = ResourceEffectOutcome::Success(value.clone());
+    let deltas = json!([{
+        "kind":"upsert",
+        "sequence":0,
+        "resource":"notification",
+        "id":notification_id,
+        "value":value,
+    }]);
+    let revision = match mux.commit_resource_effect(
+        idempotency_key,
+        "notification.create",
+        fingerprint,
+        &outcome,
+        Some(&deltas),
+    ) {
+        Ok(revision) => revision,
+        Err(_) => {
+            let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
+            return Err(indeterminate_error(idempotency_key, "notification.create"));
+        }
+    };
+    mutation_result(mux, value, revision, false)
+}
+
+fn indeterminate_error(idempotency_key: &str, operation: &str) -> ResourceError {
+    ResourceError::new(
+        "mutation.indeterminate",
+        "the external effect may have run before its outcome was recorded",
+        json!({
+            "idempotency_key":idempotency_key,
+            "operation":operation,
+            "recovery":"inspect_state_then_retry_with_new_key",
+        }),
+        false,
+    )
 }
 
 fn create_workspace(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -1192,6 +1448,49 @@ mod tests {
         assert_eq!(renamed["result"]["value"]["name"], "renamed");
         assert_eq!(renamed["result"]["value"]["id"], workspace_id);
         assert_eq!(renamed["result"]["replayed"], false);
+    }
+
+    #[test]
+    fn notification_effect_commits_once_and_replays_without_reposting() {
+        let mux = test_mux();
+        let params = json!({
+            "machine":"current",
+            "session":"current",
+            "title":"Build finished",
+            "body":"All checks passed",
+            "level":"info",
+        });
+        let created = handle_resource_message(
+            &mux,
+            &request(
+                "notification-1",
+                "notification.create",
+                params.clone(),
+                Some("notification-effect-key"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(created["ok"], true);
+        assert_eq!(created["result"]["value"]["title"], "Build finished");
+        assert_eq!(created["result"]["revision"], "1");
+        assert_eq!(created["result"]["replayed"], false);
+        let notification_id = created["result"]["value"]["id"].as_str().unwrap().to_string();
+
+        let replayed = handle_resource_message(
+            &mux,
+            &request(
+                "notification-2",
+                "notification.create",
+                params,
+                Some("notification-effect-key"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(replayed["ok"], true);
+        assert_eq!(replayed["result"]["value"]["id"], notification_id);
+        assert_eq!(replayed["result"]["revision"], "1");
+        assert_eq!(replayed["result"]["replayed"], true);
+        assert_eq!(mux.resource_notifications(256).len(), 1);
     }
 
     #[test]

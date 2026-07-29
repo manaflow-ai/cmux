@@ -46,6 +46,10 @@ use zeroize::Zeroize;
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
+use crate::resource::{
+    RequestId as ResourceRequestId, ResourceError, ResourceOperation,
+    ResponseEnvelope as ResourceResponseEnvelope, StreamPublicId, WireDecimal,
+};
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
 };
@@ -1331,7 +1335,7 @@ struct OutboundStream {
     id: u64,
     open: Arc<AtomicBool>,
     terminal_enqueued: Arc<AtomicBool>,
-    overflow_text: Arc<str>,
+    overflow_text: Arc<Mutex<String>>,
 }
 
 impl OutboundStream {
@@ -1340,7 +1344,7 @@ impl OutboundStream {
             id,
             open: Arc::new(AtomicBool::new(true)),
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
-            overflow_text: overflow_text.into(),
+            overflow_text: Arc::new(Mutex::new(overflow_text)),
         }
     }
 
@@ -1350,6 +1354,11 @@ impl OutboundStream {
 
     fn close(&self) {
         self.open.store(false, Ordering::Release);
+    }
+
+    fn update_overflow(&self, value: &Value) -> std::io::Result<()> {
+        *self.overflow_text.lock().unwrap() = serde_json::to_string(value)?;
+        Ok(())
     }
 }
 
@@ -1931,7 +1940,8 @@ impl BoundedOutbound {
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        if let Err(error) = Self::push_control_locked(state, stream.overflow_text.to_string()) {
+        let overflow_text = stream.overflow_text.lock().unwrap().clone();
+        if let Err(error) = Self::push_control_locked(state, overflow_text) {
             state.closed = true;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
@@ -2168,12 +2178,25 @@ struct DetachedSurface {
     rollback: Option<crate::mux::ClientSizeRollback>,
 }
 
+struct ResourceClientStream {
+    outbound: OutboundStream,
+    canceled: Arc<AtomicBool>,
+}
+
+impl Drop for ResourceClientStream {
+    fn drop(&mut self) {
+        self.canceled.store(true, Ordering::Release);
+        self.outbound.close();
+    }
+}
+
 struct ClientRecord {
     transport: ClientTransport,
     connected_at: Instant,
     name: Option<String>,
     kind: Option<String>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
+    resource_streams: HashMap<String, ResourceClientStream>,
     announced_attached: bool,
     writer: MessageWriter,
 }
@@ -2204,6 +2227,7 @@ impl ClientRegistry {
                 name: None,
                 kind: None,
                 attached: BTreeMap::new(),
+                resource_streams: HashMap::new(),
                 announced_attached: false,
                 writer,
             },
@@ -2218,6 +2242,56 @@ impl ClientRegistry {
             .clients
             .get(&client)
             .is_some_and(|record| matches!(record.transport, ClientTransport::Unix))
+    }
+
+    fn install_resource_stream(
+        &self,
+        client: u64,
+        stream_id: &StreamPublicId,
+        outbound: OutboundStream,
+    ) -> anyhow::Result<Arc<AtomicBool>> {
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        anyhow::ensure!(
+            !record.resource_streams.contains_key(stream_id.as_str()),
+            "resource stream {} is already open on this connection",
+            stream_id
+        );
+        let canceled = Arc::new(AtomicBool::new(false));
+        record.resource_streams.insert(
+            stream_id.to_string(),
+            ResourceClientStream { outbound, canceled: canceled.clone() },
+        );
+        Ok(canceled)
+    }
+
+    fn take_resource_stream(
+        &self,
+        client: u64,
+        stream_id: &StreamPublicId,
+    ) -> Option<ResourceClientStream> {
+        self.state
+            .lock()
+            .unwrap()
+            .clients
+            .get_mut(&client)?
+            .resource_streams
+            .remove(stream_id.as_str())
+    }
+
+    fn finish_resource_stream(&self, client: u64, stream_id: &StreamPublicId, outbound_id: u64) {
+        let mut state = self.state.lock().unwrap();
+        let Some(record) = state.clients.get_mut(&client) else { return };
+        if record
+            .resource_streams
+            .get(stream_id.as_str())
+            .is_some_and(|stream| stream.outbound.id == outbound_id)
+        {
+            record.resource_streams.remove(stream_id.as_str());
+        }
     }
 
     fn set_info(
@@ -2977,6 +3051,466 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
     }
 }
 
+struct SessionEventStreamStart {
+    stream_id: StreamPublicId,
+    outbound: OutboundStream,
+    canceled: Arc<AtomicBool>,
+    initial_items: Vec<(Value, Value)>,
+    next_sequence: u64,
+    last_revision: u64,
+    epoch: u64,
+}
+
+fn handle_resource_connection_message(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+) -> bool {
+    let request = match crate::resource_router::parse_resource_request(message) {
+        Ok(request) => request,
+        Err(error) => {
+            let response = crate::resource_router::malformed_resource_response(message, error);
+            return writer.send_control(&response).is_ok();
+        }
+    };
+    let id = request.envelope.id.clone();
+    match request.envelope.operation {
+        ResourceOperation::SessionEvents => {
+            match prepare_session_event_stream(mux, client, writer, &request) {
+                Ok((result, start)) => {
+                    if !send_resource_response(writer, id, Ok(result)) {
+                        let _ = mux.control_clients.take_resource_stream(client, &start.stream_id);
+                        return false;
+                    }
+                    start_session_event_stream(mux.clone(), client, writer.clone(), start);
+                    true
+                }
+                Err(error) => send_resource_response(writer, id, Err(error)),
+            }
+        }
+        ResourceOperation::StreamCancel => {
+            let result = cancel_resource_stream(mux, client, writer, &request);
+            send_resource_response(writer, id, result)
+        }
+        _ => match crate::resource_router::handle_parsed_resource_request(mux, request) {
+            Ok(response) => writer.send_control(&response).is_ok(),
+            Err(error) => {
+                let response = crate::resource_router::malformed_resource_response(message, error);
+                writer.send_control(&response).is_ok()
+            }
+        },
+    }
+}
+
+fn send_resource_response(
+    writer: &MessageWriter,
+    id: ResourceRequestId,
+    result: Result<Value, ResourceError>,
+) -> bool {
+    let envelope = match result {
+        Ok(result) => ResourceResponseEnvelope::success(id, result),
+        Err(error) => ResourceResponseEnvelope::failure(id, error),
+    };
+    serde_json::to_value(envelope).is_ok_and(|value| writer.send_control(&value).is_ok())
+}
+
+fn prepare_session_event_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<(Value, SessionEventStreamStart), ResourceError> {
+    mux.resolve_resource_path(crate::ResourceTarget::Session, &request.selectors)?;
+    let stream_id: StreamPublicId = serde_json::from_value(request.fields["stream_id"].clone())
+        .map_err(|error| {
+            ResourceError::new(
+                "validation.invalid",
+                "stream_id is invalid",
+                json!({"error":error.to_string()}),
+                false,
+            )
+        })?;
+    let epoch = mux.resource_event_epoch();
+    let snapshot = crate::resource_api::public_session_snapshot(mux)?;
+    let snapshot_cursor = snapshot["cursor"].clone();
+    let snapshot_generation = snapshot_cursor["generation"]
+        .as_str()
+        .expect("public snapshot cursor generation")
+        .to_string();
+    let snapshot_revision = snapshot_cursor["revision"]
+        .as_str()
+        .and_then(|revision| revision.parse::<u64>().ok())
+        .expect("public snapshot cursor revision");
+    let requested_cursor = request
+        .fields
+        .get("cursor")
+        .map(|cursor| {
+            let generation = cursor["generation"]
+                .as_str()
+                .ok_or_else(|| {
+                    ResourceError::new(
+                        "validation.invalid",
+                        "cursor generation is missing",
+                        json!({}),
+                        false,
+                    )
+                })?
+                .to_string();
+            let revision = serde_json::from_value::<WireDecimal>(cursor["revision"].clone())
+                .map(WireDecimal::get)
+                .map_err(|error| {
+                    ResourceError::new(
+                        "validation.invalid",
+                        "cursor revision is invalid",
+                        json!({"error":error.to_string()}),
+                        false,
+                    )
+                })?;
+            Ok::<_, ResourceError>((generation, revision))
+        })
+        .transpose()?;
+
+    let mut initial_items = Vec::new();
+    let last_revision;
+    let opened_cursor;
+    match requested_cursor {
+        None => {
+            initial_items.push((
+                snapshot_cursor.clone(),
+                json!({
+                    "kind":"snapshot",
+                    "cursor":snapshot_cursor,
+                    "reset_reason":"initial",
+                    "snapshot":snapshot,
+                }),
+            ));
+            last_revision = snapshot_revision;
+            opened_cursor = json!({
+                "generation":snapshot_generation,
+                "revision":snapshot_revision.to_string(),
+            });
+        }
+        Some((generation, _)) if generation != snapshot_generation => {
+            initial_items.push((
+                snapshot_cursor.clone(),
+                json!({
+                    "kind":"snapshot",
+                    "cursor":snapshot_cursor,
+                    "reset_reason":"generation_changed",
+                    "snapshot":snapshot,
+                }),
+            ));
+            last_revision = snapshot_revision;
+            opened_cursor = json!({
+                "generation":snapshot_generation,
+                "revision":snapshot_revision.to_string(),
+            });
+        }
+        Some((_, revision)) => match mux.resource_events_after(revision) {
+            Ok(page) => {
+                for batch in page.batches {
+                    let cursor = json!({
+                        "generation":page.generation,
+                        "revision":batch.revision.to_string(),
+                    });
+                    initial_items.push((
+                        cursor.clone(),
+                        json!({
+                            "kind":"delta",
+                            "cursor":cursor,
+                            "previous_revision":batch.previous_revision.to_string(),
+                            "revision":batch.revision.to_string(),
+                            "changes":batch.changes,
+                        }),
+                    ));
+                }
+                last_revision = page.head_revision;
+                opened_cursor = json!({
+                    "generation":page.generation,
+                    "revision":page.head_revision.to_string(),
+                });
+            }
+            Err(error) if error.to_string().starts_with("cursor.gap:") => {
+                initial_items.push((
+                    snapshot_cursor.clone(),
+                    json!({
+                        "kind":"snapshot",
+                        "cursor":snapshot_cursor,
+                        "reset_reason":"cursor_expired",
+                        "snapshot":snapshot,
+                    }),
+                ));
+                last_revision = snapshot_revision;
+                opened_cursor = json!({
+                    "generation":snapshot_generation,
+                    "revision":snapshot_revision.to_string(),
+                });
+            }
+            Err(error) if error.to_string().starts_with("cursor.invalid:") => {
+                return Err(ResourceError::new(
+                    "cursor.invalid",
+                    "cursor revision is ahead of the session",
+                    json!({"error":error.to_string()}),
+                    false,
+                ));
+            }
+            Err(error) => {
+                return Err(ResourceError::new(
+                    "operation.failed",
+                    "could not read session event journal",
+                    json!({"error":error.to_string()}),
+                    false,
+                ));
+            }
+        },
+    }
+    let overflow = resource_stream_end(
+        &stream_id,
+        "gap",
+        Some(opened_cursor.clone()),
+        Some("request a fresh session snapshot"),
+        None,
+    );
+    let outbound = writer.start_stream(&overflow).map_err(|error| {
+        ResourceError::new(
+            "transport.closed",
+            "could not allocate an outbound stream",
+            json!({"error":error.to_string()}),
+            true,
+        )
+    })?;
+    let canceled = mux
+        .control_clients
+        .install_resource_stream(client, &stream_id, outbound.clone())
+        .map_err(|error| {
+            ResourceError::new(
+                "operation.failed",
+                error.to_string(),
+                json!({"stream_id":stream_id}),
+                false,
+            )
+        })?;
+    Ok((
+        json!({"stream_id":stream_id,"cursor":opened_cursor}),
+        SessionEventStreamStart {
+            stream_id,
+            outbound,
+            canceled,
+            initial_items,
+            next_sequence: 0,
+            last_revision,
+            epoch,
+        },
+    ))
+}
+
+fn start_session_event_stream(
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    start: SessionEventStreamStart,
+) {
+    let stream_id = start.stream_id.clone();
+    let outbound = start.outbound.clone();
+    let worker_mux = mux.clone();
+    let worker_writer = writer.clone();
+    let spawn = std::thread::Builder::new()
+        .name("mux-resource-session-events".into())
+        .spawn(move || run_session_event_stream(&worker_mux, client, &worker_writer, start));
+    if spawn.is_err() {
+        let _ = mux.control_clients.take_resource_stream(client, &stream_id);
+        let end = resource_stream_end(
+            &stream_id,
+            "error",
+            None,
+            Some("open a new session event stream"),
+            Some(ResourceError::new(
+                "operation.failed",
+                "could not start the session event stream",
+                json!({}),
+                true,
+            )),
+        );
+        let _ = writer.send_terminal(&end, &outbound);
+    }
+}
+
+fn run_session_event_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    mut stream: SessionEventStreamStart,
+) {
+    for (cursor, item) in stream.initial_items.drain(..) {
+        if stream.canceled.load(Ordering::Acquire)
+            || !send_resource_stream_item(
+                writer,
+                &stream.outbound,
+                &stream.stream_id,
+                stream.next_sequence,
+                &cursor,
+                item,
+            )
+        {
+            mux.control_clients.finish_resource_stream(
+                client,
+                &stream.stream_id,
+                stream.outbound.id,
+            );
+            return;
+        }
+        stream.next_sequence = stream.next_sequence.saturating_add(1);
+    }
+
+    loop {
+        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            break;
+        }
+        let epoch = mux.wait_for_resource_event(stream.epoch, Duration::from_secs(1));
+        if epoch == stream.epoch {
+            continue;
+        }
+        stream.epoch = epoch;
+        let page = match mux.resource_events_after(stream.last_revision) {
+            Ok(page) => page,
+            Err(error) => {
+                let end = resource_stream_end(
+                    &stream.stream_id,
+                    "gap",
+                    None,
+                    Some("request a fresh session snapshot"),
+                    None,
+                );
+                let _ = error;
+                let _ = writer.send_terminal(&end, &stream.outbound);
+                break;
+            }
+        };
+        for batch in page.batches {
+            let cursor = json!({
+                "generation":page.generation,
+                "revision":batch.revision.to_string(),
+            });
+            let end = resource_stream_end(
+                &stream.stream_id,
+                "gap",
+                Some(cursor.clone()),
+                Some("request a fresh session snapshot"),
+                None,
+            );
+            let _ = stream.outbound.update_overflow(&end);
+            if stream.canceled.load(Ordering::Acquire)
+                || !send_resource_stream_item(
+                    writer,
+                    &stream.outbound,
+                    &stream.stream_id,
+                    stream.next_sequence,
+                    &cursor,
+                    json!({
+                        "kind":"delta",
+                        "cursor":cursor,
+                        "previous_revision":batch.previous_revision.to_string(),
+                        "revision":batch.revision.to_string(),
+                        "changes":batch.changes,
+                    }),
+                )
+            {
+                mux.control_clients.finish_resource_stream(
+                    client,
+                    &stream.stream_id,
+                    stream.outbound.id,
+                );
+                return;
+            }
+            stream.next_sequence = stream.next_sequence.saturating_add(1);
+            stream.last_revision = batch.revision;
+        }
+    }
+    mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+fn send_resource_stream_item(
+    writer: &MessageWriter,
+    outbound: &OutboundStream,
+    stream_id: &StreamPublicId,
+    sequence: u64,
+    cursor: &Value,
+    item: Value,
+) -> bool {
+    writer
+        .send_stream(
+            &json!({
+                "protocol":"cmux.protocol/1",
+                "type":"stream_item",
+                "stream_id":stream_id,
+                "sequence":sequence.to_string(),
+                "cursor":cursor,
+                "item":item,
+            }),
+            outbound,
+        )
+        .is_ok()
+}
+
+fn cancel_resource_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let route = crate::ResourceSelectors {
+        machine: request.selectors.machine.clone(),
+        session: request.selectors.session.clone(),
+        ..Default::default()
+    };
+    mux.resolve_resource_path(crate::ResourceTarget::Session, &route)?;
+    let stream_id: StreamPublicId = request
+        .selectors
+        .stream
+        .as_deref()
+        .ok_or_else(|| ResourceError::not_found("stream", "<missing>"))
+        .and_then(|stream| StreamPublicId::parse(stream.to_string()))?;
+    if let Some(stream) = mux.control_clients.take_resource_stream(client, &stream_id) {
+        stream.canceled.store(true, Ordering::Release);
+        let end = resource_stream_end(&stream_id, "canceled", None, None, None);
+        writer.send_terminal(&end, &stream.outbound).map_err(|error| {
+            ResourceError::new(
+                "transport.closed",
+                "could not end the canceled stream",
+                json!({"error":error.to_string()}),
+                true,
+            )
+        })?;
+    }
+    Ok(json!({}))
+}
+
+fn resource_stream_end(
+    stream_id: &StreamPublicId,
+    reason: &str,
+    cursor: Option<Value>,
+    recovery: Option<&str>,
+    error: Option<ResourceError>,
+) -> Value {
+    let mut end = json!({
+        "protocol":"cmux.protocol/1",
+        "type":"stream_end",
+        "stream_id":stream_id,
+        "reason":reason,
+    });
+    if let Some(cursor) = cursor {
+        end["cursor"] = cursor;
+    }
+    if let Some(recovery) = recovery {
+        end["recovery"] = json!(recovery);
+    }
+    if let Some(error) = error {
+        end["error"] = json!(error);
+    }
+    end
+}
+
 fn handle_connection_message(
     mux: &Arc<Mux>,
     client: u64,
@@ -2985,11 +3519,7 @@ fn handle_connection_message(
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
     if crate::resource_router::is_resource_protocol_message(message) {
-        let response = match crate::resource_router::handle_resource_message(mux, message) {
-            Ok(response) => response,
-            Err(error) => crate::resource_router::malformed_resource_response(message, error),
-        };
-        return writer.send_control(&response).is_ok();
+        return handle_resource_connection_message(mux, client, message, writer);
     }
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
@@ -5976,6 +6506,36 @@ mod tests {
         (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
     }
 
+    fn pop_json(outbound: &BoundedOutbound) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Some(message) = outbound.try_pop() {
+                return serde_json::from_str(&message).expect("outbound JSON");
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for outbound JSON");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    fn resource_request(
+        id: &str,
+        operation: &str,
+        params: Value,
+        idempotency_key: Option<&str>,
+    ) -> String {
+        let mut request = json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":id,
+            "operation":operation,
+            "params":params,
+        });
+        if let Some(idempotency_key) = idempotency_key {
+            request["idempotency_key"] = json!(idempotency_key);
+        }
+        serde_json::to_string(&request).unwrap()
+    }
+
     #[test]
     fn resource_protocol_responses_are_identical_for_unix_and_websocket_clients() {
         let mux = test_mux();
@@ -6004,7 +6564,200 @@ mod tests {
         assert_eq!(response["type"], "response");
         assert_eq!(response["id"], "transport-parity");
         assert_eq!(response["ok"], true);
-        assert_eq!(response["result"], json!({}));
+        assert_eq!(response["result"]["alive"], true);
+        assert_eq!(response["result"]["cursor"]["revision"], "0");
+        assert!(response["result"]["cursor"]["generation"].as_str().is_some());
+    }
+
+    #[test]
+    fn session_event_stream_acknowledges_before_snapshot_and_cancel_ends_before_response() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_00000000000000000000000000000001";
+        let open = resource_request(
+            "events-open",
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+
+        let response = pop_json(&outbound);
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "events-open");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["stream_id"], stream_id);
+        let snapshot = pop_json(&outbound);
+        assert_eq!(snapshot["type"], "stream_item");
+        assert_eq!(snapshot["stream_id"], stream_id);
+        assert_eq!(snapshot["sequence"], "0");
+        assert_eq!(snapshot["item"]["kind"], "snapshot");
+        assert_eq!(snapshot["item"]["reset_reason"], "initial");
+
+        let cancel = resource_request(
+            "events-cancel",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        let end = pop_json(&outbound);
+        assert_eq!(end["type"], "stream_end");
+        assert_eq!(end["stream_id"], stream_id);
+        assert_eq!(end["reason"], "canceled");
+        let response = pop_json(&outbound);
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "events-cancel");
+        assert_eq!(response["ok"], true);
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(outbound.try_pop().is_none(), "an item followed stream_end");
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn session_event_stream_replays_covered_cursor_and_rejects_ahead_cursor() {
+        let mux = test_mux();
+        let initial = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let generation = initial["cursor"]["generation"].as_str().unwrap().to_string();
+        let created = crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "create-for-replay",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"replayed",
+                    "initial_content":"empty",
+                }),
+                Some("create-for-session-event-replay"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(created["result"]["revision"], "1");
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_00000000000000000000000000000002";
+        let open = resource_request(
+            "events-replay",
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+                "cursor":{"generation":generation,"revision":"0"},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["id"], "events-replay");
+        let delta = pop_json(&outbound);
+        assert_eq!(delta["item"]["kind"], "delta");
+        assert_eq!(delta["item"]["previous_revision"], "0");
+        assert_eq!(delta["item"]["revision"], "1");
+        assert_eq!(delta["item"]["changes"][0]["kind"], "upsert");
+        assert_eq!(delta["item"]["changes"][0]["resource"], "workspace");
+
+        let ahead_id = "stream_00000000000000000000000000000003";
+        let ahead = resource_request(
+            "events-ahead",
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":ahead_id,
+                "cursor":{"generation":generation,"revision":"999"},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &ahead, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "events-ahead");
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "cursor.invalid");
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn generation_mismatch_resets_one_stream_without_interrupting_another() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let first_id = "stream_00000000000000000000000000000004";
+        let second_id = "stream_00000000000000000000000000000005";
+        for (request_id, stream_id, cursor) in [
+            ("events-reset", first_id, Some(json!({"generation":"stale","revision":"0"}))),
+            ("events-live", second_id, None),
+        ] {
+            let mut params = json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+            });
+            if let Some(cursor) = cursor {
+                params["cursor"] = cursor;
+            }
+            let open = resource_request(request_id, "session.events", params, None);
+            assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+            assert_eq!(pop_json(&outbound)["id"], request_id);
+            let snapshot = pop_json(&outbound);
+            assert_eq!(snapshot["stream_id"], stream_id);
+            assert_eq!(
+                snapshot["item"]["reset_reason"],
+                if stream_id == first_id { "generation_changed" } else { "initial" }
+            );
+        }
+
+        let cancel = resource_request(
+            "cancel-reset",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":first_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["stream_id"], first_id);
+        assert_eq!(pop_json(&outbound)["id"], "cancel-reset");
+
+        crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "create-for-live",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"live",
+                    "initial_content":"empty",
+                }),
+                Some("create-for-live-session-event"),
+            ),
+        )
+        .unwrap();
+        let delta = pop_json(&outbound);
+        assert_eq!(delta["type"], "stream_item");
+        assert_eq!(delta["stream_id"], second_id);
+        assert_eq!(delta["item"]["kind"], "delta");
+        disconnect_client(&mux, client, false);
     }
 
     #[test]
