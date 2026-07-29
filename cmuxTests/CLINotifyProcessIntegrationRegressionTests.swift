@@ -3816,6 +3816,31 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    func testSSHRawRemoteCommandReportsTerminalReadiness() throws {
+        let run = try runMockedSSH(arguments: [
+            "--",
+            "tmux", "attach", "-t", "work",
+        ])
+        let configureParams = try XCTUnwrap(
+            params(for: "workspace.remote.configure", in: run.requests)
+        )
+        let terminalStartupCommand = try XCTUnwrap(
+            configureParams["terminal_startup_command"] as? String
+        )
+        let terminalStartupScript =
+            decodedReusableStartupScript(from: terminalStartupCommand) ??
+            terminalStartupCommand
+
+        XCTAssertTrue(
+            terminalStartupScript.contains("workspace.remote.terminal_session_connected"),
+            "Raw SSH commands must report authoritative readiness instead of leaving the workspace in connecting state: \(terminalStartupScript)"
+        )
+        XCTAssertTrue(
+            terminalStartupScript.contains("tmux attach -t work"),
+            terminalStartupScript
+        )
+    }
+
     func testSSHPTYAttachBridgeErrorClearsLocalStateBeforeReady() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshpty")

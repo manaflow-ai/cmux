@@ -208,6 +208,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls.split(separator: "\n").filter { $0.contains("ssh-session-end") }
         XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        let launchingCalls = recordedCalls
+            .split(separator: "\n")
+            .filter { $0.contains("rpc workspace.remote.terminal_session_launching") }
+        XCTAssertEqual(
+            launchingCalls.count,
+            2,
+            "Each wrapper attempt must synchronously publish a distinct launching generation before it can report connected; recorded: \(recordedCalls)"
+        )
+        let attemptIDs = launchingCalls.compactMap { call -> String? in
+            guard let marker = call.range(of: "\"attempt_id\":\"") else { return nil }
+            let suffix = call[marker.upperBound...]
+            return suffix.split(separator: "\"", maxSplits: 1).first.map(String.init)
+        }
+        XCTAssertEqual(Set(attemptIDs).count, 2, recordedCalls)
     }
 
     func testSSHStartupRemovesStaleCmuxControlSocketBeforeLaunchingPaneSSH() throws {

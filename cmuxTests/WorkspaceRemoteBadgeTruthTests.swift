@@ -386,6 +386,37 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
     }
 
     @MainActor
+    func testEndBeforeReadinessRecordsLifecycleTombstone() throws {
+        let workspace = Workspace()
+        let surfaceId = try seededTerminalSurfaceID(in: workspace)
+        let terminal = try XCTUnwrap(workspace.panels[surfaceId] as? TerminalPanel)
+        let terminalLifecycleID = terminal.surface.terminalLifecycleId
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionEnded(
+                surfaceId: surfaceId,
+                relayPort: 64007,
+                terminalLifecycleID: terminalLifecycleID
+            )
+        )
+        XCTAssertFalse(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                authority: .relayPort(64007),
+                terminalLifecycleID: terminalLifecycleID
+            )
+        )
+
+        workspace.configureRemoteConnection(
+            remoteConfiguration(preserveAfterTerminalExit: false),
+            autoConnect: false
+        )
+
+        XCTAssertFalse(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+    }
+
+    @MainActor
     func testTerminalConnectedBeforeRemoteConfigurationIsAppliedAfterSeeding() throws {
         let workspace = Workspace()
         let surfaceId = try seededTerminalSurfaceID(in: workspace)
