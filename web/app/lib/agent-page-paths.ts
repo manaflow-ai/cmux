@@ -131,6 +131,11 @@ export const agentReadablePages = [
   { path: "/enterprise", title: "Enterprise" },
   { path: "/blog", title: "Blog" },
   {
+    path: "/blog/367-billion-tokens",
+    title: "How I used 367 billion tokens in 30 days",
+    locales: fallbackContentLocales,
+  },
+  {
     path: "/blog/claude-code-best-worktree-manager",
     title: "Superrepos and Why Claude Code Is the Best Worktree Manager",
     locales: fallbackContentLocales,

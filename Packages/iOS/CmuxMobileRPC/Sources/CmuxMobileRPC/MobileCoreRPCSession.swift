@@ -741,9 +741,9 @@ actor MobileCoreRPCSession {
     /// owned by another request ID).
     private func startQueuedDemandRecovery(requestID: String) {
         guard !queuedWriteIDs.isEmpty else { return }
-        Task { [weak self, taskTimeout, cancelledWriteCompletionGraceNanoseconds] in
+        Task { [self, taskTimeout, cancelledWriteCompletionGraceNanoseconds] in
             let waitTask = Task<Void, any Error> {
-                await self?.awaitCancelledWriteResolution()
+                await self.awaitCancelledWriteResolution()
             }
             do {
                 try await taskTimeout.value(
@@ -752,7 +752,7 @@ actor MobileCoreRPCSession {
                 )
             } catch {
                 waitTask.cancel()
-                await self?.recycleCancelledActiveWriteForQueuedDemand(
+                await self.recycleCancelledActiveWriteForQueuedDemand(
                     requestID: requestID
                 )
             }
