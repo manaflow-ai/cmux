@@ -27888,7 +27888,15 @@ struct CMUXCLI {
         let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
-        let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+        var environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+        if launcher == "hermes-agent",
+           environment["HERMES_HOME"] == nil,
+           let home = normalizedHookValue(env["HOME"]) {
+            // Default Hermes storage lives under HOME, so persist it as provenance.
+            // Resume paths re-filter this record through AgentLaunchEnvironmentPolicy,
+            // which intentionally does not replay the process-wide HOME value.
+            environment["HOME"] = home
+        }
 
         // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
         // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.

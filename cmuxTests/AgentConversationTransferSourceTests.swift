@@ -158,14 +158,14 @@ struct AgentConversationTransferSourceTests {
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = tabManager
         let workspace = tabManager.addWorkspace(select: true)
-        let panelID = try #require(workspace.focusedPanelId)
-        let terminalPanel = try #require(workspace.terminalPanel(for: panelID))
-        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelID)
         defer {
             tabManager.closeWorkspace(workspace)
             appDelegate.tabManager = nil
             AppDelegate.shared = previousAppDelegate
         }
+        let panelID = try #require(workspace.focusedPanelId)
+        let terminalPanel = try #require(workspace.terminalPanel(for: panelID))
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelID)
 
         let surfaceView = GhosttyNSView(frame: .zero)
         surfaceView.terminalSurface = terminalPanel.surface

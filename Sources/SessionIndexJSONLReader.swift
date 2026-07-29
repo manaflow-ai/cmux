@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Streaming, byte-bounded JSONL reader shared by Vault index and preview paths.
@@ -37,7 +38,7 @@ struct SessionIndexJSONLReader: Sendable {
         maximumBytes: Int?,
         body: ([String: Any]) -> Bool
     ) -> SessionIndexJSONLReadMetrics {
-        guard let handle = try? FileHandle(forReadingFrom: url) else {
+        guard let handle = regularFileHandle(forReadingFrom: url) else {
             return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
         }
         defer { try? handle.close() }
@@ -112,7 +113,7 @@ struct SessionIndexJSONLReader: Sendable {
         endingBeforeOffset: UInt64? = nil,
         body: ([String: Any]) -> Bool
     ) -> SessionIndexJSONLReadMetrics {
-        guard maxBytes > 0, let handle = try? FileHandle(forReadingFrom: url) else {
+        guard maxBytes > 0, let handle = regularFileHandle(forReadingFrom: url) else {
             return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
         }
         defer { try? handle.close() }
@@ -257,6 +258,22 @@ struct SessionIndexJSONLReader: Sendable {
             didSkipOversizedRecord: didSkipOversizedRecord,
             nextEndOffset: endOffset
         )
+    }
+
+    private func regularFileHandle(forReadingFrom url: URL) -> FileHandle? {
+        let descriptor = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        }
+        guard descriptor >= 0 else { return nil }
+
+        var status = stat()
+        guard Darwin.fstat(descriptor, &status) == 0,
+              status.st_mode & S_IFMT == S_IFREG else {
+            Darwin.close(descriptor)
+            return nil
+        }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     }
 
     private static func visit(

@@ -7,6 +7,38 @@ struct WorkspaceAgentConversationForkSelection {
 }
 
 extension Workspace {
+    func actionableAgentConversationForkTargetHarnesses(
+        forPanelId panelId: UUID
+    ) -> [AgentConversationForkRequest.TargetHarness] {
+        actionableAgentConversationForkTargetHarnesses(
+            forPanelId: panelId,
+            liveAgentIndex: .shared
+        )
+    }
+
+    func actionableAgentConversationForkTargetHarnesses(
+        forPanelId panelId: UUID,
+        liveAgentIndex: SharedLiveAgentIndex
+    ) -> [AgentConversationForkRequest.TargetHarness] {
+        guard agentConversationTransferSnapshot(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
+        ) != nil else {
+            return []
+        }
+        return AgentConversationForkRequest.TargetHarness.allCases.filter { targetHarness in
+            guard targetHarness != .current else { return false }
+            return agentConversationForkSelection(
+                forPanelId: panelId,
+                request: AgentConversationForkRequest(
+                    targetHarness: targetHarness,
+                    destination: .right
+                ),
+                liveAgentIndex: liveAgentIndex
+            ) != nil
+        }
+    }
+
     func agentConversationForkSelection(
         forPanelId panelId: UUID,
         request: AgentConversationForkRequest

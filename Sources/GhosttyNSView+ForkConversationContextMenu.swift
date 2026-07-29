@@ -12,9 +12,7 @@ extension GhosttyNSView {
     @discardableResult
     func appendForkCurrentAgentConversationMenuItems(to menu: NSMenu) -> Bool {
         let nativeAvailability = currentAgentConversationForkAvailability()
-        let transferHarnesses = availableForkTargetHarnesses(
-            nativeAvailability: nativeAvailability
-        )
+        let transferHarnesses = availableForkTargetHarnesses()
         guard nativeAvailability.isAvailable
             || nativeAvailability == .agentIndexRefreshing
             || !transferHarnesses.isEmpty else {
@@ -102,22 +100,12 @@ extension GhosttyNSView {
         return menu
     }
 
-    private func availableForkTargetHarnesses(
-        nativeAvailability: WorkspaceForkAgentConversationAvailability
-    ) -> [AgentConversationForkRequest.TargetHarness] {
+    private func availableForkTargetHarnesses() -> [AgentConversationForkRequest.TargetHarness] {
         guard let panelId = terminalSurface?.id,
-              let workspace = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId)?.workspace,
-              let snapshot = workspace.agentConversationTransferSnapshot(forPanelId: panelId) else {
+              let workspace = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId)?.workspace else {
             return []
         }
-        let isRemoteSource = workspace.isRemoteTerminalSurface(panelId)
-        return AgentConversationForkRequest.TargetHarness.allCases.filter {
-            guard $0 != .current else { return false }
-            if $0.usesNativeFork(for: snapshot.kind) {
-                return nativeAvailability.isAvailable
-            }
-            return $0.supportsFork(from: snapshot.kind, isRemoteSource: isRemoteSource)
-        }
+        return workspace.actionableAgentConversationForkTargetHarnesses(forPanelId: panelId)
     }
 
     private func currentAgentConversationForkAvailability() -> WorkspaceForkAgentConversationAvailability {
