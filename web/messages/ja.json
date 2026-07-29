@@ -970,6 +970,28 @@
     "metaDescription": "cmuxチームからのニュースとアップデート",
     "description": "cmuxチームからのニュースとアップデート",
     "posts": {
+      "tokenMultitasking": {
+        "title": "30日で3670億トークンを使った方法",
+        "summary": "cmuxでのループは、Cmd+Shift+U、完了したエージェントの確認、返信、繰り返しです。通知が空になったら次のタスクを始めます。",
+        "date": "2026年7月29日",
+        "p1": "直近30日間で3670億トークンを使いました。1日のピークはGPT 5.6 Solで370億トークンでした。",
+        "videoTitle": "Codex CLIとcmuxで30日間に3670億トークンを使った方法",
+        "watchVideo": "<link>YouTubeで動画を見る</link>。",
+        "workflowTitle": "ワークフローのすべて",
+        "workflowIntro": "cmuxのワークスペースごとに、通常のCodexまたはClaude Codeで一つのタスクを実行します。エージェントはレビューが必要になると通知します。",
+        "workflowJump": "<shortcut>Cmd+Shift+U</shortcut>を押します。cmuxが最新の未読通知へ移動し、該当するワークスペースとペインにフォーカスします。",
+        "workflowReview": "devビルド、成果物、またはバグ修正を確認し、エージェントに返信します。",
+        "workflowRepeat": "もう一度Cmd+Shift+Uを押して繰り返します。",
+        "workflowStart": "通知が残っていなければ、新しいワークスペースを作って次のタスクを始めます。",
+        "workflowClose": "このループが成果の大半を生みます。cmuxは実行中の作業を見える状態に保ち、完了したエージェントの作業をレビューキューに変えます。",
+        "simpleTitle": "カスタムハーネスは使っていません",
+        "simpleP1": "通常のClaude CodeとCodexを使っています。委任が必要な場合は、それぞれに組み込まれたサブエージェントだけを使います。",
+        "simpleP2": "カスタムのエージェントハーネスや外部オーケストレーションは使いません。<code>/loop</code>は使わず、<code>/goal</code>もほとんど使いません。",
+        "economicsTitle": "費用",
+        "economicsP1": "API料金に換算すると、この使用量は約8万5000ドルです。実際に支払ったのは37個のChatGPT Pro 20xアカウントに対する7400ドルで、Tiboが提供したクォータリセットも使いました。<codexBar>CodexBar</codexBar>でローカルのトークン数とAPI料金換算を集計しました。",
+        "economicsP2": "3670億という数字も、アカウント全体の使用量より少なく出ています。<subrouter>Subrouter</subrouter>で共同創業者と同じアカウントプールを共有していますが、CodexBarが集計するのは私のマシン上のローカルトークン使用量だけだからです。",
+        "closing": "このワークフローでは判断に注意を集中できます。完了した作業を確認してエージェントのブロックを解除し、キューが空になったら次のタスクを始めます。"
+      },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
         "summary": "Cmd+Shift+Uがcmuxのワークスペース間で完了したエージェントにどうナビゲートするか。",
@@ -1216,6 +1238,21 @@
         "p4": "cmuxはワークフローを押し付けるのではなく、あなたのワークフローに合わせるべきです。cmuxを自分の居場所のように感じてほしいのです。",
         "p5": "<link>cmux-home</link>はその一例です。ClaudeとCodexのワークスペースを起動してライブ状態を監視する小さなRust製TUIで、すべてcmuxのプリミティブの上に作られています。ランチャーはコマンドテンプレートを使うので、ワークツリーの作成、チェックアウトの選択、VMへのSSH接続などを自分のスクリプトに差し替えられます。フォークして自分のものにしてください。"
       }
+    },
+    "tokenMultitasking": {
+      "metaTitle": "30日で3670億トークンを使った方法",
+      "metaDescription": "cmuxでCodexとClaude Codeを並行実行し、Cmd+Shift+Uで完了通知を確認することで、30日間に3670億トークンを使いました。",
+      "metaKeywords": [
+        "3670億トークン",
+        "GPT 5.6 Sol",
+        "Codex CLI",
+        "Claude Code",
+        "cmux",
+        "AIコーディングエージェント",
+        "並列コーディングエージェント",
+        "Cmd+Shift+U",
+        "CodexBar"
+      ]
     },
     "zenOfCmux": {
       "metaTitle": "cmuxの禅",
