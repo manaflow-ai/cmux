@@ -258,6 +258,119 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func failedControlUnsubscribeRetiresPromotionClientBeforeFallback()
+        async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "promotion-unsubscribe-failure",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-b",
+            displayName: "Studio B",
+            routes: [route],
+            instanceTag: "feature-b",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.invalidateUnsubscribeRequest(number: 1)
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "mac-b",
+            macDisplayName: "Studio B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            reachability: AlwaysOnlineReachability()
+        )
+        shell.workspacesByMac["mac-b"] = MacWorkspaceState(
+            macDeviceID: "mac-b",
+            displayName: "Studio B",
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: .init(rawValue: "live-workspace"),
+                    macDeviceID: "mac-b",
+                    name: "Target Workspace",
+                    terminals: []
+                ),
+            ],
+            status: .connected
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "feature-b",
+            authenticatedInstanceTag: "feature-b",
+            supportedHostCapabilities: [
+                "events.v1",
+                "terminal.render_grid.v1",
+            ],
+            actionCapabilities: .none,
+            displayName: "Studio B"
+        )
+        let switchAttemptID = UUID()
+        shell.macSwitchAttemptID = switchAttemptID
+        shell.macSwitchAttemptSignInGeneration = shell.signInGeneration
+
+        let promoted = await shell.promoteSecondaryToForeground(
+            "mac-b",
+            switchAttemptID: switchAttemptID
+        )
+
+        #expect(!promoted)
+        #expect(shell.secondaryMacSubscriptions["mac-b"] == nil)
+        #expect(shell.workspacesByMac["mac-b"]?.status == .unavailable)
+        do {
+            _ = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    params: [:]
+                )
+            )
+            Issue.record("retired promotion client accepted a new request")
+        } catch let error as MobileShellConnectionError {
+            guard case .connectionClosed = error else {
+                Issue.record("expected connectionClosed, got \(error)")
+                return
+            }
+        }
+    }
+
     @Test func promotionDoesNotOverwriteWorkspaceEventWithEarlierSnapshot() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

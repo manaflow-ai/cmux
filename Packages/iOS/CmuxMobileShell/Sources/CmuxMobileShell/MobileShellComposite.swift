@@ -756,6 +756,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
     private var pairedMacWriteChain: Task<Void, Never>?
     var pushedRouteSyncTask: Task<Void, Never>?
+    var pushedRouteSyncOperationID: UUID?
+    var pushedRouteSyncScope: MobileShellScopeSnapshot?
+    var pushedRouteSyncPendingInstances: [String: PresenceInstance] = [:]
+    private var secondaryAggregationAfterPushedRoutesTask:
+        Task<Void, Never>?
+    private var secondaryAggregationAfterPushedRoutesOperationID: UUID?
+    private var secondaryAggregationAfterPushedRoutesScope:
+        MobileShellScopeSnapshot?
+    private var secondaryAggregationAfterPushedRoutesMacIDs: Set<String> = []
+    private var secondaryAggregationAfterPushedRoutesNeedsFullRefresh = false
     var registryRouteRefreshTask: Task<Void, Never>?
     /// The in-flight `mobile.events.subscribe` (reason `start`) ack for the
     /// current listener generation. It runs concurrently with the consumer
@@ -2615,22 +2625,73 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        Task { @MainActor [weak self] in
-            await pushedRouteSyncTask.value
-            guard let self,
-                  await self.isScopeCurrent(scope),
-                  self.presence != nil,
-                  self.multiMacAggregationEnabled else {
-                return
-            }
-            if let macDeviceID {
-                self.scheduleSecondaryPresenceAggregation(
-                    forMacDeviceID: macDeviceID
-                )
-            } else {
-                self.scheduleSecondaryAggregation()
-            }
+        if let pendingScope = secondaryAggregationAfterPushedRoutesScope,
+           pendingScope != scope {
+            secondaryAggregationAfterPushedRoutesOperationID = UUID()
+            secondaryAggregationAfterPushedRoutesTask?.cancel()
+            secondaryAggregationAfterPushedRoutesTask = nil
+            secondaryAggregationAfterPushedRoutesMacIDs = []
+            secondaryAggregationAfterPushedRoutesNeedsFullRefresh = false
         }
+        secondaryAggregationAfterPushedRoutesScope = scope
+        if let macDeviceID {
+            secondaryAggregationAfterPushedRoutesMacIDs.insert(
+                cmxCanonicalDeviceID(macDeviceID)
+            )
+        } else {
+            secondaryAggregationAfterPushedRoutesNeedsFullRefresh = true
+        }
+        guard secondaryAggregationAfterPushedRoutesTask == nil else { return }
+        let operationID = UUID()
+        secondaryAggregationAfterPushedRoutesOperationID = operationID
+        secondaryAggregationAfterPushedRoutesTask =
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer {
+                    if self.secondaryAggregationAfterPushedRoutesOperationID
+                        == operationID {
+                        self.secondaryAggregationAfterPushedRoutesTask = nil
+                        self.secondaryAggregationAfterPushedRoutesOperationID =
+                            nil
+                        self.secondaryAggregationAfterPushedRoutesScope = nil
+                        self.secondaryAggregationAfterPushedRoutesMacIDs = []
+                        self.secondaryAggregationAfterPushedRoutesNeedsFullRefresh =
+                            false
+                    }
+                }
+                while !Task.isCancelled {
+                    let routeSyncOperationID =
+                        self.pushedRouteSyncOperationID
+                    let routeSyncTask = self.pushedRouteSyncTask
+                        ?? pushedRouteSyncTask
+                    await routeSyncTask.value
+                    guard !Task.isCancelled else { return }
+                    if let currentRouteSyncOperationID =
+                        self.pushedRouteSyncOperationID,
+                       currentRouteSyncOperationID != routeSyncOperationID {
+                        continue
+                    }
+                    break
+                }
+                guard await self.isScopeCurrent(scope),
+                      self.presence != nil,
+                      self.multiMacAggregationEnabled else {
+                    return
+                }
+                let needsFullRefresh =
+                    self.secondaryAggregationAfterPushedRoutesNeedsFullRefresh
+                let macDeviceIDs =
+                    self.secondaryAggregationAfterPushedRoutesMacIDs
+                if needsFullRefresh {
+                    self.scheduleSecondaryAggregation()
+                } else {
+                    for macDeviceID in macDeviceIDs {
+                        self.scheduleSecondaryPresenceAggregation(
+                            forMacDeviceID: macDeviceID
+                        )
+                    }
+                }
+            }
     }
 
     /// Reload ``pairedMacs`` from the store, scoped to the signed-in Stack user.
@@ -3854,7 +3915,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private static func secondaryControlAttemptIsTransient(
+    static func secondaryControlAttemptIsTransient(
         _ error: any Error
     ) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else {
@@ -3864,8 +3925,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case .connectionClosed, .requestTimedOut, .transportWriteTimedOut:
             return true
         case .invalidResponse, .insecureManualRoute, .attachTicketExpired,
-             .authorizationFailed, .accountMismatch, .rpcError:
+             .authorizationFailed, .accountMismatch:
             return false
+        case let .rpcError(code, _):
+            let normalizedCode = code?.lowercased()
+            let permanentCodes: Set<String> = [
+                "account_mismatch",
+                "forbidden",
+                "invalid_params",
+                "method_not_found",
+                "unauthorized",
+                "unknown_method",
+                "unsupported_method",
+            ]
+            // Unknown server failures and explicit timeout/busy/unavailable
+            // codes are recoverable. Only known authority or protocol
+            // rejections suppress the shared pool retry.
+            return !permanentCodes.contains(normalizedCode ?? "")
         }
     }
 
@@ -4426,9 +4502,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .transientFailure
         }
         await flushPendingNotificationDismisses(macDeviceID: macID)
+        startSecondaryControlMaintenance(
+            subscription,
+            displayName: displayName
+        )
+        return .connected
+    }
+
+    /// Start the maintenance mode supported by this exact host. Current Macs
+    /// receive live control events; legacy Macs stay warm through the bounded
+    /// shared refresh cadence without attempting an unsupported subscription.
+    func startSecondaryControlMaintenance(
+        _ subscription: SecondaryMacSubscription,
+        displayName: String?
+    ) {
+        guard secondaryMacSubscriptions[subscription.macDeviceID]
+                === subscription else {
+            return
+        }
         scheduleSecondaryNotificationFeedRefresh(
-            macDeviceID: macID,
-            client: client,
+            macDeviceID: subscription.macDeviceID,
+            client: subscription.client,
             displayName: displayName
         )
         if subscription.supportedHostCapabilities.contains("events.v1") {
@@ -4438,7 +4532,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         }
         ensureSecondaryControlKeepalive()
-        return .connected
     }
 
     /// Start one lightweight aggregate-state consumer. This path never includes
@@ -4880,7 +4973,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// aggregate. A failed refresh/reconnect should make stale rows visibly
     /// unavailable, not leave them connected/actionable until a stream callback
     /// happens to run.
-    private func markSecondaryMacUnavailable(_ macID: String) {
+    func markSecondaryMacUnavailable(_ macID: String) {
         guard var state = workspacesByMac[macID] else { return }
         state.status = .unavailable
         workspacesByMac[macID] = state

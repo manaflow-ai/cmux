@@ -17,6 +17,33 @@ import Testing
         })
     }
 
+    @Test func rpcTimeoutsRemainRetryableWithoutRetryingAuthorityFailures() {
+        #expect(MobileShellComposite.secondaryControlAttemptIsTransient(
+            MobileShellConnectionError.rpcError(
+                "request_timeout",
+                "request timed out"
+            )
+        ))
+        #expect(MobileShellComposite.secondaryControlAttemptIsTransient(
+            MobileShellConnectionError.rpcError(
+                "server_busy",
+                "server is busy"
+            )
+        ))
+        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+            MobileShellConnectionError.rpcError(
+                "unauthorized",
+                "not authorized"
+            )
+        ))
+        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+            MobileShellConnectionError.rpcError(
+                "method_not_found",
+                "unsupported"
+            )
+        ))
+    }
+
     @Test func presenceLimitsControlPoolCandidatesToOnlinePairedMacs() throws {
         let store = MobileShellComposite(
             isSignedIn: false,
@@ -1278,6 +1305,72 @@ import Testing
         #expect(shell.remoteClient == nil)
         #expect(shell.foregroundMacDeviceID == nil)
         #expect(shell.connectionState == .disconnected)
+        await client.disconnect()
+    }
+
+    @Test func demotedLegacyMacUsesRefreshOnlyControlMaintenance() async throws {
+        let clock = ControlPoolManualClock()
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "legacy-demotion",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let generation = UUID()
+        let connection = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: generation,
+            displayName: "Mac A",
+            instanceTag: "legacy",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            controlPlaneSchedulingClock: clock
+        )
+        shell.connectionGeneration = generation
+        shell.remoteClient = client
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.activeTicket = ticket
+        shell.activeRoute = route
+        shell.connections["mac-a"] = connection
+
+        shell.installControlConnection(from: connection)
+
+        #expect(shell.connections["mac-a"] == nil)
+        #expect(shell.secondaryMacSubscriptions["mac-a"]?.client === client)
+        #expect(try await pollUntil { clock.sleeperCount == 1 })
+        #expect(await router.count(of: "mobile.events.subscribe") == 0)
+
+        shell.secondaryMacSubscriptions["mac-a"]?.detachKeepingClient()
+        shell.secondaryMacSubscriptions["mac-a"] = nil
         await client.disconnect()
     }
 

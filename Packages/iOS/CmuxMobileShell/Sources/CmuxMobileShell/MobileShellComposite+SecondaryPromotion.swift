@@ -98,15 +98,28 @@ extension MobileShellComposite {
             return
         }
         focusedHandoffPreparedGenerations.remove(connection.generation)
-        startSecondaryEventConsumer(
+        startSecondaryControlMaintenance(
             subscription,
             displayName: connection.displayName
         )
-        scheduleSecondaryNotificationFeedRefresh(
-            macDeviceID: connection.macDeviceID,
-            client: connection.client,
-            displayName: connection.displayName
-        )
+    }
+
+    /// Permanently discard one failed promotion candidate before the caller
+    /// falls back to a fresh dial. Retirement closes transport admission
+    /// synchronously; awaiting disconnect guarantees the old peer session is
+    /// gone before a replacement client can compete for it.
+    private func retireSecondaryPromotionCandidate(
+        _ subscription: SecondaryMacSubscription,
+        macDeviceID: String
+    ) async {
+        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+            return
+        }
+        subscription.detachKeepingClient()
+        subscription.client.retire()
+        secondaryMacSubscriptions[macDeviceID] = nil
+        markSecondaryMacUnavailable(macDeviceID)
+        await subscription.client.disconnect()
     }
 
     /// Reuse a live secondary client only while both pre- and post-probe store
@@ -116,8 +129,10 @@ extension MobileShellComposite {
         switchAttemptID: UUID
     ) async -> Bool {
         guard runtime != nil,
-              let sub = secondaryMacSubscriptions[macID],
-              let pairedMacStore,
+              let sub = secondaryMacSubscriptions[macID] else {
+            return false
+        }
+        guard let pairedMacStore,
               let scope = await currentScopeSnapshot(),
               let current = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID, teamID: scope.teamID
@@ -131,10 +146,10 @@ extension MobileShellComposite {
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   current.instanceTag, sub.storedInstanceTag
               ) else {
-            if let current = secondaryMacSubscriptions[macID] {
-                current.cancel()
-                secondaryMacSubscriptions[macID] = nil
-            }
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
             return false
         }
         guard await fetchSecondaryWorkspaces(
@@ -157,10 +172,10 @@ extension MobileShellComposite {
               ),
               scope.generation == secondaryAggregationScopeGeneration,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            if secondaryMacSubscriptions[macID] === sub {
-                sub.cancel()
-                secondaryMacSubscriptions[macID] = nil
-            }
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
             return false
         }
         secondaryPromotionLog.info(
@@ -199,19 +214,19 @@ extension MobileShellComposite {
                 on: sub.client,
                 streamID: sub.streamID
             ) else {
-                sub.cancel()
-                if secondaryMacSubscriptions[macID] === sub {
-                    secondaryMacSubscriptions[macID] = nil
-                }
+                await retireSecondaryPromotionCandidate(
+                    sub,
+                    macDeviceID: macID
+                )
                 return false
             }
         }
         guard secondaryMacSubscriptions[macID] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            sub.cancel()
-            if secondaryMacSubscriptions[macID] === sub {
-                secondaryMacSubscriptions[macID] = nil
-            }
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
             return false
         }
         stopTerminalRefreshPolling()
@@ -241,10 +256,10 @@ extension MobileShellComposite {
         }
         guard secondaryMacSubscriptions[macID] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            sub.cancel()
-            if secondaryMacSubscriptions[macID] === sub {
-                secondaryMacSubscriptions[macID] = nil
-            }
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
             if let previousForegroundConnection {
                 invalidateFocusedConnectionAfterAbortedHandoff(
                     previousForegroundConnection
