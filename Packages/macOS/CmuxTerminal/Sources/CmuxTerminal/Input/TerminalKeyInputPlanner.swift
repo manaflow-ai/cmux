@@ -36,14 +36,20 @@ public struct TerminalKeyInputPlanner: Sendable {
 
         if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
-            let replaysDistinctCommand =
-                snapshot.textInputCommandPerformed &&
-                !suppressedAccumulatedControl &&
-                !commandCallbackDuplicatesCommittedText(
+            let physicalKeyDuplicatesCommittedText =
+                commandCallbackDuplicatesCommittedText(
                     committedText,
                     translatedText: snapshot.event.translatedText
                 )
+            let replaysDistinctCommand =
+                snapshot.textInputCommandPerformed &&
+                !suppressedAccumulatedControl &&
+                !physicalKeyDuplicatesCommittedText
+            let replaysUnconsumedPhysicalKey =
+                !snapshot.textInputConsumed &&
+                !physicalKeyDuplicatesCommittedText
             let replaysPhysicalKey =
+                replaysUnconsumedPhysicalKey ||
                 snapshot.event.replaysPhysicalKeyAfterPreeditCommit ||
                 replaysDistinctCommand
             if replaysPhysicalKey {

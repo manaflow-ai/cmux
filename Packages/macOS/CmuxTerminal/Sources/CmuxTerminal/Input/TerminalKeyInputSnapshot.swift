@@ -6,8 +6,8 @@ public struct TerminalKeyInputSnapshot: Sendable, Equatable {
     /// Whether marked text exists after AppKit interpreted the key.
     public let hasMarkedText: Bool
 
-    /// Whether AppKit claimed the event through a text-input callback or
-    /// selected input-source transition.
+    /// Whether AppKit's text input context consumed the native event, or the
+    /// fallback responder route observed semantic ownership.
     public let textInputConsumed: Bool
 
     /// Whether text input delegated a command back to the terminal client.

@@ -5045,11 +5045,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Gives AppKit first ownership of text, dead-key, and input-method events.
     ///
-    /// Ghostty uses `interpretKeyEvents` as the responder entry point. AppKit
-    /// does not return an ownership result from that API, so ownership is
-    /// derived from the protocol callbacks it performs or a selected input
-    /// source transition.
+    /// `NSTextInputContext.handleEvent` is AppKit's authoritative consumption
+    /// boundary for the native event currently being dispatched. Reconstructed
+    /// modifier-translation events and synthetic tests cannot use that boundary,
+    /// so they follow Ghostty's `interpretKeyEvents` route and derive ownership
+    /// from protocol callbacks or a selected input-source transition.
     func handleTextInputEvent(_ event: NSEvent) -> Bool {
+        if event.windowNumber != 0,
+           NSApp.currentEvent === event,
+           let inputContext {
+            return inputContext.handleEvent(event)
+        }
+
         let inputSourceBefore = KeyboardLayout.inputSourceSnapshot()
         interpretKeyEvents([event])
         return textInputCallbackPerformed == true ||
@@ -5484,7 +5491,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         textInputMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
-            path: "terminal.keyDown.interpretKeyEvents",
+            path: "terminal.keyDown.textInput",
             startedAt: interpretTimingStart,
             event: event
         )

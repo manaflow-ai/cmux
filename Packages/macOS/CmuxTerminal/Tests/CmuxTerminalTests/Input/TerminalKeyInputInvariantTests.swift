@@ -235,14 +235,19 @@ import Testing
 
         if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
-            let replaysDistinctCommand =
-                snapshot.textInputCommandPerformed &&
-                !suppressedAccumulatedControl &&
-                !ghosttyCommandDuplicatesCommittedText(
+            let physicalKeyDuplicatesCommittedText =
+                ghosttyCommandDuplicatesCommittedText(
                     committedText,
                     translatedText: snapshot.event.translatedText
                 )
-            if !snapshot.textInputConsumed ||
+            let replaysDistinctCommand =
+                snapshot.textInputCommandPerformed &&
+                !suppressedAccumulatedControl &&
+                !physicalKeyDuplicatesCommittedText
+            let replaysUnconsumedPhysicalKey =
+                !snapshot.textInputConsumed &&
+                !physicalKeyDuplicatesCommittedText
+            if replaysUnconsumedPhysicalKey ||
                 snapshot.event.replaysPhysicalKeyAfterPreeditCommit ||
                 replaysDistinctCommand {
                 actions.append(.sendKey(text: nil, composing: false))
