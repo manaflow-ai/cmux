@@ -7135,10 +7135,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return true
                 }
                 displacedControlDrain = transportDrain.abandoned
-                guard transportDrain.value == true,
-                      !transportDrain.wasCancelled,
-                      isConnectCurrent() else {
+                guard isConnectCurrent() else {
                     return nil
+                }
+                if transportDrain.didTimeOut {
+                    throw MobileShellConnectionError.requestTimedOut
+                }
+                if transportDrain.wasCancelled {
+                    throw CancellationError()
+                }
+                guard transportDrain.value == true else {
+                    throw MobileShellConnectionError.connectionClosed
                 }
             }
         }

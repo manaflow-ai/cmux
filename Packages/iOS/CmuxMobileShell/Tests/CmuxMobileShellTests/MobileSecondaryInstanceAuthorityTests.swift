@@ -172,6 +172,123 @@ enum PromotionFocusRepairFailure: Sendable {
         #expect(foregroundStillWarm != nil)
     }
 
+    @Test func freshDialDrainTimeoutDoesNotReportOldFocusAsSuccess()
+        async throws {
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-b",
+            instanceTag: "feature-b",
+            displayName: "Studio B"
+        )
+        let closeGate = LivenessTransportCloseGate()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox(),
+                closeGate: closeGate
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "fresh-dial-drain-timeout",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let targetTicket = try CmxAttachTicket(
+            workspaceID: "target-workspace",
+            terminalID: "target-terminal",
+            macDeviceID: "mac-b",
+            macDisplayName: "Studio B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let targetClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: targetTicket,
+            allowsStackAuthFallback: true
+        )
+        _ = try await targetClient.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                params: [:]
+            )
+        )
+        let foregroundTicket = try CmxAttachTicket(
+            workspaceID: "foreground-workspace",
+            terminalID: "foreground-terminal",
+            macDeviceID: "mac-a",
+            macDisplayName: "Studio A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let foregroundClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: foregroundTicket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            connectionHandoffDrainTimeoutNanoseconds: 1_000_000
+        )
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.activeTicket = foregroundTicket
+        shell.activeRoute = route
+        shell.connectedHostName = "Studio A"
+        shell.remoteClient = foregroundClient
+        shell.connections["mac-a"] = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: foregroundTicket,
+            route: route,
+            client: foregroundClient,
+            generation: UUID(),
+            displayName: "Studio A",
+            instanceTag: "feature-a",
+            supportedHostCapabilities: ["terminal.render_grid.v1"],
+            actionCapabilities: .none
+        )
+        let targetSubscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: targetClient,
+            route: route,
+            ticket: targetTicket,
+            storedInstanceTag: "feature-b",
+            authenticatedInstanceTag: "feature-b",
+            supportedHostCapabilities: ["terminal.render_grid.v1"],
+            actionCapabilities: .none,
+            displayName: "Studio B"
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = targetSubscription
+
+        do {
+            _ = try await shell.connect(
+                ticket: targetTicket,
+                pairedMacDeviceID: "mac-b"
+            )
+            Issue.record("Expected the timed-out target drain to fail")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+        await closeGate.waitUntilCloseStarted()
+
+        #expect(shell.connectionState == .connected)
+        #expect(shell.foregroundMacDeviceID == "mac-a")
+        #expect(shell.activeTicket?.macDeviceID == "mac-a")
+        #expect(shell.remoteClient === foregroundClient)
+        #expect(shell.secondaryMacDrainReservations["mac-b"]
+            === targetSubscription)
+
+        await closeGate.release()
+        #expect(try await pollUntil {
+            shell.secondaryMacDrainReservations["mac-b"] == nil
+        })
+        await foregroundClient.disconnect()
+    }
+
     @Test(arguments: [
         PromotionFocusRepairFailure.hostIdentity,
         .terminalSubscription,

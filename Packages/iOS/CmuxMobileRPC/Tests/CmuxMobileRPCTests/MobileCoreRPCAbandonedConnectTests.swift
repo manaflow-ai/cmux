@@ -445,6 +445,54 @@ import Testing
         await secondCleanup.release()
     }
 
+    @Test func timedOutPhysicalCloseIsHandedOffWithoutCancellation()
+        async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
+        let key = debugConnectAttemptKey(
+            macDeviceID: "test-mac",
+            port: 59_128
+        )
+        guard case let .granted(firstLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Expected initial route admission")
+            return
+        }
+        let transport = CancellationSensitiveCloseTransport()
+        let session = MobileCoreRPCSession(
+            connectAttemptKey: key,
+            connectAttemptRegistry: registry,
+            makeTransport: { transport }
+        )
+        await session.startAbandonedConnectionCleanup(
+            task: Task { transport },
+            lease: firstLease,
+            cleanupTimeoutNanoseconds: 1_000_000_000,
+            lateCloseTimeoutNanoseconds: 1_000_000
+        )
+        await transport.waitUntilCloseStarted()
+
+        var recoveryLease: MobileRPCConnectAttemptLease?
+        for _ in 0..<20 {
+            if case let .granted(lease) =
+                await registry.beginConnect(key: key) {
+                recoveryLease = lease
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        let secondLease = try #require(recoveryLease)
+        let secondCleanup = PhysicalCleanupGate()
+        await registry.handOffPhysicalCleanup(lease: secondLease) {
+            await secondCleanup.wait()
+        }
+
+        #expect(!(await transport.didObserveCloseCancellation()))
+        #expect(await registry.beginConnect(key: key) == .cleanupBlocked)
+
+        await transport.releaseClose()
+        await secondCleanup.release()
+    }
+
     @Test func connectAttemptLeaseOnlyReleasesMatchingRouteReservation() async {
         let registry = MobileRPCConnectAttemptRegistry()
         let key = debugConnectAttemptKey(

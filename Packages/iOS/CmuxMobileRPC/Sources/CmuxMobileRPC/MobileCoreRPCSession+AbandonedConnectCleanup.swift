@@ -140,7 +140,6 @@ private struct MobileRPCAbandonedConnectCleaner: Sendable {
                 task: closeTask
             )
         } catch {
-            closeTask.cancel()
             return CandidateClose(
                 completedWithinDeadline: false,
                 task: closeTask
