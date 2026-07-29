@@ -466,11 +466,27 @@ class TerminalController {
         requested && socketCommandAllowsInAppFocusMutations()
     }
 
-    func v2MaybeFocusWindow(for tabManager: TabManager) {
-        guard socketCommandAllowsInAppFocusMutations(),
-              let windowId = v2ResolveWindowId(tabManager: tabManager) else { return }
-        _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+    @discardableResult
+    func v2MaybeFocusWindow(for tabManager: TabManager) -> Bool {
+        guard socketCommandAllowsInAppFocusMutations() else { return true }
+        return controlFocusWindow(for: tabManager)
+    }
+
+    func controlFocusWindow(for tabManager: TabManager) -> Bool {
+        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return true }
+        guard AppDelegate.shared?.focusMainWindow(windowId: windowId) == true else {
+            return false
+        }
         setActiveTabManager(tabManager)
+        return true
+    }
+
+    func controlPrepareWorkspaceFocus(_ tabManager: TabManager, workspace: Workspace) -> Bool {
+        guard controlFocusWindow(for: tabManager) else { return false }
+        if tabManager.selectedTabId != workspace.id {
+            tabManager.selectWorkspace(workspace)
+        }
+        return true
     }
 
     func v2MaybeSelectWorkspace(_ tabManager: TabManager, workspace: Workspace) {
@@ -478,6 +494,12 @@ class TerminalController {
         if tabManager.selectedTabId != workspace.id {
             tabManager.selectWorkspace(workspace)
         }
+    }
+
+    func v2PrepareWorkspaceMutation(_ tabManager: TabManager, workspace: Workspace) -> Bool {
+        guard v2MaybeFocusWindow(for: tabManager) else { return false }
+        v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+        return true
     }
 
     private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
@@ -4802,6 +4824,14 @@ class TerminalController {
                 return
             }
 
+            if focus {
+                guard app.focusMainWindow(windowId: targetWindowId) else {
+                    result = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                    return
+                }
+                setActiveTabManager(targetTabManager)
+            }
+
             if targetWorkspace.id == sourceWorkspace.id {
                 guard sourceWorkspace.moveSurface(panelId: surfaceId, toPane: destinationPane, atIndex: targetIndex, focus: focus) else {
                     result = .err(code: "internal_error", message: "Failed to move surface", data: nil)
@@ -4838,8 +4868,6 @@ class TerminalController {
             }
 
             if focus {
-                _ = app.focusMainWindow(windowId: targetWindowId)
-                setActiveTabManager(targetTabManager)
                 targetTabManager.selectWorkspace(targetWorkspace)
             }
 
@@ -6700,8 +6728,10 @@ class TerminalController {
                 ])
                 return
             }
-            v2MaybeFocusWindow(for: tabManager)
-            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+            guard v2PrepareWorkspaceMutation(tabManager, workspace: ws) else {
+                result = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                return
+            }
 
             let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let sourceSurfaceId else {
@@ -8606,20 +8636,23 @@ class TerminalController {
             let browserPanel = context.browserPanel
 
             if let windowDock = windowDockContainingPanel(surfaceId) {
-                _ = focusAndRevealWindowDock(for: windowDock, fallback: tabManager)
+                guard focusAndRevealWindowDock(for: windowDock, fallback: tabManager) != nil else {
+                    result = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                    return
+                }
                 windowDock.focusPanel(surfaceId)
             } else {
-                if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                    _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                    setActiveTabManager(tabManager)
-                }
                 if let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) {
-                    if tabManager.selectedTabId != ws.id {
-                        tabManager.selectWorkspace(ws)
+                    guard controlPrepareWorkspaceFocus(tabManager, workspace: ws) else {
+                        result = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                        return
                     }
                     if ws.focusedPanelId != surfaceId {
                         ws.focusPanel(surfaceId)
                     }
+                } else if !controlFocusWindow(for: tabManager) {
+                    result = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                    return
                 }
             }
 

@@ -29,8 +29,9 @@ extension TerminalController: ControlProjectContext {
         guard let ws = controlProjectResolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        v2MaybeFocusWindow(for: tabManager)
-        v2MaybeSelectWorkspace(tabManager, workspace: ws)
+        guard v2PrepareWorkspaceMutation(tabManager, workspace: ws) else {
+            return .tabManagerUnavailable
+        }
 
         guard let paneId = ws.bonsplitController.focusedPaneId else {
             return .noFocusedPane
@@ -196,8 +197,9 @@ extension TerminalController: ControlProjectContext {
         guard let ws = controlProjectResolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        v2MaybeFocusWindow(for: tabManager)
-        v2MaybeSelectWorkspace(tabManager, workspace: ws)
+        guard v2PrepareWorkspaceMutation(tabManager, workspace: ws) else {
+            return .tabManagerUnavailable
+        }
 
         let sourceSurfaceId = surfaceID ?? ws.focusedPanelId
         guard let sourceSurfaceId else {

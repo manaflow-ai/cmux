@@ -110,11 +110,8 @@ extension TerminalController: ControlWorkspaceContext {
         // If this workspace belongs to another window, bring it forward so focus
         // is visible.
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
-        if let windowId {
-            guard AppDelegate.shared?.focusMainWindow(windowId: windowId) == true else {
-                return .tabManagerUnavailable
-            }
-            setActiveTabManager(tabManager)
+        guard controlFocusWindow(for: tabManager) else {
+            return .tabManagerUnavailable
         }
         tabManager.selectWorkspace(ws)
         return .resolved(windowID: windowId)
@@ -307,9 +304,8 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard tabManager.selectedTabId != nil else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(tabManager)
+        guard controlFocusWindow(for: tabManager) else {
+            return .tabManagerUnavailable
         }
         tabManager.selectNextTab()
         guard let workspaceId = tabManager.selectedTabId else { return .notFound }
@@ -322,9 +318,8 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard tabManager.selectedTabId != nil else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(tabManager)
+        guard controlFocusWindow(for: tabManager) else {
+            return .tabManagerUnavailable
         }
         tabManager.selectPreviousTab()
         guard let workspaceId = tabManager.selectedTabId else { return .notFound }
@@ -337,9 +332,8 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard let before = tabManager.selectedTabId else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(tabManager)
+        guard controlFocusWindow(for: tabManager) else {
+            return .tabManagerUnavailable
         }
         tabManager.navigateBack()
         guard let after = tabManager.selectedTabId, after != before else { return .notFound }

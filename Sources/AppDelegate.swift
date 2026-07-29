@@ -4781,6 +4781,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         ensureSocketListenerIfEnabled(tabManager: tabManager, source: "mainWindow.register")
         ensureMobileWorkspaceListObserver(for: tabManager)
+        rememberRecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: tabManager,
+            window: window
+        )
         notifyMainWindowContextsDidChange()
         if window.isKeyWindow {
             setActiveMainWindow(window)
@@ -7333,12 +7338,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for context in sortedMainWindowContextsForSessionSnapshot() {
             guard let window = resolvedWindow(for: context) else { continue }
             if shouldActivate {
-                mainWindowVisibilityController.focus(
+                guard mainWindowVisibilityController.focus(
                     window,
                     reason: .ensureInitialWindow,
                     activation: .none,
                     respectActivationSuppression: false
-                )
+                ) else {
+                    continue
+                }
+            } else if !mainWindowVisibilityController.isWindowAvailableForMutation(
+                window,
+                reason: .ensureInitialWindow
+            ) {
+                continue
             }
             return context.windowId
         }
@@ -9444,16 +9456,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: false)
-        guard let window = windowForMainWindowId(windowId) else {
+        if let window = windowForMainWindowId(windowId),
+           mainWindowVisibilityController.focus(
+               window,
+               reason: .menuBar,
+               respectActivationSuppression: false
+           ) {
+            return window
+        }
+
+        let replacementWindowId = createMainWindow(shouldActivate: false)
+        guard let replacementWindow = windowForMainWindowId(replacementWindowId),
+              mainWindowVisibilityController.focus(
+                  replacementWindow,
+                  reason: .menuBar,
+                  respectActivationSuppression: false
+              ) else {
             NSSound.beep()
             return nil
         }
-        _ = mainWindowVisibilityController.focus(
-            window,
-            reason: .menuBar,
-            respectActivationSuppression: false
-        )
-        return window
+        return replacementWindow
     }
 
     func mainWindowsForVisibilityController() -> [NSWindow] {

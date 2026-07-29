@@ -139,8 +139,13 @@ extension TerminalController {
                 )
             }
 
-            v2MaybeFocusWindow(for: tabManager)
-            v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            guard v2PrepareWorkspaceMutation(tabManager, workspace: workspace) else {
+                return .err(
+                    code: "unavailable",
+                    message: "TabManager not available",
+                    data: nil
+                )
+            }
 
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if focus {

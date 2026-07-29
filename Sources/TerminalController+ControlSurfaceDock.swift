@@ -106,7 +106,9 @@ extension TerminalController {
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
         if focus {
-            focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            guard focusAndRevealWindowDock(for: dock, fallback: tabManager) != nil else {
+                return .tabManagerUnavailable
+            }
         }
         let newPanelId = dock.newSurface(
             kind: kind,
@@ -301,10 +303,11 @@ extension TerminalController {
     /// pane renders only in its owning window (the registry is the source of
     /// truth), so Dock focus operations anchor there even when the caller's
     /// routed context resolved another window.
-    @discardableResult
-    func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> TabManager {
+    func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> TabManager? {
         let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
-        _ = AppDelegate.shared?.focusMainWindow(windowId: dock.workspaceId)
+        guard AppDelegate.shared?.focusMainWindow(windowId: dock.workspaceId) == true else {
+            return nil
+        }
         setActiveTabManager(owningTabManager)
         revealDockForFocus(tabManager: owningTabManager)
         return owningTabManager

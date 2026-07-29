@@ -266,6 +266,10 @@ final class MainWindowVisibilityController {
         return true
     }
 
+    func isWindowAvailableForMutation(_ window: NSWindow, reason: Reason) -> Bool {
+        windowIsAvailableForMutation(window, reason: reason, operation: "availability")
+    }
+
     func captureHiddenWindowRestoreTargets(windows: [NSWindow], reason: Reason = .globalHotkey) {
         appHiddenWindowRestoreTargets = uniqueWindows(windows).filter { window in
             dependencies.windowOperations.isVisible(window) && !dependencies.windowOperations.isMiniaturized(window)
