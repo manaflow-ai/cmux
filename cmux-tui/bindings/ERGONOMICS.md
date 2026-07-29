@@ -1,77 +1,73 @@
 # SDK ergonomics findings
 
-The SDKs should generate the protocol wire surface and handwrite each
-language's transport, lifecycle, errors, and conveniences. Seven standalone
-consumers now exercise only public package APIs against deterministic servers.
-This split keeps all 87 commands and 44 events synchronized without making the
-public clients feel generated.
+The seven public SDKs expose handwritten resource handles over the reviewed
+111-operation `cmux.protocol/1` catalog. Deterministic generation is limited to
+the private protocol-10 models under each package's explicit `raw` namespace.
+Consumers do not run a generator or install a generator runtime.
 
-## Evidence from consumers
+## Simulated consumers
 
-| Language | Consumer evidence | Improvement applied |
-| --- | --- | --- |
-| Python | The agent watchdog covers future events, reconnects, resubscription, notifications, and stale-agent timing over temporary Unix sockets. | Added `SurfaceContext`, strict active-PTY and surface lookup, render-row text, scrollback-tail reads, and pre-write authority and field checks. |
-| Rust | The agent dashboard exercises snapshot bootstrap, delta events, agent polling, reconnects, and typed notifications as an independent Cargo package. | Added borrowed tree selectors, nullable accessors, provider-authority opt-in, and generated command and field checks. Generated output is deterministic without depending on the installed formatter. |
-| TypeScript | The browser controller covers every browser command, state and frame streams, recovery, cancellation, and a clean DOM-only npm install. | Added a typed browser attachment with a lossless unknown-event variant, separate command and stream-idle timeouts, `AbortSignal`, authority profiles, and generated field checks. |
-| Go | The terminal bot covers durable workspace ownership, stream reconnects, cancellation, cleanup, notifications, and identifiers near `uint64` limits. | Added context-preserving timeout errors, plain-text and scrollback-tail helpers, durable workspace discovery, a retryable `WorkspaceLease`, per-client limits, and pre-write authority and field checks. |
-| Java | The CI orchestrator covers success, nonzero exit, timeout, cleanup, and compilation against the built jar. | Fixed required-nullable decoding, bounded pre-ack events, and added plain-text rendering, scrollback-tail reads, a retryable `WorkspaceLease`, authority profiles, and generated field checks. |
-| C++ | The terminal frontend covers snapshot and delta rendering, resize ownership, recovery, and compilation against an installed CMake package. | Added a move-only render attachment that exposes its server client ID and routes sizing commands over the owning connection, plus authority profiles and generated command and field checks. |
-| Zig | The session supervisor covers exact machine, session, and workspace discovery, correlated create and run recovery, typed terminal exit, bounded events, and cancellation over real temporary Unix sockets. | Added narrow resource facades, typed creation resolution, durable exit outcomes, and dedicated event streams without provider-only APIs or third-party packages. |
+| Language | Consumer | Changes driven by the simulation | Remaining convenience work |
+| --- | --- | --- | --- |
+| Python | Development orchestrator and agent watchdog | Added strict resource events, correlated creation recovery, durable terminal exit, synchronous and `asyncio` per-call deadlines, and typed duplicate-name handling. | A renewable workspace lease needs protocol support. Synchronous event processing still needs a reader thread. |
+| Rust | Agent dashboard and Ratatui sidebar monitor | Added typed agent upserts, terminal-targeted notifications, exact creation and exit variants, structured sidebar recovery, and a crates.io-compatible optional Ratatui wrapper. | Neither simulation needed a lower-level escape. |
+| TypeScript | Browser controller | Added typed browser attachments, bounded queues, `AbortSignal`, lossless unknown events, and exact `CreatedTerminalPath` and `CreatedBrowserPath` results. | Topology-aware browser controllers still join browser snapshots to the session snapshot. Web pairing remains transport setup. |
+| Go | Terminal bot | Added typed opaque IDs, durable creation and exit recovery, context-preserving errors, terminal-targeted notifications, and retryable workspace cleanup. | The client-wide transport timeout can still bound a longer `WaitExit` call. |
+| Java | CI orchestrator | Added strict terminal lifecycle and exit results, bounded streams, correlated recovery, and terminal-targeted notifications. | Per-call request deadlines, workspace leases, and plain-text history projection remain helpers rather than protocol gaps. |
+| C++20 | Terminal frontend | Added a move-only typed attachment, validated history and attach options, and per-call deadline and cancellation controls for `Workspace::run`. | A reusable render reducer, focused-terminal lookup, and stop-token-aware open streams would reduce frontend code. |
+| Zig | Session supervisor | Added narrow resource facades, exact machine/session discovery, correlated recovery, bounded session streams, and durable terminal exit results. | A typed correlated-create recovery combinator would remove repeated state narrowing and retry policy. |
 
-The simulations also exposed correctness defects that ordinary generated-shape
-tests missed. Java and C++ now preserve a required nullable literal. Go
-generated models preserve optional-nullable absence, null, and value, reject
-missing required-nullable fields, and reject null for optional non-null fields.
-TypeScript rejects missing required fields after applying negotiated version
-and capability gates. Rust and Zig reject explicit null across all 47 optional
-non-null fields. Java bounds events received before stream acknowledgement.
-Go limit configuration is isolated per client. Installed-package tests cover
-npm exports, Java jars, and CMake package discovery.
+## Defects exposed by the simulations
 
-All seven typed clients now enforce generated command and present-field
-protocol, capability, and provider-authority requirements before a guarded
-write. Negotiation is lazy and cached. Deliberately named raw or unchecked
-entrypoints remain available for forward-compatible protocol experiments.
-The shared conformance matrix runs 266 public-API checks, including exact
-request shapes and missing, null, and value cases for each presence category.
+The standalone consumers found defects that shape-only tests missed:
 
-## Protocol work that SDKs cannot supply
+1. Ordinary TUI and private-protocol mutations changed live state without
+   updating the public snapshot and event journal. All mutation paths now use
+   the same durable coordinator and publish one revision batch.
+2. Zig omitted the workspace creation correlation key and resolved a terminal
+   through the wrong route. Both wire paths now use their typed session and
+   workspace ancestry.
+3. TypeScript represented creation results as one object with optional path
+   members. It now uses a strict discriminated union, while deterministic
+   methods return their exact path variant.
+4. Java could decode a terminal-scoped notification but could not create one.
+   `NotificationCreate` now accepts an optional typed terminal ID.
+5. C++ accepted generic JSON for terminal history and attachment options.
+   Typed options now validate limits, paired dimensions, styling, and
+   read-only mode before any write.
+6. The Rust sidebar wrapper compiled only with cmux's private Crossterm fork.
+   The published crate now builds against crates.io Crossterm 0.29.
 
-- Agent state needs a protocol event. Polling `list-agents` is the only way to
-  keep dashboards and watchdogs current in protocol 10.
-- Terminal completion needs a typed exit status and retained final screen or
-  scrollback boundary. Marker injection cannot be made race-free by a client
-  helper.
-- `send`, `notify`, provider rename, and provider close need request
-  idempotency. Provider rename and close also need wire revision guards.
-- Streams need sequence checkpoints and a resumable window before an SDK can
-  promise byte-exact recovery after a disconnect.
-- Remote failures need stable machine-readable codes for retry and conflict
-  policy. Parsing server prose is not a safe compatibility contract.
-- Browser frames need an encoding or media-type field before a client can
-  select a decoder from the typed event.
+These fixes are structural. They remove duplicate state publication, invalid
+wire states, and public JSON escape hatches instead of hiding them in example
+code.
 
-## Remaining SDK-layer work
+## Conformance evidence
 
-- Package subscription-before-snapshot, overflow resync, reconnect, and cache
-  invalidation in a small lifecycle helper.
-- Provide topology selectors and render reducers consistently across the
-  languages that still require manual tree walks.
-- Generalize captured-task helpers after the terminal completion protocol
-  exists. Java and Go already expose retryable workspace leases.
-- Make cancellation and command versus idle timeout behavior idiomatic in each
-  blocking and asynchronous language.
-- Add browser DOM keyboard and pointer adapters without adding a runtime
-  dependency to the TypeScript package.
+The public fake-server matrix runs 20 cases in each language, 140 total. It
+checks exact envelopes, decimal preservation, mutation replay, indeterminate
+effects, revision conflicts, duplicate-name ambiguity, bounded stream
+overflow, cancellation ordering, all creation-resolution states, strict
+terminal exit, and secret redaction.
+
+The exact-binary live matrix adds one isolated create, run, exit, restart, and
+cleanup flow per language. TypeScript repeats it over authenticated WebSocket,
+for eight live transport runs. The raw protocol-10 suite remains separate and
+runs 266 compatibility checks over 87 commands and 44 events.
+
+Package tests install and consume the built npm package, Python wheel, Java
+jar, and CMake package. Rust, Go, and Zig consumers resolve the public package
+as downstream projects. The boundary checker rejects raw imports, legacy
+numeric identity, missing operation descriptors, and generic resource
+requests from the high-level roots.
 
 ## Dependency policy
 
 Python, TypeScript, Go, Java, C++, and Zig use only their standard library at
-runtime. C++ applications inject their own WebSocket or TLS transport. Rust
-uses `serde`, `serde_json`, and `libc`; these are narrow codec and Unix
-integration dependencies rather than a client framework.
+runtime. C++ applications inject non-Unix transports. Rust uses `base64`,
+`getrandom`, `libc`, `serde`, and `serde_json`; the optional sidebar companion
+adds Crossterm and Ratatui without affecting the base client.
 
-Code generation is a repository build tool, not a consumer dependency.
-Published packages contain checked-in generated models plus handwritten public
-clients. Development compilers, package builders, and fake-server harnesses
-may use external tools, but those tools must not become runtime dependencies.
+Future reducers, leases, and recovery combinators belong in handwritten
+language-specific utilities. They are not required to reach any catalog
+operation and must not add a client framework dependency.
