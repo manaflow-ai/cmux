@@ -797,25 +797,30 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         return true
     }
 
+    /// Re-apply pending tombstones locally before a restore for their scope.
+    ///
+    /// A tombstone names one exact pairing, and its outbox scope key pins the
+    /// exact (account, team) it was deleted under, so the replay uses
+    /// `removeExactScope` — its only job is to finish/confirm THAT deletion.
+    /// Replaying through the broad `remove` re-resolves visibility on the way
+    /// down (``TeamScopedPairedMacStore`` looks the device up under the scope's
+    /// team, which also returns team-less legacy rows, and the build-scope
+    /// decorator's broad remove drops its team-less fallback alias), so in the
+    /// common failed-upload case — where the exact row is ALREADY deleted — it
+    /// would resolve a SURVIVING unrelated alias of the same device and delete
+    /// it. Exact-scope replay is a no-op there, and after a crash between the
+    /// tombstone write and the local delete it removes exactly the named row.
     private func applyPendingLocalDeletes(scope: String, account: String, teamID: String?) async {
         let ids = await pendingDeleteIDs(scope: scope)
         guard !ids.isEmpty else { return }
         for pairingID in ids {
             let identity = MobilePairedMac.pairingIdentity(from: pairingID)
-            if let instanceTag = identity.instanceTag {
-                try? await inner.remove(
-                    macDeviceID: identity.macDeviceID,
-                    instanceTag: instanceTag,
-                    stackUserID: account,
-                    teamID: teamID
-                )
-            } else {
-                try? await inner.remove(
-                    macDeviceID: identity.macDeviceID,
-                    stackUserID: account,
-                    teamID: teamID
-                )
-            }
+            try? await inner.removeExactScope(
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag,
+                stackUserID: account,
+                teamID: teamID
+            )
         }
     }
 
