@@ -3524,6 +3524,57 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
+    func testSessionRemoteWorkspaceSnapshotRestoresOrdinarySSHWithLifecycleReporting() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            preserveAfterTerminalExit: false,
+            skipDaemonBootstrap: false,
+            relayPort: 64019
+        )
+
+        let configuration = try XCTUnwrap(
+            snapshot.workspaceConfiguration(
+                localSocketPath: "/tmp/cmux-ordinary-restore.sock"
+            )
+        )
+        let startupCommand = try XCTUnwrap(configuration.terminalStartupCommand)
+
+        XCTAssertEqual(configuration.preserveAfterTerminalExit, false)
+        XCTAssertEqual(configuration.relayPort, 64019)
+        XCTAssertEqual(
+            configuration.localSocketPath,
+            "/tmp/cmux-ordinary-restore.sock"
+        )
+        XCTAssertNotNil(configuration.relayID)
+        XCTAssertNotNil(configuration.relayToken)
+        XCTAssertTrue(
+            startupCommand.contains(
+                "rpc workspace.remote.terminal_session_launching"
+            ),
+            startupCommand
+        )
+        XCTAssertTrue(
+            startupCommand.contains(
+                "rpc workspace.remote.terminal_session_connected"
+            ),
+            startupCommand
+        )
+        XCTAssertTrue(
+            startupCommand.contains("CMUX_TERMINAL_LIFECYCLE_ID"),
+            startupCommand
+        )
+        XCTAssertTrue(
+            startupCommand.contains("CMUX_SSH_ATTEMPT_ID"),
+            startupCommand
+        )
+    }
+
     func testSessionRemoteWorkspaceSnapshotRequiresRelayPortForPTYRestore() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
