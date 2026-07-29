@@ -140,12 +140,14 @@ pub enum ResourceOperation {
     ClientList,
     #[serde(rename = "client.get")]
     ClientGet,
-    #[serde(rename = "client.label.set")]
-    ClientLabelSet,
+    #[serde(rename = "client.metadata.update")]
+    ClientMetadataUpdate,
     #[serde(rename = "client.sizing.set")]
     ClientSizingSet,
     #[serde(rename = "client.sizing.release")]
     ClientSizingRelease,
+    #[serde(rename = "client.cell_pixels.set")]
+    ClientCellPixelsSet,
     #[serde(rename = "client.detach")]
     ClientDetach,
     #[serde(rename = "session.window.title.set")]
@@ -226,6 +228,10 @@ pub enum ResourceOperation {
     TabList,
     #[serde(rename = "tab.get")]
     TabGet,
+    #[serde(rename = "tab.create_terminal")]
+    TabCreateTerminal,
+    #[serde(rename = "tab.create_browser")]
+    TabCreateBrowser,
     #[serde(rename = "tab.rename")]
     TabRename,
     #[serde(rename = "tab.move")]
@@ -238,10 +244,6 @@ pub enum ResourceOperation {
     TerminalList,
     #[serde(rename = "terminal.get")]
     TerminalGet,
-    #[serde(rename = "terminal.create")]
-    TerminalCreate,
-    #[serde(rename = "terminal.run")]
-    TerminalRun,
     #[serde(rename = "terminal.input.write")]
     TerminalInputWrite,
     #[serde(rename = "terminal.input.keys")]
@@ -264,8 +266,8 @@ pub enum ResourceOperation {
     TerminalCopy,
     #[serde(rename = "terminal.process.get")]
     TerminalProcessGet,
-    #[serde(rename = "terminal.viewer_sizing.update")]
-    TerminalViewerSizingUpdate,
+    #[serde(rename = "terminal.renderer_grant.create")]
+    TerminalRendererGrantCreate,
     #[serde(rename = "terminal.viewer.resize")]
     TerminalViewerResize,
     #[serde(rename = "terminal.viewer.release")]
@@ -282,8 +284,6 @@ pub enum ResourceOperation {
     BrowserList,
     #[serde(rename = "browser.get")]
     BrowserGet,
-    #[serde(rename = "browser.create")]
-    BrowserCreate,
     #[serde(rename = "browser.navigate")]
     BrowserNavigate,
     #[serde(rename = "browser.back")]
@@ -330,16 +330,12 @@ pub enum ResourceOperation {
     SidebarViewResize,
     #[serde(rename = "sidebar_view.reload")]
     SidebarViewReload,
-    #[serde(rename = "sidebar_view.use_builtin")]
-    SidebarViewUseBuiltin,
     #[serde(rename = "provider_scope.list")]
     ProviderScopeList,
     #[serde(rename = "provider_action.invoke")]
     ProviderActionInvoke,
     #[serde(rename = "provider_notice.events")]
     ProviderNoticeEvents,
-    #[serde(rename = "provider_authority.install")]
-    ProviderAuthorityInstall,
     #[serde(rename = "provider_workspace.mark")]
     ProviderWorkspaceMark,
     #[serde(rename = "provider_workspace.rename")]
@@ -360,6 +356,28 @@ pub enum OperationClass {
     Local,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LocalOperation {
+    #[serde(rename = "sidebar_plugin.list")]
+    SidebarPluginList,
+    #[serde(rename = "sidebar_plugin.install")]
+    SidebarPluginInstall,
+    #[serde(rename = "sidebar_plugin.use")]
+    SidebarPluginUse,
+    #[serde(rename = "sidebar_plugin.update")]
+    SidebarPluginUpdate,
+    #[serde(rename = "sidebar_plugin.remove")]
+    SidebarPluginRemove,
+    #[serde(rename = "sidebar_plugin.use_builtin")]
+    SidebarPluginUseBuiltin,
+}
+
+impl LocalOperation {
+    pub const fn class(self) -> OperationClass {
+        OperationClass::Local
+    }
+}
+
 impl ResourceOperation {
     pub const fn class(self) -> OperationClass {
         if matches!(
@@ -371,7 +389,20 @@ impl ResourceOperation {
                 | Self::ProviderNoticeEvents
         ) {
             OperationClass::StreamOpen
-        } else if matches!(self, Self::StreamCancel) {
+        } else if matches!(
+            self,
+            Self::StreamCancel
+                | Self::ClientMetadataUpdate
+                | Self::ClientSizingSet
+                | Self::ClientSizingRelease
+                | Self::ClientCellPixelsSet
+                | Self::ClientDetach
+                | Self::TerminalRendererGrantCreate
+                | Self::TerminalViewerResize
+                | Self::TerminalViewerRelease
+                | Self::BrowserViewerResize
+                | Self::BrowserViewerRelease
+        ) {
             OperationClass::ConnectionControl
         } else if matches!(
             self,
@@ -401,6 +432,7 @@ impl ResourceOperation {
                 | Self::TerminalStateRead
                 | Self::TerminalHistoryRead
                 | Self::TerminalWait
+                | Self::TerminalCopy
                 | Self::TerminalProcessGet
                 | Self::BrowserList
                 | Self::BrowserGet
@@ -861,6 +893,7 @@ pub fn is_reserved_selector_token(value: &str) -> bool {
             | "ping"
             | "shutdown"
             | "update"
+            | "metadata"
             | "detach"
             | "set"
             | "clear"
@@ -884,6 +917,10 @@ pub fn is_reserved_selector_token(value: &str) -> bool {
             | "state"
             | "direction"
             | "process"
+            | "renderer"
+            | "grant"
+            | "cell"
+            | "pixels"
             | "copy"
             | "attach"
             | "navigate"
@@ -893,6 +930,7 @@ pub fn is_reserved_selector_token(value: &str) -> bool {
             | "activate"
             | "install"
             | "use"
+            | "builtin"
             | "disable"
             | "remove"
             | "report"
@@ -1242,10 +1280,34 @@ mod tests {
             assert_eq!(operation.class(), OperationClass::StreamOpen);
         }
         assert_eq!(ResourceOperation::StreamCancel.class(), OperationClass::ConnectionControl);
+        let connection_control = [
+            ResourceOperation::ClientMetadataUpdate,
+            ResourceOperation::ClientSizingSet,
+            ResourceOperation::ClientSizingRelease,
+            ResourceOperation::ClientCellPixelsSet,
+            ResourceOperation::ClientDetach,
+            ResourceOperation::TerminalRendererGrantCreate,
+            ResourceOperation::TerminalViewerResize,
+            ResourceOperation::TerminalViewerRelease,
+            ResourceOperation::BrowserViewerResize,
+            ResourceOperation::BrowserViewerRelease,
+        ];
+        for operation in connection_control {
+            assert_eq!(operation.class(), OperationClass::ConnectionControl);
+        }
         assert_eq!(ResourceOperation::WorkspaceList.class(), OperationClass::Read);
         assert_eq!(ResourceOperation::WorkspaceCreate.class(), OperationClass::Mutation);
+        assert_eq!(ResourceOperation::TabCreateTerminal.class(), OperationClass::Mutation);
+        assert_eq!(ResourceOperation::TabCreateBrowser.class(), OperationClass::Mutation);
+        assert_eq!(ResourceOperation::TerminalCopy.class(), OperationClass::Read);
+        assert_eq!(LocalOperation::SidebarPluginUseBuiltin.class(), OperationClass::Local);
 
-        for operation in [ResourceOperation::SessionEvents, ResourceOperation::StreamCancel] {
+        for operation in [
+            ResourceOperation::SessionEvents,
+            ResourceOperation::StreamCancel,
+            ResourceOperation::ClientMetadataUpdate,
+            ResourceOperation::ClientDetach,
+        ] {
             let request = RequestEnvelope {
                 protocol: PROTOCOL.into(),
                 envelope_type: EnvelopeType::Request,
