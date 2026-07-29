@@ -279,6 +279,11 @@ extension MobileShellComposite {
             statusMacAppVersion: nil,
             macDeviceID: macID
         )
+        // Move selection across the Mac ownership boundary before `activeRoute`
+        // restarts mounted terminal lanes. Until this point the aggregate may
+        // still preserve the previous Mac's selected workspace and surface IDs.
+        selectWorkspaceOnCurrentForegroundMac()
+        syncSelectedTerminalForWorkspace()
         activeRoute = sub.route
         connectionState = .connected
         markMacConnectionHealthy()
@@ -288,7 +293,8 @@ extension MobileShellComposite {
         let subscriptionReadiness =
             MobileTerminalEventSubscriptionReadiness()
         startTerminalRefreshPolling(
-            subscriptionReadiness: subscriptionReadiness
+            subscriptionReadiness: subscriptionReadiness,
+            recoversConnectionOnSubscriptionFailure: false
         )
         let foregroundEventsReady = await subscriptionReadiness.wait()
         guard isCurrentMacSwitchAttempt(switchAttemptID),
@@ -296,30 +302,37 @@ extension MobileShellComposite {
               foregroundMacDeviceID == macID else {
             return false
         }
-        if foregroundEventsReady {
-            let snapshotEventGeneration = workspaceListEventGeneration
-            let authoritativePreviews = await fetchSecondaryWorkspaces(
-                on: sub.client,
-                macDeviceID: macID
-            )
-            guard isCurrentMacSwitchAttempt(switchAttemptID),
-                  remoteClient === sub.client,
-                  foregroundMacDeviceID == macID else {
-                return false
-            }
-            // A workspace event that raced the fetch already owns a fresh
-            // foreground refetch. Never overwrite its result with this older
-            // response.
-            if workspaceListEventGeneration == snapshotEventGeneration,
-               let authoritativePreviews {
-                workspacesByMac[macID] = MacWorkspaceState(
-                    macDeviceID: macID,
-                    displayName: displayName,
-                    workspaces: authoritativePreviews,
-                    status: .connected,
-                    actionCapabilities: sub.actionCapabilities
+        guard foregroundEventsReady else {
+            stopTerminalRefreshPolling()
+            if let promotedConnection = connections[macID] {
+                invalidateFocusedConnectionAfterAbortedHandoff(
+                    promotedConnection
                 )
             }
+            return false
+        }
+        let snapshotEventGeneration = workspaceListEventGeneration
+        let authoritativePreviews = await fetchSecondaryWorkspaces(
+            on: sub.client,
+            macDeviceID: macID
+        )
+        guard isCurrentMacSwitchAttempt(switchAttemptID),
+              remoteClient === sub.client,
+              foregroundMacDeviceID == macID else {
+            return false
+        }
+        // A workspace event that raced the fetch already owns a fresh
+        // foreground refetch. Never overwrite its result with this older
+        // response.
+        if workspaceListEventGeneration == snapshotEventGeneration,
+           let authoritativePreviews {
+            workspacesByMac[macID] = MacWorkspaceState(
+                macDeviceID: macID,
+                displayName: displayName,
+                workspaces: authoritativePreviews,
+                status: .connected,
+                actionCapabilities: sub.actionCapabilities
+            )
         }
         selectWorkspaceOnCurrentForegroundMac()
         // The old foreground snapshot remains live through its new control

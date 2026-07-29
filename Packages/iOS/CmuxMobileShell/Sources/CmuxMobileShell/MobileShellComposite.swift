@@ -8083,7 +8083,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func startTerminalRefreshPolling(
         initialHostStatus: MobileHostStatusResponse? = nil,
-        subscriptionReadiness: MobileTerminalEventSubscriptionReadiness? = nil
+        subscriptionReadiness: MobileTerminalEventSubscriptionReadiness? = nil,
+        recoversConnectionOnSubscriptionFailure: Bool = true
     ) {
         guard let client = remoteClient,
               runtime?.supportsServerPushEvents ?? true,
@@ -8149,7 +8150,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 listenerID: listenerID,
                 topics: topics,
                 transport: outputTransport,
-                subscriptionReadiness: subscriptionReadiness
+                subscriptionReadiness: subscriptionReadiness,
+                recoversConnectionOnFailure:
+                    recoversConnectionOnSubscriptionFailure
             )
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
@@ -8190,7 +8193,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             guard let self else { return }
-            self.handleTerminalEventStreamEnded(listenerID: listenerID, client: client)
+            self.handleTerminalEventStreamEnded(
+                listenerID: listenerID,
+                client: client,
+                recoversConnectionOnFailure:
+                    recoversConnectionOnSubscriptionFailure
+            )
         }
     }
 
@@ -8207,7 +8215,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         listenerID: UUID,
         topics: [String],
         transport: TerminalOutputTransport,
-        subscriptionReadiness: MobileTerminalEventSubscriptionReadiness? = nil
+        subscriptionReadiness: MobileTerminalEventSubscriptionReadiness? = nil,
+        recoversConnectionOnFailure: Bool
     ) {
         guard terminalEventListenerID == listenerID else {
             if let subscriptionReadiness {
@@ -8236,10 +8245,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard ack.isSubscribed else {
                 MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
                 self.diagnosticLog?.record(DiagnosticEvent(.error))
-                self.recoverDeadConnection(
-                    trigger: .subscriptionStartFailed,
-                    expectedClient: client
-                )
+                if recoversConnectionOnFailure {
+                    self.recoverDeadConnection(
+                        trigger: .subscriptionStartFailed,
+                        expectedClient: client
+                    )
+                }
                 return
             }
             self.recordSuccessfulTerminalSubscription()
@@ -8258,11 +8269,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func handleTerminalEventStreamEnded(listenerID: UUID, client: MobileCoreRPCClient) {
+    private func handleTerminalEventStreamEnded(
+        listenerID: UUID,
+        client: MobileCoreRPCClient,
+        recoversConnectionOnFailure: Bool
+    ) {
         guard !Task.isCancelled,
               terminalEventListenerID == listenerID,
               remoteClient === client,
               connectionState == .connected else {
+            return
+        }
+        guard recoversConnectionOnFailure else {
+            terminalSubscriptionStartTask?.cancel()
+            terminalSubscriptionStartTask = nil
             return
         }
         if terminalSubscriptionStartTask != nil {

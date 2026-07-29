@@ -42,6 +42,7 @@ actor LivenessHostRouter {
     private var unsubscribeRequestCount = 0
     private var invalidUnsubscribeRequestNumbers: Set<Int> = []
     private var notificationFeedRevision = 0
+    private var notificationFeedFailuresRemaining = 0
     private var replayRequestCount = 0
     private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
@@ -282,6 +283,10 @@ actor LivenessHostRouter {
         invalidUnsubscribeRequestNumbers.insert(number)
     }
 
+    func failNextNotificationFeedLists(count: Int = 1) {
+        notificationFeedFailuresRemaining += count
+    }
+
     /// Hold the Nth `mobile.terminal.replay` response (1-based), letting a test
     /// swap clients while the old request is still in flight.
     func holdReplayRequest(number: Int) {
@@ -447,6 +452,13 @@ actor LivenessHostRouter {
                 "removed": true,
             ])
         case "notification.feed.list":
+            if notificationFeedFailuresRemaining > 0 {
+                notificationFeedFailuresRemaining -= 1
+                return try? Self.errorFrame(
+                    id: id,
+                    message: "scripted notification feed failure"
+                )
+            }
             notificationFeedRevision += 1
             return try? Self.resultFrame(id: id, result: [
                 "revision": notificationFeedRevision,

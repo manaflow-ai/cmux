@@ -968,6 +968,7 @@ import Testing
         await router.scriptWorkspaceListTitles([
             "Initial Catch-up",
             "Recreated Catch-up",
+            "Failed Catch-up",
         ])
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(
@@ -1044,8 +1045,18 @@ import Testing
         })
         #expect(shell.secondaryMacSubscriptions["mac-b"] === subscription)
 
-        subscription.cancel()
-        shell.secondaryMacSubscriptions["mac-b"] = nil
+        await router.failNextNotificationFeedLists()
+        await router.dropSubscription()
+        clock.advance(by: .seconds(20))
+
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 3
+        ))
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions["mac-b"] == nil
+        })
+        #expect(shell.workspacesByMac["mac-b"]?.status == .unavailable)
         await client.disconnect()
     }
 

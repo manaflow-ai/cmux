@@ -304,19 +304,14 @@ extension MobileShellComposite {
         ) else {
             return true
         }
-        guard let task = scheduleNotificationFeedRefresh(
+        return await fetchNotificationFeed(
             macDeviceID: macDeviceID,
             client: client,
             displayName: normalizedDisplayName(
                 displayName,
                 fallback: macDeviceID
             )
-        ) else {
-            return false
-        }
-        await task.value
-        return secondaryMacSubscriptions[macDeviceID] === subscription
-            && !subscription.isTransitioningToFocus
+        )
     }
 
     /// Cancels all feed work and removes account-scoped notification content.
@@ -531,7 +526,7 @@ extension MobileShellComposite {
             guard let self else { return }
             repeat {
                 self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
-                await self.fetchNotificationFeed(
+                _ = await self.fetchNotificationFeed(
                     macDeviceID: macDeviceID,
                     client: client,
                     displayName: displayName
@@ -559,7 +554,7 @@ extension MobileShellComposite {
         macDeviceID: String,
         client: MobileCoreRPCClient,
         displayName: String
-    ) async {
+    ) async -> Bool {
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.feed.list",
@@ -579,18 +574,23 @@ extension MobileShellComposite {
                 operation: { try await decoderTask.value },
                 onCancel: { decoderTask.cancel() }
             )
-            guard !Task.isCancelled else { return }
-            guard notificationFeedClient(for: macDeviceID) === client else { return }
-            _ = applyNotificationFeedSnapshot(
+            guard !Task.isCancelled else { return false }
+            guard notificationFeedClient(for: macDeviceID) === client else {
+                return false
+            }
+            return applyNotificationFeedSnapshot(
                 response,
                 macDeviceID: macDeviceID,
                 displayName: displayName
             )
         } catch {
-            guard notificationFeedClient(for: macDeviceID) === client else { return }
+            guard notificationFeedClient(for: macDeviceID) === client else {
+                return false
+            }
             notificationFeedLog.error(
                 "list failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
             )
+            return false
         }
     }
 
