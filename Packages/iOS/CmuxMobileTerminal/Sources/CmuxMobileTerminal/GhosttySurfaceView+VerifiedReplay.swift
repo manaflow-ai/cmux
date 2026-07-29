@@ -10,7 +10,7 @@ import UIKit
 public struct VerifiedReplayCapturedViewportAnchor: Equatable, Sendable {
     /// The content-relative viewport position captured before replay.
     public let anchor: VerifiedReplayViewportAnchor
-    /// The user viewport generation that must still match before restoration.
+    /// The applied user viewport generation reflected by the captured anchor.
     public let interactionGeneration: UInt64
 }
 
@@ -41,9 +41,9 @@ extension GhosttySurfaceView {
                 var scrollbar = ghostty_surface_scrollbar_s()
                 let captured: VerifiedReplayCapturedViewportAnchor?
                 if ghostty_surface_scrollbar(operation.surface, &scrollbar) {
-                    // Label after the snapshot so a concurrent scroll can only
-                    // make the generation newer, causing a safe skipped restore.
-                    let interactionGeneration = gate.withLock { $0.interactionGeneration }
+                    let interactionGeneration = gate.withLock {
+                        $0.appliedInteractionGeneration
+                    }
                     captured = VerifiedReplayViewportAnchor(
                         scrollbarTotal: scrollbar.total,
                         offset: scrollbar.offset,

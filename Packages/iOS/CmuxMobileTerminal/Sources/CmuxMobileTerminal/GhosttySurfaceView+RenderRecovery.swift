@@ -251,6 +251,7 @@ extension GhosttySurfaceView {
         surfaceGeneration &+= 1
         outputQueueGeneration &+= 1
         outputQueue = GhosttySurfaceWorkQueue(generation: outputQueueGeneration)
+        resetScrollStateForSurfaceReplacement()
         scrollToBottomInFlight = false
         bridge = GhosttySurfaceBridge()
         bridge.attach(to: self)

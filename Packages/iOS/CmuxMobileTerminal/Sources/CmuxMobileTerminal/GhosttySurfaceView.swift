@@ -219,13 +219,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             || pendingVerifiedReplayViewportAnchorRestore != nil
             || pendingCopyableTextRead != nil || pendingVerifiedReplayPresentation != nil
     }
-    /// Viewport-restore gate. All user viewport mutations and restores are
-    /// serialized on `outputQueue`; the generation orders gesture versus
-    /// restore across the main-to-queue boundary. The lock is held only for
-    /// field reads and writes, never across a Ghostty C call. The ticket revokes
-    /// a timed-out restore whose queued block has not yet claimed it.
+    /// Viewport-restore gate. `interactionGeneration` records user intent
+    /// bumped on the main actor, while `appliedInteractionGeneration` records
+    /// what `outputQueue` has applied. Anchors use the applied value at snapshot
+    /// time and remain restorable only while intent equals that label, so a
+    /// gesture whose batch has not reached the queue voids the anchor. The lock
+    /// is held only for field reads and writes, never across a Ghostty C call.
+    /// The ticket revokes a timed-out restore whose queued block has not claimed it.
     nonisolated struct ViewportRestoreGate {
         var interactionGeneration: UInt64 = 0
+        var appliedInteractionGeneration: UInt64 = 0
         var activeRestoreTicket: UInt64?
     }
     nonisolated let viewportRestoreGate =
@@ -1759,6 +1762,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
+    var pendingLocalScrollLines: Double = 0
+    var pendingLocalScrollCell: (col: Int, row: Int) = (0, 0)
+    var localScrollApplyInFlight = false
+
+    /// Drops scroll work tied to a surface generation that will no longer run.
+    func resetScrollStateForSurfaceReplacement() {
+        pendingScrollLines = 0
+        pendingLocalScrollLines = 0
+        localScrollApplyInFlight = false
+    }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
@@ -2415,13 +2428,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
         bumpUserViewportInteractionGeneration()
+        let interactionGeneration = viewportRestoreGate.withLock { $0.interactionGeneration }
         guard let surface, !scrollToBottomInFlight else { return }
         scrollToBottomInFlight = true
         let generation = surfaceGeneration
         let action = "scroll_to_bottom"
+        let gate = viewportRestoreGate
         outputQueue.async { [weak self] in
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+            }
+            gate.withLock {
+                $0.appliedInteractionGeneration = max(
+                    $0.appliedInteractionGeneration,
+                    interactionGeneration
+                )
             }
             DispatchQueue.main.async {
                 // Generation-guarded like the `processOutput` completion: a
@@ -2689,6 +2710,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func disposeSurface() {
         stopDisplayLink()
         cancelRenderPipelineRecoveryResumeTimer()
+        resetScrollStateForSurfaceReplacement()
         guard let surface else { return }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
@@ -2800,6 +2822,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // pending deltas and freeze the scroll mechanics at the current offset
         // (kill-deceleration idiom) so typed input lands at the bottom.
         pendingScrollLines = 0
+        pendingLocalScrollLines = 0
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }
