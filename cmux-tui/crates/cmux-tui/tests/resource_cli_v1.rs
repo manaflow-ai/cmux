@@ -1,0 +1,658 @@
+use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use cmux_tui_core::platform::transport;
+use serde_json::{Value, json};
+
+const WORKSPACE_ID: &str = "ws_11111111111111111111111111111111";
+const OTHER_WORKSPACE_ID: &str = "ws_12121212121212121212121212121212";
+const SCREEN_ID: &str = "screen_22222222222222222222222222222222";
+const PANE_ID: &str = "pane_33333333333333333333333333333333";
+const TAB_ID: &str = "tab_44444444444444444444444444444444";
+const TERMINAL_ID: &str = "term_55555555555555555555555555555555";
+const BROWSER_ID: &str = "browser_66666666666666666666666666666666";
+
+#[test]
+fn root_help_is_noun_first_and_does_not_publish_the_old_flat_api() {
+    let output = local_cli(&["--help"]);
+    assert_success(&output);
+    assert!(output.stderr.is_empty(), "help wrote diagnostics: {}", stderr(&output));
+
+    let help = stdout(&output);
+    for scope in [
+        "machine",
+        "session",
+        "client",
+        "workspace",
+        "screen",
+        "pane",
+        "tab",
+        "terminal",
+        "browser",
+        "notification",
+        "agent",
+        "sidebar",
+        "pairing",
+        "projection",
+        "provider",
+        "stream",
+        "raw",
+    ] {
+        assert!(help.lines().any(|line| line.trim_start().starts_with(scope)), "{scope}: {help}");
+    }
+
+    for removed in [
+        "list-workspaces",
+        "new-workspace",
+        "new-pane-right",
+        "read-screen",
+        "clear-history",
+        "focus-direction",
+        "attach-surface",
+        "sidebar-plugin",
+    ] {
+        assert!(!help.contains(removed), "root help still publishes {removed:?}:\n{help}");
+    }
+}
+
+#[test]
+fn every_public_scope_has_specific_help_instead_of_falling_back_to_root_help() {
+    for (path, required) in [
+        (&["machine"][..], &["list", "show", "session"][..]),
+        (&["session"][..], &["show", "snapshot", "events", "ping"][..]),
+        (&["client"][..], &["list", "show", "label", "detach", "sizing"][..]),
+        (&["workspace"][..], &["list", "create", "show", "rename", "run"][..]),
+        (&["screen"][..], &["list", "show", "create", "layout"][..]),
+        (&["pane"][..], &["list", "show", "create", "split", "focus"][..]),
+        (&["tab"][..], &["list", "show", "terminal", "browser"][..]),
+        (&["terminal"][..], &["list", "show", "write", "keys", "history", "attach"][..]),
+        (&["browser"][..], &["show", "navigate", "back", "forward", "attach"][..]),
+        (&["notification"][..], &["list", "create"][..]),
+        (&["agent"][..], &["list", "report"][..]),
+        (&["sidebar"][..], &["view", "plugin"][..]),
+        (&["pairing"][..], &["request"][..]),
+        (&["projection"][..], &["show", "put"][..]),
+        (&["provider"][..], &["scope", "action", "notice", "authority"][..]),
+        (&["stream"][..], &["cancel"][..]),
+        (&["raw"][..], &["operation"][..]),
+    ] {
+        let mut args = path.to_vec();
+        args.push("--help");
+        let output = local_cli(&args);
+        assert_success(&output);
+        assert!(output.stderr.is_empty(), "{path:?}: {}", stderr(&output));
+        let help = stdout(&output);
+        for needle in required {
+            assert!(help.contains(needle), "{path:?} help is missing {needle:?}:\n{help}");
+        }
+        assert!(
+            help.contains(path.last().unwrap()),
+            "{path:?} returned unrelated help instead of scope-specific help:\n{help}"
+        );
+    }
+}
+
+#[test]
+fn nested_non_hyphenated_actions_have_specific_help() {
+    for (path, required) in [
+        (
+            &["workspace", WORKSPACE_ID, "screen", "current", "pane", "current", "split"][..],
+            &["right"][..],
+        ),
+        (&["terminal", TERMINAL_ID, "history", "clear"][..], &["clear"][..]),
+        (&["terminal", TERMINAL_ID, "state", "read"][..], &["read"][..]),
+        (&["pane", PANE_ID, "focus", "direction"][..], &["direction"][..]),
+        (&["sidebar", "plugin"][..], &["list", "install", "use", "update", "remove"][..]),
+        (&["sidebar", "view"][..], &["show", "ensure", "attach", "reload"][..]),
+        (&["pairing", "request"][..], &["list", "respond"][..]),
+        (&["provider", "scope"][..], &["list"][..]),
+        (&["provider", "action"][..], &["invoke"][..]),
+        (&["provider", "notice"][..], &["watch"][..]),
+    ] {
+        let mut args = path.to_vec();
+        args.push("--help");
+        let output = local_cli(&args);
+        assert_success(&output);
+        assert!(output.stderr.is_empty(), "{path:?}: {}", stderr(&output));
+        let help = stdout(&output);
+        for needle in required {
+            assert!(help.contains(needle), "{path:?} help is missing {needle:?}:\n{help}");
+        }
+    }
+}
+
+#[test]
+fn old_action_first_commands_are_all_usage_errors() {
+    let missing_socket = unique_temp_dir("removed-actions").join("missing.sock");
+    for removed in [
+        "identify",
+        "ping",
+        "set-client-info",
+        "list-clients",
+        "detach-client",
+        "set-client-sizing",
+        "reload-config",
+        "set-window-title",
+        "clear-window-title",
+        "list-workspaces",
+        "export-layout",
+        "apply-layout",
+        "send",
+        "read-screen",
+        "clear-history",
+        "read-scrollback",
+        "wait-for",
+        "run",
+        "send-key",
+        "copy",
+        "ids",
+        "notify",
+        "list-agents",
+        "report-agent",
+        "vt-state",
+        "new-tab",
+        "new-browser-tab",
+        "new-workspace",
+        "new-screen",
+        "new-pane",
+        "new-pane-right",
+        "split",
+        "set-ratio",
+        "set-split-ratio",
+        "set-viewport-pane-width",
+        "undo-layout",
+        "pane-neighbor",
+        "focus-direction",
+        "swap-pane",
+        "zoom-pane",
+        "process-info",
+        "set-default-colors",
+        "close-surface",
+        "close-pane",
+        "close-screen",
+        "close-workspace",
+        "rename-pane",
+        "rename-surface",
+        "rename-screen",
+        "rename-workspace",
+        "resize-surface",
+        "release-surface-size",
+        "focus-pane",
+        "select-tab",
+        "select-screen",
+        "select-workspace",
+        "move-tab",
+        "move-workspace",
+        "scroll-surface",
+        "subscribe",
+        "attach-surface",
+        "plugin",
+    ] {
+        let output = Command::new(bin())
+            .arg("--socket")
+            .arg(&missing_socket)
+            .arg(removed)
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{removed:?} was not rejected as usage\nstdout:\n{}\nstderr:\n{}",
+            stdout(&output),
+            stderr(&output)
+        );
+        assert!(output.stdout.is_empty(), "{removed:?} wrote success output");
+        assert!(!output.stderr.is_empty(), "{removed:?} omitted its usage diagnostic");
+    }
+}
+
+#[test]
+fn hyphenated_resource_actions_and_flat_auxiliary_scopes_are_usage_errors() {
+    for args in [
+        &["workspace", WORKSPACE_ID, "layout-apply"][..],
+        &["terminal", TERMINAL_ID, "history-clear"][..],
+        &["terminal", TERMINAL_ID, "state-read"][..],
+        &["pane", PANE_ID, "focus-direction", "right"][..],
+        &["sidebar-plugin", "list"][..],
+        &["pairing-request", "list"][..],
+        &["provider-scope", "list"][..],
+        &["provider-action", "invoke"][..],
+        &["provider-notice", "watch"][..],
+    ] {
+        let output = local_cli(args);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{args:?} was not rejected as usage\nstdout:\n{}\nstderr:\n{}",
+            stdout(&output),
+            stderr(&output)
+        );
+        assert!(output.stdout.is_empty(), "{args:?} wrote success output");
+        assert!(!output.stderr.is_empty(), "{args:?} omitted its usage diagnostic");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn direct_and_nested_resource_paths_address_the_same_typed_resources() {
+    for case in [
+        RequestCase::new(&["workspace", WORKSPACE_ID, "show"], "workspace.get", WORKSPACE_ID),
+        RequestCase::new(&["screen", SCREEN_ID, "show"], "screen.get", SCREEN_ID),
+        RequestCase::new(&["pane", PANE_ID, "show"], "pane.get", PANE_ID),
+        RequestCase::new(&["tab", TAB_ID, "show"], "tab.get", TAB_ID),
+        RequestCase::new(&["terminal", TERMINAL_ID, "show"], "terminal.get", TERMINAL_ID),
+        RequestCase::new(&["browser", BROWSER_ID, "show"], "browser.get", BROWSER_ID),
+        RequestCase::new(
+            &["workspace", WORKSPACE_ID, "screen", SCREEN_ID, "show"],
+            "screen.get",
+            SCREEN_ID,
+        ),
+        RequestCase::new(
+            &["workspace", WORKSPACE_ID, "screen", SCREEN_ID, "pane", PANE_ID, "show"],
+            "pane.get",
+            PANE_ID,
+        ),
+        RequestCase::new(
+            &[
+                "workspace",
+                WORKSPACE_ID,
+                "screen",
+                SCREEN_ID,
+                "pane",
+                PANE_ID,
+                "tab",
+                TAB_ID,
+                "show",
+            ],
+            "tab.get",
+            TAB_ID,
+        ),
+    ] {
+        let result = json!({"id": case.target});
+        let (output, requests) = fake_resource_cli(case.args, FakeReply::Success(result.clone()));
+        assert_success(&output);
+        assert!(output.stderr.is_empty(), "{:?}: {}", case.args, stderr(&output));
+        assert_eq!(parse_single_json(&output.stdout), result, "{:?}", case.args);
+        assert_eq!(requests.len(), 1, "{:?}: {requests:?}", case.args);
+        assert_eq!(requests[0]["operation"], case.operation, "{:?}", case.args);
+        assert_json_contains_string(&requests[0]["params"], case.target);
+        for ancestor in case.args.iter().copied().filter(|arg| is_resource_id(arg)) {
+            assert_json_contains_string(&requests[0]["params"], ancestor);
+        }
+        assert_read_has_no_idempotency_key(&requests[0]);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_creation_preserves_empty_whitespace_unicode_and_reserved_names() {
+    for name in
+        ["", " \t ", "日本語 🦀", "current", "under_score", "ws_99999999999999999999999999999999"]
+    {
+        let result = created_path();
+        let (output, requests) =
+            fake_resource_cli(&["workspace", "create", "--name", name], FakeReply::Success(result));
+        assert_success(&output);
+        assert!(output.stderr.is_empty(), "{name:?}: {}", stderr(&output));
+        let printed = parse_single_json(&output.stdout);
+        assert_eq!(printed["workspace"]["id"], WORKSPACE_ID, "{name:?}: {printed}");
+        assert_eq!(printed["screen"]["id"], SCREEN_ID, "{name:?}: {printed}");
+        assert_eq!(printed["pane"]["id"], PANE_ID, "{name:?}: {printed}");
+        assert_eq!(printed["tab"]["id"], TAB_ID, "{name:?}: {printed}");
+        assert_eq!(printed["terminal"]["id"], TERMINAL_ID, "{name:?}: {printed}");
+
+        assert_eq!(requests.len(), 1, "{name:?}: {requests:?}");
+        assert_eq!(requests[0]["operation"], "workspace.create", "{name:?}");
+        assert_json_key_equals(&requests[0]["params"], "name", name);
+        assert_mutation_has_idempotency_key(&requests[0]);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn forced_name_selectors_remain_distinct_from_current_and_opaque_ids() {
+    for (selector, forced_name) in [
+        ("name:", ""),
+        ("name: \t ", " \t "),
+        ("name:日本語 🦀", "日本語 🦀"),
+        ("name:current", "current"),
+        ("name:under_score", "under_score"),
+        ("name:ws_99999999999999999999999999999999", "ws_99999999999999999999999999999999"),
+    ] {
+        let (output, requests) = fake_resource_cli(
+            &["workspace", selector, "show"],
+            FakeReply::Success(json!({"id": WORKSPACE_ID, "name": forced_name})),
+        );
+        assert_success(&output);
+        assert_eq!(parse_single_json(&output.stdout)["name"], forced_name, "{selector:?}");
+        assert_eq!(requests.len(), 1, "{selector:?}: {requests:?}");
+        assert_eq!(requests[0]["operation"], "workspace.get", "{selector:?}");
+        assert_forced_name_selector(&requests[0]["params"], forced_name);
+    }
+
+    let (_, current_requests) = fake_resource_cli(
+        &["workspace", "current", "show"],
+        FakeReply::Success(json!({"id": OTHER_WORKSPACE_ID})),
+    );
+    assert_eq!(current_requests.len(), 1);
+    assert_current_selector(&current_requests[0]["params"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn duplicate_name_ambiguity_is_structured_and_never_retried() {
+    let error = json!({
+        "code": "selector.ambiguous",
+        "message": "more than one workspace is named \"api\"",
+        "details": {"candidates": [WORKSPACE_ID, OTHER_WORKSPACE_ID]},
+        "retryable": false
+    });
+    let (output, requests) = fake_resource_cli(
+        &["workspace", "api", "rename", "--name", "changed"],
+        FakeReply::Failure(error),
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout:\n{}\nstderr:\n{}",
+        stdout(&output),
+        stderr(&output)
+    );
+    assert!(output.stdout.is_empty(), "operation failure wrote success output");
+    let diagnostic = parse_single_json(&output.stderr);
+    assert_eq!(find_key(&diagnostic, "code"), Some(&json!("selector.ambiguous")));
+    assert_eq!(find_key(&diagnostic, "retryable"), Some(&json!(false)));
+    let candidates = find_key(&diagnostic, "candidates")
+        .and_then(Value::as_array)
+        .expect("ambiguity diagnostic omitted candidate IDs");
+    assert_eq!(candidates, &vec![json!(WORKSPACE_ID), json!(OTHER_WORKSPACE_ID)]);
+
+    assert_eq!(requests.len(), 1, "ambiguous mutation was retried: {requests:?}");
+    assert_eq!(requests[0]["operation"], "workspace.rename");
+    assert_json_contains_string(&requests[0]["params"], "api");
+    assert_json_key_equals(&requests[0]["params"], "name", "changed");
+    assert_mutation_has_idempotency_key(&requests[0]);
+}
+
+#[cfg(unix)]
+#[test]
+fn output_modes_keep_success_on_stdout_and_diagnostics_on_stderr() {
+    let result = json!({
+        "workspaces": [
+            {"id": WORKSPACE_ID, "name": "one"},
+            {"id": OTHER_WORKSPACE_ID, "name": "two"}
+        ]
+    });
+
+    let (json_output, _) =
+        fake_resource_cli(&["workspace", "list"], FakeReply::Success(result.clone()));
+    assert_success(&json_output);
+    assert_eq!(parse_single_json(&json_output.stdout), result);
+    assert!(json_output.stderr.is_empty());
+
+    let (jsonl_output, _) =
+        fake_resource_cli_with_mode("--jsonl", &["workspace", "list"], FakeReply::Success(result));
+    assert_success(&jsonl_output);
+    assert!(jsonl_output.stderr.is_empty());
+    let lines = stdout(&jsonl_output)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("JSONL emitted invalid JSON"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        vec![
+            json!({"id": WORKSPACE_ID, "name": "one"}),
+            json!({"id": OTHER_WORKSPACE_ID, "name": "two"})
+        ]
+    );
+
+    let (quiet_output, requests) = fake_resource_cli_with_mode(
+        "--quiet",
+        &["workspace", WORKSPACE_ID, "rename", "--name", "renamed"],
+        FakeReply::Success(json!({"id": WORKSPACE_ID, "name": "renamed"})),
+    );
+    assert_success(&quiet_output);
+    assert!(quiet_output.stdout.is_empty(), "quiet mode wrote success output");
+    assert!(quiet_output.stderr.is_empty(), "quiet mode wrote diagnostics");
+    assert_eq!(requests.len(), 1);
+    assert_mutation_has_idempotency_key(&requests[0]);
+}
+
+#[test]
+fn usage_and_transport_failures_use_distinct_exit_codes_and_stderr() {
+    let usage = local_cli(&["workspace", WORKSPACE_ID, "definitely-not-an-action"]);
+    assert_eq!(usage.status.code(), Some(2));
+    assert!(usage.stdout.is_empty());
+    assert!(!usage.stderr.is_empty());
+
+    let missing_socket = unique_temp_dir("transport-exit").join("missing.sock");
+    let transport = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(missing_socket)
+        .args(["workspace", "list"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(
+        transport.status.code(),
+        Some(3),
+        "stdout:\n{}\nstderr:\n{}",
+        stdout(&transport),
+        stderr(&transport)
+    );
+    assert!(transport.stdout.is_empty());
+    assert!(!transport.stderr.is_empty());
+}
+
+struct RequestCase {
+    args: &'static [&'static str],
+    operation: &'static str,
+    target: &'static str,
+}
+
+impl RequestCase {
+    const fn new(
+        args: &'static [&'static str],
+        operation: &'static str,
+        target: &'static str,
+    ) -> Self {
+        Self { args, operation, target }
+    }
+}
+
+#[derive(Clone)]
+enum FakeReply {
+    Success(Value),
+    Failure(Value),
+}
+
+#[cfg(unix)]
+fn fake_resource_cli(args: &[&str], reply: FakeReply) -> (Output, Vec<Value>) {
+    fake_resource_cli_with_mode("--json", args, reply)
+}
+
+#[cfg(unix)]
+fn fake_resource_cli_with_mode(
+    mode: &str,
+    args: &[&str],
+    reply: FakeReply,
+) -> (Output, Vec<Value>) {
+    let dir = unique_temp_dir("resource-fake");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let read_half = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(read_half);
+        let mut requests = Vec::new();
+        let mut line = String::new();
+        if reader.read_line(&mut line).unwrap() != 0 {
+            let request: Value = serde_json::from_str(&line).expect("CLI sent invalid JSON");
+            let id = request["id"].clone();
+            let response = match reply {
+                FakeReply::Success(result) => json!({
+                    "protocol": "cmux.protocol/1",
+                    "type": "response",
+                    "id": id,
+                    "ok": true,
+                    "result": result
+                }),
+                FakeReply::Failure(error) => json!({
+                    "protocol": "cmux.protocol/1",
+                    "type": "response",
+                    "id": id,
+                    "ok": false,
+                    "error": error
+                }),
+            };
+            requests.push(request);
+            writeln!(stream, "{response}").unwrap();
+            stream.flush().unwrap();
+        }
+        requests
+    });
+
+    let output = Command::new(bin())
+        .arg(mode)
+        .arg("--socket")
+        .arg(&socket)
+        .args(args)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    let requests = server.join().unwrap();
+    let _ = fs::remove_file(&socket);
+    fs::remove_dir_all(dir).unwrap();
+    (output, requests)
+}
+
+fn created_path() -> Value {
+    json!({
+        "workspace": {"id": WORKSPACE_ID, "name": ""},
+        "screen": {"id": SCREEN_ID},
+        "pane": {"id": PANE_ID},
+        "tab": {"id": TAB_ID},
+        "terminal": {"id": TERMINAL_ID}
+    })
+}
+
+fn assert_read_has_no_idempotency_key(request: &Value) {
+    assert!(
+        find_key(request, "idempotency_key").is_none(),
+        "read unexpectedly carried an idempotency key: {request}"
+    );
+}
+
+fn assert_mutation_has_idempotency_key(request: &Value) {
+    let key = find_key(request, "idempotency_key")
+        .and_then(Value::as_str)
+        .expect("mutation omitted its idempotency key");
+    assert!(!key.is_empty(), "mutation used an empty idempotency key");
+}
+
+fn assert_forced_name_selector(params: &Value, name: &str) {
+    assert!(
+        json_has_key_value(params, "name", &Value::String(name.to_owned())),
+        "forced name selector was not encoded as a name selector: {params}"
+    );
+}
+
+fn assert_current_selector(params: &Value) {
+    assert!(
+        json_has_key_value(params, "current", &Value::Bool(true))
+            || json_has_key_value(params, "kind", &Value::String("current".to_owned()))
+            || json_has_key_value(params, "selector", &Value::String("current".to_owned())),
+        "current selector was not encoded as current: {params}"
+    );
+}
+
+fn assert_json_key_equals(value: &Value, key: &str, expected: &str) {
+    assert!(
+        json_has_key_value(value, key, &Value::String(expected.to_owned())),
+        "{key:?} did not preserve {expected:?}: {value}"
+    );
+}
+
+fn assert_json_contains_string(value: &Value, expected: &str) {
+    assert!(json_contains_string(value, expected), "JSON omitted string {expected:?}: {value}");
+}
+
+fn json_contains_string(value: &Value, expected: &str) -> bool {
+    match value {
+        Value::String(actual) => actual == expected,
+        Value::Array(values) => values.iter().any(|value| json_contains_string(value, expected)),
+        Value::Object(values) => values.values().any(|value| json_contains_string(value, expected)),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
+fn json_has_key_value(value: &Value, key: &str, expected: &Value) -> bool {
+    match value {
+        Value::Array(values) => values.iter().any(|value| json_has_key_value(value, key, expected)),
+        Value::Object(values) => {
+            values.get(key) == Some(expected)
+                || values.values().any(|value| json_has_key_value(value, key, expected))
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => false,
+    }
+}
+
+fn find_key<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    match value {
+        Value::Array(values) => values.iter().find_map(|value| find_key(value, key)),
+        Value::Object(values) => {
+            values.get(key).or_else(|| values.values().find_map(|value| find_key(value, key)))
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => None,
+    }
+}
+
+fn is_resource_id(value: &str) -> bool {
+    ["ws_", "screen_", "pane_", "tab_", "term_", "browser_", "client_", "session_", "machine_"]
+        .iter()
+        .any(|prefix| value.starts_with(prefix))
+}
+
+fn parse_single_json(bytes: &[u8]) -> Value {
+    serde_json::from_slice(bytes).unwrap_or_else(|error| {
+        panic!("expected one JSON value, got {error}: {:?}", String::from_utf8_lossy(bytes))
+    })
+}
+
+fn local_cli(args: &[&str]) -> Output {
+    Command::new(bin()).args(args).env_remove("CMUX_TUI_SOCKET").output().unwrap()
+}
+
+fn assert_success(output: &Output) {
+    assert!(
+        output.status.success(),
+        "expected success, got {:?}\nstdout:\n{}\nstderr:\n{}",
+        output.status.code(),
+        stdout(output),
+        stderr(output)
+    );
+}
+
+fn stdout(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+fn unique_temp_dir(name: &str) -> PathBuf {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    Path::new("/tmp").join(format!("cmux-resource-cli-{name}-{}-{stamp}", std::process::id()))
+}
+
+fn bin() -> &'static str {
+    env!("CARGO_BIN_EXE_cmux-tui")
+}
