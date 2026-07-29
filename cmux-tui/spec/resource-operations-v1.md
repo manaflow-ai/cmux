@@ -6,11 +6,11 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/1` transports 122 operations:
+`cmux.protocol/1` transports 124 operations:
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 34 | Reads state and forbids an idempotency key |
+| `read` | 36 | Reads state and forbids an idempotency key |
 | `mutation` | 71 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 5 | Opens a connection-owned typed stream |
 | `connection_control` | 12 | Changes only connection-local state |
@@ -18,6 +18,11 @@ selectors, fields, results, errors, constraints, or stream types.
 The 48 mutations with an external effect may return the non-retryable
 `mutation.indeterminate` error after a crash. The same key is never repeated
 automatically.
+
+The eight `CreatedPath` operations accept `correlation_key`, defaulting to the
+idempotency key. `session.creation.resolve` returns the durable creation state
+and exact retry instruction. The correlation fingerprint excludes revision,
+correlation, and idempotency metadata.
 
 | Target | Count | Operations |
 | --- | ---: | --- |
@@ -33,11 +38,11 @@ automatically.
 | `provider_notice` | 2 | `provider_notice.acknowledge`, `provider_notice.events` |
 | `provider_scope` | 1 | `provider_scope.list` |
 | `screen` | 8 | `screen.close`, `screen.create`, `screen.focus`, `screen.get`, `screen.layout.export`, `screen.layout.undo`, `screen.list`, `screen.rename` |
-| `session` | 11 | `session.events`, `session.get`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set` |
+| `session` | 12 | `session.creation.resolve`, `session.events`, `session.get`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |
 | `stream` | 1 | `stream.cancel` |
 | `tab` | 8 | `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.rename` |
-| `terminal` | 20 | `terminal.attach`, `terminal.close`, `terminal.copy`, `terminal.get`, `terminal.history.clear`, `terminal.history.read`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.list`, `terminal.move`, `terminal.process.get`, `terminal.renderer_grant.create`, `terminal.screen.read`, `terminal.state.read`, `terminal.viewer.release`, `terminal.viewer.resize`, `terminal.viewport.scroll`, `terminal.wait` |
+| `terminal` | 21 | `terminal.attach`, `terminal.close`, `terminal.copy`, `terminal.get`, `terminal.history.clear`, `terminal.history.read`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.list`, `terminal.move`, `terminal.process.get`, `terminal.renderer_grant.create`, `terminal.screen.read`, `terminal.state.read`, `terminal.viewer.release`, `terminal.viewer.resize`, `terminal.viewport.scroll`, `terminal.wait`, `terminal.wait_exit` |
 | `workspace` | 12 | `provider_workspace.close`, `provider_workspace.mark`, `provider_workspace.rename`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.get`, `workspace.layout.apply`, `workspace.list`, `workspace.move`, `workspace.rename`, `workspace.run` |
 
 ## Local operations

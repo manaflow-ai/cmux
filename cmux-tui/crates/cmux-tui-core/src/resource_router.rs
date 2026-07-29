@@ -767,6 +767,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::ProviderWorkspaceRename
         | ResourceOperation::ProviderWorkspaceClose => OperationOwner::Machine,
         ResourceOperation::SessionShutdown
+        | ResourceOperation::SessionCreationResolve
         | ResourceOperation::SessionReloadConfig
         | ResourceOperation::SessionTerminalDefaultsUpdate
         | ResourceOperation::SessionWindowTitleSet
@@ -827,6 +828,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::TerminalHistoryRead
         | ResourceOperation::TerminalHistoryClear
         | ResourceOperation::TerminalWait
+        | ResourceOperation::TerminalWaitExit
         | ResourceOperation::TerminalCopy
         | ResourceOperation::TerminalProcessGet
         | ResourceOperation::TerminalViewportScroll
@@ -1368,7 +1370,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 122);
+        assert_eq!(operations.len(), 124);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();

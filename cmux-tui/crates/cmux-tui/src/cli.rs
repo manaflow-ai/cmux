@@ -29,7 +29,6 @@ const PUBLIC_SCOPES: &[&str] = &[
     "pairing",
     "projection",
     "provider",
-    "stream",
     "raw",
 ];
 
@@ -229,7 +228,6 @@ fn scope_help(scope: &str) -> &'static str {
         "pairing" => PAIRING_HELP,
         "projection" => PROJECTION_HELP,
         "provider" => PROVIDER_HELP,
-        "stream" => STREAM_HELP,
         "raw" => RAW_HELP,
         _ => ROOT_HELP,
     }
@@ -274,7 +272,6 @@ RESOURCE SCOPES
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
   provider      Invoke provider scopes and actions
-  stream        Cancel an open stream
   raw           Send an explicit low-level operation
 
 Run `cmux-tui <scope> --help` for scope-specific paths.
@@ -295,6 +292,7 @@ const SESSION_HELP: &str = "\
 USAGE
   cmux-tui session list
   cmux-tui session <selector> open|show|snapshot|ping|shutdown
+  cmux-tui session <selector> creation <correlation-key> resolve
   cmux-tui session <selector> events [--generation <value> --revision <decimal>]
   cmux-tui session <selector> config reload
   cmux-tui session <selector> window title set --title <value>
@@ -315,10 +313,10 @@ USAGE
 const WORKSPACE_HELP: &str = "\
 USAGE
   cmux-tui workspace list
-  cmux-tui workspace create [--name <value>] [--empty]
+  cmux-tui workspace create [--name <value>] [--empty] [--correlation-key <value>]
   cmux-tui workspace <selector> show|rename|move|focus|close
-  cmux-tui workspace <selector> run -- <argv...>
-  cmux-tui workspace <selector> run shell <script>
+  cmux-tui workspace <selector> run [--correlation-key <value>] -- <argv...>
+  cmux-tui workspace <selector> run [--correlation-key <value>] shell <script>
   cmux-tui workspace <selector> layout apply [OPTIONS]
   cmux-tui workspace <selector> screen ...
   Nested panes support split --right or --down.
@@ -326,7 +324,8 @@ USAGE
 
 const SCREEN_HELP: &str = "\
 USAGE
-  cmux-tui screen list|create
+  cmux-tui screen list
+  cmux-tui screen create [--correlation-key <value>]
   cmux-tui screen <selector> show|rename|focus|close
   cmux-tui screen <selector> layout export|undo
   cmux-tui screen <selector> pane ...
@@ -334,9 +333,10 @@ USAGE
 
 const PANE_HELP: &str = "\
 USAGE
-  cmux-tui pane list|create
+  cmux-tui pane list
+  cmux-tui pane create [--correlation-key <value>]
   cmux-tui pane <selector> show|rename|focus|close
-  cmux-tui pane <selector> split [--right|--down]
+  cmux-tui pane <selector> split [--right|--down] [--correlation-key <value>]
   cmux-tui pane <selector> focus direction <left|right|up|down>
   cmux-tui pane <selector> neighbor <left|right|up|down>
   cmux-tui pane <selector> swap --other-workspace <selector>
@@ -344,7 +344,7 @@ USAGE
   cmux-tui pane <selector> zoom [--enabled <bool>]
   cmux-tui pane <selector> split ratio set --split <id> --ratio <value>
   cmux-tui pane <selector> viewport width set --columns <value>
-  cmux-tui pane <selector> run -- <argv...>
+  cmux-tui pane <selector> run [--correlation-key <value>] -- <argv...>
   cmux-tui pane <selector> tab ...
 ";
 
@@ -352,8 +352,8 @@ const TAB_HELP: &str = "\
 USAGE
   cmux-tui tab list
   cmux-tui tab <selector> show|rename|move|focus|close
-  cmux-tui tab create terminal [OPTIONS]
-  cmux-tui tab create browser --url <value> [OPTIONS]
+  cmux-tui tab create terminal [--correlation-key <value>] [OPTIONS]
+  cmux-tui tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
   cmux-tui tab <selector> terminal|browser ...
 ";
 
@@ -366,10 +366,11 @@ USAGE
   cmux-tui terminal <selector> mouse <kind> [OPTIONS]
   cmux-tui terminal <selector> focus <in|out>
   cmux-tui terminal <selector> screen read
+  cmux-tui terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
   cmux-tui terminal <selector> state read
   cmux-tui terminal <selector> history read|clear
-  cmux-tui terminal <selector> wait|copy|process show [OPTIONS]
-  cmux-tui terminal <selector> viewer resize|release [OPTIONS]
+  cmux-tui terminal <selector> copy|process show [OPTIONS]
+  cmux-tui terminal <selector> process wait [--timeout-ms <n>]
   cmux-tui terminal <selector> viewport scroll --delta-rows <n>
   cmux-tui terminal <selector> move|attach|close [OPTIONS]
 ";
@@ -379,7 +380,6 @@ USAGE
   cmux-tui browser list
   cmux-tui browser <selector> show|navigate|back|forward|reload|activate
   cmux-tui browser <selector> key|text|mouse|wheel [OPTIONS]
-  cmux-tui browser <selector> viewer resize|release [OPTIONS]
   cmux-tui browser <selector> attach|close [OPTIONS]
 ";
 
@@ -427,12 +427,6 @@ USAGE
   cmux-tui provider scope <selector> workspace <selector> mark|rename|close [OPTIONS]
   cmux-tui --socket <path> provider authority install
     --generation <decimal> --authority-file <root-private-path>
-";
-
-const STREAM_HELP: &str = "\
-USAGE
-  cmux-tui stream <stream_id> cancel
-  cmux-tui stream cancel <stream_id>
 ";
 
 const RAW_HELP: &str = "\
@@ -487,6 +481,9 @@ mod tests {
             assert!(help.contains("USAGE"));
             assert!(help.contains(scope));
         }
+        assert!(SESSION_HELP.contains("creation <correlation-key> resolve"));
+        assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
+        assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
     }
 
     #[test]

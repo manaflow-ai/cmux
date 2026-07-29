@@ -101,7 +101,7 @@ indexes are fatal.
 | 9 | `Title` | host to client | `READ` | UTF-8 title bytes |
 | 10 | `Pwd` | host to client | `READ` | UTF-8 cwd; empty means cleared |
 | 11 | `Bell` | host to client | `READ` | empty |
-| 12 | `Exit` | host to client | `READ` | empty; v1 has no exit status |
+| 12 | `Exit` | host to client | `READ` | versioned process outcome |
 | 13 | `ResyncRequired` | host to client | `READ` | empty |
 | 14 | `Launch` | parent to host | private pipe | launch layout |
 | 15 | `Capability` | host to client | response | 32-byte token |
@@ -139,6 +139,14 @@ defaults:DefaultColors
 ```
 
 `argc` is from 1 through 256. `envc` is at most 1,024.
+
+`Exit` starts with little-endian
+`version:u16=1, outcome_kind:u8, flags:u8, exited_at_ms:u64`. Exit-code
+outcomes use kind 1, zero flags, and `code:i32`. Signal outcomes use kind 2,
+flag bit 0 for `core_dumped`, and `signal:i32`; other flag bits are zero.
+Unknown outcomes use kind 3, zero flags, and a non-empty UTF-8 reason of at
+most 4,096 bytes. Kinds 1 and 2 are 16-byte payloads. Unknown payloads are
+12 through 4,108 bytes.
 
 `Snapshot`:
 
@@ -217,7 +225,39 @@ after two seconds.
 
 A renderer applies every live sequence exactly once. A gap, duplicate, flagged frame without the required next `Colors`, or invalid flag is fatal. The renderer disconnects and obtains a new `Snapshot`; continuing from a damaged sequence would corrupt its mirror.
 
-`ResyncRequired` is also terminal for the current mirror. `Exit` ends live process output but does not by itself tombstone the durable terminal registry entry.
+`ResyncRequired` is also terminal for the current mirror. The host publishes
+`Exit` only after the final `Output`. It uses the normal live sequence,
+`request_id:0`, and frame flags zero. `Exit` ends live process output but does
+not by itself tombstone the durable terminal registry entry. The host writes
+the exact outcome and host generation to an internal `.exit` sidecar before
+publishing `Exit`. The mux removes that sidecar only after committing the
+matching outcome to SQLite. A failed commit leaves the sidecar for restart
+reconciliation, and reconnecting waiters observe the SQLite result.
+
+The exit sidecar is `<root>/<terminal UUID>.exit`, beside the live
+`<terminal UUID>.json` record. It is strict JSON:
+
+```json
+{
+  "record_version": 1,
+  "terminal_id": "32-character canonical UUIDv4 hex",
+  "incarnation": "32-character canonical UUIDv4 hex",
+  "exit": {
+    "outcome": {"kind": "exit", "code": 0},
+    "exited_at_ms": 0
+  }
+}
+```
+
+`outcome` uses the same exit, signal, or unknown union as the `Exit` frame.
+After PTY drain, the host creates a mode-`0600`
+`<terminal UUID>.tmp-<pid>-<counter>` with `create_new`, writes and fsyncs the
+JSON, atomically renames it to `.exit`, then fsyncs the parent directory. An
+existing equal record is accepted; an unequal record is retained and fails
+the write. Removal rereads the canonical filename, owner, mode, link count,
+and full record. The mux removes and parent-fsyncs only an exact
+terminal, host-generation, and outcome match already committed to SQLite.
+Missing means already acknowledged; any mismatch remains for recovery.
 
 ## Discovery and authority
 
@@ -247,8 +287,6 @@ PID is nonzero. Record directories are mode `0700`; records and sockets are
 mode `0600`.
 
 ## Known v1 constraints
-
-The current host process does not expose the child's full `ExitStatus` through the public control protocol. Portable execution completion requires the vNext process outcome contract in [`programmability.md`](programmability.md#required-vnext-primitives).
 
 The current producer encodes `Resized` with `replay_len`, but the consumer in
 `surface.rs` treats bytes after the first four as replay and includes that

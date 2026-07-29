@@ -241,6 +241,18 @@ EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
         "workspace.run",
     }
 )
+CORRELATED_CREATION_OPERATIONS = frozenset(
+    {
+        "pane.create",
+        "pane.run",
+        "pane.split",
+        "screen.create",
+        "tab.create_browser",
+        "tab.create_terminal",
+        "workspace.create",
+        "workspace.run",
+    }
+)
 FORBIDDEN_PUBLIC_IDENTITY_FIELDS = frozenset(
     {
         "key",
@@ -1632,6 +1644,93 @@ def _operation_catalog(
                 operation,
             )
 
+    expected_correlation_key = {
+        "required": False,
+        "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128,
+        },
+        "description": (
+            "Stable caller correlation across creation attempts. "
+            "Defaults to the request idempotency key."
+        ),
+    }
+    correlated_operations = {
+        operation
+        for operation, descriptor in operations.items()
+        if isinstance(descriptor, dict)
+        and descriptor.get("params", {})
+        .get("fields", {})
+        .get("correlation_key", {})
+        .get("required")
+        is False
+    }
+    expected_correlated_operations = CORRELATED_CREATION_OPERATIONS & set(operations)
+    if correlated_operations != expected_correlated_operations:
+        _catalog_diagnostic(
+            diagnostics,
+            path,
+            text,
+            "correlation_key must appear on every cataloged CreatedPath operation and no others",
+        )
+    for operation in expected_correlated_operations:
+        descriptor = operations.get(operation)
+        fields = (
+            descriptor.get("params", {}).get("fields", {})
+            if isinstance(descriptor, dict)
+            else {}
+        )
+        error_codes = descriptor.get("errors", []) if isinstance(descriptor, dict) else []
+        if (
+            fields.get("correlation_key") != expected_correlation_key
+            or "creation.conflict" not in error_codes
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} must expose exact creation correlation and conflict semantics",
+                operation,
+            )
+
+    terminal_snapshot = types.get("TerminalSnapshot")
+    if isinstance(terminal_snapshot, dict):
+        fields = terminal_snapshot.get("fields", {})
+        constraints = terminal_snapshot.get("constraints", [])
+        if (
+            types.get("TerminalLifecycle")
+            != {
+                "kind": "enum",
+                "values": ["launching", "running", "exited"],
+            }
+            or fields.get("running")
+            != {
+                "required": True,
+                "type": {"kind": "primitive", "name": "boolean"},
+            }
+            or fields.get("lifecycle")
+            != {
+                "required": True,
+                "type": {"kind": "ref", "name": "TerminalLifecycle"},
+            }
+            or fields.get("exit")
+            != {
+                "required": False,
+                "type": {"kind": "ref", "name": "TerminalExit"},
+            }
+            or "running is true exactly when lifecycle is running." not in constraints
+            or "exit is present exactly when lifecycle is exited." not in constraints
+        ):
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                "TerminalSnapshot must expose strict lifecycle and durable exit invariants",
+                "TerminalSnapshot",
+            )
+
     local_classes: dict[str, str] = {}
     if list(local_operations) != sorted(local_operations):
         _catalog_diagnostic(
@@ -1798,20 +1897,29 @@ def _operation_catalog(
             "kind": "enum",
             "values": ["terminal", "empty"],
         }
+        expected_correlation_key = {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128,
+        }
         if (
             not isinstance(create_fields, dict)
-            or set(create_fields) != {"name", "initial_content"}
+            or set(create_fields) != {"name", "initial_content", "correlation_key"}
             or create_fields.get("name", {}).get("required") is not False
             or create_fields.get("name", {}).get("type")
             != {"kind": "primitive", "name": "string"}
             or create_fields.get("initial_content", {}).get("required") is not True
             or create_fields.get("initial_content", {}).get("type") != expected_initial_content
+            or create_fields.get("correlation_key", {}).get("required") is not False
+            or create_fields.get("correlation_key", {}).get("type")
+            != expected_correlation_key
         ):
             _catalog_diagnostic(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be exactly optional name plus required initial_content",
+                "workspace.create params must be optional name and correlation_key plus required initial_content",
                 "workspace.create",
             )
 

@@ -125,6 +125,8 @@ pub enum ResourceOperation {
     SessionGet,
     #[serde(rename = "session.snapshot")]
     SessionSnapshot,
+    #[serde(rename = "session.creation.resolve")]
+    SessionCreationResolve,
     #[serde(rename = "session.events")]
     SessionEvents,
     #[serde(rename = "session.ping")]
@@ -261,6 +263,8 @@ pub enum ResourceOperation {
     TerminalHistoryClear,
     #[serde(rename = "terminal.wait")]
     TerminalWait,
+    #[serde(rename = "terminal.wait_exit")]
+    TerminalWaitExit,
     #[serde(rename = "terminal.copy")]
     TerminalCopy,
     #[serde(rename = "terminal.process.get")]
@@ -413,6 +417,7 @@ impl ResourceOperation {
                 | Self::SessionList
                 | Self::SessionGet
                 | Self::SessionSnapshot
+                | Self::SessionCreationResolve
                 | Self::SessionPing
                 | Self::ClientList
                 | Self::ClientGet
@@ -434,6 +439,7 @@ impl ResourceOperation {
                 | Self::TerminalStateRead
                 | Self::TerminalHistoryRead
                 | Self::TerminalWait
+                | Self::TerminalWaitExit
                 | Self::TerminalCopy
                 | Self::TerminalProcessGet
                 | Self::BrowserList
@@ -873,6 +879,27 @@ impl ResourceError {
         )
     }
 
+    pub fn creation_conflict(
+        correlation_key: &str,
+        existing_operation: &str,
+        requested_operation: &str,
+        existing_fingerprint: &str,
+        requested_fingerprint: &str,
+    ) -> Self {
+        Self::new(
+            "creation.conflict",
+            "the creation correlation key is bound to different semantics",
+            json!({
+                "correlation_key":correlation_key,
+                "existing_operation":existing_operation,
+                "requested_operation":requested_operation,
+                "existing_fingerprint":existing_fingerprint,
+                "requested_fingerprint":requested_fingerprint,
+            }),
+            false,
+        )
+    }
+
     pub fn revision_conflict(expected: u64, actual: u64) -> Self {
         Self::new(
             "revision.conflict",
@@ -917,6 +944,7 @@ fn canonical_resource_scope(kind: &str) -> &'static str {
 pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "authority.denied",
     "confirmation.required",
+    "creation.conflict",
     "cursor.gap",
     "cursor.invalid",
     "idempotency.conflict",
@@ -1400,6 +1428,17 @@ mod tests {
             (
                 "confirmation.required",
                 json!({"revision":"4","closes_panes":[format!("pane_{}", "0".repeat(32))]}),
+                false,
+            ),
+            (
+                "creation.conflict",
+                json!({
+                    "correlation_key":"create-42",
+                    "existing_operation":"workspace.create",
+                    "requested_operation":"screen.create",
+                    "existing_fingerprint":"fingerprint-a",
+                    "requested_fingerprint":"fingerprint-b",
+                }),
                 false,
             ),
             (

@@ -1028,6 +1028,135 @@
       },
       "extra": false
     },
+    "TerminalLifecycle": {
+      "kind": "enum",
+      "values": [
+        "launching",
+        "running",
+        "exited"
+      ]
+    },
+    "TerminalExitCode": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "exit"
+            ]
+          }
+        },
+        "code": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "TerminalExitSignal": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "signal"
+            ]
+          }
+        },
+        "signal": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int32",
+            "minimum": 1
+          }
+        },
+        "core_dumped": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "TerminalExitUnknown": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "unknown"
+            ]
+          }
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "TerminalExitOutcome": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "TerminalExitCode"
+        },
+        {
+          "kind": "ref",
+          "name": "TerminalExitSignal"
+        },
+        {
+          "kind": "ref",
+          "name": "TerminalExitUnknown"
+        }
+      ],
+      "discriminator": "kind"
+    },
+    "TerminalExit": {
+      "kind": "object",
+      "fields": {
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExitOutcome"
+          }
+        },
+        "exited_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Unix epoch milliseconds encoded as an unsigned decimal string."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
     "TerminalSnapshot": {
       "kind": "object",
       "fields": {
@@ -1082,6 +1211,20 @@
             "name": "boolean"
           }
         },
+        "lifecycle": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TerminalLifecycle"
+          }
+        },
+        "exit": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExit"
+          }
+        },
         "extra": {
           "required": false,
           "type": {
@@ -1094,7 +1237,11 @@
           "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
         }
       },
-      "extra": false
+      "extra": false,
+      "constraints": [
+        "running is true exactly when lifecycle is running.",
+        "exit is present exactly when lifecycle is exited."
+      ]
     },
     "BrowserSource": {
       "kind": "enum",
@@ -2126,6 +2273,92 @@
       ],
       "discriminator": "kind"
     },
+    "CreationResolution": {
+      "kind": "object",
+      "fields": {
+        "correlation_key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "pending",
+              "created",
+              "not_applied",
+              "indeterminate"
+            ]
+          }
+        },
+        "recovery": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "retry_same_idempotency_key",
+              "retry_new_idempotency_key",
+              "wait",
+              "none",
+              "do_not_retry"
+            ]
+          }
+        },
+        "operation": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "idempotency_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "created_path": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "CreatedPath"
+          }
+        },
+        "generation": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "revision": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "created requires recovery none plus created_path, generation, and revision.",
+        "pending requires recovery wait.",
+        "not_applied requires retry_same_idempotency_key or retry_new_idempotency_key.",
+        "indeterminate requires recovery do_not_retry."
+      ]
+    },
     "LayoutLeaf": {
       "kind": "object",
       "fields": {
@@ -2873,6 +3106,112 @@
         }
       },
       "extra": false
+    },
+    "TerminalWaitExitPending": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "pending"
+            ]
+          }
+        },
+        "terminal_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "terminal"
+          }
+        },
+        "lifecycle": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "launching",
+              "running"
+            ]
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "TerminalWaitExitExited": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "exited"
+            ]
+          }
+        },
+        "terminal_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "terminal"
+          }
+        },
+        "lifecycle": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "exited"
+            ]
+          }
+        },
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExitOutcome"
+          }
+        },
+        "exited_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Unix epoch milliseconds encoded as an unsigned decimal string."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "TerminalWaitExitResult": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "TerminalWaitExitPending"
+        },
+        {
+          "kind": "ref",
+          "name": "TerminalWaitExitExited"
+        }
+      ],
+      "discriminator": "state"
     },
     "TerminalCopyResult": {
       "kind": "object",
@@ -4002,6 +4341,56 @@
       "details": {
         "kind": "ref",
         "name": "ConfirmationRequiredDetails"
+      }
+    },
+    "creation.conflict": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "correlation_key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "existing_operation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "requested_operation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "existing_fingerprint": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "requested_fingerprint": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "extra": false
       }
     },
     "cursor.gap": {
@@ -6507,9 +6896,19 @@
           "session": "required",
           "workspace": "optional",
           "screen": "optional"
+      },
+      "fields": {
+        "correlation_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "fields": {
-          "cwd": {
+        "cwd": {
             "required": false,
             "type": {
               "kind": "primitive",
@@ -6557,6 +6956,7 @@
         ]
       },
       "errors": [
+        "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -6878,9 +7278,19 @@
           "workspace": "optional",
           "screen": "optional",
           "pane": "required"
+      },
+      "fields": {
+        "correlation_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "fields": {
-          "argv": {
+        "argv": {
             "required": false,
             "type": {
               "kind": "array",
@@ -6978,6 +7388,7 @@
         ]
       },
       "errors": [
+        "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -7009,9 +7420,19 @@
           "workspace": "optional",
           "screen": "optional",
           "pane": "required"
+      },
+      "fields": {
+        "correlation_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "fields": {
-          "direction": {
+        "direction": {
             "required": true,
             "type": {
               "kind": "enum",
@@ -7079,6 +7500,7 @@
         ]
       },
       "errors": [
+        "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -7759,9 +8181,19 @@
           "machine": "required",
           "session": "required",
           "workspace": "optional"
+      },
+      "fields": {
+        "correlation_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "fields": {
-          "name": {
+        "name": {
             "required": false,
             "type": {
               "kind": "primitive",
@@ -7791,6 +8223,7 @@
         ]
       },
       "errors": [
+        "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -8069,6 +8502,43 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "session.creation.resolve": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "correlation_key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "CreationResolution"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
         "validation.invalid"
       ]
     },
@@ -9042,9 +9512,19 @@
           "workspace": "optional",
           "screen": "optional",
           "pane": "optional"
+      },
+      "fields": {
+        "correlation_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "fields": {
-          "url": {
+        "url": {
             "required": true,
             "type": {
               "kind": "primitive",
@@ -9101,6 +9581,7 @@
         ]
       },
       "errors": [
+        "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -9130,9 +9611,19 @@
           "workspace": "optional",
           "screen": "optional",
           "pane": "optional"
+      },
+      "fields": {
+        "correlation_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "fields": {
-          "cwd": {
+        "cwd": {
             "required": false,
             "type": {
               "kind": "primitive",
@@ -9188,6 +9679,7 @@
         ]
       },
       "errors": [
+        "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -10663,6 +11155,56 @@
         "validation.invalid"
       ]
     },
+    "terminal.wait_exit": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "terminal",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "required"
+        },
+        "fields": {
+          "timeout_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "TerminalWaitExitResult"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A timeout returns the pending result variant and is not an error.",
+        "The exited result is reconnect-safe and uses the terminal registry's durable exit record."
+      ]
+    },
     "workspace.close": {
       "class": "mutation",
       "idempotency": "required",
@@ -10732,16 +11274,26 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
-          "initial_content": {
-            "required": true,
-            "type": {
-              "kind": "enum",
-              "values": [
-                "terminal",
-                "empty"
-              ]
-            }
+        "initial_content": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "terminal",
+              "empty"
+            ]
           }
+        },
+        "correlation_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
+        }
         },
         "extra": false,
         "constraints": [
@@ -10757,9 +11309,10 @@
             "name": "CreatedPath"
           }
         ]
-      },
-      "errors": [
-        "idempotency.conflict",
+    },
+    "errors": [
+      "creation.conflict",
+      "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
         "revision.conflict",
@@ -11049,9 +11602,19 @@
           "machine": "required",
           "session": "required",
           "workspace": "required"
+      },
+      "fields": {
+        "correlation_key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
         },
-        "fields": {
-          "argv": {
+        "argv": {
             "required": false,
             "type": {
               "kind": "array",
@@ -11149,6 +11712,7 @@
         ]
       },
       "errors": [
+        "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",

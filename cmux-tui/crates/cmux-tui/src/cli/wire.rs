@@ -62,11 +62,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return 3;
         }
     };
-    let _ = stream.set_read_timeout(Some(if plan.stream {
-        Duration::from_millis(250)
-    } else {
-        Duration::from_secs(10)
-    }));
+    let _ = stream.set_read_timeout(response_read_timeout(&plan));
     let mut reader = BufReader::new(stream);
     if let Err(error) = reader.get_mut().write_all(&encoded).and_then(|_| {
         reader.get_mut().write_all(b"\n")?;
@@ -76,6 +72,28 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         return 3;
     }
     run_response(&mut reader, &global, &plan, &request_id)
+}
+
+fn response_read_timeout(plan: &RequestPlan) -> Option<Duration> {
+    if plan.stream {
+        return Some(Duration::from_millis(250));
+    }
+    if matches!(
+        &plan.operation,
+        super::command::WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::TerminalWait
+                | cmux_tui_core::resource::ResourceOperation::TerminalWaitExit
+        )
+    ) {
+        return plan
+            .params
+            .get("timeout_ms")
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse::<u64>().ok())
+            .map(Duration::from_millis)
+            .and_then(|timeout| timeout.checked_add(Duration::from_secs(2)));
+    }
+    Some(Duration::from_secs(10))
 }
 
 fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
@@ -410,5 +428,21 @@ mod tests {
             stream: false,
         };
         assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
+    }
+
+    #[test]
+    fn terminal_wait_transport_timeout_follows_the_operation_timeout() {
+        for operation in [ResourceOperation::TerminalWait, ResourceOperation::TerminalWaitExit] {
+            let bounded = RequestPlan {
+                operation: super::super::command::WireOperation::Typed(operation),
+                params: json!({"timeout_ms":"5000"}),
+                idempotency_key: None,
+                stream: false,
+            };
+            assert_eq!(response_read_timeout(&bounded), Some(Duration::from_secs(7)));
+
+            let unbounded = RequestPlan { params: json!({}), ..bounded };
+            assert_eq!(response_read_timeout(&unbounded), None);
+        }
     }
 }

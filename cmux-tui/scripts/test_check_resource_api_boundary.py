@@ -630,7 +630,7 @@ class ContractRegistryTests(unittest.TestCase):
         catalog = json.loads(
             (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(len(catalog["operations"]), 122)
+        self.assertEqual(len(catalog["operations"]), 124)
         self.assertEqual(len(catalog["local_operations"]), 6)
         acknowledge = catalog["operations"]["provider_notice.acknowledge"]
         self.assertEqual(acknowledge["class"], "connection_control")
@@ -643,6 +643,43 @@ class ContractRegistryTests(unittest.TestCase):
                 }
             },
         )
+
+    def test_live_creation_correlation_is_exactly_the_eight_created_path_operations(
+        self,
+    ) -> None:
+        catalog = json.loads(
+            (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+        )
+        actual = {
+            operation
+            for operation, descriptor in catalog["operations"].items()
+            if descriptor["params"]["fields"]
+            .get("correlation_key", {})
+            .get("required")
+            is False
+        }
+        self.assertEqual(actual, CHECKER.CORRELATED_CREATION_OPERATIONS)
+        self.assertTrue(
+            all("creation.conflict" in catalog["operations"][operation]["errors"] for operation in actual)
+        )
+
+    def test_live_terminal_snapshot_has_strict_public_lifecycle(self) -> None:
+        catalog = json.loads(
+            (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            catalog["types"]["TerminalLifecycle"],
+            {"kind": "enum", "values": ["launching", "running", "exited"]},
+        )
+        snapshot = catalog["types"]["TerminalSnapshot"]
+        self.assertEqual(
+            snapshot["fields"]["lifecycle"],
+            {
+                "required": True,
+                "type": {"kind": "ref", "name": "TerminalLifecycle"},
+            },
+        )
+        self.assertIn("exit is present exactly when lifecycle is exited.", snapshot["constraints"])
 
     def test_live_layout_undo_confirmation_is_precommit_and_retry_safe(self) -> None:
         catalog = json.loads(

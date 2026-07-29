@@ -3277,6 +3277,9 @@ fn handle_resource_connection_message(
                 Err(error) => send_resource_response(writer, id, Err(error)),
             }
         }
+        ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit => {
+            start_resource_wait(mux.clone(), writer.clone(), request, id)
+        }
         ResourceOperation::StreamCancel => {
             let result = cancel_resource_stream(mux, client, writer, &request);
             send_resource_response(writer, id, result)
@@ -3295,6 +3298,37 @@ fn handle_resource_connection_message(
                 }
             }
         }
+    }
+}
+
+fn start_resource_wait(
+    mux: Arc<Mux>,
+    writer: MessageWriter,
+    request: crate::resource_router::ParsedResourceRequest,
+    id: crate::resource::RequestId,
+) -> bool {
+    let operation = request.envelope.operation;
+    let name = match operation {
+        ResourceOperation::TerminalWait => "terminal.wait",
+        ResourceOperation::TerminalWaitExit => "terminal.wait_exit",
+        _ => unreachable!("only terminal waits use the detached request path"),
+    };
+    let worker_writer = writer.clone();
+    let worker_id = id.clone();
+    match std::thread::Builder::new().name("mux-resource-terminal-wait".into()).spawn(move || {
+        let response = match crate::resource_router::handle_parsed_resource_request(&mux, request) {
+            Ok(response) => response,
+            Err(error) => serde_json::to_value(ResourceResponseEnvelope::failure(worker_id, error))
+                .expect("resource wait failure envelope serializes"),
+        };
+        let _ = worker_writer.send_control(&response);
+    }) {
+        Ok(_) => true,
+        Err(error) => send_resource_response(
+            &writer,
+            id,
+            Err(ResourceError::operation_failed(name, error.to_string(), json!({}))),
+        ),
     }
 }
 
@@ -8125,6 +8159,107 @@ mod tests {
         assert_eq!(response["result"]["alive"], true);
         assert_eq!(response["result"]["cursor"]["revision"], "0");
         assert!(response["result"]["cursor"]["generation"].as_str().is_some());
+    }
+
+    #[test]
+    fn terminal_waits_do_not_block_ping_or_stream_cancel_on_the_same_connection() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-waits",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-waits"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        assert_eq!(created["ok"], true, "{created}");
+        let terminal_id =
+            created["result"]["value"]["terminal_id"].as_str().expect("created terminal ID");
+        let stream_id = "stream_00000000000000000000000000000042";
+        let open = resource_request(
+            "events-open-for-wait",
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["id"], "events-open-for-wait");
+        assert_eq!(pop_json(&outbound)["type"], "stream_item");
+
+        for (id, operation, extra) in [
+            ("screen-wait", "terminal.wait", json!({"pattern":"cmux-pattern-that-never-matches"})),
+            ("process-wait", "terminal.wait_exit", json!({})),
+        ] {
+            let mut params = json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"250",
+            });
+            params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let wait = resource_request(id, operation, params, None);
+            assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        }
+
+        let ping = resource_request(
+            "ping-during-waits",
+            "session.ping",
+            json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &ping, &writer, &scheduler));
+        let cancel = resource_request(
+            "cancel-during-waits",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":stream_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+
+        let first = pop_json(&outbound);
+        assert_eq!(
+            first["id"], "ping-during-waits",
+            "a wait completed before the same-connection ping: {first}"
+        );
+        let messages = (0..4).map(|_| pop_json(&outbound)).collect::<Vec<_>>();
+        assert!(messages.iter().any(|message| {
+            message["type"] == "stream_end" && message["stream_id"] == stream_id
+        }));
+        let responses =
+            messages.iter().filter(|message| message["type"] == "response").collect::<Vec<_>>();
+        assert!(
+            responses.iter().all(|response| response["ok"] == true),
+            "wait/cancel responses failed: {responses:?}"
+        );
+        assert!(responses.iter().any(|response| response["id"] == "cancel-during-waits"));
+        let wait_ids = responses
+            .iter()
+            .filter_map(|response| response["id"].as_str())
+            .filter(|id| *id != "cancel-during-waits")
+            .map(str::to_string)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            wait_ids,
+            ["process-wait".to_string(), "screen-wait".to_string()].into_iter().collect()
+        );
+
+        disconnect_client(&mux, client, false);
     }
 
     #[test]

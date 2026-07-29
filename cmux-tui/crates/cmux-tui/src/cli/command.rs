@@ -159,7 +159,6 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "stream" => parse_stream(&tokens.words[1..], &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
         value => return Err(UsageError::new(format!("unknown resource scope {value:?}"))),
     };
@@ -333,6 +332,16 @@ fn parse_session(
         [selector, "snapshot"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionSnapshot, selectors, flags, Map::new())
+        }
+        [selector, "creation", correlation_key, "resolve"] => {
+            selectors.insert("session", "session", selector)?;
+            validate_correlation_key(correlation_key)?;
+            request(
+                ResourceOperation::SessionCreationResolve,
+                selectors,
+                flags,
+                map_with("correlation_key", Value::String((*correlation_key).into())),
+            )
         }
         [selector, "open"] => {
             selectors.insert("session", "session", selector)?;
@@ -931,7 +940,7 @@ fn parse_terminal(
             selectors.insert("terminal", "term", selector)?;
             request(ResourceOperation::TerminalHistoryClear, selectors, flags, Map::new())
         }
-        [selector, "wait"] => {
+        [selector, "screen", "wait"] => {
             selectors.insert("terminal", "term", selector)?;
             let mut params = Map::new();
             let pattern = flags.required("pattern")?;
@@ -957,15 +966,13 @@ fn parse_terminal(
             selectors.insert("terminal", "term", selector)?;
             request(ResourceOperation::TerminalProcessGet, selectors, flags, Map::new())
         }
-        [selector, "viewer", "resize"] => {
+        [selector, "process", "wait"] => {
             selectors.insert("terminal", "term", selector)?;
             let mut params = Map::new();
-            add_required_size(&mut params, flags)?;
-            request(ResourceOperation::TerminalViewerResize, selectors, flags, params)
-        }
-        [selector, "viewer", "release"] => {
-            selectors.insert("terminal", "term", selector)?;
-            request(ResourceOperation::TerminalViewerRelease, selectors, flags, Map::new())
+            if let Some(timeout) = flags.take("timeout-ms") {
+                insert_u64(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
+            }
+            request(ResourceOperation::TerminalWaitExit, selectors, flags, params)
         }
         [selector, "viewport", "scroll"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -1104,16 +1111,6 @@ fn parse_browser(
             insert_float(&mut params, "x_px", "--x-px", flags.required("x-px")?)?;
             insert_float(&mut params, "y_px", "--y-px", flags.required("y-px")?)?;
             request(ResourceOperation::BrowserInputWheel, selectors, flags, params)
-        }
-        [selector, "viewer", "resize"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let mut params = Map::new();
-            add_required_pixel_size(&mut params, flags)?;
-            request(ResourceOperation::BrowserViewerResize, selectors, flags, params)
-        }
-        [selector, "viewer", "release"] => {
-            selectors.insert("browser", "browser", selector)?;
-            request(ResourceOperation::BrowserViewerRelease, selectors, flags, Map::new())
         }
         [selector, "attach"] => {
             selectors.insert("browser", "browser", selector)?;
@@ -1450,16 +1447,6 @@ fn parse_provider(
     }
 }
 
-fn parse_stream(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
-    let id = match strs(words).as_slice() {
-        [id, "cancel"] | ["cancel", id] => *id,
-        _ => return usage("stream action"),
-    };
-    let mut selectors = Selectors::default();
-    selectors.insert("stream", "stream", id)?;
-    request(ResourceOperation::StreamCancel, &selectors, flags, Map::new())
-}
-
 fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
     if refs.as_slice() == ["command"] {
@@ -1524,6 +1511,12 @@ fn request(
         params.insert(key, value);
     }
     add_routing_defaults(operation, &mut params);
+    if correlated_creation(operation)
+        && let Some(correlation_key) = flags.take("correlation-key")
+    {
+        validate_correlation_key(&correlation_key)?;
+        params.insert("correlation_key".into(), Value::String(correlation_key));
+    }
     if supports_expected_revision(operation)
         && let Some(revision) = flags.take("expected-revision")
     {
@@ -1531,6 +1524,30 @@ fn request(
         params.insert("expected_revision".into(), Value::String(revision));
     }
     finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)
+}
+
+const fn correlated_creation(operation: ResourceOperation) -> bool {
+    matches!(
+        operation,
+        ResourceOperation::WorkspaceCreate
+            | ResourceOperation::WorkspaceRun
+            | ResourceOperation::ScreenCreate
+            | ResourceOperation::PaneCreate
+            | ResourceOperation::PaneSplit
+            | ResourceOperation::PaneRun
+            | ResourceOperation::TabCreateTerminal
+            | ResourceOperation::TabCreateBrowser
+    )
+}
+
+fn validate_correlation_key(value: &str) -> Result<(), UsageError> {
+    if value.is_empty() {
+        Err(UsageError::new("correlation key cannot be empty"))
+    } else if value.len() > 128 {
+        Err(UsageError::new("correlation key cannot exceed 128 UTF-8 bytes"))
+    } else {
+        Ok(())
+    }
 }
 
 fn finalize_request(
@@ -1947,14 +1964,6 @@ fn add_pixel_size(params: &mut Map<String, Value>, flags: &mut Flags) -> Result<
         }
         _ => Err(UsageError::new("--width-px and --height-px must be supplied together")),
     }
-}
-
-fn add_required_pixel_size(
-    params: &mut Map<String, Value>,
-    flags: &mut Flags,
-) -> Result<(), UsageError> {
-    insert_positive_u32(params, "width_px", "--width-px", flags.required("width-px")?)?;
-    insert_positive_u32(params, "height_px", "--height-px", flags.required("height-px")?)
 }
 
 fn add_stream_id(params: &mut Map<String, Value>, flags: &mut Flags) -> Result<(), UsageError> {
@@ -2425,6 +2434,49 @@ mod tests {
     }
 
     #[test]
+    fn creation_correlation_is_bounded_and_scoped() {
+        let correlated =
+            protocol(&["workspace", "create", "--correlation-key", "creation-attempt-1"]);
+        assert_eq!(correlated.params["correlation_key"], "creation-attempt-1");
+
+        assert!(parse(&strings(&["workspace", "create", "--correlation-key="])).is_err());
+        assert!(
+            parse(&strings(&["workspace", "create", "--correlation-key", &"x".repeat(129),]))
+                .is_err()
+        );
+        assert!(
+            parse(&strings(&["workspace", "list", "--correlation-key", "creation-attempt-1",]))
+                .is_err()
+        );
+        assert!(
+            parse(&strings(&["session", "current", "creation", &"x".repeat(129), "resolve",]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn terminal_screen_and_process_wait_are_distinct_paths() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        const BROWSER: &str = "browser_00000000000000000000000000000009";
+        let screen = protocol(&["terminal", TERMINAL, "screen", "wait", "--pattern", "ready"]);
+        assert_eq!(operation(&screen), "terminal.wait");
+
+        let process = protocol(&["terminal", TERMINAL, "process", "wait"]);
+        assert_eq!(operation(&process), "terminal.wait_exit");
+
+        assert!(parse(&strings(&["terminal", TERMINAL, "wait", "--pattern", "ready"])).is_err());
+        for unreachable in [
+            vec!["terminal", TERMINAL, "viewer", "resize", "--cols", "80", "--rows", "24"],
+            vec!["terminal", TERMINAL, "viewer", "release"],
+            vec!["browser", BROWSER, "viewer", "resize", "--width-px", "800", "--height-px", "600"],
+            vec!["browser", BROWSER, "viewer", "release"],
+            vec!["stream", "stream_0000000000000000000000000000000a", "cancel"],
+        ] {
+            assert!(parse(&strings(&unreachable)).is_err(), "{unreachable:?}");
+        }
+    }
+
+    #[test]
     fn run_never_infers_a_shell() {
         let direct = protocol(&["pane", "current", "run", "--", "printf", "%s", "a b"]);
         assert_eq!(direct.params["argv"], json!(["printf", "%s", "a b"]));
@@ -2673,7 +2725,6 @@ mod tests {
         const TAB: &str = "tab_00000000000000000000000000000007";
         const TERMINAL: &str = "term_00000000000000000000000000000008";
         const BROWSER: &str = "browser_00000000000000000000000000000009";
-        const STREAM: &str = "stream_0000000000000000000000000000000a";
         const PAIRING: &str = "pairing_0000000000000000000000000000000b";
         const PROJECTION: &str = "projection_0000000000000000000000000000000c";
         const VIEW: &str = "sidebar_view_0000000000000000000000000000000d";
@@ -2699,6 +2750,10 @@ mod tests {
             (vec!["machine", MACHINE, "session", SESSION, "open"], "session.open"),
             (vec!["session", SESSION, "show"], "session.get"),
             (vec!["session", SESSION, "snapshot"], "session.snapshot"),
+            (
+                vec!["session", SESSION, "creation", "create-42", "resolve"],
+                "session.creation.resolve",
+            ),
             (
                 vec!["session", SESSION, "events", "--generation", "g1", "--revision", "3"],
                 "session.events",
@@ -2787,7 +2842,18 @@ mod tests {
             ),
             (vec!["workspace", "list"], "workspace.list"),
             (vec!["workspace", WORKSPACE, "show"], "workspace.get"),
-            (vec!["workspace", "create", "--empty", "--name", "empty"], "workspace.create"),
+            (
+                vec![
+                    "workspace",
+                    "create",
+                    "--empty",
+                    "--name",
+                    "empty",
+                    "--correlation-key",
+                    "create-42",
+                ],
+                "workspace.create",
+            ),
             (vec!["workspace", WORKSPACE, "rename", "--name", "api"], "workspace.rename"),
             (vec!["workspace", WORKSPACE, "move", "--index", "2"], "workspace.move"),
             (vec!["workspace", WORKSPACE, "focus"], "workspace.focus"),
@@ -2805,6 +2871,8 @@ mod tests {
                     "100",
                     "--rows",
                     "40",
+                    "--correlation-key",
+                    "create-42",
                     "--",
                     "cargo",
                     "test",
@@ -2817,7 +2885,10 @@ mod tests {
             ),
             (vec!["screen", "list"], "screen.list"),
             (vec!["screen", SCREEN, "show"], "screen.get"),
-            (vec!["screen", "create", "--name", "build"], "screen.create"),
+            (
+                vec!["screen", "create", "--name", "build", "--correlation-key", "create-42"],
+                "screen.create",
+            ),
             (vec!["screen", SCREEN, "rename", "--name", "tests"], "screen.rename"),
             (vec!["screen", SCREEN, "focus"], "screen.focus"),
             (vec!["screen", SCREEN, "close"], "screen.close"),
@@ -2826,13 +2897,36 @@ mod tests {
             (vec!["pane", "list"], "pane.list"),
             (vec!["pane", PANE, "show"], "pane.get"),
             (
-                vec!["pane", "create", "--cwd", "/tmp", "--cols", "80", "--rows", "24"],
+                vec![
+                    "pane",
+                    "create",
+                    "--cwd",
+                    "/tmp",
+                    "--cols",
+                    "80",
+                    "--rows",
+                    "24",
+                    "--correlation-key",
+                    "create-42",
+                ],
                 "pane.create",
             ),
             (
                 vec![
-                    "pane", PANE, "split", "--right", "--ratio", "0.5", "--cwd", "/tmp", "--cols",
-                    "80", "--rows", "24",
+                    "pane",
+                    PANE,
+                    "split",
+                    "--right",
+                    "--ratio",
+                    "0.5",
+                    "--cwd",
+                    "/tmp",
+                    "--cols",
+                    "80",
+                    "--rows",
+                    "24",
+                    "--correlation-key",
+                    "create-42",
                 ],
                 "pane.split",
             ),
@@ -2876,8 +2970,22 @@ mod tests {
             (vec!["pane", PANE, "close"], "pane.close"),
             (
                 vec![
-                    "pane", PANE, "run", "--cwd", "/tmp", "--name", "make", "--cols", "90",
-                    "--rows", "30", "--", "make", "test",
+                    "pane",
+                    PANE,
+                    "run",
+                    "--cwd",
+                    "/tmp",
+                    "--name",
+                    "make",
+                    "--cols",
+                    "90",
+                    "--rows",
+                    "30",
+                    "--correlation-key",
+                    "create-42",
+                    "--",
+                    "make",
+                    "test",
                 ],
                 "pane.run",
             ),
@@ -2885,8 +2993,19 @@ mod tests {
             (vec!["tab", TAB, "show"], "tab.get"),
             (
                 vec![
-                    "tab", "create", "terminal", "--cwd", "/tmp", "--name", "shell", "--cols",
-                    "80", "--rows", "24",
+                    "tab",
+                    "create",
+                    "terminal",
+                    "--cwd",
+                    "/tmp",
+                    "--name",
+                    "shell",
+                    "--cols",
+                    "80",
+                    "--rows",
+                    "24",
+                    "--correlation-key",
+                    "create-42",
                 ],
                 "tab.create_terminal",
             ),
@@ -2903,6 +3022,8 @@ mod tests {
                     "1200",
                     "--height-px",
                     "800",
+                    "--correlation-key",
+                    "create-42",
                 ],
                 "tab.create_browser",
             ),
@@ -2958,16 +3079,24 @@ mod tests {
             ),
             (vec!["terminal", TERMINAL, "history", "clear"], "terminal.history.clear"),
             (
-                vec!["terminal", TERMINAL, "wait", "--pattern", "ready", "--timeout-ms", "5000"],
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "screen",
+                    "wait",
+                    "--pattern",
+                    "ready",
+                    "--timeout-ms",
+                    "5000",
+                ],
                 "terminal.wait",
             ),
             (vec!["terminal", TERMINAL, "copy", "--mode", "screen"], "terminal.copy"),
             (vec!["terminal", TERMINAL, "process", "show"], "terminal.process.get"),
             (
-                vec!["terminal", TERMINAL, "viewer", "resize", "--cols", "100", "--rows", "40"],
-                "terminal.viewer.resize",
+                vec!["terminal", TERMINAL, "process", "wait", "--timeout-ms", "5000"],
+                "terminal.wait_exit",
             ),
-            (vec!["terminal", TERMINAL, "viewer", "release"], "terminal.viewer.release"),
             (
                 vec!["terminal", TERMINAL, "viewport", "scroll", "--delta-rows", "-3"],
                 "terminal.viewport.scroll",
@@ -3061,20 +3190,6 @@ mod tests {
                 ],
                 "browser.input.wheel",
             ),
-            (
-                vec![
-                    "browser",
-                    BROWSER,
-                    "viewer",
-                    "resize",
-                    "--width-px",
-                    "1200",
-                    "--height-px",
-                    "800",
-                ],
-                "browser.viewer.resize",
-            ),
-            (vec!["browser", BROWSER, "viewer", "release"], "browser.viewer.release"),
             (
                 vec!["browser", BROWSER, "attach", "--width-px", "1200", "--height-px", "800"],
                 "browser.attach",
@@ -3195,12 +3310,11 @@ mod tests {
                 vec!["provider", "scope", "current", "workspace", WORKSPACE, "close"],
                 "provider_workspace.close",
             ),
-            (vec!["stream", STREAM, "cancel"], "stream.cancel"),
         ];
 
-        assert_eq!(cases.len(), 121);
+        assert_eq!(cases.len(), 118);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 122);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 124);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
@@ -3254,7 +3368,17 @@ mod tests {
             .as_object()
             .unwrap()
             .keys()
-            .filter(|name| name.as_str() != "terminal.renderer_grant.create")
+            .filter(|name| {
+                !matches!(
+                    name.as_str(),
+                    "browser.viewer.release"
+                        | "browser.viewer.resize"
+                        | "stream.cancel"
+                        | "terminal.renderer_grant.create"
+                        | "terminal.viewer.release"
+                        | "terminal.viewer.resize"
+                )
+            })
             .map(String::as_str)
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(seen, expected, "safe CLI operation coverage drifted from the catalog");

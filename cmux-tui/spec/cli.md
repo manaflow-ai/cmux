@@ -32,7 +32,7 @@ The public resource roots are:
 ```text
 machine  session  client  workspace  screen  pane  tab
 terminal browser  notification  agent  sidebar
-pairing  projection provider stream raw
+pairing  projection provider raw
 ```
 
 Structural resources may be addressed directly by opaque ID or through their
@@ -48,10 +48,10 @@ ancestors. A name or `current` target requires its complete parent chain. Every
 supplied ancestor is checked for containment before the operation runs.
 
 Run `cmux-tui <resource> --help` for its exact paths and flags. Parser tests
-map every safe transported operation and every parameter in
+map every operational one-shot command and parameter in
 [`resource-operations-v1.json`](resource-operations-v1.json) to a public path.
-`terminal.renderer_grant.create` is deliberately SDK and raw-only because it
-returns a sensitive capability.
+Sensitive renderer grants and connection-owned stream/viewer controls remain
+SDK and raw-only.
 
 ## Selectors
 
@@ -107,6 +107,11 @@ result. Reusing it for another request returns `idempotency.conflict`.
 `mutation.indeterminate` means the server crashed during an external effect and
 will not repeat that key automatically.
 
+Commands that create a workspace, screen, pane, terminal tab, or browser tab
+accept `--correlation-key`. The key defaults to the idempotency key.
+Resolve an interrupted creation with
+`session <selector> creation <correlation-key> resolve` before retrying.
+
 `workspace run` and `pane run` preserve exact argument arrays after `--`:
 
 ```bash
@@ -132,6 +137,7 @@ machine <selector> session <selector> open
 
 session list
 session <selector> open|show|snapshot|events|ping|shutdown
+session <selector> creation <correlation-key> resolve
 session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
@@ -165,19 +171,17 @@ tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
 terminal list
-terminal <selector> show|write|keys|mouse|wait|copy|move|attach|close
+terminal <selector> show|write|keys|mouse|copy|move|attach|close
 terminal <selector> focus <in|out>
-terminal <selector> screen read
+terminal <selector> screen read|wait
 terminal <selector> state read
 terminal <selector> history read|clear
-terminal <selector> process show
-terminal <selector> viewer resize|release
+terminal <selector> process show|wait
 terminal <selector> viewport scroll
 
 browser list
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|mouse|wheel|attach|close
-browser <selector> viewer resize|release
 
 notification list|create
 agent list|report
@@ -195,7 +199,6 @@ provider scope <selector> notice <selector> acknowledge
 provider scope <selector> workspace <selector> mark|rename|close
 provider authority install
 
-stream <selector> cancel
 ```
 
 Workspace creation starts with one terminal unless `--empty` is present.
@@ -206,6 +209,10 @@ IDs; a confirmed retry uses that revision and a new idempotency key.
 Terminal and sidebar attachments stream styled render snapshots and patches.
 Browser attachments stream browser state and frames. Public attachments never
 expose raw PTY bytes.
+Stream cancellation and terminal/browser viewer leases remain owned by the
+long-lived attachment connection. SDK attachment objects manage those
+connection controls; one-shot CLI paths do not advertise them. `raw operation`
+remains available for transport testing.
 
 ## Local sidebar plugins
 

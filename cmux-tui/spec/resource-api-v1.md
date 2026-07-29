@@ -225,7 +225,7 @@ defines the catalog format. Unknown parameter and result fields are rejected.
 
 | Class | Operations |
 | --- | --- |
-| read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `frontend_projection.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `provider_scope.list`, `screen.get`, `screen.layout.export`, `screen.list`, `session.get`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `workspace.get`, `workspace.list` |
+| read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `frontend_projection.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `provider_scope.list`, `screen.get`, `screen.layout.export`, `screen.list`, `session.creation.resolve`, `session.get`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `workspace.get`, `workspace.list` |
 | mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `machine.connect_external`, `machine.create`, `machine.delete`, `machine.purge`, `machine.rename`, `machine.restore`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `provider_action.invoke`, `provider_workspace.close`, `provider_workspace.mark`, `provider_workspace.rename`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
 | stream_open | `browser.attach`, `provider_notice.events`, `session.events`, `sidebar_view.attach`, `terminal.attach` |
 | connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `provider_notice.acknowledge`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
@@ -256,10 +256,37 @@ and `recovery: inspect_state_then_retry_with_new_key`. The caller inspects
 resource state, then uses a new key only when repeating the effect is
 appropriate.
 
+The eight operations that return a `CreatedPath` accept a 1 through 128 byte
+`correlation_key`: `workspace.create`, `workspace.run`, `screen.create`,
+`pane.create`, `pane.split`, `pane.run`, `tab.create_terminal`, and
+`tab.create_browser`. Omission defaults the correlation key to the request
+idempotency key. A durable intent binds the key to the operation plus a
+canonical semantic fingerprint before any external effect. The fingerprint
+excludes `expected_revision`, `correlation_key`, and idempotency metadata.
+Reusing the key for different semantics returns non-retryable
+`creation.conflict`.
+
+`session.creation.resolve` reports `pending`, `created`, `not_applied`, or
+`indeterminate` with one exact recovery action. A created resolution includes
+the committed path, generation, and revision. Callers retry only when the
+reported recovery is `retry_same_idempotency_key` or
+`retry_new_idempotency_key`.
+
 `CreatedPath` has explicit workspace-only, terminal-path, and browser-path
 variants. Snapshots use only opaque resource IDs, exact names, positions, and
 revision metadata. They never expose private workspace identity data, mux
 positions as identity, alternate ID forms, or internal storage nouns.
+
+`terminal.wait` remains the regex screen-content wait.
+`terminal.wait_exit` waits for process completion and returns either pending
+state or an exited outcome. Outcomes are strict exit-code, signal with
+`core_dumped`, or unknown-reason variants. The terminal snapshot retains the
+same exit record while the durable terminal is exited; `terminal.close`
+tombstones it. Its required lifecycle is `launching`, `running`, or `exited`;
+the legacy `running` convenience is true exactly for `running`, and `exit` is
+present exactly for `exited`.
+Public results expose the stable terminal ID and never expose the private
+terminal-host generation token.
 
 Client snapshots carry required nullable `name` and `client_kind`, transport,
 self status, attached terminal IDs, and one size/participation record per
