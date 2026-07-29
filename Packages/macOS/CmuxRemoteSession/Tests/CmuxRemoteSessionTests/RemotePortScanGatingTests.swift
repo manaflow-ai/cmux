@@ -291,6 +291,7 @@ struct RemotePortScanGatingTests {
             "pty.session.token",
             "pty.write.notification",
             "pty.resize.notification",
+            "pty.attach.cancel",
             "pty.session.persistent_daemon",
         ])
         #expect(coordinator.bakedDaemonPreflightRequiredCapabilities == ["proxy.stream.push"])
@@ -341,7 +342,10 @@ struct RemotePortScanGatingTests {
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }
