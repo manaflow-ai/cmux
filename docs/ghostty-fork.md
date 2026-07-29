@@ -12,10 +12,53 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `f11159ff4`, the merge (landing
-through https://github.com/manaflow-ai/ghostty/pull/147) of the
-screen-anchored render-grid export line with the then-current
-`manaflow-ai/ghostty` `main` (`50ad1963d`).
+The submodule pinned by this branch is `0b1734f1e`, the current
+`manaflow-ai/ghostty` `main` merge head. It combines the `os/open` stderr drain
+fix from `8f31fb57c` with the keyboard copy-mode selection, cursor geometry,
+bounded rich clipboard, and plain-text fallback fixes through `4a6c443c3`.
+
+### `os/open` stderr drain spin and zombie leak
+
+`openThread` drained a spawned child's stderr with
+`std.Io.Reader.takeDelimiterExclusive`, which advances only *up to* the
+delimiter. Once the seek position sits on a `\n` it returns a zero-length slice
+forever, without progressing and without erroring, so the loop spun at 100% CPU
+after the very first stderr line, emitting empty `open stderr=` records until
+macOS throttled the process-wide logging firehose
+(`__FIREHOSE_CLIENT_THROTTLED_DUE_TO_HEAVY_LOGGING__`, which makes *every*
+`os_log` call in the process expensive). `exe.wait()` was only reachable by
+exiting that loop, so the child was never reaped either.
+
+Measured live on cmux 0.64.20 after ~1 day uptime: 11 zombie children matched
+one-for-one by 11 threads burning ~12.4% CPU each, ~95% of the process total
+(500-600% observed), each with 94-97% of its stack inside
+`zig_os_log_with_type`.
+
+The fix switches to `takeDelimiter` (consumes the delimiter, reports
+end-of-stream as `null`), reaps via `defer` so `wait()` is unconditional, and
+caps reporting at 32 lines while still draining so a child blocked writing into
+a full pipe can finish and exit. The drain loop is extracted as `drainStderr`
+with tests covering termination, blank-line input, and the reporting cap.
+
+- Commits:
+  - `8f31fb57c` (os/open: stop the stderr drain from spinning and leaking zombies)
+- Files:
+  - `src/os/open.zig`
+
+The intermediate `8f31fb57c` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-8f31fb57cde291e7b8fecb46203bc398c44459f4-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Inherited from `af4dfb43f`
+
+The common base for both merged lines is `af4dfb43f`, the reviewed head of
+https://github.com/manaflow-ai/ghostty/pull/152. It adds teardown-safe action
+lease release on top of transactional menu-owned key binding consumption and
+modifier-independent paired-release tracking from
+https://github.com/manaflow-ai/ghostty/pull/151, based on the current
+`manaflow-ai/ghostty` `main`, including the synchronous embedder teardown from
+https://github.com/manaflow-ai/ghostty/pull/146 and the render-grid work from
+https://github.com/manaflow-ai/ghostty/pull/147.
 
 `4cc0933cf` adds the screen-anchored render-grid export for the iOS
 local-scrollback scroll work: `buildRenderGridJson` gains an active-area
@@ -33,9 +76,10 @@ On the `main` side: the complete renderer scheduling hardening landed
 through https://github.com/manaflow-ai/ghostty/pull/136 after the initial
 bounded-turn fix in https://github.com/manaflow-ai/ghostty/pull/135. Reliable
 external redraw delivery and surface lifetime retention landed through
-https://github.com/manaflow-ai/ghostty/pull/139. Embedder userdata ownership
-and callback lifetime hardening landed through
-https://github.com/manaflow-ai/ghostty/pull/140. Serial frame-lease rotation
+https://github.com/manaflow-ai/ghostty/pull/139. The owned-userdata experiment
+from https://github.com/manaflow-ai/ghostty/pull/140 was superseded by the
+synchronous teardown contract in
+https://github.com/manaflow-ai/ghostty/pull/146. Serial frame-lease rotation
 landed through https://github.com/manaflow-ai/ghostty/pull/145. Dead PTY reader
 and child cleanup landed through
 https://github.com/manaflow-ai/ghostty/pull/143. The cumulative external
@@ -53,13 +97,29 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-Fork `main`'s (`50ad1963d`) universal ReleaseFast GhosttyKit archive is
-published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-50ad1963d9c73ee957932ccb4d26bf6d15575ee7-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The merged
-pin `f11159ff4`'s archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f11159ff48e6e47bd1879655fef8b7157a963855-crashsubdir-cmux-crash-v1
-and pinned in the same checksums file.
+The pinned `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### PTY reader and child lifecycle teardown
+
+- Commits:
+  - `8bf503f98` (test: cover dead PTY and child cleanup)
+  - `5ef5cba63` (fix: terminate dead PTY readers and reap children)
+- File:
+  - `src/termio/Exec.zig`
+- Summary:
+  - Treats a zero-byte PTY read as authoritative EOF instead of returning to
+    `poll()`, preventing an `io-gather` thread from spinning when a dead
+    descriptor remains permanently readable without `POLLHUP`.
+  - Handles `POLLHUP`, `POLLERR`, and `POLLNVAL` as terminal conditions while
+    draining any readable tail bytes before the gather pipeline exits.
+  - Gives surface teardown a nonblocking `waitpid` fallback when Darwin no
+    longer exposes an already-exited child through `getpgid`, while accepting
+    `ECHILD` when the normal process watcher won the reaping race.
+  - Conflict note: future PTY read-pipeline changes must keep EOF independent
+    of platform-specific poll flags, and process teardown must leave exactly
+    one owner consuming every direct child's wait status.
 
 ### Bounded renderer mailbox turns and continuation recovery
 
@@ -118,34 +178,75 @@ and pinned in the same checksums file.
     action lifetime lease. A raw surface pointer is not a sufficient delivery
     identity across asynchronous dispatch.
 
-### Embedder userdata ownership and callback lifetime
+### Synchronous embedder teardown and host-owned userdata
 
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/152
 - Commits:
-  - `289097387` (fix: bind embedder userdata to surface lifetime)
-  - `76c8b03d8` (fix: retain userdata across every host callback)
-  - `365fe1d2c` (fix: lease setter-installed PTY tee callbacks)
-  - `98288feb2` (merge the owned-userdata lifetime fix)
+  - `7541eb3db` (revert the owned-userdata lease layer)
+  - `b47e5cac2` (fix: complete surface teardown before free returns)
+  - `ff36ae8ac` (fix: serialize teardown with cross-thread actions)
+  - `28c0f9bf5` (test: order cross-thread teardown assertions)
+  - `518ac28d5` (merge the synchronous teardown fix)
+  - `b8efe0f45` (test: cover action release teardown ordering)
+  - `af4dfb43f` (fix: release action lease before teardown wake)
 - Files:
   - `include/ghostty.h`
+  - `src/App.zig`
   - `src/apprt/embedded.zig`
 - Summary:
-  - Adds `ghostty_surface_new_with_owned_userdata` without changing
-    `ghostty_surface_config_s`, preserving the existing C ABI for borrowed
-    callers.
-  - Tracks embedder userdata through explicit borrowed, owned, and released
-    states. A successful owned construction transfers the host reference to
-    Ghostty; failed construction leaves ownership with the caller.
-  - Leases owned userdata across surface-targeted app actions and every host
-    callback, including PTY tee callbacks installed both during and after
-    construction.
-  - Defers the exactly-once final release until surface teardown and all
-    in-flight callbacks have quiesced, preventing host bridge destruction while
-    Ghostty can still call through its userdata.
-  - Conflict note: future embedder callback or teardown changes must acquire a
-    userdata lease before leaving Ghostty-owned synchronization, and must retain
-    the failed-creation ownership contract. Do not restore split host/Ghostty
-    release ownership or release the owned userdata directly from surface-free
-    call sites.
+  - Removes `ghostty_surface_new_with_owned_userdata`; embedded surfaces again
+    borrow callback userdata supplied through `ghostty_surface_config_s`.
+  - Makes `ghostty_surface_free` synchronously stop renderer and IO callbacks
+    before returning, including serialization with cross-thread app actions.
+  - Retains only the outer surface allocation when teardown is reentrant from
+    an app action. The live core is still destroyed synchronously.
+  - Requires the embedder to retain callback userdata until
+    `ghostty_surface_free` returns, then release it exactly once.
+  - Drops the action's allocation reference before publishing a drained action
+    count and waking teardown, so the embedder cannot free the app while the
+    action still needs its allocator.
+  - Conflict note: future teardown changes must preserve synchronous callback
+    quiescence and release action references before advertising that the final
+    action has drained. Embedders may not release borrowed userdata before
+    `ghostty_surface_free` returns.
+
+### Transactional menu-owned key bindings and paired releases
+
+- Pull requests:
+  - https://github.com/manaflow-ai/ghostty/pull/150
+  - https://github.com/manaflow-ai/ghostty/pull/151
+- Commits:
+  - `1509cc596` (test: cover menu-owned binding eligibility)
+  - `22d6c589f` (fix: preserve menu binding key lifecycle)
+  - `985dd1e96` (test: cover modifier-first binding release)
+  - `d9311bb99` (fix: pair binding release without modifiers)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/input/Binding.zig`
+  - `src/input/key.zig`
+- Summary:
+  - Adds `ghostty_surface_key_consume_if_menu_action` for a native menu miss to
+    atomically resolve and consume only the requested focused-surface action.
+  - Accepts only an exact root, single-action, consumed, performable binding
+    while no key sequence or key table is active.
+  - Records the trigger in Ghostty so a reported paired key release is consumed
+    without encoding terminal input.
+  - Pairs the release by physical key and unshifted codepoint instead of live
+    modifiers, so releasing Command before C does not leak C's key-up event.
+  - Clears prior release ownership when a later press or repeat starts a new
+    same-key transaction, then records it again only if Ghostty consumes that
+    event. Duplicate releases remain consumed without swallowing a later
+    forwarded key lifecycle.
+  - Leaves unconsumed, app-wide, all-surface, chained, sequence, key-table, and
+    custom action bindings to normal Ghostty key processing.
+  - Conflict note: menu routing must use this transaction instead of querying
+    binding identity in one call and submitting the key in another. The
+    eligibility decision and paired release state must remain atomic. Release
+    ownership must stay modifier-independent and expire before a new same-key
+    press or repeat is resolved.
 
 ### Nonblocking renderer lifecycle state
 
@@ -843,13 +944,56 @@ tend to conflict together during rebases.
   - `46bd03a7` (surface: add absolute screen row text read)
   - `edad0cfec` (surface: format screen row clipboard text)
   - `e81fb65f` (surface: bound screen clipboard text formatting)
+  - `aeed68c44` (Expose native keyboard selection geometry)
+  - `65505e8c3` (Make keyboard copy navigation atomic)
+  - `acefff5de` (Bound copy work and expose runtime cursor style)
+  - `7a5d08b7c` (Preserve rich bounded keyboard copies)
+  - `4a6c443c3` (Preserve plain bounded clipboard copies)
+- PRs:
+  - https://github.com/manaflow-ai/ghostty/pull/154
+  - https://github.com/manaflow-ai/ghostty/pull/156
+  - https://github.com/manaflow-ai/ghostty/pull/157
+  - https://github.com/manaflow-ai/ghostty/pull/159
+  - https://github.com/manaflow-ai/ghostty/pull/160
 - Files:
   - `include/ghostty.h`
   - `src/apprt/embedded.zig`
   - `src/Surface.zig`
+  - `src/termio/Termio.zig`
+  - `src/terminal/Screen.zig`
+  - `src/terminal/Selection.zig`
+  - `src/terminal/render.zig`
 - Summary:
   - Restores `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection`.
   - Keeps cmux keyboard copy mode working against the refreshed Ghostty base after upstream removed those exports.
+  - Exposes exact grid dimensions, asymmetric padding, cursor position, and cursor cell width through `ghostty_surface_grid_metrics`.
+  - Resolves viewport cells to canonical glyph coordinates so wide and wrapped glyphs use their actual leading cell and width.
+  - Adds tracked character and linewise viewport selection APIs. Ghostty owns selection rendering, reflow, scrolling, and clipboard formatting while cmux moves logical endpoints.
+  - Preserves selection mode and direction through snapshots, screen clones, reflow, and renderer caching.
+  - Stores the keyboard copy cursor as a tracked screen pin, preserving logical
+    cell identity across PTY output, reset, reflow, scrolling, and alternate
+    screen transitions.
+  - Applies counted glyph movement and scrolling under one terminal lock, then
+    returns the authoritative viewport cell and glyph width to the host.
+  - Ties keyboard selection ownership to Ghostty's selection activity identity
+    so mouse or other foreign selection replacement cannot be mistaken for
+    copy-mode state.
+  - Bounds clipboard formatting to 2 MiB and preflights selected physical cells
+    before decompression, keeping both input work and output size bounded.
+  - Returns cursor geometry and effective runtime color in one terminal-state
+    snapshot, including OSC overrides, semantic cell colors, inverse video,
+    palette colors, and live manual-IO theme changes.
+  - Publishes bounded keyboard-copy selections as mixed plain text and styled
+    HTML, preserving rich paste targets without returning formatter buffers to
+    the Swift host. If HTML exceeds its formatter byte budget, it publishes the
+    already-bounded plain text instead of failing the copy.
+- Conflict notes:
+  - Reconcile the exported C declarations with `src/apprt/embedded.zig` whenever the embedded surface API changes.
+  - Keep character-cell canonicalization aligned with wide-cell and wrapped-spacer behavior in `src/terminal/Selection.zig`.
+  - Linewise endpoints remain logical row pins. Full-row bounds are derived for rendering and copying, rather than stored in the selection.
+  - Keep tracked cursor cleanup generation-safe when alternate screens are
+    destroyed, and preserve selection activity checks whenever selection
+    ownership changes.
 
 ### 7) macos-background-from-layer config flag
 

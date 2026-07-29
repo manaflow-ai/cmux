@@ -9,6 +9,12 @@ private let notificationFeedLog = Logger(
     category: "notification-feed"
 )
 
+nonisolated private let mobileShellNotificationFeedIdentifierByteLimit = 512
+nonisolated private let mobileShellNotificationFeedTitleByteLimit = 512
+nonisolated private let mobileShellNotificationFeedSubtitleByteLimit = 512
+nonisolated private let mobileShellNotificationFeedBodyByteLimit = 2_048
+nonisolated private let mobileShellNotificationFeedMetadataByteLimit = 512
+
 @MainActor
 extension MobileShellComposite {
     /// Refreshes the chronological feed from every currently connected capable Mac.
@@ -76,6 +82,29 @@ extension MobileShellComposite {
         return .unavailable
     }
 
+    /// Builds a computer-picker-scoped feed from the retained source snapshots
+    /// before applying the global row cap. Filtering the already-capped global
+    /// feed can hide an entire Mac when another Mac owns the newest retained
+    /// rows.
+    public func notificationFeedItems(
+        scopedTo macDeviceIDs: Set<String>?
+    ) -> [MobileNotificationFeedItem] {
+        guard let macDeviceIDs, !macDeviceIDs.isEmpty else {
+            return notificationFeedItems
+        }
+        let projected = notificationFeedSnapshotsByMac.compactMap {
+            entry -> MobileNotificationFeedSourceSnapshot? in
+            let ownerKey = entry.key
+            let macDeviceID = MobilePairedMac.pairingIdentity(from: ownerKey).macDeviceID
+            guard macDeviceIDs.contains(macDeviceID) else { return nil }
+            return MobileNotificationFeedSourceSnapshot(
+                items: entry.value.items,
+                connectionStatus: notificationFeedConnectionStatus(forOwnerKey: ownerKey)
+            )
+        }
+        return notificationFeedAggregation.items(from: projected)
+    }
+
     /// Marks one notification read on its owning Mac and reconciles the local snapshot.
     /// - Parameter item: The immutable feed item selected by the user.
     public func markNotificationFeedItemRead(_ item: MobileNotificationFeedItem) async {
@@ -128,16 +157,16 @@ extension MobileShellComposite {
 
     /// Marks every retained notification read on each currently connected capable Mac.
     public func markAllNotificationFeedItemsRead() async {
-        await markNotificationFeedItemsRead(notificationFeedItems)
+        await markNotificationFeedItemsRead(scopedTo: nil)
     }
 
-    /// Marks every retained notification read for the Macs represented by `items`.
+    /// Marks every retained notification read for the selected computer scope.
     /// This keeps a computer-scoped feed's bulk action within the scope visible to
-    /// the user while still using the host's atomic mark-all mutation per Mac.
-    public func markNotificationFeedItemsRead(_ items: [MobileNotificationFeedItem]) async {
-        let macDeviceIDs = Set(items.lazy.filter { !$0.isRead }.map(\.macDeviceID))
+    /// the user without deriving mutation targets from the capped visible rows.
+    public func markNotificationFeedItemsRead(scopedTo macDeviceIDs: Set<String>?) async {
+        if macDeviceIDs?.isEmpty == true { return }
         let targets = notificationFeedTargets().filter { target in
-            macDeviceIDs.contains(target.macDeviceID)
+            (macDeviceIDs?.contains(target.macDeviceID) ?? true)
                 && notificationFeedSnapshotsByMac[target.ownerKey]?.items.contains(where: { !$0.isRead }) == true
         }
         for target in targets {
@@ -342,9 +371,28 @@ extension MobileShellComposite {
     func recomputeNotificationFeedItems() {
         let projected = notificationFeedSnapshotsByMac.map { ownerKey, snapshot in
             let status = notificationFeedConnectionStatus(forOwnerKey: ownerKey)
-            return snapshot.items.map { $0.updating(connectionStatus: status) }
+            return MobileNotificationFeedSourceSnapshot(
+                items: snapshot.items,
+                connectionStatus: status
+            )
         }
         notificationFeedItems = notificationFeedAggregation.items(from: projected)
+    }
+
+    /// Keeps the first row for each identity. Callers provide newest-first
+    /// items, so the retained row is the row aggregation would emit.
+    private func deduplicatedNotificationFeedItems(
+        _ items: [MobileNotificationFeedItem]
+    ) -> [MobileNotificationFeedItem] {
+        var seenIDs = Set<MobileNotificationFeedItemID>()
+        seenIDs.reserveCapacity(items.count)
+        var uniqueItems: [MobileNotificationFeedItem] = []
+        uniqueItems.reserveCapacity(items.count)
+        for item in items {
+            guard seenIDs.insert(item.id).inserted else { continue }
+            uniqueItems.append(item)
+        }
+        return uniqueItems
     }
 
     /// Resolves the foreground Mac id for event routing without exposing RPC state to UI.
@@ -379,6 +427,7 @@ extension MobileShellComposite {
         ownerKey: String,
         displayName: String
     ) -> Bool {
+        guard let ownerKey = normalizedIdentifier(ownerKey) else { return false }
         let currentRevision = notificationFeedSnapshotsByMac[ownerKey]?.revision ?? -1
         let minimumRevision = notificationFeedKnownRevisionsByMac[ownerKey] ?? -1
         guard response.revision >= minimumRevision else {
@@ -397,28 +446,60 @@ extension MobileShellComposite {
         let identity = MobilePairedMac.pairingIdentity(from: ownerKey)
         let macDeviceID = identity.macDeviceID
         let instanceTag = identity.instanceTag ?? notificationFeedInstanceTag(forOwnerKey: ownerKey)
-        let items = response.notifications.compactMap { wire -> MobileNotificationFeedItem? in
-            let id = wire.id.trimmingCharacters(in: .whitespacesAndNewlines)
-            let workspaceID = wire.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !id.isEmpty, !workspaceID.isEmpty else { return nil }
-            return MobileNotificationFeedItem(
-                macDeviceID: macDeviceID,
-                macInstanceTag: instanceTag,
-                notificationID: id,
-                macDisplayName: displayName,
-                remoteWorkspaceID: workspaceID,
-                remoteSurfaceID: normalizedOptional(wire.surfaceID),
-                title: wire.title,
-                subtitle: normalizedOptional(wire.subtitle),
-                body: wire.body,
-                createdAt: wire.createdAt,
-                isRead: wire.isRead,
-                retargetsToLiveSurfaceOwner: wire.retargetsToLiveSurfaceOwner,
-                workspaceTitle: normalizedOptional(wire.workspaceTitle),
-                surfaceTitle: normalizedOptional(wire.surfaceTitle),
-                connectionStatus: status
-            )
-        }
+        let macDisplayName = normalizedDisplayName(displayName, fallback: macDeviceID)
+        // The Mac feed contract is newest-first. Cap each source snapshot
+        // before local projection, then sort only that bounded window. Do not
+        // destructively prune source tails by the current global top rows:
+        // aggregation is already lazy-capped, and retained per-Mac tails are
+        // needed to refill the feed when another source is removed or shrinks.
+        let items = deduplicatedNotificationFeedItems(
+            response.notifications
+                .prefix(MobileNotificationFeedAggregation.maxItemCount)
+                .compactMap { wire -> MobileNotificationFeedItem? in
+                    guard let id = normalizedIdentifier(wire.id),
+                          let workspaceID = normalizedIdentifier(wire.workspaceID) else {
+                        return nil
+                    }
+                    return MobileNotificationFeedItem(
+                        macDeviceID: macDeviceID,
+                        macInstanceTag: instanceTag,
+                        notificationID: id,
+                        macDisplayName: macDisplayName,
+                        remoteWorkspaceID: workspaceID,
+                        remoteSurfaceID: normalizedOptionalIdentifier(wire.surfaceID),
+                        title: mobileShellNotificationFeedString(
+                            wire.title,
+                            limitedToUTF8Bytes: mobileShellNotificationFeedTitleByteLimit
+                        ),
+                        subtitle: normalizedOptionalText(
+                            wire.subtitle,
+                            limitedToUTF8Bytes: mobileShellNotificationFeedSubtitleByteLimit
+                        ),
+                        body: mobileShellNotificationFeedString(
+                            wire.body,
+                            limitedToUTF8Bytes: mobileShellNotificationFeedBodyByteLimit
+                        ),
+                        createdAt: wire.createdAt,
+                        isRead: wire.isRead,
+                        retargetsToLiveSurfaceOwner: wire.retargetsToLiveSurfaceOwner,
+                        workspaceTitle: normalizedOptionalText(
+                            wire.workspaceTitle,
+                            limitedToUTF8Bytes: mobileShellNotificationFeedMetadataByteLimit
+                        ),
+                        surfaceTitle: normalizedOptionalText(
+                            wire.surfaceTitle,
+                            limitedToUTF8Bytes: mobileShellNotificationFeedMetadataByteLimit
+                        ),
+                        connectionStatus: status
+                    )
+                }
+                .sorted { lhs, rhs in
+                    if lhs.createdAt != rhs.createdAt {
+                        return lhs.createdAt > rhs.createdAt
+                    }
+                    return lhs.id < rhs.id
+                }
+        )
         notificationFeedSnapshotsByMac[ownerKey] = NotificationFeedMacSnapshot(
             revision: response.revision,
             items: items
@@ -482,7 +563,20 @@ extension MobileShellComposite {
                 params: [:]
             )
             let data = try await client.sendRequest(request)
-            let response = try MobileNotificationFeedListResponse.decode(data)
+            let stringLimits = mobileShellNotificationFeedListStringLimits()
+            let maxNotifications = MobileNotificationFeedAggregation.maxItemCount
+            let decoderTask = Task.detached(priority: .userInitiated) {
+                try MobileNotificationFeedListResponse(
+                    decodingBounded: data,
+                    maxNotifications: maxNotifications,
+                    stringLimits: stringLimits
+                )
+            }
+            let response = try await withTaskCancellationHandler(
+                operation: { try await decoderTask.value },
+                onCancel: { decoderTask.cancel() }
+            )
+            guard !Task.isCancelled else { return }
             guard notificationFeedClient(forOwnerKey: ownerKey) === client else { return }
             _ = applyNotificationFeedSnapshot(
                 response,
@@ -644,7 +738,7 @@ extension MobileShellComposite {
 
     private func normalizedForegroundNotificationFeedMacID() -> String? {
         let raw = foregroundMacDeviceID ?? activeTicket?.macDeviceID
-        return normalizedOptional(raw)
+        return normalizedOptionalIdentifier(raw)
     }
 
     private func notificationFeedDisplayName(for macDeviceID: String) -> String {
@@ -672,12 +766,65 @@ extension MobileShellComposite {
     }
 
     private func normalizedDisplayName(_ value: String?, fallback: String) -> String {
-        normalizedOptional(value) ?? fallback
+        normalizedOptionalText(
+            value,
+            limitedToUTF8Bytes: mobileShellNotificationFeedMetadataByteLimit
+        ) ?? mobileShellNotificationFeedString(
+            fallback.trimmingCharacters(in: .whitespacesAndNewlines),
+            limitedToUTF8Bytes: mobileShellNotificationFeedMetadataByteLimit
+        )
     }
 
-    private func normalizedOptional(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return nil }
+    private func normalizedIdentifier(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.utf8.count <= mobileShellNotificationFeedIdentifierByteLimit else {
+            return nil
+        }
         return trimmed
     }
+
+    private func normalizedOptionalIdentifier(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed.utf8.count <= mobileShellNotificationFeedIdentifierByteLimit else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func normalizedOptionalText(
+        _ value: String?,
+        limitedToUTF8Bytes maxBytes: Int
+    ) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return mobileShellNotificationFeedString(trimmed, limitedToUTF8Bytes: maxBytes)
+    }
+}
+
+nonisolated private func mobileShellNotificationFeedListStringLimits() -> MobileNotificationFeedListStringLimits {
+    MobileNotificationFeedListStringLimits(
+        identifierByteLimit: mobileShellNotificationFeedIdentifierByteLimit,
+        titleByteLimit: mobileShellNotificationFeedTitleByteLimit,
+        subtitleByteLimit: mobileShellNotificationFeedSubtitleByteLimit,
+        bodyByteLimit: mobileShellNotificationFeedBodyByteLimit,
+        metadataByteLimit: mobileShellNotificationFeedMetadataByteLimit
+    )
+}
+
+private func mobileShellNotificationFeedString(_ value: String, limitedToUTF8Bytes maxBytes: Int) -> String {
+    guard maxBytes >= 0, value.utf8.count > maxBytes else { return value }
+    var byteCount = 0
+    var endIndex = value.startIndex
+    while endIndex < value.endIndex {
+        let nextIndex = value.index(after: endIndex)
+        let characterByteCount = value[endIndex..<nextIndex].utf8.count
+        guard byteCount + characterByteCount <= maxBytes else { break }
+        byteCount += characterByteCount
+        endIndex = nextIndex
+    }
+    return String(value[..<endIndex])
 }
