@@ -400,9 +400,15 @@ extension TerminalController {
             let commonOwnerSourceSpecificity = commonOwnerSourceSpecificityByPID[pid]
             let existingSourceSpecificity = commonOwnerSourceSpecificity ?? existingSpecificity
             let mergedSourceSpecificity = max(existingSourceSpecificity, newSpecificity)
-            if let commonOwner = v2TopMemoryAttributionCommonOwner(existing, attribution),
+            if let commonOwner = existing.owner.commonOwner(with: attribution.owner),
                commonOwnerSourceSpecificity != nil || newSpecificity == existingSourceSpecificity {
-                result[pid] = commonOwner
+                let sharedReason: String
+                switch commonOwner.specificity {
+                case 3: sharedReason = "shared-surface-process-tree"
+                case 2: sharedReason = "shared-pane-process-tree"
+                default: sharedReason = "shared-workspace-process-tree"
+                }
+                result[pid] = CmuxTopProcessAttribution(owner: commonOwner, reason: sharedReason)
                 commonOwnerSourceSpecificityByPID[pid] = mergedSourceSpecificity
             } else if newSpecificity > existingSourceSpecificity {
                 result[pid] = attribution
@@ -417,62 +423,8 @@ extension TerminalController {
         }
     }
 
-    private nonisolated func v2TopMemoryAttributionCommonOwner(
-        _ lhs: CmuxTopProcessAttribution,
-        _ rhs: CmuxTopProcessAttribution
-    ) -> CmuxTopProcessAttribution? {
-        guard let workspaceID = lhs.workspaceID, workspaceID == rhs.workspaceID else {
-            return nil
-        }
-        let workspaceRef = lhs.workspaceRef ?? rhs.workspaceRef
-        if let paneID = lhs.paneID, paneID == rhs.paneID {
-            let paneRef = lhs.paneRef ?? rhs.paneRef
-            if let surfaceID = lhs.surfaceID, surfaceID == rhs.surfaceID {
-                return CmuxTopProcessAttribution(
-                    workspaceID: workspaceID,
-                    workspaceRef: workspaceRef,
-                    paneID: paneID,
-                    paneRef: paneRef,
-                    surfaceID: surfaceID,
-                    surfaceRef: lhs.surfaceRef ?? rhs.surfaceRef,
-                    surfaceType: lhs.surfaceType ?? rhs.surfaceType,
-                    reason: "shared-surface-process-tree"
-                )
-            }
-            return CmuxTopProcessAttribution(
-                workspaceID: workspaceID,
-                workspaceRef: workspaceRef,
-                paneID: paneID,
-                paneRef: paneRef,
-                surfaceID: nil,
-                surfaceRef: nil,
-                surfaceType: nil,
-                reason: "shared-pane-process-tree"
-            )
-        }
-        return CmuxTopProcessAttribution(
-            workspaceID: workspaceID,
-            workspaceRef: workspaceRef,
-            paneID: nil,
-            paneRef: nil,
-            surfaceID: nil,
-            surfaceRef: nil,
-            surfaceType: nil,
-            reason: "shared-workspace-process-tree"
-        )
-    }
-
     private nonisolated func v2TopMemoryAttributionSpecificity(_ attribution: CmuxTopProcessAttribution) -> Int {
-        if attribution.surfaceID != nil {
-            return 3
-        }
-        if attribution.paneID != nil {
-            return 2
-        }
-        if attribution.workspaceID != nil {
-            return 1
-        }
-        return 0
+        attribution.owner.specificity
     }
 
     nonisolated func v2AttachTopApplicationProcess(

@@ -232,6 +232,7 @@ extension GhosttySurfaceView {
         lastRenderLayoutViewportHeight = nil
         lastRenderHasSourceLayoutViewport = false
         lastAppliedContentScale = 0
+        resetLastAppliedContainerSize()
 
         surfaceGeneration &+= 1
         outputQueueGeneration &+= 1
