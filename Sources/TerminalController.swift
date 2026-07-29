@@ -4452,19 +4452,19 @@ class TerminalController {
         v2MainSync {
             if action == "mobile_connect" {
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
-                guard AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                guard let workspace = AppDelegate.shared?.performMobileConnectWorkspaceAction(
                     tabManager: tabManager,
                     preferredWindow: windowId.flatMap { AppDelegate.shared?.mainWindow(for: $0) },
+                    focusWorkspace: v2FocusAllowed(),
                     debugSource: "cli.workspaceAction.mobileConnect"
-                ) == true else {
+                ) else {
                     result = .err(code: "unavailable", message: "Mobile Connect is unavailable", data: nil)
                     return
                 }
-                let workspaceId = tabManager.selectedTabId
                 result = .ok([
                     "action": action,
-                    "workspace_id": v2OrNull(workspaceId?.uuidString),
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
                     "window_id": v2OrNull(windowId?.uuidString),
                     "window_ref": v2Ref(kind: .window, uuid: windowId)
                 ])

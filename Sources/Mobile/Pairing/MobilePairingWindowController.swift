@@ -131,7 +131,7 @@ final class MobilePairingWindowController: ReleasingWindowController {
 
 /// Workspace-owned pane for the iPhone pairing flow.
 @MainActor
-final class MobilePairingPanel: Panel, ObservableObject {
+final class MobilePairingPanel: Panel {
     let id = UUID()
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .mobilePairing

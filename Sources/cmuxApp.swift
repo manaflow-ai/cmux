@@ -2441,6 +2441,7 @@ private final class SidebarDebugWindowController: ReleasingWindowController {
     }
 }
 
+#if DEBUG
 private final class SidebarFooterIconBalanceDebugWindowController: ReleasingWindowController {
     static let shared = SidebarFooterIconBalanceDebugWindowController()
 
@@ -3151,6 +3152,7 @@ private struct SidebarFooterHelpIconReference: View {
         .frame(width: 22, height: 22)
     }
 }
+#endif
 
 private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL

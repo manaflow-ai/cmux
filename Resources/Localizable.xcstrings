@@ -80333,6 +80333,57 @@
         }
       }
     },
+    "debug.sidebarFooterIconBalance.weight.medium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミディアム"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.weight.regular": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regular"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レギュラー"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.weight.semibold": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semibold"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セミボールド"
+          }
+        }
+      }
+    },
     "debug.splitButtonLayout.alwaysHover": {
       "extractionState": "manual",
       "localizations": {

@@ -14535,7 +14535,7 @@ private struct SidebarHelpMenuButton: View {
     private let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
     private let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
-    private let buttonSize: CGFloat = 22
+    private let buttonSize = SidebarFooterButtonMetrics.buttonSize
 #if DEBUG
     @AppStorage(SidebarFooterHelpIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterHelpIconDebugSettings.defaultSize
@@ -14552,7 +14552,7 @@ private struct SidebarHelpMenuButton: View {
 #if DEBUG
         CGFloat(debugIconSize)
 #else
-        13.5
+        SidebarFooterButtonMetrics.helpIconSize
 #endif
     }
 
@@ -14560,7 +14560,7 @@ private struct SidebarHelpMenuButton: View {
 #if DEBUG
         SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight ?? .regular
 #else
-        .regular
+        SidebarFooterButtonMetrics.helpIconWeight
 #endif
     }
 

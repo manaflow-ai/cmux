@@ -20,6 +20,7 @@ public struct CMUXAuthUser: Codable, Equatable, Sendable {
     ///   - id: The Stack Auth user id.
     ///   - primaryEmail: The user's primary email, if any.
     ///   - displayName: The user's display name, if any.
+    ///   - profileImageURL: The user's profile image URL, if any.
     public init(
         id: String,
         primaryEmail: String?,

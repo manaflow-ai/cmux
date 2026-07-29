@@ -5192,7 +5192,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
-        if panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
+        if panels.values.contains(where: {
+            switch $0.panelType {
+            case .cloudVMLoading, .mobilePairing, .accountSignIn:
+                true
+            default:
+                false
+            }
+        }) {
             return false
         }
         guard let remoteConfiguration else { return true }

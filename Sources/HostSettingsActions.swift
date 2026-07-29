@@ -258,6 +258,8 @@ final class HostSettingsActions: SettingsHostActions {
 
     func openMobilePairingWindow() {
         _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+            enforceFeatureFlag: false,
+            bringWindowForward: true,
             debugSource: "settings.mobileConnect"
         )
     }

@@ -14,10 +14,19 @@ struct SidebarFooterIconButtonStyle: ButtonStyle {
     }
 }
 
+enum SidebarFooterButtonMetrics {
+    static let buttonSize: CGFloat = 22
+    static let profileIconSize: CGFloat = 15
+    static let mobileIconSize: CGFloat = 12
+    static let helpIconSize: CGFloat = 13.5
+    static let helpIconWeight: Font.Weight = .regular
+    static let hoverOpacity = 0.08
+}
+
 #if DEBUG
 enum SidebarFooterIconButtonDebugSettings {
     static let hoverOpacityKey = "debug.sidebarFooterIconButton.hoverOpacity"
-    static let defaultHoverOpacity = 0.08
+    static let defaultHoverOpacity = SidebarFooterButtonMetrics.hoverOpacity
 }
 
 enum SidebarFooterProfileIconDebugChoice: String, CaseIterable, Identifiable {
@@ -33,12 +42,12 @@ enum SidebarFooterProfileIconDebugSettings {
     static let iconKey = "debug.sidebarFooterProfileIcon.symbol"
     static let sizeKey = "debug.sidebarFooterProfileIcon.size"
     static let defaultIcon = SidebarFooterProfileIconDebugChoice.outline
-    static let defaultSize = 15.0
+    static let defaultSize = Double(SidebarFooterButtonMetrics.profileIconSize)
 }
 
 enum SidebarFooterMobileIconDebugSettings {
     static let sizeKey = "debug.sidebarFooterMobileIcon.size"
-    static let defaultSize = 12.0
+    static let defaultSize = Double(SidebarFooterButtonMetrics.mobileIconSize)
 }
 
 enum SidebarFooterHelpIconDebugWeight: String, CaseIterable, Identifiable {
@@ -58,9 +67,12 @@ enum SidebarFooterHelpIconDebugWeight: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .regular: "Regular"
-        case .medium: "Medium"
-        case .semibold: "Semibold"
+        case .regular:
+            String(localized: "debug.sidebarFooterIconBalance.weight.regular", defaultValue: "Regular")
+        case .medium:
+            String(localized: "debug.sidebarFooterIconBalance.weight.medium", defaultValue: "Medium")
+        case .semibold:
+            String(localized: "debug.sidebarFooterIconBalance.weight.semibold", defaultValue: "Semibold")
         }
     }
 }
@@ -77,7 +89,7 @@ enum SidebarFooterHelpIconDebugSettings {
     static let sizeKey = "debug.sidebarFooterHelpIcon.size"
     static let weightKey = "debug.sidebarFooterHelpIcon.weight"
     static let iconKey = "debug.sidebarFooterHelpIcon.symbol"
-    static let defaultSize = 13.0
+    static let defaultSize = Double(SidebarFooterButtonMetrics.helpIconSize)
     static let defaultWeight = SidebarFooterHelpIconDebugWeight.regular
     static let defaultIcon = SidebarFooterHelpIconDebugChoice.circle
 }
@@ -108,10 +120,10 @@ struct SidebarFooterHelpIcon: View {
 
 struct SidebarAccountMenuButton: View {
     @EnvironmentObject private var tabManager: TabManager
-    private let accountFlow: HostAccountFlow? = AppDelegate.shared?.auth?.accountFlow
+    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     private let title = String(localized: "settings.section.account", defaultValue: "Account")
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
-    private let buttonSize: CGFloat = 22
+    private let buttonSize = SidebarFooterButtonMetrics.buttonSize
     @State private var isPopoverPresented = false
 #if DEBUG
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
@@ -122,7 +134,7 @@ struct SidebarAccountMenuButton: View {
 #if DEBUG
         CGFloat(debugIconSize)
 #else
-        15
+        SidebarFooterButtonMetrics.profileIconSize
 #endif
     }
 
@@ -283,7 +295,7 @@ struct SidebarMobileConnectButton: View {
 #if DEBUG
         CGFloat(debugIconSize)
 #else
-        12
+        SidebarFooterButtonMetrics.mobileIconSize
 #endif
     }
 
@@ -296,10 +308,16 @@ struct SidebarMobileConnectButton: View {
         } label: {
             CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                .frame(width: 22, height: 22)
+                .frame(
+                    width: SidebarFooterButtonMetrics.buttonSize,
+                    height: SidebarFooterButtonMetrics.buttonSize
+                )
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
-        .frame(width: 22, height: 22)
+        .frame(
+            width: SidebarFooterButtonMetrics.buttonSize,
+            height: SidebarFooterButtonMetrics.buttonSize
+        )
         .safeHelp(title)
         .accessibilityLabel(title)
         .accessibilityIdentifier("SidebarMobileConnectButton")
@@ -320,7 +338,7 @@ private struct SidebarFooterIconButtonStyleBody: View {
 #if DEBUG
         debugHoverOpacity
 #else
-        0.08
+        SidebarFooterButtonMetrics.hoverOpacity
 #endif
     }
 
