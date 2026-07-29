@@ -3,13 +3,8 @@ import Foundation
 @testable import CmuxRemoteSession
 
 struct MarkerGatedFailingRemoteProcessStdinWriter: RemoteProcessStdinWriting {
-    enum Gate: Equatable, Sendable {
-        case launched
-        case exited
-    }
-
     let markerURL: URL
-    let gate: Gate
+    let gate: RemoteProcessStdinWriterFailureGate
 
     func write(
         _ data: Data,

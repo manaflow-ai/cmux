@@ -305,21 +305,6 @@ private func waitForProcessExit(_ processIdentifier: pid_t, timeout: TimeInterva
     return false
 }
 
-private final class RemoteProcessRunRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedResult: Result<RemoteCommandResult, any Error>?
-
-    var result: Result<RemoteCommandResult, any Error>? {
-        lock.withLock { storedResult }
-    }
-
-    func record(_ result: Result<RemoteCommandResult, any Error>) {
-        lock.withLock {
-            storedResult = result
-        }
-    }
-}
-
 private func runProcess(
     _ runner: RemoteSessionProcessRunner,
     request: RemoteProcessRequest,

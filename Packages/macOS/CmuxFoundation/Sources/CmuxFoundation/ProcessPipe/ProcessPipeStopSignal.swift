@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import os
 
 /// A one-shot, pollable signal for stopping process-pipe I/O.
 ///
@@ -14,7 +13,8 @@ public final class ProcessPipeStopSignal: Sendable {
     /// polling before releasing the signal.
     public let readFileDescriptor: Int32
 
-    private let writeFileDescriptor: OSAllocatedUnfairLock<Int32>
+    private let writeFileDescriptor: Int32
+    private let didSignal = AtomicBooleanGate(false)
 
     /// Creates a close-on-exec pipe used exclusively as a stop signal.
     ///
@@ -34,19 +34,15 @@ public final class ProcessPipeStopSignal: Sendable {
             throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
         }
         readFileDescriptor = descriptors[0]
-        writeFileDescriptor = OSAllocatedUnfairLock(initialState: descriptors[1])
+        writeFileDescriptor = descriptors[1]
     }
 
     /// Wakes every poller. Repeated calls are safe and have no effect.
     public func signal() {
-        let descriptor = writeFileDescriptor.withLock {
-            let descriptor = $0
-            $0 = -1
-            return descriptor
+        guard didSignal.compareExchange(expected: false, desired: true) else {
+            return
         }
-        if descriptor >= 0 {
-            Darwin.close(descriptor)
-        }
+        Darwin.close(writeFileDescriptor)
     }
 
     deinit {
