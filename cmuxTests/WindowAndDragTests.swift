@@ -3387,6 +3387,15 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             "A screen-anchored parked window must not inherit main-window geometry"
         )
         let parkedFrame = originalWindow.frame
+        let constrainedParkedFrame = originalWindow.constrainFrameRect(
+            parkedFrame,
+            to: originalWindow.screen ?? NSScreen.main
+        )
+        XCTAssertEqual(
+            constrainedParkedFrame,
+            parkedFrame,
+            "AppKit constrain passes must preserve the deliberately off-screen parked frame"
+        )
 
         parent.setFrame(
             CGRect(x: 260, y: 190, width: 1100, height: 760),
