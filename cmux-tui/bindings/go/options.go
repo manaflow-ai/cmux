@@ -405,13 +405,13 @@ type NotificationCreateOptions struct {
 type AgentListOptions struct {
 	ReadOptions
 	TerminalID *TerminalID
-	State      *string
+	State      *AgentState
 }
 type AgentReportOptions struct {
 	MutationOptions
 	TerminalID    TerminalID
-	State         string
-	Source        string
+	State         AgentState
+	Source        AgentReportSource
 	SourceSession *string
 }
 

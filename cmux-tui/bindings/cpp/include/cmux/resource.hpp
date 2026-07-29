@@ -773,6 +773,21 @@ enum class NotificationLevel {
     error,
 };
 
+struct NotificationCreateOptions {
+    NotificationCreateOptions(
+        std::string title_value,
+        std::string body_value)
+        : title(std::move(title_value)),
+          body(std::move(body_value)) {}
+
+    std::string title;
+    std::string body;
+    std::optional<NotificationLevel> level;
+    std::optional<TerminalId> terminal_id;
+
+    [[nodiscard]] Result<Json::Object> to_params() const;
+};
+
 struct NotificationSnapshot {
     NotificationId id;
     SessionId session_id;
@@ -797,6 +812,28 @@ enum class AgentSource {
     hook,
     socket,
     detected,
+};
+
+enum class AgentReportSource {
+    hook,
+    socket,
+};
+
+struct AgentReportOptions {
+    AgentReportOptions(
+        TerminalId terminal_id_value,
+        AgentState state_value,
+        AgentReportSource source_value)
+        : terminal_id(std::move(terminal_id_value)),
+          state(state_value),
+          source(source_value) {}
+
+    TerminalId terminal_id;
+    AgentState state;
+    AgentReportSource source;
+    std::optional<std::string> source_session;
+
+    [[nodiscard]] Result<Json::Object> to_params() const;
 };
 
 struct AgentSnapshot {
@@ -1755,6 +1792,15 @@ public:
     [[nodiscard]] Result<CreationResolution> resolve_creation(
         std::string correlation_key) const;
     [[nodiscard]] Result<std::vector<WorkspaceSnapshot>> workspaces() const;
+    [[nodiscard]] Result<std::vector<NotificationSnapshot>> notifications(
+        std::optional<std::uint32_t> limit = std::nullopt) const;
+    [[nodiscard]] Result<MutationResult<NotificationSnapshot>>
+    create_notification(
+        NotificationCreateOptions create,
+        MutationOptions mutation = MutationOptions::unique()) const;
+    [[nodiscard]] Result<MutationResult<AgentSnapshot>> report_agent(
+        AgentReportOptions report,
+        MutationOptions mutation = MutationOptions::unique()) const;
     [[nodiscard]] Workspace workspace(
         Selector<WorkspaceId> selector) const;
     [[nodiscard]] Workspace workspace(WorkspaceId id) const;
@@ -2116,16 +2162,8 @@ public:
     [[nodiscard]] Result<MutationResult<SessionSnapshot>> open_session(
         Json::Object params,
         MutationOptions options = MutationOptions::unique()) const;
-    [[nodiscard]] Result<std::vector<NotificationSnapshot>> notifications(
-        Json::Object params = {}) const;
-    [[nodiscard]] Result<MutationResult<NotificationSnapshot>> notify(
-        Json::Object params,
-        MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<std::vector<AgentSnapshot>> agents(
         Json::Object params = {}) const;
-    [[nodiscard]] Result<MutationResult<AgentSnapshot>> report_agent(
-        Json::Object params,
-        MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<std::vector<PairingRequestSnapshot>> pairing_requests(
         Json::Object params = {}) const;
 

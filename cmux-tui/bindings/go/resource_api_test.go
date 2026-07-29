@@ -22,6 +22,7 @@ const (
 	testPaneID      = PaneID("pane_00000000000000000000000000000005")
 	testTabID       = TabID("tab_00000000000000000000000000000006")
 	testTerminalID  = TerminalID("term_00000000000000000000000000000007")
+	testAgentID     = AgentID("agent_00000000000000000000000000000008")
 )
 
 func TestIDsSelectorsAndDecimals(t *testing.T) {
@@ -284,6 +285,55 @@ func TestCreationResolveAndWaitExitFacades(t *testing.T) {
 		if _, exists := exitParams[ancestor]; exists {
 			t.Fatalf("session-scoped wait exit included %s: %#v", ancestor, exitParams)
 		}
+	}
+}
+
+func TestSessionReportAgentUsesOnlySessionRoute(t *testing.T) {
+	client, requests := pipeClient(t, nil, 1)
+	defer client.Close(context.Background()) //nolint:errcheck
+
+	sourceSession := "codex-task-42"
+	revision := Decimal(12)
+	session := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID))
+	result, err := session.ReportAgent(
+		context.Background(),
+		AgentReportOptions{
+			MutationOptions: MutationOptions{
+				IdempotencyKey:   "agent-report-1",
+				ExpectedRevision: &revision,
+			},
+			TerminalID:    testTerminalID,
+			State:         AgentStateWorking,
+			Source:        AgentReportSourceSocket,
+			SourceSession: &sourceSession,
+		},
+	)
+	if err != nil {
+		t.Fatalf("report agent: %v", err)
+	}
+	if result.Value.Snapshot().ID != testAgentID ||
+		result.Value.Snapshot().State != AgentStateWorking ||
+		result.Revision.Uint64() != 13 {
+		t.Fatalf("agent mutation result = %#v", result)
+	}
+
+	request := <-requests
+	if request["operation"] != "agent.report" {
+		t.Fatalf("agent report operation = %#v", request["operation"])
+	}
+	if request["idempotency_key"] != "agent-report-1" {
+		t.Fatalf("agent report idempotency = %#v", request["idempotency_key"])
+	}
+	requireParam(t, request, "machine", testMachineID.String())
+	requireParam(t, request, "session", testSessionID.String())
+	requireParam(t, request, "terminal_id", testTerminalID.String())
+	requireParam(t, request, "state", string(AgentStateWorking))
+	requireParam(t, request, "source", string(AgentReportSourceSocket))
+	requireParam(t, request, "source_session", sourceSession)
+	requireParam(t, request, "expected_revision", "12")
+	if _, exists := requestParams(t, request)["agent"]; exists {
+		t.Fatalf("session agent report included an agent selector: %#v", request)
 	}
 }
 
@@ -1096,6 +1146,21 @@ func pipeClient(
 					},
 					"exited_at": "10",
 					"revision":  "11",
+				}
+			case "agent.report":
+				result = map[string]any{
+					"generation": "g",
+					"revision":   "13",
+					"replayed":   false,
+					"value": map[string]any{
+						"id":             testAgentID,
+						"session_id":     testSessionID,
+						"terminal_id":    testTerminalID,
+						"state":          AgentStateWorking,
+						"source":         AgentSourceSocket,
+						"updated_at_ms":  "14",
+						"source_session": "codex-task-42",
+					},
 				}
 			}
 			writeSuccess(t, serverSide, request["id"], result)

@@ -1931,6 +1931,13 @@ func (s *Session) CreateNotification(ctx context.Context, options NotificationCr
 }
 
 func (s *Session) ListAgents(ctx context.Context, options AgentListOptions) ([]Agent, error) {
+	if options.State != nil && !validAgentState(*options.State) {
+		return nil, fmt.Errorf(
+			"%w: unsupported agent state %q",
+			ErrInvalidArgument,
+			*options.State,
+		)
+	}
 	input := s.route.params()
 	if options.TerminalID != nil {
 		input["terminal_id"] = *options.TerminalID
@@ -1956,8 +1963,29 @@ func (s *Session) ListAgents(ctx context.Context, options AgentListOptions) ([]A
 	}
 	return result, nil
 }
-func (a *Agent) Report(ctx context.Context, options AgentReportOptions) (MutationResult[*Agent], error) {
-	input := a.route.params()
+func (s *Session) ReportAgent(ctx context.Context, options AgentReportOptions) (MutationResult[*Agent], error) {
+	if options.TerminalID == "" {
+		return MutationResult[*Agent]{}, fmt.Errorf(
+			"%w: terminal ID must not be empty",
+			ErrInvalidArgument,
+		)
+	}
+	if !validAgentState(options.State) {
+		return MutationResult[*Agent]{}, fmt.Errorf(
+			"%w: unsupported agent state %q",
+			ErrInvalidArgument,
+			options.State,
+		)
+	}
+	if options.Source != AgentReportSourceHook &&
+		options.Source != AgentReportSourceSocket {
+		return MutationResult[*Agent]{}, fmt.Errorf(
+			"%w: unsupported agent report source %q",
+			ErrInvalidArgument,
+			options.Source,
+		)
+	}
+	input := s.route.params()
 	input["terminal_id"] = options.TerminalID
 	input[wirev1.FieldState] = options.State
 	input["source"] = options.Source
@@ -1965,10 +1993,38 @@ func (a *Agent) Report(ctx context.Context, options AgentReportOptions) (Mutatio
 		input["source_session"] = *options.SourceSession
 	}
 	merge(input, options.Extra)
-	return mutationHandle(
-		ctx, a.client, wirev1.AgentReport, input, options.MutationOptions,
-		"agent snapshot", a.cache, a,
+	result, err := mutationValue[AgentSnapshot](
+		ctx,
+		s.client,
+		wirev1.AgentReport,
+		input,
+		options.MutationOptions,
+		"agent snapshot",
 	)
+	if err != nil {
+		return MutationResult[*Agent]{}, err
+	}
+	agent := &Agent{
+		client: s.client, session: s.selector, route: s.route,
+		snapshot: result.Value,
+	}
+	return MutationResult[*Agent]{
+		Value: agent, Generation: result.Generation, Revision: result.Revision,
+		Replayed: result.Replayed,
+	}, nil
+}
+
+func validAgentState(state AgentState) bool {
+	switch state {
+	case AgentStateWorking,
+		AgentStateBlocked,
+		AgentStateIdle,
+		AgentStateDone,
+		AgentStateUnknown:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *SidebarView) Refresh(ctx context.Context, options SidebarViewGetOptions) (SidebarViewSnapshot, error) {

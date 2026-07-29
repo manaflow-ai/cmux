@@ -56,7 +56,7 @@ func TestCatalogResultMethodsCompileForExternalConsumers(t *testing.T) {
 	var _ func(*cmux.Browser, context.Context, cmux.BrowserNavigateOptions) (cmux.MutationResult[*cmux.Browser], error) = (*cmux.Browser).Navigate
 	var _ func(*cmux.PairingRequest, context.Context, cmux.PairingRequestResolveOptions) (cmux.MutationResult[*cmux.PairingRequest], error) = (*cmux.PairingRequest).Resolve
 	var _ func(*cmux.FrontendProjection, context.Context, cmux.FrontendProjectionPutOptions) (cmux.MutationResult[*cmux.FrontendProjection], error) = (*cmux.FrontendProjection).Put
-	var _ func(*cmux.Agent, context.Context, cmux.AgentReportOptions) (cmux.MutationResult[*cmux.Agent], error) = (*cmux.Agent).Report
+	var _ func(*cmux.Session, context.Context, cmux.AgentReportOptions) (cmux.MutationResult[*cmux.Agent], error) = (*cmux.Session).ReportAgent
 	var _ func(*cmux.SidebarView, context.Context, cmux.SidebarViewResizeOptions) (cmux.MutationResult[*cmux.SidebarView], error) = (*cmux.SidebarView).Resize
 }
 

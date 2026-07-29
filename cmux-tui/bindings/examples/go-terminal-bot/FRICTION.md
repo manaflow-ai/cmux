@@ -9,10 +9,7 @@
 3. Create recovery is exact through a stable correlation key and
    `Session.ResolveCreation`, but application code still implements the bounded
    retry policy for `not_applied`, `pending`, and `indeterminate` states.
-4. `Agent.Report` is available only from an `Agent` returned by `agent.list`.
-   A new terminal cannot directly report its first agent state through the
-   session or terminal handle.
-5. The client accepts `context.Context` throughout, but cleanup after parent
+4. The client accepts `context.Context` throughout, but cleanup after parent
    cancellation still needs a fresh bounded background context.
 
 The consumer imports only the public Go package. It uses no `raw` subpackage,

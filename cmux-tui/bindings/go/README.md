@@ -17,11 +17,19 @@ workspace := session.Workspace(cmux.SelectCurrent[cmux.WorkspaceID]())
 result, err := workspace.Run(ctx, cmux.WorkspaceRunOptions{
 	Command: cmux.Exact("printf", "hello\n"),
 })
+
+agent, err := session.ReportAgent(ctx, cmux.AgentReportOptions{
+	TerminalID: result.Value.Terminal,
+	State:      cmux.AgentStateWorking,
+	Source:     cmux.AgentReportSourceSocket,
+})
 ```
 
 `Exact` preserves argv without shell interpretation. `Shell` requests explicit
 server-side shell execution. Resource handles do not own remote resources.
 Only `Client` and typed streams require explicit close or cancellation.
+`Session.ReportAgent` publishes the first agent state for a terminal and
+returns the typed agent snapshot without requiring an earlier agent listing.
 
 Mutations use caller-provided idempotency keys or keys generated from 128 bits
 of secure random data. The client never retries mutations. `Decimal` encodes

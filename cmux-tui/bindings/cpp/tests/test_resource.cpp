@@ -339,6 +339,178 @@ TEST("terminal history handle sends only validated typed fields") {
     CHECK(params->at("styled").as_bool().value());
 }
 
+TEST("session auxiliary APIs emit typed notification and agent routes") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(
+        state,
+        response(
+            "cpp-request-1",
+            R"([{"id":"notification_11111111111111111111111111111111","session_id":"session_22222222222222222222222222222222","title":"queued","body":"waiting","level":"info","created_at_ms":"19","unread":true}])"));
+    enqueue(
+        state,
+        response(
+            "cpp-request-2",
+            R"({"value":{"id":"notification_33333333333333333333333333333333","session_id":"session_22222222222222222222222222222222","title":"build","body":"failed","level":"warning","terminal_id":"term_44444444444444444444444444444444","created_at_ms":"20","unread":true},"generation":"g","revision":"21","replayed":false})"));
+    enqueue(
+        state,
+        response(
+            "cpp-request-3",
+            R"({"value":{"id":"agent_55555555555555555555555555555555","session_id":"session_22222222222222222222222222222222","terminal_id":"term_44444444444444444444444444444444","state":"working","source":"socket","updated_at_ms":"21","source_session":"codex-task-42"},"generation":"g","revision":"22","replayed":false})"));
+
+    auto machine_id = cmux::MachineId::parse(
+        "machine_11111111111111111111111111111111");
+    auto session_id = cmux::SessionId::parse(
+        "session_22222222222222222222222222222222");
+    auto terminal_id = cmux::TerminalId::parse(
+        "term_44444444444444444444444444444444");
+    CHECK(machine_id);
+    CHECK(session_id);
+    CHECK(terminal_id);
+    auto session =
+        client.machine(std::move(machine_id).value())
+            .session(std::move(session_id).value());
+
+    auto notifications = session.notifications(25);
+    CHECK(notifications);
+    CHECK_EQ(notifications.value().size(), 1U);
+    CHECK_EQ(
+        notifications.value().front().level,
+        cmux::NotificationLevel::info);
+
+    cmux::NotificationCreateOptions notification("build", "failed");
+    notification.level = cmux::NotificationLevel::warning;
+    notification.terminal_id = terminal_id.value();
+    auto notification_key =
+        cmux::MutationOptions::with_key("notification-create-1");
+    CHECK(notification_key);
+    auto created = session.create_notification(
+        std::move(notification),
+        std::move(notification_key).value().expecting(20));
+    CHECK(created);
+    CHECK_EQ(created.value().revision, 21U);
+    CHECK_EQ(
+        created.value().value.level,
+        cmux::NotificationLevel::warning);
+
+    cmux::AgentReportOptions report(
+        terminal_id.value(),
+        cmux::AgentState::working,
+        cmux::AgentReportSource::socket);
+    report.source_session = "codex-task-42";
+    auto agent_key = cmux::MutationOptions::with_key("agent-report-1");
+    CHECK(agent_key);
+    auto reported = session.report_agent(
+        std::move(report),
+        std::move(agent_key).value().expecting(21));
+    CHECK(reported);
+    CHECK_EQ(reported.value().revision, 22U);
+    CHECK_EQ(reported.value().value.state, cmux::AgentState::working);
+    CHECK_EQ(reported.value().value.source, cmux::AgentSource::socket);
+
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 3U);
+    const auto list_envelope = cmux::Json::parse(state->outgoing.at(0));
+    const auto create_envelope = cmux::Json::parse(state->outgoing.at(1));
+    const auto report_envelope = cmux::Json::parse(state->outgoing.at(2));
+    CHECK(list_envelope);
+    CHECK(create_envelope);
+    CHECK(report_envelope);
+
+    CHECK_EQ(
+        list_envelope.value().find("operation")->as_string().value(),
+        std::string_view("notification.list"));
+    CHECK(list_envelope.value().find("idempotency_key") == nullptr);
+    const auto* list_params =
+        list_envelope.value().find("params")->as_object().value();
+    CHECK_EQ(list_params->at("limit").as_uint64().value(), 25U);
+    CHECK_EQ(
+        list_params->at("machine").as_string().value(),
+        std::string_view(
+            "machine_11111111111111111111111111111111"));
+    CHECK_EQ(
+        list_params->at("session").as_string().value(),
+        std::string_view(
+            "session_22222222222222222222222222222222"));
+
+    CHECK_EQ(
+        create_envelope.value().find("operation")->as_string().value(),
+        std::string_view("notification.create"));
+    CHECK_EQ(
+        create_envelope.value()
+            .find("idempotency_key")
+            ->as_string()
+            .value(),
+        std::string_view("notification-create-1"));
+    const auto* create_params =
+        create_envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        create_params->at("title").as_string().value(),
+        std::string_view("build"));
+    CHECK_EQ(
+        create_params->at("body").as_string().value(),
+        std::string_view("failed"));
+    CHECK_EQ(
+        create_params->at("level").as_string().value(),
+        std::string_view("warning"));
+    CHECK_EQ(
+        create_params->at("terminal_id").as_string().value(),
+        std::string_view(
+            "term_44444444444444444444444444444444"));
+    CHECK_EQ(
+        create_params->at("expected_revision").as_string().value(),
+        std::string_view("20"));
+    CHECK(!create_params->contains("notification"));
+
+    CHECK_EQ(
+        report_envelope.value().find("operation")->as_string().value(),
+        std::string_view("agent.report"));
+    CHECK_EQ(
+        report_envelope.value()
+            .find("idempotency_key")
+            ->as_string()
+            .value(),
+        std::string_view("agent-report-1"));
+    const auto* report_params =
+        report_envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        report_params->at("terminal_id").as_string().value(),
+        std::string_view(
+            "term_44444444444444444444444444444444"));
+    CHECK_EQ(
+        report_params->at("state").as_string().value(),
+        std::string_view("working"));
+    CHECK_EQ(
+        report_params->at("source").as_string().value(),
+        std::string_view("socket"));
+    CHECK_EQ(
+        report_params->at("source_session").as_string().value(),
+        std::string_view("codex-task-42"));
+    CHECK_EQ(
+        report_params->at("expected_revision").as_string().value(),
+        std::string_view("21"));
+    CHECK(!report_params->contains("agent"));
+}
+
+TEST("session auxiliary options reject invalid values before I/O") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    auto session =
+        client.session(cmux::Selector<cmux::SessionId>::current());
+
+    CHECK(!session.notifications(0));
+    CHECK(!session.notifications(1'001));
+    CHECK(!session.create_notification(
+        cmux::NotificationCreateOptions("", "body")));
+    CHECK(!session.report_agent(cmux::AgentReportOptions(
+        cmux::TerminalId{},
+        cmux::AgentState::working,
+        cmux::AgentReportSource::hook)));
+
+    std::lock_guard lock(state->mutex);
+    CHECK(state->outgoing.empty());
+}
+
 TEST("all creation options validate and encode correlation keys") {
     const auto check = [](cmux::Result<cmux::Json::Object> params) {
         CHECK(params);

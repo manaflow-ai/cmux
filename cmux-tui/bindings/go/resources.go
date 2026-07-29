@@ -491,12 +491,38 @@ type NotificationSnapshot struct {
 	Extra       map[string]JSONValue `json:"extra,omitempty"`
 }
 
+type AgentState string
+
+const (
+	AgentStateWorking AgentState = "working"
+	AgentStateBlocked AgentState = "blocked"
+	AgentStateIdle    AgentState = "idle"
+	AgentStateDone    AgentState = "done"
+	AgentStateUnknown AgentState = "unknown"
+)
+
+type AgentSource string
+
+const (
+	AgentSourceHook     AgentSource = "hook"
+	AgentSourceSocket   AgentSource = "socket"
+	AgentSourceDetected AgentSource = "detected"
+)
+
+// AgentReportSource excludes detected, which is server-owned discovery state.
+type AgentReportSource string
+
+const (
+	AgentReportSourceHook   AgentReportSource = "hook"
+	AgentReportSourceSocket AgentReportSource = "socket"
+)
+
 type AgentSnapshot struct {
 	ID            AgentID              `json:"id"`
 	SessionID     SessionID            `json:"session_id"`
 	TerminalID    TerminalID           `json:"terminal_id"`
-	State         string               `json:"state"`
-	Source        string               `json:"source"`
+	State         AgentState           `json:"state"`
+	Source        AgentSource          `json:"source"`
 	UpdatedAtMS   Decimal              `json:"updated_at_ms"`
 	SourceSession *string              `json:"source_session"`
 	Extra         map[string]JSONValue `json:"extra,omitempty"`
@@ -1087,20 +1113,6 @@ func (p *FrontendProjection) cache(value FrontendProjectionSnapshot) error {
 		}
 	}
 	p.snapshot = value
-	return nil
-}
-
-func (a *Agent) cache(value AgentSnapshot) error {
-	if value.ID != a.snapshot.ID {
-		return &ProtocolError{
-			Message: fmt.Sprintf(
-				"agent mutation returned %s for %s",
-				value.ID,
-				a.snapshot.ID,
-			),
-		}
-	}
-	a.snapshot = value
 	return nil
 }
 

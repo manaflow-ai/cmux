@@ -16,7 +16,8 @@ Opaque ID parsers, selectors, typed screen/history results, durable terminal
 lifecycle and exit outcomes, deterministic creation paths, and correlation
 recovery also work directly. `Workspace::run` accepts per-call deadlines and
 cancellation. History paging and attachment sizing and read-only flags use
-validated option types.
+validated option types. Session notification creation, notification listing,
+and initial agent reports also use typed options and results.
 
 Remaining friction:
 

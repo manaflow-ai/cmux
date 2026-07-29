@@ -848,6 +848,79 @@ Result<Json::Object> TerminalAttachOptions::to_params() const {
     return params;
 }
 
+Result<Json::Object> NotificationCreateOptions::to_params() const {
+    if (title.empty()) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "notification title must not be empty");
+    }
+    Json::Object params{
+        {"title", Json(title)},
+        {"body", Json(body)},
+    };
+    if (level) {
+        std::string_view wire_level;
+        switch (*level) {
+            case NotificationLevel::info:
+                wire_level = "info";
+                break;
+            case NotificationLevel::warning:
+                wire_level = "warning";
+                break;
+            case NotificationLevel::error:
+                wire_level = "error";
+                break;
+        }
+        params.emplace("level", Json(std::string(wire_level)));
+    }
+    if (terminal_id) {
+        if (terminal_id->empty()) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "notification terminal ID must not be empty");
+        }
+        params.emplace("terminal_id", Json(terminal_id->value()));
+    }
+    return params;
+}
+
+Result<Json::Object> AgentReportOptions::to_params() const {
+    if (terminal_id.empty()) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "agent terminal ID must not be empty");
+    }
+    std::string_view wire_state;
+    switch (state) {
+        case AgentState::working:
+            wire_state = "working";
+            break;
+        case AgentState::blocked:
+            wire_state = "blocked";
+            break;
+        case AgentState::idle:
+            wire_state = "idle";
+            break;
+        case AgentState::done:
+            wire_state = "done";
+            break;
+        case AgentState::unknown:
+            wire_state = "unknown";
+            break;
+    }
+    const std::string_view wire_source =
+        source == AgentReportSource::hook ? "hook" : "socket";
+    Json::Object params{
+        {"terminal_id", Json(terminal_id.value())},
+        {"state", Json(std::string(wire_state))},
+        {"source", Json(std::string(wire_source))},
+    };
+    if (source_session) {
+        params.emplace("source_session", Json(*source_session));
+    }
+    return params;
+}
+
 namespace detail {
 
 void complete_structural_route(
@@ -1393,30 +1466,9 @@ Result<MutationResult<SessionSnapshot>> Client::open_session(
         Operation::session_open, std::move(params), std::move(options)));
 }
 
-Result<std::vector<NotificationSnapshot>> Client::notifications(Json::Object params) const {
-    return detail::ResourceReadResult(
-        read(Operation::notification_list, std::move(params)));
-}
-
-Result<MutationResult<NotificationSnapshot>> Client::notify(
-    Json::Object params,
-    MutationOptions options) const {
-    return detail::ResourceMutationResult(mutate(
-        Operation::notification_create,
-        std::move(params),
-        std::move(options)));
-}
-
 Result<std::vector<AgentSnapshot>> Client::agents(Json::Object params) const {
     return detail::ResourceReadResult(
         read(Operation::agent_list, std::move(params)));
-}
-
-Result<MutationResult<AgentSnapshot>> Client::report_agent(
-    Json::Object params,
-    MutationOptions options) const {
-    return detail::ResourceMutationResult(mutate(
-        Operation::agent_report, std::move(params), std::move(options)));
 }
 
 Result<std::vector<PairingRequestSnapshot>> Client::pairing_requests(Json::Object params) const {
@@ -1468,6 +1520,46 @@ Result<CreationResolution> Session::resolve_creation(
 
 Result<std::vector<WorkspaceSnapshot>> Session::workspaces() const {
     return read(Operation::workspace_list);
+}
+
+Result<std::vector<NotificationSnapshot>> Session::notifications(
+    std::optional<std::uint32_t> limit) const {
+    Json::Object params;
+    if (limit) {
+        if (*limit == 0 || *limit > 1'000) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "notification limit must be between 1 and 1000");
+        }
+        params.emplace("limit", Json(static_cast<std::uint64_t>(*limit)));
+    }
+    return read(Operation::notification_list, std::move(params));
+}
+
+Result<MutationResult<NotificationSnapshot>> Session::create_notification(
+    NotificationCreateOptions create,
+    MutationOptions mutation) const {
+    auto params = create.to_params();
+    if (!params) {
+        return std::move(params).error();
+    }
+    return mutate(
+        Operation::notification_create,
+        std::move(params).value(),
+        std::move(mutation));
+}
+
+Result<MutationResult<AgentSnapshot>> Session::report_agent(
+    AgentReportOptions report,
+    MutationOptions mutation) const {
+    auto params = report.to_params();
+    if (!params) {
+        return std::move(params).error();
+    }
+    return mutate(
+        Operation::agent_report,
+        std::move(params).value(),
+        std::move(mutation));
 }
 
 Workspace Session::workspace(Selector<WorkspaceId> selector) const {

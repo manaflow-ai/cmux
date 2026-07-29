@@ -109,6 +109,12 @@ Renderer grants expose endpoint, terminal ID, rights, TTL, and a
 `Session::resolve_creation()` and `Terminal::wait_exit()` remain separate from
 terminal text matching.
 
+Session-owned auxiliary operations stay typed. `Session::notifications(limit)`
+validates the optional catalog limit, `Session::create_notification()` accepts
+title, body, level, and an optional terminal ID, and
+`Session::report_agent()` accepts a terminal ID, state, report source, and
+optional source-session label. Both mutations return their typed snapshots.
+
 `Screen::undo_layout()` requires the preview's confirmation token when
 `confirm_close` is true. Decode a `confirmation.required` error with
 `decode_confirmation_required_details()` to obtain its token, revision, and

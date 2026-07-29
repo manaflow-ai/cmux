@@ -28,6 +28,20 @@ static_assert(std::is_same_v<
               cmux::Result<
                   cmux::MutationResult<cmux::CreatedTerminalPath>>>);
 static_assert(std::is_same_v<
+              decltype(std::declval<cmux::Session&>().notifications()),
+              cmux::Result<std::vector<cmux::NotificationSnapshot>>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::Session&>().create_notification(
+                  std::declval<cmux::NotificationCreateOptions>(),
+                  std::declval<cmux::MutationOptions>())),
+              cmux::Result<
+                  cmux::MutationResult<cmux::NotificationSnapshot>>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::Session&>().report_agent(
+                  std::declval<cmux::AgentReportOptions>(),
+                  std::declval<cmux::MutationOptions>())),
+              cmux::Result<cmux::MutationResult<cmux::AgentSnapshot>>>);
+static_assert(std::is_same_v<
               decltype(std::declval<cmux::raw::Client&>().identify()),
               cmux::Result<cmux::raw::IdentifyResult>>);
 static_assert(!std::is_copy_constructible_v<cmux::SessionEventStream>);
@@ -86,11 +100,29 @@ int main() {
     attach.read_only = true;
     auto attach_params = attach.to_params();
 
+    auto terminal_id = cmux::TerminalId::parse(
+        "term_0123456789abcdef0123456789abcdef");
+    if (!terminal_id) {
+        return 1;
+    }
+    cmux::NotificationCreateOptions notification("build", "complete");
+    notification.level = cmux::NotificationLevel::info;
+    notification.terminal_id = terminal_id.value();
+    auto notification_params = notification.to_params();
+
+    cmux::AgentReportOptions agent(
+        terminal_id.value(),
+        cmux::AgentState::working,
+        cmux::AgentReportSource::socket);
+    agent.source_session = "consumer";
+    auto agent_params = agent.to_params();
+
     cmux::raw::IdentifyRequest raw_request;
     return selector.wire() != "name:current" ||
                    !workspace_params || !run_params || !screen_params ||
                    !pane_params || !split_params || !terminal_params ||
                    !browser_params || !history_params || !attach_params ||
+                   !notification_params || !agent_params ||
                    workspace_params.value()
                            .at("correlation_key")
                            .as_string()
@@ -135,6 +167,14 @@ int main() {
                             .at("read_only")
                             .as_bool()
                             .value() ||
+                   notification_params.value()
+                           .at("level")
+                           .as_string()
+                           .value() != "info" ||
+                   agent_params.value()
+                           .at("source")
+                           .as_string()
+                           .value() != "socket" ||
                    !(raw_request == cmux::raw::IdentifyRequest{}) ||
                    cmux::kSdkVersion != "1.0.0"
                ? 1
