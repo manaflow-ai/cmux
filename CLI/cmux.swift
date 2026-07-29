@@ -200,6 +200,9 @@ struct ClaudeHookClearBackgroundWorkTransfer: Codable {
     let updatedAt: TimeInterval
     /// Creator-owned expiry so another hook process cannot shorten the handoff.
     let expiresAt: TimeInterval?
+    /// Ownership always crosses a clear boundary; surviving work is independent.
+    /// Missing on legacy transfers, which were only created when work survived.
+    let preservedPendingBackgroundWork: Bool?
 }
 
 struct AgentHookLaunchCommandRecord: Codable {
@@ -283,6 +286,7 @@ final class ClaudeHookSessionStore {
     enum MutationAuthorization {
         case unrestricted
         case ordinaryActivity(incomingPID: Int?)
+        case turnStart(incomingPID: Int?)
     }
 
     struct SessionConsumption {
@@ -755,16 +759,33 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             let normalizedSurfaceId = normalizeOptional(surfaceId)
-            if case .ordinaryActivity(let incomingPID) = authorization,
-               !ordinaryActivityIsAuthorized(
-                   in: state,
-                   sessionId: normalized,
-                   workspaceId: workspaceId,
-                   surfaceId: surfaceId,
-                   turnId: turnId,
-                   incomingPID: incomingPID
-               ) {
-                return nil
+            switch authorization {
+            case .unrestricted:
+                break
+            case .ordinaryActivity(let incomingPID):
+                guard activityIsAuthorized(
+                    in: state,
+                    sessionId: normalized,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    turnId: turnId,
+                    incomingPID: incomingPID,
+                    allowsStoppedOwnerReplacement: false
+                ) else {
+                    return nil
+                }
+            case .turnStart(let incomingPID):
+                guard activityIsAuthorized(
+                    in: state,
+                    sessionId: normalized,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    turnId: turnId,
+                    incomingPID: incomingPID,
+                    allowsStoppedOwnerReplacement: true
+                ) else {
+                    return nil
+                }
             }
             let inheritedPendingBackgroundWork: Bool
             switch pendingBackgroundWorkBoundary {
@@ -784,31 +805,16 @@ final class ClaudeHookSessionStore {
                     state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
                 }
             case .inheritAcrossClear:
-                let activeRecord = activeSessionRecord(
-                    in: state,
+                guard let transferredPendingWork = authorizeClearSessionStart(
+                    in: &state,
+                    sessionId: normalized,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
-                let activeOwnerHasPendingWork =
-                    activeRecord?.hadSurvivingBackgroundWorkAtStop == true
-                    && processGenerationMatches(
-                        recordedPID: activeRecord?.pid,
-                        recordedStartSeconds: activeRecord?.pidStartSeconds,
-                        recordedStartMicroseconds: activeRecord?.pidStartMicroseconds,
-                        incomingPID: pid
-                    )
-                let transferredPendingWork = consumeClearBackgroundWorkTransfer(
-                    from: &state,
                     surfaceId: surfaceId,
                     incomingPID: pid
-                )
-                if let transferredPendingWork, !transferredPendingWork {
-                    // A transfer owned by another process generation must stay
-                    // pending for its matching clear start.
+                ) else {
                     return nil
                 }
-                inheritedPendingBackgroundWork =
-                    activeOwnerHasPendingWork || transferredPendingWork == true
+                inheritedPendingBackgroundWork = transferredPendingWork
             case .resumeSessionStart:
                 inheritedPendingBackgroundWork = false
                 guard authorizeResumeSessionStart(
@@ -1609,13 +1615,14 @@ final class ClaudeHookSessionStore {
         return record
     }
 
-    private func ordinaryActivityIsAuthorized(
+    private func activityIsAuthorized(
         in state: ClaudeHookSessionStoreFile,
         sessionId: String,
         workspaceId: String,
         surfaceId: String,
         turnId: String?,
-        incomingPID: Int?
+        incomingPID: Int?,
+        allowsStoppedOwnerReplacement: Bool
     ) -> Bool {
         guard let normalizedWorkspaceId = normalizeOptional(workspaceId),
               let normalizedSurfaceId = normalizeOptional(surfaceId),
@@ -1639,10 +1646,14 @@ final class ClaudeHookSessionStore {
                 if let activeTurnId = normalizeOptional(activeOwner.turnId),
                    let incomingTurnId = normalizeOptional(turnId),
                    activeTurnId != incomingTurnId {
-                    return false
+                    guard allowsStoppedOwnerReplacement,
+                          activeOwner.allowsNewSessionReplacement == true else {
+                        return false
+                    }
                 }
             } else {
-                guard activeOwner.allowsNewSessionReplacement == true,
+                guard allowsStoppedOwnerReplacement,
+                      activeOwner.allowsNewSessionReplacement == true,
                       let displacedRecord = state.sessions[activeOwner.sessionId] else {
                     return false
                 }
@@ -1676,6 +1687,66 @@ final class ClaudeHookSessionStore {
             recordedStartMicroseconds: existingRecord.pidStartMicroseconds,
             incomingPID: incomingPID
         ) == .same
+    }
+
+    private func authorizeClearSessionStart(
+        in state: inout ClaudeHookSessionStoreFile,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        incomingPID: Int?
+    ) -> Bool? {
+        guard let normalizedWorkspaceId = normalizeOptional(workspaceId),
+              let normalizedSurfaceId = normalizeOptional(surfaceId),
+              let incomingPID,
+              processStartIdentity(pid: incomingPID) != nil else {
+            return nil
+        }
+        if let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] {
+            guard compareProcessGeneration(
+                recordedPID: transfer.pid,
+                recordedStartSeconds: transfer.pidStartSeconds,
+                recordedStartMicroseconds: transfer.pidStartMicroseconds,
+                incomingPID: incomingPID
+            ) == .same else {
+                return nil
+            }
+            state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
+            return transfer.preservedPendingBackgroundWork ?? true
+        }
+
+        let activeOwner = activeSessionBoundary(
+            in: state,
+            workspaceId: normalizedWorkspaceId,
+            surfaceId: normalizedSurfaceId
+        )
+        let activeRecord: ClaudeHookSessionRecord?
+        if let activeOwner {
+            guard let record = state.sessions[activeOwner.sessionId],
+                  compareProcessGeneration(
+                      recordedPID: record.pid,
+                      recordedStartSeconds: record.pidStartSeconds,
+                      recordedStartMicroseconds: record.pidStartMicroseconds,
+                      incomingPID: incomingPID
+                  ) == .same else {
+                return nil
+            }
+            activeRecord = record
+        } else {
+            activeRecord = nil
+        }
+
+        if let targetRecord = state.sessions[sessionId] {
+            guard compareProcessGeneration(
+                recordedPID: targetRecord.pid,
+                recordedStartSeconds: targetRecord.pidStartSeconds,
+                recordedStartMicroseconds: targetRecord.pidStartMicroseconds,
+                incomingPID: incomingPID
+            ) == .same else {
+                return nil
+            }
+        }
+        return activeRecord?.hadSurvivingBackgroundWorkAtStop == true
     }
 
     private func clearBackgroundWorkTransferBlocksSourceEvent(
@@ -1719,13 +1790,27 @@ final class ClaudeHookSessionStore {
            activeOwner.sessionId != sessionId,
            activeOwner.allowsNewSessionReplacement == true,
            let stoppedSession = state.sessions[activeOwner.sessionId] {
-            replacesStoppedOwnerFromNewGeneration =
+            let isNewerThanStoppedOwner =
                 compareProcessGeneration(
                     recordedPID: stoppedSession.pid,
                     recordedStartSeconds: stoppedSession.pidStartSeconds,
                     recordedStartMicroseconds: stoppedSession.pidStartMicroseconds,
                     incomingPID: incomingPID
                 ) == .newer
+            let isNewerThanInactiveTarget: Bool
+            if let inactiveTarget = state.sessions[sessionId] {
+                isNewerThanInactiveTarget =
+                    compareProcessGeneration(
+                        recordedPID: inactiveTarget.pid,
+                        recordedStartSeconds: inactiveTarget.pidStartSeconds,
+                        recordedStartMicroseconds: inactiveTarget.pidStartMicroseconds,
+                        incomingPID: incomingPID
+                    ) == .newer
+            } else {
+                isNewerThanInactiveTarget = true
+            }
+            replacesStoppedOwnerFromNewGeneration =
+                isNewerThanStoppedOwner && isNewerThanInactiveTarget
         } else {
             replacesStoppedOwnerFromNewGeneration = false
         }
@@ -1783,43 +1868,6 @@ final class ClaudeHookSessionStore {
         return true
     }
 
-    private func consumeClearBackgroundWorkTransfer(
-        from state: inout ClaudeHookSessionStoreFile,
-        surfaceId: String,
-        incomingPID: Int?
-    ) -> Bool? {
-        guard let normalizedSurfaceId = normalizeOptional(surfaceId),
-              let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] else {
-            return nil
-        }
-        // Surface identity survives workspace moves, so the stored workspace is
-        // routing history rather than part of the handoff's ownership key.
-        guard processGenerationMatches(
-            recordedPID: transfer.pid,
-            recordedStartSeconds: transfer.pidStartSeconds,
-            recordedStartMicroseconds: transfer.pidStartMicroseconds,
-            incomingPID: incomingPID
-        ) else {
-            return false
-        }
-        state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
-        return true
-    }
-
-    private func processGenerationMatches(
-        recordedPID: Int?,
-        recordedStartSeconds: Int64?,
-        recordedStartMicroseconds: Int64?,
-        incomingPID: Int?
-    ) -> Bool {
-        compareProcessGeneration(
-            recordedPID: recordedPID,
-            recordedStartSeconds: recordedStartSeconds,
-            recordedStartMicroseconds: recordedStartMicroseconds,
-            incomingPID: incomingPID
-        ) == .same
-    }
-
     private func compareProcessGeneration(
         recordedPID: Int?,
         recordedStartSeconds: Int64?,
@@ -1861,6 +1909,8 @@ final class ClaudeHookSessionStore {
         workspaceId: String?,
         surfaceId: String?,
         turnId: String? = nil,
+        incomingPID: Int? = nil,
+        requiresCurrentProcessGeneration: Bool = false,
         preservePendingBackgroundWorkForClear: Bool = false
     ) throws -> SessionConsumption? {
         let normalizedSessionId = normalizeOptional(sessionId)
@@ -1889,22 +1939,40 @@ final class ClaudeHookSessionStore {
                 }
                 record = fallback
             }
+            if requiresCurrentProcessGeneration {
+                guard compareProcessGeneration(
+                    recordedPID: record.pid,
+                    recordedStartSeconds: record.pidStartSeconds,
+                    recordedStartMicroseconds: record.pidStartMicroseconds,
+                    incomingPID: incomingPID
+                ) == .same else {
+                    return nil
+                }
+                let authorizationSurfaceId =
+                    normalizedSurface ?? normalizeOptional(record.surfaceId)
+                let authorizationWorkspaceId =
+                    normalizedWorkspace ?? normalizeOptional(record.workspaceId)
+                let activeOwner = activeSessionBoundary(
+                    in: state,
+                    workspaceId: authorizationWorkspaceId ?? "",
+                    surfaceId: authorizationSurfaceId
+                )
+                if let activeOwner, activeOwner.sessionId != record.sessionId {
+                    return nil
+                }
+            }
             guard !hasActiveTurnMismatch(state, record: record, turnId: turnId) else {
                 return nil
             }
             let transferSurfaceId = normalizedSurface ?? normalizeOptional(record.surfaceId)
             let transferWorkspaceId = normalizedWorkspace ?? normalizeOptional(record.workspaceId)
-            let activeOwner = activeSessionRecord(
-                in: state,
-                workspaceId: transferWorkspaceId ?? "",
-                surfaceId: transferSurfaceId ?? ""
-            )
-            let preservesPendingBackgroundWork =
+            let createsClearOwnershipTransfer =
                 preservePendingBackgroundWorkForClear
-                && record.hadSurvivingBackgroundWorkAtStop == true
-                && activeOwner?.sessionId == record.sessionId
                 && transferSurfaceId != nil
-            if preservesPendingBackgroundWork, let transferSurfaceId {
+            let preservesPendingBackgroundWork =
+                createsClearOwnershipTransfer
+                && record.hadSurvivingBackgroundWorkAtStop == true
+            if createsClearOwnershipTransfer, let transferSurfaceId {
                 let transferCreatedAt = Date.now.timeIntervalSince1970
                 state.clearBackgroundWorkTransfersBySurface[transferSurfaceId] =
                     ClaudeHookClearBackgroundWorkTransfer(
@@ -1914,7 +1982,8 @@ final class ClaudeHookSessionStore {
                         pidStartSeconds: record.pidStartSeconds,
                         pidStartMicroseconds: record.pidStartMicroseconds,
                         updatedAt: transferCreatedAt,
-                        expiresAt: transferCreatedAt + maxClearBackgroundWorkTransferAgeSeconds
+                        expiresAt: transferCreatedAt + maxClearBackgroundWorkTransferAgeSeconds,
+                        preservedPendingBackgroundWork: preservesPendingBackgroundWork
                     )
             }
             state.sessions.removeValue(forKey: record.sessionId)
@@ -25131,7 +25200,7 @@ struct CMUXCLI {
                       agentLifecycle: .running,
                       markActive: true,
                       turnId: parsedInput.turnId,
-                      authorization: .ordinaryActivity(incomingPID: incomingClaudePid)
+                      authorization: .turnStart(incomingPID: incomingClaudePid)
                   ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.prompt-submit.store-rejected")
@@ -25429,6 +25498,7 @@ struct CMUXCLI {
             // If Stop already consumed the session, consumedSession is nil and we skip
             // to avoid wiping the completion notification that Stop just delivered.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let incomingClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             // Resolve the pane's CURRENT owner before consuming the record:
             // SessionEnd can be the only hook after a pane move (Ctrl-C exit
             // with no later Stop/Notification to heal the record), and cleanup
@@ -25454,8 +25524,16 @@ struct CMUXCLI {
                 workspaceId: consumeStoredRoute ? nil : liveEndTarget.workspaceId,
                 surfaceId: consumeStoredRoute ? nil : liveEndTarget.surfaceId,
                 turnId: parsedInput.turnId,
+                incomingPID: incomingClaudePid,
+                requiresCurrentProcessGeneration: true,
                 preservePendingBackgroundWorkForClear: isClearSessionEnd
             )
+            guard consumption != nil else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-end.store-rejected")
+                printClaudeHookAck()
+                return
+            }
             // consume() clears the active slot before returning
             // consumedSession, so isCurrent can treat consumedSession.sessionId
             // as current only when the consumed session was the active one.
