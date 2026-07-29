@@ -10033,16 +10033,11 @@ final class GhosttySurfaceScrollView: NSView {
         guard let delegate = AppDelegate.shared,
               let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
               tabManager.selectedTabId == tabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
-              }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
             return false
         }
 
-        return tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface &&
-            tab.bonsplitController.focusedPaneId == paneId
+        return tab.isFocusedTerminalInputSurface(surfaceId)
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during

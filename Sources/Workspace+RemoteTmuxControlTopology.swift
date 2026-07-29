@@ -183,6 +183,31 @@ extension Workspace {
         controlTerminalTarget(for: surfaceID)?.panel
     }
 
+    /// The terminal that currently owns keyboard input for this workspace.
+    ///
+    /// Workspace selection retains the stable outer container identity, while
+    /// a remote-tmux container projects to its authoritative active inner pane.
+    func focusedTerminalInputTarget() -> (surfaceID: UUID, panel: TerminalPanel)? {
+        guard let focusedPanelId else { return nil }
+        if isRemoteTmuxControlContainer(focusedPanelId) {
+            guard let activePane = remoteTmuxControlPanes(
+                containerPanelID: focusedPanelId
+            ).first(where: { $0.pane.isFocused }) else {
+                return nil
+            }
+            return (activePane.pane.panel.id, activePane.pane.panel)
+        }
+        guard let panel = panels[focusedPanelId] as? TerminalPanel else {
+            return nil
+        }
+        return (focusedPanelId, panel)
+    }
+
+    /// Whether `surfaceID` is the workspace's canonical keyboard-input target.
+    func isFocusedTerminalInputSurface(_ surfaceID: UUID) -> Bool {
+        focusedTerminalInputTarget()?.surfaceID == surfaceID
+    }
+
     /// Projects a workspace-owned panel into the identity exposed by the
     /// control plane. A mirror container resolves only when tmux has published
     /// an authoritative active pane; ordinary panels keep their Bonsplit pane.

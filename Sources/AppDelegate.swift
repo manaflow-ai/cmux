@@ -5555,10 +5555,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let context = contextForMainWindow(window) ?? contextForMainTerminalWindow(window),
               let workspace = context.tabManager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            return
-        }
+              let inputTarget = workspace.focusedTerminalInputTarget() else { return }
+        let (panelId, terminalPanel) = inputTarget
         if normalizedFlags.contains(.command) {
             let responderHasViableOwner = firstResponder.map { responderHasViableKeyRoutingOwner($0, in: window) } ?? false
             let commandEquivalentNeedsRepair = shouldRepairFocusedTerminalCommandEquivalentInputs(
