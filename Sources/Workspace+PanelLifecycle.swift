@@ -35,6 +35,42 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
     }
 
+    /// Returns exact-session runtime identities that still match their recorded process generation.
+    func confirmedRuntimeAgentProcessIdentities(
+        for agent: SessionRestorableAgentSnapshot,
+        panelId: UUID,
+        currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
+    ) -> Set<AgentPIDProcessIdentity> {
+        confirmedRuntimeAgentProcessIdentities(
+            kind: agent.kind,
+            sessionId: agent.sessionId,
+            panelId: panelId,
+            currentProcessIdentity: currentProcessIdentity
+        )
+    }
+
+    /// Returns exact-session runtime identities that still match their recorded process generation.
+    func confirmedRuntimeAgentProcessIdentities(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        panelId: UUID,
+        currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
+    ) -> Set<AgentPIDProcessIdentity> {
+        // Claude's `claude_code` key identifies only a panel, not a session, so it
+        // cannot prove that a live process supersedes this cached session generation.
+        guard kind != .claude else { return [] }
+        let key = "\(kind.rawValue).\(sessionId)"
+        guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
+              let pid = agentPIDs[key],
+              pid > 0,
+              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+              recordedIdentity.pid == pid,
+              currentProcessIdentity(Int(pid)) == recordedIdentity else {
+            return []
+        }
+        return [recordedIdentity]
+    }
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
@@ -369,7 +405,9 @@ extension Workspace {
         publishSurfaceClosedEvent: Bool,
         clearSurfaceNotifications: Bool,
         requestTransferredRemoteCleanup: Bool,
-        cleanupControllerSurfaceState: Bool = false
+        discardAgentHibernationTracking: Bool = true,
+        cleanupControllerSurfaceState: Bool = false,
+        preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -409,7 +447,23 @@ extension Workspace {
             )
         }
 
-        panels.removeValue(forKey: panelId)
+        let removedPanel = panels.removeValue(forKey: panelId)
+        if discardAgentHibernationTracking {
+            AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+                workspaceId: id,
+                panelId: panelId
+            )
+        }
+        if let terminalPanel =
+                (removedPanel ?? panel) as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalDidLeaveWorkspace(
+                    terminalPanel,
+                    workspace: self,
+                    preservingTransfer:
+                        preservesTerminalForTransfer
+                )
+        }
         untrackRemoteTerminalSurface(panelId)
         discardRemoteDirectoryTrustState(panelId: panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
@@ -441,16 +495,13 @@ extension Workspace {
         clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
-        terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
-        if lastTerminalConfigInheritancePanelId == panelId {
-            lastTerminalConfigInheritancePanelId = nil
-        }
+        removeTerminalConfigInheritanceSource(panelId: panelId)
         if clearSurfaceNotifications {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
 
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {
-            Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
+            requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
         return transferredRemoteCleanupConfiguration
     }

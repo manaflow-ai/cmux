@@ -45,4 +45,13 @@ public final class AtomicBooleanGate: @unchecked Sendable {
     public func storeRelease(_ value: Bool) {
         CmuxAtomicBooleanStoreRelease(storage, value)
     }
+
+    /// Atomically replaces `expected` with `desired`.
+    ///
+    /// - Returns: `true` when this call observed `expected` and performed the
+    ///   transition, otherwise `false`.
+    @inline(__always)
+    public func compareExchange(expected: Bool, desired: Bool) -> Bool {
+        CmuxAtomicBooleanCompareExchange(storage, expected, desired)
+    }
 }

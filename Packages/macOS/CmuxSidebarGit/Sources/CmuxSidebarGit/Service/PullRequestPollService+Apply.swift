@@ -15,6 +15,11 @@ extension PullRequestPollService {
         rateLimitRetryDate: Date? = nil
     ) {
         guard let host else { return }
+        let activity = sidebarPullRequestActivity
+        guard activity.performsActivePolling else {
+            stopWorkspacePullRequestPolling(activity: activity)
+            return
+        }
         guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             workspacePullRequestRefreshTask = nil
             for key in requestedKeys {
@@ -22,11 +27,6 @@ extension PullRequestPollService {
                 workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(mobileHostDeferral.quietInterval)
             }
             deferWorkspacePullRequestRefreshForMobileHost()
-            return
-        }
-        guard sidebarPullRequestPollingEnabled else {
-            resetWorkspacePullRequestRefreshState()
-            host.clearAllSidebarPullRequestMetadata()
             return
         }
 
@@ -120,7 +120,7 @@ extension PullRequestPollService {
                 // disabled the probe scheduler clears the panel's branch AND
                 // the badge this pass just applied (there is also no branch
                 // projection to heal).
-                if resolvedBranch != projectedBranch, host.isGitMetadataWatchEnabled {
+                if resolvedBranch != projectedBranch, host.gitMetadataActivity.performsActivePolling {
                     host.schedulePanelGitMetadataProbe(
                         workspaceId: result.workspaceId,
                         panelId: result.panelId,
@@ -296,6 +296,26 @@ extension PullRequestPollService {
             return
         }
         host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
+    }
+
+    func stopWorkspacePullRequestPolling(
+        for key: WorkspaceGitProbeKey,
+        activity: SidebarGitMetadataActivity
+    ) {
+        clearWorkspacePullRequestTracking(for: key)
+        guard activity == .disabled,
+              let host,
+              host.workspaceExists(key.workspaceId) else {
+            return
+        }
+        host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
+    }
+
+    func stopWorkspacePullRequestPolling(activity: SidebarGitMetadataActivity) {
+        resetWorkspacePullRequestRefreshState()
+        if activity == .disabled {
+            host?.clearAllSidebarPullRequestMetadata()
+        }
     }
 
     public func clearWorkspacePullRequestMetadata(workspaceId: UUID, panelId: UUID) {

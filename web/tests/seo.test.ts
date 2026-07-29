@@ -3,10 +3,14 @@ import { NextRequest } from "next/server";
 import { createTranslator } from "use-intl/core";
 import { comparePages } from "../app/lib/compare-pages";
 import { blogPostsForLocale } from "../app/[locale]/components/blog-posts";
+import robots from "../app/robots";
 import sitemap from "../app/sitemap";
 import { legalMetadata } from "../app/[locale]/(legal)/legal-metadata";
 import middleware from "../proxy";
 import {
+  browserOpenGraphDefaults,
+  browserOpenGraphImage,
+  browserTwitterSummary,
   buildAlternates,
   canonicalUrl,
   completeMetadataSentence,
@@ -24,6 +28,7 @@ import {
   bestTerminalSeoCopy,
   blogIndexSeoCopy,
   blogPostSeoCopy,
+  browserDownloadSeoCopy,
   cmuxHistorySeoCopy,
   communitySeoCopy,
   compareIndexSeoCopy,
@@ -38,6 +43,14 @@ import { englishFallbackContentLocales } from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
 
 describe("SEO metadata helpers", () => {
+  test("keeps rendering assets crawlable", () => {
+    const rules = robots().rules;
+    const allRules = Array.isArray(rules) ? rules : [rules];
+    const disallowed = allRules.flatMap((rule) => rule.disallow ?? []);
+
+    expect(disallowed).not.toContain("/_next/");
+  });
+
   test("omits English-only posts from localized blog navigation", () => {
     const englishSlugs = blogPostsForLocale("en").map((post) => post.slug);
     const japaneseSlugs = blogPostsForLocale("ja").map((post) => post.slug);
@@ -49,6 +62,12 @@ describe("SEO metadata helpers", () => {
     expect(japaneseSlugs).not.toContain("cmux-omo");
     expect(japaneseSlugs).not.toContain("gpl");
     expect(japaneseSlugs).not.toContain("cmux-claude-teams");
+    expect(englishSlugs).toContain("367-billion-tokens");
+    expect(japaneseSlugs).toContain("367-billion-tokens");
+    expect(germanSlugs).not.toContain("367-billion-tokens");
+    expect(englishSlugs).toContain("claude-code-best-worktree-manager");
+    expect(japaneseSlugs).toContain("claude-code-best-worktree-manager");
+    expect(germanSlugs).not.toContain("claude-code-best-worktree-manager");
     expect(japaneseSlugs).toContain("cmux-ssh");
     expect(germanSlugs).not.toContain("cmux-ssh");
   });
@@ -201,6 +220,22 @@ describe("SEO metadata helpers", () => {
     });
     expect(twitterSummary("ja", "Title", "Description").images).toEqual([
       "https://cmux.com/ja/opengraph-image",
+    ]);
+    expect(browserOpenGraphDefaults("Descargar cmux para Windows")).toEqual({
+      siteName: "cmux",
+      type: "website",
+      images: [
+        {
+          url: "https://cmux.com/browser-opengraph-image",
+          width: 2400,
+          height: 1260,
+          alt: "Descargar cmux para Windows",
+        },
+      ],
+    });
+    expect(browserOpenGraphImage("متصفح cmux").alt).toBe("متصفح cmux");
+    expect(browserTwitterSummary("Title", "Description").images).toEqual([
+      "https://cmux.com/browser-opengraph-image",
     ]);
   });
 
@@ -363,6 +398,7 @@ describe("SEO metadata helpers", () => {
       expect(new Set(compareTitles).size).toBe(comparePages.length);
 
       const auditedBlogPosts = [
+        ["367-billion-tokens", "tokenMultitasking"],
         ["cmux-omo", "cmuxOmo"],
         ["gpl", "gpl"],
         ["show-hn-launch", "showHnLaunch"],
@@ -377,6 +413,13 @@ describe("SEO metadata helpers", () => {
       ] as const;
       for (const [slug, postKey] of auditedBlogPosts) {
         if (locale !== "en" && (postKey === "cmuxOmo" || postKey === "gpl")) {
+          continue;
+        }
+        if (
+          postKey === "tokenMultitasking" &&
+          locale !== "en" &&
+          locale !== "ja"
+        ) {
           continue;
         }
         const metadata = messages.blog[postKey];
@@ -503,6 +546,31 @@ describe("SEO metadata helpers", () => {
           [messages.landing.guides.metaTitle, messages.landing.guides.title],
         ),
       );
+      for (const platform of ["windows", "linux"] as const) {
+        const page = messages.browserDownloads[platform];
+        const copy = browserDownloadSeoCopy(
+          locale,
+          messageLookup(page),
+          messages.browserDownloads.eyebrow,
+        );
+        expect(`${copy.title}${copy.description}`).not.toContain("macOS");
+        if (copy.title !== page.metaTitle) {
+          expect(copy.title).toContain(messages.browserDownloads.eyebrow);
+        }
+        rows.push(
+          auditedRow(
+            `/${platform}`,
+            copy,
+            [
+              page.metaDescription,
+              page.subtitle,
+              page.installBody,
+              page.name,
+            ],
+            [page.metaTitle, page.name],
+          ),
+        );
+      }
       if (locale === "en" || locale === "ja") {
         const pricing = messageLookup(messages.pricing);
         rows.push(
@@ -1104,17 +1172,30 @@ describe("SEO middleware", () => {
       .filter(
         (url) =>
           url.endsWith("/pricing") ||
+          url.endsWith("/blog/367-billion-tokens") ||
+          url.endsWith("/blog/claude-code-best-worktree-manager") ||
           url.endsWith("/blog/cmux-ssh") ||
           url.endsWith("/docs/agent-integrations/oh-my-pi"),
       );
     expect(urls).toEqual([
       "https://cmux.com/pricing",
       "https://cmux.com/ja/pricing",
+      "https://cmux.com/blog/367-billion-tokens",
+      "https://cmux.com/ja/blog/367-billion-tokens",
+      "https://cmux.com/blog/claude-code-best-worktree-manager",
+      "https://cmux.com/ja/blog/claude-code-best-worktree-manager",
       "https://cmux.com/blog/cmux-ssh",
       "https://cmux.com/ja/blog/cmux-ssh",
       "https://cmux.com/docs/agent-integrations/oh-my-pi",
       "https://cmux.com/ja/docs/agent-integrations/oh-my-pi",
     ]);
+  });
+
+  test("excludes redirect-only and noindex docs routes from the sitemap", () => {
+    const urls = sitemap().map((entry) => entry.url);
+
+    expect(urls.some((url) => url.endsWith("/docs/base"))).toBe(false);
+    expect(urls.some((url) => url.endsWith("/docs/nightly/base"))).toBe(false);
   });
 
   test("canonicalizes English-only blog posts", () => {
@@ -1158,22 +1239,26 @@ describe("SEO middleware", () => {
   });
 
   test("limits partially translated blog posts to authored locales", () => {
-    const german = middleware(
-      requestFor("/de/blog/cmux-ssh", { "accept-language": "de" }),
-    );
-    expect(german.status).toBe(301);
-    expect(german.headers.get("location")).toBe(
-      "https://cmux.com/blog/cmux-ssh",
-    );
+    for (const path of [
+      "/blog/367-billion-tokens",
+      "/blog/claude-code-best-worktree-manager",
+      "/blog/cmux-ssh",
+    ]) {
+      const german = middleware(
+        requestFor(`/de${path}`, { "accept-language": "de" }),
+      );
+      expect(german.status).toBe(301);
+      expect(german.headers.get("location")).toBe(`https://cmux.com${path}`);
 
-    const japanese = middleware(
-      requestFor("/ja/blog/cmux-ssh", { "accept-language": "ja" }),
-    );
-    expect(japanese.status).toBe(200);
-    expect(japanese.headers.get("location")).toBeNull();
-    expect(japanese.headers.get("Link")).toContain('hreflang="en"');
-    expect(japanese.headers.get("Link")).toContain('hreflang="ja"');
-    expect(japanese.headers.get("Link")).not.toContain('hreflang="de"');
+      const japanese = middleware(
+        requestFor(`/ja${path}`, { "accept-language": "ja" }),
+      );
+      expect(japanese.status).toBe(200);
+      expect(japanese.headers.get("location")).toBeNull();
+      expect(japanese.headers.get("Link")).toContain('hreflang="en"');
+      expect(japanese.headers.get("Link")).toContain('hreflang="ja"');
+      expect(japanese.headers.get("Link")).not.toContain('hreflang="de"');
+    }
   });
 });
 

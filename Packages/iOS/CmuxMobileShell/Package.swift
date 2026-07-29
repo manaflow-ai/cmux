@@ -13,6 +13,10 @@ let package = Package(
             name: "CmuxMobileShell",
             targets: ["CmuxMobileShell"]
         ),
+        .library(
+            name: "CmuxMobileShellReleaseGateSupport",
+            targets: ["CmuxMobileShellReleaseGateSupport"]
+        ),
     ],
     dependencies: [
         .package(path: "../../Shared/CmuxAgentReplica"),
@@ -47,8 +51,8 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
-        .testTarget(
-            name: "CmuxMobileShellTests",
+        .target(
+            name: "CmuxMobileShellReleaseGateSupport",
             dependencies: [
                 "CmuxMobileShell",
                 "CMUXMobileCore",

@@ -1,3 +1,5 @@
+internal import CMUXMobileCore
+
 /// Stable, account-and-build-scoped inputs for one iOS Iroh lifecycle.
 public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     /// The authenticated account scope used only for device-local policy isolation.
@@ -60,7 +62,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         cachedRelayCredential: CmxIrohRelayTokenResponse? = nil
     ) {
         self.accountID = accountID
-        self.deviceID = deviceID.lowercased()
+        self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
         self.tag = tag
         self.displayName = displayName

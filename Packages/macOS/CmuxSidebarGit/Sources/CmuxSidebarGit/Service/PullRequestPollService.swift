@@ -56,7 +56,7 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestPollTask: Task<Void, Never>?
     var workspacePullRequestRefreshTask: Task<Void, Never>?
     var workspacePullRequestFollowUpShouldBypassRepoCache = false
-    var lastSidebarPullRequestPollingEnabled = false
+    var lastSidebarPullRequestActivity: SidebarGitMetadataActivity = .disabled
 
     /// Creates the poll service.
     ///
@@ -90,12 +90,16 @@ public final class PullRequestPollService: PullRequestProbing {
     /// scheduling entry point runs).
     public func attach(host: any SidebarGitHosting) {
         self.host = host
-        lastSidebarPullRequestPollingEnabled = host.isPullRequestPollingEnabled
+        lastSidebarPullRequestActivity = host.pullRequestActivity
         updateWorkspacePullRequestPollTimer()
     }
 
+    var sidebarPullRequestActivity: SidebarGitMetadataActivity {
+        host?.pullRequestActivity ?? .disabled
+    }
+
     var sidebarPullRequestPollingEnabled: Bool {
-        host?.isPullRequestPollingEnabled ?? false
+        sidebarPullRequestActivity.performsActivePolling
     }
 
     // MARK: Poll timer
@@ -159,13 +163,13 @@ public final class PullRequestPollService: PullRequestProbing {
         allowCachedResultsOverride: Bool?
     ) {
         guard let host else { return }
-        guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
-            deferWorkspacePullRequestRefreshForMobileHost()
+        let activity = sidebarPullRequestActivity
+        guard activity.performsActivePolling else {
+            stopWorkspacePullRequestPolling(activity: activity)
             return
         }
-        guard sidebarPullRequestPollingEnabled else {
-            resetWorkspacePullRequestRefreshState()
-            host.clearAllSidebarPullRequestMetadata()
+        guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
+            deferWorkspacePullRequestRefreshForMobileHost()
             return
         }
 
@@ -302,8 +306,9 @@ public final class PullRequestPollService: PullRequestProbing {
         reason: String
     ) {
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        guard sidebarPullRequestPollingEnabled else {
-            clearWorkspacePullRequestMetadata(for: key)
+        let activity = sidebarPullRequestActivity
+        guard activity.performsActivePolling else {
+            stopWorkspacePullRequestPolling(for: key, activity: activity)
             return
         }
         let shouldBypassRepoCache = !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)

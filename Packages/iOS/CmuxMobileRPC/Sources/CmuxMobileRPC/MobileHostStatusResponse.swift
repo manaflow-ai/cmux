@@ -57,6 +57,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         terminalFidelity = try container.decodeIfPresent(String.self, forKey: .terminalFidelity)
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
         macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
+            .map(cmxCanonicalDeviceID)
         macInstanceTag = try container.decodeIfPresent(String.self, forKey: .macInstanceTag)
         terminalThemeRevisionEpoch = try container.decodeIfPresent(String.self, forKey: .terminalThemeRevisionEpoch)
         macAppVersion = try container.decodeIfPresent(String.self, forKey: .macAppVersion)

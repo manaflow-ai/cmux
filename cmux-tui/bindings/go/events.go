@@ -14,6 +14,11 @@ func parseEvent(raw map[string]any) Event {
 	switch name {
 	case "tree-changed":
 		return TreeChangedEvent{}
+	case "layout-changed":
+		var event LayoutChangedEvent
+		if mustDecode(&event) {
+			return event
+		}
 	case "empty":
 		return EmptyEvent{}
 	case "overflow":

@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::ui::input::{InputEvent, TextInput};
+
 pub use files::FileEntry;
 use files::{filtered_indices, list_directory};
 use navigation::Navigation;
@@ -28,7 +30,7 @@ pub struct FileBrowser {
     selected: usize,
     show_hidden: bool,
     filter_mode: bool,
-    query: String,
+    query: TextInput,
     listing_error: Option<String>,
     message: Option<String>,
     last_refresh: Instant,
@@ -44,7 +46,7 @@ impl FileBrowser {
             selected: 0,
             show_hidden: false,
             filter_mode: false,
-            query: String::new(),
+            query: TextInput::new(String::new()),
             listing_error: None,
             message: None,
             last_refresh: Instant::now(),
@@ -85,8 +87,9 @@ impl FileBrowser {
         self.filter_mode
     }
 
+    #[cfg(test)]
     pub fn query(&self) -> &str {
-        &self.query
+        self.query.as_str()
     }
 
     pub fn listing_error(&self) -> Option<&str> {
@@ -181,14 +184,24 @@ impl FileBrowser {
             return false;
         }
         let keep = self.selected_entry().map(|entry| entry.path);
-        self.query.extend(text.chars().filter(|ch| !ch.is_control()));
-        self.apply_filter(keep.as_deref());
-        true
+        let changed = self.query.insert_str(text);
+        if changed {
+            self.apply_filter(keep.as_deref());
+        }
+        changed
+    }
+
+    pub fn visible_filter_text_and_cursor(&mut self, width: usize) -> (String, usize) {
+        self.query.visible_text_and_cursor(width)
+    }
+
+    pub fn set_filter_cursor_from_visible_column(&mut self, column: usize, width: usize) {
+        self.query.set_cursor_from_visible_column(column, width);
     }
 
     fn handle_filter_key(&mut self, key: &KeyEvent) -> Option<FileCommand> {
         match key.code {
-            KeyCode::Esc if !self.query.is_empty() => {
+            KeyCode::Esc if !self.query.as_str().is_empty() => {
                 let keep = self.selected_entry().map(|entry| entry.path);
                 self.query.clear();
                 self.apply_filter(keep.as_deref());
@@ -202,11 +215,6 @@ impl FileBrowser {
                 self.filter_mode = false;
                 self.descend_selected();
             }
-            KeyCode::Backspace => {
-                let keep = self.selected_entry().map(|entry| entry.path);
-                self.query.pop();
-                self.apply_filter(keep.as_deref());
-            }
             KeyCode::Up => self.move_selection(-1),
             KeyCode::Down => self.move_selection(1),
             KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -215,14 +223,12 @@ impl FileBrowser {
             KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.move_selection(1);
             }
-            KeyCode::Char(ch)
-                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
-            {
+            _ => {
                 let keep = self.selected_entry().map(|entry| entry.path);
-                self.query.push(ch);
-                self.apply_filter(keep.as_deref());
+                if self.query.handle_key(key) == InputEvent::Changed {
+                    self.apply_filter(keep.as_deref());
+                }
             }
-            _ => {}
         }
         None
     }
@@ -309,7 +315,7 @@ impl FileBrowser {
     }
 
     fn apply_filter(&mut self, selected_path: Option<&Path>) {
-        self.visible = filtered_indices(&self.entries, &self.query);
+        self.visible = filtered_indices(&self.entries, self.query.as_str());
         self.selected = selected_path
             .and_then(|path| {
                 self.visible.iter().position(|index| self.entries[*index].path == path)
@@ -398,6 +404,32 @@ mod tests {
 
         browser.handle_key(&key(KeyCode::Esc));
         assert!(!browser.filter_mode());
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn filter_option_backspace_deletes_the_previous_word() {
+        let temp = temp_dir("filter-option-backspace");
+        let mut browser = FileBrowser::new(temp.clone());
+        browser.handle_key(&key(KeyCode::Char('/')));
+        assert!(browser.insert_filter_text("alpha beta"));
+
+        browser.handle_key(&KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+
+        assert_eq!(browser.query(), "alpha ");
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn filter_backspace_deletes_one_extended_grapheme() {
+        let temp = temp_dir("filter-grapheme-backspace");
+        let mut browser = FileBrowser::new(temp.clone());
+        browser.handle_key(&key(KeyCode::Char('/')));
+        assert!(browser.insert_filter_text("á👨‍👩‍👧‍👦"));
+
+        browser.handle_key(&key(KeyCode::Backspace));
+
+        assert_eq!(browser.query(), "á");
         fs::remove_dir_all(temp).unwrap();
     }
 

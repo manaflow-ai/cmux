@@ -8,44 +8,12 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::style::{Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, ContextMenu, MenuItem};
+use crate::localization::catalog;
 
-struct PairingCopy {
-    title: &'static str,
-    confirm: &'static str,
-    peer_prefix: &'static str,
-    deny: &'static str,
-    approve: &'static str,
-}
-
-fn pairing_copy() -> PairingCopy {
-    let locale = std::env::var("LC_ALL")
-        .or_else(|_| std::env::var("LC_MESSAGES"))
-        .or_else(|_| std::env::var("LANG"))
-        .unwrap_or_default();
-    pairing_copy_for_locale(&locale)
-}
-
-fn pairing_copy_for_locale(locale: &str) -> PairingCopy {
-    if locale.to_ascii_lowercase().starts_with("ja") {
-        PairingCopy {
-            title: "ブラウザを承認しますか？",
-            confirm: "ブラウザのコードと一致するか確認:",
-            peer_prefix: "接続元:",
-            deny: "[ 拒否 esc ]",
-            approve: "[ 承認 enter ]",
-        }
-    } else {
-        PairingCopy {
-            title: "Approve browser?",
-            confirm: "Confirm this code matches the browser:",
-            peer_prefix: "from",
-            deny: "[ Deny esc ]",
-            approve: "[ Approve enter ]",
-        }
-    }
-}
+use super::{ScrollbarState, ScrollbarStyle};
 
 /// Trusted approval dialog for a browser pairing request.
 pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
@@ -58,7 +26,7 @@ pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
     let x = (screen.width - width) / 2;
     let y = (screen.height - height) / 2;
     let Some(dialog) = app.pairing_dialog.as_mut() else { return };
-    let copy = pairing_copy();
+    let copy = &catalog().pairing;
     dialog.rect = Rect { x, y, width, height };
 
     let chrome = app.chrome;
@@ -153,7 +121,7 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
         }
     }
     draw_border(buf, prompt.rect, border);
-    buf.set_stringn(x + 2, y + 2, prompt.label, (width - 4) as usize, title_style);
+    buf.set_stringn(x + 2, y + 2, prompt.label.as_str(), (width - 4) as usize, title_style);
 
     // Input row: visible slice around the cursor.
     let input_w = width.saturating_sub(4);
@@ -215,69 +183,229 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
 
 pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
-    let Some(menu) = app.menu.as_mut() else { return };
-    menu.fit_to_rows(screen.height.saturating_sub(2) as usize);
-
-    // Clamp to the screen and write the final rect back so click and
-    // hover hit-testing match what is drawn.
-    let width = menu.rect.width.min(screen.width);
-    let height = menu.rect.height.min(screen.height);
-    let x = menu.rect.x.min(screen.width.saturating_sub(width));
-    let y = menu.rect.y.min(screen.height.saturating_sub(height));
-    menu.rect = Rect { x, y, width, height };
-    if width < 2 || height < 2 {
-        return;
-    }
-
     let chrome = app.chrome;
+    let Some(menu) = app.menu.as_mut() else { return };
     let base = Style::default().bg(chrome.menu_bg).fg(chrome.menu_fg);
     let border = base.fg(chrome.menu_border);
     let selected = Style::default()
         .bg(chrome.menu_selected_bg)
         .fg(chrome.menu_selected_fg)
         .add_modifier(Modifier::BOLD);
-    let buf = frame.buffer_mut();
+    for depth in 0..menu.levels.len() {
+        menu.levels[depth].fit_to_rows(screen.height.saturating_sub(2) as usize);
+        let width = menu.levels[depth].rect.width.min(screen.width);
+        let height = menu.levels[depth].rect.height.min(screen.height);
+        let (desired_x, desired_y) = if depth == 0 {
+            (menu.levels[depth].rect.x, menu.levels[depth].rect.y)
+        } else {
+            let parent = &menu.levels[depth - 1];
+            let right_x = parent.rect.x.saturating_add(parent.rect.width.saturating_sub(1));
+            let x = if right_x.saturating_add(width) <= screen.x.saturating_add(screen.width) {
+                right_x
+            } else {
+                parent.rect.x.saturating_sub(width.saturating_sub(1))
+            };
+            (
+                x,
+                parent
+                    .rect
+                    .y
+                    .saturating_add(1)
+                    .saturating_add(parent.selected.saturating_sub(parent.scroll_offset) as u16),
+            )
+        };
+        let x = desired_x.min(screen.width.saturating_sub(width));
+        let y = desired_y.min(screen.height.saturating_sub(height));
+        menu.levels[depth].rect = Rect { x, y, width, height };
+        if width < 2 || height < 2 {
+            continue;
+        }
 
+        let level = &menu.levels[depth];
+        let buf = frame.buffer_mut();
+        for dy in 0..height {
+            for dx in 0..width {
+                set_cell(buf, x + dx, y + dy, " ", base);
+            }
+        }
+        draw_border(buf, level.rect, border);
+
+        let pad = ContextMenu::PAD;
+        let inner_x = x + 1;
+        let inner_y = y + 1;
+        let inner_w = width.saturating_sub(2);
+        let inner_h = height.saturating_sub(2);
+        for (i, item) in
+            level.items.iter().enumerate().skip(level.scroll_offset).take(inner_h as usize)
+        {
+            let row_y = inner_y + (i - level.scroll_offset) as u16;
+            if *item == MenuItem::Separator {
+                set_cell(buf, x, row_y, "├", border);
+                for dx in 0..inner_w {
+                    set_cell(buf, inner_x + dx, row_y, "─", border);
+                }
+                set_cell(buf, x + width - 1, row_y, "┤", border);
+                continue;
+            }
+            if let Some(label) = item.label() {
+                let style = if i == level.selected { selected } else { base };
+                for dx in 0..inner_w {
+                    set_cell(buf, inner_x + dx, row_y, " ", style);
+                }
+                let shortcut_width =
+                    item.shortcut().map(|shortcut| shortcut.width() as u16 + 2).unwrap_or(0);
+                let arrow_width = matches!(item, MenuItem::Submenu { .. }) as u16 * 2;
+                buf.set_stringn(
+                    inner_x + pad + 1,
+                    row_y,
+                    label,
+                    inner_w.saturating_sub(pad * 2 + arrow_width + shortcut_width) as usize,
+                    style,
+                );
+                if let Some(shortcut) = item.shortcut() {
+                    let shortcut_width =
+                        (shortcut.width() as u16).min(inner_w.saturating_sub(pad * 2));
+                    if shortcut_width > 0 {
+                        let shortcut_x =
+                            x + level.rect.width.saturating_sub(pad + 1 + shortcut_width);
+                        buf.set_stringn(
+                            shortcut_x,
+                            row_y,
+                            shortcut,
+                            shortcut_width as usize,
+                            style,
+                        );
+                    }
+                }
+                if matches!(item, MenuItem::Submenu { .. }) && inner_w > 2 {
+                    buf.set_stringn(x + width - pad - 3, row_y, " ›", 2, style);
+                }
+            }
+        }
+    }
+}
+
+pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
+    let screen = frame.area();
+    if app.shortcut_help.is_none() {
+        return;
+    }
+    if screen.width < 24 || screen.height < 7 {
+        app.shortcut_help = None;
+        return;
+    }
+    let catalog = catalog();
+    let Some(help) = app.shortcut_help.as_ref() else { return };
+    let total_rows = help.rows.len();
+    let close_text = format!("[{}]", catalog.shortcuts.close_button);
+    let desired_width = help
+        .rows
+        .iter()
+        .map(|(action, shortcuts)| catalog.action_label(*action).width() + shortcuts.width() + 9)
+        .max()
+        .unwrap_or(44)
+        .max(catalog.shortcuts.title.width() + close_text.width() + 8);
+    let width = (desired_width as u16).min(76).min(screen.width.saturating_sub(2)).max(24);
+    let height = (total_rows as u16 + 4).min(screen.height.saturating_sub(2)).max(7);
+    let x = (screen.width - width) / 2;
+    let y = (screen.height - height) / 2;
+    let visible_rows = height.saturating_sub(4) as usize;
+    let chrome = app.chrome;
+    let base = Style::default().bg(chrome.prompt_bg).fg(chrome.prompt_fg);
+    let border = base.fg(chrome.prompt_border);
+    let title = base.fg(chrome.prompt_title_fg).add_modifier(Modifier::BOLD);
+    let shortcut_style = title;
+    let rect = Rect { x, y, width, height };
+    let Some(help) = app.shortcut_help.as_mut() else { return };
+    help.rect = rect;
+    help.visible_rows = visible_rows;
+    let close_width = close_text.width().min(width.saturating_sub(4) as usize) as u16;
+    help.close_button = Rect {
+        x: x + width.saturating_sub(close_width + 3),
+        y: y + 1,
+        width: close_width,
+        height: 1,
+    };
+    help.scroll_offset = help.scroll_offset.min(total_rows.saturating_sub(visible_rows));
+    help.scrollbar_track = if visible_rows > 0 && total_rows > visible_rows {
+        Rect { x: x + width - 2, y: y + 2, width: 1, height: visible_rows as u16 }
+    } else {
+        Rect::default()
+    };
+    let (thumb_y, thumb_height) = help.scrollbar_geometry(total_rows);
+    help.scrollbar_thumb = if help.scrollbar_track.height > 0 {
+        Rect {
+            x: help.scrollbar_track.x,
+            y: help.scrollbar_track.y + thumb_y,
+            width: 1,
+            height: thumb_height,
+        }
+    } else {
+        Rect::default()
+    };
+    let scroll_offset = help.scroll_offset;
+    let scrollbar_track = help.scrollbar_track;
+    let close_button = help.close_button;
+    let scrollbar_dragging = help.scrollbar_dragging();
+
+    let buf = frame.buffer_mut();
     for dy in 0..height {
         for dx in 0..width {
             set_cell(buf, x + dx, y + dy, " ", base);
         }
     }
-    draw_border(buf, menu.rect, border);
+    draw_border(buf, rect, border);
+    let title_width = close_button.x.saturating_sub(x + 3);
+    buf.set_stringn(x + 2, y + 1, catalog.shortcuts.title, title_width as usize, title);
+    buf.set_stringn(
+        close_button.x,
+        close_button.y,
+        &close_text,
+        close_button.width as usize,
+        shortcut_style,
+    );
 
-    let pad = ContextMenu::PAD;
-    let inner_x = x + 1;
-    let inner_y = y + 1;
-    let inner_w = width.saturating_sub(2);
-    let inner_h = height.saturating_sub(2);
-    for (i, item) in menu.items.iter().enumerate() {
-        let row_y = inner_y + i as u16;
-        if i as u16 >= inner_h {
-            break;
-        }
-        if *item == MenuItem::Separator {
-            set_cell(buf, x, row_y, "├", border);
-            for dx in 0..inner_w {
-                set_cell(buf, inner_x + dx, row_y, "─", border);
-            }
-            set_cell(buf, x + width - 1, row_y, "┤", border);
-            continue;
-        }
-        if let Some(label) = item.label() {
-            let style = if i == menu.selected { selected } else { base };
-            // The highlight spans the full inner row, side padding included.
-            for dx in 0..inner_w {
-                set_cell(buf, inner_x + dx, row_y, " ", style);
-            }
-            buf.set_stringn(
-                inner_x + pad + 1,
-                row_y,
-                label,
-                inner_w.saturating_sub(pad * 2) as usize,
-                style,
-            );
-        }
+    let inner_width = width.saturating_sub(5);
+    let Some(help) = app.shortcut_help.as_ref() else { return };
+    for (line, (action, shortcuts)) in
+        help.rows.iter().skip(scroll_offset).take(visible_rows).enumerate()
+    {
+        let row_y = y + 2 + line as u16;
+        let label = catalog.action_label(*action);
+        let shortcuts = format!(" {shortcuts} ");
+        let shortcut_width = (shortcuts.width() as u16).min(inner_width / 2);
+        let shortcut_x = x + width.saturating_sub(shortcut_width + 2);
+        let shortcut_x = if scrollbar_track.height > 0 {
+            shortcut_x.min(scrollbar_track.x.saturating_sub(shortcut_width + 1))
+        } else {
+            shortcut_x
+        };
+        let label_width = shortcut_x.saturating_sub(x + 3);
+        buf.set_stringn(x + 2, row_y, label, label_width as usize, base);
+        buf.set_stringn(shortcut_x, row_y, &shortcuts, shortcut_width as usize, shortcut_style);
     }
+    ScrollbarStyle::from_chrome(chrome).draw_thumb(
+        buf,
+        scrollbar_track,
+        (thumb_y, thumb_height),
+        base,
+        if scrollbar_dragging { ScrollbarState::Expanded } else { ScrollbarState::Highlighted },
+    );
+
+    let footer = if total_rows > visible_rows {
+        let start = scroll_offset.saturating_add(1).min(total_rows);
+        let end = (scroll_offset + visible_rows).min(total_rows);
+        format!("{}  {start}-{end}/{total_rows}", catalog.shortcuts.footer)
+    } else {
+        catalog.shortcuts.footer.to_string()
+    };
+    buf.set_stringn(
+        x + 2,
+        y + height - 2,
+        &footer,
+        width.saturating_sub(5) as usize,
+        base.fg(chrome.status_dim_fg),
+    );
 }
 
 pub fn draw_toast(app: &App, frame: &mut Frame) {
@@ -331,11 +459,11 @@ fn label_width(label: &str) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use super::pairing_copy_for_locale;
+    use crate::localization::catalog_for_locale;
 
     #[test]
     fn pairing_dialog_has_english_and_japanese_copy() {
-        assert_eq!(pairing_copy_for_locale("en_US.UTF-8").title, "Approve browser?");
-        assert_eq!(pairing_copy_for_locale("ja_JP.UTF-8").title, "ブラウザを承認しますか？");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").pairing.title, "Approve browser?");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").pairing.title, "ブラウザを承認しますか？");
     }
 }

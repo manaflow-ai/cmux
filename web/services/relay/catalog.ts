@@ -36,7 +36,17 @@ export function configuredRelayCatalog(): RelayCatalog {
 }
 
 export function relayCatalogDigest(catalog: RelayCatalog): string {
-  return createHash("sha256").update(JSON.stringify(catalog)).digest("hex");
+  const canonicalCatalog = {
+    version: catalog.version,
+    sequence: catalog.sequence,
+    relays: catalog.relays.map((relay) => ({
+      id: relay.id,
+      provider: relay.provider,
+      region: relay.region,
+      url: relay.url,
+    })),
+  };
+  return createHash("sha256").update(JSON.stringify(canonicalCatalog)).digest("hex");
 }
 
 /**

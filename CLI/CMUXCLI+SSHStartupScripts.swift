@@ -332,9 +332,6 @@ extension CMUXCLI {
         if let trimmedOneTimeCommand, !trimmedOneTimeCommand.isEmpty {
             scriptLines.append("trap 'cmux_ssh_cleanup_password' EXIT")
             scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
-            if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
-                scriptLines.append("cmux_ssh_preflight_control_path")
-            }
             scriptLines += ["( cmux_ssh_foreground_auth )", "cmux_ssh_auth_status=$?", "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi", "trap - EXIT"]
         }
         let reconnectConfiguration = retryPTYAttachStatus ? [
@@ -374,9 +371,6 @@ extension CMUXCLI {
         ]
         if hasOneTimeCommand {
             scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")
-            if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
-                scriptLines.append("    cmux_ssh_preflight_control_path")
-            }
             scriptLines += ["    ( cmux_ssh_foreground_auth )", "    cmux_ssh_status=$?", "    if [ \"$cmux_ssh_status\" -eq 0 ]; then cmux_ssh_reauth_required=0; elif [ \"$cmux_ssh_status\" -ne 255 ]; then break; fi", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
         }
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty,
@@ -384,7 +378,7 @@ extension CMUXCLI {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
         if retryPTYAttachStatus {
-            // Advertise per attempt whether another 254|255 retry is queued so
+            // Advertise per attempt whether another 251|254|255 retry is queued so
             // ssh-pty-attach only suppresses its pty_attach_end cleanup while a
             // retry is actually pending; see CMUXCLI.sshPTYAttachWrapperRetryPending
             // and keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines /
@@ -403,7 +397,7 @@ extension CMUXCLI {
         } else {
             scriptLines.append("  command \(sshCommand) <&0 &")
         }
-        let retryableStatusPattern = retryPTYAttachStatus ? "254|255" : "255"
+        let retryableStatusPattern = retryPTYAttachStatus ? "251|254|255" : "255"
         scriptLines += [
             "  CMUX_SSH_CHILD_PID=$!",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",

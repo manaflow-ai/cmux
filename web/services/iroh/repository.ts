@@ -22,7 +22,7 @@ import {
   IrohQuotaExceededError,
 } from "./errors";
 import type { PairGrantPeer } from "./crypto";
-import type { IrohBindingQuota, IrohChallengeQuota } from "./config";
+import type { IrohChallengeQuota } from "./config";
 import {
   nextPathHintExpiry,
   parseIrohPathHint,
@@ -36,6 +36,23 @@ export const IROH_RETENTION_MAX_ROWS = 10_000;
 export const IROH_RETENTION_MAX_DURATION_MS = 8_000;
 export const IROH_ACCOUNT_CHALLENGE_LIMIT = 120;
 export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
+// A backstop on how many active (non-revoked) endpoint bindings one account may
+// accumulate. Under the unique(user, device, tag) slot key a normal user holds a
+// handful of bindings and a heavy multi-tag developer at most low hundreds, so
+// this only trips on a stuck registration loop or abuse. When a genuinely new
+// slot would push the count over the cap, that registration is REJECTED
+// (`enforceActiveBindingSanityCap` throws IrohConflictError); the row set is
+// never evicted, so a churning client can never shed the account's real hosts.
+//
+// The cap is pinned to the client's discovery-snapshot wire limit: the iOS
+// decoder (CmxIrohDiscoveryResponse.maximumBindingCount) rejects any snapshot
+// carrying MORE than 256 bindings, and discoverySnapshot returns every active
+// binding for the account uncapped. Admitting a 257th active binding would make
+// the account's own discovery response undecodable on every client, wedging all
+// of that user's devices, so the broker refuses to grow past what the client can
+// receive. It still sits far above any legitimate multi-tag developer's slot
+// count while catching a runaway registration loop, which blows past it at once.
+export const IROH_ACTIVE_BINDING_SANITY_CAP = 256;
 
 export type IrohRetentionCategory =
   | "revokedHints"
@@ -93,7 +110,6 @@ export type IrohRepositoryShape = {
     readonly nonceHash: string;
     readonly payload: IrohRegistrationPayload;
     readonly now: Date;
-    readonly bindingQuota: IrohBindingQuota;
   }) => Effect.Effect<IrohRegistrationCommit, RepositoryError>;
   readonly discoverySnapshot: (input: {
     readonly userId: string;
@@ -106,6 +122,10 @@ export type IrohRepositoryShape = {
     userId: string,
     bindingIds: readonly string[],
   ) => Effect.Effect<IrohBindingRecord[], RepositoryError>;
+  readonly findActiveBindingByEndpoint: (
+    userId: string,
+    endpointId: string,
+  ) => Effect.Effect<IrohBindingRecord | null, RepositoryError>;
   /** Returns true when the exact binding is owned and revoked, including retries. */
   readonly revokeBinding: (input: {
     readonly userId: string;
@@ -261,7 +281,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:endpoint:${input.payload.endpointId}`}, 0))`);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:app:${input.payload.appInstanceId}`}, 0))`);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:slot:${input.userId}:${input.payload.deviceId}:${input.payload.tag}`}, 0))`);
         const [challenge] = await tx
           .select()
           .from(irohRegistrationChallenges)
@@ -276,39 +296,95 @@ function makeLiveRepository(): IrohRepositoryShape {
         if (challenge.expiresAt <= input.now) throw new IrohForbiddenError({ code: "challenge_expired" });
         if (challenge.nonceHash !== input.nonceHash) throw new IrohForbiddenError({ code: "invalid_challenge_nonce" });
 
-        const [existingApp] = await tx
+        // The binding slot is keyed on (user, device, tag). A reinstall, a
+        // sign-out/in, or a key rotation reuses the same slot and overwrites it
+        // in place (newest authenticated registration wins), preserving the row
+        // id so existing pair grants keep resolving. There is no generation gate:
+        // a reinstall resets identity_generation to 1, and gating on it would
+        // reintroduce the wedge that stranded a computer behind its own past self.
+        const [existingSlot] = await tx
           .select()
           .from(irohEndpointBindings)
           .where(and(
-            eq(irohEndpointBindings.appInstanceId, input.payload.appInstanceId),
+            eq(irohEndpointBindings.userId, input.userId),
+            eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
+            eq(irohEndpointBindings.tag, input.payload.tag),
             isNull(irohEndpointBindings.revokedAt),
           ))
           .for("update")
           .limit(1);
 
-        if (existingApp) {
-          if (
-            existingApp.userId !== input.userId ||
-            existingApp.endpointId !== input.payload.endpointId ||
-            existingApp.identityGeneration !== input.payload.identityGeneration ||
-            existingApp.deviceUuid !== input.payload.deviceId ||
-            existingApp.tag !== input.payload.tag ||
-            existingApp.platform !== input.payload.platform
-          ) {
-            throw new IrohConflictError({ code: "binding_replacement_requires_revocation" });
-          }
+        // Reject a stale challenge minted before the slot's current registration.
+        // Challenges resolve under the slot advisory lock, so two registrations
+        // for one slot serialize; without this gate an older challenge that lost
+        // the race (issued before the row's last registeredAt) could still land
+        // second and overwrite — or reincarnate away — the newer incarnation,
+        // reintroducing an out-of-order wedge. A live heartbeat's own challenge is
+        // always newer than the row it refreshes, so it passes; only a delayed or
+        // replayed older challenge trips this. registeredAt is the mint time of
+        // the newest challenge that has landed: every applied registration —
+        // insert, reincarnation, AND in-place heartbeat — stamps it to its own
+        // challenge.createdAt, so it is a monotonic high-water mark. (If a
+        // heartbeat left registeredAt frozen at the original insert, two reversed
+        // heartbeats would both clear this gate and the older one would clobber
+        // the newer refresh.)
+        if (existingSlot && challenge.createdAt < existingSlot.registeredAt) {
+          throw new IrohConflictError({ code: "challenge_superseded" });
+        }
+
+        // The endpoint id is a global cryptographic identity: no OTHER live
+        // binding may claim it. Self is excluded so a slot can rotate its own key.
+        const [endpointOwner] = await tx
+          .select({ id: irohEndpointBindings.id })
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.endpointId, input.payload.endpointId),
+            isNull(irohEndpointBindings.revokedAt),
+            existingSlot ? ne(irohEndpointBindings.id, existingSlot.id) : undefined,
+          ))
+          .for("update")
+          .limit(1);
+        if (endpointOwner) throw new IrohConflictError({ code: "endpoint_already_bound" });
+
+        // A heartbeat/refresh of the live incarnation: every field that a peer
+        // signs into a PairGrantPeer and exact-matches at admission is unchanged
+        // (endpoint id, platform, identity generation). Update in place. The
+        // binding id is stable and no peer's admission view of this endpoint
+        // changes, so there is no ABA hazard and existing pair grants keep
+        // resolving against the same id. If any signed field diverged, we must
+        // NOT overwrite it on the live id: a still-valid grant signed against the
+        // old field would then mismatch this current binding, and the host would
+        // record this id in its permanent denial set — the ABA wedge. Any such
+        // divergence falls through to the reincarnation path and mints a fresh id.
+        if (
+          existingSlot
+          && existingSlot.endpointId === input.payload.endpointId
+          && existingSlot.platform === input.payload.platform
+          && existingSlot.identityGeneration === input.payload.identityGeneration
+        ) {
           const [updated] = await tx
             .update(irohEndpointBindings)
             .set({
+              appInstanceId: input.payload.appInstanceId,
+              platform: input.payload.platform,
+              identityGeneration: input.payload.identityGeneration,
               displayName: input.payload.displayName ?? null,
               pairingEnabled: input.payload.pairingEnabled,
               capabilities: [...input.payload.capabilities],
+              directPortV4: input.payload.directPorts?.ipv4 ?? null,
+              directPortV6: input.payload.directPorts?.ipv6 ?? null,
               pathHints: accountPrivatePathHints,
               pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
               lastSeenAt: input.now,
               updatedAt: input.now,
+              // Advance the slot's registration high-water mark to this
+              // challenge's mint time so a later-landing OLDER heartbeat is
+              // rejected by the staleness gate instead of overwriting this
+              // refresh. The gate above guarantees challenge.createdAt >=
+              // existingSlot.registeredAt, so this only ever moves forward.
+              registeredAt: challenge.createdAt,
             })
-            .where(eq(irohEndpointBindings.id, existingApp.id))
+            .where(eq(irohEndpointBindings.id, existingSlot.id))
             .returning();
           await tx
             .update(irohRegistrationChallenges)
@@ -318,71 +394,35 @@ function makeLiveRepository(): IrohRepositoryShape {
           return { binding: updated, created: false };
         }
 
-        const [endpointOwner] = await tx
-          .select({ id: irohEndpointBindings.id })
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.endpointId, input.payload.endpointId),
-            isNull(irohEndpointBindings.revokedAt),
-          ))
-          .for("update")
-          .limit(1);
-        if (endpointOwner) throw new IrohConflictError({ code: "endpoint_already_bound" });
-
-        let [deviceTotal] = await tx
-          .select({ total: count() })
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.userId, input.userId),
-            eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
-            isNull(irohEndpointBindings.revokedAt),
-          ));
-        let deviceBindingCount = deviceTotal?.total ?? 0;
-        if (deviceBindingCount >= input.bindingQuota.device) {
-          const recycled = await recycleStaleBindings(tx, {
+        // A NEW incarnation on an existing slot: the endpoint key rotated (a
+        // reinstall, a sign-out/in, or an explicit key rotation). Reusing the old
+        // binding id would let a peer host that already denied the OLD endpoint
+        // tuple permanently deny this row too — the ABA wedge that strands a
+        // computer behind its own past self, since a host's denial set is keyed
+        // on binding id, not endpoint id. So mint a NEW binding id and fully
+        // retire the old one through the shared revoke path: it marks the retired
+        // binding's pair grants revoked and rotates the account's LAN discovery
+        // generation so the displaced install can no longer derive rendezvous
+        // aliases. The rotation forces a re-pair regardless — the client's held
+        // grant JWS names the now-dead endpoint id and generation, so it can
+        // never be admitted against the new incarnation — which is why the old
+        // issuance rows are revoked (audit-accurate) rather than reassigned onto
+        // the new id.
+        if (existingSlot) {
+          await revokeActiveBindings(tx, {
             userId: input.userId,
-            deviceUuid: input.payload.deviceId,
+            bindingIds: [existingSlot.id],
             now: input.now,
-            staleAfterMs: input.bindingQuota.staleAfterMs,
-            count: deviceBindingCount - input.bindingQuota.device + 1,
+            reason: "slot_reincarnated",
           });
-          deviceBindingCount -= recycled;
-          if (deviceBindingCount >= input.bindingQuota.device) {
-            throw new IrohQuotaExceededError({ code: "too_many_device_bindings", retryAfterSeconds: 86_400 });
-          }
-        }
-
-        const [userTotal] = await tx
-          .select({ total: count() })
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.userId, input.userId),
-            isNull(irohEndpointBindings.revokedAt),
-          ));
-        let userBindingCount = userTotal?.total ?? 0;
-        if (userBindingCount >= input.bindingQuota.account) {
-          const recycled = await recycleStaleBindings(tx, {
+        } else {
+          // Only a genuinely new slot grows the account's active-binding count,
+          // so the sanity cap is enforced on this path alone.
+          await enforceActiveBindingSanityCap(tx, {
             userId: input.userId,
             now: input.now,
-            staleAfterMs: input.bindingQuota.staleAfterMs,
-            count: userBindingCount - input.bindingQuota.account + 1,
           });
-          userBindingCount -= recycled;
-          if (userBindingCount >= input.bindingQuota.account) {
-            throw new IrohQuotaExceededError({ code: "too_many_bindings", retryAfterSeconds: 86_400 });
-          }
         }
-
-        [deviceTotal] = await tx
-          .select({ total: count() })
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.userId, input.userId),
-            eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
-            isNull(irohEndpointBindings.revokedAt),
-          ));
-        deviceBindingCount = deviceTotal?.total ?? 0;
-        const usesDeviceOverride = deviceBindingCount >= input.bindingQuota.baselineDevice;
 
         const [binding] = await tx
           .insert(irohEndpointBindings)
@@ -397,15 +437,33 @@ function makeLiveRepository(): IrohRepositoryShape {
             identityGeneration: input.payload.identityGeneration,
             pairingEnabled: input.payload.pairingEnabled,
             capabilities: [...input.payload.capabilities],
+            directPortV4: input.payload.directPorts?.ipv4 ?? null,
+            directPortV6: input.payload.directPorts?.ipv6 ?? null,
             pathHints: accountPrivatePathHints,
             pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
-            deviceLimitOverrideUsed: usesDeviceOverride,
             lastSeenAt: input.now,
-            registeredAt: input.now,
+            // Seed the slot's registration high-water mark from this challenge's
+            // MINT time, not the register-request landing time. Two challenges
+            // can be outstanding for a slot that does not exist yet; if an older
+            // one lands first and stamps its later landing time here, the
+            // staleness gate above would reject a genuinely newer outstanding
+            // challenge (its mint time falls below the landing time) and strand
+            // the older registration. Mint time keeps registeredAt a true,
+            // ordering-consistent high-water mark across insert, reincarnation,
+            // and heartbeat alike.
+            registeredAt: challenge.createdAt,
             updatedAt: input.now,
           })
           .returning();
         if (!binding) throw new Error("binding insert returned no row");
+
+        // No grant carry-over: iroh_pair_grant_issuances is an audit-only ledger
+        // of compact JWS tokens that were returned once and name the OLD binding
+        // id, endpoint, and generation. Reassigning the foreign key cannot rewrite
+        // a client's held token or carry authorization; it would only make the JTI
+        // audit point at a binding it was never signed for. The retired slot's live
+        // grants were already marked revoked by revokeActiveBindings above.
+
         await tx
           .insert(irohAccountSecurityStates)
           .values({ userId: input.userId, lanDiscoveryGeneration: 1, createdAt: input.now, updatedAt: input.now })
@@ -463,6 +521,22 @@ function makeLiveRepository(): IrohRepositoryShape {
           ));
       });
     }),
+
+    findActiveBindingByEndpoint: (userId, endpointId) => repositoryEffect(
+      "find_binding_by_endpoint",
+      async () => {
+        const [binding] = await cloudDb()
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, userId),
+            eq(irohEndpointBindings.endpointId, endpointId),
+            isNull(irohEndpointBindings.revokedAt),
+          ))
+          .limit(1);
+        return binding ?? null;
+      },
+    ),
 
     revokeBinding: (input) => repositoryEffect("revoke_binding", async () => {
       return await cloudDb().transaction(async (tx) => {
@@ -857,54 +931,16 @@ function makeLiveRepository(): IrohRepositoryShape {
   };
 }
 
-async function recycleStaleBindings(
-  tx: CloudDbTransaction,
-  input: {
-    readonly userId: string;
-    readonly deviceUuid?: string;
-    readonly now: Date;
-    readonly staleAfterMs: number | null;
-    readonly count: number;
-  },
-): Promise<number> {
-  if (input.staleAfterMs === null || input.count <= 0) return 0;
-  const staleBefore = new Date(input.now.getTime() - input.staleAfterMs);
-  const candidates = await tx
-    .select({ id: irohEndpointBindings.id })
-    .from(irohEndpointBindings)
-    .where(and(
-      eq(irohEndpointBindings.userId, input.userId),
-      input.deviceUuid === undefined
-        ? undefined
-        : eq(irohEndpointBindings.deviceUuid, input.deviceUuid),
-      isNull(irohEndpointBindings.revokedAt),
-      lte(irohEndpointBindings.lastSeenAt, staleBefore),
-    ))
-    .orderBy(
-      asc(irohEndpointBindings.lastSeenAt),
-      asc(irohEndpointBindings.registeredAt),
-      asc(irohEndpointBindings.id),
-    )
-    .limit(input.count)
-    .for("update");
-  if (candidates.length < input.count) return 0;
-  const bindingIds = candidates.map((candidate) => candidate.id);
-  const revoked = await revokeActiveBindings(tx, {
-    userId: input.userId,
-    bindingIds,
-    now: input.now,
-    reason: "stale_development_binding",
-  });
-  return revoked.length;
-}
-
 async function revokeActiveBindings(
   tx: CloudDbTransaction,
   input: {
     readonly userId: string;
     readonly bindingIds: readonly string[];
     readonly now: Date;
-    readonly reason: "user_requested" | "stale_development_binding";
+    readonly reason:
+      | "user_requested"
+      | "stale_development_binding"
+      | "slot_reincarnated";
   },
 ): Promise<readonly string[]> {
   if (input.bindingIds.length === 0) return [];
@@ -913,6 +949,8 @@ async function revokeActiveBindings(
     .set({
       revokedAt: input.now,
       revokedReason: input.reason,
+      directPortV4: null,
+      directPortV6: null,
       pathHints: [],
       pathHintsNextExpiry: null,
       updatedAt: input.now,
@@ -953,6 +991,30 @@ async function revokeActiveBindings(
   return revokedIds;
 }
 
+// Reject a genuinely-new slot once the account already holds
+// IROH_ACTIVE_BINDING_SANITY_CAP active bindings. Called only on the
+// genuinely-new-slot path, so admitting one more would exceed the cap. Rejecting
+// (rather than evicting the oldest) is deliberate: a stuck client spamming fresh
+// device/tag tuples must not be able to make its own churn the newest rows and
+// shed the account's real, older hosts and phones. No normal account approaches
+// the cap; hitting it means something is wrong, and the fix is to revoke stale
+// bindings, not to let new registrations destroy existing ones.
+async function enforceActiveBindingSanityCap(
+  tx: CloudDbTransaction,
+  input: { readonly userId: string; readonly now: Date },
+): Promise<void> {
+  const [row] = await tx
+    .select({ total: count() })
+    .from(irohEndpointBindings)
+    .where(and(
+      eq(irohEndpointBindings.userId, input.userId),
+      isNull(irohEndpointBindings.revokedAt),
+    ));
+  const active = row?.total ?? 0;
+  if (active < IROH_ACTIVE_BINDING_SANITY_CAP) return;
+  throw new IrohConflictError({ code: "active_binding_limit" });
+}
+
 type RetentionBatchOperation = {
   readonly category: IrohRetentionCategory;
   readonly run: (limit: number) => Promise<number>;
@@ -988,7 +1050,11 @@ async function drainIrohRetention(input: {
           select id
           from iroh_endpoint_bindings
           where revoked_at is not null
-            and path_hints_next_expiry is not null
+            and (
+              path_hints_next_expiry is not null
+              or direct_port_v4 is not null
+              or direct_port_v6 is not null
+            )
           order by revoked_at, id
           limit ${limit}
           for update skip locked
@@ -996,6 +1062,8 @@ async function drainIrohRetention(input: {
           update iroh_endpoint_bindings as binding
           set path_hints = '[]'::jsonb,
               path_hints_next_expiry = null,
+              direct_port_v4 = null,
+              direct_port_v6 = null,
               updated_at = ${nowIso}::timestamptz
           from candidates
           where binding.id = candidates.id
@@ -1331,8 +1399,15 @@ function databaseConflict(cause: unknown): IrohConflictError | null {
   if (candidate.constraint === "iroh_endpoint_bindings_active_endpoint_unique") {
     return new IrohConflictError({ code: "endpoint_already_bound" });
   }
-  if (candidate.constraint === "iroh_endpoint_bindings_active_app_instance_unique") {
-    return new IrohConflictError({ code: "binding_replacement_requires_revocation" });
+  // The slot advisory lock (pg_advisory_xact_lock on iroh:slot:user:device:tag)
+  // serializes registrations for one slot, so the partial unique index on
+  // (user, device, tag) where revoked_at is null is unreachable in practice.
+  // Map it defensively anyway: without this branch a slot race would fall
+  // through to `return null` and leak a raw IrohDatabaseError as HTTP 500,
+  // when the correct signal is a typed 409 telling the client a concurrent
+  // newest-wins registration took the slot and it should retry.
+  if (candidate.constraint === "iroh_endpoint_bindings_active_slot_unique") {
+    return new IrohConflictError({ code: "slot_registration_superseded" });
   }
   return null;
 }

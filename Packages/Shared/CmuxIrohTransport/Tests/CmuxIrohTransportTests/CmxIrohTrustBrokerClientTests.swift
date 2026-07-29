@@ -35,6 +35,28 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func combinedRegistrationUsesOneGateForBothHTTPLegs() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 201,
+                body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
+            ),
+            .json(status: 201, body: Self.registrationResponse),
+        ])
+        let client = try makeClient(transport: transport)
+        let signer = try registrationSigner()
+        let prepared = try signer.prepare(payload: registrationPayload())
+
+        let response = try await client.register(prepared: prepared, signer: signer)
+
+        #expect(response.binding.tag == "stable")
+        #expect(await transport.requests().compactMap { $0.url?.path } == [
+            "/api/devices/iroh/challenge",
+            "/api/devices/iroh/register",
+        ])
+    }
+
+    @Test
     func issuedRegistrationBuildsTheExactManagedRelayFleet() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 201, body: Self.registrationResponse),
@@ -346,6 +368,31 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func discoveryAcceptsDevelopmentBindingQuotaAboveProductionLimit() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: try Self.discoveryResponse(bindingCount: 33)),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.bindings.count == 33)
+        #expect(Set(discovery.bindings.map(\.bindingID)).count == 33)
+    }
+
+    @Test
+    func discoveryRejectsBindingsAboveDevelopmentQuota() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: try Self.discoveryResponse(bindingCount: 257)),
+        ])
+        let client = try makeClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.discover()
+        }
+    }
+
+    @Test
     func brokerErrorMapsOnlyStatusAndCoarseCode() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 403, body: #"{"error":"target_not_pairable","secret":"do-not-copy"}"#),
@@ -425,6 +472,31 @@ struct CmxIrohTrustBrokerClientTests {
             "signature",
         ].joined(separator: ".")
     }
+
+    private static func discoveryResponse(bindingCount: Int) throws -> String {
+        var object = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(discoveryResponse.utf8)
+            ) as? [String: Any]
+        )
+        let template = try #require((object["bindings"] as? [[String: Any]])?.first)
+        object["bindings"] = (1 ... bindingCount).map { index in
+            var binding = template
+            binding["binding_id"] = String(
+                format: "123e4567-e89b-42d3-a456-%012d",
+                index
+            )
+            binding["app_instance_id"] = String(
+                format: "223e4567-e89b-42d3-a456-%012d",
+                index
+            )
+            binding["endpoint_id"] = String(format: "%064llx", UInt64(index))
+            return binding
+        }
+        let data = try JSONSerialization.data(withJSONObject: object)
+        return try #require(String(data: data, encoding: .utf8))
+    }
+
     private static let registrationResponse = """
     {
       "binding": {

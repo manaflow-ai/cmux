@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxSettings
 import Foundation
 
@@ -40,7 +41,7 @@ enum MobileHostIdentity {
             return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
         }
 
-        let generated = UUID().uuidString
+        let generated = cmxCanonicalDeviceID(UUID().uuidString)
         return settleSharedDeviceID(generated, defaults: defaults, sharedIDURL: sharedIDURL)
     }
 
@@ -70,8 +71,8 @@ enum MobileHostIdentity {
 
     private static func normalizedID(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard let uuid = UUID(uuidString: trimmed) else { return nil }
-        return uuid.uuidString
+        guard UUID(uuidString: trimmed) != nil else { return nil }
+        return cmxCanonicalDeviceID(trimmed)
     }
 
     private static func readSharedDeviceID(from url: URL?) -> String? {
@@ -83,6 +84,7 @@ enum MobileHostIdentity {
     }
 
     private static func settleSharedDeviceID(_ candidate: String, defaults: UserDefaults, sharedIDURL: URL?) -> String {
+        let candidate = cmxCanonicalDeviceID(candidate)
         guard let sharedIDURL else {
             defaults.set(candidate, forKey: deviceIDKey)
             return candidate

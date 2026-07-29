@@ -6,6 +6,22 @@ import CmuxSidebar
 /// pull-request status icons, progress bar. Each is configured with values
 /// only and draws without Auto Layout.
 
+extension NSTextField {
+    /// Unconstrained text measurement for manual layout. Never use
+    /// `intrinsicContentSize` to size these labels: on a truncating
+    /// single-line field it caps at the CURRENT frame width, so a pooled
+    /// view laid out narrow once (they start at zero width) reports — and
+    /// keeps — the truncated width no matter how much space the row has.
+    /// That is exactly the "PR #4  o…" bug.
+    var sidebarNaturalCellSize: NSSize {
+        cell?.cellSize(forBounds: NSRect(
+            x: 0, y: 0,
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )) ?? .zero
+    }
+}
+
 /// Circle unread-count badge (parity with SidebarWorkspaceUnreadBadge).
 /// Draws the count directly so the glyph is optically centered — NSTextField
 /// intrinsic sizing carries asymmetric insets that shift small digits.
@@ -206,8 +222,8 @@ final class SidebarRowProgressView: NSView {
         fillView.frame = NSRect(x: 0, y: 0, width: bounds.width * fraction, height: barHeight)
         fillView.layer?.cornerRadius = barHeight / 2
         if !label.isHidden {
-            let size = label.intrinsicContentSize
-            label.frame = NSRect(x: 0, y: barHeight + 2, width: min(size.width, bounds.width), height: size.height)
+            let size = label.sidebarNaturalCellSize
+            label.frame = NSRect(x: 0, y: barHeight + 2, width: min(ceil(size.width), bounds.width), height: size.height)
         }
     }
 }

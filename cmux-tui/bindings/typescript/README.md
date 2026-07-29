@@ -1,7 +1,7 @@
 # cmux TypeScript Client
 
 The typed client library for cmux-tui frontends. It exposes every implemented
-command and event in protocol v6, transport-independent request handling,
+command and event in protocol v10, transport-independent request handling,
 browser-safe attach streams, and Node.js Unix-socket defaults.
 
 ## Install and build
@@ -87,6 +87,9 @@ the default session socket. Unix subscribe and attach streams retain dedicated
 connections. An injected transport can multiplex attach streams and one
 subscription on its main connection; concurrent subscriptions require a
 `streamTransportFactory` because overflow events are terminal to one stream.
+Each stream retains at most 256 unread events, and each encoded attach payload
+is limited to 16 MiB by default. `maxBufferedEvents` and
+`maxAttachEncodedChars` may lower those limits for constrained clients.
 
 ## Raw typed requests
 
@@ -99,6 +102,12 @@ const result = await client.request({ cmd: "copy", surface: 1, mode: "screen" })
 The `cmd` discriminator determines both required parameters and the successful
 response data type. `sendRaw()` remains available for untyped forward
 compatibility.
+
+`clearHistory(surface, fallbackKey)` accepts a typed `TerminalKeyInput` and
+fails locally unless the server advertises `clear-history-key-v1`. It also
+rejects fallback `utf8` fields above the 4 KiB protocol limit before sending.
+`CmuxCommandError.delivery` exposes the server's `known-not-delivered` or
+`ambiguous` classification when present.
 
 ## Verification
 

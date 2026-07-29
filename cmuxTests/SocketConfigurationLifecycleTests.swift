@@ -349,12 +349,35 @@ extension SocketACLReloadRegressionTests {
                 accessMode: .cmuxOnly,
                 preferredSocketPath: socketPath
             ),
-            preferredTabManager: tabManager,
+            routingFallbackTabManager: tabManager,
             source: "test.headless_attach"
         )
 
         #expect(controller.tabManager === tabManager)
         #expect(controller.socketServer.transport.pathIdentity(at: socketPath) == listenerIdentity)
+    }
+
+    @Test func socketPathMarkersKeepLegacyExternalClientDiscoveryLive() throws {
+        let fileManager = FileManager.default
+        let currentDirectory = CmuxStateDirectory.url(
+            homeDirectory: fileManager.homeDirectoryForCurrentUser
+        )
+        let legacyDirectory = try #require(
+            CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager)
+        )
+        let markerPaths = SocketControlSettings.lastSocketPathFiles(
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            fileManager: fileManager
+        )
+
+        #expect(markerPaths.contains(
+            currentDirectory.appendingPathComponent("last-socket-path").path
+        ))
+        #expect(markerPaths.contains(
+            legacyDirectory.appendingPathComponent("last-socket-path").path
+        ))
+        #expect(markerPaths.contains(SocketPathMarkerFiles.stableTmpPath))
     }
 
     private func capturedSocketDefaults(_ defaults: UserDefaults) -> [(String, Any?)] {

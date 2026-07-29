@@ -1,5 +1,11 @@
+public import CMUXMobileCore
+
 /// Failures at the authenticated HTTP trust-broker boundary.
-public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
+public enum CmxIrohTrustBrokerClientError:
+    CmxRetryAfterProviding,
+    Equatable,
+    Sendable
+{
     /// The authenticated broker could not be reached through the current network.
     case connectivity
     case invalidBaseURL
@@ -12,6 +18,9 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
     case invalidResponse
 
     static func preservesVerifiedPolicyDuringRefresh(_ error: any Error) -> Bool {
+        if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
+            return true
+        }
         guard let brokerError = error as? Self else { return false }
         switch brokerError {
         case .connectivity:
@@ -34,6 +43,9 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
 
     /// Accepts only failures that are safe to retry before any binding is trusted.
     static func retriesInitialActivation(_ error: any Error) -> Bool {
+        if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
+            return true
+        }
         guard let brokerError = error as? Self else { return false }
         switch brokerError {
         case .connectivity, .rateLimited:

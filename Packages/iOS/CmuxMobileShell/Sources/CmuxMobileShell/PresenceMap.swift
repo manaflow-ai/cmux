@@ -65,6 +65,15 @@ public struct PresenceMap: Equatable, Sendable {
         instancesByDevice[deviceId]?[tag]
     }
 
+    /// Stable instance ordering for reconnect evidence comparisons.
+    func allInstancesForReconnectEvidence() -> [PresenceInstance] {
+        instancesByDevice.values
+            .flatMap(\.values)
+            .sorted {
+                ($0.deviceId, $0.tag) < ($1.deviceId, $1.tag)
+            }
+    }
+
     /// Summary for one exact app instance. Tagged iOS builds use this instead
     /// of the device rollup so another running Mac tag cannot lend this build
     /// its online state or build label.

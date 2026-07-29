@@ -298,6 +298,7 @@ struct RemoteReconnectPolicyTests {
             host: IntentionalCleanupTestHost(),
             configuration: configuration,
             proxyBroker: broker,
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),
@@ -311,7 +312,10 @@ struct RemoteReconnectPolicyTests {
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }

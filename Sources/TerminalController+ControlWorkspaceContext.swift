@@ -1,6 +1,7 @@
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
+import CmuxRemoteSession
 import CmuxWorkspaces
 import Foundation
 
@@ -436,13 +437,24 @@ extension TerminalController: ControlWorkspaceContext {
 
     func controlWorkspaceRemoteForegroundAuthReady(
         workspaceID: UUID,
-        foregroundAuthToken: String?
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
     ) -> ControlWorkspaceRemoteResolution {
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
-        workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
+        guard workspace.notifyRemoteForegroundAuthenticationReady(
+            token: foregroundAuthToken,
+            resolvedControlPath: resolvedControlPath
+        ) else {
+            return .unavailable(
+                workspaceID: workspaceID,
+                message:
+                    RemoteSessionStrings.appLocalized
+                    .controlMasterOwnershipUnavailable
+            )
+        }
         notifyRemotePTYControllerAvailabilityChanged()
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
@@ -498,13 +510,15 @@ extension TerminalController: ControlWorkspaceContext {
             }
             localProxyPort = parsedLocalProxyPort
         }
-
         let identityFile = v2RawString(params, "identity_file")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sshOptions = v2StringArray(params, "ssh_options") ?? []
-        let transportRaw = v2RawString(params, "transport")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let transport = WorkspaceRemoteTransport(rawValue: transportRaw ?? "") ?? .ssh
+        let remoteTransports = remoteTransportConfiguration(params)
+        if let error = remoteTransports.error { return error }
+        let remoteTerminalProfile = remoteTerminalProfileConfiguration(params)
+        if let error = remoteTerminalProfile.error { return error }
+        let (transport, terminalTransport, skipDaemonBootstrap) =
+            (remoteTransports.management, remoteTransports.terminal, remoteTransports.skipDaemonBootstrap)
+        let terminalProfile = remoteTerminalProfile.profile
         let autoConnect = v2Bool(params, "auto_connect") ?? true
         var relayPort: Int?
         if v2HasNonNullParam(params, "relay_port") {
@@ -582,7 +596,6 @@ extension TerminalController: ControlWorkspaceContext {
                 data: nil
             )
         }
-        let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
         if persistentDaemonSlot != nil, !preserveAfterTerminalExit {
             return .err(
                 code: "invalid_params",
@@ -610,7 +623,8 @@ extension TerminalController: ControlWorkspaceContext {
 #if DEBUG
         cmuxDebugLog(
             "workspace.remote.configure.request workspace=\(workspaceId.uuidString.prefix(8)) " +
-            "target=\(destination) transport=\(transport.rawValue) port=\(sshPort.map(String.init) ?? "nil") " +
+            "target=\(destination) transport=\(transport.rawValue) terminalTransport=\(terminalTransport.rawValue) " +
+            "port=\(sshPort.map(String.init) ?? "nil") " +
             "autoConnect=\(autoConnect ? 1 : 0) relayPort=\(relayPort.map(String.init) ?? "nil") " +
             "localSocket=\(localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? localSocketPath! : "nil") " +
             "sshAuthSock=\(agentSocketPath?.isEmpty == false ? 1 : 0) " +
@@ -628,6 +642,8 @@ extension TerminalController: ControlWorkspaceContext {
 
         let config = WorkspaceRemoteConfiguration(
             transport: transport,
+            terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: sshPort,
             identityFile: identityFile?.isEmpty == true ? nil : identityFile,
@@ -650,7 +666,18 @@ extension TerminalController: ControlWorkspaceContext {
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
-        workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+        guard workspace.configureRemoteConnection(
+            config,
+            autoConnect: autoConnect
+        ) else {
+            return .err(
+                code: "unavailable",
+                message:
+                    RemoteSessionStrings.appLocalized
+                    .controlMasterOwnershipUnavailable,
+                data: nil
+            )
+        }
         notifyRemotePTYControllerAvailabilityChanged()
 
         let windowId = AppDelegate.shared?.windowId(for: owner)

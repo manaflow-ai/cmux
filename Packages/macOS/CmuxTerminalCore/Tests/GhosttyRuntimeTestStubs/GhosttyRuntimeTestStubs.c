@@ -32,6 +32,11 @@ GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_clear_selection(void *surfac
     return false;
 }
 
+GHOSTTY_RUNTIME_TEST_STUB_WEAK float ghostty_surface_font_size(void *surface) {
+    (void)surface;
+    return 0;
+}
+
 GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_surface_quicklook_font(void *surface) {
     (void)surface;
     return 0;

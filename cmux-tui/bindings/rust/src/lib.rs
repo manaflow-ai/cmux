@@ -2,20 +2,31 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fmt;
 use std::io::{BufRead, BufReader, Write};
+use std::mem::{offset_of, size_of};
 use std::net::Shutdown;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
+pub const TERMINAL_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
+const MIN_VIEWPORT_PANE_WIDTH: f32 = 0.1;
+const MAX_VIEWPORT_PANE_WIDTH: f32 = 1.0;
 
 #[derive(Debug)]
 pub enum CmuxError {
-    Command { message: String, id: Option<Value> },
+    Command {
+        message: String,
+        id: Option<Value>,
+        error_code: Option<String>,
+        delivery: Option<ErrorDelivery>,
+    },
     Decode(String),
     Connection(String),
     Timeout(String),
     ProtocolVersion(String),
+    InvalidArgument(String),
 }
 
 impl fmt::Display for CmuxError {
@@ -25,12 +36,40 @@ impl fmt::Display for CmuxError {
             Self::Decode(message)
             | Self::Connection(message)
             | Self::Timeout(message)
-            | Self::ProtocolVersion(message) => write!(f, "{message}"),
+            | Self::ProtocolVersion(message)
+            | Self::InvalidArgument(message) => write!(f, "{message}"),
         }
     }
 }
 
 impl std::error::Error for CmuxError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorDelivery {
+    KnownNotDelivered,
+    Ambiguous,
+}
+
+fn error_delivery(response: &Value) -> Option<ErrorDelivery> {
+    match response.get("error_delivery").and_then(Value::as_str) {
+        Some("known-not-delivered") => Some(ErrorDelivery::KnownNotDelivered),
+        Some("ambiguous") => Some(ErrorDelivery::Ambiguous),
+        _ => None,
+    }
+}
+
+fn command_error(response: &Value) -> CmuxError {
+    CmuxError::Command {
+        message: response
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown error")
+            .to_string(),
+        id: response.get("id").cloned(),
+        error_code: response.get("error_code").and_then(Value::as_str).map(ToString::to_string),
+        delivery: error_delivery(response),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -68,8 +107,31 @@ pub fn env_socket_path() -> Option<PathBuf> {
 }
 
 pub fn default_socket_path(session: &str) -> PathBuf {
-    let base = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join(format!("cmux-tui-{}", current_uid_component())).join(format!("{session}.sock"))
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|value| !value.is_empty())
+        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    default_socket_path_in_runtime_dir(session, base.join(private_runtime_dir_name()))
+}
+
+fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
+    let file_name = format!("{session}.sock");
+    let preferred = runtime_dir.join(&file_name);
+    if !unix_socket_path_fits(&preferred) {
+        return PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
+    }
+    preferred
+}
+
+fn private_runtime_dir_name() -> String {
+    format!("cmux-tui-{}", current_uid_component())
+}
+
+fn unix_socket_path_fits(path: &Path) -> bool {
+    const SUN_PATH_CAPACITY: usize =
+        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
 #[cfg(unix)]
@@ -92,8 +154,345 @@ pub struct IdentifyResult {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct IdentifyDetails {
+    pub app: String,
+    pub version: String,
+    pub build_commit: Option<String>,
+    pub ghostty_commit: Option<String>,
+    pub protocol: u32,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    pub session: String,
+    pub pid: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalKey {
+    Unidentified,
+    Backquote,
+    Backslash,
+    BracketLeft,
+    BracketRight,
+    Comma,
+    Digit0,
+    Digit1,
+    Digit2,
+    Digit3,
+    Digit4,
+    Digit5,
+    Digit6,
+    Digit7,
+    Digit8,
+    Digit9,
+    Equal,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Minus,
+    Period,
+    Quote,
+    Semicolon,
+    Slash,
+    Backspace,
+    Enter,
+    Space,
+    Tab,
+    Delete,
+    End,
+    Home,
+    Insert,
+    PageDown,
+    PageUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    Numpad0,
+    Numpad1,
+    Numpad2,
+    Numpad3,
+    Numpad4,
+    Numpad5,
+    Numpad6,
+    Numpad7,
+    Numpad8,
+    Numpad9,
+    NumpadAdd,
+    NumpadBackspace,
+    NumpadComma,
+    NumpadDecimal,
+    NumpadDivide,
+    NumpadEnter,
+    NumpadEqual,
+    NumpadMultiply,
+    NumpadSubtract,
+    NumpadUp,
+    NumpadDown,
+    NumpadRight,
+    NumpadLeft,
+    NumpadBegin,
+    NumpadHome,
+    NumpadEnd,
+    NumpadInsert,
+    NumpadDelete,
+    NumpadPageUp,
+    NumpadPageDown,
+    Escape,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    F13,
+    F14,
+    F15,
+    F16,
+    F17,
+    F18,
+    F19,
+    F20,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct TerminalModifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    #[serde(rename = "super")]
+    pub super_key: bool,
+    pub caps_lock: bool,
+    pub num_lock: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalKeyAction {
+    Press,
+    Release,
+    Repeat,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TerminalKeyInput {
+    pub key: TerminalKey,
+    pub mods: TerminalModifiers,
+    pub consumed_mods: TerminalModifiers,
+    pub composing: bool,
+    pub utf8: String,
+    pub unshifted_codepoint: Option<char>,
+    pub shifted_codepoint: Option<char>,
+    pub base_layout_codepoint: Option<char>,
+    pub action: Option<TerminalKeyAction>,
+    pub macos_option_as_alt: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClientSurfaceSize {
+    pub surface: u64,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+    pub size_participating: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientInfo {
+    pub client: u64,
+    pub transport: String,
+    pub name: Option<String>,
+    pub kind: Option<String>,
+    pub connected_seconds: u64,
+    pub attached: Vec<u64>,
+    pub sizes: Vec<ClientSurfaceSize>,
+    pub is_self: bool,
+}
+
+#[derive(Deserialize)]
+struct ClientInfoWire {
+    client: u64,
+    transport: String,
+    name: Option<String>,
+    kind: Option<String>,
+    connected_seconds: u64,
+    attached: Vec<u64>,
+    sizes: Vec<ClientSurfaceSize>,
+    size_participating: Option<bool>,
+    #[serde(rename = "self")]
+    is_self: bool,
+}
+
+impl<'de> Deserialize<'de> for ClientInfo {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut wire = ClientInfoWire::deserialize(deserializer)?;
+        let fallback = wire.size_participating.unwrap_or(true);
+        for size in &mut wire.sizes {
+            size.size_participating.get_or_insert(fallback);
+        }
+        Ok(Self {
+            client: wire.client,
+            transport: wire.transport,
+            name: wire.name,
+            kind: wire.kind,
+            connected_seconds: wire.connected_seconds,
+            attached: wire.attached,
+            sizes: wire.sizes,
+            is_self: wire.is_self,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SurfaceResult {
     pub surface: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayoutUndoResult {
+    Undone { screen: u64, revision: u64 },
+    ConfirmationRequired { screen: u64, revision: u64, closes_panes: Vec<u64> },
+}
+
+impl<'de> Deserialize<'de> for LayoutUndoResult {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            undone: Option<bool>,
+            confirmation_required: Option<bool>,
+            screen: u64,
+            revision: u64,
+            closes_panes: Option<Vec<u64>>,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        match (wire.undone, wire.confirmation_required) {
+            (Some(true), None | Some(false)) => {
+                Ok(Self::Undone { screen: wire.screen, revision: wire.revision })
+            }
+            (Some(false), Some(true)) => Ok(Self::ConfirmationRequired {
+                screen: wire.screen,
+                revision: wire.revision,
+                closes_panes: wire.closes_panes.ok_or_else(|| {
+                    serde::de::Error::custom(
+                        "layout undo confirmation closes_panes must be an array of pane IDs",
+                    )
+                })?,
+            }),
+            _ => Err(serde::de::Error::custom(
+                "layout undo response does not contain exactly one valid outcome",
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspacePlacement {
+    pub workspace: u64,
+    pub key: String,
+    pub index: usize,
+    pub workspace_revision: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TerminalPlacement {
+    pub surface: u64,
+    pub pane: u64,
+    pub screen: u64,
+    pub workspace: u64,
+    pub key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceMutation {
+    pub workspace: u64,
+    pub key: String,
+    pub workspace_revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CreateWorkspaceOptions<'a> {
+    pub name: Option<&'a str>,
+    pub key: Option<&'a str>,
+    pub expected_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CreateTerminalOptions<'a> {
+    pub workspace: Option<u64>,
+    pub key: Option<&'a str>,
+    pub argv: Option<&'a [String]>,
+    pub command: Option<&'a str>,
+    pub cwd: Option<&'a str>,
+    pub name: Option<&'a str>,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WorkspaceSelectorOptions<'a> {
+    pub workspace: Option<u64>,
+    pub key: Option<&'a str>,
+    pub expected_revision: Option<u64>,
+}
+
+fn validate_workspace_selector(workspace: Option<u64>, key: Option<&str>) -> Result<()> {
+    if workspace.is_none() && key.is_none_or(|key| key.trim().is_empty()) {
+        return Err(CmuxError::InvalidArgument("workspace or key is required".to_string()));
+    }
+    if key.is_some_and(|key| key.trim().is_empty()) {
+        return Err(CmuxError::InvalidArgument("workspace key cannot be empty".to_string()));
+    }
+    Ok(())
+}
+
+fn validate_viewport_pane_width(width: f32) -> Result<()> {
+    if !width.is_finite() || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width) {
+        return Err(CmuxError::InvalidArgument(
+            "viewport pane width must be between 0.1 and 1.0".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AttachSurfaceOptions {
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -110,15 +509,27 @@ pub struct VtStateResult {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Tree {
+    #[serde(default)]
+    pub workspace_revision: u64,
+    #[serde(default)]
+    pub pane_revision: Option<u64>,
     pub workspaces: Vec<Workspace>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Workspace {
     pub id: u64,
+    #[serde(default)]
+    pub key: String,
     pub name: String,
     pub active: bool,
     pub screens: Vec<Screen>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ViewportSplit {
+    pub split: u64,
+    pub width: f32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -128,6 +539,10 @@ pub struct Screen {
     pub active: bool,
     pub active_pane: u64,
     pub layout: Layout,
+    #[serde(default)]
+    pub viewport_base_width: Option<f32>,
+    #[serde(default)]
+    pub viewport_splits: Vec<ViewportSplit>,
     pub panes: Vec<Pane>,
 }
 
@@ -137,7 +552,17 @@ pub enum Layout {
     #[serde(rename = "leaf")]
     Leaf { pane: u64 },
     #[serde(rename = "split")]
-    Split { dir: String, ratio: f32, a: Box<Layout>, b: Box<Layout> },
+    Split {
+        /// Stable split id, present on protocol v8 and newer servers.
+        #[serde(default)]
+        split: Option<u64>,
+        dir: String,
+        ratio: f32,
+        a: Box<Layout>,
+        b: Box<Layout>,
+    },
+    #[serde(rename = "stack")]
+    Stack { panes: Vec<u64>, expanded: u64 },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -146,6 +571,8 @@ pub struct Pane {
     pub name: Option<String>,
     #[serde(default)]
     pub active_tab: usize,
+    #[serde(default)]
+    pub focused_at: u64,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
@@ -272,12 +699,13 @@ pub struct CmuxClient {
     conn: JsonLineConnection,
     next_id: u64,
     protocol: Option<u32>,
+    capabilities: Vec<String>,
 }
 
 impl CmuxClient {
     pub fn connect(config: ClientConfig) -> Result<Self> {
         let conn = JsonLineConnection::connect(&config.socket_path, config.timeout)?;
-        Ok(Self { config, conn, next_id: 1, protocol: None })
+        Ok(Self { config, conn, next_id: 1, protocol: None, capabilities: Vec::new() })
     }
 
     pub fn send_raw(&mut self, mut request: Map<String, Value>) -> Result<Value> {
@@ -313,25 +741,61 @@ impl CmuxClient {
             let data = response.get("data").cloned().unwrap_or(Value::Object(Map::new()));
             serde_json::from_value(data).map_err(|err| CmuxError::Decode(err.to_string()))
         } else {
-            Err(CmuxError::Command {
-                message: response
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown error")
-                    .to_string(),
-                id: response.get("id").cloned(),
-            })
+            Err(command_error(&response))
         }
     }
 
     pub fn identify(&mut self) -> Result<IdentifyResult> {
-        let result: IdentifyResult = self.request("identify", Map::new())?;
+        let details: IdentifyDetails = self.request("identify", Map::new())?;
+        self.protocol = Some(details.protocol);
+        self.capabilities.clone_from(&details.capabilities);
+        Ok(IdentifyResult {
+            app: details.app,
+            version: details.version,
+            protocol: details.protocol,
+            session: details.session,
+            pid: details.pid,
+        })
+    }
+
+    /// Identify the server with optional immutable build revisions.
+    pub fn identify_details(&mut self) -> Result<IdentifyDetails> {
+        let result: IdentifyDetails = self.request("identify", Map::new())?;
         self.protocol = Some(result.protocol);
+        self.capabilities.clone_from(&result.capabilities);
         Ok(result)
     }
 
     pub fn list_workspaces(&mut self) -> Result<Tree> {
         self.request("list-workspaces", Map::new())
+    }
+
+    pub fn list_clients(&mut self) -> Result<Vec<ClientInfo>> {
+        self.request("list-clients", Map::new())
+    }
+
+    pub fn set_client_sizing(&mut self, surface: u64, client: u64, enabled: bool) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("client".to_string(), Value::from(client));
+        params.insert("enabled".to_string(), Value::from(enabled));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
+    }
+
+    pub fn use_only_client_size(&mut self, surface: u64, client: u64) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("client".to_string(), Value::from(client));
+        params.insert("enabled".to_string(), Value::from(true));
+        params.insert("exclusive".to_string(), Value::from(true));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
+    }
+
+    pub fn use_all_client_sizes(&mut self, surface: u64) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("enabled".to_string(), Value::from(true));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
     }
 
     pub fn send(&mut self, surface: u64, text: Option<&str>, bytes: Option<&str>) -> Result<()> {
@@ -340,6 +804,32 @@ impl CmuxClient {
         insert_opt(&mut params, "text", text);
         insert_opt(&mut params, "bytes", bytes);
         self.request::<Empty>("send", params).map(|_| ())
+    }
+
+    pub fn clear_history(&mut self, surface: u64) -> Result<()> {
+        self.require_capability("clear-history-v1", "clear-history")?;
+        self.request::<Empty>("clear-history", surface_params(surface)).map(|_| ())
+    }
+
+    pub fn clear_history_with_fallback(
+        &mut self,
+        surface: u64,
+        fallback_key: &TerminalKeyInput,
+    ) -> Result<()> {
+        self.require_capability("clear-history-v1", "clear-history")?;
+        self.require_capability("clear-history-key-v1", "clear-history key fallback")?;
+        if fallback_key.utf8.len() > TERMINAL_KEY_TEXT_MAX_BYTES {
+            return Err(CmuxError::InvalidArgument(
+                "terminal key text exceeds the 4 KiB protocol limit".to_string(),
+            ));
+        }
+        let mut params = surface_params(surface);
+        params.insert(
+            "fallback_key".to_string(),
+            serde_json::to_value(fallback_key)
+                .map_err(|error| CmuxError::InvalidArgument(error.to_string()))?,
+        );
+        self.request::<Empty>("clear-history", params).map(|_| ())
     }
 
     pub fn read_screen(&mut self, surface: u64) -> Result<ReadScreenResult> {
@@ -393,6 +883,36 @@ impl CmuxClient {
         self.request("new-workspace", params)
     }
 
+    pub fn create_workspace(
+        &mut self,
+        options: CreateWorkspaceOptions<'_>,
+    ) -> Result<WorkspacePlacement> {
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
+        let mut params = Map::new();
+        insert_opt(&mut params, "name", options.name);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        self.request("create-workspace", params)
+    }
+
+    pub fn create_terminal(
+        &mut self,
+        options: CreateTerminalOptions<'_>,
+    ) -> Result<TerminalPlacement> {
+        validate_workspace_selector(options.workspace, options.key)?;
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "argv", options.argv);
+        insert_opt(&mut params, "command", options.command);
+        insert_opt(&mut params, "cwd", options.cwd);
+        insert_opt(&mut params, "name", options.name);
+        insert_opt(&mut params, "cols", options.cols);
+        insert_opt(&mut params, "rows", options.rows);
+        self.request("create-terminal", params)
+    }
+
     pub fn new_screen(
         &mut self,
         workspace: Option<u64>,
@@ -404,6 +924,39 @@ impl CmuxClient {
         insert_opt(&mut params, "cols", cols);
         insert_opt(&mut params, "rows", rows);
         self.request("new-screen", params)
+    }
+
+    pub fn new_pane(
+        &mut self,
+        pane: u64,
+        cols: Option<u16>,
+        rows: Option<u16>,
+    ) -> Result<SurfaceResult> {
+        self.require_protocol(9, "new-pane")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        insert_opt(&mut params, "cols", cols);
+        insert_opt(&mut params, "rows", rows);
+        self.request("new-pane", params)
+    }
+
+    pub fn new_pane_right(
+        &mut self,
+        pane: u64,
+        width: Option<f32>,
+        cols: Option<u16>,
+        rows: Option<u16>,
+    ) -> Result<SurfaceResult> {
+        if let Some(width) = width {
+            validate_viewport_pane_width(width)?;
+        }
+        self.require_capability("viewport-splits-v1", "viewport panes")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        insert_opt(&mut params, "width", width);
+        insert_opt(&mut params, "cols", cols);
+        insert_opt(&mut params, "rows", rows);
+        self.request("new-pane-right", params)
     }
 
     pub fn split(
@@ -427,6 +980,81 @@ impl CmuxClient {
         params.insert("dir".to_string(), Value::from(dir));
         params.insert("ratio".to_string(), Value::from(ratio));
         self.request::<Empty>("set-ratio", params).map(|_| ())
+    }
+
+    pub fn set_split_ratio(&mut self, split: u64, ratio: f32) -> Result<()> {
+        self.set_split_ratio_request(split, ratio, None)
+    }
+
+    pub fn set_split_ratio_in_transaction(
+        &mut self,
+        split: u64,
+        ratio: f32,
+        transaction: u64,
+    ) -> Result<()> {
+        self.set_split_ratio_request(split, ratio, Some(transaction))
+    }
+
+    fn set_split_ratio_request(
+        &mut self,
+        split: u64,
+        ratio: f32,
+        transaction: Option<u64>,
+    ) -> Result<()> {
+        self.require_protocol(8, "set-split-ratio")?;
+        let mut params = Map::new();
+        params.insert("split".to_string(), Value::from(split));
+        params.insert("ratio".to_string(), Value::from(ratio));
+        insert_opt(&mut params, "transaction", transaction);
+        self.request::<Empty>("set-split-ratio", params).map(|_| ())
+    }
+
+    pub fn set_viewport_pane_width(&mut self, pane: u64, width: f32) -> Result<()> {
+        self.set_viewport_pane_width_request(pane, width, None)
+    }
+
+    pub fn set_viewport_pane_width_in_transaction(
+        &mut self,
+        pane: u64,
+        width: f32,
+        transaction: u64,
+    ) -> Result<()> {
+        self.set_viewport_pane_width_request(pane, width, Some(transaction))
+    }
+
+    fn set_viewport_pane_width_request(
+        &mut self,
+        pane: u64,
+        width: f32,
+        transaction: Option<u64>,
+    ) -> Result<()> {
+        validate_viewport_pane_width(width)?;
+        self.require_capability("viewport-column-resize-v1", "viewport pane resizing")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        params.insert("width".to_string(), Value::from(width));
+        insert_opt(&mut params, "transaction", transaction);
+        self.request::<Empty>("set-viewport-pane-width", params).map(|_| ())
+    }
+
+    /// Undo the latest structural layout action.
+    ///
+    /// Pass `None` to preview the undo. If the result is
+    /// `ConfirmationRequired`, show its closing pane ids and call this method
+    /// again with that exact `revision`.
+    pub fn undo_layout(
+        &mut self,
+        pane: u64,
+        confirmation_revision: Option<u64>,
+    ) -> Result<LayoutUndoResult> {
+        self.require_capability("layout-undo-v1", "layout undo")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        if let Some(revision) = confirmation_revision {
+            params.insert("revision".to_string(), Value::from(revision));
+            params.insert("confirm_close".to_string(), Value::Bool(true));
+        }
+        self.request("undo-layout", params)
     }
 
     pub fn set_default_colors(&mut self, fg: Option<&str>, bg: Option<&str>) -> Result<()> {
@@ -458,6 +1086,19 @@ impl CmuxClient {
         self.request::<Empty>("close-workspace", params).map(|_| ())
     }
 
+    pub fn close_workspace_registry(
+        &mut self,
+        options: WorkspaceSelectorOptions<'_>,
+    ) -> Result<WorkspaceMutation> {
+        validate_workspace_selector(options.workspace, options.key)?;
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        self.request("close-workspace", params)
+    }
+
     pub fn rename_pane(&mut self, pane: u64, name: &str) -> Result<()> {
         let mut params = Map::new();
         params.insert("pane".to_string(), Value::from(pane));
@@ -485,6 +1126,21 @@ impl CmuxClient {
         self.request::<Empty>("rename-workspace", params).map(|_| ())
     }
 
+    pub fn rename_workspace_registry(
+        &mut self,
+        options: WorkspaceSelectorOptions<'_>,
+        name: &str,
+    ) -> Result<WorkspaceMutation> {
+        validate_workspace_selector(options.workspace, options.key)?;
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        params.insert("name".to_string(), Value::from(name));
+        self.request("rename-workspace", params)
+    }
+
     pub fn resize_surface(
         &mut self,
         surface: u64,
@@ -495,6 +1151,10 @@ impl CmuxClient {
         params.insert("cols".to_string(), Value::from(cols));
         params.insert("rows".to_string(), Value::from(rows));
         self.request("resize-surface", params)
+    }
+
+    pub fn release_surface_size(&mut self, surface: u64) -> Result<()> {
+        self.request::<Empty>("release-surface-size", surface_params(surface)).map(|_| ())
     }
 
     pub fn focus_pane(&mut self, pane: u64) -> Result<()> {
@@ -544,6 +1204,21 @@ impl CmuxClient {
         self.request::<Empty>("move-workspace", params).map(|_| ())
     }
 
+    pub fn move_workspace_registry(
+        &mut self,
+        options: WorkspaceSelectorOptions<'_>,
+        index: usize,
+    ) -> Result<WorkspaceMutation> {
+        validate_workspace_selector(options.workspace, options.key)?;
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        params.insert("index".to_string(), Value::from(index));
+        self.request("move-workspace", params)
+    }
+
     pub fn scroll_surface(&mut self, surface: u64, delta: isize) -> Result<()> {
         let mut params = surface_params(surface);
         params.insert("delta".to_string(), Value::from(delta));
@@ -555,16 +1230,62 @@ impl CmuxClient {
     }
 
     pub fn attach_surface(&mut self, surface: u64) -> Result<CmuxStream> {
+        self.attach_surface_with_options(surface, AttachSurfaceOptions::default())
+    }
+
+    pub fn attach_surface_with_options(
+        &mut self,
+        surface: u64,
+        options: AttachSurfaceOptions,
+    ) -> Result<CmuxStream> {
+        if options.cols.is_some() != options.rows.is_some() {
+            return Err(CmuxError::InvalidArgument(
+                "attach-surface cols and rows must be supplied together".to_string(),
+            ));
+        }
         let protocol = match self.protocol {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 7 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
+        if protocol > 5 && !self.config.allow_protocol_v6_attach {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));
         }
-        self.open_stream("attach-surface", surface_params(surface))
+        if (options.cols.is_some() || options.rows.is_some())
+            && !self.capabilities.iter().any(|value| value == "attach-initial-size")
+        {
+            return Err(CmuxError::ProtocolVersion(
+                "initial attach sizing is not supported by this server".to_string(),
+            ));
+        }
+        let mut params = surface_params(surface);
+        insert_opt(&mut params, "cols", options.cols);
+        insert_opt(&mut params, "rows", options.rows);
+        self.open_stream("attach-surface", params)
+    }
+
+    fn require_capability(&mut self, capability: &str, feature: &str) -> Result<()> {
+        if self.protocol.is_none() {
+            self.identify()?;
+        }
+        if self.capabilities.iter().any(|value| value == capability) {
+            return Ok(());
+        }
+        Err(CmuxError::ProtocolVersion(format!("{feature} is not supported by this server")))
+    }
+
+    fn require_protocol(&mut self, minimum: u32, feature: &str) -> Result<()> {
+        let protocol = match self.protocol {
+            Some(protocol) => protocol,
+            None => self.identify()?.protocol,
+        };
+        if protocol < minimum {
+            return Err(CmuxError::ProtocolVersion(format!(
+                "{feature} requires protocol {minimum}; server uses protocol {protocol}"
+            )));
+        }
+        Ok(())
     }
 
     fn open_stream(&mut self, cmd: &str, mut params: Map<String, Value>) -> Result<CmuxStream> {
@@ -605,14 +1326,7 @@ impl CmuxStream {
             if response.get("ok") == Some(&Value::Bool(true)) {
                 return Ok(Self { conn, buffered, finished: false });
             }
-            return Err(CmuxError::Command {
-                message: response
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown error")
-                    .to_string(),
-                id: response.get("id").cloned(),
-            });
+            return Err(command_error(&response));
         }
     }
 
@@ -794,6 +1508,102 @@ mod tests {
     use super::*;
 
     #[test]
+    fn identify_preserves_legacy_shape_and_exposes_optional_details() {
+        let wire = serde_json::json!({
+            "app": "cmux-tui",
+            "version": "0.1.2",
+            "build_commit": "cmux-sha",
+            "ghostty_commit": "ghostty-sha",
+            "protocol": 7,
+            "session": "main",
+            "pid": 42,
+        });
+        let legacy: IdentifyResult = serde_json::from_value(wire.clone()).unwrap();
+        let IdentifyResult { app, version, protocol, session, pid } = legacy;
+        assert_eq!(
+            (app.as_str(), version.as_str(), protocol, session.as_str(), pid),
+            ("cmux-tui", "0.1.2", 7, "main", 42)
+        );
+
+        let details: IdentifyDetails = serde_json::from_value(wire).unwrap();
+        assert_eq!(details.build_commit.as_deref(), Some("cmux-sha"));
+        assert_eq!(details.ghostty_commit.as_deref(), Some("ghostty-sha"));
+    }
+
+    #[test]
+    fn command_error_shape_change_uses_a_breaking_sdk_version() {
+        let mut components = env!("CARGO_PKG_VERSION").split('.');
+        let major = components.next().unwrap().parse::<u64>().unwrap();
+        let minor = components.next().unwrap().parse::<u64>().unwrap();
+        assert!(
+            major > 0 || minor >= 4,
+            "the public CmuxError::Command shape requires cmux-client 0.4 or newer"
+        );
+    }
+
+    #[test]
+    fn published_sdk_versions_stay_synchronized() {
+        let rust_version = env!("CARGO_PKG_VERSION");
+        let typescript: Value =
+            serde_json::from_str(include_str!("../../typescript/package.json")).unwrap();
+        let typescript_lock: Value =
+            serde_json::from_str(include_str!("../../typescript/package-lock.json")).unwrap();
+        let python_manifest = include_str!("../../python/pyproject.toml");
+        let python_version = python_manifest
+            .lines()
+            .find_map(|line| line.strip_prefix("version = \"")?.strip_suffix('"'))
+            .unwrap();
+        let release_runbook = include_str!("../../RELEASING.md");
+        let documented_version = release_runbook
+            .split_once("Current SDK package versions are")
+            .and_then(|(_, suffix)| suffix.trim_start().strip_prefix('`'))
+            .and_then(|suffix| suffix.split_once('`').map(|(version, _)| version))
+            .unwrap();
+
+        assert_eq!(typescript["version"].as_str(), Some(rust_version));
+        assert_eq!(typescript_lock["version"].as_str(), Some(rust_version));
+        assert_eq!(typescript_lock["packages"][""]["version"].as_str(), Some(rust_version));
+        assert_eq!(python_version, rust_version);
+        assert_eq!(documented_version, rust_version);
+    }
+
+    #[test]
+    fn default_socket_path_preserves_compatible_runtime_dir() {
+        let runtime_dir = PathBuf::from("/tmp/cmux-tui-compat");
+        assert_eq!(
+            default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
+            runtime_dir.join("main.sock")
+        );
+    }
+
+    #[test]
+    fn default_socket_path_falls_back_for_long_tmpdir() {
+        let long_tmpdir = PathBuf::from("/tmp").join("x".repeat(200));
+        let preferred_runtime_dir = long_tmpdir.join(private_runtime_dir_name());
+        let path = default_socket_path_in_runtime_dir(
+            "cmux-browser-0123456789abcdef",
+            preferred_runtime_dir,
+        );
+
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp")
+                .join(private_runtime_dir_name())
+                .join("cmux-browser-0123456789abcdef.sock")
+        );
+        assert!(unix_socket_path_fits(&path));
+        assert_ne!(path.parent(), Some(Path::new("/tmp")));
+    }
+
+    #[test]
+    fn unix_socket_path_reserves_trailing_nul() {
+        const SUN_PATH_CAPACITY: usize =
+            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        assert!(unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY - 1))));
+        assert!(!unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY))));
+    }
+
+    #[test]
     fn title_changed_decodes_authoritative_title() {
         let event = parse_event(serde_json::json!({
             "event": "title-changed",
@@ -866,6 +1676,571 @@ mod tests {
             serde_json::from_value(serde_json::json!({"accepted": true, "reservation_id": 41}))
                 .unwrap();
         assert_eq!(reserved.reservation_id, Some(41));
+    }
+
+    #[test]
+    fn client_info_normalizes_protocol_nine_sizing_participation() {
+        let client: ClientInfo = serde_json::from_value(serde_json::json!({
+            "client": 7,
+            "transport": "ws",
+            "name": null,
+            "kind": "web",
+            "connected_seconds": 12,
+            "attached": [31, 32],
+            "sizes": [
+                {"surface": 31, "cols": 126, "rows": 38},
+                {"surface": 32, "cols": 100, "rows": 30, "size_participating": true},
+            ],
+            "size_participating": false,
+            "self": true,
+        }))
+        .unwrap();
+
+        assert_eq!(client.sizes[0].size_participating, Some(false));
+        assert_eq!(client.sizes[1].size_participating, Some(true));
+    }
+
+    #[test]
+    fn legacy_tree_defaults_additive_workspace_registry_fields() {
+        let tree: Tree = serde_json::from_value(serde_json::json!({
+            "workspaces": [{
+                "id": 1,
+                "name": "one",
+                "active": true,
+                "screens": [],
+            }],
+        }))
+        .unwrap();
+
+        assert_eq!(tree.workspace_revision, 0);
+        assert_eq!(tree.pane_revision, None);
+        assert_eq!(tree.workspaces[0].key, "");
+    }
+
+    #[test]
+    fn tree_preserves_optional_pane_revision() {
+        let tree: Tree = serde_json::from_value(serde_json::json!({
+            "pane_revision": 7,
+            "workspaces": [],
+        }))
+        .unwrap();
+
+        assert_eq!(tree.pane_revision, Some(7));
+    }
+
+    #[test]
+    fn screen_preserves_viewport_metadata() {
+        let tree: Tree = serde_json::from_value(serde_json::json!({
+            "workspaces": [{
+                "id": 1,
+                "name": "one",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "name": null,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "viewport_base_width": 0.75,
+                    "viewport_splits": [{"split": 4, "width": 0.5}],
+                    "panes": [],
+                }],
+            }],
+        }))
+        .unwrap();
+
+        let screen = &tree.workspaces[0].screens[0];
+        assert_eq!(screen.viewport_base_width, Some(0.75));
+        assert_eq!(screen.viewport_splits.len(), 1);
+        assert_eq!(screen.viewport_splits[0].split, 4);
+        assert_eq!(screen.viewport_splits[0].width, 0.5);
+    }
+
+    #[test]
+    fn command_errors_preserve_machine_readable_codes() {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: None,
+            capabilities: Vec::new(),
+        };
+        let server = std::thread::spawn(move || {
+            let mut request = String::new();
+            BufReader::new(peer.try_clone().unwrap()).read_line(&mut request).unwrap();
+            peer.write_all(
+                br#"{"id":1,"ok":false,"error":"layout changed","error_code":"layout-undo-stale"}
+"#,
+            )
+            .unwrap();
+        });
+
+        let error = client.request::<Value>("undo-layout", Map::new()).unwrap_err();
+        server.join().unwrap();
+
+        assert!(matches!(
+            error,
+            CmuxError::Command { error_code: Some(code), .. } if code == "layout-undo-stale"
+        ));
+    }
+
+    #[test]
+    fn workspace_registry_placements_decode() {
+        let workspace: WorkspacePlacement = serde_json::from_value(serde_json::json!({
+            "workspace": 1,
+            "key": "stable-key",
+            "index": 0,
+            "workspace_revision": 4,
+        }))
+        .unwrap();
+        assert_eq!(workspace.workspace_revision, 4);
+
+        let terminal: TerminalPlacement = serde_json::from_value(serde_json::json!({
+            "surface": 5,
+            "pane": 4,
+            "screen": 3,
+            "workspace": 1,
+            "key": "stable-key",
+        }))
+        .unwrap();
+        assert_eq!(terminal.key, "stable-key");
+
+        let mutation: WorkspaceMutation = serde_json::from_value(serde_json::json!({
+            "workspace": 1,
+            "key": "stable-key",
+            "workspace_revision": 5,
+        }))
+        .unwrap();
+        assert_eq!(mutation.workspace_revision, 5);
+    }
+
+    #[test]
+    fn layout_undo_decodes_both_outcomes() {
+        let preview: LayoutUndoResult = serde_json::from_value(serde_json::json!({
+            "undone": false,
+            "confirmation_required": true,
+            "screen": 3,
+            "revision": 8,
+            "closes_panes": [15],
+        }))
+        .unwrap();
+        assert_eq!(
+            preview,
+            LayoutUndoResult::ConfirmationRequired {
+                screen: 3,
+                revision: 8,
+                closes_panes: vec![15],
+            }
+        );
+
+        let undone: LayoutUndoResult = serde_json::from_value(serde_json::json!({
+            "undone": true,
+            "screen": 3,
+            "revision": 9,
+        }))
+        .unwrap();
+        assert_eq!(undone, LayoutUndoResult::Undone { screen: 3, revision: 9 });
+    }
+
+    #[test]
+    fn layout_undo_rejects_confirmation_without_closes_panes() {
+        let result = serde_json::from_value::<LayoutUndoResult>(serde_json::json!({
+            "undone": false,
+            "confirmation_required": true,
+            "screen": 3,
+            "revision": 8,
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn layout_undo_rejects_confirmation_without_undone_discriminator() {
+        let result = serde_json::from_value::<LayoutUndoResult>(serde_json::json!({
+            "confirmation_required": true,
+            "screen": 3,
+            "revision": 8,
+            "closes_panes": [15],
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn workspace_registry_selectors_reject_missing_and_empty_keys_locally() {
+        assert!(matches!(
+            validate_workspace_selector(None, None),
+            Err(CmuxError::InvalidArgument(message)) if message == "workspace or key is required"
+        ));
+        assert!(matches!(
+            validate_workspace_selector(None, Some("  ")),
+            Err(CmuxError::InvalidArgument(message)) if message == "workspace or key is required"
+        ));
+        validate_workspace_selector(Some(1), None).unwrap();
+        validate_workspace_selector(None, Some("stable")).unwrap();
+    }
+
+    #[test]
+    fn attach_surface_rejects_partial_initial_size_locally() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(5),
+            capabilities: Vec::new(),
+        };
+        assert!(matches!(
+            client.attach_surface_with_options(
+                1,
+                AttachSurfaceOptions { cols: Some(80), rows: None },
+            ),
+            Err(CmuxError::InvalidArgument(message))
+                if message == "attach-surface cols and rows must be supplied together"
+        ));
+    }
+
+    #[test]
+    fn stack_layout_decodes_protocol_v9_shape() {
+        let layout: Layout = serde_json::from_value(serde_json::json!({
+            "type": "stack",
+            "panes": [1, 2, 3],
+            "expanded": 2,
+        }))
+        .unwrap();
+        assert!(matches!(
+            layout,
+            Layout::Stack { panes, expanded } if panes == vec![1, 2, 3] && expanded == 2
+        ));
+    }
+
+    #[test]
+    fn set_split_ratio_requires_protocol_eight() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(7),
+            capabilities: Vec::new(),
+        };
+        let error = client.require_protocol(8, "set-split-ratio").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "set-split-ratio requires protocol 8; server uses protocol 7"
+        );
+    }
+
+    #[test]
+    fn clear_history_requires_capability() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: Vec::new(),
+        };
+
+        let error = client.clear_history(7).unwrap_err();
+        assert_eq!(error.to_string(), "clear-history is not supported by this server");
+    }
+
+    #[test]
+    fn clear_history_sends_capability_gated_wire_command() {
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut response_writer = peer.try_clone().unwrap();
+            let mut reader = BufReader::new(peer);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(
+                request,
+                serde_json::json!({
+                    "id": 1,
+                    "cmd": "clear-history",
+                    "surface": 7,
+                })
+            );
+            response_writer.write_all(b"{\"id\":1,\"ok\":true,\"data\":{}}\n").unwrap();
+        });
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string()],
+        };
+
+        client.clear_history(7).unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn clear_history_fallback_requires_capability_and_preserves_key() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string()],
+        };
+        let fallback = TerminalKeyInput {
+            key: TerminalKey::K,
+            mods: TerminalModifiers { super_key: true, ..Default::default() },
+            consumed_mods: TerminalModifiers::default(),
+            composing: false,
+            utf8: String::new(),
+            unshifted_codepoint: Some('k'),
+            shifted_codepoint: None,
+            base_layout_codepoint: Some('k'),
+            action: Some(TerminalKeyAction::Press),
+            macos_option_as_alt: true,
+        };
+
+        let error = client.clear_history_with_fallback(7, &fallback).unwrap_err();
+        assert_eq!(error.to_string(), "clear-history key fallback is not supported by this server");
+
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut response_writer = peer.try_clone().unwrap();
+            let mut reader = BufReader::new(peer);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(
+                request,
+                serde_json::json!({
+                    "id": 1,
+                    "cmd": "clear-history",
+                    "surface": 7,
+                    "fallback_key": {
+                        "key": "k",
+                        "mods": {
+                            "shift": false,
+                            "control": false,
+                            "alt": false,
+                            "super": true,
+                            "caps_lock": false,
+                            "num_lock": false,
+                        },
+                        "consumed_mods": {
+                            "shift": false,
+                            "control": false,
+                            "alt": false,
+                            "super": false,
+                            "caps_lock": false,
+                            "num_lock": false,
+                        },
+                        "composing": false,
+                        "utf8": "",
+                        "unshifted_codepoint": "k",
+                        "shifted_codepoint": null,
+                        "base_layout_codepoint": "k",
+                        "action": "press",
+                        "macos_option_as_alt": true,
+                    },
+                })
+            );
+            response_writer.write_all(b"{\"id\":1,\"ok\":true,\"data\":{}}\n").unwrap();
+        });
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string(), "clear-history-key-v1".to_string()],
+        };
+
+        client.clear_history_with_fallback(7, &fallback).unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn clear_history_fallback_rejects_oversized_key_text_locally() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string(), "clear-history-key-v1".to_string()],
+        };
+        let fallback = TerminalKeyInput {
+            key: TerminalKey::K,
+            mods: TerminalModifiers { super_key: true, ..Default::default() },
+            consumed_mods: TerminalModifiers::default(),
+            composing: false,
+            utf8: "x".repeat(TERMINAL_KEY_TEXT_MAX_BYTES + 1),
+            unshifted_codepoint: Some('k'),
+            shifted_codepoint: None,
+            base_layout_codepoint: Some('k'),
+            action: Some(TerminalKeyAction::Press),
+            macos_option_as_alt: true,
+        };
+
+        assert!(matches!(
+            client.clear_history_with_fallback(7, &fallback),
+            Err(CmuxError::InvalidArgument(message))
+                if message == "terminal key text exceeds the 4 KiB protocol limit"
+        ));
+    }
+
+    #[test]
+    fn clear_history_failure_preserves_delivery_classification() {
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut response_writer = peer.try_clone().unwrap();
+            let mut reader = BufReader::new(peer);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            response_writer
+                .write_all(
+                    b"{\"id\":1,\"ok\":false,\"error\":\"clear failed\",\"error_delivery\":\"known-not-delivered\"}\n",
+                )
+                .unwrap();
+        });
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string(), "clear-history-key-v1".to_string()],
+        };
+
+        let error = client.clear_history(7).unwrap_err();
+        assert!(matches!(
+            error,
+            CmuxError::Command { delivery: Some(ErrorDelivery::KnownNotDelivered), .. }
+        ));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn set_split_ratio_accepts_newer_additive_protocols() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: Vec::new(),
+        };
+        client.require_protocol(8, "set-split-ratio").unwrap();
+    }
+
+    #[test]
+    fn resize_methods_forward_explicit_transactions() {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(10),
+            capabilities: vec!["viewport-column-resize-v1".to_string()],
+        };
+        let peer_reader = peer.try_clone().unwrap();
+        let capture = std::thread::spawn(move || {
+            let mut reader = BufReader::new(peer_reader);
+            let mut requests = Vec::new();
+            for _ in 0..2 {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let id = request["id"].clone();
+                requests.push(request);
+                writeln!(peer, "{}", serde_json::json!({"id": id, "ok": true, "data": {}}))
+                    .unwrap();
+            }
+            requests
+        });
+
+        client.set_split_ratio_in_transaction(42, 0.6, 17).unwrap();
+        client.set_viewport_pane_width_in_transaction(9, 0.75, 17).unwrap();
+
+        let requests = capture.join().unwrap();
+        assert_eq!(requests[0]["cmd"], "set-split-ratio");
+        assert_eq!(requests[0]["transaction"], 17);
+        assert_eq!(requests[1]["cmd"], "set-viewport-pane-width");
+        assert_eq!(requests[1]["transaction"], 17);
+    }
+
+    #[test]
+    fn new_pane_requires_protocol_nine() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(8),
+            capabilities: Vec::new(),
+        };
+        let error = client.require_protocol(9, "new-pane").unwrap_err();
+        assert_eq!(error.to_string(), "new-pane requires protocol 9; server uses protocol 8");
+    }
+
+    #[test]
+    fn new_pane_right_rejects_invalid_widths_without_sending_a_command() {
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(10),
+            capabilities: vec!["viewport-splits-v1".to_string()],
+        };
+        let peer_reader = peer.try_clone().unwrap();
+        let capture = std::thread::spawn(move || {
+            let mut reader = BufReader::new(peer_reader);
+            let mut requests = Vec::new();
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        let id = request["id"].clone();
+                        requests.push(request);
+                        writeln!(
+                            peer,
+                            "{}",
+                            serde_json::json!({
+                                "id": id,
+                                "ok": true,
+                                "data": {"surface": 9},
+                            })
+                        )
+                        .unwrap();
+                    }
+                    Err(error) => panic!("failed to capture request: {error}"),
+                }
+            }
+            requests
+        });
+
+        for width in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.09, 1.01] {
+            assert!(matches!(
+                client.new_pane_right(7, Some(width), None, None),
+                Err(CmuxError::InvalidArgument(message))
+                    if message == "viewport pane width must be between 0.1 and 1.0"
+            ));
+        }
+        drop(client);
+        assert!(capture.join().unwrap().is_empty());
     }
 
     #[test]

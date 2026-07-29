@@ -1,23 +1,32 @@
 //! Read-only tree snapshots shared by the renderer and input handling,
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use cmux_tui_core::{
-    BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind,
-    SurfaceNotification, WorkspaceId, assign_short_ids,
+    BrowserSource, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Node, PaneId, ScreenId,
+    SplitDir, SplitId, State, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId,
+    assign_short_ids,
 };
 use serde_json::Value;
 
 #[derive(Clone, Default)]
 pub struct TreeView {
     pub workspaces: Vec<WorkspaceView>,
+    #[allow(dead_code)]
+    pub workspace_revision: u64,
+    pub pane_revision: Option<u64>,
     pub active_workspace: usize,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AmbiguousSurfaceReference;
 
 #[derive(Clone)]
 pub struct WorkspaceView {
     pub id: WorkspaceId,
+    #[allow(dead_code)]
+    pub key: String,
     pub short_id: String,
     pub name: String,
     pub screens: Vec<ScreenView>,
@@ -34,6 +43,8 @@ pub struct ScreenView {
     pub layout: Node,
     pub active_pane: PaneId,
     pub zoomed_pane: Option<PaneId>,
+    pub viewport_base_width: Option<f32>,
+    pub viewport_splits: BTreeMap<SplitId, f32>,
     pub panes: Vec<PaneView>,
 }
 
@@ -46,6 +57,7 @@ pub struct PaneView {
     pub name: Option<String>,
     pub tabs: Vec<TabView>,
     pub active_tab: usize,
+    pub focused_at: u64,
 }
 
 #[derive(Clone)]
@@ -57,6 +69,7 @@ pub struct TabView {
     pub kind: SurfaceKind,
     pub browser_source: Option<BrowserSource>,
     pub browser_frames_stalled: bool,
+    pub supports_clear_history_key_fallback: bool,
     pub notification: Option<TabNotificationView>,
 }
 
@@ -71,6 +84,15 @@ impl TreeView {
         self.workspaces.get(self.active_workspace)
     }
 
+    pub fn active_workspace_mut(&mut self) -> Option<&mut WorkspaceView> {
+        self.workspaces.get_mut(self.active_workspace)
+    }
+
+    pub fn active_workspace_mut_screen(&mut self) -> Option<&mut ScreenView> {
+        let workspace = self.workspaces.get_mut(self.active_workspace)?;
+        workspace.screens.get_mut(workspace.active_screen)
+    }
+
     /// The active screen of the active workspace.
     pub fn active_screen(&self) -> Option<&ScreenView> {
         self.active_workspace()?.active_screen_ref()
@@ -82,6 +104,87 @@ impl TreeView {
             .flat_map(|ws| ws.screens.iter())
             .flat_map(|screen| screen.panes.iter())
             .find(|p| p.id == id)
+    }
+
+    pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneView> {
+        self.workspaces
+            .iter_mut()
+            .flat_map(|workspace| workspace.screens.iter_mut())
+            .flat_map(|screen| screen.panes.iter_mut())
+            .find(|pane| pane.id == id)
+    }
+
+    pub fn surface(&self, id: SurfaceId) -> Option<&TabView> {
+        self.workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == id)
+    }
+
+    /// Resolve either a canonical decimal protocol id or the six-character
+    /// short id shown by the TUI and CLI. A digit-only six-character value
+    /// can inhabit both namespaces, so conflicting live matches are rejected
+    /// instead of silently routing input to either surface.
+    pub fn resolve_surface(
+        &self,
+        reference: &str,
+    ) -> Result<Option<SurfaceId>, AmbiguousSurfaceReference> {
+        let tabs = || {
+            self.workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .flat_map(|screen| screen.panes.iter())
+                .flat_map(|pane| pane.tabs.iter())
+        };
+        if reference.bytes().all(|byte| byte.is_ascii_digit()) {
+            if reference.len() == 6 && reference.starts_with('0') {
+                return Ok(tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface));
+            }
+            if reference.len() > 1 && reference.starts_with('0') {
+                return Err(AmbiguousSurfaceReference);
+            }
+            let numeric_match = reference.parse::<SurfaceId>().ok().and_then(|numeric| {
+                tabs().find(|tab| tab.surface == numeric).map(|tab| tab.surface)
+            });
+            let short_match = (reference.len() == 6)
+                .then(|| tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface))
+                .flatten();
+            return match (numeric_match, short_match) {
+                (Some(numeric), Some(short)) if numeric != short => Err(AmbiguousSurfaceReference),
+                (Some(surface), _) | (_, Some(surface)) => Ok(Some(surface)),
+                (None, None) => Ok(None),
+            };
+        }
+        Ok(tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface))
+    }
+
+    /// Select the workspace, screen, pane, and tab containing a surface.
+    /// Single-surface clients reapply this to every remote tree snapshot so
+    /// unrelated focus changes cannot move them to another terminal.
+    pub fn select_surface(&mut self, id: SurfaceId) -> bool {
+        let location =
+            self.workspaces.iter().enumerate().find_map(|(workspace_index, workspace)| {
+                workspace.screens.iter().enumerate().find_map(|(screen_index, screen)| {
+                    screen.panes.iter().enumerate().find_map(|(pane_index, pane)| {
+                        pane.tabs
+                            .iter()
+                            .position(|tab| tab.surface == id)
+                            .map(|tab_index| (workspace_index, screen_index, pane_index, tab_index))
+                    })
+                })
+            });
+        let Some((workspace_index, screen_index, pane_index, tab_index)) = location else {
+            return false;
+        };
+        self.active_workspace = workspace_index;
+        let workspace = &mut self.workspaces[workspace_index];
+        workspace.active_screen = screen_index;
+        let screen = &mut workspace.screens[screen_index];
+        screen.active_pane = screen.panes[pane_index].id;
+        screen.panes[pane_index].active_tab = tab_index;
+        true
     }
 
     /// The active surface of the active pane of the active screen.
@@ -110,14 +213,14 @@ impl WorkspaceView {
 
 impl ScreenView {
     pub fn pane(&self, id: PaneId) -> Option<&PaneView> {
-        self.panes.iter().find(|p| p.id == id)
+        self.panes.iter().find(|pane| pane.id == id)
     }
 
-    /// Display name: the user-assigned name, else "screen N" by position.
+    /// Display name: the user-assigned name, else its zero-based position.
     pub fn display_name(&self, index: usize) -> String {
         match self.name.as_deref() {
             Some(name) if !name.is_empty() => name.to_string(),
-            _ => format!("{}", index + 1),
+            _ => format!("{index}"),
         }
     }
 }
@@ -165,6 +268,7 @@ pub fn tree_from_state_with_notifications(
             short_id: short_ids.get(&pane.id).cloned().unwrap_or_default(),
             name: pane.name.clone(),
             active_tab: pane.active_tab,
+            focused_at: pane.focused_at,
             tabs: pane
                 .tabs
                 .iter()
@@ -180,6 +284,10 @@ pub fn tree_from_state_with_notifications(
                         .get(sid)
                         .and_then(|s| s.browser_frames_stalled())
                         .unwrap_or(false),
+                    supports_clear_history_key_fallback: state
+                        .surfaces
+                        .get(sid)
+                        .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
                     notification: notifications.get(sid).map(|notification| TabNotificationView {
                         unread: notification.unread,
                         level: notification.level.as_str(),
@@ -189,12 +297,15 @@ pub fn tree_from_state_with_notifications(
         })
     };
     TreeView {
+        workspace_revision: state.workspace_revision,
+        pane_revision: Some(state.pane_revision),
         active_workspace: state.active_workspace,
         workspaces: state
             .workspaces
             .iter()
             .map(|ws| WorkspaceView {
                 id: ws.id,
+                key: ws.key.clone(),
                 short_id: short_ids.get(&ws.id).cloned().unwrap_or_default(),
                 name: ws.name.clone(),
                 active_screen: ws.active_screen,
@@ -211,6 +322,8 @@ pub fn tree_from_state_with_notifications(
                             layout: screen.root.clone(),
                             active_pane: screen.active_pane,
                             zoomed_pane: screen.zoomed_pane,
+                            viewport_base_width: screen.viewport_base_width,
+                            viewport_splits: screen.viewport_splits.clone(),
                             panes: pane_ids.iter().filter_map(pane_view).collect(),
                         }
                     })
@@ -230,11 +343,22 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 _ => return None,
             };
             Some(Node::Split {
+                id: value.get("split")?.as_u64()?,
                 dir,
                 ratio: value.get("ratio")?.as_f64()? as f32,
                 a: Box::new(parse_layout(value.get("a")?)?),
                 b: Box::new(parse_layout(value.get("b")?)?),
             })
+        }
+        "stack" => {
+            let panes = value
+                .get("panes")?
+                .as_array()?
+                .iter()
+                .map(Value::as_u64)
+                .collect::<Option<Vec<_>>>()?;
+            let expanded = value.get("expanded")?.as_u64()?;
+            Node::stack_with_expanded(panes, expanded)
         }
         _ => None,
     }
@@ -246,6 +370,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
         short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         name: value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
         active_tab: value.get("active_tab").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+        focused_at: value.get("focused_at").and_then(|v| v.as_u64()).unwrap_or(0),
         tabs: value
             .get("tabs")
             .and_then(|v| v.as_array())
@@ -279,6 +404,10 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .get("browser_frames_stalled")
                                 .and_then(|v| v.as_bool())
                                 .unwrap_or(false),
+                            supports_clear_history_key_fallback: tab
+                                .get("supports_clear_history_key_fallback")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false),
                             notification: tab.get("notification").and_then(parse_notification),
                         })
                     })
@@ -300,7 +429,13 @@ fn parse_notification(value: &Value) -> Option<TabNotificationView> {
     })
 }
 
-fn parse_screen(value: &Value) -> Option<ScreenView> {
+#[derive(Clone, Copy, Default)]
+pub(super) struct TreeCapabilities {
+    pub viewport_splits: bool,
+    pub viewport_column_resize: bool,
+}
+
+fn parse_screen(value: &Value, capabilities: TreeCapabilities) -> Option<ScreenView> {
     Some(ScreenView {
         id: value.get("id")?.as_u64()?,
         short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
@@ -308,6 +443,39 @@ fn parse_screen(value: &Value) -> Option<ScreenView> {
         layout: value.get("layout").and_then(parse_layout)?,
         active_pane: value.get("active_pane").and_then(|v| v.as_u64()).unwrap_or(0),
         zoomed_pane: value.get("zoomed_pane").and_then(|v| v.as_u64()),
+        viewport_base_width: if capabilities.viewport_column_resize {
+            value
+                .get("viewport_base_width")
+                .and_then(Value::as_f64)
+                .filter(|width| {
+                    (f64::from(MIN_VIEWPORT_PANE_WIDTH)..=f64::from(MAX_VIEWPORT_PANE_WIDTH))
+                        .contains(width)
+                })
+                .map(|width| width as f32)
+        } else {
+            None
+        },
+        viewport_splits: if capabilities.viewport_splits {
+            value
+                .get("viewport_splits")
+                .and_then(Value::as_array)
+                .map(|splits| {
+                    splits
+                        .iter()
+                        .filter_map(|value| {
+                            let split = value.get("split")?.as_u64()?;
+                            let width = value.get("width")?.as_f64()?;
+                            (f64::from(MIN_VIEWPORT_PANE_WIDTH)
+                                ..=f64::from(MAX_VIEWPORT_PANE_WIDTH))
+                                .contains(&width)
+                                .then_some((split, width as f32))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            BTreeMap::new()
+        },
         panes: value
             .get("panes")
             .and_then(|v| v.as_array())
@@ -317,8 +485,23 @@ fn parse_screen(value: &Value) -> Option<ScreenView> {
 }
 
 /// Parse the remote `list-workspaces` response.
+#[cfg(test)]
 pub fn parse_tree(data: &Value) -> TreeView {
-    let mut tree = TreeView::default();
+    parse_tree_with_capabilities(data, TreeCapabilities::default())
+}
+
+pub(super) fn parse_tree_with_capabilities(
+    data: &Value,
+    capabilities: TreeCapabilities,
+) -> TreeView {
+    let mut tree = TreeView {
+        workspace_revision: data
+            .get("workspace_revision")
+            .and_then(Value::as_u64)
+            .unwrap_or_default(),
+        pane_revision: data.get("pane_revision").and_then(Value::as_u64),
+        ..TreeView::default()
+    };
     let Some(workspaces) = data.get("workspaces").and_then(|v| v.as_array()) else {
         return tree;
     };
@@ -328,6 +511,7 @@ pub fn parse_tree(data: &Value) -> TreeView {
         }
         let mut view = WorkspaceView {
             id: ws.get("id").and_then(|v| v.as_u64()).unwrap_or(0),
+            key: ws.get("key").and_then(Value::as_str).unwrap_or_default().to_string(),
             short_id: ws.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
             name: ws.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
             screens: Vec::new(),
@@ -338,7 +522,7 @@ pub fn parse_tree(data: &Value) -> TreeView {
                 if screen.get("active").and_then(|v| v.as_bool()) == Some(true) {
                     view.active_screen = s;
                 }
-                if let Some(parsed) = parse_screen(screen) {
+                if let Some(parsed) = parse_screen(screen, capabilities) {
                     view.screens.push(parsed);
                 }
             }
@@ -346,4 +530,271 @@ pub fn parse_tree(data: &Value) -> TreeView {
         tree.workspaces.push(view);
     }
     tree
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn unnamed_screens_use_zero_based_display_names() {
+        let screen = ScreenView {
+            id: 1,
+            short_id: "1".to_string(),
+            name: None,
+            layout: Node::Leaf(1),
+            active_pane: 1,
+            zoomed_pane: None,
+            viewport_base_width: None,
+            viewport_splits: BTreeMap::new(),
+            panes: Vec::new(),
+        };
+
+        assert_eq!(screen.display_name(0), "0");
+        assert_eq!(screen.display_name(9), "9");
+    }
+
+    #[test]
+    fn protocol_v8_parser_preserves_split_ids() {
+        let tree = parse_tree_with_capabilities(
+            &json!({
+                "workspaces": [{
+                    "id": 1,
+                    "name": "one",
+                    "active": true,
+                    "screens": [{
+                        "id": 2,
+                        "active": true,
+                        "active_pane": 3,
+                        "layout": {
+                            "type": "split",
+                            "split": 9,
+                            "dir": "right",
+                            "ratio": 0.5,
+                            "a": {"type": "leaf", "pane": 3},
+                            "b": {"type": "leaf", "pane": 4}
+                        },
+                        "viewport_splits": [{"split": 9, "width": 0.6666667}],
+                        "panes": []
+                    }]
+                }]
+            }),
+            TreeCapabilities { viewport_splits: true, viewport_column_resize: false },
+        );
+
+        let Node::Split { id, .. } = &tree.workspaces[0].screens[0].layout else {
+            panic!("layout should be split");
+        };
+        assert_eq!(*id, 9);
+        assert_eq!(tree.workspaces[0].screens[0].viewport_splits.get(&9), Some(&(2.0 / 3.0)));
+    }
+
+    #[test]
+    fn parser_ignores_out_of_range_viewport_widths() {
+        let tree = parse_tree_with_capabilities(
+            &json!({
+                "workspaces": [{
+                    "id": 1,
+                    "active": true,
+                    "screens": [{
+                        "id": 2,
+                        "active": true,
+                        "active_pane": 3,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "viewport_base_width": 1.1,
+                        "viewport_splits": [
+                            {"split": 8, "width": 0.09},
+                            {"split": 9, "width": 0.5},
+                            {"split": 10, "width": 1.01}
+                        ],
+                        "panes": []
+                    }]
+                }]
+            }),
+            TreeCapabilities { viewport_splits: true, viewport_column_resize: true },
+        );
+
+        let screen = &tree.workspaces[0].screens[0];
+        assert_eq!(screen.viewport_base_width, None);
+        assert_eq!(screen.viewport_splits, BTreeMap::from([(9, 0.5)]));
+    }
+
+    #[test]
+    fn parser_ignores_viewport_metadata_without_capabilities() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "viewport_base_width": 0.8,
+                    "viewport_splits": [{"split": 9, "width": 0.5}],
+                    "panes": []
+                }]
+            }]
+        }));
+
+        let screen = &tree.workspaces[0].screens[0];
+        assert_eq!(screen.viewport_base_width, None);
+        assert!(screen.viewport_splits.is_empty());
+    }
+
+    #[test]
+    fn protocol_v9_parser_preserves_stack_expansion() {
+        let layout = parse_layout(&json!({
+            "type": "stack",
+            "panes": [3, 4, 5],
+            "expanded": 4
+        }))
+        .unwrap();
+
+        assert!(matches!(layout, Node::Stack { expanded: 4, .. }));
+    }
+
+    #[test]
+    fn selecting_surface_updates_the_full_active_path() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 4, "short_id": "aaa004"},
+                            {"surface": 5, "short_id": "bbb005"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+
+        assert_eq!(tree.resolve_surface("bbb005"), Ok(Some(5)));
+        assert_eq!(tree.resolve_surface("4"), Ok(Some(4)));
+        assert!(tree.select_surface(5));
+        assert_eq!(tree.active_surface(), Some(5));
+        assert!(!tree.select_surface(99));
+    }
+
+    #[test]
+    fn padded_numeric_surface_reference_resolves_stably_as_short_id() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 10, "short_id": "ten010"},
+                            {"surface": 36, "short_id": "000010"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+        tree.workspaces[0].screens[0].panes[0].tabs[1].short_id = "000010".to_string();
+
+        assert_eq!(tree.resolve_surface("000010"), Ok(Some(36)));
+        assert_eq!(tree.resolve_surface("10"), Ok(Some(10)));
+
+        tree.workspaces[0].screens[0].panes[0].tabs.remove(0);
+        assert_eq!(tree.resolve_surface("000010"), Ok(Some(36)));
+    }
+
+    #[test]
+    fn digit_only_short_surface_id_resolves_or_reports_a_namespace_collision() {
+        let short_only = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 60466176, "short_id": "100000"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+        assert_eq!(short_only.resolve_surface("100000"), Ok(Some(60_466_176)));
+
+        let colliding = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 60466176, "short_id": "100000"},
+                            {"surface": 100000, "short_id": "00255s"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+        assert_eq!(colliding.resolve_surface("100000"), Err(AmbiguousSurfaceReference));
+    }
+
+    #[test]
+    fn pane_parser_preserves_authoritative_focus_recency() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "focused_at": 42,
+            "tabs": []
+        }))
+        .unwrap();
+
+        assert_eq!(pane.focused_at, 42);
+    }
+
+    #[test]
+    fn tree_parser_defaults_and_preserves_pane_revision() {
+        assert_eq!(parse_tree(&json!({"workspaces": []})).pane_revision, None);
+        assert_eq!(
+            parse_tree(&json!({"pane_revision": 7, "workspaces": []})).pane_revision,
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn tree_parser_defaults_clear_fallback_support_to_false() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "tabs": [
+                {"surface": 4},
+                {"surface": 5, "supports_clear_history_key_fallback": true}
+            ]
+        }))
+        .unwrap();
+
+        assert!(!pane.tabs[0].supports_clear_history_key_fallback);
+        assert!(pane.tabs[1].supports_clear_history_key_fallback);
+    }
 }

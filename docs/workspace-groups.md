@@ -8,9 +8,9 @@ Workspace groups let you nest workspaces into collapsible named sections in the 
 
 Every group is owned by exactly one workspace called the **anchor**. The group header in the sidebar IS the anchor's representation — there is no separate row for it. Clicking the header name area focuses the anchor's panels. Clicking the chevron toggles collapse.
 
-Anchors are always brand new when a group is created. They are never promoted from an existing workspace. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`).
+A group's anchor is always a brand new workspace at creation time; grouping a selection or `create` never promotes one of your existing workspaces into the anchor. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`).
 
-Closing the anchor workspace **dissolves the group**: every other member loses its `groupId` and stays in the tabs list as an ungrouped workspace. Nothing is closed besides the anchor itself. The app shows a confirm dialog with a "Don't ask again" toggle before this happens.
+Closing the anchor workspace closes only that workspace and **promotes the group's next member to be the new anchor**, so the group and its other members stay intact (the promoted member then shows the group name as the header). When the anchor is the group's only workspace, the group is removed. To flatten a group back into ungrouped workspaces, use **Ungroup**; to close every workspace in a group, use **Delete Group**.
 
 ### Group identity
 
@@ -58,7 +58,8 @@ All group operations are scriptable via `cmux workspace-group <subcommand>`. The
 cmux workspace-group list [--json]
 cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>]
 cmux workspace-group ungroup <group-id>
-cmux workspace-group delete  <group-id>   # destructive: closes every member workspace
+cmux workspace-group delete <group-id>                         # dissolve; keep workspaces
+cmux workspace-group delete <group-id> --close-workspaces      # explicitly destructive
 cmux workspace-group rename <group-id> --name "new name"
 cmux workspace-group collapse <group-id>
 cmux workspace-group expand <group-id>
@@ -70,14 +71,16 @@ cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
 ```
 
-`create` returns a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
+`create` returns a group handle (`workspace_group:N` by default). Omitting `--from` creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass `--json` for the full structured payload.
+
+`delete` dissolves the group and keeps its workspaces by default. Pass `--close-workspaces` only when you intend to close every member workspace and terminate its processes. The response reports whether the group was dissolved or its workspaces were closed, including the affected count.
 
 ### Examples
 
-Group the three currently selected workspaces under a name:
+Group two explicitly chosen workspaces under a name:
 
 ```bash
-cmux workspace-group create --name manaflow
+cmux workspace-group create --name manaflow --from workspace:1,workspace:2
 ```
 
 Spin up a new workspace inside an existing group (e.g. wired to a worktree script):

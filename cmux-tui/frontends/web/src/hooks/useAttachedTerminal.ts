@@ -15,17 +15,28 @@ import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRec
 import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
-import { colorsToCursorOptionsPatch, colorsToThemePatch } from "../lib/terminalColors";
+import {
+  colorsToCursorOptionsPatch,
+  colorsToDynamicColorSequence,
+  colorsToPaletteSequence,
+  colorsToSelectionThemePatch,
+} from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
 import { tryLoadWebglRenderer } from "../lib/webglRenderer";
 
 interface AttachedTerminalOptions {
   client: CmuxClient | null;
   surface: Id | null;
+  focusOnMount?: boolean;
   onError(error: Error): void;
 }
 
-export function useAttachedTerminal({ client, surface, onError }: AttachedTerminalOptions) {
+export function useAttachedTerminal({
+  client,
+  surface,
+  focusOnMount = false,
+  onError,
+}: AttachedTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [focused, setFocused] = useState(false);
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
@@ -39,7 +50,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       allowProposedApi: true,
       convertEol: false,
       disableStdin: true,
-      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      fontFamily: 'Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       lineHeight: 1.15,
       theme: baseTheme,
@@ -59,6 +70,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     host.addEventListener("focusin", handleFocusIn);
     host.addEventListener("focusout", handleFocusOut);
     host.addEventListener("touchend", focusOnTouch, { passive: true });
+    if (focusOnMount) terminal.focus();
     let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
     let reportedFit: TerminalSize | null = null;
 
@@ -82,18 +94,44 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     const input = terminal.onData((text) => {
       void client.send(surface, { text }).catch(onError);
     });
-    const applyColors = (colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent) => {
-      const themePatch = colorsToThemePatch(colors);
+    const writeTerminal = (data: string | Uint8Array) =>
+      new Promise<void>((resolve) => terminal.write(data, resolve));
+    const applyColors = async (
+      colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent | undefined,
+    ) => {
+      const themePatch = colorsToSelectionThemePatch(colors);
       if (themePatch !== null) {
         terminal.options.theme = { ...baseTheme, ...themePatch };
-        if (themePatch.background !== undefined) {
-          stage?.style.setProperty("--surface-background", themePatch.background);
-        } else {
-          stage?.style.removeProperty("--surface-background");
-        }
       }
+      if (colors?.bg != null) {
+        stage?.style.setProperty("--surface-background", colors.bg);
+      } else {
+        stage?.style.removeProperty("--surface-background");
+      }
+      const dynamicSequence = colorsToDynamicColorSequence(colors);
+      if (dynamicSequence !== null) await writeTerminal(dynamicSequence);
+      const paletteSequence = colorsToPaletteSequence(colors);
+      if (paletteSequence !== null) await writeTerminal(paletteSequence);
+    };
+    const applyCursorDefaults = (
+      colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent | undefined,
+    ) => {
       const cursorPatch = colorsToCursorOptionsPatch(colors);
       if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
+    };
+    const writeReplay = async (
+      data: Uint8Array,
+      colors: DecodedVtStateEvent["colors"] | DecodedResizedEvent["colors"],
+    ) => {
+      const hasSparsePalette = colors?.palette !== undefined;
+      // Host defaults must precede replay so DECSCUSR and mode changes in
+      // the authoritative replay remain in force.
+      applyCursorDefaults(colors);
+      // Protocol-v6 servers omit sparse palette metadata, so preserve the
+      // replay-authored OSC palette by applying special colors first.
+      if (!hasSparsePalette) await applyColors(colors);
+      await writeTerminal(data);
+      if (!cancelled && hasSparsePalette) await applyColors(colors);
     };
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let stableTimer: ReturnType<typeof setTimeout> | undefined;
@@ -117,6 +155,9 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
           // Cleanup may have raced the attach round-trip; close the stream we
           // just opened or its buffered events leak for the surface's lifetime.
           if (cancelled) return;
+          // Closing the previous attachment removes this client's report on
+          // the server. Re-publish even when the viewport did not change.
+          reportedFit = null;
           let overflowed = false;
           for (;;) {
             let event;
@@ -130,12 +171,14 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               throw error;
             }
             if (cancelled) return;
-            if (event.event === "vt-state") {
+            if (event.event === "detached") {
+              return;
+            } else if (event.event === "vt-state") {
               const replay = event as DecodedVtStateEvent;
               terminal.reset();
-              applyColors(replay.colors);
               terminal.resize(replay.cols, replay.rows);
-              terminal.write(replay.data);
+              await writeReplay(replay.data, replay.colors);
+              if (cancelled) return;
               // Publish this viewport once attached. The server combines it
               // with every other viewer and returns the shared minimum size.
               applyFit();
@@ -151,9 +194,12 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               const resized = event as DecodedResizedEvent;
               terminal.reset();
               terminal.resize(resized.cols, resized.rows);
-              terminal.write(resized.data);
+              await writeReplay(resized.data, resized.colors);
+              if (cancelled) return;
             } else if (event.event === "colors-changed") {
-              applyColors(event as DecodedColorsChangedEvent);
+              const colors = event as DecodedColorsChangedEvent;
+              applyCursorDefaults(colors);
+              await applyColors(colors);
             } else if (event.event === "overflow") {
               const overflow = event as OverflowEvent;
               if (overflow.scope === "surface" && overflow.surface === surface) {
@@ -181,6 +227,14 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
       } finally {
         stream?.close();
+        if (!cancelled) {
+          reportedFit = null;
+          try {
+            await client.releaseSurfaceSize(surface);
+          } catch (error) {
+            onError(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
       }
     })();
 
@@ -198,12 +252,14 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       if (stableTimer !== undefined) clearTimeout(stableTimer);
       wakeRetry?.();
       stream?.close();
+      reportedFit = null;
+      void client.releaseSurfaceSize(surface).catch(onError);
       webgl?.dispose();
       terminal.dispose();
       stage?.style.removeProperty("--surface-background");
       setFocused(false);
     };
-  }, [client, host, onError, surface]);
+  }, [client, focusOnMount, host, onError, surface]);
 
   return { terminalRef, focused };
 }

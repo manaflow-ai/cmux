@@ -7,6 +7,96 @@ import Foundation
 /// (defined in BrowserFixtureInteractionUITests.swift).
 final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
 
+    /// Regression: browser.navigate used to acknowledge only that WKWebView.load
+    /// was called. After a connection-refused error page, a slow recovered origin
+    /// therefore returned `ok` while the old error-page DOM was still active.
+    /// Success must mean that the requested document actually committed.
+    func testGotoWaitsForRecoveredDocumentCommitAfterConnectionRefusal() throws {
+        try launchApp()
+        let sid = try openBrowserSurface()
+        let server = try BrowserRecoveryHTTPServer()
+        let failedURL = "http://127.0.0.1:\(server.port)/unavailable"
+        let recoveredURL = "http://127.0.0.1:\(server.port)/recovered"
+
+        XCTAssertNotNil(
+            socketEnvelope(
+                method: "browser.navigate",
+                params: ["surface_id": sid, "url": failedURL],
+                responseTimeout: 15
+            ),
+            "Expected the refused navigation to reach a terminal response"
+        )
+        try socketResult(
+            method: "browser.wait",
+            params: [
+                "surface_id": sid,
+                "text": "refused to connect",
+                "timeout_ms": 10_000,
+            ],
+            responseTimeout: 15
+        )
+
+        try server.start()
+        defer { server.stop() }
+
+        let pendingNavigation = try beginPendingSocketRequest(
+            method: "browser.navigate",
+            params: ["surface_id": sid, "url": recoveredURL],
+            responseTimeout: 15
+        )
+        defer { closePendingSocketRequest(pendingNavigation) }
+        try server.waitForRequest()
+        let returnedBeforeResponseRelease = pendingSocketResponseIsReady(pendingNavigation)
+        try server.releaseResponse()
+
+        let navigationEnvelope = try XCTUnwrap(
+            finishPendingSocketRequest(pendingNavigation),
+            "Expected browser.navigate to return after the recovered response was released"
+        )
+        XCTAssertEqual(
+            navigationEnvelope["ok"] as? Bool,
+            true,
+            "browser.navigate failed after the recovered response was released: \(navigationEnvelope)"
+        )
+        XCTAssertFalse(
+            returnedBeforeResponseRelease,
+            "browser.navigate returned before the recovered response could commit"
+        )
+        XCTAssertEqual(
+            try evalString(
+                "document.body.dataset.cmuxRecovered || ''",
+                surfaceID: sid
+            ),
+            "true",
+            "browser.navigate returned success before the recovered document committed"
+        )
+
+        let sameDocumentURL = recoveredURL + "#verified"
+        let sameDocumentEnvelope = try XCTUnwrap(
+            socketEnvelope(
+                method: "browser.navigate",
+                params: ["surface_id": sid, "url": sameDocumentURL],
+                responseTimeout: 15
+            ),
+            "Expected a terminal response for the same-document navigation"
+        )
+        XCTAssertEqual(
+            sameDocumentEnvelope["ok"] as? Bool,
+            true,
+            "same-document browser.navigate failed: \(sameDocumentEnvelope)"
+        )
+        XCTAssertEqual(
+            try evalString("window.location.hash", surfaceID: sid),
+            "#verified",
+            "same-document browser.navigate returned before the trusted document event"
+        )
+        XCTAssertEqual(
+            try evalString("document.body.dataset.cmuxRecovered || ''", surfaceID: sid),
+            "true",
+            "the fragment navigation unexpectedly replaced the recovered document"
+        )
+    }
+
     /// Regression: a WKWebView that has never committed a navigation has no
     /// JavaScript context, so browser.wait used to hang for its full timeout
     /// (or fail) on a URL-less browser.open_split surface. The surface must

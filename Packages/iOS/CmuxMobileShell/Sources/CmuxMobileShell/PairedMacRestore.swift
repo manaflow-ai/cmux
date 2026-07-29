@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 public import CmuxMobilePairedMac
 public import Foundation
 import os
@@ -60,28 +61,40 @@ public struct PairedMacRestore: Sendable {
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
         }
-        let tombstoneIDs = Set(snapshot.deletedMacDeviceIDs
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty })
-            .union(locallyDeletedMacDeviceIDs)
+        func canonicalPairingID(_ value: String) -> String? {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let identity = MobilePairedMac.pairingIdentity(from: trimmed)
+            return MobilePairedMac.pairingID(
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag
+            )
+        }
+        // Server tombstones were written only by the retired legacy-delete
+        // behavior. They no longer remove or suppress local paired-Mac rows.
+        // Locally pending deletes remain authoritative until their outbox flushes.
+        let pendingDeleteIDs = Set(locallyDeletedMacDeviceIDs.compactMap(canonicalPairingID))
         let liveRecords = snapshot.records.filter { record in
-            !tombstoneIDs.contains(MobilePairedMac.pairingID(
+            !pendingDeleteIDs.contains(MobilePairedMac.pairingID(
                 macDeviceID: record.macDeviceID,
                 instanceTag: record.instanceTag
             ))
         }
-        guard !liveRecords.isEmpty || !tombstoneIDs.isEmpty else {
+        guard !liveRecords.isEmpty || !pendingDeleteIDs.isEmpty else {
             return RestoreOutcome(completed: true, restored: 0)
         }
 
-        let localBeforeTombstones = (try? await store.loadAll(stackUserID: accountID, teamID: teamID)) ?? []
+        let localBeforePendingDeletes = (try? await store.loadAll(
+            stackUserID: accountID,
+            teamID: teamID
+        )) ?? []
         // The fetch is not the only sign-out window: re-check after the load too,
         // before we start writing (a wipe between fetch and load must not be
         // overwritten with the old account's Macs).
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
         }
-        for pairingID in tombstoneIDs {
+        for pairingID in pendingDeleteIDs {
             if !isCurrent() {
                 return RestoreOutcome(completed: false, restored: 0)
             }
@@ -103,12 +116,12 @@ public struct PairedMacRestore: Sendable {
                 }
             } catch {
                 pairedMacRestoreLog.warning(
-                    "failed to apply paired mac tombstone \(pairingID, privacy: .public): \(String(describing: error), privacy: .public)"
+                    "failed to apply pending paired mac delete \(pairingID, privacy: .public): \(String(describing: error), privacy: .public)"
                 )
             }
         }
-        let local = tombstoneIDs.isEmpty
-            ? localBeforeTombstones
+        let local = pendingDeleteIDs.isEmpty
+            ? localBeforePendingDeletes
             : ((try? await store.loadAll(stackUserID: accountID, teamID: teamID)) ?? [])
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
@@ -128,8 +141,9 @@ public struct PairedMacRestore: Sendable {
             if !isCurrent() {
                 return RestoreOutcome(completed: false, restored: restored)
             }
+            let canonicalDeviceID = cmxCanonicalDeviceID(record.macDeviceID)
             let pairingID = MobilePairedMac.pairingID(
-                macDeviceID: record.macDeviceID,
+                macDeviceID: canonicalDeviceID,
                 instanceTag: record.instanceTag
             )
             let backupSeconds = record.lastSeenAt / 1000.0
@@ -154,7 +168,7 @@ public struct PairedMacRestore: Sendable {
             do {
                 let backupDate = Date(timeIntervalSince1970: backupSeconds)
                 let restoredThisRecord = try await store.upsertIfNewer(
-                    macDeviceID: record.macDeviceID,
+                    macDeviceID: canonicalDeviceID,
                     displayName: record.displayName,
                     routes: record.routes,
                     instanceTag: record.instanceTag,
@@ -170,7 +184,7 @@ public struct PairedMacRestore: Sendable {
                 if !isCurrent() {
                     if localByID[pairingID] == nil {
                         try? await store.remove(
-                            macDeviceID: record.macDeviceID,
+                            macDeviceID: canonicalDeviceID,
                             instanceTag: record.instanceTag,
                             stackUserID: accountID,
                             teamID: teamID
@@ -184,7 +198,7 @@ public struct PairedMacRestore: Sendable {
                 restored += 1
             } catch {
                 pairedMacRestoreLog.warning(
-                    "failed to restore paired mac \(record.macDeviceID, privacy: .public): \(String(describing: error), privacy: .public)"
+                    "failed to restore paired mac \(canonicalDeviceID, privacy: .public): \(String(describing: error), privacy: .public)"
                 )
             }
         }

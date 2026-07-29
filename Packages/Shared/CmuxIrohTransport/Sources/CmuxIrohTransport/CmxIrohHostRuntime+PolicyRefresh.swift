@@ -29,7 +29,7 @@ extension CmxIrohHostRuntime {
                 }
                 let delay = registrationRetrySchedule.delay(
                     failureCount: failureCount,
-                    retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+                    retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                         .retryAfterSeconds,
                     jitterUnitInterval: registrationRetryJitter()
                 )
@@ -77,9 +77,27 @@ extension CmxIrohHostRuntime {
         guard address.identity == expectedEndpointID else {
             throw CmxIrohHostRuntimeError.invalidLocalBinding
         }
+        // Discovery follows registration in one trust round. Honor a restored
+        // discovery floor first so activation cannot spend a registration call
+        // that is guaranteed to stop at the next broker operation.
+        do {
+            try await broker.preflight(operation: .discovery)
+        } catch {
+            return try cachedPolicy(
+                after: error,
+                expectedEndpointID: expectedEndpointID,
+                confirmedBinding: nil,
+                relayBootstrap: nil,
+                allowFallback: allowCachedFallback
+            )
+        }
+        try requireCurrent(revision)
         let publicHints = Array(address.pathHints.compactMap {
             $0.publicDisclosure(at: now())
         }.prefix(CmxAttachEndpoint.maximumIrohPathHintCount))
+        let directPorts = CmxIrohDirectPorts(
+            localDirectAddresses: await endpoint.localDirectAddresses()
+        )
         let payload = try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
             appInstanceID: configuration.appInstanceID,
@@ -91,6 +109,7 @@ extension CmxIrohHostRuntime {
             pairingEnabled: configuration.pairingEnabled,
             capabilities: configuration.capabilities,
             pathHints: publicHints,
+            directPorts: directPorts,
             now: now()
         )
         let signer = try CmxIrohRegistrationSigner(
@@ -165,7 +184,9 @@ extension CmxIrohHostRuntime {
            CmxIrohBrokerBindingMetadata(binding: confirmedBinding) != localBinding {
             throw CmxIrohHostRuntimeError.invalidLocalBinding
         }
-        guard allowFallback, Self.isConnectivityFailure(error),
+        guard allowFallback,
+              CmxIrohTrustBrokerClientError
+                .preservesVerifiedPolicyDuringRefresh(error),
               let cached = configuration.cachedHostPolicy else {
             throw error
         }
@@ -340,7 +361,7 @@ extension CmxIrohHostRuntime {
               lifecycleRevision == revision else { return }
         let delay = registrationRetrySchedule.delay(
             failureCount: registrationRefreshFailureCount,
-            retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+            retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                 .retryAfterSeconds,
             jitterUnitInterval: registrationRetryJitter()
         )
@@ -407,17 +428,18 @@ extension CmxIrohHostRuntime {
             localBinding = policy.binding
             endpointAttestation = policy.attestation ?? endpointAttestation
             lanRendezvous = policy.lanRendezvous
-            await publishLANPolicy(
-                binding: policy.binding,
-                rendezvous: policy.lanRendezvous,
-                supervisor: supervisor
-            )
-            try requireCurrent(revision)
             guard let registration = policy.registration,
                   let discovery = policy.discovery else {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
             await handleBinding(registration, discovery, policy.attestation)
+            try requireCurrent(revision)
+            scheduleLANPublication(
+                binding: policy.binding,
+                rendezvous: policy.lanRendezvous,
+                supervisor: supervisor,
+                revision: revision
+            )
             registrationRefreshFailureCount = 0
             completedSuccessfully = true
             scheduleRegistrationRenewal(

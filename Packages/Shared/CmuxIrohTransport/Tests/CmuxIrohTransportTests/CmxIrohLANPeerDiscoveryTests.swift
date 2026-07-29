@@ -34,6 +34,73 @@ struct CmxIrohLANPeerDiscoveryTests {
     }
 
     @Test
+    func developmentBindingQuotaStillAllowsPinnedLANDiscovery() async throws {
+        let fixture = try Fixture()
+        let path = fixture.path
+        let discovery = CmxIrohLANPeerDiscovery(
+            browserFactory: {
+                PreloadedLANBrowser(
+                    event: .resolved(fixture.serviceID, fixture.service)
+                )
+            },
+            interfaces: TestLANInterfaces(values: [
+                try CmxIrohLANInterfaceAddress(
+                    interfaceIndex: 4,
+                    ipAddress: "192.168.1.22",
+                    netmask: "255.255.255.0"
+                ),
+            ]),
+            clock: TestLANClock(now: fixture.date),
+            networkPath: { await path.snapshot() },
+            authorizeProfile: { profile, generation, interfaceIndex in
+                await path.authorize(
+                    profile: profile,
+                    generation: generation,
+                    interfaceIndex: interfaceIndex
+                )
+            },
+            revokeProfile: { profile, generation in
+                await path.revoke(profile: profile, generation: generation)
+            }
+        )
+        let unrelated = try (1 ... 32).map { index in
+            try CmxIrohBrokerBindingMetadata(
+                bindingID: String(
+                    format: "323e4567-e89b-42d3-a456-%012d",
+                    index
+                ),
+                deviceID: String(
+                    format: "423e4567-e89b-42d3-a456-%012d",
+                    index
+                ),
+                appInstanceID: String(
+                    format: "523e4567-e89b-42d3-a456-%012d",
+                    index
+                ),
+                tag: "test-\(index)",
+                platform: .mac,
+                endpointID: CmxIrohPeerIdentity(
+                    endpointID: String(format: "%064llx", UInt64(index + 1))
+                ),
+                identityGeneration: 1
+            )
+        }
+        let outcome = await discovery.discover(
+            rendezvous: fixture.rendezvous,
+            authenticatedBindings: [fixture.binding] + unrelated,
+            expectedMacDeviceID: fixture.binding.deviceID,
+            expectedEndpointID: fixture.binding.endpointID,
+            timeout: 0.2
+        )
+
+        guard case let .found(peers) = outcome else {
+            Issue.record("Expected pinned LAN discovery within development quota")
+            return
+        }
+        #expect(peers.map(\.binding) == [fixture.binding])
+    }
+
+    @Test
     func removalRevokesAuthorizationAndOldHintsCannotSurvive() async throws {
         let fixture = try Fixture()
         let discoveryTask = Task {
@@ -187,6 +254,19 @@ struct CmxIrohLANPeerDiscoveryTests {
         #expect(await task.value == .notFound)
         #expect(await fixture.path.snapshot().activeNetworkProfiles.isEmpty)
     }
+}
+
+private struct PreloadedLANBrowser: CmxIrohBonjourBrowsing {
+    let event: CmxIrohBonjourBrowserEvent
+
+    func events() async -> AsyncStream<CmxIrohBonjourBrowserEvent> {
+        AsyncStream { continuation in
+            continuation.yield(event)
+            continuation.finish()
+        }
+    }
+
+    func stop() async {}
 }
 
 private struct TestLANInterfaces: CmxIrohLANInterfaceSnapshotProviding {

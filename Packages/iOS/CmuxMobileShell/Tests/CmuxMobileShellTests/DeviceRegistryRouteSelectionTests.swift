@@ -249,8 +249,8 @@ import Testing
         ) == false)
     }
 
-    @Test func rejectsRefreshAfterMacForgotten() {
-        // The Mac was forgotten (no active Mac now): do not recreate it.
+    @Test func rejectsRefreshAfterMacHidden() {
+        // The Mac was hidden (no active Mac now): do not recreate it.
         #expect(DeviceRegistryService.shouldApplyRegistryRefresh(
             isSignedIn: true,
             capturedUserID: "user-1",
@@ -276,12 +276,216 @@ import Testing
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore()
 
-        let first = DeviceRegistryService.deviceID(defaults: defaults)
-        let second = DeviceRegistryService.deviceID(defaults: defaults)
+        let first = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        let second = DeviceRegistryService.deviceID(store: store, defaults: defaults)
         #expect(first == second)
         #expect(!first.isEmpty)
         // Stable across a fresh accessor reading the same store (relaunch proxy).
         #expect(UUID(uuidString: first) != nil)
+        // The generated id is persisted to the authoritative (Keychain) store.
+        #expect(store.read() == .found(first))
     }
+
+    @Test func deviceIdentityDoesNotAdoptRestoredLegacyUserDefaultsValue() {
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        // UserDefaults can cross hardware in a restored backup, while the
+        // ThisDeviceOnly Keychain item cannot. An empty authoritative store must
+        // therefore mint for this physical phone instead of cloning the old
+        // phone's `(user, device, tag)` identity.
+        #expect(resolved != legacy)
+        #expect(UUID(uuidString: resolved) != nil)
+        #expect(store.read() == .found(resolved))
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == resolved)
+    }
+
+    @Test func deviceIdentitySurvivesUserDefaultsWipe() {
+        // Reinstall proxy: Keychain retains the id, UserDefaults is empty.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let kept = "kept-device-id-\(UUID().uuidString.lowercased())"
+        let store = InMemoryDeviceIdentityStore(seed: kept)
+
+        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        #expect(resolved == kept)
+        // The authoritative read path re-mirrors the id into UserDefaults so a
+        // later downgrade to a UserDefaults-only build keeps the same slot.
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == kept)
+    }
+
+    @Test func deviceIdentityFailsClosedWhenStoreUnavailableWithLegacyMirror() {
+        // Locked-Keychain proxy: the store cannot be read, but a UserDefaults
+        // mirror exists. Reuse it instead of minting a new id that would strand
+        // the existing binding.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let mirrored = "mirrored-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(mirrored, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore(unavailable: true)
+
+        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        #expect(resolved == mirrored)
+        // The unreadable store must not have been overwritten with a new id.
+        #expect(store.read() == .unavailable)
+    }
+
+    @Test func deviceIdentityFailsClosedWithEphemeralWhenStoreUnavailableAndNoMirror() {
+        // Worst case: store unreadable AND no UserDefaults mirror (background
+        // launch before first unlock on a fresh install). Return a process-stable
+        // id WITHOUT persisting it, so the next unlocked launch mints the durable
+        // id rather than freezing this throwaway value.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore(unavailable: true)
+
+        let first = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        let second = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        #expect(!first.isEmpty)
+        // Stable within the process so repeated lookups agree.
+        #expect(first == second)
+        // Nothing was persisted: neither the store nor the mirror was written.
+        #expect(store.read() == .unavailable)
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
+    }
+
+    @Test func deviceIdentityKeychainWinsOverUserDefaults() {
+        // If both stores hold a value, the Keychain (authoritative) one wins.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("stale-userdefaults-id", forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore(seed: "authoritative-keychain-id")
+
+        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        #expect(resolved == "authoritative-keychain-id")
+    }
+
+    // MARK: - Durable device id (binding-registration path)
+
+    @Test func durableDeviceIDMintsAndPersistsOnFreshInstall() {
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        // A fresh mint is durable only because the store confirmed the write.
+        #expect(resolved != nil)
+        #expect(store.read() == .found(resolved!))
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == resolved)
+    }
+
+    @Test func durableDeviceIDReturnsMirrorWhenStoreUnavailable() {
+        // Locked-Keychain proxy with a legacy mirror: the established id is still
+        // durable (it is the id the existing binding uses), so return it.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let mirrored = "mirrored-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(mirrored, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore(unavailable: true)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        #expect(resolved == mirrored)
+    }
+
+    @Test func durableDeviceIDDefersWhenStoreUnavailableAndNoMirror() {
+        // The finding-1 core case: unreadable Keychain, no mirror. Return nil so
+        // the caller defers registering a binding instead of minting a throwaway
+        // id that would strand the retained (user, device, tag) slot.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore(unavailable: true)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        #expect(resolved == nil)
+        // Nothing minted or mirrored: a later unlocked launch resolves the durable id.
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
+    }
+
+    @Test func durableDeviceIDDefersWhenFreshMintCannotPersist() {
+        // The finding-3 core case: the store is readable-but-empty yet rejects the
+        // write. Do not advertise the un-persisted mint as durable, and do not
+        // mirror it (only reinstall-volatile UserDefaults would hold it, so a
+        // reinstall would mint a different id and strand the binding).
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        #expect(resolved == nil)
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
+    }
+
+    @Test func durableDeviceIDRejectsRestoredLegacyWhenFreshMintCannotPersist() {
+        // A UserDefaults-only id is not durable evidence for this physical
+        // device because it may have arrived in a restored backup. If the empty
+        // authoritative store cannot persist a fresh id, defer registration and
+        // remove the unsafe mirror instead of cloning another phone's identity.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        #expect(resolved == nil)
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
+    }
+
+    @Test func durableDeviceIDAdoptsConcurrentWinnerInsteadOfMintingSecondID() {
+        // Two launches both read an empty Keychain and each mint a different
+        // candidate. The one that loses the store's create race must adopt the
+        // winner's id so both converge on ONE (user, device, tag) slot. The prior
+        // last-writer-wins persistence let the loser overwrite the winner, so the
+        // winner's caller advertised an id the store no longer held and stranded
+        // that binding on the next launch. Here the store reports empty on read
+        // (mint path) but returns a concurrent winner from createOrAdopt; the
+        // resolver must return the winner, not its own freshly minted candidate.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let winner = "winner-device-id-\(UUID().uuidString.lowercased())"
+        let store = ConcurrentCreateWinnerStore(winner: winner)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        #expect(resolved == winner)
+        // The adopted winner is mirrored so a later UserDefaults-only build agrees.
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == winner)
+    }
+
+    @Test func inMemoryCreateOrAdoptAdoptsExistingValueInsteadOfOverwriting() {
+        // The InMemory double must model the Keychain SecItemAdd-first contract:
+        // createOrAdopt never clobbers a value already present, it adopts it. This
+        // is the store-level guarantee the convergence above relies on.
+        let store = InMemoryDeviceIdentityStore(seed: "existing-winner")
+        let adopted = store.createOrAdopt("late-candidate")
+        #expect(adopted == "existing-winner")
+        #expect(store.read() == .found("existing-winner"))
+    }
+}
+
+/// A store that reports empty on `read()` (so the resolver takes the mint path)
+/// yet returns a winner a concurrent resolution already persisted from
+/// `createOrAdopt`, modelling the Keychain `errSecDuplicateItem` race where two
+/// launches both saw an empty store before either wrote.
+private final class ConcurrentCreateWinnerStore: DeviceIdentityStoring, @unchecked Sendable {
+    private let winner: String
+    init(winner: String) { self.winner = winner }
+    func read() -> DeviceIdentityReadResult { .absent }
+    func createOrAdopt(_ desired: String) -> String? { winner }
 }

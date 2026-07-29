@@ -8,20 +8,9 @@ import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 
-/// SwiftUI wrapper that mounts a `GhosttySurfaceView` and routes terminal output
-/// chunks into `ghostty_surface_process_output`. Primary-screen output can stay
-/// at the phone's natural height, while alternate-screen render-grid replay can
-/// pin the surface to the Mac's authoritative grid.
-///
-/// The bottom dock (terminal grid / composer band / accessory toolbar / keyboard)
-/// is owned entirely by the `GhosttySurfaceView` in one coordinate system. The
-/// iMessage-style composer is a SwiftUI view, so it is hosted in a
-/// `UIHostingController` and installed into the surface's composer band; this
-/// representable is the only layer that can see both the terminal package and the
-/// shell-UI composer, so it owns that bridge. The surface owns the band's position
-/// and the grid reservation; the host reports the field's measured height back so a
-/// field-grow pushes only the terminal up. There is no toolbar handoff and no second
-/// layout system reaching into the surface's bottom math.
+/// Mounts a `GhosttySurfaceView`, routes terminal output, and bridges the SwiftUI
+/// composer into the surface-owned bottom dock. Primary-screen output uses the
+/// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
@@ -138,6 +127,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         private var outputTask: Task<Void, Never>?
+        var outputStartContinuation: AsyncStream<Void>.Continuation?
+        var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
@@ -149,6 +140,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onBottomScrollEdgeElementContainersChange: (@MainActor ([UIView]) -> Void)?
         var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling
         /// scramble the send order AND let the echo of an old keyboard-up
@@ -198,9 +190,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             )
             guard let store else { return }
             let surfaceID = surfaceID
+            let outputStartSignal = AsyncStream<Void> { [weak self] continuation in
+                self?.outputStartContinuation = continuation
+            }
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }
+                    if let preparation = self.preparedViewportReportsByReportID.removeValue(
+                        forKey: report.id
+                    ) {
+                        return await store.updatePreparedTerminalViewport(preparation)
+                    }
                     return await store.updateTerminalViewport(
                         surfaceID: self.surfaceID,
                         columns: report.columns,
@@ -222,7 +222,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         surfaceView.retryViewportReport()
                         return
                     }
-                    surfaceView.markViewportReportConfirmed()
+                    surfaceView.markViewportReportConfirmed(reportID: report.id)
+                    if let renderEpoch = effectiveGrid.renderEpoch,
+                       let renderRevisionFloor = effectiveGrid.renderRevisionFloor {
+                        self.verifiedReplayState.acknowledgeViewport(
+                            renderEpoch: renderEpoch,
+                            renderRevisionFloor: renderRevisionFloor
+                        )
+                    }
                     if case .remoteGrid = self.activeViewportPolicy {
                         surfaceView.applyConfirmedViewSize(
                             cols: effectiveGrid.columns,
@@ -236,11 +243,40 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
             outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
+                for await _ in outputStartSignal { break }
+                guard !Task.isCancelled else { return }
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView else { return }
+                    switch terminalOutputApplicationPath(
+                        for: chunk,
+                        expectedSurfaceID: surfaceID
+                    ) {
+                    case .verifiedReplay:
+                        guard let frame = chunk.sourceRenderGridFrame else { return }
+                        await self.applyVerifiedRenderGrid(
+                            frame,
+                            chunk: chunk,
+                            surfaceView: surfaceView,
+                            store: store
+                        )
+                        continue
+                    case .rejectUnverified:
+                        let transactionID = self.verifiedReplayState.rejectUnverifiedOutput()
+                        _ = await surfaceView.freezeVerifiedReplayPresentation(
+                            transactionID: transactionID
+                        )
+                        guard !Task.isCancelled else { return }
+                        store.terminalOutputDidReset(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
+                    case .legacy:
+                        break
+                    }
                     switch chunk.viewportPolicy {
                     case .natural:
                         self.activeViewportPolicy = .natural
@@ -311,6 +347,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView.setLiveFontSize(points)
                 }
             }
+            surfaceView.requestViewportReportForMount()
+        }
+
+        private func stopMountedTasks() {
+            tapGeneration &+= 1
+            outputStartContinuation?.finish()
+            outputStartContinuation = nil
+            preparedViewportReportsByReportID.removeAll()
+            outputTask?.cancel()
+            outputTask = nil
+            verifiedReplayState.invalidate()
+            liveFontTask?.cancel()
+            liveFontTask = nil
+            viewportReportScheduler?.cancel()
+            viewportReportScheduler = nil
+            activeViewportPolicy = .natural
         }
 
         func detach() {

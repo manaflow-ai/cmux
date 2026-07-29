@@ -69,7 +69,31 @@ extension DockSplitStore {
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalWillLeaveDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
+        let restoredAgentObservation = SharedLiveAgentIndex.shared.index?.entry(
+            workspaceId: preservedTransfer?.sessionRestoreWorkspaceId ?? workspaceId,
+            panelId: panelId
+        )
+        let coordinatedRestorableAgent = restoredAgentLifecycle.continuationSnapshot(
+            panelId: panelId,
+            observation: restoredAgentObservation,
+            currentProcessIdentity: Workspace.agentPIDProcessIdentity(pid:)
+        )
+        let preservedRestorableAgent = coordinatedRestorableAgent ?? preservedTransfer?.restorableAgent
+        let preservedResumeState = restoredAgentLifecycle.resumeStatesByPanelId[panelId]
+            ?? preservedTransfer?.restorableAgentResumeState
+        let preservedCompletedGeneration = restoredAgentLifecycle.completedGeneration(panelId: panelId)
+            ?? preservedTransfer?.restoredAgentCompletedGeneration
+        let preservedResumeBinding = surfaceResumeBindingsByPanelId[panelId] ?? preservedTransfer?.resumeBinding
+        let preservedResumeSessionDirectory = restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
+            ?? preservedTransfer?.restoredResumeSessionWorkingDirectory
         let kind = (panel.panelType == .browser) ? "browser" : "terminal"
         let icon = panel.displayIcon
         let browser = panel as? BrowserPanel
@@ -82,9 +106,9 @@ extension DockSplitStore {
         // foreground process is the local relay, not the remote shell.
         let liveTerminalDirectory: String?
         if preservedTransfer?.isRemoteTerminal != true,
-           let terminal = panel as? TerminalPanel,
-           let pid = terminal.surface.foregroundProcessID() {
-            liveTerminalDirectory = Workspace.processCurrentWorkingDirectory(pid: Int32(clamping: pid))
+           let terminal = panel as? TerminalPanel {
+            liveTerminalDirectory = terminalWorkingDirectoryResolver
+                .liveForegroundProcessWorkingDirectory(for: terminal)
         } else {
             liveTerminalDirectory = nil
         }
@@ -120,14 +144,14 @@ extension DockSplitStore {
             return Self.dockAgentPIDHasExited(pid)
         }
         let restoredResumeSessionWorkingDirectory = Self.dockRestoredResumeSessionWorkingDirectory(
-            preservedSessionDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            preservedSessionDirectory: preservedResumeSessionDirectory,
             detachedDirectory: detachedDirectory,
             detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
             agentProvenExited: agentProvenExited
         )
         let resumeBinding = Self.dockResumeBinding(
-            preservedBinding: preservedTransfer?.resumeBinding,
-            preservedSessionDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            preservedBinding: preservedResumeBinding,
+            preservedSessionDirectory: preservedResumeSessionDirectory,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
             agentProvenExited: agentProvenExited
@@ -160,9 +184,18 @@ extension DockSplitStore {
             installSubscription(for: panel, tracksTerminalTitle: true)
             return nil
         }
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalDidLeaveDock(
+                    terminalPanel,
+                    dock: self,
+                    preservingTransfer: true
+                )
+        }
 
-        return Workspace.DetachedSurfaceTransfer(
+        let detached = Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: workspaceId,
+            sessionRestoreSourceWorkspaceId: preservedTransfer?.sessionRestoreWorkspaceId,
             panelId: panelId,
             panel: panel,
             title: transferTitle ?? panel.displayTitle,
@@ -184,20 +217,23 @@ extension DockSplitStore {
             customTitleSource: preservedTransfer?.customTitleSource,
             manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
-            restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
-            restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
+            restorableAgent: agentProvenExited ? nil : preservedRestorableAgent,
+            restorableAgentResumeState: agentProvenExited ? nil : preservedResumeState,
             restoredAgentCompletedGeneration: agentProvenExited
                 ? nil
-                : preservedTransfer?.restoredAgentCompletedGeneration,
+                : preservedCompletedGeneration,
             shellActivityState: transferredShellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
+            agentSessionRetryCompletedAttempts: preservedTransfer?.agentSessionRetryCompletedAttempts,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
+        clearSessionRestoreState(panelId: panelId)
+        return detached
     }
 
     /// Attaches a detached live panel into this Dock at `paneId`. Re-targets the
@@ -229,6 +265,7 @@ extension DockSplitStore {
         // lose the rescue for live agents whenever the detach-time live cwd
         // read is unavailable.
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
+        adoptSessionRestoreState(from: detached)
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
         let restoredIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
@@ -244,9 +281,15 @@ extension DockSplitStore {
         ) else {
             panels.removeValue(forKey: detached.panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
+            clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId
+        AgentHibernationController.shared.transferTrackingStateForMovedPanel(
+            panelId: detached.panelId,
+            from: detached.sourceWorkspaceId,
+            to: workspaceId
+        )
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
@@ -257,6 +300,23 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
+        if let terminalPanel = panel as? TerminalPanel {
+            if let owningWorkspace =
+                    terminalFontSizeOwningWorkspace {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: owningWorkspace
+                )
+            } else {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: self
+                )
+            }
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         return detached.panelId
     }
 
@@ -300,6 +360,7 @@ extension DockSplitStore {
 
         panels[detached.panelId] = panel
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
+        adoptSessionRestoreState(from: detached)
         surfaceIdToPanelId[tab.id] = detached.panelId
 
         let newPane = withProgrammaticDockSplit {
@@ -314,8 +375,14 @@ extension DockSplitStore {
             surfaceIdToPanelId.removeValue(forKey: tab.id)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
+            clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
+        AgentHibernationController.shared.transferTrackingStateForMovedPanel(
+            panelId: detached.panelId,
+            from: detached.sourceWorkspaceId,
+            to: workspaceId
+        )
 
         repairPlaceholderOnlyDockPane(paneId)
         finishAttachingDetachedSurface(
@@ -325,6 +392,23 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
         )
+        if let terminalPanel = panel as? TerminalPanel {
+            if let owningWorkspace =
+                    terminalFontSizeOwningWorkspace {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: owningWorkspace
+                )
+            } else {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: self
+                )
+            }
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         return detached.panelId
     }
 
