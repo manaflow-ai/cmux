@@ -20817,6 +20817,7 @@ struct CMUXCLI {
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
         private var suppressedApprovalOrder: [String] = []
+        private var reportedSubagentDiagnosticKeys = Set<String>()
 
         init(
             appServerURL: String,
@@ -20946,6 +20947,7 @@ struct CMUXCLI {
                 )
                 if let threadObject = response["thread"] as? [String: Any],
                    let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
+                    codexTeamsMarkResumedThreadAttachable(thread)
                     try observeThreadSafely(thread)
                 }
             } catch {
@@ -21160,9 +21162,28 @@ struct CMUXCLI {
             let parentDepth = depthByThreadId[spawn.parentThreadId]
             let depth = parentDepth.map { $0 + 1 } ?? max(spawn.sourceDepth ?? 1, 1)
             depthByThreadId[thread.id] = depth
-            guard depth <= maxAutoDepth else { return }
-            guard !openedThreadIds.contains(thread.id) else { return }
-            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
+            guard depth <= maxAutoDepth else {
+                codexTeamsDiscardAttachableThreadId(thread.id)
+                reportSubagentDiagnosticOnce(
+                    threadId: thread.id,
+                    reason: "depth",
+                    message: "cmux codex-teams watcher skipped subagent \(thread.id): depth \(depth) exceeds max auto depth \(maxAutoDepth)\n"
+                )
+                return
+            }
+            guard !openedThreadIds.contains(thread.id) else {
+                codexTeamsDiscardAttachableThreadId(thread.id)
+                return
+            }
+            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else {
+                codexTeamsDiscardAttachableThreadId(thread.id)
+                reportSubagentDiagnosticOnce(
+                    threadId: thread.id,
+                    reason: "status",
+                    message: "cmux codex-teams watcher skipped subagent \(thread.id): thread status \(thread.statusType ?? "missing") is not attachable\n"
+                )
+                return
+            }
             guard codexTeamsConsumeAttachableThreadId(thread.id) else {
                 codexTeamsScheduleReadinessProbe(threadId: thread.id)
                 return
@@ -21205,7 +21226,16 @@ struct CMUXCLI {
                     self.attachableThreadIds.insert(threadId)
                 }
                 self.readinessLock.unlock()
-                guard isAttachable else { return }
+                guard isAttachable else {
+                    self.stateLock.lock()
+                    self.reportSubagentDiagnosticOnce(
+                        threadId: threadId,
+                        reason: "readiness",
+                        message: "cmux codex-teams watcher could not attach subagent \(threadId): readiness thread/resume failed\n"
+                    )
+                    self.stateLock.unlock()
+                    return
+                }
                 do {
                     try self.openAttachableThread(threadId: threadId)
                 } catch {
@@ -21225,6 +21255,22 @@ struct CMUXCLI {
             try openObservedSubagent(thread, spawn: spawn)
         }
 
+        private func codexTeamsMarkResumedThreadAttachable(_ thread: CodexTeamsThread) {
+            guard thread.spawn != nil,
+                  CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else {
+                return
+            }
+            readinessLock.lock()
+            attachableThreadIds.insert(thread.id)
+            readinessLock.unlock()
+        }
+
+        private func codexTeamsDiscardAttachableThreadId(_ threadId: String) {
+            readinessLock.lock()
+            attachableThreadIds.remove(threadId)
+            readinessLock.unlock()
+        }
+
         private func codexTeamsConsumeAttachableThreadId(_ threadId: String) -> Bool {
             readinessLock.lock()
             defer { readinessLock.unlock() }
@@ -21232,6 +21278,18 @@ struct CMUXCLI {
                 return false
             }
             return true
+        }
+
+        /// Called while `stateLock` is held so each stable skip reason is logged once.
+        private func reportSubagentDiagnosticOnce(
+            threadId: String,
+            reason: String,
+            message: String
+        ) {
+            guard reportedSubagentDiagnosticKeys.insert("\(threadId):\(reason)").inserted else {
+                return
+            }
+            cliWriteStderr(message)
         }
 
         private func openSubagent(
