@@ -49,6 +49,21 @@ jobs:
               ;;
           esac
           printf 'Preview URL: %s\n' "$preview_url"
+          check_status() {
+            local path="$1"
+            local expected="$2"
+            local actual
+            actual="$(
+              bunx vercel@56.3.1 curl "$path" \
+                --deployment "$preview_url" --scope manaflow --cwd . \
+                -sS -o /dev/null -w '%{http_code}'
+            )"
+            printf 'Preview status: %s -> %s\n' "$path" "$actual"
+            test "$actual" = "$expected"
+          }
+          check_status / 200
+          check_status /windows 404
+          check_status /linux 404
           printf '### Vercel preview\n\n[%s](%s)\n' \
             "$preview_url" "$preview_url" >> "$GITHUB_STEP_SUMMARY"
         env:
