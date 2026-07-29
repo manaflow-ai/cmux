@@ -9,6 +9,8 @@ struct ManagedLauncherNonLaunchTests {
     func codexTeamsInformationalInvocations() {
         for args in [
             ["--help"],
+            ["help"],
+            ["help", "resume"],
             ["resume", "--help"],
             ["resume", "session-id", "--version"],
             ["exec", "review", "-h"],
@@ -24,6 +26,7 @@ struct ManagedLauncherNonLaunchTests {
             ["resume"],
             ["exec", "prompt containing --help"],
             ["resume", "--", "--help"],
+            ["--", "help"],
             ["--model=--help", "resume"],
         ] {
             #expect(

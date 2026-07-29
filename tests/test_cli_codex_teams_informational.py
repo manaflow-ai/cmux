@@ -44,6 +44,8 @@ printf '%s\n' "$*" > "$FAKE_CODEX_LOG"
         env["FAKE_CODEX_LOG"] = str(codex_log)
 
         for invocation in (
+            ("help",),
+            ("help", "resume"),
             ("resume", "--help"),
             ("resume", "session-id", "--version"),
             ("exec", "review", "--help"),
