@@ -3958,6 +3958,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             displayName: mac.displayName
         )
         secondaryMacSubscriptions[macID] = subscription
+        guard secondaryMacSubscriptions[macID] === subscription else {
+            await client.disconnect()
+            return
+        }
         let displayName = mac.displayName
         let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
         // The fetch await is another sign-out window: drop the just-opened
@@ -4060,9 +4064,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               subscription.client === client else {
             return false
         }
-        if event.topic == "workspace.updated" || event.topic == "mobile.sync.delta" {
+        if event.topic == "workspace.updated" {
             // Coalesced, newest-wins refresh: a title/progress churn stream
             // collapses to at most one in-flight + one trailing full-list scan.
+            // Secondary clients intentionally do not subscribe to
+            // `mobile.sync.delta` until they own independent per-Mac v2 mirrors;
+            // consuming both host signals would duplicate every refresh.
             scheduleSecondaryRefresh(
                 macID: macDeviceID,
                 client: client,
@@ -5633,9 +5640,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // carry no expiry at all), and the host authorizes by Stack account,
         // not ticket age. Expiry still gates the RPC-minted attach token at
         // its point of use (`MobileCoreRPCClient.requestDataWithAuth`).
-        activeTicket = ticket
-        activeRoute = firstRoute
-        connectedHostName = placeholderHostName(for: ticket, firstRoute: firstRoute)
+        var candidateTicket = ticket
+        var candidateRoute = firstRoute
+        var candidateHostName = placeholderHostName(
+            for: ticket,
+            firstRoute: firstRoute
+        )
+        if previousFocusedConnection == nil {
+            activeTicket = candidateTicket
+            activeRoute = candidateRoute
+            connectedHostName = candidateHostName
+        }
         // Keep the current Mac alive while a different Mac authenticates. On
         // success it is demoted in-place to control-only; on failure the caller
         // can still tear it down through the ordinary connection-error path.
@@ -5662,7 +5677,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let connectionAttemptStartedAt = pairingAttemptStartedAt
         var lastError: (any Error)?
         routeLoop: for route in supportedRoutes {
-            activeRoute = route
+            candidateRoute = route
+            if previousFocusedConnection == nil {
+                activeRoute = route
+            }
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
             let legacyTailscaleAuthorizationEvidence = Self
                 .legacyTailscaleAuthorizationEvidence(
@@ -5798,12 +5816,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         ticket,
                         adoptingReportedDeviceID: reportedDeviceID
                     )
-                    activeTicket = resolvedTicket
+                    candidateTicket = resolvedTicket
+                    if previousFocusedConnection == nil {
+                        activeTicket = resolvedTicket
+                    }
                     let reportedName = hasAuthenticatedIdentity ? status.macDisplayName : nil
                     if let reportedName = reportedName?
                         .trimmingCharacters(in: .whitespacesAndNewlines),
                        !reportedName.isEmpty {
-                        connectedHostName = reportedName
+                        candidateHostName = reportedName
+                        if previousFocusedConnection == nil {
+                            connectedHostName = reportedName
+                        }
                     }
                     let tagUpdate: PairedMacInstanceTagUpdate
                     if reportedInstanceTag != nil {
@@ -5835,6 +5859,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     let resolvedForegroundMacID = resolvedTicket.foregroundMacID(
                         hint: pairedMacDeviceID
                     )
+                    let authenticatedCapabilities = Set(status.capabilities)
+                    // A fresh dial may race an already-live control connection
+                    // for the target. Stop and close that owner while leaving
+                    // its registry slot occupied; the final atomic transition
+                    // replaces it with focus, so another aggregation pass cannot
+                    // install a control owner in the handoff gap.
+                    if !resolvedForegroundMacID.isEmpty,
+                       let displaced = secondaryMacSubscriptions[resolvedForegroundMacID] {
+                        displaced.detachKeepingClient()
+                        await displaced.client.disconnect()
+                        guard isConnectCurrent() else {
+                            await client.disconnect()
+                            return nil
+                        }
+                    }
                     if let previousFocusedConnection {
                         let resolvesToSameMac = !resolvedForegroundMacID.isEmpty
                             && cmxCanonicalDeviceID(previousFocusedConnection.macDeviceID)
@@ -5845,19 +5884,68 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         // same-Mac redial must disconnect the superseded client.
                         stopTerminalRefreshPolling()
                         clearPendingTerminalInputForFocusChange()
-                        await relinquishFocusedConnection(
+                        let terminalStopped = await prepareFocusedConnectionForHandoff(
+                            previousFocusedConnection
+                        )
+                        guard isConnectCurrent() else {
+                            await client.disconnect()
+                            invalidateFocusedConnectionAfterAbortedHandoff(
+                                previousFocusedConnection
+                            )
+                            return nil
+                        }
+                        commitFocusedConnectionHandoff(
                             previousFocusedConnection,
+                            terminalStopped: terminalStopped,
                             retainAsControl: !resolvesToSameMac
                         )
                         adoptPooledRemoteClient(client)
                     } else {
                         replaceRemoteClient(with: client)
                     }
+                    activeTicket = candidateTicket
+                    connectedHostName = candidateHostName
                     activeMacInstanceTag = resolvedInstanceTag
                     prepareTerminalThemeRevisionAuthority(
                         macInstanceTag: resolvedInstanceTag, producerEpoch: status.terminalThemeRevisionEpoch,
                         connectionID: generation.uuidString
                     )
+                    clearPairingError()
+                    // Set the foreground Mac id BEFORE applying the list so the
+                    // per-Mac state is keyed to THIS Mac, not the previously-
+                    // foreground Mac (or the anonymous key). Otherwise switching
+                    // from Mac A to Mac B writes B's workspaces under A's key, and
+                    // once the id flips the derived list reads a stale/empty B
+                    // snapshot. Anonymous (empty-id) tickets keep the anonymous key. A
+                    // manual fallback ticket carries a synthetic `manual-…` id, so
+                    // prefer the caller's real paired-Mac id when it is known.
+                    let previousForegroundKey = previousForegroundKeyBeforeConnect
+                    if resolvedForegroundMacID.isEmpty {
+                        // An anonymous authenticated target cannot inherit the
+                        // prior Mac's identity or focused registry entry.
+                        foregroundMacDeviceID = nil
+                    } else {
+                        foregroundMacDeviceID = resolvedForegroundMacID
+                    }
+                    supportedHostCapabilities = authenticatedCapabilities
+                    applyRemoteWorkspaceList(
+                        response,
+                        preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget,
+                        // Scoped requests omit groups; only a non-scoped (full) list
+                        // is authoritative for the device-local collapse store.
+                        groupsAreAuthoritative: !workspaceListRequest.isScoped
+                    )
+                    // Drop the now-stale previous-foreground/anonymous snapshot so it
+                    // doesn't linger in the aggregate (it's re-added as a secondary
+                    // below if still reachable).
+                    dropStalePreviousForeground(previousForegroundKey)
+                    syncSelectedTerminalForWorkspace()
+                    // Publish the route only after the target client, identity,
+                    // capabilities, and workspace mapping are coherent. Its
+                    // didSet may restart mounted terminal lanes.
+                    activeRoute = candidateRoute
+                    connectionState = .connected
+                    markMacConnectionHealthy()
                     // Reuse the authenticated status response that bound this
                     // route to its Mac instance. The event listener needs the
                     // same payload for capability negotiation, so asking again
@@ -5876,37 +5964,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     if !(runtime.supportsServerPushEvents) {
                         scheduleHostIdentityAdoptionIfNeeded(client: client)
                     }
-                    clearPairingError()
-                    // Set the foreground Mac id BEFORE applying the list so the
-                    // per-Mac state is keyed to THIS Mac, not the previously-
-                    // foreground Mac (or the anonymous key). Otherwise switching
-                    // from Mac A to Mac B writes B's workspaces under A's key, and
-                    // once the id flips the derived list reads a stale/empty B
-                    // snapshot. Anonymous (empty-id) tickets keep the anonymous key. A
-                    // manual fallback ticket carries a synthetic `manual-…` id, so
-                    // prefer the caller's real paired-Mac id when it is known.
-                    let previousForegroundKey = previousForegroundKeyBeforeConnect
-                    if resolvedForegroundMacID.isEmpty {
-                        // An anonymous authenticated target cannot inherit the
-                        // prior Mac's identity or focused registry entry.
-                        foregroundMacDeviceID = nil
-                    } else {
-                        foregroundMacDeviceID = resolvedForegroundMacID
-                    }
-                    applyRemoteWorkspaceList(
-                        response,
-                        preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget,
-                        // Scoped requests omit groups; only a non-scoped (full) list
-                        // is authoritative for the device-local collapse store.
-                        groupsAreAuthoritative: !workspaceListRequest.isScoped
-                    )
-                    // Drop the now-stale previous-foreground/anonymous snapshot so it
-                    // doesn't linger in the aggregate (it's re-added as a secondary
-                    // below if still reachable).
-                    dropStalePreviousForeground(previousForegroundKey)
-                    syncSelectedTerminalForWorkspace()
-                    connectionState = .connected
-                    markMacConnectionHealthy()
                     diagnosticLog?.record(DiagnosticEvent(
                         .rpcReady,
                         a: DiagnosticTransportKind(route.kind).rawValue
@@ -5917,7 +5974,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // the resolved real id (not the synthetic manual ticket id) so the
                     // pool entry matches the foreground/aggregation key.
                     if !resolvedForegroundMacID.isEmpty {
-                        connections[resolvedForegroundMacID] = MacConnection(
+                        installFocusedConnection(MacConnection(
                             macDeviceID: resolvedForegroundMacID,
                             ticket: resolvedTicket,
                             route: route,
@@ -5925,12 +5982,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: generation,
                             displayName: connectedHostName,
                             instanceTag: activeMacInstanceTag,
-                            supportedHostCapabilities: supportedHostCapabilities,
+                            supportedHostCapabilities: authenticatedCapabilities,
                             actionCapabilities: Self.workspaceActionCapabilities(
-                                from: supportedHostCapabilities,
+                                from: authenticatedCapabilities,
                                 allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
                             )
-                        )
+                        ))
                     }
                     // Aggregate the user's other Macs' workspaces in the background.
                     // Best-effort; never blocks the foreground connect.
@@ -6208,8 +6265,65 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// then re-register that client with control-only topics.
     func adoptPooledRemoteClient(_ newValue: MobileCoreRPCClient) {
         guard remoteClient !== newValue else { return }
+        stopTerminalRefreshPolling()
+        cancelRemoteOperationTasks()
+        clearPendingTerminalInputForFocusChange()
+        resetTerminalOutputTracking()
         remoteClient = newValue
         chatEventSourceGeneration = UUID()
+    }
+
+    /// Atomically replace any control owner with focus, then synchronously
+    /// retire the displaced transport before its asynchronous close finishes.
+    func installFocusedConnection(_ connection: MacConnection) {
+        let displaced = macConnectionRegistry.transitionToFocused(connection)
+        guard let displaced else { return }
+        displaced.detachKeepingClient()
+        guard displaced.client !== connection.client else { return }
+        displaced.client.retire()
+        Task { await displaced.client.disconnect() }
+    }
+
+    /// Atomically demote exactly the focused client that completed the terminal
+    /// unsubscribe handshake. A newer focus owner wins and is never overwritten.
+    func transitionFocusedConnectionToControl(
+        _ subscription: SecondaryMacSubscription,
+        replacing connection: MacConnection
+    ) -> Bool {
+        macConnectionRegistry.transitionToControl(
+            subscription,
+            replacing: connection
+        )
+    }
+
+    func removeFocusedConnection(ifMatching connection: MacConnection) {
+        macConnectionRegistry.removeFocused(ifMatching: connection)
+    }
+
+    /// A superseded handoff may return after the old Mac has already
+    /// acknowledged terminal unsubscription. If it is still the published
+    /// foreground, retire that now-renderless connection so cancellation
+    /// recovery performs a real redial instead of mistaking it for healthy.
+    func invalidateFocusedConnectionAfterAbortedHandoff(
+        _ connection: MacConnection
+    ) {
+        guard remoteClient === connection.client,
+              foregroundMacDeviceID.map({
+                  cmxCanonicalDeviceID($0)
+                      == cmxCanonicalDeviceID(connection.macDeviceID)
+              }) == true else {
+            return
+        }
+        removeFocusedConnection(ifMatching: connection)
+        if var offline = workspacesByMac[connection.macDeviceID] {
+            offline.status = .unavailable
+            workspacesByMac[connection.macDeviceID] = offline
+        }
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        foregroundMacDeviceID = nil
+        clearActiveConnectionContext()
+        replaceRemoteClient(with: nil)
     }
 
     func cancelRemoteOperationTasks() {

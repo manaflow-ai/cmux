@@ -9,20 +9,37 @@ nonisolated private let secondaryPromotionLog = Logger(
 
 @MainActor
 extension MobileShellComposite {
-    /// Stop a focused client's terminal lane before changing its role. A valid
-    /// unsubscribe acknowledgement is mandatory before the client can stay in
-    /// the control pool; otherwise disconnect it so render traffic cannot leak
-    /// from a former foreground Mac.
-    func relinquishFocusedConnection(
-        _ connection: MacConnection,
-        retainAsControl: Bool
-    ) async {
+    /// Stop a focused client's terminal lane before changing its role. This
+    /// suspending phase deliberately does not publish a new role: the caller
+    /// must revalidate switch ownership after the acknowledgement arrives.
+    func prepareFocusedConnectionForHandoff(
+        _ connection: MacConnection
+    ) async -> Bool {
         let terminalStopped = await unsubscribeTerminalEventStream(
             on: connection.client
         )
-        connections[connection.macDeviceID] = nil
-        guard terminalStopped, retainAsControl else {
+        guard terminalStopped else {
             await connection.client.disconnect()
+            return false
+        }
+        return true
+    }
+
+    /// Commit a prepared focused-client role transition without suspension.
+    /// A successful unsubscribe is the only path that may retain the client.
+    func commitFocusedConnectionHandoff(
+        _ connection: MacConnection,
+        terminalStopped: Bool,
+        retainAsControl: Bool
+    ) {
+        guard terminalStopped else {
+            removeFocusedConnection(ifMatching: connection)
+            return
+        }
+        guard retainAsControl else {
+            removeFocusedConnection(ifMatching: connection)
+            connection.client.retire()
+            Task { await connection.client.disconnect() }
             return
         }
         installControlConnection(from: connection)
@@ -43,8 +60,13 @@ extension MobileShellComposite {
             actionCapabilities: connection.actionCapabilities,
             displayName: connection.displayName
         )
-        connections[connection.macDeviceID] = nil
-        secondaryMacSubscriptions[connection.macDeviceID] = subscription
+        guard transitionFocusedConnectionToControl(
+            subscription,
+            replacing: connection
+        ) else {
+            subscription.cancel()
+            return
+        }
         startSecondaryEventConsumer(
             subscription,
             displayName: connection.displayName
@@ -78,8 +100,10 @@ extension MobileShellComposite {
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   current.instanceTag, sub.storedInstanceTag
               ) else {
-            secondaryMacSubscriptions[macID]?.cancel()
-            secondaryMacSubscriptions[macID] = nil
+            if let current = secondaryMacSubscriptions[macID] {
+                current.cancel()
+                secondaryMacSubscriptions[macID] = nil
+            }
             return false
         }
         guard let previews = await fetchSecondaryWorkspaces(
@@ -126,7 +150,16 @@ extension MobileShellComposite {
             streamID: sub.streamID
         ) else {
             sub.cancel()
-            secondaryMacSubscriptions[macID] = nil
+            if secondaryMacSubscriptions[macID] === sub {
+                secondaryMacSubscriptions[macID] = nil
+            }
+            return false
+        }
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+            sub.cancel()
+            if secondaryMacSubscriptions[macID] === sub {
+                secondaryMacSubscriptions[macID] = nil
+            }
             return false
         }
         stopTerminalRefreshPolling()
@@ -140,22 +173,40 @@ extension MobileShellComposite {
                 on: previousForegroundConnection.client
             )
             if !previousForegroundCanStayWarm {
-                connections[previousForegroundConnection.macDeviceID] = nil
                 await previousForegroundConnection.client.disconnect()
             }
         }
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+            sub.cancel()
+            if secondaryMacSubscriptions[macID] === sub {
+                secondaryMacSubscriptions[macID] = nil
+            }
+            if let previousForegroundConnection {
+                invalidateFocusedConnectionAfterAbortedHandoff(
+                    previousForegroundConnection
+                )
+            }
+            return false
+        }
         let previousForegroundKey = foregroundMacKey
-        secondaryMacSubscriptions[macID] = nil
         sub.detachKeepingClient()
         let displayName = workspacesByMac[macID]?.displayName
+        if let previousForegroundID,
+           previousForegroundID != macID,
+           let previousForegroundConnection {
+            if previousForegroundCanStayWarm {
+                installControlConnection(from: previousForegroundConnection)
+            } else {
+                removeFocusedConnection(ifMatching: previousForegroundConnection)
+            }
+        }
+        adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
-        activeRoute = sub.route
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
         connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
-        adoptPooledRemoteClient(sub.client)
         foregroundMacDeviceID = macID
         supportedHostCapabilities = sub.supportedHostCapabilities
-        connections[macID] = MacConnection(
+        installFocusedConnection(MacConnection(
             macDeviceID: macID,
             ticket: sub.ticket,
             route: sub.route,
@@ -165,13 +216,7 @@ extension MobileShellComposite {
             instanceTag: activeMacInstanceTag,
             supportedHostCapabilities: sub.supportedHostCapabilities,
             actionCapabilities: sub.actionCapabilities
-        )
-        if let previousForegroundID,
-           previousForegroundID != macID,
-           let previousForegroundConnection,
-           previousForegroundCanStayWarm {
-            installControlConnection(from: previousForegroundConnection)
-        }
+        ))
         // Promotion reuses the live client without a fresh `mobile.host.status`
         // probe, so the previous foreground Mac's update hint would otherwise
         // survive the switch. Recompute against this Mac's capabilities; the
@@ -192,6 +237,7 @@ extension MobileShellComposite {
         // The old foreground snapshot remains live through its new control
         // connection, so `dropStalePreviousForeground` keeps it in the aggregate.
         dropStalePreviousForeground(previousForegroundKey)
+        activeRoute = sub.route
         connectionState = .connected
         markMacConnectionHealthy()
         startTerminalRefreshPolling()

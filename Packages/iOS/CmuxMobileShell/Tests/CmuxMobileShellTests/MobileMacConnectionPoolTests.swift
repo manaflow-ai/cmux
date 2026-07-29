@@ -10,7 +10,7 @@ import Testing
 @Suite struct MobileMacConnectionPoolTests {
     @Test func controlTopicsCarryAggregateStateWithoutTerminalRenderTraffic() {
         #expect(SecondaryMacSubscription.eventTopics.contains("workspace.updated"))
-        #expect(SecondaryMacSubscription.eventTopics.contains("mobile.sync.delta"))
+        #expect(!SecondaryMacSubscription.eventTopics.contains("mobile.sync.delta"))
         #expect(SecondaryMacSubscription.eventTopics.contains("notification.feed.changed"))
         #expect(!SecondaryMacSubscription.eventTopics.contains {
             $0.hasPrefix("terminal.")
@@ -214,11 +214,16 @@ import Testing
         shell.foregroundMacDeviceID = "mac-a"
         shell.connections["mac-a"] = connection
 
-        await shell.relinquishFocusedConnection(
+        let terminalStopped = await shell.prepareFocusedConnectionForHandoff(
+            connection
+        )
+        shell.commitFocusedConnectionHandoff(
             connection,
+            terminalStopped: terminalStopped,
             retainAsControl: true
         )
 
+        #expect(!terminalStopped)
         #expect(shell.connections["mac-a"] == nil)
         #expect(shell.secondaryMacSubscriptions["mac-a"] == nil)
         do {
@@ -231,6 +236,277 @@ import Testing
             Issue.record("retired client unexpectedly accepted another request")
         } catch {
             // Expected: a failed unsubscribe retires the old client.
+        }
+    }
+
+    @Test func pooledClientAdoptionClearsPriorMacCapabilities() throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "pooled-adoption",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let oldTicket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let newTicket = try CmxAttachTicket(
+            workspaceID: "workspace-b",
+            terminalID: "terminal-b",
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let oldClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: oldTicket,
+            allowsStackAuthFallback: true
+        )
+        let newClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: newTicket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(runtime: runtime, isSignedIn: true)
+        shell.remoteClient = oldClient
+        shell.supportedHostCapabilities = ["workspace.actions.v1"]
+
+        shell.adoptPooledRemoteClient(newClient)
+
+        #expect(shell.remoteClient === newClient)
+        #expect(shell.supportedHostCapabilities.isEmpty)
+    }
+
+    @Test func roleSpecificSettersCannotOverwriteOppositeOwner() throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "role-ownership",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "role-owner",
+            macDisplayName: "Role Owner",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        func client() -> MobileCoreRPCClient {
+            MobileCoreRPCClient(
+                runtime: runtime,
+                route: route,
+                ticket: ticket,
+                allowsStackAuthFallback: true
+            )
+        }
+        let focusedClient = client()
+        let rejectedControlClient = client()
+        let controlClient = client()
+        let rejectedFocusedClient = client()
+        let shell = MobileShellComposite(runtime: runtime, isSignedIn: true)
+        let focused = MacConnection(
+            macDeviceID: "mac-focused",
+            ticket: ticket,
+            route: route,
+            client: focusedClient,
+            generation: UUID(),
+            displayName: "Focused",
+            instanceTag: "mmpool",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let rejectedControl = SecondaryMacSubscription(
+            macDeviceID: "mac-focused",
+            client: rejectedControlClient,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        shell.connections["mac-focused"] = focused
+        shell.secondaryMacSubscriptions["mac-focused"] = rejectedControl
+
+        #expect(shell.connections["mac-focused"]?.client === focusedClient)
+        #expect(shell.secondaryMacSubscriptions["mac-focused"] == nil)
+
+        let control = SecondaryMacSubscription(
+            macDeviceID: "mac-control",
+            client: controlClient,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let rejectedFocused = MacConnection(
+            macDeviceID: "mac-control",
+            ticket: ticket,
+            route: route,
+            client: rejectedFocusedClient,
+            generation: UUID(),
+            displayName: "Rejected Focus",
+            instanceTag: "mmpool",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        shell.secondaryMacSubscriptions["mac-control"] = control
+        shell.connections["mac-control"] = rejectedFocused
+
+        #expect(shell.secondaryMacSubscriptions["mac-control"] === control)
+        #expect(shell.connections["mac-control"] == nil)
+        rejectedControl.cancel()
+        control.cancel()
+    }
+
+    @Test func freshSwitchStagesMetadataAndReplacesTargetControlOwner() async throws {
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-b",
+            instanceTag: "mmpool",
+            displayName: "Mac B"
+        )
+        let targetCapabilities = [
+            "events.v1",
+            "workspace.actions.v1",
+            "workspace.close.v1",
+        ]
+        await router.setCapabilities(targetCapabilities)
+        await router.holdWorkspaceListRequest(number: 1)
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let oldRoute = try CmxAttachRoute(
+            id: "staged-old",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let targetRoute = try CmxAttachRoute(
+            id: "staged-target",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let oldTicket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [oldRoute],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let targetTicket = try CmxAttachTicket(
+            workspaceID: "workspace-b",
+            terminalID: "terminal-b",
+            macDeviceID: "mac-b",
+            macDisplayName: "Target Placeholder",
+            routes: [targetRoute],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let oldClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: oldRoute,
+            ticket: oldTicket,
+            allowsStackAuthFallback: true
+        )
+        let displacedControlClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: targetRoute,
+            ticket: targetTicket,
+            allowsStackAuthFallback: true
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected
+        )
+        shell.remoteClient = oldClient
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.activeTicket = oldTicket
+        shell.activeRoute = oldRoute
+        shell.connectedHostName = "Mac A"
+        shell.connections["mac-a"] = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: oldTicket,
+            route: oldRoute,
+            client: oldClient,
+            generation: UUID(),
+            displayName: "Mac A",
+            instanceTag: "mmpool",
+            supportedHostCapabilities: ["old.capability"],
+            actionCapabilities: .none
+        )
+        shell.secondaryMacSubscriptions["mac-b"] = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: displacedControlClient,
+            route: targetRoute,
+            ticket: targetTicket,
+            storedInstanceTag: "mmpool",
+            authenticatedInstanceTag: "mmpool",
+            supportedHostCapabilities: ["old.control.capability"],
+            actionCapabilities: .none,
+            displayName: "Mac B"
+        )
+
+        let connectTask = Task { @MainActor in
+            try await shell.connect(
+                ticket: targetTicket,
+                allowsStackAuthFallback: true,
+                pairedMacDeviceID: "mac-b",
+                instanceTagExpectation: .require("mmpool")
+            )
+        }
+        _ = await router.waitForCount(of: "workspace.list", atLeast: 1)
+
+        #expect(shell.remoteClient === oldClient)
+        #expect(shell.activeTicket?.macDeviceID == "mac-a")
+        #expect(shell.activeRoute == oldRoute)
+        #expect(shell.connectedHostName == "Mac A")
+
+        await router.releaseAllHeld()
+        _ = try await connectTask.value
+
+        #expect(shell.foregroundMacDeviceID == "mac-b")
+        #expect(shell.activeTicket?.macDeviceID == "mac-b")
+        #expect(shell.activeRoute == targetRoute)
+        #expect(shell.connectedHostName == "Mac B")
+        #expect(shell.secondaryMacSubscriptions["mac-b"] == nil)
+        #expect(shell.connections["mac-b"]?.supportedHostCapabilities
+            == Set(targetCapabilities))
+        #expect(shell.connections["mac-b"]?.actionCapabilities.supportsCloseActions == true)
+        do {
+            _ = try await displacedControlClient.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    params: [:]
+                )
+            )
+            Issue.record("displaced control client unexpectedly remained usable")
+        } catch {
+            // Expected: the old control owner was retired before focus published.
         }
     }
 

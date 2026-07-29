@@ -9,7 +9,6 @@ final class SecondaryMacSubscription {
     /// Control-plane topics intentionally exclude terminal render and byte traffic.
     static let eventTopics: Set<String> = [
         "workspace.updated",
-        "mobile.sync.delta",
         "notification.feed.changed",
     ]
 
