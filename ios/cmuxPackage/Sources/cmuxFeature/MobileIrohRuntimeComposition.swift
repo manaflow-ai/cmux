@@ -2558,10 +2558,7 @@ extension MobileIrohRuntimeComposition {
         }
         let broker = try makeBrokerBundle(
             accountID: expectedAccountID,
-            tokenSource: brokerTokenSource(
-                pinnedTo: expectedAccountID,
-                generation: session.generation
-            )
+            tokenSource: brokerTokenSource(pinnedSession: session)
         ).client
         let snapshot = try await broker.discover()
         // The authenticated session can change while discover() is in flight
@@ -2609,48 +2606,48 @@ extension MobileIrohRuntimeComposition {
         return auth.authSessionGeneration == generation && auth.currentUser?.id == accountID
     }
 
-    /// Broker token source that authenticates as the live session ONLY while it is
-    /// still the exact session (generation + account) that initiated the forget.
-    /// Each fetch re-captures an atomic session snapshot and returns its token only
-    /// when the generation and account still match the pinned session, so a
-    /// mid-forget sign-out or account switch yields `nil` instead of handing a
-    /// different session's tokens to a broker scoped to the original account. The
-    /// revoke then fails safely rather than acting as the wrong user.
+    /// Broker token source that reuses the ONE coherent credential pair captured
+    /// when the forget started, for every broker leg.
+    ///
+    /// Each fetch performs only the CHEAP local session check (generation +
+    /// account, no network). Re-capturing a session snapshot per request would
+    /// mint a fresh Stack access token for the discovery and for EVERY sequential
+    /// revoke, turning one destructive action into an unbounded chain of network
+    /// mints that can stall for minutes and fail during a Stack outage despite
+    /// the valid pinned credentials already in hand. The pinned pair is coherent
+    /// by construction (minted together in one snapshot), and the access token
+    /// always travels with its refresh token, so the server can re-mint on its
+    /// side if the access token expires mid-operation. A mid-forget sign-out or
+    /// account switch fails the local check and yields `nil`, so the revoke
+    /// fails safely rather than acting as the wrong user.
     private func brokerTokenSource(
-        pinnedTo expectedAccountID: String,
-        generation: UInt64
+        pinnedSession session: AuthenticatedSessionSnapshot
     ) -> CmxIrohBrokerTokenSource {
         CmxIrohBrokerTokenSource(
-            accessToken: { [weak auth] in
-                guard let auth,
-                      let session = try? await auth.authenticatedSessionSnapshot(),
-                      session.generation == generation,
-                      session.accountID == expectedAccountID else { return nil }
-                return session.accessToken
+            accessToken: { [weak self] in
+                await self?.pinnedBrokerCredentials(session)?.accessToken
             },
-            refreshToken: { [weak auth] in
-                guard let auth,
-                      let session = try? await auth.authenticatedSessionSnapshot(),
-                      session.generation == generation,
-                      session.accountID == expectedAccountID else { return nil }
-                return session.refreshToken
+            refreshToken: { [weak self] in
+                await self?.pinnedBrokerCredentials(session)?.refreshToken
             },
-            // Preferred path: return BOTH tokens from ONE snapshot so the broker
-            // never pairs a stale access token with a rotated refresh token if a
-            // force refresh lands between two reads. The same generation/account
-            // pinning still gates the snapshot, so a mid-forget sign-out or account
-            // switch yields nil and the revoke fails safely rather than acting as
-            // the wrong user.
-            credentialPair: { [weak auth] in
-                guard let auth,
-                      let session = try? await auth.authenticatedSessionSnapshot(),
-                      session.generation == generation,
-                      session.accountID == expectedAccountID else { return nil }
-                return CmxIrohBrokerCredentials(
-                    accessToken: session.accessToken,
-                    refreshToken: session.refreshToken
-                )
+            credentialPair: { [weak self] in
+                await self?.pinnedBrokerCredentials(session)
             }
+        )
+    }
+
+    /// The pinned pair while the live auth session still matches the snapshot's
+    /// generation and account; `nil` once the session moved.
+    private func pinnedBrokerCredentials(
+        _ session: AuthenticatedSessionSnapshot
+    ) -> CmxIrohBrokerCredentials? {
+        guard sessionMatches(
+            generation: session.generation,
+            accountID: session.accountID
+        ) else { return nil }
+        return CmxIrohBrokerCredentials(
+            accessToken: session.accessToken,
+            refreshToken: session.refreshToken
         )
     }
 
