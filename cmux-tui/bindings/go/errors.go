@@ -23,6 +23,39 @@ type ResourceError struct {
 	Retryable bool
 }
 
+// DecodeDetails strictly decodes structured catalog details into a typed model.
+func (e *ResourceError) DecodeDetails(target any) error {
+	if e == nil {
+		return fmt.Errorf("%w: cannot decode details from a nil resource error", ErrInvalidArgument)
+	}
+	if err := strictDecode(e.Details, target); err != nil {
+		return &ProtocolError{Message: "cannot decode " + e.Code + " details: " + err.Error()}
+	}
+	return nil
+}
+
+type ConfirmationRequiredDetails struct {
+	ConfirmationToken string   `json:"confirmation_token"`
+	Revision          Decimal  `json:"revision"`
+	ClosesPanes       []PaneID `json:"closes_panes"`
+}
+
+func (d *ConfirmationRequiredDetails) UnmarshalJSON(data []byte) error {
+	type wireDetails ConfirmationRequiredDetails
+	var decoded wireDetails
+	if err := strictDecode(data, &decoded); err != nil {
+		return err
+	}
+	if len(decoded.ConfirmationToken) < 1 || len(decoded.ConfirmationToken) > 128 {
+		return fmt.Errorf("confirmation_token must contain 1 to 128 characters")
+	}
+	if len(decoded.ClosesPanes) == 0 {
+		return fmt.Errorf("closes_panes must contain at least one pane ID")
+	}
+	*d = ConfirmationRequiredDetails(decoded)
+	return nil
+}
+
 func (e *ResourceError) Error() string {
 	if e == nil {
 		return "<nil>"

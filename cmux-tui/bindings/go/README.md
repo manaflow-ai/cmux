@@ -25,8 +25,8 @@ Only `Client` and typed streams require explicit close or cancellation.
 
 Mutations use caller-provided idempotency keys or keys generated from 128 bits
 of secure random data. The client never retries mutations. `Decimal` encodes
-the full unsigned 64-bit range as a canonical JSON string. Sensitive provider
-credentials and renderer grants redact their values from formatted output.
+the full unsigned 64-bit range as a canonical JSON string. Renderer grants
+redact their values from formatted output.
 
 `ClientOptions.DialContext` supports injected transports and tests. The default
 transport uses a Unix session socket, with a Windows-compatible build fallback

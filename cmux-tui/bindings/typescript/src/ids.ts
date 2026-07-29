@@ -21,9 +21,6 @@ export type AgentId = OpaqueId<"agent">;
 export type ProjectionId = OpaqueId<"projection">;
 export type PairingRequestId = OpaqueId<"pairing_request">;
 export type SidebarViewId = OpaqueId<"sidebar_view">;
-export type ProviderScopeId = OpaqueId<"provider_scope">;
-export type ProviderActionId = OpaqueId<"provider_action">;
-export type ProviderNoticeId = OpaqueId<"provider_notice">;
 
 /** Exact unsigned decimal wire value, never coerced through Number. */
 export type DecimalString = string & { readonly [decimalBrand]: true };
@@ -58,12 +55,6 @@ export const pairingRequestId = (value: string): PairingRequestId =>
   parseId(value, "pairing");
 export const sidebarViewId = (value: string): SidebarViewId =>
   parseId(value, "sidebar_view");
-export const providerScopeId = (value: string): ProviderScopeId =>
-  parseId(value, "provider_scope");
-export const providerActionId = (value: string): ProviderActionId =>
-  parseId(value, "provider_action");
-export const providerNoticeId = (value: string): ProviderNoticeId =>
-  parseId(value, "provider_notice");
 
 export function decimalString(value: string): DecimalString {
   if (

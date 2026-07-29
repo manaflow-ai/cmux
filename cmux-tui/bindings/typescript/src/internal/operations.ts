@@ -16,12 +16,6 @@ const op = (name: string, operationClass: OperationClass): Operation =>
 export const operations = Object.freeze({
   machineList: op("machine.list", "read"),
   machineGet: op("machine.get", "read"),
-  machineCreate: op("machine.create", "mutation"),
-  machineRename: op("machine.rename", "mutation"),
-  machineDelete: op("machine.delete", "mutation"),
-  machineRestore: op("machine.restore", "mutation"),
-  machinePurge: op("machine.purge", "mutation"),
-  machineConnectExternal: op("machine.connect_external", "mutation"),
 
   sessionList: op("session.list", "read"),
   sessionOpen: op("session.open", "mutation"),
@@ -144,17 +138,6 @@ export const operations = Object.freeze({
   sidebarViewInput: op("sidebar_view.input", "mutation"),
   sidebarViewResize: op("sidebar_view.resize", "mutation"),
   sidebarViewReload: op("sidebar_view.reload", "mutation"),
-
-  providerScopeList: op("provider_scope.list", "read"),
-  providerActionInvoke: op("provider_action.invoke", "mutation"),
-  providerNoticeEvents: op("provider_notice.events", "stream_open"),
-  providerNoticeAcknowledge: op(
-    "provider_notice.acknowledge",
-    "connection_control",
-  ),
-  providerWorkspaceMark: op("provider_workspace.mark", "mutation"),
-  providerWorkspaceRename: op("provider_workspace.rename", "mutation"),
-  providerWorkspaceClose: op("provider_workspace.close", "mutation"),
 
   streamCancel: op("stream.cancel", "connection_control"),
 

@@ -7,13 +7,10 @@ import type {
   Cursor,
   JsonValue,
   LayoutDocument,
-  ProviderActionValue,
 } from "./models.js";
 
 export type Direction = "left" | "right" | "up" | "down";
 export type InitialContent = "terminal" | "empty";
-
-export interface CreateMachineOptions {}
 
 export interface CreateWorkspaceOptions {
   readonly name?: string;
@@ -140,10 +137,6 @@ export interface AgentReportOptions {
   readonly sourceSession?: string;
 }
 
-export interface ProviderActionOptions {
-  readonly parameters: Readonly<Record<string, ProviderActionValue>>;
-}
-
 export interface SidebarInputOptions {
   readonly dataBase64: string;
 }
@@ -172,6 +165,8 @@ export interface TerminalDefaultsOptions {
 export interface MutationOptions extends RequestOptions {
   readonly idempotencyKey?: string;
   readonly expectedRevision?: DecimalString;
+  /** Correlates one of the eight creation operations with creation.resolve. */
+  readonly correlationKey?: string;
 }
 
 export type ProjectionValue = JsonValue;

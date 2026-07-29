@@ -4,15 +4,12 @@ import test from "node:test";
 import {
   Client,
   CmuxAbortError,
+  CmuxProtocolError,
   CmuxTimeoutError,
-  ExternalMachineSpecifier,
+  ConfirmationRequiredError,
   MutationIndeterminateError,
   MutationTransportUncertainError,
-  ProviderCredential,
-  machineId,
   paneId,
-  providerNoticeId,
-  providerScopeId,
   RendererGrant,
   ResourceError,
   StreamError,
@@ -36,12 +33,9 @@ const HEX_C = "c".repeat(32);
 const SESSION = sessionId(`session_${HEX_A}`);
 const WORKSPACE = workspaceId(`ws_${HEX_B}`);
 const TERMINAL = terminalId(`term_${HEX_C}`);
-const MACHINE = machineId(`machine_${HEX_A}`);
 const SCREEN = screenId(`screen_${HEX_C}`);
 const PANE = paneId(`pane_${HEX_A}`);
 const TAB = tabId(`tab_${HEX_B}`);
-const PROVIDER_SCOPE = providerScopeId(`provider_scope_${HEX_A}`);
-const PROVIDER_NOTICE = providerNoticeId(`provider_notice_${HEX_B}`);
 
 type Envelope = Record<string, unknown>;
 
@@ -119,7 +113,10 @@ test("resource root, raw boundary, exact commands, and idempotency keys", async 
     randomHex128: () => randomValues.shift()!,
   });
   const workspace = client.session(SESSION).workspace(WORKSPACE);
-  const created = await workspace.run({ command: exact(["printf", "%s", "$HOME"]) });
+  const created = await workspace.run(
+    { command: exact(["printf", "%s", "$HOME"]) },
+    { correlationKey: "run-1" },
+  );
   await workspace.run({ command: shell("printf %s \"$HOME\"") });
   await workspace.run({
     command: shellExecutable("/bin/zsh", "echo $(uname)"),
@@ -137,6 +134,7 @@ test("resource root, raw boundary, exact commands, and idempotency keys", async 
   assert.deepEqual(transport.requests[0]?.params, {
     ...common,
     argv: ["printf", "%s", "$HOME"],
+    correlation_key: "run-1",
   });
   assert.deepEqual(transport.requests[1]?.params, {
     ...common,
@@ -179,14 +177,41 @@ test("structured errors preserve fields", async () => {
   client.close();
 });
 
+test("machine snapshots reject removed provider fields and external origins", async () => {
+  for (const machine of [
+    {
+      id: `machine_${HEX_A}`,
+      name: "external",
+      origin: "external",
+      status: "running",
+      connectable: true,
+      deleted: false,
+      recoverable: true,
+    },
+    {
+      id: `machine_${HEX_A}`,
+      name: "local",
+      origin: "local",
+      status: "running",
+      connectable: true,
+      provider_scope_id: `provider_scope_${HEX_A}`,
+      deleted: false,
+      recoverable: true,
+    },
+  ]) {
+    const transport = new FakeTransport((request, current) => {
+      current.ok(request, [machine]);
+    });
+    const client = new Client({ transport });
+    await assert.rejects(() => client.listMachines(), CmuxProtocolError);
+    client.close();
+  }
+});
+
 test("optional fields and expected revisions reach the wire", async () => {
   const transport = new FakeTransport((request, current) => {
     if (request.operation === "notification.list" || request.operation === "agent.list") {
       current.ok(request, []);
-      return;
-    }
-    if (request.operation === "provider_notice.acknowledge") {
-      current.ok(request, {});
       return;
     }
     current.emit({
@@ -203,17 +228,23 @@ test("optional fields and expected revisions reach the wire", async () => {
     });
   });
   const client = new Client({ transport });
-  await assert.rejects(
-    () => client.machine(MACHINE).rename("renamed", {
+  assert.throws(
+    () => client.session(SESSION).workspace(WORKSPACE).screen(SCREEN).undoLayout({
       confirmClose: true,
+    }),
+    /confirmClose requires confirmationToken/,
+  );
+  await assert.rejects(
+    () => client.session(SESSION).workspace(WORKSPACE).rename("renamed", {
       expectedRevision: decimalString("7"),
-      idempotencyKey: "machine-rename",
+      idempotencyKey: "workspace-rename",
     }),
     ResourceError,
   );
   await assert.rejects(
     () => client.session(SESSION).workspace(WORKSPACE).screen(SCREEN).undoLayout({
       confirmClose: true,
+      confirmationToken: "undo-preview-token",
       expectedRevision: decimalString("8"),
       idempotencyKey: "screen-undo",
     }),
@@ -225,16 +256,13 @@ test("optional fields and expected revisions reach the wire", async () => {
     await session.listAgents({ terminalId: TERMINAL, state: "working" }),
     [],
   );
-  await client.providerScope(PROVIDER_SCOPE).notice(PROVIDER_NOTICE).acknowledge(
-    decimalString("18446744073709551615"),
-  );
-
   const request = (operation: string): Envelope =>
     transport.requests.find((item) => item.operation === operation)!;
-  assert.deepEqual(request("machine.rename").params, {
-    machine: MACHINE,
+  assert.deepEqual(request("workspace.rename").params, {
+    machine: "current",
+    session: SESSION,
+    workspace: WORKSPACE,
     name: "renamed",
-    confirm_close: true,
     expected_revision: "7",
   });
   assert.equal(
@@ -245,16 +273,16 @@ test("optional fields and expected revisions reach the wire", async () => {
     (request("screen.layout.undo").params as Envelope).expected_revision,
     "8",
   );
+  assert.equal(
+    (request("screen.layout.undo").params as Envelope).confirmation_token,
+    "undo-preview-token",
+  );
   assert.equal((request("notification.list").params as Envelope).limit, 7);
   assert.equal(
     (request("agent.list").params as Envelope).terminal_id,
     TERMINAL,
   );
   assert.equal((request("agent.list").params as Envelope).state, "working");
-  assert.equal(
-    (request("provider_notice.acknowledge").params as Envelope).sequence,
-    "18446744073709551615",
-  );
   client.close();
 });
 
@@ -279,7 +307,7 @@ test("indeterminate mutations are typed and never retried", async () => {
   });
   const client = new Client({ transport });
   await assert.rejects(
-    () => client.machine(MACHINE).rename("external", {
+    () => client.session(SESSION).workspace(WORKSPACE).rename("external", {
       idempotencyKey: "external-rename",
     }),
     (error: unknown) => {
@@ -288,13 +316,47 @@ test("indeterminate mutations are typed and never retried", async () => {
       assert.equal(error.retryable, false);
       assert.deepEqual(error.details, {
         idempotency_key: "external-rename",
-        operation: "machine.rename",
+        operation: "workspace.rename",
         recovery: "inspect_state_then_retry_with_new_key",
       });
       return true;
     },
   );
   assert.equal(transport.requests.length, 1);
+  client.close();
+});
+
+test("confirmation errors expose typed preview details", async () => {
+  const transport = new FakeTransport((request, current) => {
+    current.emit({
+      protocol: "cmux.protocol/1",
+      type: "response",
+      id: request.id,
+      ok: false,
+      error: {
+        code: "confirmation.required",
+        message: "undo would close panes",
+        details: {
+          confirmation_token: "undo-preview-token",
+          revision: "18446744073709551615",
+          closes_panes: [PANE],
+        },
+        retryable: false,
+      },
+    });
+  });
+  const client = new Client({ transport });
+
+  await assert.rejects(
+    () => client.session(SESSION).workspace(WORKSPACE).screen(SCREEN).undoLayout(),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfirmationRequiredError);
+      assert.equal(error.details.confirmation_token, "undo-preview-token");
+      assert.equal(error.details.revision, "18446744073709551615");
+      assert.deepEqual(error.details.closes_panes, [PANE]);
+      return true;
+    },
+  );
   client.close();
 });
 
@@ -308,23 +370,25 @@ test("dropped mutation responses expose supplied and generated idempotency keys"
   });
 
   await assert.rejects(
-    () => client.machine(MACHINE).rename("supplied", {
+    () => client.session(SESSION).workspace(WORKSPACE).rename("supplied", {
       idempotencyKey: "supplied-key",
       timeoutMs: 5,
     }),
     (error: unknown) => {
       assert.ok(error instanceof MutationTransportUncertainError);
-      assert.equal(error.operation, "machine.rename");
+      assert.equal(error.operation, "workspace.rename");
       assert.equal(error.idempotencyKey, "supplied-key");
       assert.ok(error.cause instanceof CmuxTimeoutError);
       return true;
     },
   );
   await assert.rejects(
-    () => client.machine(MACHINE).rename("generated", { timeoutMs: 5 }),
+    () => client.session(SESSION).workspace(WORKSPACE).rename("generated", {
+      timeoutMs: 5,
+    }),
     (error: unknown) => {
       assert.ok(error instanceof MutationTransportUncertainError);
-      assert.equal(error.operation, "machine.rename");
+      assert.equal(error.operation, "workspace.rename");
       assert.equal(error.idempotencyKey, `ts-${HEX_C}`);
       assert.ok(error.cause instanceof CmuxTimeoutError);
       return true;
@@ -348,7 +412,7 @@ test("a mutation canceled before send is not reported as uncertain", async () =>
   controller.abort();
 
   await assert.rejects(
-    () => client.machine(MACHINE).rename("never-sent", {
+    () => client.session(SESSION).workspace(WORKSPACE).rename("never-sent", {
       signal: controller.signal,
     }),
     (error: unknown) => {
@@ -432,13 +496,11 @@ test("mutations update and return the receiver handle", async () => {
   const transport = new FakeTransport((request, current) => {
     current.ok(request, {
       value: {
-        id: MACHINE,
+        id: WORKSPACE,
         name: "renamed",
-        origin: "local",
-        status: "running",
-        connectable: true,
-        deleted: false,
-        recoverable: true,
+        session_id: SESSION,
+        index: 1,
+        focused: true,
       },
       generation: "generation-a",
       revision: "12",
@@ -446,13 +508,13 @@ test("mutations update and return the receiver handle", async () => {
     });
   });
   const client = new Client({ transport });
-  const machine = client.machine(MACHINE);
-  const result = await machine.rename("renamed", {
-    idempotencyKey: "machine-rename",
+  const workspace = client.session(SESSION).workspace(WORKSPACE);
+  const result = await workspace.rename("renamed", {
+    idempotencyKey: "workspace-rename",
   });
 
-  assert.equal(result.value, machine);
-  assert.equal(machine.snapshot?.name, "renamed");
+  assert.equal(result.value, workspace);
+  assert.equal(workspace.snapshot?.name, "renamed");
   assert.equal(result.revision, "12");
   client.close();
 });
@@ -738,21 +800,7 @@ test("stream overflow is isolated and sends best-effort selector cancellation", 
   client.close();
 });
 
-test("credentials and renderer grants are redacted and one-use", () => {
-  const specifier = new ExternalMachineSpecifier("provider://machine-secret");
-  assert.equal(String(specifier), "<redacted>");
-  assert.equal(specifier.take(), "provider://machine-secret");
-  assert.throws(() => specifier.take(), /already consumed/);
-
-  const credential = new ProviderCredential("token", "provider-secret");
-  assert.equal(String(credential), "<redacted>");
-  assert.equal(JSON.stringify(credential), "\"<redacted>\"");
-  assert.deepEqual(credential.toWire(), {
-    name: "token",
-    value: "provider-secret",
-  });
-  assert.throws(() => credential.toWire(), /already consumed/);
-
+test("renderer grants are redacted and one-use", () => {
   const grant = new RendererGrant(
     "renderer-secret",
     "unix:///tmp/renderer.sock",

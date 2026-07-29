@@ -15,15 +15,14 @@ import (
 )
 
 type MachineSnapshot struct {
-	ID              MachineID            `json:"id"`
-	Name            string               `json:"name"`
-	Origin          string               `json:"origin"`
-	Status          string               `json:"status"`
-	Connectable     bool                 `json:"connectable"`
-	ProviderScopeID *ProviderScopeID     `json:"provider_scope_id,omitempty"`
-	Deleted         bool                 `json:"deleted"`
-	Recoverable     bool                 `json:"recoverable"`
-	Extra           map[string]JSONValue `json:"extra,omitempty"`
+	ID          MachineID            `json:"id"`
+	Name        string               `json:"name"`
+	Origin      string               `json:"origin"`
+	Status      string               `json:"status"`
+	Connectable bool                 `json:"connectable"`
+	Deleted     bool                 `json:"deleted"`
+	Recoverable bool                 `json:"recoverable"`
+	Extra       map[string]JSONValue `json:"extra,omitempty"`
 }
 
 type SessionSnapshot struct {
@@ -529,46 +528,6 @@ type SidebarViewSnapshot struct {
 	Extra     map[string]JSONValue `json:"extra,omitempty"`
 }
 
-type ProviderScopeSnapshot struct {
-	ID       ProviderScopeID      `json:"id"`
-	Name     string               `json:"name"`
-	Kind     string               `json:"kind"`
-	CanAdmin bool                 `json:"can_admin"`
-	Selected bool                 `json:"selected"`
-	Extra    map[string]JSONValue `json:"extra,omitempty"`
-}
-
-type ProviderActionSnapshot struct {
-	ID              ProviderActionID      `json:"id"`
-	ProviderScopeID ProviderScopeID       `json:"provider_scope_id"`
-	Name            string                `json:"name"`
-	Title           string                `json:"title"`
-	Enabled         bool                  `json:"enabled"`
-	Target          string                `json:"target"`
-	Destructive     bool                  `json:"destructive"`
-	Fields          []ProviderActionField `json:"fields"`
-	Extra           map[string]JSONValue  `json:"extra,omitempty"`
-}
-
-type ProviderActionField struct {
-	ID          string  `json:"id"`
-	Label       string  `json:"label"`
-	Kind        string  `json:"kind"`
-	Required    bool    `json:"required"`
-	MaxLength   *uint32 `json:"max_length,omitempty"`
-	Minimum     *int32  `json:"minimum,omitempty"`
-	Maximum     *int32  `json:"maximum,omitempty"`
-	Placeholder *string `json:"placeholder,omitempty"`
-}
-
-type ProviderNoticeSnapshot struct {
-	ID              ProviderNoticeID     `json:"id"`
-	ProviderScopeID ProviderScopeID      `json:"provider_scope_id"`
-	Level           string               `json:"level"`
-	Message         string               `json:"message"`
-	Extra           map[string]JSONValue `json:"extra,omitempty"`
-}
-
 type ResourceSnapshot struct {
 	Machine             MachineSnapshot              `json:"machine"`
 	Session             SessionSnapshot              `json:"session"`
@@ -604,9 +563,6 @@ const (
 	ResourcePairingRequest     ResourceKind = "pairing_request"
 	ResourceFrontendProjection ResourceKind = "frontend_projection"
 	ResourceSidebarView        ResourceKind = "sidebar_view"
-	ResourceProviderScope      ResourceKind = "provider_scope"
-	ResourceProviderAction     ResourceKind = "provider_action"
-	ResourceProviderNotice     ResourceKind = "provider_notice"
 )
 
 type ResourceChangeID interface {
@@ -631,9 +587,6 @@ func (AgentSnapshot) resourceEntitySnapshot()              {}
 func (PairingRequestSnapshot) resourceEntitySnapshot()     {}
 func (FrontendProjectionSnapshot) resourceEntitySnapshot() {}
 func (SidebarViewSnapshot) resourceEntitySnapshot()        {}
-func (ProviderScopeSnapshot) resourceEntitySnapshot()      {}
-func (ProviderActionSnapshot) resourceEntitySnapshot()     {}
-func (ProviderNoticeSnapshot) resourceEntitySnapshot()     {}
 
 // ResourceChange preserves unknown future discriminators only in Raw. For
 // known upsert/delete kinds, Resource, ID, and Value are validated together.
@@ -761,31 +714,16 @@ type SidebarView struct {
 	snapshot *SidebarViewSnapshot
 }
 
-type ProviderScope struct {
-	client   *Client
-	selector Selector[ProviderScopeID]
-	route    resourceRoute
-	snapshot ProviderScopeSnapshot
-}
-
-type ProviderAction struct {
-	client   *Client
-	scope    Selector[ProviderScopeID]
-	selector Selector[ProviderActionID]
-	route    resourceRoute
-	snapshot ProviderActionSnapshot
-}
-
-type ProviderNotice struct {
-	client   *Client
-	selector Selector[ProviderNoticeID]
-	route    resourceRoute
-	snapshot ProviderNoticeSnapshot
-}
-
 func (c *Client) Machine(selector Selector[MachineID]) *Machine {
 	route := resourceRoute{}.withMachine(selector)
 	return &Machine{client: c, selector: selector, route: route}
+}
+func (c *Client) Session(selector Selector[SessionID]) *Session {
+	machine := SelectCurrent[MachineID]()
+	return &Session{
+		client: c, machine: machine, selector: selector,
+		route: resourceRoute{}.withMachine(machine).withSession(selector),
+	}
 }
 func (m *Machine) Session(selector Selector[SessionID]) *Session {
 	route := m.route.withSession(selector)
@@ -797,6 +735,18 @@ func (s *Session) Workspace(selector Selector[WorkspaceID]) *Workspace {
 	return &Workspace{
 		client: s.client, session: s.selector, selector: selector,
 		route: s.route.withWorkspace(selector),
+	}
+}
+func (s *Session) Terminal(selector Selector[TerminalID]) *Terminal {
+	return &Terminal{
+		client: s.client, selector: selector,
+		route: s.route.withTerminal(selector),
+	}
+}
+func (s *Session) Browser(selector Selector[BrowserID]) *Browser {
+	return &Browser{
+		client: s.client, selector: selector,
+		route: s.route.withBrowser(selector),
 	}
 }
 func (w *Workspace) Screen(selector Selector[ScreenID]) *Screen {
@@ -849,24 +799,6 @@ func (s *Session) SidebarView(selector Selector[SidebarViewID]) *SidebarView {
 		route: s.route.withSidebarView(selector),
 	}
 }
-func (c *Client) ProviderScope(selector Selector[ProviderScopeID]) *ProviderScope {
-	route := resourceRoute{}.
-		withMachine(SelectCurrent[MachineID]()).
-		withProviderScope(selector)
-	return &ProviderScope{client: c, selector: selector, route: route}
-}
-func (m *Machine) ProviderScope(selector Selector[ProviderScopeID]) *ProviderScope {
-	return &ProviderScope{
-		client: m.client, selector: selector,
-		route: m.route.withProviderScope(selector),
-	}
-}
-func (p *ProviderScope) Action(selector Selector[ProviderActionID]) *ProviderAction {
-	return &ProviderAction{
-		client: p.client, scope: p.selector, selector: selector,
-		route: p.route.withProviderAction(selector),
-	}
-}
 
 type resourceRoute struct {
 	machine         Selector[MachineID]
@@ -881,9 +813,6 @@ type resourceRoute struct {
 	pairingRequest  Selector[PairingRequestID]
 	projection      Selector[ProjectionID]
 	sidebarView     Selector[SidebarViewID]
-	providerScope   Selector[ProviderScopeID]
-	providerAction  Selector[ProviderActionID]
-	providerNotice  Selector[ProviderNoticeID]
 }
 
 func (r resourceRoute) withMachine(value Selector[MachineID]) resourceRoute {
@@ -940,25 +869,6 @@ func (r resourceRoute) withSidebarView(value Selector[SidebarViewID]) resourceRo
 	r.sidebarView = value
 	return r
 }
-func (r resourceRoute) withProviderScope(
-	value Selector[ProviderScopeID],
-) resourceRoute {
-	r.providerScope = value
-	return r
-}
-func (r resourceRoute) withProviderAction(
-	value Selector[ProviderActionID],
-) resourceRoute {
-	r.providerAction = value
-	return r
-}
-func (r resourceRoute) withProviderNotice(
-	value Selector[ProviderNoticeID],
-) resourceRoute {
-	r.providerNotice = value
-	return r
-}
-
 func (r resourceRoute) params() map[string]any {
 	result := make(map[string]any, 12)
 	addSelector(result, wirev1.FieldMachine, r.machine)
@@ -973,9 +883,6 @@ func (r resourceRoute) params() map[string]any {
 	addSelector(result, "pairing_request", r.pairingRequest)
 	addSelector(result, "frontend_projection", r.projection)
 	addSelector(result, "sidebar_view", r.sidebarView)
-	addSelector(result, "provider_scope", r.providerScope)
-	addSelector(result, "provider_action", r.providerAction)
-	addSelector(result, "provider_notice", r.providerNotice)
 	return result
 }
 

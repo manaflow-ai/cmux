@@ -8,9 +8,6 @@ import type {
   PairingRequestId,
   PaneId,
   ProjectionId,
-  ProviderActionId,
-  ProviderNoticeId,
-  ProviderScopeId,
   ScreenId,
   SessionId,
   SidebarViewId,
@@ -29,7 +26,6 @@ export type JsonValue =
   | readonly JsonValue[]
   | { readonly [key: string]: JsonValue };
 export type Document = Readonly<Record<string, JsonValue>>;
-export type ProviderActionValue = string | number;
 
 class Secret {
   #value: string;
@@ -70,25 +66,6 @@ export class RendererGrant extends Secret {
 
 export type RendererGrantResult = RendererGrant;
 
-/** Provider credential whose value is never publicly enumerable. */
-export class ProviderCredential extends Secret {
-  constructor(readonly name: string, value: string) {
-    if (!name) throw new TypeError("provider credential name must be non-empty");
-    super(value, "provider credential");
-  }
-
-  toWire(): Readonly<{ name: string; value: string }> {
-    return Object.freeze({ name: this.name, value: this.take() });
-  }
-}
-
-/** One-use provider-owned machine specifier with redacted display. */
-export class ExternalMachineSpecifier extends Secret {
-  constructor(value: string) {
-    super(value, "external machine specifier");
-  }
-}
-
 export interface Snapshot<Id extends string> {
   readonly id: Id;
   readonly extra: Document;
@@ -96,10 +73,9 @@ export interface Snapshot<Id extends string> {
 
 export interface MachineSnapshot extends Snapshot<MachineId> {
   readonly name: string;
-  readonly origin: "local" | "external";
+  readonly origin: "local";
   readonly status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable";
   readonly connectable: boolean;
-  readonly providerScopeId?: ProviderScopeId;
   readonly deleted: boolean;
   readonly recoverable: boolean;
 }
@@ -225,37 +201,6 @@ export interface SidebarViewSnapshot extends Snapshot<SidebarViewId> {
   readonly rows: number;
   readonly running: boolean;
 }
-export interface ProviderScopeSnapshot extends Snapshot<ProviderScopeId> {
-  readonly name: string;
-  readonly kind: "personal" | "team";
-  readonly canAdmin: boolean;
-  readonly selected: boolean;
-}
-export interface ProviderActionField {
-  readonly id: string;
-  readonly label: string;
-  readonly kind: "text" | "email" | "integer";
-  readonly required: boolean;
-  readonly maxLength?: number;
-  readonly minimum?: number;
-  readonly maximum?: number;
-  readonly placeholder?: string;
-}
-export interface ProviderActionSnapshot extends Snapshot<ProviderActionId> {
-  readonly name: string;
-  readonly providerScopeId: ProviderScopeId;
-  readonly title: string;
-  readonly enabled: boolean;
-  readonly target: "scope" | "selected_machine" | "selected_workspace";
-  readonly destructive: boolean;
-  readonly fields: readonly ProviderActionField[];
-}
-export interface ProviderNoticeSnapshot extends Snapshot<ProviderNoticeId> {
-  readonly providerScopeId: ProviderScopeId;
-  readonly level: "info" | "warning" | "error";
-  readonly message: string;
-}
-
 export interface Cursor {
   readonly generation: string;
   readonly revision: DecimalString;
@@ -590,10 +535,7 @@ export type ResourceKind =
   | "agent"
   | "pairing_request"
   | "frontend_projection"
-  | "sidebar_view"
-  | "provider_scope"
-  | "provider_action"
-  | "provider_notice";
+  | "sidebar_view";
 
 export type ResourceChangeId =
   | MachineId
@@ -609,10 +551,7 @@ export type ResourceChangeId =
   | AgentId
   | PairingRequestId
   | ProjectionId
-  | SidebarViewId
-  | ProviderScopeId
-  | ProviderActionId
-  | ProviderNoticeId;
+  | SidebarViewId;
 
 export interface ResourceEntityByKind {
   readonly machine: MachineSnapshot;
@@ -629,9 +568,6 @@ export interface ResourceEntityByKind {
   readonly pairing_request: PairingRequestSnapshot;
   readonly frontend_projection: FrontendProjectionSnapshot;
   readonly sidebar_view: SidebarViewSnapshot;
-  readonly provider_scope: ProviderScopeSnapshot;
-  readonly provider_action: ProviderActionSnapshot;
-  readonly provider_notice: ProviderNoticeSnapshot;
 }
 
 export interface ResourceIdByKind {
@@ -649,9 +585,6 @@ export interface ResourceIdByKind {
   readonly pairing_request: PairingRequestId;
   readonly frontend_projection: ProjectionId;
   readonly sidebar_view: SidebarViewId;
-  readonly provider_scope: ProviderScopeId;
-  readonly provider_action: ProviderActionId;
-  readonly provider_notice: ProviderNoticeId;
 }
 
 export type ResourceEntitySnapshot =
@@ -820,14 +753,4 @@ export type SidebarAttachItem =
   | SidebarAttachSnapshot
   | SidebarAttachPatch
   | SidebarAttachScroll
-  | Unknown;
-
-export interface ProviderNoticeKnown {
-  readonly kind: "notice";
-  readonly notice: ProviderNoticeSnapshot;
-  readonly sequence: DecimalString;
-}
-
-export type ProviderNoticeItem =
-  | ProviderNoticeKnown
   | Unknown;

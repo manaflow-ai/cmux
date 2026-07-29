@@ -178,6 +178,15 @@ func (c *Client) created(
 	input map[string]any,
 	options MutationOptions,
 ) (MutationResult[CreatedPath], error) {
+	if len(options.CorrelationKey) > 128 {
+		return MutationResult[CreatedPath]{}, fmt.Errorf(
+			"%w: correlation key must contain 1 to 128 characters",
+			ErrInvalidArgument,
+		)
+	}
+	if options.CorrelationKey != "" {
+		input["correlation_key"] = options.CorrelationKey
+	}
 	putExpectedRevision(input, options)
 	raw, err := c.mutationRaw(ctx, operation, input, options.IdempotencyKey)
 	if err != nil {
@@ -239,104 +248,6 @@ func filterMachines(values []*Machine, name string) []*Machine {
 		}
 	}
 	return result
-}
-
-func (c *Client) CreateMachine(ctx context.Context, options MachineCreateOptions) (MutationResult[*Machine], error) {
-	return c.ProviderScope(SelectCurrent[ProviderScopeID]()).CreateMachine(ctx, options)
-}
-
-func (p *ProviderScope) CreateMachine(ctx context.Context, options MachineCreateOptions) (MutationResult[*Machine], error) {
-	input := map[string]any{"provider_scope": p.selector.String()}
-	merge(input, options.Extra)
-	putExpectedRevision(input, options.MutationOptions)
-	raw, err := p.client.mutationRaw(ctx, wirev1.MachineCreate, input, options.IdempotencyKey)
-	if err != nil {
-		return MutationResult[*Machine]{}, err
-	}
-	snapshot, err := decodeValue[MachineSnapshot](raw.value, "machine")
-	if err != nil {
-		return MutationResult[*Machine]{}, err
-	}
-	selector := SelectID(snapshot.ID)
-	handle := &Machine{
-		client: p.client, selector: selector,
-		route:    resourceRoute{}.withMachine(selector),
-		snapshot: &snapshot,
-	}
-	return MutationResult[*Machine]{
-		Value: handle, Generation: raw.generation, Revision: raw.revision,
-		Replayed: raw.replayed,
-	}, nil
-}
-
-func (p *ProviderScope) ConnectExternal(ctx context.Context, options MachineConnectExternalOptions) (MutationResult[*Machine], error) {
-	input := map[string]any{"provider_scope": p.selector.String()}
-	input["specifier"] = options.Specifier.Reveal()
-	merge(input, options.Extra)
-	putExpectedRevision(input, options.MutationOptions)
-	raw, err := p.client.mutationRaw(
-		ctx, wirev1.MachineConnectExternal, input, options.IdempotencyKey,
-	)
-	if err != nil {
-		return MutationResult[*Machine]{}, err
-	}
-	snapshot, err := decodeValue[MachineSnapshot](raw.value, "machine")
-	if err != nil {
-		return MutationResult[*Machine]{}, err
-	}
-	selector := SelectID(snapshot.ID)
-	handle := &Machine{
-		client: p.client, selector: selector,
-		route: resourceRoute{}.withMachine(selector), snapshot: &snapshot,
-	}
-	return MutationResult[*Machine]{
-		Value: handle, Generation: raw.generation, Revision: raw.revision,
-		Replayed: raw.replayed,
-	}, nil
-}
-
-func (c *Client) ConnectExternalMachine(
-	ctx context.Context,
-	options MachineConnectExternalOptions,
-) (MutationResult[*Machine], error) {
-	return c.ProviderScope(SelectCurrent[ProviderScopeID]()).
-		ConnectExternal(ctx, options)
-}
-
-func (m *Machine) Rename(ctx context.Context, options MachineRenameOptions) (MutationResult[*Machine], error) {
-	input := m.route.params()
-	input[wirev1.FieldName] = options.Name
-	if options.ConfirmClose {
-		input["confirm_close"] = true
-	}
-	merge(input, options.Extra)
-	return mutationHandle(
-		ctx, m.client, wirev1.MachineRename, input, options.MutationOptions,
-		"machine", m.cache, m,
-	)
-}
-func (m *Machine) Delete(ctx context.Context, options MachineDeleteOptions) (MutationResult[*Machine], error) {
-	input := m.route.params()
-	merge(input, options.Extra)
-	return mutationHandle(
-		ctx, m.client, wirev1.MachineDelete, input, options.MutationOptions,
-		"machine", m.cache, m,
-	)
-}
-func (m *Machine) Restore(ctx context.Context, options MachineRestoreOptions) (MutationResult[*Machine], error) {
-	input := m.route.params()
-	merge(input, options.Extra)
-	return mutationHandle(
-		ctx, m.client, wirev1.MachineRestore, input, options.MutationOptions,
-		"machine", m.cache, m,
-	)
-}
-func (m *Machine) Purge(ctx context.Context, options MachinePurgeOptions) (MutationResult[EmptyResult], error) {
-	input := m.route.params()
-	merge(input, options.Extra)
-	return mutationValue[EmptyResult](
-		ctx, m.client, wirev1.MachinePurge, input, options.MutationOptions, "empty result",
-	)
 }
 
 func (m *Machine) ListSessions(ctx context.Context, options SessionListOptions) ([]*Session, error) {
@@ -843,15 +754,6 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		required = []string{"id", "session_id", "projection"}
 	case *SidebarViewSnapshot:
 		required = []string{"id", "session_id", "cols", "rows", "running"}
-	case *ProviderScopeSnapshot:
-		required = []string{"id", "name", "kind", "can_admin", "selected"}
-	case *ProviderActionSnapshot:
-		required = []string{
-			"id", "provider_scope_id", "name", "title", "enabled", "target",
-			"destructive", "fields",
-		}
-	case *ProviderNoticeSnapshot:
-		required = []string{"id", "provider_scope_id", "level", "message"}
 	case *PingResult:
 		required = []string{"alive", "cursor"}
 	case *ShutdownResult:
@@ -919,7 +821,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("machine snapshot id must be present")
 		}
 		switch decoded.Origin {
-		case "local", "external":
+		case "local":
 		default:
 			return fmt.Errorf("invalid machine origin %q", decoded.Origin)
 		}
@@ -1064,65 +966,6 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		if decoded.ID == "" || decoded.SessionID == "" ||
 			decoded.Cols == 0 || decoded.Rows == 0 {
 			return fmt.Errorf("sidebar view snapshot ids and size must be present")
-		}
-	case *ProviderScopeSnapshot:
-		if decoded.ID == "" {
-			return fmt.Errorf("provider scope snapshot id must be present")
-		}
-		switch decoded.Kind {
-		case "personal", "team":
-		default:
-			return fmt.Errorf("invalid provider scope kind %q", decoded.Kind)
-		}
-	case *ProviderActionSnapshot:
-		if decoded.ID == "" || decoded.ProviderScopeID == "" || decoded.Fields == nil {
-			return fmt.Errorf("provider action snapshot ids and fields must be present")
-		}
-		switch decoded.Target {
-		case "scope", "selected_machine", "selected_workspace":
-		default:
-			return fmt.Errorf("invalid provider action target %q", decoded.Target)
-		}
-		for index, field := range decoded.Fields {
-			if field.ID == "" {
-				return fmt.Errorf("provider action field %d id must be non-empty", index)
-			}
-			switch field.Kind {
-			case "text", "email", "integer":
-			default:
-				return fmt.Errorf(
-					"invalid provider action field kind %q",
-					field.Kind,
-				)
-			}
-			if field.Minimum != nil && field.Maximum != nil &&
-				*field.Minimum > *field.Maximum {
-				return fmt.Errorf("provider action field minimum exceeds maximum")
-			}
-			if field.MaxLength != nil && *field.MaxLength == 0 {
-				return fmt.Errorf("provider action field max_length must be positive")
-			}
-			if field.Kind == "integer" &&
-				(field.MaxLength != nil || field.Placeholder != nil) {
-				return fmt.Errorf(
-					"integer provider action field cannot use text constraints",
-				)
-			}
-			if field.Kind != "integer" &&
-				(field.Minimum != nil || field.Maximum != nil) {
-				return fmt.Errorf(
-					"text provider action field cannot use integer constraints",
-				)
-			}
-		}
-	case *ProviderNoticeSnapshot:
-		if decoded.ID == "" || decoded.ProviderScopeID == "" {
-			return fmt.Errorf("provider notice snapshot ids must be present")
-		}
-		switch decoded.Level {
-		case "info", "warning", "error":
-		default:
-			return fmt.Errorf("invalid provider notice level %q", decoded.Level)
 		}
 	case *PingResult:
 		if decoded.Cursor.Generation == "" {
@@ -1276,10 +1119,24 @@ func (s *Screen) ExportLayout(ctx context.Context, options ScreenLayoutExportOpt
 	)
 }
 func (s *Screen) UndoLayout(ctx context.Context, options ScreenLayoutUndoOptions) (MutationResult[*Screen], error) {
+	if options.ConfirmationToken != nil &&
+		(len(*options.ConfirmationToken) < 1 || len(*options.ConfirmationToken) > 128) {
+		return MutationResult[*Screen]{}, fmt.Errorf(
+			"%w: confirmation token must contain 1 to 128 characters",
+			ErrInvalidArgument,
+		)
+	}
+	if options.ConfirmClose && options.ConfirmationToken == nil {
+		return MutationResult[*Screen]{}, fmt.Errorf(
+			"%w: ConfirmClose requires ConfirmationToken",
+			ErrInvalidArgument,
+		)
+	}
 	input := s.route.params()
 	if options.ConfirmClose {
 		input["confirm_close"] = true
 	}
+	putOptionalString(input, "confirmation_token", options.ConfirmationToken)
 	merge(input, options.Extra)
 	return mutationHandle(
 		ctx, s.client, wirev1.ScreenLayoutUndo, input, options.MutationOptions,
@@ -2186,164 +2043,6 @@ func (s *SidebarView) Reload(ctx context.Context, options SidebarViewReloadOptio
 	)
 }
 
-func (c *Client) ListProviderScopes(ctx context.Context, options ProviderScopeListOptions) ([]ProviderScope, error) {
-	input := map[string]any{}
-	merge(input, options.Extra)
-	var raw json.RawMessage
-	if err := c.do(ctx, wirev1.ProviderScopeList, input, "", &raw); err != nil {
-		return nil, err
-	}
-	snapshots, err := decodeList[ProviderScopeSnapshot](raw, "provider_scopes")
-	if err != nil {
-		return nil, err
-	}
-	result := make([]ProviderScope, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		selector := SelectID(snapshot.ID)
-		result = append(result, ProviderScope{
-			client: c, selector: selector,
-			route: resourceRoute{}.
-				withMachine(SelectCurrent[MachineID]()).
-				withProviderScope(selector),
-			snapshot: snapshot,
-		})
-	}
-	return result, nil
-}
-func (a *ProviderAction) Invoke(ctx context.Context, options ProviderActionInvokeOptions) (MutationResult[JSONValue], error) {
-	input := a.route.params()
-	input["parameters"] = options.Parameters
-	merge(input, options.Extra)
-	return mutationValue[JSONValue](
-		ctx, a.client, wirev1.ProviderActionInvoke, input, options.MutationOptions,
-		"provider action result",
-	)
-}
-func (s *ProviderScope) Notices(ctx context.Context, options ProviderNoticeEventsOptions) (*Stream[ProviderNoticeItem], error) {
-	input := s.route.params()
-	if options.Cursor != nil {
-		input[wirev1.FieldCursor] = options.Cursor
-	}
-	merge(input, options.Extra)
-	return openStream(ctx, s.client, wirev1.ProviderNoticeEvents, input, func(raw json.RawMessage) (ProviderNoticeItem, error) {
-		fields, err := decodeFields(raw)
-		if err != nil {
-			return ProviderNoticeItem{}, err
-		}
-		kind, ok := fields["kind"].(string)
-		if !ok || kind == "" {
-			return ProviderNoticeItem{}, &ProtocolError{
-				Message: "provider notice item omitted kind",
-			}
-		}
-		if kind != "notice" {
-			return ProviderNoticeItem{Kind: kind, Raw: Document(fields)}, nil
-		}
-		var known struct {
-			Kind     string                 `json:"kind"`
-			Notice   ProviderNoticeSnapshot `json:"notice"`
-			Sequence Decimal                `json:"sequence"`
-		}
-		if err := strictDecode(raw, &known); err != nil {
-			return ProviderNoticeItem{}, &ProtocolError{
-				Message: "cannot decode provider notice item: " + err.Error(),
-			}
-		}
-		selector := SelectID(known.Notice.ID)
-		handle := &ProviderNotice{
-			client: s.client, selector: selector,
-			route: s.route.withProviderNotice(selector), snapshot: known.Notice,
-		}
-		return ProviderNoticeItem{
-			Kind: kind, Notice: handle, Sequence: known.Sequence,
-		}, nil
-	})
-}
-func (n *ProviderNotice) Acknowledge(
-	ctx context.Context,
-	options ProviderNoticeAcknowledgeOptions,
-) (EmptyResult, error) {
-	input := n.route.params()
-	input["sequence"] = options.Sequence
-	merge(input, options.Extra)
-	var raw json.RawMessage
-	if err := n.client.do(
-		ctx, wirev1.ProviderNoticeAcknowledge, input, "", &raw,
-	); err != nil {
-		return EmptyResult{}, err
-	}
-	return decodeValue[EmptyResult](raw, "provider notice acknowledgement")
-}
-func (s *ProviderScope) MarkWorkspace(ctx context.Context, options ProviderWorkspaceMarkOptions) (MutationResult[*Workspace], error) {
-	input := s.route.params()
-	input[wirev1.FieldSession] = options.Session.String()
-	input[wirev1.FieldWorkspace] = options.Workspace.String()
-	input["managed"] = options.Managed
-	merge(input, options.Extra)
-	return s.workspaceMutation(
-		ctx,
-		wirev1.ProviderWorkspaceMark,
-		input,
-		options.Session,
-		options.MutationOptions,
-	)
-}
-func (s *ProviderScope) RenameWorkspace(ctx context.Context, options ProviderWorkspaceRenameOptions) (MutationResult[*Workspace], error) {
-	input := s.route.params()
-	input[wirev1.FieldSession] = options.Session.String()
-	input[wirev1.FieldWorkspace] = options.Workspace.String()
-	input[wirev1.FieldName] = options.Name
-	merge(input, options.Extra)
-	return s.workspaceMutation(
-		ctx,
-		wirev1.ProviderWorkspaceRename,
-		input,
-		options.Session,
-		options.MutationOptions,
-	)
-}
-
-func (s *ProviderScope) workspaceMutation(
-	ctx context.Context,
-	operation wirev1.Operation,
-	input map[string]any,
-	session Selector[SessionID],
-	options MutationOptions,
-) (MutationResult[*Workspace], error) {
-	result, err := mutationValue[WorkspaceSnapshot](
-		ctx,
-		s.client,
-		operation,
-		input,
-		options,
-		"workspace snapshot",
-	)
-	if err != nil {
-		return MutationResult[*Workspace]{}, err
-	}
-	selector := SelectID(result.Value.ID)
-	handle := &Workspace{
-		client: s.client, session: session, selector: selector,
-		route:    s.route.withSession(session).withWorkspace(selector),
-		snapshot: &result.Value,
-	}
-	return MutationResult[*Workspace]{
-		Value: handle, Generation: result.Generation, Revision: result.Revision,
-		Replayed: result.Replayed,
-	}, nil
-}
-
-func (s *ProviderScope) CloseWorkspace(ctx context.Context, options ProviderWorkspaceCloseOptions) (MutationResult[EmptyResult], error) {
-	input := s.route.params()
-	input[wirev1.FieldSession] = options.Session.String()
-	input[wirev1.FieldWorkspace] = options.Workspace.String()
-	merge(input, options.Extra)
-	return mutationValue[EmptyResult](
-		ctx, s.client, wirev1.ProviderWorkspaceClose, input, options.MutationOptions,
-		"empty result",
-	)
-}
-
 func (n Notification) Snapshot() NotificationSnapshot { return n.snapshot }
 func (a Agent) Snapshot() AgentSnapshot               { return a.snapshot }
 func (p PairingRequest) Snapshot() PairingRequestSnapshot {
@@ -2352,12 +2051,6 @@ func (p PairingRequest) Snapshot() PairingRequestSnapshot {
 func (p FrontendProjection) Snapshot() FrontendProjectionSnapshot {
 	return p.snapshot
 }
-func (p ProviderScope) Snapshot() ProviderScopeSnapshot { return p.snapshot }
-func (p ProviderAction) Snapshot() ProviderActionSnapshot {
-	return p.snapshot
-}
-func (p *ProviderNotice) Snapshot() ProviderNoticeSnapshot { return p.snapshot }
-
 func decodeSessionEvent(raw json.RawMessage) (SessionEvent, error) {
 	fields, err := decodeFields(raw)
 	if err != nil {
@@ -2858,12 +2551,6 @@ func decodeResourceChangeID(
 		return decodeValue[ProjectionID](raw, "frontend projection change id")
 	case ResourceSidebarView:
 		return decodeValue[SidebarViewID](raw, "sidebar view change id")
-	case ResourceProviderScope:
-		return decodeValue[ProviderScopeID](raw, "provider scope change id")
-	case ResourceProviderAction:
-		return decodeValue[ProviderActionID](raw, "provider action change id")
-	case ResourceProviderNotice:
-		return decodeValue[ProviderNoticeID](raw, "provider notice change id")
 	default:
 		return nil, fmt.Errorf("unknown resource kind %q", resource)
 	}
@@ -2905,12 +2592,6 @@ func decodeResourceEntity(
 		)
 	case ResourceSidebarView:
 		return decodeValue[SidebarViewSnapshot](raw, "sidebar view snapshot")
-	case ResourceProviderScope:
-		return decodeValue[ProviderScopeSnapshot](raw, "provider scope snapshot")
-	case ResourceProviderAction:
-		return decodeValue[ProviderActionSnapshot](raw, "provider action snapshot")
-	case ResourceProviderNotice:
-		return decodeValue[ProviderNoticeSnapshot](raw, "provider notice snapshot")
 	default:
 		return nil, fmt.Errorf("unknown resource kind %q", resource)
 	}
@@ -2945,12 +2626,6 @@ func resourceEntityID(value ResourceEntitySnapshot) string {
 	case FrontendProjectionSnapshot:
 		return snapshot.ID.String()
 	case SidebarViewSnapshot:
-		return snapshot.ID.String()
-	case ProviderScopeSnapshot:
-		return snapshot.ID.String()
-	case ProviderActionSnapshot:
-		return snapshot.ID.String()
-	case ProviderNoticeSnapshot:
 		return snapshot.ID.String()
 	default:
 		return ""

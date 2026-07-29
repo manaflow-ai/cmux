@@ -726,46 +726,6 @@ func (s *Secret) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ExternalMachineSpecifier is provider-owned connection material. Formatting
-// never exposes the value, while Reveal is an explicit wire-boundary action.
-type ExternalMachineSpecifier struct {
-	value string
-}
-
-func NewExternalMachineSpecifier(value string) (ExternalMachineSpecifier, error) {
-	if len(value) == 0 || len(value) > 512 {
-		return ExternalMachineSpecifier{}, fmt.Errorf(
-			"%w: external machine specifier must contain 1 to 512 UTF-8 bytes",
-			ErrInvalidArgument,
-		)
-	}
-	for _, character := range value {
-		if character < 0x20 || character == 0x7f {
-			return ExternalMachineSpecifier{}, fmt.Errorf(
-				"%w: external machine specifier must not contain control characters",
-				ErrInvalidArgument,
-			)
-		}
-	}
-	return ExternalMachineSpecifier{value: value}, nil
-}
-
-func MustExternalMachineSpecifier(value string) ExternalMachineSpecifier {
-	result, err := NewExternalMachineSpecifier(value)
-	if err != nil {
-		panic(err)
-	}
-	return result
-}
-
-func (s ExternalMachineSpecifier) Reveal() string { return s.value }
-
-func (ExternalMachineSpecifier) String() string { return "<redacted>" }
-
-func (ExternalMachineSpecifier) GoString() string {
-	return "cmux.ExternalMachineSpecifier(<redacted>)"
-}
-
 type RendererGrant struct {
 	Endpoint   string
 	TerminalID TerminalID
@@ -784,17 +744,6 @@ func (g RendererGrant) String() string {
 }
 
 func (g RendererGrant) GoString() string { return g.String() }
-
-type ProviderCredential struct {
-	Name  string `json:"name"`
-	Value Secret `json:"value"`
-}
-
-func (c ProviderCredential) String() string {
-	return fmt.Sprintf("ProviderCredential{Name:%q Value:<redacted>}", c.Name)
-}
-
-func (c ProviderCredential) GoString() string { return c.String() }
 
 type SessionEvent struct {
 	Kind             string
@@ -838,13 +787,6 @@ type SidebarViewItem struct {
 	RenderPatch    *RenderPatch
 	Scroll         *RenderScroll
 	Raw            Document
-}
-
-type ProviderNoticeItem struct {
-	Kind     string
-	Notice   *ProviderNotice
-	Sequence Decimal
-	Raw      Document
 }
 
 type CreatedPath struct {

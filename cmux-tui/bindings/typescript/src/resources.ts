@@ -11,9 +11,6 @@ import {
   pairingRequestId,
   paneId,
   projectionId,
-  providerActionId,
-  providerNoticeId,
-  providerScopeId,
   screenId,
   selectCurrent,
   selectId,
@@ -32,9 +29,6 @@ import {
   type PairingRequestId,
   type PaneId,
   type ProjectionId,
-  type ProviderActionId,
-  type ProviderNoticeId,
-  type ProviderScopeId,
   type ScreenId,
   type Selector,
   type SelectorInput,
@@ -48,7 +42,6 @@ import {
 import { operations, type Operation } from "./internal/operations.js";
 import {
   RendererGrant,
-  ExternalMachineSpecifier,
   PairingCode,
   type AgentSnapshot,
   type BrowserAttachFrame,
@@ -77,12 +70,6 @@ import {
   type PingResult,
   type PixelSize,
   type ProcessInfoResult,
-  type ProviderActionField,
-  type ProviderActionSnapshot,
-  type ProviderNoticeItem,
-  type ProviderNoticeKnown,
-  type ProviderNoticeSnapshot,
-  type ProviderScopeSnapshot,
   type ResourceChange,
   type ResourceChangeId,
   type ResourceEntitySnapshot,
@@ -134,7 +121,6 @@ import type {
   BrowserMouseOptions,
   BrowserViewerSizeOptions,
   CreateBrowserOptions,
-  CreateMachineOptions,
   CreatePaneOptions,
   CreateScreenOptions,
   CreateTerminalOptions,
@@ -144,7 +130,6 @@ import type {
   LayoutApplyOptions,
   MutationOptions,
   NotificationOptions,
-  ProviderActionOptions,
   RequestOptions,
   RunOptions,
   SessionEventsOptions,
@@ -437,21 +422,16 @@ function machineSnapshot(value: unknown): MachineSnapshot {
   const payload = unwrap(value, ["machine"]);
   return Object.freeze({
     ...snapshotFields(payload, machineId, [
-      "name", "origin", "status", "connectable", "provider_scope_id", "deleted",
-      "recoverable",
+      "name", "origin", "status", "connectable", "deleted", "recoverable",
     ]),
     name: requiredString(payload, "name"),
-    origin: requiredEnum(payload, "origin", ["local", "external"] as const),
+    origin: requiredEnum(payload, "origin", ["local"] as const),
     status: requiredEnum(
       payload,
       "status",
       ["running", "connecting", "sleeping", "stopped", "unavailable"] as const,
     ),
     connectable: requiredBoolean(payload, "connectable"),
-    ...optionalProperty(
-      "providerScopeId",
-      optionalId(payload, ["provider_scope_id"], providerScopeId),
-    ),
     deleted: requiredBoolean(payload, "deleted"),
     recoverable: requiredBoolean(payload, "recoverable"),
   });
@@ -895,112 +875,6 @@ function auxiliarySnapshot<Id extends string, Value extends Snapshot<Id>>(
         rows: requiredPositiveUint16(payload, "rows"),
         running: requiredBoolean(payload, "running"),
       }) as unknown as Value;
-    case "provider_scope":
-      return Object.freeze({
-        ...snapshotFields(
-          payload,
-          factory,
-          ["name", "kind", "can_admin", "selected"],
-        ),
-        name: requiredString(payload, "name"),
-        kind: requiredEnum(payload, "kind", ["personal", "team"] as const),
-        canAdmin: requiredBoolean(payload, "can_admin"),
-        selected: requiredBoolean(payload, "selected"),
-      }) as unknown as Value;
-    case "provider_action": {
-      if (!Array.isArray(payload.fields)) {
-        throw new CmuxProtocolError("provider action fields must be an array");
-      }
-      const decodedFields: ProviderActionField[] = payload.fields.map((item) => {
-        const field = record(item, "provider action field");
-        strictObject(
-          field,
-          [
-            "id", "label", "kind", "required", "max_length", "minimum",
-            "maximum", "placeholder",
-          ],
-          "provider action field",
-        );
-        const id = requiredString(field, "id");
-        if (!id) throw new CmuxProtocolError("provider action field id must be non-empty");
-        const kind = requiredEnum(
-          field,
-          "kind",
-          ["text", "email", "integer"] as const,
-        );
-        const maxLength = Object.hasOwn(field, "max_length")
-          ? requiredUnsignedInteger(field, "max_length")
-          : undefined;
-        if (maxLength === 0) {
-          throw new CmuxProtocolError("provider action field max_length must be positive");
-        }
-        const minimum = Object.hasOwn(field, "minimum")
-          ? requiredInt32(field, "minimum")
-          : undefined;
-        const maximum = Object.hasOwn(field, "maximum")
-          ? requiredInt32(field, "maximum")
-          : undefined;
-        if (minimum !== undefined && maximum !== undefined && minimum > maximum) {
-          throw new CmuxProtocolError("provider action field minimum exceeds maximum");
-        }
-        if (kind === "integer" && (maxLength !== undefined || Object.hasOwn(field, "placeholder"))) {
-          throw new CmuxProtocolError("integer provider action fields cannot use text constraints");
-        }
-        if (kind !== "integer" && (minimum !== undefined || maximum !== undefined)) {
-          throw new CmuxProtocolError("text provider action fields cannot use integer constraints");
-        }
-        return Object.freeze({
-          id,
-          label: requiredString(field, "label"),
-          kind,
-          required: requiredBoolean(field, "required"),
-          ...optionalProperty("maxLength", maxLength),
-          ...optionalProperty("minimum", minimum),
-          ...optionalProperty("maximum", maximum),
-          ...optionalProperty("placeholder", optionalString(field, "placeholder")),
-        });
-      });
-      return Object.freeze({
-        ...snapshotFields(payload, factory, [
-          "provider_scope_id", "name", "title", "enabled", "target",
-          "destructive", "fields",
-        ]),
-        providerScopeId: requiredId(
-          payload,
-          ["provider_scope_id"],
-          providerScopeId,
-        ),
-        name: requiredString(payload, "name"),
-        title: requiredString(payload, "title"),
-        enabled: requiredBoolean(payload, "enabled"),
-        target: requiredEnum(
-          payload,
-          "target",
-          ["scope", "selected_machine", "selected_workspace"] as const,
-        ),
-        destructive: requiredBoolean(payload, "destructive"),
-        fields: Object.freeze(decodedFields),
-      }) as unknown as Value;
-    }
-    case "provider_notice":
-      return Object.freeze({
-        ...snapshotFields(
-          payload,
-          factory,
-          ["provider_scope_id", "level", "message"],
-        ),
-        providerScopeId: requiredId(
-          payload,
-          ["provider_scope_id"],
-          providerScopeId,
-        ),
-        level: requiredEnum(
-          payload,
-          "level",
-          ["info", "warning", "error"] as const,
-        ),
-        message: requiredString(payload, "message"),
-      }) as unknown as Value;
     default:
       throw new CmuxProtocolError(`unknown snapshot type ${JSON.stringify(name)}`);
   }
@@ -1125,11 +999,7 @@ function mutationParams(
   options: MutationOptions,
 ): Readonly<Record<string, unknown>> {
   if (options.expectedRevision === undefined) return params;
-  if (
-    operation.name === "machine.connect_external"
-    || operation.name === "machine.create"
-    || operation.name === "workspace.create"
-  ) {
+  if (operation.name === "workspace.create") {
     throw new TypeError(`${operation.name} does not accept expectedRevision`);
   }
   if (typeof options.expectedRevision !== "string") {
@@ -1243,9 +1113,6 @@ const RESOURCE_KINDS = [
   "pairing_request",
   "frontend_projection",
   "sidebar_view",
-  "provider_scope",
-  "provider_action",
-  "provider_notice",
 ] as const satisfies readonly ResourceKind[];
 
 function resourceEntitySnapshot(
@@ -1292,24 +1159,6 @@ function resourceEntitySnapshot(
         "sidebar_view",
         sidebarViewId,
       );
-    case "provider_scope":
-      return auxiliarySnapshot<ProviderScopeId, ProviderScopeSnapshot>(
-        value,
-        "provider_scope",
-        providerScopeId,
-      );
-    case "provider_action":
-      return auxiliarySnapshot<ProviderActionId, ProviderActionSnapshot>(
-        value,
-        "provider_action",
-        providerActionId,
-      );
-    case "provider_notice":
-      return auxiliarySnapshot<ProviderNoticeId, ProviderNoticeSnapshot>(
-        value,
-        "provider_notice",
-        providerNoticeId,
-      );
   }
 }
 
@@ -1338,9 +1187,6 @@ function resourceChange(value: unknown): ResourceChange {
     pairing_request: pairingRequestId,
     frontend_projection: projectionId,
     sidebar_view: sidebarViewId,
-    provider_scope: providerScopeId,
-    provider_action: providerActionId,
-    provider_notice: providerNoticeId,
   };
   const id = requiredId(payload, ["id"], factories[resource]);
   const sequence = requiredUnsignedInteger(payload, "sequence");
@@ -1752,38 +1598,6 @@ function sidebarAttachItem(value: unknown): SidebarAttachItem {
     kind,
     raw: document(payload, "unknown sidebar attach item"),
   }) satisfies Unknown;
-}
-
-function providerNoticeItem(value: unknown): ProviderNoticeItem {
-  const payload = record(value, "provider notice item");
-  if (typeof payload.kind !== "string") {
-    throw new CmuxProtocolError("provider notice item omitted kind");
-  }
-  if (payload.kind !== "notice") {
-    return Object.freeze({
-      kind: payload.kind,
-      raw: document(payload, "unknown provider notice item"),
-    }) satisfies Unknown;
-  }
-  strictObject(
-    payload,
-    ["kind", "notice", "sequence"],
-    "provider notice item",
-  );
-  return Object.freeze({
-    kind: "notice",
-    notice: auxiliarySnapshot<ProviderNoticeId, ProviderNoticeSnapshot>(
-      payload.notice,
-      "provider_notice",
-      providerNoticeId,
-      {
-        key: "provider_scope",
-        property: "providerScopeId",
-        factory: providerScopeId,
-      },
-    ),
-    sequence: requiredDecimal(payload, "sequence"),
-  }) satisfies ProviderNoticeKnown;
 }
 
 function emptyResult(value: unknown): void {
@@ -2359,10 +2173,6 @@ export class Client {
     );
   }
 
-  providerScope(selector: SelectorInput<ProviderScopeId>): ProviderScope {
-    return new ProviderScope(this, selector, { machine: "current" });
-  }
-
   async listMachines(options: RequestOptions = {}): Promise<Machine[]> {
     const values = listPayload(await this[readOperation](operations.machineList, {}, options), "machines");
     return values.map((value) => {
@@ -2373,44 +2183,6 @@ export class Client {
 
   async findMachinesByName(name: string, options: RequestOptions = {}): Promise<Machine[]> {
     return (await this.listMachines(options)).filter((item) => item.snapshot?.name === name);
-  }
-
-  async createMachine(
-    providerScope: SelectorInput<ProviderScopeId>,
-    _create: CreateMachineOptions = {},
-    options: MutationOptions = {},
-  ): Promise<MutationResult<Machine>> {
-    return this[mutateOperation](
-      operations.machineCreate,
-      { provider_scope: encodeSelector(providerScope) },
-      options,
-      machineSnapshot,
-      (snapshot) => new Machine(this, selectId(snapshot.id), {}, snapshot),
-    );
-  }
-
-  async listProviderScopes(options: RequestOptions = {}): Promise<ProviderScope[]> {
-    const values = listPayload(
-      await this[readOperation](
-        operations.providerScopeList,
-        { machine: "current" },
-        options,
-      ),
-      "provider_scopes",
-    );
-    return values.map((value) => {
-      const snapshot = auxiliarySnapshot<ProviderScopeId, ProviderScopeSnapshot>(
-        value,
-        "provider_scope",
-        providerScopeId,
-      );
-      return new ProviderScope(
-        this,
-        selectId(snapshot.id),
-        { machine: "current" },
-        snapshot,
-      );
-    });
   }
 
   async [readOperation](
@@ -2471,15 +2243,27 @@ export class Client {
     params: Readonly<Record<string, unknown>>,
     options: MutationOptions = {},
   ): Promise<MutationResult<CreatedPath>> {
+    if (
+      options.correlationKey !== undefined
+      && (
+        options.correlationKey.length < 1
+        || options.correlationKey.length > 128
+      )
+    ) {
+      throw new TypeError("correlationKey must contain 1 to 128 characters");
+    }
+    const requestParams = options.correlationKey === undefined
+      ? params
+      : { ...params, correlation_key: options.correlationKey };
     const response = await this.protocol.request(
       operation,
-      mutationParams(operation, params, options),
+      mutationParams(operation, requestParams, options),
       options,
     );
     return decodeMutation(
       response,
       operation.name,
-      (value) => this.createdPath(value, params),
+      (value) => this.createdPath(value, requestParams),
     );
   }
 
@@ -2745,47 +2529,6 @@ export class Machine extends Handle<MachineId, MachineSnapshot> {
       sessionSnapshot,
       (snapshot) => new Session(this.client, selectId(snapshot.id), scope, snapshot),
     );
-  }
-
-  rename(
-    name: string,
-    options: MutationOptions & { readonly confirmClose?: boolean } = {},
-  ): Promise<MutationResult<Machine>> {
-    return this.client[mutateOperation](
-      operations.machineRename,
-      {
-        ...this.params(),
-        name,
-        confirm_close: options.confirmClose ?? false,
-      },
-      options,
-      machineSnapshot,
-      (snapshot) => this.acceptSnapshot(snapshot),
-    );
-  }
-
-  delete(options: MutationOptions = {}): Promise<MutationResult<Machine>> {
-    return this.client[mutateOperation](
-      operations.machineDelete,
-      this.params(),
-      options,
-      machineSnapshot,
-      (snapshot) => this.acceptSnapshot(snapshot),
-    );
-  }
-
-  restore(options: MutationOptions = {}): Promise<MutationResult<Machine>> {
-    return this.client[mutateOperation](
-      operations.machineRestore,
-      this.params(),
-      options,
-      machineSnapshot,
-      (snapshot) => this.acceptSnapshot(snapshot),
-    );
-  }
-
-  purge(options: MutationOptions = {}): Promise<MutationReceipt> {
-    return this.client[mutateEmptyOperation](operations.machinePurge, this.params(), options);
   }
 
 }
@@ -3254,11 +2997,32 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
   }
 
   undoLayout(
-    options: MutationOptions & { readonly confirmClose?: boolean } = {},
+    options: MutationOptions & {
+      readonly confirmClose?: boolean;
+      readonly confirmationToken?: string;
+    } = {},
   ): Promise<MutationResult<Screen>> {
+    if (
+      options.confirmationToken !== undefined
+      && (
+        options.confirmationToken.length < 1
+        || options.confirmationToken.length > 128
+      )
+    ) {
+      throw new TypeError("confirmationToken must contain 1 to 128 characters");
+    }
+    if (options.confirmClose && options.confirmationToken === undefined) {
+      throw new TypeError("confirmClose requires confirmationToken");
+    }
     return this.client[mutateOperation](
       operations.screenLayoutUndo,
-      { ...this.params(), confirm_close: options.confirmClose ?? false },
+      {
+        ...this.params(),
+        confirm_close: options.confirmClose ?? false,
+        ...(options.confirmationToken === undefined
+          ? {}
+          : { confirmation_token: options.confirmationToken }),
+      },
       options,
       screenSnapshot,
       (snapshot) => this.acceptSnapshot(snapshot),
@@ -4121,183 +3885,6 @@ export class SidebarView extends Handle<SidebarViewId, SidebarViewSnapshot> {
         { key: "session", property: "sessionId", factory: sessionId },
       ),
       (snapshot) => this.acceptSnapshot(snapshot),
-    );
-  }
-}
-
-export class ProviderScope extends Handle<ProviderScopeId, ProviderScopeSnapshot> {
-  protected readonly selectorKey = "provider_scope";
-
-  createMachine(options: MutationOptions = {}): Promise<MutationResult<Machine>> {
-    return this.client[mutateOperation](
-      operations.machineCreate,
-      { provider_scope: encodeSelector(this.selector) },
-      options,
-      machineSnapshot,
-      (snapshot) => new Machine(this.client, selectId(snapshot.id), {}, snapshot),
-    );
-  }
-
-  connectExternalMachine(
-    specifier: ExternalMachineSpecifier,
-    options: MutationOptions = {},
-  ): Promise<MutationResult<Machine>> {
-    return this.client[mutateOperation](
-      operations.machineConnectExternal,
-      {
-        provider_scope: encodeSelector(this.selector),
-        specifier: specifier.take(),
-      },
-      options,
-      machineSnapshot,
-      (snapshot) => new Machine(this.client, selectId(snapshot.id), {}, snapshot),
-    );
-  }
-
-  action(selector: SelectorInput<ProviderActionId>): ProviderAction {
-    return new ProviderAction(this.client, selector, {
-      ...this.scope,
-      provider_scope: encodeSelector(this.selector),
-    });
-  }
-
-  notice(selector: SelectorInput<ProviderNoticeId>): ProviderNotice {
-    return new ProviderNotice(this.client, selector, {
-      ...this.scope,
-      provider_scope: encodeSelector(this.selector),
-    });
-  }
-
-  invoke(
-    action: SelectorInput<ProviderActionId>,
-    input: ProviderActionOptions,
-    options: MutationOptions = {},
-  ): Promise<MutationResult<JsonValue>> {
-    return this.action(action).invoke(input, options);
-  }
-
-  notices(
-    options: RequestOptions & { readonly cursor?: Cursor } = {},
-  ): Promise<ResourceStream<ProviderNoticeItem>> {
-    return this.client[streamOperation](
-      operations.providerNoticeEvents,
-      {
-        ...this.scope,
-        provider_scope: encodeSelector(this.selector),
-        ...(options.cursor !== undefined ? { cursor: options.cursor } : {}),
-      },
-      providerNoticeItem,
-      options,
-    );
-  }
-
-  markWorkspace(
-    workspace: SelectorInput<WorkspaceId>,
-    managed: boolean,
-    options: MutationOptions = {},
-  ): Promise<MutationResult<Workspace>> {
-    return this.providerWorkspaceMutation(
-      operations.providerWorkspaceMark,
-      workspace,
-      { managed },
-      options,
-    );
-  }
-
-  renameWorkspace(
-    workspace: SelectorInput<WorkspaceId>,
-    name: string,
-    options: MutationOptions = {},
-  ): Promise<MutationResult<Workspace>> {
-    return this.providerWorkspaceMutation(
-      operations.providerWorkspaceRename,
-      workspace,
-      { name },
-      options,
-    );
-  }
-
-  closeWorkspace(
-    workspace: SelectorInput<WorkspaceId>,
-    options: MutationOptions = {},
-  ): Promise<MutationReceipt> {
-    return this.client[mutateEmptyOperation](
-      operations.providerWorkspaceClose,
-      {
-        ...this.scope,
-        provider_scope: encodeSelector(this.selector),
-        session: "current",
-        workspace: encodeSelector(workspace),
-      },
-      options,
-    );
-  }
-
-  private providerWorkspaceMutation(
-    operation: Operation,
-    workspace: SelectorInput<WorkspaceId>,
-    params: Readonly<Record<string, unknown>>,
-    options: MutationOptions,
-  ): Promise<MutationResult<Workspace>> {
-    return this.client[mutateOperation](
-      operation,
-      {
-        ...this.scope,
-        provider_scope: encodeSelector(this.selector),
-        session: "current",
-        workspace: encodeSelector(workspace),
-        ...params,
-      },
-      options,
-      workspaceSnapshot,
-      (snapshot) => new Workspace(this.client, selectId(snapshot.id), {}, snapshot),
-    );
-  }
-}
-
-export class ProviderAction extends Handle<ProviderActionId, ProviderActionSnapshot> {
-  protected readonly selectorKey = "provider_action";
-  invoke(
-    input: ProviderActionOptions,
-    options: MutationOptions = {},
-  ): Promise<MutationResult<JsonValue>> {
-    for (const value of Object.values(input.parameters)) {
-      if (
-        typeof value !== "string"
-        && (
-          typeof value !== "number"
-          || !Number.isInteger(value)
-          || value < -0x8000_0000
-          || value > 0x7fff_ffff
-        )
-      ) {
-        throw new TypeError(
-          "provider action values must be strings or int32 values",
-        );
-      }
-    }
-    return this.client[mutateOperation](
-      operations.providerActionInvoke,
-      { ...this.params(), ...optionFields(input) },
-      options,
-      (value) => jsonValue(value, "provider action result"),
-      (value) => value,
-    );
-  }
-}
-
-export class ProviderNotice extends Handle<ProviderNoticeId, ProviderNoticeSnapshot> {
-  protected readonly selectorKey = "provider_notice";
-
-  acknowledge(
-    sequence: DecimalString,
-    options: RequestOptions = {},
-  ): Promise<void> {
-    return this.client[controlOperation](
-      operations.providerNoticeAcknowledge,
-      { ...this.params(), sequence },
-      emptyResult,
-      options,
     );
   }
 }

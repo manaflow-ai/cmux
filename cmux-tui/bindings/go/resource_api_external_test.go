@@ -9,6 +9,7 @@ import (
 )
 
 func TestResourceCollectionsExposePointerHandles(t *testing.T) {
+	var _ func(*cmux.Client, cmux.Selector[cmux.SessionID]) *cmux.Session = (*cmux.Client).Session
 	var _ func(*cmux.Client, context.Context, cmux.MachineListOptions) ([]*cmux.Machine, error) = (*cmux.Client).ListMachines
 	var _ func(*cmux.Client, context.Context, string) ([]*cmux.Machine, error) = (*cmux.Client).FindMachinesByName
 	var _ func(*cmux.Machine, context.Context, cmux.SessionListOptions) ([]*cmux.Session, error) = (*cmux.Machine).ListSessions
@@ -25,9 +26,12 @@ func TestResourceCollectionsExposePointerHandles(t *testing.T) {
 	var _ func(*cmux.Session, context.Context, string) ([]*cmux.Terminal, error) = (*cmux.Session).FindTerminalsByName
 	var _ func(*cmux.Session, context.Context, cmux.BrowserListOptions) ([]*cmux.Browser, error) = (*cmux.Session).ListBrowsers
 	var _ func(*cmux.Session, context.Context, string) ([]*cmux.Browser, error) = (*cmux.Session).FindBrowsersByName
+	var _ func(*cmux.Session, cmux.Selector[cmux.TerminalID]) *cmux.Terminal = (*cmux.Session).Terminal
+	var _ func(*cmux.Session, cmux.Selector[cmux.BrowserID]) *cmux.Browser = (*cmux.Session).Browser
 }
 
 func TestCatalogResultMethodsCompileForExternalConsumers(t *testing.T) {
+	var _ string = (cmux.ConfirmationRequiredDetails{}).ConfirmationToken
 	var _ func(*cmux.Session, context.Context, cmux.SessionSnapshotOptions) (cmux.ResourceSnapshot, error) = (*cmux.Session).Snapshot
 	var _ func(*cmux.Session, context.Context, string, cmux.SessionCreationResolveOptions) (cmux.CreationResolution, error) = (*cmux.Session).ResolveCreation
 	var _ func(*cmux.Session, context.Context, cmux.SessionPingOptions) (cmux.PingResult, error) = (*cmux.Session).Ping
@@ -44,7 +48,6 @@ func TestCatalogResultMethodsCompileForExternalConsumers(t *testing.T) {
 	var _ func(*cmux.Terminal, context.Context, cmux.TerminalViewerResizeOptions) (cmux.ViewerResizeResult, error) = (*cmux.Terminal).ResizeViewer
 	var _ func(*cmux.Browser, context.Context, cmux.BrowserViewerResizeOptions) (cmux.BrowserViewerResizeResult, error) = (*cmux.Browser).ResizeViewer
 	var _ func(*cmux.ConnectedClient, context.Context, cmux.ConnectedClientCellPixelsSetOptions) (cmux.CellPixelsResult, error) = (*cmux.ConnectedClient).SetCellPixels
-	var _ func(*cmux.Machine, context.Context, cmux.MachineRenameOptions) (cmux.MutationResult[*cmux.Machine], error) = (*cmux.Machine).Rename
 	var _ func(*cmux.Workspace, context.Context, cmux.WorkspaceRenameOptions) (cmux.MutationResult[*cmux.Workspace], error) = (*cmux.Workspace).Rename
 	var _ func(*cmux.Screen, context.Context, cmux.ScreenRenameOptions) (cmux.MutationResult[*cmux.Screen], error) = (*cmux.Screen).Rename
 	var _ func(*cmux.Pane, context.Context, cmux.PaneRenameOptions) (cmux.MutationResult[*cmux.Pane], error) = (*cmux.Pane).Rename
@@ -55,7 +58,6 @@ func TestCatalogResultMethodsCompileForExternalConsumers(t *testing.T) {
 	var _ func(*cmux.FrontendProjection, context.Context, cmux.FrontendProjectionPutOptions) (cmux.MutationResult[*cmux.FrontendProjection], error) = (*cmux.FrontendProjection).Put
 	var _ func(*cmux.Agent, context.Context, cmux.AgentReportOptions) (cmux.MutationResult[*cmux.Agent], error) = (*cmux.Agent).Report
 	var _ func(*cmux.SidebarView, context.Context, cmux.SidebarViewResizeOptions) (cmux.MutationResult[*cmux.SidebarView], error) = (*cmux.SidebarView).Resize
-	var _ func(*cmux.ProviderScope, context.Context, cmux.ProviderWorkspaceMarkOptions) (cmux.MutationResult[*cmux.Workspace], error) = (*cmux.ProviderScope).MarkWorkspace
 }
 
 func externalConsumerCompiles(

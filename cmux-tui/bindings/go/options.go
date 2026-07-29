@@ -6,6 +6,7 @@ type ReadOptions struct{ Extra map[string]JSONValue }
 type MutationOptions struct {
 	IdempotencyKey   string
 	ExpectedRevision *Decimal
+	CorrelationKey   string
 	Extra            map[string]JSONValue
 }
 type ControlOptions struct{ Extra map[string]JSONValue }
@@ -59,19 +60,6 @@ func OptionalFloat64(value float64) *float64 {
 }
 
 type MachineListOptions struct{ ReadOptions }
-type MachineCreateOptions struct{ MutationOptions }
-type MachineRenameOptions struct {
-	MutationOptions
-	Name         string
-	ConfirmClose bool
-}
-type MachineDeleteOptions struct{ MutationOptions }
-type MachineRestoreOptions struct{ MutationOptions }
-type MachinePurgeOptions struct{ MutationOptions }
-type MachineConnectExternalOptions struct {
-	MutationOptions
-	Specifier ExternalMachineSpecifier
-}
 
 type SessionListOptions struct{ ReadOptions }
 type SessionOpenOptions struct {
@@ -191,7 +179,8 @@ type ScreenCloseOptions struct{ MutationOptions }
 type ScreenLayoutExportOptions struct{ ReadOptions }
 type ScreenLayoutUndoOptions struct {
 	MutationOptions
-	ConfirmClose bool
+	ConfirmClose      bool
+	ConfirmationToken *string
 }
 
 type PaneListOptions struct{ ReadOptions }
@@ -444,34 +433,3 @@ type SidebarViewResizeOptions struct {
 	Rows uint16
 }
 type SidebarViewReloadOptions struct{ MutationOptions }
-
-type ProviderScopeListOptions struct{ ReadOptions }
-type ProviderActionInvokeOptions struct {
-	MutationOptions
-	Parameters map[string]JSONValue
-}
-type ProviderNoticeEventsOptions struct {
-	StreamOptions
-	Cursor *Cursor
-}
-type ProviderNoticeAcknowledgeOptions struct {
-	ControlOptions
-	Sequence Decimal
-}
-type ProviderWorkspaceMarkOptions struct {
-	MutationOptions
-	Session   Selector[SessionID]
-	Workspace Selector[WorkspaceID]
-	Managed   bool
-}
-type ProviderWorkspaceRenameOptions struct {
-	MutationOptions
-	Session   Selector[SessionID]
-	Workspace Selector[WorkspaceID]
-	Name      string
-}
-type ProviderWorkspaceCloseOptions struct {
-	MutationOptions
-	Session   Selector[SessionID]
-	Workspace Selector[WorkspaceID]
-}

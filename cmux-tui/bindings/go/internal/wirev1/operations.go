@@ -37,14 +37,8 @@ func (class Class) String() string {
 }
 
 var (
-	MachineList            = Operation{"machine.list", Read}
-	MachineGet             = Operation{"machine.get", Read}
-	MachineCreate          = Operation{"machine.create", Mutation}
-	MachineRename          = Operation{"machine.rename", Mutation}
-	MachineDelete          = Operation{"machine.delete", Mutation}
-	MachineRestore         = Operation{"machine.restore", Mutation}
-	MachinePurge           = Operation{"machine.purge", Mutation}
-	MachineConnectExternal = Operation{"machine.connect_external", Mutation}
+	MachineList = Operation{"machine.list", Read}
+	MachineGet  = Operation{"machine.get", Read}
 
 	SessionList                   = Operation{"session.list", Read}
 	SessionOpen                   = Operation{"session.open", Mutation}
@@ -165,16 +159,6 @@ var (
 	SidebarViewResize = Operation{"sidebar_view.resize", Mutation}
 	SidebarViewReload = Operation{"sidebar_view.reload", Mutation}
 
-	ProviderScopeList         = Operation{"provider_scope.list", Read}
-	ProviderActionInvoke      = Operation{"provider_action.invoke", Mutation}
-	ProviderNoticeEvents      = Operation{"provider_notice.events", StreamOpen}
-	ProviderNoticeAcknowledge = Operation{
-		"provider_notice.acknowledge", ConnectionControl,
-	}
-	ProviderWorkspaceMark   = Operation{"provider_workspace.mark", Mutation}
-	ProviderWorkspaceRename = Operation{"provider_workspace.rename", Mutation}
-	ProviderWorkspaceClose  = Operation{"provider_workspace.close", Mutation}
-
 	StreamCancel = Operation{"stream.cancel", ConnectionControl}
 )
 
@@ -195,7 +179,6 @@ const (
 	FieldName           = "name"
 	FieldKind           = "kind"
 	FieldForce          = "force"
-	FieldProvider       = "provider"
 	FieldConnection     = "connection"
 	FieldInitialContent = "initial_content"
 	FieldCWD            = "cwd"

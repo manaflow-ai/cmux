@@ -5,14 +5,13 @@ import type {
   Browser,
   BrowserViewerResizeResult,
   CellPixelsResult,
+  ConfirmationRequiredDetails,
   ConnectedClient,
   CreationResolution,
-  JsonValue,
   MutationResult,
   PairingRequest,
   PingResult,
   ProcessInfoResult,
-  ProviderAction,
   ReloadConfigResult,
   Session,
   ShutdownResult,
@@ -88,11 +87,8 @@ type _Pairing = Expect<
     MutationResult<PairingRequest>
   >
 >;
-type _ProviderJson = Expect<
-  Equal<
-    Result<ProviderAction["invoke"]>,
-    MutationResult<JsonValue>
-  >
+type _ConfirmationToken = Expect<
+  Equal<ConfirmationRequiredDetails["confirmation_token"], string>
 >;
 
 test("published resource API exposes catalog-specific result types", () => {

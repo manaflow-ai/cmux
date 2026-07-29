@@ -23,9 +23,6 @@ type StreamID string
 type ProjectionID string
 type PairingRequestID string
 type SidebarViewID string
-type ProviderScopeID string
-type ProviderActionID string
-type ProviderNoticeID string
 
 type opaqueID interface {
 	~string
@@ -87,15 +84,6 @@ func ParsePairingRequestID(value string) (PairingRequestID, error) {
 }
 func ParseSidebarViewID(value string) (SidebarViewID, error) {
 	return parseID[SidebarViewID](value, "sidebar_view")
-}
-func ParseProviderScopeID(value string) (ProviderScopeID, error) {
-	return parseID[ProviderScopeID](value, "provider_scope")
-}
-func ParseProviderActionID(value string) (ProviderActionID, error) {
-	return parseID[ProviderActionID](value, "provider_action")
-}
-func ParseProviderNoticeID(value string) (ProviderNoticeID, error) {
-	return parseID[ProviderNoticeID](value, "provider_notice")
 }
 
 func parseID[T opaqueID](value, prefix string) (T, error) {
@@ -213,9 +201,6 @@ func (id StreamID) String() string          { return idString(id) }
 func (id ProjectionID) String() string      { return idString(id) }
 func (id PairingRequestID) String() string  { return idString(id) }
 func (id SidebarViewID) String() string     { return idString(id) }
-func (id ProviderScopeID) String() string   { return idString(id) }
-func (id ProviderActionID) String() string  { return idString(id) }
-func (id ProviderNoticeID) String() string  { return idString(id) }
 
 func (id *MachineID) UnmarshalJSON(data []byte) error {
 	return unmarshalID(data, "machine", id)
@@ -264,13 +249,4 @@ func (id *PairingRequestID) UnmarshalJSON(data []byte) error {
 }
 func (id *SidebarViewID) UnmarshalJSON(data []byte) error {
 	return unmarshalID(data, "sidebar_view", id)
-}
-func (id *ProviderScopeID) UnmarshalJSON(data []byte) error {
-	return unmarshalID(data, "provider_scope", id)
-}
-func (id *ProviderActionID) UnmarshalJSON(data []byte) error {
-	return unmarshalID(data, "provider_action", id)
-}
-func (id *ProviderNoticeID) UnmarshalJSON(data []byte) error {
-	return unmarshalID(data, "provider_notice", id)
 }

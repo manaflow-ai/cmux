@@ -1,3 +1,5 @@
+import type { DecimalString, PaneId } from "./ids.js";
+
 export class CmuxError extends Error {
   constructor(message: string) {
     super(message);
@@ -26,6 +28,21 @@ export interface MutationIndeterminateDetails {
   readonly idempotency_key: string;
   readonly operation: string;
   readonly recovery: "inspect_state_then_retry_with_new_key";
+}
+
+export interface ConfirmationRequiredDetails {
+  readonly confirmation_token: string;
+  readonly revision: DecimalString;
+  readonly closes_panes: readonly PaneId[];
+}
+
+export class ConfirmationRequiredError extends ResourceError<
+  "confirmation.required",
+  ConfirmationRequiredDetails
+> {
+  constructor(message: string, details: ConfirmationRequiredDetails) {
+    super("confirmation.required", message, details, false);
+  }
 }
 
 export class MutationIndeterminateError extends ResourceError<

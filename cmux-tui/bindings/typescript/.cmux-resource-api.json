@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "72a1594964336541c80727690baf6e7553b0f6af7f97aed0faadf0b167073aee",
+  "catalog_sha256": "dfcf3f938a6f2ca6175cb6d6ecb32eb9bc2de25c7e448aee58aa0b67d430d841",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -79,29 +79,11 @@
     "frontend_projection.put": {
       "class": "mutation"
     },
-    "machine.connect_external": {
-      "class": "mutation"
-    },
-    "machine.create": {
-      "class": "mutation"
-    },
-    "machine.delete": {
-      "class": "mutation"
-    },
     "machine.get": {
       "class": "read"
     },
     "machine.list": {
       "class": "read"
-    },
-    "machine.purge": {
-      "class": "mutation"
-    },
-    "machine.rename": {
-      "class": "mutation"
-    },
-    "machine.restore": {
-      "class": "mutation"
     },
     "notification.create": {
       "class": "mutation"
@@ -155,27 +137,6 @@
       "class": "mutation"
     },
     "pane.zoom": {
-      "class": "mutation"
-    },
-    "provider_action.invoke": {
-      "class": "mutation"
-    },
-    "provider_notice.acknowledge": {
-      "class": "connection_control"
-    },
-    "provider_notice.events": {
-      "class": "stream_open"
-    },
-    "provider_scope.list": {
-      "class": "read"
-    },
-    "provider_workspace.close": {
-      "class": "mutation"
-    },
-    "provider_workspace.mark": {
-      "class": "mutation"
-    },
-    "provider_workspace.rename": {
       "class": "mutation"
     },
     "screen.close": {

@@ -63,6 +63,25 @@ func TestIDsSelectorsAndDecimals(t *testing.T) {
 }
 
 func TestCatalogResultsDecodeStrictly(t *testing.T) {
+	for name, raw := range map[string]json.RawMessage{
+		"external origin": json.RawMessage(
+			`{"id":"machine_00000000000000000000000000000001",` +
+				`"name":"external","origin":"external","status":"running",` +
+				`"connectable":true,"deleted":false,"recoverable":true}`,
+		),
+		"provider scope": json.RawMessage(
+			`{"id":"machine_00000000000000000000000000000001",` +
+				`"name":"local","origin":"local","status":"running",` +
+				`"connectable":true,` +
+				`"provider_scope_id":"provider_scope_00000000000000000000000000000001",` +
+				`"deleted":false,"recoverable":true}`,
+		),
+	} {
+		if _, err := decodeValue[MachineSnapshot](raw, "machine snapshot"); !errors.Is(err, ErrProtocol) {
+			t.Fatalf("%s error = %T %v", name, err, err)
+		}
+	}
+
 	state, err := decodeValue[TerminalStateResult](
 		json.RawMessage(`{"state_base64":"AAEC","cols":80,"rows":24}`),
 		"terminal state",
@@ -219,8 +238,7 @@ func TestCreationResolveAndWaitExitFacades(t *testing.T) {
 	client, requests := pipeClient(t, nil, 2)
 	defer client.Close(context.Background()) //nolint:errcheck
 
-	session := client.Machine(SelectID(testMachineID)).
-		Session(SelectID(testSessionID))
+	session := client.Session(SelectID(testSessionID))
 	resolution, err := session.ResolveCreation(
 		context.Background(),
 		"create-1",
@@ -235,11 +253,7 @@ func TestCreationResolveAndWaitExitFacades(t *testing.T) {
 	}
 
 	timeout := Decimal(250)
-	terminal := session.Workspace(SelectID(testWorkspaceID)).
-		Screen(SelectID(testScreenID)).
-		Pane(SelectID(testPaneID)).
-		Tab(SelectID(testTabID)).
-		Terminal(SelectID(testTerminalID))
+	terminal := session.Terminal(SelectID(testTerminalID))
 	result, err := terminal.WaitExit(context.Background(), TerminalWaitExitOptions{
 		TimeoutMS: &timeout,
 	})
@@ -265,6 +279,12 @@ func TestCreationResolveAndWaitExitFacades(t *testing.T) {
 		t.Fatalf("exit operation = %#v", exitRequest["operation"])
 	}
 	requireParam(t, exitRequest, "timeout_ms", "250")
+	exitParams := requestParams(t, exitRequest)
+	for _, ancestor := range []string{"workspace", "screen", "pane", "tab"} {
+		if _, exists := exitParams[ancestor]; exists {
+			t.Fatalf("session-scoped wait exit included %s: %#v", ancestor, exitParams)
+		}
+	}
 }
 
 func TestKnownResourceChangesAreTypedAndNeverDowngradeToUnknown(t *testing.T) {
@@ -445,7 +465,8 @@ func TestCommandsRemainExactAndShellIsServerSide(t *testing.T) {
 		Workspace(SelectID(testWorkspaceID))
 
 	if _, err := workspace.Run(context.Background(), WorkspaceRunOptions{
-		Command: Exact("printf", "%s", "$HOME; rm -rf never"),
+		MutationOptions: MutationOptions{CorrelationKey: "run-1"},
+		Command:         Exact("printf", "%s", "$HOME; rm -rf never"),
 	}); err != nil {
 		t.Fatalf("exact run: %v", err)
 	}
@@ -463,6 +484,7 @@ func TestCommandsRemainExactAndShellIsServerSide(t *testing.T) {
 	if _, ok := exactParams["shell"]; ok {
 		t.Fatalf("exact command also encoded shell")
 	}
+	requireParam(t, exactRequest, "correlation_key", "run-1")
 	shellRequest := <-requests
 	shellParams := requestParams(t, shellRequest)
 	if shellParams["shell"] != `printf '%s\n' "$HOME"` {
@@ -471,6 +493,35 @@ func TestCommandsRemainExactAndShellIsServerSide(t *testing.T) {
 	if _, ok := shellParams["argv"]; ok {
 		t.Fatalf("shell command also encoded argv")
 	}
+}
+
+func TestScreenLayoutUndoEncodesConfirmationToken(t *testing.T) {
+	client, requests := pipeClient(t, nil, 1)
+	defer client.Close(context.Background()) //nolint:errcheck
+	screen := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID)).
+		Workspace(SelectID(testWorkspaceID)).
+		Screen(SelectID(testScreenID))
+	token := "undo-preview-token"
+
+	if _, err := screen.UndoLayout(context.Background(), ScreenLayoutUndoOptions{
+		ConfirmClose: true,
+	}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("missing confirmation token error = %T %v", err, err)
+	}
+	if _, err := screen.UndoLayout(context.Background(), ScreenLayoutUndoOptions{
+		MutationOptions:   MutationOptions{IdempotencyKey: "undo-key"},
+		ConfirmClose:      true,
+		ConfirmationToken: &token,
+	}); err != nil {
+		t.Fatalf("undo layout: %v", err)
+	}
+	request := <-requests
+	if request["operation"] != "screen.layout.undo" {
+		t.Fatalf("undo operation = %#v", request["operation"])
+	}
+	requireParam(t, request, "confirm_close", true)
+	requireParam(t, request, "confirmation_token", token)
 }
 
 func TestStructuredErrorsAndNoImplicitRetry(t *testing.T) {
@@ -517,6 +568,33 @@ func TestStructuredErrorsAndNoImplicitRetry(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	if requests.Load() != 1 {
 		t.Fatalf("mutation was retried %d times", requests.Load())
+	}
+}
+
+func TestConfirmationRequiredDetailsDecodeStrictly(t *testing.T) {
+	resourceError := &ResourceError{
+		Code: "confirmation.required",
+		Details: json.RawMessage(
+			`{"confirmation_token":"undo-preview-token","revision":"9",` +
+				`"closes_panes":["pane_00000000000000000000000000000005"]}`,
+		),
+	}
+	var details ConfirmationRequiredDetails
+	if err := resourceError.DecodeDetails(&details); err != nil {
+		t.Fatalf("decode confirmation details: %v", err)
+	}
+	if details.ConfirmationToken != "undo-preview-token" ||
+		details.Revision != Decimal(9) ||
+		len(details.ClosesPanes) != 1 ||
+		details.ClosesPanes[0] != testPaneID {
+		t.Fatalf("confirmation details = %#v", details)
+	}
+
+	resourceError.Details = json.RawMessage(
+		`{"confirmation_token":"","revision":"9","closes_panes":[]}`,
+	)
+	if err := resourceError.DecodeDetails(&details); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("invalid confirmation details error = %T %v", err, err)
 	}
 }
 
@@ -826,10 +904,6 @@ func TestSecretFormattingRedactsTokens(t *testing.T) {
 	if err != nil || string(encoded) != `"`+token+`"` {
 		t.Fatalf("secret wire encoding = %s, %v", encoded, err)
 	}
-	credential := ProviderCredential{Name: "token", Value: NewSecret(token)}
-	if strings.Contains(fmt.Sprintf("%#v", credential), token) {
-		t.Fatalf("provider credential formatting leaked token")
-	}
 }
 
 func TestSlowConsumerQueueBoundsEndOnlyThatStream(t *testing.T) {
@@ -966,7 +1040,7 @@ func pipeClient(
 						"focused":    true,
 					},
 				}
-			case "screen.rename":
+			case "screen.rename", "screen.layout.undo":
 				result = map[string]any{
 					"generation": "g",
 					"revision":   "18446744073709551615",

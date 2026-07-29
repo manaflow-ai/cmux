@@ -3,6 +3,7 @@ import {
   CmuxConnectionError,
   CmuxProtocolError,
   CmuxTimeoutError,
+  ConfirmationRequiredError,
   MutationIndeterminateError,
   MutationTransportUncertainError,
   ResourceError,
@@ -10,6 +11,7 @@ import {
 } from "./errors.js";
 import {
   decimalString,
+  paneId,
   streamId,
   type StreamId,
 } from "./ids.js";
@@ -694,6 +696,34 @@ function decodeResourceError(value: unknown): ResourceError {
     || typeof value.retryable !== "boolean"
   ) {
     throw new CmuxProtocolError("invalid structured error");
+  }
+  if (value.code === "confirmation.required") {
+    const details = value.details;
+    if (
+      value.retryable
+      || !isRecord(details)
+      || Object.keys(details).length !== 3
+      || typeof details.confirmation_token !== "string"
+      || details.confirmation_token.length < 1
+      || details.confirmation_token.length > 128
+      || typeof details.revision !== "string"
+      || !Array.isArray(details.closes_panes)
+      || details.closes_panes.length === 0
+      || details.closes_panes.some((item) => typeof item !== "string")
+    ) {
+      throw new CmuxProtocolError("confirmation.required has invalid details");
+    }
+    try {
+      return new ConfirmationRequiredError(value.message, {
+        confirmation_token: details.confirmation_token,
+        revision: decimalString(details.revision),
+        closes_panes: Object.freeze(
+          details.closes_panes.map((item) => paneId(item as string)),
+        ),
+      });
+    } catch {
+      throw new CmuxProtocolError("confirmation.required has invalid details");
+    }
   }
   if (value.code === "mutation.indeterminate") {
     const details = value.details;
