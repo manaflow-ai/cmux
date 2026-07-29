@@ -25,6 +25,7 @@ extension MobileShellComposite {
             on: connection.client
         ) else {
             if isFocusedConnectionCurrent(connection) {
+                connection.client.retire()
                 await connection.client.disconnect()
             }
             return false
@@ -34,6 +35,7 @@ extension MobileShellComposite {
         )
         guard terminalStopped else {
             if isFocusedConnectionCurrent(connection) {
+                connection.client.retire()
                 await connection.client.disconnect()
             } else {
                 focusedHandoffPreparedGenerations.remove(
@@ -514,6 +516,11 @@ extension MobileShellComposite {
             }
             if !previousForegroundCanStayWarm,
                isFocusedConnectionCurrent(previousForegroundConnection) {
+                // Close request admission on the main actor before teardown
+                // yields. `remoteClient` still points at this client until the
+                // promoted owner is adopted, so it must not reopen while the
+                // old transport is closing.
+                previousForegroundConnection.client.retire()
                 await previousForegroundConnection.client.disconnect()
             }
         }

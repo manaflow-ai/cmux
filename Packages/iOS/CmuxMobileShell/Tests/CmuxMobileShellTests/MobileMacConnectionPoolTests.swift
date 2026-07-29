@@ -2237,10 +2237,12 @@ import Testing
     @Test func failedTerminalUnsubscribeDisconnectsInsteadOfDemoting() async throws {
         let router = LivenessHostRouter()
         await router.invalidateUnsubscribeRequest(number: 1)
+        let closeGate = LivenessTransportCloseGate()
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(
                 router: router,
-                box: TransportBox()
+                box: TransportBox(),
+                closeGate: closeGate
             ),
             now: { Date() }
         )
@@ -2282,9 +2284,26 @@ import Testing
         shell.foregroundMacDeviceID = "mac-a"
         shell.connections["mac-a"] = connection
 
-        let terminalStopped = await shell.prepareFocusedConnectionForHandoff(
-            connection
-        )
+        let preparation = Task { @MainActor in
+            await shell.prepareFocusedConnectionForHandoff(connection)
+        }
+        await closeGate.waitUntilCloseStarted()
+        #expect(shell.remoteClient === client)
+        do {
+            _ = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    params: [:]
+                )
+            )
+            Issue.record(
+                "discarded foreground accepted a request during teardown"
+            )
+        } catch {
+            // Expected: retirement precedes the suspending transport close.
+        }
+        await closeGate.release()
+        let terminalStopped = await preparation.value
         await shell.commitFocusedConnectionHandoff(
             connection,
             terminalStopped: terminalStopped,
