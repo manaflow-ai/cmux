@@ -86,7 +86,8 @@ struct CLIOmpHookBindingTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
 
-        let requests = context.state.snapshot().compactMap(Self.jsonObject)
+        let commands = context.state.snapshot()
+        let requests = commands.compactMap(Self.jsonObject)
         let pidProbe = try #require(requests.first {
             $0["method"] as? String == "agent.resolve_delivery_target"
                 && ($0["params"] as? [String: Any])?["pid"] as? Int == Self.ompPID
@@ -108,6 +109,21 @@ struct CLIOmpHookBindingTests {
         let clearParams = try #require(clearRequest["params"] as? [String: Any])
         #expect(clearParams["surface_id"] as? String == Self.leakedSurfaceId)
         #expect(clearParams["checkpoint_id"] as? String == previousSessionId)
+        let resumeIndex = try #require(commands.firstIndex {
+            Self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+        })
+        let pidIndex = try #require(commands.firstIndex {
+            $0.hasPrefix("set_agent_pid omp.\(resumedSessionId) ")
+        })
+        let lifecycleIndex = try #require(commands.firstIndex {
+            $0.hasPrefix("set_agent_lifecycle omp ")
+        })
+        let clearIndex = try #require(commands.firstIndex {
+            Self.jsonObject($0)?["method"] as? String == "surface.resume.clear"
+        })
+        #expect(resumeIndex < clearIndex)
+        #expect(pidIndex < clearIndex)
+        #expect(lifecycleIndex < clearIndex)
 
         let store = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
@@ -120,6 +136,63 @@ struct CLIOmpHookBindingTests {
         #expect(resumed["pid"] as? Int == Self.ompPID)
         #expect(store["activeSessionsBySurface"] == nil)
         #expect(store["activeSessionsByWorkspace"] == nil)
+    }
+
+    @Test
+    func failedSupersededCleanupKeepsPriorRecordRecoverable() throws {
+        let context = try Harness.makeContext(name: "omp-cleanup-retry")
+        defer { context.cleanup() }
+
+        let previousSessionId = "omp-cleanup-pending"
+        let currentSessionId = "omp-cleanup-current"
+        let storeURL = context.root.appendingPathComponent("omp-hook-sessions.json")
+        try Self.writePriorSession(
+            to: storeURL,
+            sessionId: previousSessionId,
+            workspaceId: Self.leakedWorkspaceId,
+            surfaceId: Self.leakedSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.leakedWorkspaceId: [Self.leakedSurfaceId],
+                Self.liveWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId),
+            resumeClearSucceeds: false
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "omp"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/omp"
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/omp"])
+        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "omp", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(currentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        #expect(commands.contains {
+            Self.jsonObject($0)?["method"] as? String == "surface.resume.clear"
+        })
+        #expect(!commands.contains {
+            $0.hasPrefix("clear_agent_pid omp.\(previousSessionId) ")
+        })
+        let saved = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        #expect(sessions[previousSessionId] != nil)
+        #expect(sessions[currentSessionId] != nil)
     }
 
     @Test
@@ -181,6 +254,50 @@ struct CLIOmpHookBindingTests {
         let requests = context.state.snapshot().compactMap(Self.jsonObject)
         #expect(requests.contains { $0["method"] as? String == "agent.resolve_delivery_target" })
         #expect(!requests.contains { $0["method"] as? String == "surface.resume.set" })
+    }
+
+    @Test
+    func explicitRoutingDoesNotProbeProcessBinding() throws {
+        let context = try Harness.makeContext(name: "omp-explicit-route")
+        defer { context.cleanup() }
+        let sessionId = "omp-explicit-session"
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.leakedWorkspaceId, surfaceId: Self.leakedSurfaceId)
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "omp"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/omp"
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/omp"])
+        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: [
+                "hooks", "omp", "session-start",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let requests = context.state.snapshot().compactMap(Self.jsonObject)
+        #expect(!requests.contains {
+            $0["method"] as? String == "agent.resolve_delivery_target"
+        })
+        let resume = try #require(requests.last {
+            $0["method"] as? String == "surface.resume.set"
+        })
+        let params = try #require(resume["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.liveWorkspaceId)
+        #expect(params["surface_id"] as? String == Self.liveSurfaceId)
     }
 
     @Test

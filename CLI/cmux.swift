@@ -712,8 +712,8 @@ final class ClaudeHookSessionStore {
             )
             let superseded: [ClaudeHookSessionRecord]
             if supersedesSameProcessSession {
-                superseded = supersedeSessionsOwnedBySameProcess(
-                    &state,
+                superseded = supersededSessionCleanupCandidates(
+                    in: state,
                     keepingSessionId: normalized,
                     owner: record
                 )
@@ -1465,27 +1465,6 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private func supersedeSessionsOwnedBySameProcess(
-        _ state: inout ClaudeHookSessionStoreFile,
-        keepingSessionId: String,
-        owner: ClaudeHookSessionRecord
-    ) -> [ClaudeHookSessionRecord] {
-        guard let pid = owner.pid,
-              let startSeconds = owner.pidStartSeconds,
-              let startMicroseconds = owner.pidStartMicroseconds else { return [] }
-        let superseded = state.sessions.values.filter {
-            $0.sessionId != keepingSessionId
-                && $0.pid == pid
-                && $0.pidStartSeconds == startSeconds
-                && $0.pidStartMicroseconds == startMicroseconds
-        }
-        let supersededIDs = Set(superseded.map(\.sessionId))
-        for record in superseded { state.sessions.removeValue(forKey: record.sessionId) }
-        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { !supersededIDs.contains($0.value.sessionId) }
-        state.activeSessionsBySurface = state.activeSessionsBySurface.filter { !supersededIDs.contains($0.value.sessionId) }
-        return superseded
-    }
-
     private func fallbackRecord(
         sessions: [ClaudeHookSessionRecord],
         workspaceId: String?,
@@ -1504,7 +1483,7 @@ final class ClaudeHookSessionStore {
         return nil
     }
 
-    private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+    func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
         let lockPath = statePath + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
@@ -27998,12 +27977,13 @@ struct CMUXCLI {
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
 
+    @discardableResult
     func clearAgentSurfaceResumeBinding(
         client: SocketClient,
         workspaceId: String,
         surfaceId: String,
         sessionId: String?
-    ) {
+    ) -> Bool {
         let normalizedSessionId = normalizedHookValue(sessionId)
         var params: [String: Any] = [
             "surface_id": surfaceId,
@@ -28012,7 +27992,12 @@ struct CMUXCLI {
         if let normalizedSessionId {
             params["checkpoint_id"] = normalizedSessionId
         }
-        _ = try? client.sendV2(method: "surface.resume.clear", params: params)
+        do {
+            _ = try client.sendV2(method: "surface.resume.clear", params: params)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func agentSurfaceResumeCommand(
@@ -30687,23 +30672,24 @@ export default CMUXSessionRestore;
             }
 
             // Only live-process evidence may replace an ambient workspace; an ambient TTY stays inside it.
-            let processResolution = processBindingResolution()
-            if hookWsFlag == nil, explicitSurfaceFlag == nil,
-               let binding = processResolution.binding,
-               processResolution.canReplaceAmbientWorkspace(resolvedDirectWorkspaceArg),
-               let workspaceId = resolveAccessibleWorkspaceId(binding.workspaceId),
-               let surfaceId = resolveAccessibleSurfaceId(
-                   binding.surfaceId,
-                   workspaceId: workspaceId
-               ) {
+            if hookWsFlag == nil, explicitSurfaceFlag == nil {
+                let processResolution = processBindingResolution()
+                if let binding = processResolution.binding,
+                   processResolution.canReplaceAmbientWorkspace(resolvedDirectWorkspaceArg),
+                   let workspaceId = resolveAccessibleWorkspaceId(binding.workspaceId),
+                   let surfaceId = resolveAccessibleSurfaceId(
+                       binding.surfaceId,
+                       workspaceId: workspaceId
+                   ) {
 #if DEBUG
-                agentHookDebugLog(
-                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
-                    socketPath: client.socketPath,
-                    env: env
-                )
+                    agentHookDebugLog(
+                        "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
 #endif
-                return (workspaceId, surfaceId)
+                    return (workspaceId, surfaceId)
+                }
             }
 
             if let workspaceId = resolvedDirectWorkspaceArg {
@@ -30838,9 +30824,6 @@ export default CMUXSessionRestore;
                 print("{}")
                 return
             }
-            if !suppressVisibleMutations {
-                clearSupersededAgentHookSessions(supersededOMPRecords, statusKey: def.statusKey, client: client)
-            }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
             if !suppressVisibleMutations {
                 if codexSessionStartWentStaleAfterAccept() {
@@ -30904,6 +30887,14 @@ export default CMUXSessionRestore;
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
+            if !suppressVisibleMutations {
+                clearSupersededAgentHookSessions(
+                    supersededOMPRecords,
+                    statusKey: def.statusKey,
+                    store: store,
+                    client: client
+                )
+            }
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))

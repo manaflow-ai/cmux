@@ -208,6 +208,17 @@ interface QueuedHook {
   subcommand: string;
 }
 
+function hookPriority(subcommand: string): number {
+  switch (subcommand) {
+    case "stop":
+      return 2;
+    case "session-start":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 const maxQueuedHooks = 16;
 const hookShutdownDeadlineMs = 2000;
 const hookQueue: QueuedHook[] = [];
@@ -267,9 +278,9 @@ function enqueueHook(invocation: HookInvocation, subcommand: string): void {
     hookQueue.push({ invocation, subcommand });
   } else {
     if (hookQueue.length >= maxQueuedHooks) {
-      const evictable = hookQueue.findIndex((queued) => queued.subcommand !== "session-start");
+      const priority = hookPriority(subcommand);
+      const evictable = hookQueue.findIndex((queued) => hookPriority(queued.subcommand) < priority);
       if (evictable >= 0) hookQueue.splice(evictable, 1);
-      else if (subcommand === "session-start") hookQueue.shift();
       else return;
     }
     hookQueue.push({ invocation, subcommand });

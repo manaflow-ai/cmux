@@ -102,20 +102,30 @@ extension CMUXCLI {
     func clearSupersededAgentHookSessions(
         _ records: [ClaudeHookSessionRecord],
         statusKey: String,
+        store: ClaudeHookSessionStore,
         client: SocketClient
     ) {
+        var clearedRecords: [ClaudeHookSessionRecord] = []
         for record in records {
-            clearAgentSurfaceResumeBinding(
+            guard clearAgentSurfaceResumeBinding(
                 client: client,
                 workspaceId: record.workspaceId,
                 surfaceId: record.surfaceId,
                 sessionId: record.sessionId
-            )
+            ) else {
+                continue
+            }
             let pidKey = "\(statusKey).\(record.sessionId)"
-            _ = try? sendV1Command(
-                "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status",
-                client: client
-            )
+            do {
+                _ = try sendV1Command(
+                    "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status",
+                    client: client
+                )
+                clearedRecords.append(record)
+            } catch {
+                continue
+            }
         }
+        try? store.acknowledgeSupersededSessionCleanup(clearedRecords)
     }
 }

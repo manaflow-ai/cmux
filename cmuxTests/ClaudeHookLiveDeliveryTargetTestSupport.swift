@@ -86,7 +86,8 @@ enum ClaudeHookLiveDeliveryHarness {
         surfaceTargets: [String: String] = [:],
         ttyRows: [(tty: String, workspaceId: String, surfaceId: String)] = [],
         resolverMethodAvailable: Bool = true,
-        acknowledgesPIDResolution: Bool = true
+        acknowledgesPIDResolution: Bool = true,
+        resumeClearSucceeds: Bool = true
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
@@ -141,6 +142,15 @@ enum ClaudeHookLiveDeliveryHarness {
                 return v2Response(id: id, ok: true, result: [:])
             case "surface.resume.set":
                 return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "surface.resume.clear":
+                if resumeClearSucceeds {
+                    return v2Response(id: id, ok: true, result: [:])
+                }
+                return v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "cleanup_failed", "message": "injected resume cleanup failure"]
+                )
             default:
                 return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }

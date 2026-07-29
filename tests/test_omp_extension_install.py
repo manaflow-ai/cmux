@@ -416,9 +416,10 @@ process.argv.splice(
 const ctx = {
   cwd: "/tmp/omp-project",
   sessionManager: {
-    getSessionId() { return "omp-session-test"; }
+    getSessionId() { return currentSessionId; }
   }
 };
+let currentSessionId = "omp-session-test";
 const start = Date.now();
 await handlers.get("session_start")({}, ctx);
 for (let index = 0; index < 40; index += 1) {
@@ -434,8 +435,17 @@ await handlers.get("agent_end")({
 const elapsed = Date.now() - start;
 if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
 await handlers.get("session_shutdown")({}, ctx);
+currentSessionId = "priority-stop-session";
+await handlers.get("session_start")({}, ctx);
+await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, ctx);
+for (let index = 0; index < 40; index += 1) {
+  currentSessionId = `priority-prompt-${index}`;
+  await handlers.get("before_agent_start")({ prompt: `priority prompt ${index}` }, ctx);
+}
+await handlers.get("session_shutdown")({}, ctx);
 process.env.FAKE_CMUX_SLEEP_SECONDS = "10";
 const hungStart = Date.now();
+currentSessionId = "omp-session-test";
 await handlers.get("session_start")({}, ctx);
 for (let index = 0; index < 40; index += 1) {
   await handlers.get("before_agent_start")({ prompt: `hung omp ${index}` }, ctx);
@@ -461,7 +471,7 @@ if (hungElapsed > 3500) throw new Error(`shutdown drain exceeded deadline: ${hun
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        expected_invocations = 3
+        expected_invocations = 5
         args_log = wait_for_text(fake_args_log, expected_invocations, timeout=20.0)
         stdin_log = wait_for_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
         env_log = wait_for_text(fake_env_log, expected_invocations * 4, timeout=20.0)
@@ -481,6 +491,9 @@ if (hungElapsed > 3500) throw new Error(`shutdown drain exceeded deadline: ${hun
             return 1
         if '"hook_event_name":"Stop"' not in stdin_log:
             print(f"FAIL: stop hook payload was missing: {stdin_log!r}")
+            return 1
+        if '"session_id":"priority-stop-session","cwd":"/tmp/omp-project","hook_event_name":"Stop"' not in stdin_log:
+            print(f"FAIL: queued stop hook was evicted under prompt pressure: {stdin_log!r}")
             return 1
         if '"prompt":"hello omp 39"' not in stdin_log or '"last_assistant_message":"done"' not in stdin_log:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {stdin_log!r}")
