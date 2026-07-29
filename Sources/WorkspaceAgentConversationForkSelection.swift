@@ -9,8 +9,19 @@ struct WorkspaceAgentConversationForkSelection {
 extension Workspace {
     func agentConversationForkSelection(
         forPanelId panelId: UUID,
+        request: AgentConversationForkRequest
+    ) -> WorkspaceAgentConversationForkSelection? {
+        agentConversationForkSelection(
+            forPanelId: panelId,
+            request: request,
+            liveAgentIndex: .shared
+        )
+    }
+
+    func agentConversationForkSelection(
+        forPanelId panelId: UUID,
         request: AgentConversationForkRequest,
-        liveAgentIndex: SharedLiveAgentIndex = .shared
+        liveAgentIndex: SharedLiveAgentIndex
     ) -> WorkspaceAgentConversationForkSelection? {
         if request.targetHarness != .current,
            let transferSnapshot = agentConversationTransferSnapshot(
@@ -46,8 +57,17 @@ extension Workspace {
     }
 
     func agentConversationTransferSnapshot(
+        forPanelId panelId: UUID
+    ) -> SessionRestorableAgentSnapshot? {
+        agentConversationTransferSnapshot(
+            forPanelId: panelId,
+            liveAgentIndex: .shared
+        )
+    }
+
+    func agentConversationTransferSnapshot(
         forPanelId panelId: UUID,
-        liveAgentIndex: SharedLiveAgentIndex = .shared
+        liveAgentIndex: SharedLiveAgentIndex
     ) -> SessionRestorableAgentSnapshot? {
         guard panels[panelId] is TerminalPanel,
               !isRemoteTerminalSurface(panelId) else {
