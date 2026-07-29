@@ -1,3 +1,4 @@
+import Darwin
 public import Foundation
 
 /// The outcome of draining a pipe to end-of-file: every byte read before the
@@ -57,6 +58,87 @@ public struct ProcessPipeEndRead: Equatable, Sendable {
                     return ProcessPipeEndRead(data: data, readError: nil)
                 }
                 data.append(chunk)
+            case .failure(let error):
+                return ProcessPipeEndRead(data: data, readError: error)
+            }
+        }
+    }
+
+    /// Drains a process pipe until EOF or until the owner requests a bounded
+    /// stop. While running, the reader polls so it can observe `shouldStop`
+    /// even when a descendant keeps the pipe's write end open. On stop it
+    /// preserves bytes already buffered in the pipe, then returns without
+    /// waiting for a future writer or an inherited descriptor to close.
+    public static func reading(
+        fileDescriptor: Int32,
+        chunkSize: Int = FileHandle.processPipeReadChunkSize,
+        pollIntervalMilliseconds: Int32 = 25,
+        shouldStop: @Sendable () -> Bool
+    ) -> ProcessPipeEndRead {
+        var data = Data()
+        var stopDrainCount = 0
+        let maximumStopDrainCount = 16
+
+        while true {
+            let isStopping = shouldStop()
+            var descriptor = pollfd(
+                fd: fileDescriptor,
+                events: Int16(POLLIN | POLLERR | POLLHUP),
+                revents: 0
+            )
+            let pollResult = Darwin.poll(
+                &descriptor,
+                1,
+                isStopping ? 0 : max(1, pollIntervalMilliseconds)
+            )
+            if pollResult == 0 {
+                if isStopping {
+                    return ProcessPipeEndRead(data: data, readError: nil)
+                }
+                continue
+            }
+            if pollResult < 0 {
+                let code = errno
+                if code == EINTR {
+                    continue
+                }
+                return ProcessPipeEndRead(
+                    data: data,
+                    readError: ProcessPipeReadError(
+                        operation: "readDataToEndOfFile.poll",
+                        errnoCode: code
+                    )
+                )
+            }
+            if (descriptor.revents & Int16(POLLNVAL)) != 0 {
+                return ProcessPipeEndRead(
+                    data: data,
+                    readError: ProcessPipeReadError(
+                        operation: "readDataToEndOfFile.poll",
+                        errnoCode: EBADF
+                    )
+                )
+            }
+
+            switch ProcessPipeAvailableRead.readAvailableOnce(
+                fileDescriptor: fileDescriptor,
+                maxLength: chunkSize,
+                operation: "readDataToEndOfFile"
+            ) {
+            case .success(.data(let chunk)):
+                data.append(chunk)
+                if isStopping {
+                    stopDrainCount += 1
+                    if stopDrainCount >= maximumStopDrainCount {
+                        return ProcessPipeEndRead(data: data, readError: nil)
+                    }
+                }
+            case .success(.wouldBlock):
+                if isStopping {
+                    return ProcessPipeEndRead(data: data, readError: nil)
+                }
+            case .success(.endOfFile):
+                return ProcessPipeEndRead(data: data, readError: nil)
             case .failure(let error):
                 return ProcessPipeEndRead(data: data, readError: error)
             }

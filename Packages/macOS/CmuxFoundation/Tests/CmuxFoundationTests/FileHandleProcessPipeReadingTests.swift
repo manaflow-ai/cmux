@@ -64,6 +64,24 @@ struct FileHandleProcessPipeReadingTests {
         #expect(result.readError == readError)
     }
 
+    @Test("A stopped end read drains buffered bytes without waiting for EOF")
+    func stoppedEndReadDrainsBufferedBytesWithoutEOF() throws {
+        let pipe = Pipe()
+        defer {
+            try? pipe.fileHandleForWriting.close()
+            try? pipe.fileHandleForReading.close()
+        }
+        try pipe.fileHandleForWriting.write(contentsOf: Data("buffered".utf8))
+
+        let result = ProcessPipeEndRead.reading(
+            fileDescriptor: pipe.fileHandleForReading.fileDescriptor,
+            shouldStop: { true }
+        )
+
+        #expect(result.data == Data("buffered".utf8))
+        #expect(result.readError == nil)
+    }
+
     @Test("readDataToEndOfFileOrEmpty drains a closed pipe")
     func drainsClosedPipe() throws {
         let pipe = Pipe()

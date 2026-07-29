@@ -75,6 +75,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         private var stdinWriteError: (any Error)?
         private var stdinWriteFinished: Bool
         private var shouldStopStdinWrite = false
+        private var shouldStopCapture = false
 
         init(stdinWriteFinished: Bool) {
             self.stdinWriteFinished = stdinWriteFinished
@@ -83,6 +84,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         func markExited() {
             lock.withLock {
                 didExit = true
+                shouldStopCapture = true
             }
         }
 
@@ -107,6 +109,12 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         func stdinWriteShouldStop() -> Bool {
             lock.withLock {
                 shouldStopStdinWrite
+            }
+        }
+
+        func captureShouldStop() -> Bool {
+            lock.withLock {
+                shouldStopCapture
             }
         }
 
@@ -198,7 +206,12 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
             defer { _ = Darwin.close(stdoutDescriptor) }
-            let result = ProcessPipeEndRead.reading(fileDescriptor: stdoutDescriptor)
+            let result = ProcessPipeEndRead.reading(
+                fileDescriptor: stdoutDescriptor,
+                shouldStop: {
+                    completionState.captureShouldStop()
+                }
+            )
             captureQueue.sync {
                 captureState.stdoutData = result.data
                 captureState.stdoutReadError = result.readError
@@ -208,7 +221,12 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         DispatchQueue.global(qos: .utility).async {
             defer { captureGroup.leave() }
             defer { _ = Darwin.close(stderrDescriptor) }
-            let result = ProcessPipeEndRead.reading(fileDescriptor: stderrDescriptor)
+            let result = ProcessPipeEndRead.reading(
+                fileDescriptor: stderrDescriptor,
+                shouldStop: {
+                    completionState.captureShouldStop()
+                }
+            )
             captureQueue.sync {
                 captureState.stderrData = result.data
                 captureState.stderrReadError = result.readError
