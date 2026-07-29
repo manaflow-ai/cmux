@@ -109,7 +109,8 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
 
         let writeBlockEntered = DispatchSemaphore(value: 0)
         let releaseWrite = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
+        let writeBlockQueue = DispatchQueue(label: "com.cmux.tests.remote-daemon.block-cancellation-write")
+        writeBlockQueue.async {
             guard stalledAttachRead.wait(timeout: .now() + 2) == .success else {
                 releaseWrite.signal()
                 return
@@ -119,7 +120,16 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
                 releaseWrite.wait()
             }
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 4) {
+        // One-shot failure safety keeps a regressed synchronous cancellation
+        // from stranding the test process; ordinary cleanup is deterministic.
+        let cleanupTimer = DispatchSource.makeTimerSource(queue: writeBlockQueue)
+        cleanupTimer.schedule(deadline: .now() + 4)
+        cleanupTimer.setEventHandler {
+            releaseWrite.signal()
+        }
+        cleanupTimer.resume()
+        defer {
+            cleanupTimer.cancel()
             releaseWrite.signal()
         }
 
@@ -145,7 +155,6 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         #expect(writeBlockEntered.wait(timeout: .now()) == .success)
         #expect(elapsed < 2)
         #expect(unexpectedTermination.wait(timeout: .now() + 2) == .success)
-        releaseWrite.signal()
     }
 
     private func configuration() -> WorkspaceRemoteConfiguration {

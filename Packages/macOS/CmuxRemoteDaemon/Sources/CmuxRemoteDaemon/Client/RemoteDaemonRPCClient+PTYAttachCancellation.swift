@@ -1,4 +1,5 @@
 internal import Foundation
+internal import CmuxFoundation
 
 extension RemoteDaemonRPCClient {
     func sendPTYAttachCancellation(
@@ -23,17 +24,25 @@ extension RemoteDaemonRPCClient {
         // make that synchronous caller wait on a congested transport writer.
         // If the queued write cannot finish promptly, the transport is no
         // longer safe to preserve and the established stop path takes over.
-        let writeFinished = DispatchSemaphore(value: 0)
+        // The timer callback and write completion race to settle this one
+        // deadline; a lock-free gate avoids shared mutable lifecycle state.
+        let deadlineSettled = AtomicBooleanGate(false)
+        // A one-shot DispatchSource is required here because this legacy
+        // synchronous client has no async task in which to host the deadline.
+        let timeoutTimer = DispatchSource.makeTimerSource(queue: ptyAttachCancellationTimerQueue)
+        timeoutTimer.schedule(deadline: .now() + Self.ptyAttachCancellationWriteTimeout)
+        timeoutTimer.setEventHandler { [weak self] in
+            guard deadlineSettled.compareExchange(expected: false, desired: true) else { return }
+            self?.stop(suppressTerminationCallback: false)
+        }
+        timeoutTimer.resume()
         writeQueue.async { [weak self] in
-            defer { writeFinished.signal() }
+            defer {
+                _ = deadlineSettled.compareExchange(expected: false, desired: true)
+                timeoutTimer.cancel()
+            }
             guard let self else { return }
             try? self.writePayload(payload)
-        }
-        DispatchQueue.global(qos: .utility).asyncAfter(
-            deadline: .now() + Self.ptyAttachCancellationWriteTimeout
-        ) { [weak self] in
-            guard writeFinished.wait(timeout: .now()) == .timedOut else { return }
-            self?.stop(suppressTerminationCallback: false)
         }
     }
 }
