@@ -5481,10 +5481,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyTextAccumulator = []
         textInputCommandPerformed = false
         textInputCallbackPerformed = false
-        textInputEditSession.beginEvent(
-            translatedText: textForKeyEvent(textInputEvent),
-            rawText: event.characters
-        )
+        textInputEditSession.beginEvent()
         defer {
             keyTextAccumulator = nil
             textInputCommandPerformed = nil
@@ -5515,10 +5512,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         keyTextAccumulator?.append(
-            contentsOf: textInputEditSession.finishEvent(
-                consumedByTextInput: textInputConsumed,
-                commandPerformed: textInputCommandPerformed ?? false
-            )
+            contentsOf: textInputEditSession.finishEvent()
         )
         let markedTextAfter = textInputEditSession.markedText
         let markedSelectionAfter = textInputEditSession.markedSelection
@@ -11723,10 +11717,7 @@ extension GhosttyNSView: NSTextInputClient {
             textInputEditSession.discardMarkedText()
             committedText = chars.isEmpty ? [] : [chars]
         } else {
-            committedText = textInputEditSession.insertText(
-                chars,
-                replacementRange: replacementRange
-            )
+            committedText = textInputEditSession.insertText(chars)
         }
 
         if keyTextAccumulator == nil,

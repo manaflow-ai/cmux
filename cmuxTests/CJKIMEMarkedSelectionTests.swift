@@ -257,7 +257,7 @@ struct CJKIMEMarkedSelectionTests {
         #expect(view.keyTextAccumulatorForTesting == ["Ω"])
     }
 
-    @Test func consumedReplacementEditsStayProvisionalUntilFullReplacement() async throws {
+    @Test func insertTextReplacementRangesRemainCommittedText() async throws {
         let terminal = try await makeHostedCallbackTerminal()
         defer { tearDown(terminal) }
 
@@ -305,21 +305,20 @@ struct CJKIMEMarkedSelectionTests {
         }
 
         try sendKey(text: "1", keyCode: UInt16(kVK_ANSI_1), to: terminal)
-        #expect(terminal.surfaceView.attributedString().string == "α")
-        #expect(terminal.surfaceView.hasMarkedText())
-        #expect(forwardedText.isEmpty)
+        #expect(!terminal.surfaceView.hasMarkedText())
+        #expect(forwardedText == ["α"])
 
         try sendKey(text: "2", keyCode: UInt16(kVK_ANSI_2), to: terminal)
-        #expect(terminal.surfaceView.attributedString().string == "αβ")
-        #expect(forwardedText.isEmpty)
+        #expect(!terminal.surfaceView.hasMarkedText())
+        #expect(forwardedText == ["α", "β"])
 
         try sendKey(text: "3", keyCode: UInt16(kVK_ANSI_3), to: terminal)
-        #expect(terminal.surfaceView.attributedString().string == "αγ")
-        #expect(forwardedText.isEmpty)
+        #expect(!terminal.surfaceView.hasMarkedText())
+        #expect(forwardedText == ["α", "β", "γ"])
 
         try sendKey(text: "\r", keyCode: UInt16(kVK_Return), to: terminal)
         #expect(!terminal.surfaceView.hasMarkedText())
-        #expect(forwardedText == ["Ω"])
+        #expect(forwardedText == ["α", "β", "γ", "Ω"])
     }
 
     @Test func consumedPreeditCaretMovementAlsoReachesTerminal() async throws {

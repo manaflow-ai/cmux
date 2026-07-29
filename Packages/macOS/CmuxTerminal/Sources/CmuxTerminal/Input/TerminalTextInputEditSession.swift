@@ -1,31 +1,22 @@
 public import Foundation
 
-/// Models the editable text suffix that AppKit input methods expect from an
-/// `NSTextInputClient`.
+/// Models the marked text that AppKit owns for an `NSTextInputClient`.
 ///
-/// A terminal cannot retract bytes after they reach the PTY. This session
-/// therefore keeps replacement-driven edits provisional until AppKit supplies
-/// a semantic commit boundary. It classifies callbacks from event-local state,
-/// without inspecting language, script, locale, or input-source identity.
+/// AppKit exposes two different semantic operations:
+///
+/// - `setMarkedText` replaces reversible composition state.
+/// - `insertText` supplies committed text.
+///
+/// A terminal cannot retract bytes after they reach the PTY, so this session
+/// retains only text supplied through the marked-text lifecycle. Committed text
+/// remains opaque and is delivered immediately, independent of language,
+/// script, locale, keyboard layout, or replacement range.
 public struct TerminalTextInputEditSession: Sendable {
-    private enum MarkedTextOrigin: Sendable {
-        case explicit
-        case replacementEdits
-    }
-
-    private struct Insertion: Sendable {
-        let text: String
-        let replacementRange: NSRange
-    }
-
     private struct Event: Sendable {
-        let translatedText: String?
-        let rawText: String?
-        var pendingInsertions: [Insertion] = []
-        var receivedExplicitCompositionCallback = false
+        var committedText: [String] = []
     }
 
-    /// The provisional text currently owned by the input system.
+    /// The provisional text currently owned by AppKit.
     public private(set) var markedText = ""
 
     /// The UTF-16 selection inside ``markedText``.
@@ -34,107 +25,45 @@ public struct TerminalTextInputEditSession: Sendable {
         length: 0
     )
 
-    private var markedTextOrigin: MarkedTextOrigin?
     private var event: Event?
-    private let textClassification = TerminalTextInputClassification()
 
     /// Creates an empty text-input session.
     public init() {}
 
-    /// Whether the input system currently owns provisional text.
+    /// Whether AppKit currently owns provisional text.
     public var hasMarkedText: Bool {
         !markedText.isEmpty
     }
 
-    /// Starts collecting the semantic callbacks produced by one native key.
-    ///
-    /// - Parameters:
-    ///   - translatedText: Text produced after terminal modifier translation.
-    ///   - rawText: Text attached to the original native event.
-    public mutating func beginEvent(
-        translatedText: String?,
-        rawText: String? = nil
-    ) {
-        event = Event(
-            translatedText: translatedText,
-            rawText: rawText
-        )
+    /// Starts collecting committed callbacks produced by one native key.
+    public mutating func beginEvent() {
+        event = Event()
     }
 
-    /// Finishes one native key and resolves otherwise ambiguous `insertText`
-    /// callbacks.
+    /// Finishes one native key.
     ///
-    /// A transformed callback without an explicit marked-text lifecycle is
-    /// ambiguous: it can be a one-shot commit or the first edit in a document
-    /// replacement sequence. The session keeps that suffix reversible, then
-    /// flushes it at the next direct or unowned native key. Replacement edits
-    /// can continue until a full replacement supplies the committed candidate.
+    /// Every `insertText` callback is already a semantic commit boundary. The
+    /// event scope only preserves callback ordering until the caller has the
+    /// complete AppKit transition needed by terminal key planning.
     ///
-    /// - Parameters:
-    ///   - consumedByTextInput: Whether AppKit claimed the native key.
-    ///   - commandPerformed: Whether AppKit delegated a command back to the
-    ///     terminal client.
-    /// - Returns: Text that is safe to send irreversibly to the terminal.
-    public mutating func finishEvent(
-        consumedByTextInput: Bool,
-        commandPerformed: Bool = false
-    ) -> [String] {
+    /// - Returns: Text committed while AppKit interpreted the native key.
+    public mutating func finishEvent() -> [String] {
         guard let completedEvent = event else { return [] }
         event = nil
-
-        let insertions = completedEvent.pendingInsertions
-        guard !insertions.isEmpty else {
-            guard markedTextOrigin == .replacementEdits else {
-                return []
-            }
-            if !consumedByTextInput || commandPerformed {
-                return commitPendingText()
-            }
-            return []
-        }
-
-        let insertedText = insertions.map(\.text).joined()
-        let correspondsToNativeKey =
-            completedEvent.translatedText == insertedText ||
-            completedEvent.rawText == insertedText
-        let isControlCallback =
-            textClassification.isSingleC0OrDelete(insertedText)
-        let committedInsertions = insertions.compactMap {
-            $0.text.isEmpty ? nil : $0.text
-        }
-
-        guard consumedByTextInput,
-              !correspondsToNativeKey,
-              !isControlCallback,
-              !completedEvent.receivedExplicitCompositionCallback,
-              insertions[0].replacementRange.location == NSNotFound else {
-            return committedInsertions
-        }
-
-        markedTextOrigin = .replacementEdits
-        let committedText = insertions.flatMap {
-            applyReplacementEdit(
-                $0.text,
-                replacementRange: $0.replacementRange
-            )
-        }
-        guard hasMarkedText else { return committedText }
-        return committedText
+        return completedEvent.committedText
     }
 
-    /// Records AppKit's explicit marked-text state.
+    /// Replaces AppKit's explicit marked-text state.
     public mutating func setMarkedText(
         _ text: String,
         selectedRange: NSRange
     ) {
-        event?.receivedExplicitCompositionCallback = true
         markedText = text
         guard !text.isEmpty else {
             clearMarkedText()
             return
         }
 
-        markedTextOrigin = .explicit
         markedSelection = normalizedSelection(
             selectedRange,
             textLength: utf16Length(of: text)
@@ -143,151 +72,42 @@ public struct TerminalTextInputEditSession: Sendable {
 
     /// Commits and removes the active marked text.
     ///
-    /// `unmarkText` is AppKit's commit boundary for marked document text. A
-    /// caller that needs cancellation must use ``discardMarkedText()``.
+    /// `unmarkText` leaves marked document text in place. Because terminal
+    /// preedit is only an overlay, the text must be delivered to the PTY when
+    /// AppKit ends that marked lifetime without a separate `insertText`.
     public mutating func unmarkText() -> [String] {
-        event?.receivedExplicitCompositionCallback = true
         let committedText = markedText.isEmpty ? [] : [markedText]
         clearMarkedText()
         return committedText
     }
 
-    /// Applies one `insertText` callback and returns text that is safe to send
-    /// irreversibly to the terminal.
-    public mutating func insertText(
-        _ text: String,
-        replacementRange: NSRange
-    ) -> [String] {
-        switch markedTextOrigin {
-        case .explicit:
-            event?.receivedExplicitCompositionCallback = true
+    /// Records committed text from AppKit.
+    ///
+    /// `replacementRange` belongs to AppKit's editable-document contract.
+    /// Callers deliberately omit it here because a terminal has no document
+    /// range it can safely rewrite after bytes reach the PTY.
+    public mutating func insertText(_ text: String) -> [String] {
+        if hasMarkedText {
             clearMarkedText()
-            return text.isEmpty ? [] : [text]
+        }
+        guard !text.isEmpty else { return [] }
 
-        case .replacementEdits:
-            if let event,
-               event.translatedText == text ||
-               event.rawText == text ||
-               textClassification.isSingleC0OrDelete(text) {
-                let pendingText = commitPendingText()
-                let directText = directText(for: text, event: event)
-                return pendingText + (directText.isEmpty ? [] : [directText])
-            }
-            return applyReplacementEdit(
-                text,
-                replacementRange: replacementRange
-            )
-
-        case nil:
-            guard event != nil else {
-                return text.isEmpty ? [] : [text]
-            }
-            if !text.isEmpty {
-                event?.pendingInsertions.append(
-                    Insertion(
-                        text: text,
-                        replacementRange: replacementRange
-                    )
-                )
-            }
+        if event != nil {
+            event?.committedText.append(text)
             return []
         }
+        return [text]
     }
 
-    /// Discards provisional state when an explicitly external commit or
+    /// Discards marked state when an explicitly external commit or
     /// cancellation replaces the active composition.
     public mutating func discardMarkedText() {
-        event?.receivedExplicitCompositionCallback = true
         clearMarkedText()
     }
 
-    /// Commits any reversible suffix at an external semantic boundary such as
-    /// focus loss.
+    /// Commits marked text at an external semantic boundary such as focus loss.
     public mutating func commitPendingText() -> [String] {
-        let committedText = markedText.isEmpty ? [] : [markedText]
-        clearMarkedText()
-        return committedText
-    }
-
-    private func directText(for text: String, event: Event) -> String {
-        guard text == event.rawText,
-              textClassification.isSingleC0OrDelete(text),
-              let translatedText = event.translatedText,
-              !translatedText.isEmpty,
-              !textClassification.isSingleC0OrDelete(translatedText) else {
-            return text
-        }
-        return translatedText
-    }
-
-    private mutating func applyReplacementEdit(
-        _ text: String,
-        replacementRange: NSRange
-    ) -> [String] {
-        let currentLength = utf16Length(of: markedText)
-        let effectiveRange = effectiveReplacementRange(
-            replacementRange,
-            textLength: currentLength
-        )
-
-        let replacesWholeBuffer =
-            currentLength > 0 &&
-            replacementRange.location != NSNotFound &&
-            effectiveRange.location == 0 &&
-            effectiveRange.length == currentLength
-        if replacesWholeBuffer {
-            clearMarkedText()
-            return text.isEmpty ? [] : [text]
-        }
-
-        if effectiveRange.location == currentLength,
-           effectiveRange.length == 0 {
-            // Coalesce append-only callbacks into the current document suffix.
-            // The session retains no callback history, so storage is exactly
-            // the text AppKit can still address through a future edit range.
-            markedText.append(contentsOf: text)
-        } else {
-            let mutableText = NSMutableString(string: markedText)
-            mutableText.replaceCharacters(in: effectiveRange, with: text)
-            markedText = mutableText as String
-        }
-
-        guard !markedText.isEmpty else {
-            clearMarkedText()
-            return []
-        }
-
-        markedTextOrigin = .replacementEdits
-        markedSelection = normalizedSelection(
-            NSRange(
-                location: effectiveRange.location + utf16Length(of: text),
-                length: 0
-            ),
-            textLength: utf16Length(of: markedText)
-        )
-        return []
-    }
-
-    private func effectiveReplacementRange(
-        _ replacementRange: NSRange,
-        textLength: Int
-    ) -> NSRange {
-        if replacementRange.location == NSNotFound {
-            guard markedSelection.location != NSNotFound else {
-                return NSRange(location: textLength, length: 0)
-            }
-            return normalizedSelection(
-                markedSelection,
-                textLength: textLength
-            )
-        }
-
-        let location = min(max(replacementRange.location, 0), textLength)
-        let length = min(
-            max(replacementRange.length, 0),
-            textLength - location
-        )
-        return NSRange(location: location, length: length)
+        unmarkText()
     }
 
     private func normalizedSelection(
@@ -309,7 +129,6 @@ public struct TerminalTextInputEditSession: Sendable {
     private mutating func clearMarkedText() {
         markedText = ""
         markedSelection = NSRange(location: NSNotFound, length: 0)
-        markedTextOrigin = nil
     }
 
     private func utf16Length(of text: String) -> Int {
