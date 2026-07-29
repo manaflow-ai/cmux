@@ -143,7 +143,10 @@ extension AppDelegate {
                surfaceID: envSurfaceId,
                preferredTabID: processScope?.workspaceID
            ) {
-            envTarget = AgentDeliveryTargetCandidate(workspaceId: owner.tabID, surfaceId: envSurfaceId)
+            envTarget = AgentDeliveryTargetCandidate(
+                workspaceId: owner.tabID,
+                surfaceId: owner.surfaceID
+            )
         }
 
         return agentDeliveryTargetCombining(ttyTarget: ttyTarget, envTarget: envTarget)
@@ -174,7 +177,7 @@ extension AppDelegate {
         ) else {
             return nil
         }
-        return (owner.tabID, surfaceId)
+        return (owner.tabID, owner.surfaceID)
     }
 
     private func agentDeliveryTabManagers() -> [TabManager] {
@@ -251,7 +254,7 @@ extension TerminalController {
            ) {
             return .ok([
                 "workspace_id": owner.tabID.uuidString,
-                "surface_id": claimedSurfaceId.uuidString,
+                "surface_id": owner.surfaceID.uuidString,
                 "source": "surface",
             ])
         }

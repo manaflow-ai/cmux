@@ -6103,7 +6103,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         guard let termSurface = terminalSurface,
               let workspace = termSurface.owningWorkspace(),
-              !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
+              workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+                  surfaceID: termSurface.id
+              ) else { return nil }
 
         guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface) else {
             return nil
@@ -6305,13 +6307,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return convert(window.mouseLocationOutsideOfEventStream, from: nil)
     }
 
+    private func wordPathSnapshotTerminalPanel(
+        workspace: Workspace,
+        terminalSurface: TerminalSurface
+    ) -> TerminalPanel? {
+        guard workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+            surfaceID: terminalSurface.id
+        ) else { return nil }
+        return workspace.controlTerminalPanel(for: terminalSurface.id)
+    }
+
+#if DEBUG
+    func debugWordPathSnapshotTerminalPanelID() -> UUID? {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace() else {
+            return nil
+        }
+        return wordPathSnapshotTerminalPanel(
+            workspace: workspace,
+            terminalSurface: terminalSurface
+        )?.id
+    }
+#endif
+
     private func resolveVisibleWordPathFromViewportOffset(
         _ viewportOffsetStart: Int,
         cwd: String,
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> WordPathResolution? {
-        guard let panel = workspace.terminalPanel(for: terminalSurface.id),
+        guard let panel = wordPathSnapshotTerminalPanel(
+            workspace: workspace,
+            terminalSurface: terminalSurface
+        ),
               let surface else {
             return nil
         }
@@ -6351,7 +6379,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> WordPathResolution? {
-        guard let panel = workspace.terminalPanel(for: terminalSurface.id),
+        guard let panel = wordPathSnapshotTerminalPanel(
+            workspace: workspace,
+            terminalSurface: terminalSurface
+        ),
               let surface else {
             return nil
         }
@@ -6512,7 +6543,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // editor so the click never silently no-ops.
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
-           !workspace.isRemoteTerminalSurface(termSurface.id),
+           workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+               surfaceID: termSurface.id
+           ),
            CommandClickFileOpenRouter.openInCmux(
                workspace: workspace,
                sourcePanelId: termSurface.id,
@@ -9069,7 +9102,7 @@ final class GhosttySurfaceScrollView: NSView {
               let workspace = manager.tabs.first(where: { $0.id == terminalSurface.tabId }) else {
             return false
         }
-        return workspace.focusedPanelId == terminalSurface.id
+        return workspace.isFocusedTerminalInputSurface(terminalSurface.id)
     }
 
     private func requestMountedSearchFieldFocus(
@@ -9716,6 +9749,10 @@ final class GhosttySurfaceScrollView: NSView {
         return overlay.superview === self && !overlay.isHidden
     }
 
+    func debugCanApplyMountedSearchFieldFocusRequest() -> Bool {
+        canApplyMountedSearchFieldFocusRequest()
+    }
+
     func debugSearchOverlayHostingViewForTesting() -> NSView? {
         guard let overlay = searchOverlayHostingView,
               overlay.superview === self else {
@@ -9919,21 +9956,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         guard let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
-              }) else {
+              tab.isFocusedTerminalInputSurface(surfaceId) else {
             scheduleAutomaticFirstResponderApply(
-                reason: "ensureFocus.missingPane",
-                focusTransactionId: focusTransactionId
-            )
-            return
-        }
-
-        guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
-              tab.bonsplitController.focusedPaneId == paneId else {
-            scheduleAutomaticFirstResponderApply(
-                reason: "ensureFocus.unfocusedPane",
+                reason: "ensureFocus.notInputTarget",
                 focusTransactionId: focusTransactionId
             )
             return
@@ -10042,16 +10067,10 @@ final class GhosttySurfaceScrollView: NSView {
         guard let delegate = AppDelegate.shared,
               let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
               tabManager.selectedTabId == tabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
-              }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
             return false
         }
-
-        return tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface &&
-            tab.bonsplitController.focusedPaneId == paneId
+        return tab.isFocusedTerminalInputSurface(surfaceId)
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
