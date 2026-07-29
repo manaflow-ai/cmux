@@ -66,7 +66,7 @@ import Testing
         #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
             CancellationError()
         ))
-        #expect(!MobileShellComposite.secondaryControlAttemptIsTransient(
+        #expect(MobileShellComposite.secondaryControlAttemptIsTransient(
             MobileShellConnectionError.routeCleanupBlocked
         ))
     }

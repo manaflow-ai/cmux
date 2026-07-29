@@ -6,6 +6,7 @@ actor MobileCoreRPCSession {
     typealias IndependentEventByteStreamFactory = @Sendable () async throws -> CmxIndependentEventByteStream
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
     typealias TransportConnectObserver = @Sendable (MobileRPCTransportConnectEvent) -> Void
+    typealias TearDownRegistrationHook = @Sendable () async -> Void
     enum PendingRequestSettlement {
         case response(Result<Data, MobileShellConnectionError>)
         case cancelled
@@ -71,6 +72,7 @@ actor MobileCoreRPCSession {
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private let diagnosticTransport: DiagnosticTransportKind?
     private let transportConnectObserver: TransportConnectObserver?
+    private let tearDownRegistrationHook: TearDownRegistrationHook?
     /// Current shell ownership role. Connected transports that support role
     /// rebinding receive updates without replacing their admitted session.
     private var transportSessionPurpose: CmxTransportSessionPurpose?
@@ -103,6 +105,7 @@ actor MobileCoreRPCSession {
     var writeResolutionWaiterCount: Int { writeResolutionWaiters.count }
     var listeners: [UUID: EventListener] = [:]
     var isTearingDown: Bool = false
+    private var tearDownWaiters: [CheckedContinuation<Void, Never>] = []
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
     private var activeWrite: ActiveWrite?
@@ -124,7 +127,8 @@ actor MobileCoreRPCSession {
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
         diagnosticTransport: DiagnosticTransportKind? = nil,
         transportConnectObserver: TransportConnectObserver? = nil,
-        initialTransportSessionPurpose: CmxTransportSessionPurpose? = nil
+        initialTransportSessionPurpose: CmxTransportSessionPurpose? = nil,
+        tearDownRegistrationHook: TearDownRegistrationHook? = nil
     ) {
         self.connectAttemptKey = connectAttemptKey
         self.connectAttemptRegistry = connectAttemptRegistry
@@ -138,6 +142,7 @@ actor MobileCoreRPCSession {
         self.diagnosticTransport = diagnosticTransport
         self.transportConnectObserver = transportConnectObserver
         self.transportSessionPurpose = initialTransportSessionPurpose
+        self.tearDownRegistrationHook = tearDownRegistrationHook
     }
 
     deinit {
@@ -268,8 +273,21 @@ actor MobileCoreRPCSession {
     }
 
     func tearDown(error: MobileShellConnectionError) async {
-        guard !isTearingDown else { return }
+        if isTearingDown {
+            await withCheckedContinuation {
+                tearDownWaiters.append($0)
+            }
+            return
+        }
         isTearingDown = true
+        defer {
+            isTearingDown = false
+            let waiters = tearDownWaiters
+            tearDownWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
         let pendingSnapshot = pending
         pending.removeAll()
         let timeoutSnapshot = requestTimeoutTasks
@@ -310,6 +328,7 @@ actor MobileCoreRPCSession {
         independentEventReader?.task.cancel()
         independentEventReader = nil
         independentEventSubscriptionStreamIDs.removeAll()
+        await tearDownRegistrationHook?()
         if let transportToClose {
             await enqueueTransportClose(
                 transportToClose,
@@ -321,7 +340,6 @@ actor MobileCoreRPCSession {
             )
         }
         if let connecting { await abandonConnectionTask(connecting) }
-        isTearingDown = false
     }
 
     /// Wait until every installed transport detached by teardown has completed

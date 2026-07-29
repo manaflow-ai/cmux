@@ -4061,10 +4061,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return true
         }
         switch connectionError {
-        case .connectionClosed, .requestTimedOut, .transportWriteTimedOut:
+        case .connectionClosed, .requestTimedOut, .transportWriteTimedOut,
+             .routeCleanupBlocked:
             return true
         case .invalidResponse, .insecureManualRoute, .attachTicketExpired,
-             .authorizationFailed, .accountMismatch, .routeCleanupBlocked:
+             .authorizationFailed, .accountMismatch:
             return false
         case let .rpcError(code, _):
             let normalizedCode = code?.lowercased()

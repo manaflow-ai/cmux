@@ -935,6 +935,72 @@ import Testing
         await session.waitForTransportDrain()
     }
 
+    @Test func concurrentTeardownJoinsCleanupRegistration()
+        async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
+        let key = debugConnectAttemptKey(port: 58_983)
+        let transport =
+            CancellationThrowingConnectHangingCloseTransport()
+        let registrationGate = TeardownRegistrationGate()
+        let session = MobileCoreRPCSession(
+            connectAttemptKey: key,
+            connectAttemptRegistry: registry,
+            abandonedConnectCleanupTimeoutNanoseconds: 1_000_000,
+            lateAbandonedConnectCloseTimeoutNanoseconds: 1_000_000,
+            makeTransport: { transport },
+            tearDownRegistrationHook: {
+                await registrationGate.wait()
+            }
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            id: "joined-teardown"
+        )
+        let send = Task {
+            try await session.send(
+                payload: request,
+                requestID: "joined-teardown",
+                deadlineUptimeNanoseconds:
+                    DispatchTime.now().uptimeNanoseconds
+                    + 60_000_000_000
+            )
+        }
+        await transport.waitUntilConnectStarted()
+        let first = Task {
+            await session.tearDown(error: .connectionClosed)
+        }
+        await registrationGate.waitUntilEntered()
+        let secondCompletion = TeardownCompletion()
+        let second = Task {
+            await session.tearDown(error: .connectionClosed)
+            await secondCompletion.finish()
+        }
+        for _ in 0..<5 { await Task.yield() }
+        #expect(!(await secondCompletion.isFinished))
+
+        await registrationGate.release()
+        await first.value
+        await second.value
+        #expect(await secondCompletion.isFinished)
+        await transport.waitUntilCloseStarted()
+
+        var recoveryLease: MobileRPCConnectAttemptLease?
+        for _ in 0..<20 {
+            if case let .granted(lease) =
+                await registry.beginConnect(key: key) {
+                recoveryLease = lease
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(recoveryLease != nil)
+        await registry.finishConnect(lease: recoveryLease)
+        await transport.releaseClose()
+        await session.waitForTransportDrain()
+        send.cancel()
+        _ = await send.result
+    }
+
     @Test func callerCancelledRPCClosesSlowConnectionBeforeSendingAuthenticatedRequest() async throws {
         let transport = SlowConnectTimeoutTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59126)
@@ -1016,5 +1082,45 @@ private actor PhysicalCleanupGate {
         for waiter in pending {
             waiter.resume()
         }
+    }
+}
+
+private actor TeardownRegistrationGate {
+    private var entered = false
+    private var released = false
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        entered = true
+        let waitingForEntry = entryWaiters
+        entryWaiters.removeAll()
+        for waiter in waitingForEntry { waiter.resume() }
+        guard !released else { return }
+        await withCheckedContinuation {
+            releaseWaiters.append($0)
+        }
+    }
+
+    func waitUntilEntered() async {
+        guard !entered else { return }
+        await withCheckedContinuation {
+            entryWaiters.append($0)
+        }
+    }
+
+    func release() {
+        released = true
+        let waitingForRelease = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waitingForRelease { waiter.resume() }
+    }
+}
+
+private actor TeardownCompletion {
+    private(set) var isFinished = false
+
+    func finish() {
+        isFinished = true
     }
 }
