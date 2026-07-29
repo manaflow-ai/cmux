@@ -19,33 +19,20 @@ extension TaskComposerSheet {
             .model(id: selectedModelID)
     }
 
-    /// Applies the Off-variant gate to a resolved submission snapshot.
+    /// Reconciles a hidden model with the Off picker state before submission.
     ///
     /// The restored initial request (and an adopted recovery request) is
-    /// cached as already-resolved, so submitting an untouched draft skips
-    /// `makeSubmissionSnapshot` and would bypass the `selectedModel` gate.
-    /// This is the single submission-boundary chokepoint: while the picker is
-    /// Off, a hidden model captured by any cached request is stripped and the
-    /// command recomposed, keeping the same operation identifier.
-    func effectiveSubmissionSnapshot(
-        _ snapshot: MobileTaskSubmissionSnapshot
-    ) -> MobileTaskSubmissionSnapshot {
+    /// cached as already-resolved, so submitting an untouched draft would
+    /// skip `makeSubmissionSnapshot` and bypass the `selectedModel` gate.
+    /// Marking the request dirty forces resolution through the builder, whose
+    /// gate strips the model; `MobileTaskSubmissionIdentity` then mints a
+    /// fresh operation ID for the changed bytes (retries of the stripped
+    /// request stay idempotent), while completed-operation reconciliation
+    /// keeps the originally submitted snapshot.
+    func reconcileHiddenModelBeforeSubmission() {
         guard displaySettings.taskComposerModelPickerVariant.renderedVariant == .off,
-              snapshot.modelID != nil,
-              let selectedTemplate,
-              selectedTemplate.id == snapshot.templateID else {
-            return snapshot
-        }
-        return MobileTaskSubmissionSnapshot(
-            template: selectedTemplate,
-            prompt: snapshot.prompt,
-            modelID: nil,
-            macDeviceID: snapshot.macDeviceID,
-            directory: snapshot.directory,
-            workspaceName: snapshot.workspaceName,
-            didEditDirectory: snapshot.didEditDirectory,
-            operationID: snapshot.operationID
-        )
+              selectedModelID != nil else { return }
+        submissionIdentity.markRequestDirty()
     }
 
     func selectModel(_ id: String?) {

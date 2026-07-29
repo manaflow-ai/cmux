@@ -21,7 +21,10 @@ struct TaskComposerMinimalLayout: View {
     let failureTitle: String
     let failureText: String?
     let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
-    let optionsSheet: TaskComposerOptionsSheet
+    /// Deferred builder: constructing the options sheet walks workspaces for
+    /// directory candidates, so it must not run on every keystroke's body
+    /// rebuild, only when Task Options is actually presented.
+    let optionsSheet: () -> TaskComposerOptionsSheet
     let endEditing: () -> Void
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
     let selectTemplateAndModel: (MobileTaskTemplate.ID, String?) -> Void
@@ -56,7 +59,7 @@ struct TaskComposerMinimalLayout: View {
                 }
             }
             .sheet(isPresented: $isOptionsPresented) {
-                optionsSheet
+                optionsSheet()
             }
     }
 

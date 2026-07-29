@@ -341,7 +341,7 @@ struct TaskComposerSheet: View {
             failureTitle: failureTitleStyle.title,
             failureText: failureText,
             completedOperationRecovery: blockingCompletedOperationRecovery,
-            optionsSheet: minimalOptionsSheet,
+            optionsSheet: { minimalOptionsSheet },
             endEditing: resolveCompletedOperationRecoveryAfterEditing,
             selectTemplate: selectTemplateFromPicker,
             selectTemplateAndModel: selectTemplateAndModelFromPicker,
@@ -591,9 +591,9 @@ struct TaskComposerSheet: View {
     }
 
     private func submit() async {
-        guard submissionPhase.allowsSubmission,
-              let resolvedSnapshot = submissionSnapshot() else { return }
-        let snapshot = effectiveSubmissionSnapshot(resolvedSnapshot)
+        guard submissionPhase.allowsSubmission else { return }
+        reconcileHiddenModelBeforeSubmission()
+        guard let snapshot = submissionSnapshot() else { return }
         guard store.persistTaskComposerDraft(
             snapshot.draft,
             ifSessionGeneration: sessionGeneration

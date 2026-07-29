@@ -106,12 +106,27 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
             searchStart = token.upperBound
             let text = command[token]
             if text == "--" { break }
-            if Self.containsUnquotedCommandBoundary(text) { break }
-            if modelFlagSpellings.contains(where: { text == $0 }) {
+            // An unquoted ;, |, or & ends the simple command, but the token's
+            // prefix before it (e.g. `--model=old;`) is still ordinary flag
+            // syntax that must be processed so the stale value cannot win.
+            let boundary = Self.unquotedCommandBoundaryIndex(in: text)
+            let word = boundary.map { text[..<$0] } ?? text
+            if modelFlagSpellings.contains(where: { word == $0 }) {
+                if let boundary {
+                    // `--model;`: supply the value before the separator.
+                    edits.append((boundary..<boundary, " \(quotedID)"))
+                    break
+                }
                 if let value = Self.tokenRange(in: command, from: token.upperBound),
                    !command[token.upperBound..<value.lowerBound].contains(where: \.isNewline),
-                   command[value] != "--",
-                   !Self.containsUnquotedCommandBoundary(command[value]) {
+                   command[value] != "--" {
+                    let valueText = command[value]
+                    if let valueBoundary = Self.unquotedCommandBoundaryIndex(in: valueText) {
+                        // `--model old;`: replace only the value before the
+                        // separator so no stale positional argument remains.
+                        edits.append((value.lowerBound..<valueBoundary, quotedID))
+                        break
+                    }
                     edits.append((value, quotedID))
                     searchStart = value.upperBound
                 } else {
@@ -121,9 +136,10 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
                 }
                 continue
             }
-            if let spelling = modelFlagSpellings.first(where: { text.hasPrefix("\($0)=") }) {
-                edits.append((token, "\(spelling)=\(quotedID)"))
+            if let spelling = modelFlagSpellings.first(where: { word.hasPrefix("\($0)=") }) {
+                edits.append((token.lowerBound..<word.endIndex, "\(spelling)=\(quotedID)"))
             }
+            if boundary != nil { break }
         }
         if !edits.isEmpty {
             var replaced = command
@@ -150,9 +166,12 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
         }
     }
 
-    /// Whether the token carries an unquoted `;`, `|`, or `&`, i.e. ends the
-    /// first simple command mid-token (`"$PROMPT";`, `&&`, `|`).
-    private static func containsUnquotedCommandBoundary(_ token: Substring) -> Bool {
+    /// The index of the first unquoted `;`, `|`, or `&` in the token, i.e.
+    /// where the first simple command ends mid-token (`"$PROMPT";`, `&&`,
+    /// `--model=old;`). `nil` when the token carries no command boundary.
+    private static func unquotedCommandBoundaryIndex(
+        in token: Substring
+    ) -> Substring.Index? {
         var inSingleQuotes = false
         var inDoubleQuotes = false
         var current = token.startIndex
@@ -171,11 +190,11 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
                 inDoubleQuotes.toggle()
             } else if !inSingleQuotes, !inDoubleQuotes,
                       character == ";" || character == "|" || character == "&" {
-                return true
+                return current
             }
             current = token.index(after: current)
         }
-        return false
+        return nil
     }
 
     /// The next shell word starting at or after `index`. Quote-aware: single-

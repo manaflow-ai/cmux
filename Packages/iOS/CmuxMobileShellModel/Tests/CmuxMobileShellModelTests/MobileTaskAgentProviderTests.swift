@@ -209,4 +209,27 @@ import Testing
                 == "claude --model 'claude-opus-4-8'\nrun-report compact"
         )
     }
+
+    @Test(
+        arguments: [
+            (
+                "claude \"$CMUX_TASK_PROMPT\" --model=old; notify done",
+                "claude \"$CMUX_TASK_PROMPT\" --model='claude-opus-4-8'; notify done"
+            ),
+            (
+                "claude --model old; notify done",
+                "claude --model 'claude-opus-4-8'; notify done"
+            ),
+            (
+                "claude --model; notify done",
+                "claude --model 'claude-opus-4-8'; notify done"
+            ),
+        ]
+    )
+    func rewritesFlagAttachedToACommandSeparator(command: String, expected: String) {
+        #expect(
+            MobileTaskAgentProvider.claude.command(applying: "claude-opus-4-8", to: command)
+                == expected
+        )
+    }
 }
