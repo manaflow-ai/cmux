@@ -539,7 +539,10 @@ private func findFileDropOverlayView(in root: NSView?) -> FileDropOverlayView? {
 private func configureFileDropOverlay(_ overlay: FileDropOverlayView, tabManager: TabManager) {
     overlay.onDrop = { [weak tabManager] urls in
         MainActor.assumeIsolated {
-            guard let tabManager, let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
+            guard let tabManager,
+                  let terminal = tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel else {
+                return false
+            }
             return terminal.hostedView.handleDroppedURLs(urls)
         }
     }

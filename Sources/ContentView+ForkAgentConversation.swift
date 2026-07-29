@@ -64,11 +64,21 @@ extension ContentView {
             forPanelId: panelId,
             request: request
         ), !transferSelection.requiresNativeForkCapability {
-            let didFork = await currentContext.workspace.forkAgentConversation(
-                fromPanelId: panelId,
-                snapshot: transferSelection.snapshot,
-                request: request
-            )
+            let workspace = currentContext.workspace
+            let didFork: Bool
+            if let ownership = workspace.surfaceOwnershipTarget(for: panelId) {
+                didFork = await workspace.forkAgentConversation(
+                    from: ownership,
+                    snapshot: transferSelection.snapshot,
+                    request: request
+                )
+            } else {
+                didFork = await workspace.forkAgentConversation(
+                    fromPanelId: panelId,
+                    snapshot: transferSelection.snapshot,
+                    request: request
+                )
+            }
             guard didFork else {
                 clearCommandPaletteForkableAgentCache(panelKey: panelKey)
                 NSSound.beep()
@@ -79,7 +89,7 @@ extension ContentView {
 
         let allowsAgentContinuation = currentContext.workspace.allowsAgentContinuation(forPanelId: panelId)
         var fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
-        let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
+        let isRemoteContext = currentContext.workspace.isRemoteTerminalContext(panelId)
         let sharedIndex = SharedLiveAgentIndex.shared
         let liveIndexSnapshot = sharedIndex.snapshotForForkAvailability(
             workspaceId: workspaceId,
@@ -173,7 +183,8 @@ extension ContentView {
                 guard let refreshedContext = focusedPanelContext,
                       refreshedContext.workspace.id == workspaceId,
                       refreshedContext.panelId == panelId,
-                      refreshedContext.workspace.isRemoteTerminalSurface(panelId) == isRemoteContext else {
+                      refreshedContext.workspace.isRemoteTerminalContext(panelId)
+                        == isRemoteContext else {
                     return
                 }
                 let refreshedFallbackSnapshot = refreshedContext.workspace.restoredAgentSnapshotForContinuation(
@@ -258,11 +269,21 @@ extension ContentView {
         commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
         commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = selection.usedFallbackSnapshot
 
-        let didFork = await currentContext.workspace.forkAgentConversation(
-            fromPanelId: panelId,
-            snapshot: snapshot,
-            request: request
-        )
+        let workspace = currentContext.workspace
+        let didFork: Bool
+        if let ownership = workspace.surfaceOwnershipTarget(for: panelId) {
+            didFork = await workspace.forkAgentConversation(
+                from: ownership,
+                snapshot: snapshot,
+                request: request
+            )
+        } else {
+            didFork = await workspace.forkAgentConversation(
+                fromPanelId: panelId,
+                snapshot: snapshot,
+                request: request
+            )
+        }
 
         guard didFork else {
             clearCommandPaletteForkableAgentCache(panelKey: panelKey)
