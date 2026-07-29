@@ -219,7 +219,10 @@ struct WorkspaceShellView: View {
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
-                notificationUnreadCount: presentation.notificationUnreadCount
+                notificationUnreadCount: presentation.notificationUnreadCount,
+                taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
+                    ? nil
+                    : taskComposerAction
             ) {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
