@@ -13,7 +13,7 @@ extension DockSplitStore {
         for panel in panels.values { panel.close() }
         panels.removeAll()
         surfaceIdToPanelId.removeAll()
-        detachedSurfaceTransfersByPanelId.removeAll()
+        removeAllDetachedSurfaceTransfers()
         restoredTerminalScrollbackByPanelId.removeAll()
         restoredAgentLifecycle.snapshotsByPanelId.removeAll()
         restoredAgentLifecycle.resumeStatesByPanelId.removeAll()

@@ -42,7 +42,7 @@ extension DockSplitStore {
             terminalLifecycleID ?? transfer.remoteTerminalLifecycleID
         transfer.remoteTerminalAttemptID =
             attemptID ?? transfer.remoteTerminalAttemptID
-        detachedSurfaceTransfersByPanelId[panelId] = transfer
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         return true
     }
 
@@ -66,7 +66,7 @@ extension DockSplitStore {
         transfer.remoteTerminalSessionPhase = .launching
         transfer.remoteTerminalLifecycleID = terminalLifecycleID
         transfer.remoteTerminalAttemptID = attemptID
-        detachedSurfaceTransfersByPanelId[panelId] = transfer
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         return true
     }
 
@@ -152,7 +152,7 @@ extension DockSplitStore {
         transfer.remoteTerminalLifecycleID =
             terminalLifecycleID ?? transfer.remoteTerminalLifecycleID
         transfer.remoteTerminalAttemptID = nil
-        detachedSurfaceTransfersByPanelId[panelId] = transfer
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         return true
     }
 

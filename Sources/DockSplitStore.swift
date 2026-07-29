@@ -77,8 +77,146 @@ final class DockSplitStore: BonsplitDelegate {
     /// of walking every window × workspace tab on each resolution. Entries drop
     /// automatically when a store deallocates; accessed on the main actor only.
     @MainActor private static let liveStoresTable = NSHashTable<DockSplitStore>.weakObjects()
+    /// Weak, presentation-workspace-scoped ownership avoids app-wide Dock
+    /// traversal for every remote terminal lifecycle callback.
+    @MainActor private static var remoteTerminalStoresByPresentationWorkspaceID:
+        [UUID: NSHashTable<DockSplitStore>] = [:]
 
     @MainActor static var liveStores: [DockSplitStore] { liveStoresTable.allObjects }
+
+    @MainActor
+    static func liveRemoteTerminalStores(
+        presentationWorkspaceID: UUID
+    ) -> [DockSplitStore] {
+        guard let stores = remoteTerminalStoresByPresentationWorkspaceID[
+            presentationWorkspaceID
+        ] else {
+            return []
+        }
+        let liveStores = stores.allObjects
+        if liveStores.isEmpty {
+            remoteTerminalStoresByPresentationWorkspaceID.removeValue(
+                forKey: presentationWorkspaceID
+            )
+        }
+        return liveStores
+    }
+
+    func setDetachedSurfaceTransfer(
+        _ transfer: Workspace.DetachedSurfaceTransfer,
+        forPanelID panelID: UUID
+    ) {
+        let previous = detachedSurfaceTransfersByPanelId.updateValue(
+            transfer,
+            forKey: panelID
+        )
+        let previousWorkspaceID = previous.flatMap(
+            Self.remoteTerminalPresentationWorkspaceID
+        )
+        let currentWorkspaceID = Self.remoteTerminalPresentationWorkspaceID(
+            transfer
+        )
+        guard previousWorkspaceID != currentWorkspaceID else { return }
+        if let previousWorkspaceID,
+           !hasRemoteTerminalTransfer(
+               presentationWorkspaceID: previousWorkspaceID
+           ) {
+            Self.unregisterRemoteTerminalStore(
+                self,
+                presentationWorkspaceID: previousWorkspaceID
+            )
+        }
+        if let currentWorkspaceID {
+            Self.registerRemoteTerminalStore(
+                self,
+                presentationWorkspaceID: currentWorkspaceID
+            )
+        }
+    }
+
+    @discardableResult
+    func removeDetachedSurfaceTransfer(
+        forPanelID panelID: UUID
+    ) -> Workspace.DetachedSurfaceTransfer? {
+        guard let removed = detachedSurfaceTransfersByPanelId.removeValue(
+            forKey: panelID
+        ) else {
+            return nil
+        }
+        if let workspaceID = Self.remoteTerminalPresentationWorkspaceID(removed),
+           !hasRemoteTerminalTransfer(presentationWorkspaceID: workspaceID) {
+            Self.unregisterRemoteTerminalStore(
+                self,
+                presentationWorkspaceID: workspaceID
+            )
+        }
+        return removed
+    }
+
+    func removeAllDetachedSurfaceTransfers() {
+        let workspaceIDs = Set(
+            detachedSurfaceTransfersByPanelId.values.compactMap(
+                Self.remoteTerminalPresentationWorkspaceID
+            )
+        )
+        detachedSurfaceTransfersByPanelId.removeAll()
+        for workspaceID in workspaceIDs {
+            Self.unregisterRemoteTerminalStore(
+                self,
+                presentationWorkspaceID: workspaceID
+            )
+        }
+    }
+
+    private func hasRemoteTerminalTransfer(
+        presentationWorkspaceID: UUID
+    ) -> Bool {
+        detachedSurfaceTransfersByPanelId.values.contains {
+            Self.remoteTerminalPresentationWorkspaceID($0) ==
+                presentationWorkspaceID
+        }
+    }
+
+    private static func remoteTerminalPresentationWorkspaceID(
+        _ transfer: Workspace.DetachedSurfaceTransfer
+    ) -> UUID? {
+        transfer.isRemoteTerminal ? transfer.sessionRestoreWorkspaceId : nil
+    }
+
+    private static func registerRemoteTerminalStore(
+        _ store: DockSplitStore,
+        presentationWorkspaceID: UUID
+    ) {
+        let stores: NSHashTable<DockSplitStore>
+        if let existing = remoteTerminalStoresByPresentationWorkspaceID[
+            presentationWorkspaceID
+        ] {
+            stores = existing
+        } else {
+            stores = .weakObjects()
+            remoteTerminalStoresByPresentationWorkspaceID[
+                presentationWorkspaceID
+            ] = stores
+        }
+        stores.add(store)
+    }
+
+    private static func unregisterRemoteTerminalStore(
+        _ store: DockSplitStore,
+        presentationWorkspaceID: UUID
+    ) {
+        guard let stores = remoteTerminalStoresByPresentationWorkspaceID[
+            presentationWorkspaceID
+        ] else {
+            return
+        }
+        stores.remove(store)
+        if stores.allObjects.isEmpty {
+            remoteTerminalStoresByPresentationWorkspaceID.removeValue(
+                forKey: presentationWorkspaceID
+            )
+        }
+    }
 
     init(
         workspaceId: UUID,
@@ -610,7 +748,7 @@ final class DockSplitStore: BonsplitDelegate {
             panelCancellables[panelId]?.cancel()
             panelCancellables.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
-            detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
+            removeDetachedSurfaceTransfer(forPanelID: panelId)
             clearSessionRestoreState(panelId: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }

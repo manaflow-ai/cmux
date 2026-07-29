@@ -892,6 +892,42 @@ extension TerminalController: ControlWorkspaceContext {
         )
     }
 
+    private func controlClaimRemoteTerminalSessionEnd(
+        relayPort: Int?,
+        terminalLifecycleID: UUID?,
+        sessionID: String?,
+        lifecycleID: String?,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner?
+    ) -> (
+        generationIsCurrent: Bool,
+        authority: WorkspaceRemoteTerminalAuthority?
+    ) {
+        switch (sessionID, lifecycleID) {
+        case let (.some(sessionID), .some(lifecycleID)):
+            guard let expectedOwner else { return (false, nil) }
+            let claim = remoteProxyBroker.claimPTYLifecycleAfterWrapperEnd(
+                sessionID: sessionID,
+                lifecycleID: lifecycleID,
+                expectedOwner: expectedOwner
+            )
+            return (
+                claim?.wasCurrent == true,
+                claim.map {
+                    WorkspaceRemoteTerminalAuthority.persistentTransport(
+                        $0.transportKey
+                    )
+                }
+            )
+        case (nil, nil):
+            return (
+                terminalLifecycleID != nil,
+                relayPort.map(WorkspaceRemoteTerminalAuthority.relayPort)
+            )
+        case (.some, nil), (nil, .some):
+            return (false, nil)
+        }
+    }
+
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
@@ -901,31 +937,18 @@ extension TerminalController: ControlWorkspaceContext {
         lifecycleID: String?,
         lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
-        let lifecycleClaim = switch (sessionID, lifecycleID) {
+        let lifecycleOwner = switch (sessionID, lifecycleID) {
         case let (.some(sessionID), .some(lifecycleID)):
-            remoteProxyBroker.claimPTYLifecycleAfterWrapperEnd(
+            remoteProxyBroker.ptyLifecycleOwnerForWrapperEnd(
                 sessionID: sessionID,
                 lifecycleID: lifecycleID
             )
         case (nil, nil), (.some, nil), (nil, .some):
             nil
         }
-        let generationIsCurrent = switch (sessionID, lifecycleID) {
-        case (.some, .some):
-            lifecycleClaim?.wasCurrent == true &&
-                lifecycleClaim.flatMap { UUID(uuidString: $0.attachmentID) } == surfaceId
-        case (nil, nil):
-            terminalLifecycleID != nil
-        case (.some, nil), (nil, .some):
-            false
-        }
-        let terminalAuthority: WorkspaceRemoteTerminalAuthority? =
-            if let lifecycleClaim {
-                .persistentTransport(lifecycleClaim.transportKey)
-            } else if let relayPort {
-                .relayPort(relayPort)
-            } else {
-                nil
+        if let lifecycleOwner,
+           UUID(uuidString: lifecycleOwner.attachmentID) != surfaceId {
+            return .notFound
         }
         let app = AppDelegate.shared
         let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
@@ -943,8 +966,15 @@ extension TerminalController: ControlWorkspaceContext {
                   ) else {
                 return .notFound
             }
-            if !lifecycleOnly, generationIsCurrent {
-                guard let terminalAuthority else {
+            let lifecycleResolution = controlClaimRemoteTerminalSessionEnd(
+                relayPort: relayPort,
+                terminalLifecycleID: terminalLifecycleID,
+                sessionID: sessionID,
+                lifecycleID: lifecycleID,
+                expectedOwner: lifecycleOwner
+            )
+            if !lifecycleOnly, lifecycleResolution.generationIsCurrent {
+                guard let terminalAuthority = lifecycleResolution.authority else {
                     return .notFound
                 }
                 let didEnd: Bool
@@ -982,7 +1012,14 @@ extension TerminalController: ControlWorkspaceContext {
               let workspace = located?.workspace ?? fallbackWorkspace else {
             return .notFound
         }
-        if !lifecycleOnly, generationIsCurrent {
+        let lifecycleResolution = controlClaimRemoteTerminalSessionEnd(
+            relayPort: relayPort,
+            terminalLifecycleID: terminalLifecycleID,
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: lifecycleOwner
+        )
+        if !lifecycleOnly, lifecycleResolution.generationIsCurrent {
             guard workspace.markRemoteTerminalSessionEnded(
                 surfaceId: surfaceId,
                 relayPort: relayPort,

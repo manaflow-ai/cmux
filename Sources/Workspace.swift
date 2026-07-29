@@ -6350,7 +6350,9 @@ final class Workspace: Identifiable, ObservableObject {
         if activeRemoteTerminalSurfaceIds.isEmpty {
             guard !preservesRemotePTYSession else { return true }
             if hasAuthoritativelyConnectedRemoteTerminal(
-                in: DockSplitStore.liveStores,
+                in: DockSplitStore.liveRemoteTerminalStores(
+                    presentationWorkspaceID: id
+                ),
                 excludingSurfaceId: livenessExcludingSurfaceId
             ) {
                 return true

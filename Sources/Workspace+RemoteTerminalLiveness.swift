@@ -365,7 +365,9 @@ extension Workspace {
     private func applyRemoteTerminalLaunchingPresentation() {
         guard remoteConfiguration != nil,
               !hasAuthoritativelyConnectedRemoteTerminal(
-                  in: DockSplitStore.liveStores
+                  in: DockSplitStore.liveRemoteTerminalStores(
+                      presentationWorkspaceID: id
+                  )
               ) else {
             return
         }
@@ -381,7 +383,9 @@ extension Workspace {
     func reconcileRemoteTerminalPresentationAfterSessionEnd() {
         guard remoteConfiguration != nil,
               !hasAuthoritativelyConnectedRemoteTerminal(
-                  in: DockSplitStore.liveStores
+                  in: DockSplitStore.liveRemoteTerminalStores(
+                      presentationWorkspaceID: id
+                  )
               ) else {
             return
         }
@@ -395,7 +399,10 @@ extension Workspace {
                 remoteControllerConnectionState,
                 detail: remoteControllerConnectionDetail,
                 target: remoteDisplayTarget ?? "remote host",
-                externalRemoteTerminalDocks: DockSplitStore.liveStores
+                externalRemoteTerminalDocks:
+                    DockSplitStore.liveRemoteTerminalStores(
+                        presentationWorkspaceID: id
+                    )
             )
             return
         }

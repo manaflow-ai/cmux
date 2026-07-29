@@ -191,6 +191,23 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
+    /// Returns the broker owner that a wrapper-end callback must match.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The owner that must still match at claim time, or `nil` when
+    ///   the lifecycle is unknown.
+    public func ptyLifecycleOwnerForWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndOwner? {
+        let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        return queue.sync {
+            ptyLifecycleOwnership.ownerForWrapperEnd(lifecycleKey)
+        }
+    }
+
     /// Claims a generation and enqueues retirement against its exact ownership.
     ///
     /// - Parameters:
@@ -202,11 +219,47 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         sessionID: String,
         lifecycleID: String
     ) -> RemotePTYLifecycleWrapperEndClaim? {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: nil
+        )
+    }
+
+    /// Claims a generation only if its ownership still matches the caller's
+    /// already-validated transport and attachment.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    ///   - expectedOwner: The transport and attachment validated by the caller.
+    /// - Returns: The exact retired ownership, or `nil` if ownership changed.
+    @discardableResult
+    public func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: Optional(expectedOwner)
+        )
+    }
+
+    private func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner?
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
         // Claiming must stay ordered with the broker's other queue-confined
         // lifecycle mutations; cleanup is enqueued only after this sync returns.
         let claim = queue.sync {
-            ptyLifecycleOwnership.claimAfterWrapperEnd(lifecycleKey)
+            ptyLifecycleOwnership.claimAfterWrapperEnd(
+                lifecycleKey,
+                expectedOwner: expectedOwner
+            )
         }
         guard let claim else { return nil }
         queue.async { [weak self] in

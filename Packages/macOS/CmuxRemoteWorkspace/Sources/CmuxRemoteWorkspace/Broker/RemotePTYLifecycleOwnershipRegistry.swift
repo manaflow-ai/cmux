@@ -54,9 +54,17 @@ struct RemotePTYLifecycleOwnershipRegistry {
     }
 
     mutating func claimAfterWrapperEnd(
-        _ lifecycleKey: RemotePTYLifecycleKey
+        _ lifecycleKey: RemotePTYLifecycleKey,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner? = nil
     ) -> RemotePTYLifecycleWrapperEndClaim? {
-        if let owner = owners.removeValue(forKey: lifecycleKey) {
+        if let owner = owners[lifecycleKey] {
+            guard expectedOwner == nil || expectedOwner == RemotePTYLifecycleWrapperEndOwner(
+                transportKey: owner.transportKey,
+                attachmentID: owner.attachmentKey.attachmentID
+            ) else {
+                return nil
+            }
+            owners.removeValue(forKey: lifecycleKey)
             owner.commitLease.invalidate()
             let wasCurrent = currentByAttachmentStorage[owner.attachmentKey] == lifecycleKey
             if wasCurrent { currentByAttachmentStorage.removeValue(forKey: owner.attachmentKey) }
@@ -67,12 +75,35 @@ struct RemotePTYLifecycleOwnershipRegistry {
                 wasCurrent: wasCurrent
             )
         }
-        guard let endedEntry = ended.take(lifecycleKey) else { return nil }
+        guard let endedEntry = ended.entry(for: lifecycleKey),
+              expectedOwner == nil || expectedOwner == RemotePTYLifecycleWrapperEndOwner(
+                  transportKey: endedEntry.transportKey,
+                  attachmentID: endedEntry.attachmentKey.attachmentID
+              ) else {
+            return nil
+        }
+        ended.remove(lifecycleKey)
         let wasCurrent = currentByAttachmentStorage[endedEntry.attachmentKey] == nil
         return RemotePTYLifecycleWrapperEndClaim(
             transportKey: endedEntry.transportKey,
             attachmentID: endedEntry.attachmentKey.attachmentID,
             wasCurrent: wasCurrent
+        )
+    }
+
+    func ownerForWrapperEnd(
+        _ lifecycleKey: RemotePTYLifecycleKey
+    ) -> RemotePTYLifecycleWrapperEndOwner? {
+        if let owner = owners[lifecycleKey] {
+            return RemotePTYLifecycleWrapperEndOwner(
+                transportKey: owner.transportKey,
+                attachmentID: owner.attachmentKey.attachmentID
+            )
+        }
+        guard let endedEntry = ended.entry(for: lifecycleKey) else { return nil }
+        return RemotePTYLifecycleWrapperEndOwner(
+            transportKey: endedEntry.transportKey,
+            attachmentID: endedEntry.attachmentKey.attachmentID
         )
     }
 

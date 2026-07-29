@@ -26,9 +26,10 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
             guard workspace.activeRemoteSessionControllerID == controllerID else { return }
-            // A remote terminal may have moved into any already-created Dock.
-            // This bounded snapshot does not materialize stores or fan out per terminal.
-            let externalRemoteTerminalDocks = DockSplitStore.liveStores
+            let externalRemoteTerminalDocks =
+                DockSplitStore.liveRemoteTerminalStores(
+                    presentationWorkspaceID: workspace.id
+                )
             workspace.applyRemoteConnectionStateUpdate(
                 state,
                 detail: detail,

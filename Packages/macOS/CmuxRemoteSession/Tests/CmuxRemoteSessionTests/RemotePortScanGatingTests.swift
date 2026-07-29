@@ -449,6 +449,11 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
         sessionID: String,
         lifecycleID: String
     ) -> RemotePTYLifecycleOwner? { nil }
+    func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner
+    ) -> RemotePTYLifecycleWrapperEndClaim? { nil }
     func resizePTY(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
