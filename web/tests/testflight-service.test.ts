@@ -23,6 +23,7 @@ mock.module("../services/asc/client", () => ({
 }));
 
 const {
+  recordProOwnedLegacyTestflightGroup,
   enrollTester,
   findBetaTesterByEmail,
   removeTester,
@@ -281,6 +282,43 @@ describe("TestFlight ASC service", () => {
     mockImplementation(ascFetch, async () => ({ data: [] }));
 
     await expect(findBetaTesterByEmail("none@example.com")).resolves.toBeNull();
+  });
+
+  test("records legacy Pro ownership without replacing other Stack metadata", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        retained: { value: true },
+      },
+      update,
+    };
+
+    await expect(recordProOwnedLegacyTestflightGroup(user)).resolves.toBe(true);
+    expect(update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        retained: { value: true },
+        cmuxProTestflightOwnedLegacyGroupIDs: [
+          "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+        ],
+      },
+    });
+  });
+
+  test("legacy Pro ownership backfill is idempotent", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      clientReadOnlyMetadata: {
+        cmuxProTestflightOwnedLegacyGroupIDs: [
+          "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+        ],
+      },
+      update,
+    };
+
+    await expect(recordProOwnedLegacyTestflightGroup(user)).resolves.toBe(false);
+    expect(update).not.toHaveBeenCalled();
   });
 });
 

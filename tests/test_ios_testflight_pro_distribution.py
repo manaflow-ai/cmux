@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ios-testflight.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def workflow_text() -> str:
@@ -78,7 +79,14 @@ def test_external_override_skips_internal_group_assignment() -> None:
     ) in assign_job
 
 
+def test_ci_executes_this_testflight_workflow_guard() -> None:
+    ci_text = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "run: python3 tests/test_ios_testflight_pro_distribution.py" in ci_text
+
+
 if __name__ == "__main__":
     test_external_override_assigns_founders_and_pro_groups()
     test_external_override_skips_internal_group_assignment()
+    test_ci_executes_this_testflight_workflow_guard()
     print("all iOS TestFlight Pro distribution tests passed")

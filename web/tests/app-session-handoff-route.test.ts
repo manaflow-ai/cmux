@@ -8,12 +8,13 @@ process.env.NEXT_PUBLIC_STACK_PROJECT_ID = "12345678-1234-4123-8123-123456789abc
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = "test-publishable-key";
 process.env.STACK_SECRET_SERVER_KEY = "test-secret-key";
 
-const getTokens = mock(async () => ({
-  refreshToken: "fresh-refresh",
-  accessToken: "fresh-access",
+const getCurrentSessionTokens = mock(async () => ({
+  refreshToken: "validated-refresh",
+  accessToken: "validated-access",
 }));
-const createSession = mock(async () => ({ getTokens }));
-const getUser = mock(async () => ({ createSession }));
+const getUser = mock(async () => ({
+  currentSession: { getTokens: getCurrentSessionTokens },
+}));
 let durableRateLimited = false;
 const checkRateLimit = mock(async () => ({
   rateLimited: durableRateLimited,
@@ -53,18 +54,19 @@ function handoffRequest(
 describe("app session handoff", () => {
   beforeEach(() => {
     getUser.mockClear();
-    createSession.mockClear();
-    getTokens.mockClear();
+    getCurrentSessionTokens.mockClear();
     checkRateLimit.mockClear();
-    getUser.mockResolvedValue({ createSession });
+    getUser.mockResolvedValue({
+      currentSession: { getTokens: getCurrentSessionTokens },
+    });
     durableRateLimited = false;
-    getTokens.mockResolvedValue({
-      refreshToken: "fresh-refresh",
-      accessToken: "fresh-access",
+    getCurrentSessionTokens.mockResolvedValue({
+      refreshToken: "validated-refresh",
+      accessToken: "validated-access",
     });
   });
 
-  test("validates native tokens, sets Stack cookies, and redirects to the app path", async () => {
+  test("authenticates with the refresh token, reuses that session, and redirects", async () => {
     const response = await POST(handoffRequest({
       refresh_token: "native-refresh",
       access_token: "native-access",
@@ -79,26 +81,21 @@ describe("app session handoff", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(getUser).toHaveBeenCalledWith({
-      tokenStore: {
-        accessToken: "native-access",
-        refreshToken: "native-refresh",
-      },
+      tokenStore: { refreshToken: "native-refresh" },
     });
-    expect(createSession).toHaveBeenCalledWith({
-      expiresInMillis: 30 * 24 * 60 * 60 * 1000,
-    });
+    expect(getCurrentSessionTokens).toHaveBeenCalledTimes(1);
 
     const setCookie = response.headers.get("set-cookie") ?? "";
     expect(setCookie).toContain("hexclave-access=");
     expect(setCookie).toContain(
-      encodeURIComponent(JSON.stringify(["fresh-refresh", "fresh-access"])),
+      encodeURIComponent(JSON.stringify(["validated-refresh", "validated-access"])),
     );
     expect(setCookie).toContain(
       "__Host-hexclave-refresh-12345678-1234-4123-8123-123456789abc--default=",
     );
     expect(setCookie).toContain(
       encodeURIComponent(JSON.stringify({
-        refresh_token: "fresh-refresh",
+        refresh_token: "validated-refresh",
         updated_at_millis: 1_721_955_600_000,
       })),
     );

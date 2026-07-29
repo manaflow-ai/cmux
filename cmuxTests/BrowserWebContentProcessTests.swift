@@ -127,6 +127,28 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionStoreRegistryDoesNotRetainEphemeralStores() throws {
+        let suiteName = "BrowserAppSessionEphemeralStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "owned-stores"
+        )
+        weak var retainedStore: WKWebsiteDataStore?
+
+        autoreleasepool {
+            let store = WKWebsiteDataStore.nonPersistent()
+            retainedStore = store
+            registry.register(store)
+        }
+
+        #expect(retainedStore == nil)
+        #expect(registry.storesForCleanup().isEmpty)
+    }
+
+    @Test
     func browserAppSessionHTTPClientRejectsRedirects() async throws {
         let delegate = BrowserAppSessionRedirectRejectingDelegate()
         let session = URLSession(configuration: .ephemeral)

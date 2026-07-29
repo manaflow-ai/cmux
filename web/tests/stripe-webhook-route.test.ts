@@ -19,14 +19,16 @@ const recordCheckoutCompletion = mock(async () => {
 });
 const applySubscriptionUpdate = mock(async () => ({ stackUserId: "user_1", isActive: true }));
 const sendProSignupWelcome = mock(async () => {});
-const retrieveSession = mock(async () => ({
+const paidCheckoutSession = {
   id: "cs_1",
   payment_status: "paid",
   client_reference_id: "user_1",
   metadata: { app: "cmux", plan: "pro" },
   subscription: { id: "sub_1" },
   customer: { id: "cus_1" },
-}));
+};
+let retrievedCheckoutSession: Record<string, unknown> = paidCheckoutSession;
+const retrieveSession = mock(async () => retrievedCheckoutSession);
 const retrieveSubscription = mock(async () => ({
   id: "sub_1",
   customer: "cus_1",
@@ -109,6 +111,7 @@ describe("Stripe billing webhook route", () => {
       stackUserId: "user_1",
       subscriptionId: "sub_1",
     };
+    retrievedCheckoutSession = paidCheckoutSession;
     recordCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
     sendProSignupWelcome.mockClear();
@@ -169,6 +172,45 @@ describe("Stripe billing webhook route", () => {
     expect(sendProSignupWelcome).toHaveBeenCalledWith({
       session: expect.objectContaining({ id: "cs_1" }),
     });
+  });
+
+  test("defers recording and Pro email while checkout payment is pending", async () => {
+    retrievedCheckoutSession = {
+      ...paidCheckoutSession,
+      payment_status: "unpaid",
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      skipped: "checkout_payment_pending",
+    });
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+    expect(sendProSignupWelcome).not.toHaveBeenCalled();
+  });
+
+  test("records and emails a delayed Pro checkout after payment succeeds", async () => {
+    currentEvent = {
+      id: "evt_async_paid",
+      type: "checkout.session.async_payment_succeeded",
+      data: {
+        object: {
+          id: "cs_1",
+          client_reference_id: "user_1",
+          metadata: { app: "cmux", plan: "pro" },
+        },
+      },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      processed: "checkout.session.async_payment_succeeded",
+    });
+    expect(recordCheckoutCompletion).toHaveBeenCalledTimes(1);
+    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
   });
 
   test("does not run personal Pro fulfillment for a team checkout", async () => {
