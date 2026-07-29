@@ -1,6 +1,7 @@
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
+import CmuxRemoteSession
 import CmuxWorkspaces
 import Foundation
 
