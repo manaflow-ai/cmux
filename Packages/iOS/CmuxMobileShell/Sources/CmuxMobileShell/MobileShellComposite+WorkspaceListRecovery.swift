@@ -53,7 +53,12 @@ extension MobileShellComposite {
         // workspace), so the action must redial the foreground too — not the
         // aggregate recovery, which a healthy secondary Mac would divert.
         let targetMacDeviceID = (macDeviceID?.isEmpty == false) ? macDeviceID : nil
-        if let targetMacDeviceID, targetMacDeviceID != foregroundMacDeviceID {
+        // Include the retained recovery target: automatic recovery nils
+        // foregroundMacDeviceID, and retrying that same Mac must take the
+        // foreground-redial branch below (whose teardown preserves secondary
+        // state), not the cross-Mac switch whose failure cleanup does not.
+        let foregroundTargetMacDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID
+        if let targetMacDeviceID, targetMacDeviceID != foregroundTargetMacDeviceID {
             if await switchToMac(macDeviceID: targetMacDeviceID) {
                 return
             }

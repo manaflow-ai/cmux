@@ -272,23 +272,20 @@ struct WorkspaceDetailView: View {
         // visible; block interaction so keystrokes aren't silently dropped by
         // the disconnected drain path. The pill and toast overlays attach
         // after this modifier and stay tappable.
-        .allowsHitTesting(!toasts.isEnabled || effectiveConnectionStatus == .connected)
+        .allowsHitTesting(!terminalInputIsBlocked)
         #if os(iOS)
         // Hit-testing only blocks new touches: a terminal focused before the
         // drop (or autofocused on window attach) keeps its keyboard, and its
         // keystrokes drain into the disconnected path silently. Release the
         // input proxy on mount, on status changes, and on flag flips.
-        .onChange(of: effectiveConnectionStatus, initial: true) { _, status in
-            resignDisconnectedTerminalInput(status: status)
-        }
-        .onChange(of: toasts.isEnabled) { _, _ in
-            resignDisconnectedTerminalInput(status: effectiveConnectionStatus)
+        .onChange(of: terminalInputIsBlocked, initial: true) { _, isBlocked in
+            resignTerminalInputIfBlocked(isBlocked)
         }
         .onChange(of: store.selectedWorkspaceID) { _, _ in
             // A retained detail can go unavailable while hidden (the
-            // selection guard skips it); when it becomes selected again,
-            // neither status nor flag changes, so re-check on selection.
-            resignDisconnectedTerminalInput(status: effectiveConnectionStatus)
+            // selection guard skips it); when it becomes selected again the
+            // blocked predicate may not change, so re-check on selection.
+            resignTerminalInputIfBlocked(terminalInputIsBlocked)
         }
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -383,10 +380,12 @@ struct WorkspaceDetailView: View {
     }
 
     /// Same-client foreground recovery flips the store's recovery flags while
-    /// `workspace.macConnectionStatus` stays `.connected`; input safety (and
-    /// the flag-on pill) must reflect the recovery, matching the presenter's
-    /// derivation. Hidden retained details keep their raw status: the guard
-    /// only applies to the selected workspace on the foreground connection.
+    /// `workspace.macConnectionStatus` stays `.connected`; the flag-on pill
+    /// reflects the recovery, matching the presenter's derivation. Input
+    /// gating deliberately does NOT use this (see `terminalInputIsBlocked`):
+    /// a probe's "Reconnecting" display coexists with a working keyboard.
+    /// Hidden retained details keep their raw status: the guard only applies
+    /// to the selected workspace on the foreground connection.
     private var effectiveConnectionStatus: MobileMacConnectionStatus {
         if store.selectedWorkspaceID == workspace.id,
            store.selectedWorkspaceUsesForegroundConnection {
@@ -400,14 +399,33 @@ struct WorkspaceDetailView: View {
         return connectionStatus
     }
 
+    /// Input viability is narrower than the displayed status: a same-client
+    /// probe reads "Reconnecting" while the transport is still connected and
+    /// the RPC client still carries keystrokes, so blocking or resigning
+    /// there would dismiss a working keyboard mid-typing. Block only when
+    /// the workspace status itself is disconnected or foreground recovery
+    /// actually failed.
+    private var terminalInputIsBlocked: Bool {
+        guard toasts.isEnabled else { return false }
+        if connectionStatus != .connected {
+            return true
+        }
+        if store.selectedWorkspaceID == workspace.id,
+           store.selectedWorkspaceUsesForegroundConnection,
+           store.connectionRecoveryFailed {
+            return true
+        }
+        return false
+    }
+
     #if os(iOS)
-    private func resignDisconnectedTerminalInput(status: MobileMacConnectionStatus) {
+    private func resignTerminalInputIfBlocked(_ isBlocked: Bool) {
         // resignActiveInput() acts on the process-wide active surface, and
         // hidden details retained by other tab stacks observe their own
         // status; only the selected workspace may resign it, or background
         // connection churn would steal the visible terminal's keyboard.
         guard store.selectedWorkspaceID == workspace.id else { return }
-        if toasts.isEnabled, status != .connected {
+        if isBlocked {
             GhosttySurfaceView.resignActiveInput()
         }
     }
