@@ -190,7 +190,7 @@ import Testing
         ])
     }
 
-    @Test func literalPreeditCommitReplaysSubmitKey() {
+    @Test func consumedLiteralPreeditCommitDoesNotInferSubmitOwnership() {
         let actions = planner.actions(for: snapshot(
             hadMarkedText: true,
             textInputConsumed: true,
@@ -200,10 +200,7 @@ import Testing
             replaysPhysicalKeyAfterLiteralPreeditCommit: true
         ))
 
-        #expect(actions == [
-            .sendCommittedText("opaque"),
-            .sendKey(text: nil, composing: false),
-        ])
+        #expect(actions == [.sendCommittedText("opaque")])
     }
 
     @Test func replacementCommitDoesNotReplaySubmitKey() {
@@ -219,7 +216,7 @@ import Testing
         #expect(actions == [.sendCommittedText("replacement")])
     }
 
-    @Test func consumedPreeditCaretMoveReplaysHorizontalKey() {
+    @Test func consumedPreeditCaretMoveDoesNotInferTerminalOwnership() {
         let actions = planner.actions(for: snapshot(
             hasMarkedText: true,
             textInputConsumed: true,
@@ -228,7 +225,7 @@ import Testing
             replaysPhysicalKeyAfterPreeditCaretMove: true
         ))
 
-        #expect(actions == [.sendKey(text: nil, composing: false)])
+        #expect(actions.isEmpty)
     }
 
     @Test func consumedCandidateSelectionChangeRemainsOwnedByTextInput() {

@@ -116,7 +116,7 @@ struct CJKIMEMarkedSelectionTests {
         }
     }
 
-    @Test func semanticPreeditTransitionsUsePhysicalKeyRoles() throws {
+    @Test func semanticPreeditTransitionsDoNotInferTerminalOwnership() throws {
         let view = GhosttyNSView(frame: .zero)
         let probes: [(
             UInt16,
@@ -124,10 +124,10 @@ struct CJKIMEMarkedSelectionTests {
             literalCommit: Bool,
             caretMove: Bool
         )] = [
-            (UInt16(kVK_Return), [], true, false),
-            (UInt16(kVK_ANSI_KeypadEnter), [], true, false),
-            (UInt16(kVK_RightArrow), [], false, true),
-            (UInt16(kVK_LeftArrow), [], false, true),
+            (UInt16(kVK_Return), [], false, false),
+            (UInt16(kVK_ANSI_KeypadEnter), [], false, false),
+            (UInt16(kVK_RightArrow), [], false, false),
+            (UInt16(kVK_LeftArrow), [], false, false),
             (UInt16(kVK_RightArrow), [.shift], false, false),
             (UInt16(kVK_ANSI_A), [], false, false),
         ]
@@ -321,7 +321,7 @@ struct CJKIMEMarkedSelectionTests {
         #expect(forwardedText == ["α", "β", "γ", "Ω"])
     }
 
-    @Test func consumedPreeditCaretMovementAlsoReachesTerminal() async throws {
+    @Test func consumedPreeditCaretMovementRemainsInsideTextInput() async throws {
         let terminal = try await makeHostedCallbackTerminal()
         defer { tearDown(terminal) }
         terminal.surfaceView.setMarkedText(
@@ -360,10 +360,10 @@ struct CJKIMEMarkedSelectionTests {
             terminal.surfaceView.selectedRange()
                 == NSRange(location: 4, length: 0)
         )
-        #expect(forwardedKeyCodes == [UInt32(kVK_RightArrow)])
+        #expect(forwardedKeyCodes.isEmpty)
     }
 
-    @Test func literalPreeditCommitAlsoReachesTerminalSubmit() async throws {
+    @Test func literalPreeditCommitWithoutCommandDoesNotSubmit() async throws {
         let terminal = try await makeHostedCallbackTerminal()
         defer { tearDown(terminal) }
         terminal.surfaceView.setMarkedText(
@@ -401,13 +401,10 @@ struct CJKIMEMarkedSelectionTests {
         )
 
         #expect(!terminal.surfaceView.hasMarkedText())
-        #expect(forwarded.count == 2)
+        #expect(forwarded.count == 1)
         let committedText = try #require(forwarded.first)
-        let submittedKey = try #require(forwarded.last)
         #expect(committedText.keyCode == 0)
         #expect(committedText.text == "opaque")
-        #expect(submittedKey.keyCode == UInt32(kVK_Return))
-        #expect(submittedKey.text == nil)
     }
 
     @Test func outOfEventPreeditCommitUsesOneNonphysicalKeyEvent() async throws {

@@ -265,13 +265,8 @@ import Testing
             let replaysUnconsumedPhysicalKey =
                 !snapshot.textInputConsumed &&
                 !physicalKeyDuplicatesCommittedText
-            let replaysLiteralCommitKey =
-                snapshot.committedTextMatchesPreedit &&
-                snapshot.event
-                    .replaysPhysicalKeyAfterLiteralPreeditCommit
             if replaysUnconsumedPhysicalKey ||
                 snapshot.event.replaysPhysicalKeyAfterPreeditCommit ||
-                replaysLiteralCommitKey ||
                 replaysDistinctCommand {
                 actions.append(.sendKey(text: nil, composing: false))
             }
@@ -304,12 +299,6 @@ import Testing
                     composing: false
                 ),
             ]
-        }
-
-        if snapshot.textInputConsumed,
-           snapshot.preeditCaretMoved,
-           snapshot.event.replaysPhysicalKeyAfterPreeditCaretMove {
-            return [.sendKey(text: nil, composing: false)]
         }
 
         if snapshot.textInputConsumed {
