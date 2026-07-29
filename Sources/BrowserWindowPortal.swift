@@ -2546,6 +2546,12 @@ final class WindowBrowserPortal: NSObject {
             reattachRenderingState: true
         )
 
+        // AppKit layout/display calls above can synchronously re-enter this
+        // method. Let the newer generation keep its follow-up passes instead of
+        // replacing them with stale closures from this frame.
+        guard pendingHostedWebViewRefreshes[webViewId] === pending,
+              pending.generation == generation else { return }
+
         pending.asyncScheduler.schedule { [weak self, weak webView, weak containerView] in
             guard let self, let webView, let containerView else { return }
             guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }

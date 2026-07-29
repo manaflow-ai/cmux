@@ -138,16 +138,14 @@ struct DeferredActionReplacementStackTests {
             }
         }
 
-        var supersededIdentifiers: Set<Int> = []
-        for _ in 0..<(replacementCount - 1) {
-            supersededIdentifiers.insert(try #require(await deinitializationIterator.next()))
-        }
-        #expect(supersededIdentifiers == Set(0..<(replacementCount - 1)))
-
         let firedIdentifier = try #require(await releaseIterator.next())
         #expect(firedIdentifier == replacementCount - 1)
-        let finalDeinitialized = try #require(await deinitializationIterator.next())
-        #expect(finalDeinitialized == replacementCount - 1)
+
+        var deinitializedIdentifiers: Set<Int> = []
+        for _ in 0..<replacementCount {
+            deinitializedIdentifiers.insert(try #require(await deinitializationIterator.next()))
+        }
+        #expect(deinitializedIdentifiers == Set(0..<replacementCount))
 
         let snapshot = recorder.snapshot
         #expect(snapshot.count == replacementCount)
