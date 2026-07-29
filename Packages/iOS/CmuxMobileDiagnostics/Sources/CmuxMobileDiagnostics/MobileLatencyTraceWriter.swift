@@ -29,7 +29,10 @@ final class MobileLatencyTraceWriter: Sendable {
             var lines: [String] = []
             lines.reserveCapacity(min(count, maximumCount) + (droppedCount > 0 ? 1 : 0))
             if droppedCount > 0 {
-                lines.append("LAT trace.dropped n=\(droppedCount)")
+                let uptimeMicroseconds = DispatchTime.now().uptimeNanoseconds / 1_000
+                lines.append(
+                    "LAT trace.dropped t=\(uptimeMicroseconds) n=\(droppedCount) side=ios"
+                )
                 droppedCount = 0
             }
             let drainedCount = min(count, maximumCount)

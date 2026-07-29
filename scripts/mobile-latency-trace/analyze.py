@@ -67,6 +67,7 @@ class Analysis:
     echo_hops_ms: dict[str, list[float]]
     cross_clock_enabled: bool
     warning: str | None
+    dropped_stamps_by_side: dict[str, int]
 
 
 def parse_log(text: str, source: str) -> list[Stamp]:
@@ -338,6 +339,13 @@ def mac_frame_chain(
 def analyze(mac_stamps: list[Stamp], ios_stamps: list[Stamp], same_clock: bool) -> Analysis:
     mac = by_stage(mac_stamps)
     ios = by_stage(ios_stamps)
+    dropped_stamps_by_side: dict[str, int] = {}
+    for stamp in mac.get("trace.dropped", []) + ios.get("trace.dropped", []):
+        count = stamp.integer("n")
+        if count is None or count <= 0:
+            continue
+        side = stamp.fields.get("side", stamp.source)
+        dropped_stamps_by_side[side] = dropped_stamps_by_side.get(side, 0) + count
     metrics: dict[str, list[float]] = {name: [] for name in BASE_METRICS}
     echo_hops: dict[str, list[float]] = {}
     input_pairs = pair_input_batches(ios)
@@ -536,7 +544,13 @@ def analyze(mac_stamps: list[Stamp], ios_stamps: list[Stamp], same_clock: bool) 
             for name, start, end in hops:
                 add_duration(echo_hops, name, start, end)
 
-    return Analysis(metrics, echo_hops, cross_clock_enabled, warning)
+    return Analysis(
+        metrics,
+        echo_hops,
+        cross_clock_enabled,
+        warning,
+        dropped_stamps_by_side,
+    )
 
 
 def percentile(values: list[float], fraction: float) -> float:
@@ -586,6 +600,18 @@ def markdown_table(title: str, metrics: dict[str, list[float]]) -> str:
 
 def render_markdown(analysis: Analysis) -> str:
     sections: list[str] = []
+    if analysis.dropped_stamps_by_side:
+        counts = ", ".join(
+            f"{side}={count}"
+            for side, count in sorted(analysis.dropped_stamps_by_side.items())
+        )
+        sections.extend([
+            (
+                "WARNING: LATENCY TRACE DROPPED STAMPS "
+                f"({counts}). Tables below use a partial sample."
+            ),
+            "",
+        ])
     if analysis.warning:
         sections.extend([analysis.warning, ""])
     sections.append(markdown_table("Latency summary", analysis.metrics_ms))
@@ -619,6 +645,7 @@ LAT gate t=11100 s=aaaaaaaa seq=20 out=delivered
 LAT ap.yield t=11200 s=aaaaaaaa seq=20
 LAT ap.done t=11600 s=aaaaaaaa seq=20 path=verified us=400
 LAT rd.present t=12000 s=aaaaaaaa seq=20
+LAT trace.dropped t=12100 n=7 side=ios
 """
     mac_fixture = """
 LAT host.in.recv t=1200 s=aaaaaaaa bytes=1
@@ -636,6 +663,7 @@ LAT host.in.applied t=10300 s=aaaaaaaa seq=20
 LAT host.grid t=10600 s=aaaaaaaa seq=20 exp_us=250 bytes=120 kind=delta
 LAT host.enq t=10700 s=aaaaaaaa conn=11111111 seq=20 depth=1
 LAT host.write t=10900 s=aaaaaaaa conn=11111111 seq=20 us=200
+LAT trace.dropped t=11000 n=3 side=mac
 """
     result = analyze(
         parse_log(mac_fixture, "mac"),
@@ -643,6 +671,11 @@ LAT host.write t=10900 s=aaaaaaaa conn=11111111 seq=20 us=200
         same_clock=True,
     )
     assert result.cross_clock_enabled
+    assert result.dropped_stamps_by_side == {"mac": 3, "ios": 7}
+    drop_warning = render_markdown(result)
+    assert "WARNING: LATENCY TRACE DROPPED STAMPS" in drop_warning
+    assert "ios=7" in drop_warning
+    assert "mac=3" in drop_warning
     assert len(parse_log("noise LAT gate t=7 s=aaaaaaaa seq=1 out=delivered", "ios")) == 1
     assert summary(result.metrics_ms["Input RTT"])["p50"] == 0.345
     assert summary(result.metrics_ms["Probe E2E echo"])["p50"] == 1.75
@@ -744,6 +777,7 @@ def main() -> int:
                 {
                     "cross_clock_enabled": analysis.cross_clock_enabled,
                     "warning": analysis.warning,
+                    "dropped_stamps_by_side": analysis.dropped_stamps_by_side,
                     "metrics_ms": analysis.metrics_ms,
                     "echo_hops_ms": analysis.echo_hops_ms,
                 },

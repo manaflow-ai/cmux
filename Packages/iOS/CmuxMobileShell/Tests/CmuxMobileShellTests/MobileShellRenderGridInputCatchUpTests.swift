@@ -37,6 +37,8 @@ import Testing
     let retryArmed = try await pollUntil { retryClock.sleeperCount == 1 }
     #expect(retryArmed, "a fresh ACK must arm one deferred subscription retry")
     #expect(await router.count(of: "mobile.events.subscribe") == subscribeCount)
+    let replayCountBeforeRetry = await router.count(of: "mobile.terminal.replay")
+    await router.dropSubscription()
 
     clock.advance(by: MobileShellComposite.terminalInputAckResubscribeSilenceThreshold)
     retryClock.advance(
@@ -47,6 +49,14 @@ import Testing
         atLeast: subscribeCount + 1
     )
     #expect(retried, "the deferred retry must re-subscribe when the freshness window expires")
+    let replayed = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountBeforeRetry + 1
+    )
+    #expect(
+        replayed,
+        "a retry that reinstalls a lost registration must request catch-up replay for the missed render-grid frame"
+    )
     collector.unmount()
 }
 

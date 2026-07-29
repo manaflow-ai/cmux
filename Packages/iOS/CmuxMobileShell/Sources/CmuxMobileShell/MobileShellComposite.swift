@@ -7700,17 +7700,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // host-side condition), so no listener restart is needed.
                     MobileDebugLog.anchormux("sync.liveness probe_repaired silentMs=\(Int(silent * 1000))")
                     mobileShellLog.info("liveness probe reinstalled a lost event subscription, replaying mounted surfaces")
-                    for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
-                        self.requestAuthoritativeTerminalResync(
-                            surfaceID: surfaceID,
-                            reason: "liveness_probe_repaired"
-                        )
-                    }
-                    // The same registration carries `workspace.updated` and
-                    // `mobile.sync.delta`, so list changes emitted during the
-                    // gap were missed too; repair through the mode-appropriate
-                    // authoritative path.
-                    self.repairMissedEventWindow()
+                    self.repairLostTerminalEventSubscription(
+                        reason: "liveness_probe_repaired"
+                    )
                 } else {
                     MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
                 }
@@ -7910,7 +7902,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.terminalInputAckResubscribeRetryTaskID = nil
             self.terminalInputAckResubscribeRetrySurfaceID = nil
             guard self.connectionState == .connected,
-                  self.remoteClient != nil,
+                  let client = self.remoteClient,
                   self.terminalEventListenerID == listenerID,
                   self.terminalEventListenerTask != nil,
                   self.lastTerminalEventAt == lastTerminalEventAt,
@@ -7919,8 +7911,48 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             else {
                 return
             }
-            self.refreshTerminalEventSubscription(reason: "input_seq_wait_retry")
+            let ack = await self.requestTerminalEventSubscription(
+                client: client,
+                reason: "input_seq_wait_retry",
+                topics: self.terminalOutputTransport.eventTopics
+            )
+            guard !Task.isCancelled,
+                  self.connectionState == .connected,
+                  self.remoteClient === client,
+                  self.terminalEventListenerID == listenerID,
+                  self.terminalEventListenerTask != nil,
+                  self.lastTerminalEventAt == lastTerminalEventAt,
+                  self.pendingTerminalByteEndSeqBySurfaceID[surfaceID] == pendingSeq,
+                  (self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0) < pendingSeq,
+                  case .subscribed(let alreadySubscribed) = ack
+            else {
+                return
+            }
+            if alreadySubscribed == false {
+                self.repairLostTerminalEventSubscription(
+                    reason: "input_seq_wait_retry"
+                )
+            } else {
+                self.requestAuthoritativeTerminalResync(
+                    surfaceID: surfaceID,
+                    reason: "input_seq_wait_retry"
+                )
+            }
         }
+    }
+
+    /// Repairs every collection carried by a host registration that was absent.
+    private func repairLostTerminalEventSubscription(reason: String) {
+        for surfaceID in terminalByteContinuationsBySurfaceID.keys {
+            requestAuthoritativeTerminalResync(
+                surfaceID: surfaceID,
+                reason: reason
+            )
+        }
+        // The same registration carries `workspace.updated` and
+        // `mobile.sync.delta`, so list changes emitted during the gap were
+        // missed too; repair through the mode-appropriate authoritative path.
+        repairMissedEventWindow()
     }
 
     /// Cancels the one-shot ACK retry, optionally only for its owning surface.
