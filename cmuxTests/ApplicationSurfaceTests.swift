@@ -1,8 +1,11 @@
 import AppKit
+import Bonsplit
 import Carbon.HIToolbox
+import CmuxAppKitSupportUI
 import CmuxControlSocket
 import CmuxExtensionKit
 import CmuxSettings
+import SwiftUI
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -90,6 +93,56 @@ struct ApplicationSurfaceTests {
         #expect(window.firstResponder !== view)
         #expect(view.isReleasingForwardedInput)
         await view.waitUntilForwardedInputReleased()
+    }
+
+    @Test func inactiveWorkspaceHostRevokesApplicationCaptureInputOwnership() throws {
+        let settingKey = PaneFirstClickFocusSettings.enabledKey
+        let previousSetting = UserDefaults.standard.object(forKey: settingKey)
+        UserDefaults.standard.set(true, forKey: settingKey)
+        defer {
+            if let previousSetting {
+                UserDefaults.standard.set(previousSetting, forKey: settingKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: settingKey)
+            }
+        }
+
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+        let size = NSSize(width: 400, height: 300)
+        let hostingView = NSHostingView(
+            rootView: applicationPanelContent(
+                panel: panel,
+                allowsPointerInput: false
+            )
+        )
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.orderBack(nil)
+        defer {
+            panel.close()
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+
+        settleApplicationPanel(hostingView)
+        let captureView = try #require(
+            firstApplicationCaptureView(in: hostingView)
+        )
+
+        #expect(!captureView.acceptsFirstMouse(for: nil))
     }
 
     @Test func applicationInputConnectionCanOwnStartBeforeSessionIDExists() {
@@ -1284,6 +1337,62 @@ struct ApplicationSurfaceTests {
         view.mouseDown(with: event)
         #expect(workspace.focusedPanelId == panel.id)
         panel.close()
+    }
+
+    private func applicationPanelContent(
+        panel: ApplicationPanel,
+        allowsPointerInput: Bool
+    ) -> PanelContentView {
+        PanelContentView(
+            panel: panel,
+            workspaceId: panel.workspaceId,
+            paneId: PaneID(),
+            isFocused: false,
+            isSelectedInPane: true,
+            isVisibleInUI: true,
+            allowsPointerInput: allowsPointerInput,
+            portalPriority: 0,
+            isSplit: false,
+            appearance: PanelAppearance(
+                backgroundColor: .windowBackgroundColor,
+                foregroundColor: .labelColor,
+                dividerColor: Color(nsColor: .separatorColor),
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0,
+                usesClearContentBackground: false
+            ),
+            windowAppearance: .rightSidebarPanelViewTestDefault,
+            customSidebarTabManager: nil,
+            hasUnreadNotification: false,
+            terminalAgentContext: "",
+            onFocus: {},
+            onRequestPanelFocus: {},
+            onResumeAgentHibernation: {},
+            onAutoResumeAgentHibernation: {},
+            onTriggerFlash: {}
+        )
+    }
+
+    private func firstApplicationCaptureView(
+        in view: NSView
+    ) -> ApplicationCaptureView? {
+        if let captureView = view as? ApplicationCaptureView {
+            return captureView
+        }
+        for subview in view.subviews {
+            if let captureView = firstApplicationCaptureView(in: subview) {
+                return captureView
+            }
+        }
+        return nil
+    }
+
+    private func settleApplicationPanel(_ view: NSView) {
+        for _ in 0..<4 {
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
     }
 }
 
