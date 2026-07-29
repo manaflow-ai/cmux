@@ -40,8 +40,60 @@ public struct BrowserAppSessionHandoff: Sendable {
             forHTTPHeaderField: "Content-Type"
         )
         request.setValue("1", forHTTPHeaderField: "X-Cmux-App-Session-Handoff")
+        request.setValue("cookies", forHTTPHeaderField: "X-Cmux-App-Session-Response")
         request.httpBody = body.data(using: .utf8)
         return request
+    }
+
+    /// Extracts the complete Stack cookie pair from a native exchange response.
+    /// Returning `nil` fails the handoff closed when the server, a proxy, or an
+    /// authentication failure returns anything except the expected response.
+    public func sessionCookies(
+        from response: HTTPURLResponse,
+        projectID: String
+    ) -> [HTTPCookie]? {
+        guard response.statusCode == 204,
+              response.value(forHTTPHeaderField: "X-Cmux-App-Session-Handoff") == "ready",
+              let responseURL = response.url,
+              BrowserAppWebOrigin(webOrigin).contains(responseURL) else {
+            return nil
+        }
+
+        let headerFields = response.allHeaderFields.reduce(into: [String: String]()) {
+            result, entry in
+            guard let name = entry.key as? String,
+                  let value = entry.value as? String else {
+                return
+            }
+            result[name] = value
+        }
+        let cookies = HTTPCookie.cookies(
+            withResponseHeaderFields: headerFields,
+            for: responseURL
+        ).filter {
+            shouldDeleteCookie(
+                name: $0.name,
+                domain: $0.domain,
+                projectID: projectID
+            )
+        }
+        let names = Set(cookies.map(\.name))
+        let accessNames = ["stack-access", "hexclave-access"]
+        let refreshNames = [
+            "stack-refresh-\(projectID)",
+            "hexclave-refresh-\(projectID)",
+        ]
+        let prefixes = ["", "__Host-", "__Secure-"]
+        let hasAccess = prefixes.contains { prefix in
+            accessNames.contains { names.contains("\(prefix)\($0)") }
+        }
+        let hasRefresh = prefixes.contains { prefix in
+            refreshNames.contains { base in
+                names.contains("\(prefix)\(base)")
+                    || names.contains { $0.hasPrefix("\(prefix)\(base)--") }
+            }
+        }
+        return hasAccess && hasRefresh ? cookies : nil
     }
 
     /// Returns whether a Stack session cookie belongs to this handoff's origin.

@@ -3776,35 +3776,43 @@ final class Workspace: Identifiable, ObservableObject {
                   mountedSource === sourcePanel else {
                 return
             }
-            let request = await AppDelegate.shared?.auth?.browserAppSession.request(
+            guard let auth = AppDelegate.shared?.auth else { return }
+            guard let navigation = await auth.browserAppSession.request(
                 destinationURL: destinationURL,
-                profileID: sourcePanel.profileID
-            ) ?? URLRequest(url: destinationURL)
+                websiteDataStore: sourcePanel.websiteDataStore
+            ) else {
+                auth.browserSignIn.beginSignIn()
+                return
+            }
 
             guard let currentSource = self.panels[sourcePanel.id] as? BrowserPanel,
-                  currentSource === sourcePanel else {
+                  currentSource === sourcePanel,
+                  auth.browserAppSession.isCurrent(
+                      generation: navigation.generation
+                  ) else {
                 return
             }
             if let targetPane = self.preferredRightSideTargetPane(
                 fromPanelId: sourcePanel.id
             ), self.newBrowserSurface(
                 inPane: targetPane,
-                initialRequest: request,
+                initialRequest: navigation.request,
                 focus: true,
-                preferredProfileID: sourcePanel.profileID
+                preferredProfileID: sourcePanel.profileID,
+                websiteDataStore: navigation.websiteDataStore
             ) != nil {
                 return
             }
             if self.newBrowserSplit(
                 from: sourcePanel.id,
                 orientation: .horizontal,
-                initialRequest: request,
+                initialRequest: navigation.request,
                 preferredProfileID: sourcePanel.profileID,
-                focus: true
+                focus: true,
+                websiteDataStore: navigation.websiteDataStore
             ) != nil {
                 return
             }
-            _ = NSWorkspace.shared.open(destinationURL)
         }
         return true
     }
@@ -7772,7 +7780,8 @@ final class Workspace: Identifiable, ObservableObject {
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         // No local browser surfaces in a remote tmux mirror workspace (it is a
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
@@ -7817,7 +7826,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -7890,7 +7900,8 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
-        bypassRemoteProxy: Bool = false
+        bypassRemoteProxy: Bool = false,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
@@ -7929,7 +7940,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel

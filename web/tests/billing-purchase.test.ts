@@ -1101,7 +1101,9 @@ describe("recordCheckoutCompletion", () => {
     );
 
     expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
-    expect(removeTester).toHaveBeenCalledWith("buyer@example.com");
+    expect(removeTester).toHaveBeenCalledWith("buyer@example.com", {
+      removeLegacyFounderMembership: true,
+    });
     expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values).not.toHaveProperty(
       "id",
     );

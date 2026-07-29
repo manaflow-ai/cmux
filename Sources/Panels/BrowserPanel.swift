@@ -4065,7 +4065,8 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -4083,9 +4084,11 @@ final class BrowserPanel: Panel, ObservableObject {
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
         self.usesTransparentBackground = transparentBackground
-        let websiteDataStore = isRemoteWorkspace
-            ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
-            : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+        let websiteDataStore = explicitWebsiteDataStore ?? (
+            isRemoteWorkspace
+                ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
+                : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+        )
         self.websiteDataStore = websiteDataStore
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false

@@ -23,7 +23,7 @@ import {
 } from "./pro";
 import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
-import { removeTester } from "../asc/testflight";
+import { removeTester, type RemoveTesterOptions } from "../asc/testflight";
 import { captureAscError } from "../errors";
 
 export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
@@ -89,7 +89,10 @@ type BillingPurchaseDependencies = {
   stripeClient?: () => StripeBillingClient;
   testflight?: {
     isAscConfigured?: () => boolean;
-    removeTester?: (email: string) => Promise<void>;
+    removeTester?: (
+      email: string,
+      options?: RemoveTesterOptions,
+    ) => Promise<void>;
     captureAscError?: (
       error: unknown,
       context?: Record<string, string | number | boolean | null | undefined>,
@@ -601,7 +604,10 @@ async function removeUserFromTestflightOnLapse(
   if (!user.primaryEmail) return;
 
   try {
-    await (dependencies.testflight?.removeTester ?? removeTester)(user.primaryEmail);
+    await (dependencies.testflight?.removeTester ?? removeTester)(
+      user.primaryEmail,
+      { removeLegacyFounderMembership: true },
+    );
   } catch (error) {
     (dependencies.testflight?.captureAscError ?? captureAscError)(error, {
       route: "/api/stripe/webhook",

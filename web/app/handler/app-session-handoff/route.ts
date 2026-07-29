@@ -12,6 +12,7 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 60;
 const RATE_LIMIT_MAX_ENTRIES = 2_048;
 const APP_HANDOFF_HEADER = "x-cmux-app-session-handoff";
+const APP_HANDOFF_RESPONSE_HEADER = "x-cmux-app-session-response";
 
 type StackAuthSessionLike = {
   getTokens: () => Promise<{
@@ -70,6 +71,23 @@ function signInRedirect(request: NextRequest, afterPath: string): NextResponse {
   const target = new URL("/handler/sign-in", request.nextUrl.origin);
   target.searchParams.set("after_auth_return_to", afterPath);
   return NextResponse.redirect(target, 303);
+}
+
+function requestsCookieExchange(request: NextRequest): boolean {
+  return request.headers.get(APP_HANDOFF_RESPONSE_HEADER) === "cookies";
+}
+
+function handoffFailure(
+  request: NextRequest,
+  afterPath: string,
+): NextResponse {
+  if (requestsCookieExchange(request)) {
+    return new NextResponse(null, {
+      status: 401,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  return signInRedirect(request, afterPath);
 }
 
 function requestRateLimitKey(request: NextRequest): string {
@@ -236,12 +254,12 @@ export function makeAppSessionHandoffHandler(
       || isRateLimited(request)
       || await isDurablyRateLimited(request, dependencies)
     ) {
-      return signInRedirect(request, afterPath);
+      return handoffFailure(request, afterPath);
     }
 
     const refreshToken = form.get("refresh_token")?.trim();
     const accessToken = form.get("access_token")?.trim();
-    if (!refreshToken) return signInRedirect(request, afterPath);
+    if (!refreshToken) return handoffFailure(request, afterPath);
 
     try {
       const user = await app.getUser({
@@ -250,29 +268,35 @@ export function makeAppSessionHandoffHandler(
           refreshToken,
         },
       });
-      if (!user) return signInRedirect(request, afterPath);
+      if (!user) return handoffFailure(request, afterPath);
 
       const session = await user.createSession({
         expiresInMillis: SESSION_EXPIRES_IN_MS,
       });
       const tokens = await session.getTokens();
       if (!tokens.refreshToken || !tokens.accessToken) {
-        return signInRedirect(request, afterPath);
+        return handoffFailure(request, afterPath);
       }
 
-      const response = NextResponse.redirect(
-        new URL(afterPath, request.nextUrl.origin),
-        303,
-      );
+      const cookieExchange = requestsCookieExchange(request);
+      const response = cookieExchange
+        ? new NextResponse(null, { status: 204 })
+        : NextResponse.redirect(
+          new URL(afterPath, request.nextUrl.origin),
+          303,
+        );
       setStackSessionCookies(response, request, projectId, {
         refreshToken: tokens.refreshToken,
         accessToken: tokens.accessToken,
       }, dependencies.now?.() ?? Date.now());
       response.headers.set("Cache-Control", "no-store");
       response.headers.set("Referrer-Policy", "no-referrer");
+      if (cookieExchange) {
+        response.headers.set("X-Cmux-App-Session-Handoff", "ready");
+      }
       return response;
     } catch {
-      return signInRedirect(request, afterPath);
+      return handoffFailure(request, afterPath);
     }
   };
 }

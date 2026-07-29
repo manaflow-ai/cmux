@@ -25,6 +25,7 @@ public final class HostBrowserSignInFlow {
     /// Opens a URL in the user's default browser. Returns `true` when the
     /// launch was handed to a browser, `false` when it could not be opened.
     @ObservationIgnored private let openExternalURL: @MainActor (URL) -> Bool
+    @ObservationIgnored private let onSignedIn: @MainActor @Sendable () -> Void
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
@@ -59,6 +60,8 @@ public final class HostBrowserSignInFlow {
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30,
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
+        localSignOut: @escaping @MainActor @Sendable () async -> Void = {},
+        onSignedIn: @escaping @MainActor @Sendable () -> Void = {},
         onSignedOut: @escaping @Sendable (
             _ accessToken: String?,
             _ refreshToken: String?
@@ -77,8 +80,10 @@ public final class HostBrowserSignInFlow {
         deadline = HostBrowserDeadline(clock: clock)
         signOutCoordinator = HostBrowserSignOutCoordinator(
             beginSignOut: beginSignOut,
+            localSignOut: localSignOut,
             signOut: { await coordinator.signOut(onSignedOut: onSignedOut) }
         )
+        self.onSignedIn = onSignedIn
     }
 
     /// Start a browser sign-in without awaiting the result (Settings button).
@@ -453,6 +458,7 @@ public final class HostBrowserSignInFlow {
             pendingFallbackCallbackState = nil
         }
         lastFailure = nil
+        onSignedIn()
         return true
     }
 

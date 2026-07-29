@@ -3,13 +3,24 @@ import CmuxBrowser
 import Foundation
 import WebKit
 
+/// Exchanges the native Stack session for browser cookies without allowing
+/// WebKit navigation to own the exchange lifecycle.
 @MainActor
 final class BrowserAppSessionController {
     private let coordinator: AuthCoordinator
     private let handoff: BrowserAppSessionHandoff
     private let projectID: String
+    private let session: URLSession
     private var generation: UInt64 = 0
-    private let handoffStores = NSHashTable<WKWebsiteDataStore>.weakObjects()
+    private var acceptsHandoffs = true
+    private var activeTasks: [
+        UUID: Task<(
+            request: URLRequest,
+            websiteDataStore: WKWebsiteDataStore,
+            generation: UInt64
+        )?, Never>
+    ] = [:]
+    private var handoffStores: [ObjectIdentifier: WKWebsiteDataStore] = [:]
 
     init(
         coordinator: AuthCoordinator,
@@ -19,16 +30,87 @@ final class BrowserAppSessionController {
         self.coordinator = coordinator
         handoff = BrowserAppSessionHandoff(webOrigin: webOrigin)
         self.projectID = projectID
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        session = URLSession(configuration: configuration)
     }
 
     func request(
         destinationURL: URL,
-        profileID: UUID
-    ) async -> URLRequest? {
+        websiteDataStore: WKWebsiteDataStore
+    ) async -> (
+        request: URLRequest,
+        websiteDataStore: WKWebsiteDataStore,
+        generation: UInt64
+    )? {
+        guard acceptsHandoffs else { return nil }
         let requestGeneration = generation
-        let store = BrowserProfileStore.shared.websiteDataStore(for: profileID)
-        handoffStores.add(store)
+        handoffStores[ObjectIdentifier(websiteDataStore)] = websiteDataStore
+        let operationID = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return nil }
+            return await performHandoff(
+                destinationURL: destinationURL,
+                websiteDataStore: websiteDataStore,
+                requestGeneration: requestGeneration
+            )
+        }
+        activeTasks[operationID] = task
+        let navigation = await task.value
+        activeTasks.removeValue(forKey: operationID)
+        return navigation
+    }
 
+    func isCurrent(generation requestGeneration: UInt64) -> Bool {
+        acceptsHandoffs && requestGeneration == generation
+    }
+
+    /// Synchronously closes the handoff admission gate and cancels every
+    /// exchange before sign-out performs its first await.
+    func beginSignOut() {
+        acceptsHandoffs = false
+        generation &+= 1
+        for task in activeTasks.values {
+            task.cancel()
+        }
+    }
+
+    func resumeAfterSignIn() {
+        acceptsHandoffs = true
+    }
+
+    /// Joins cancelled exchanges before deleting the exact stores that received
+    /// app-session cookies. No unrelated browser profile is swept.
+    func clearCmuxWebSession() async {
+        let tasks = Array(activeTasks.values)
+        for task in tasks {
+            task.cancel()
+        }
+        for task in tasks {
+            _ = await task.value
+        }
+        activeTasks.removeAll()
+
+        let stores = Array(handoffStores.values)
+        handoffStores.removeAll()
+        for store in stores {
+            await clearCmuxWebSession(in: store)
+        }
+    }
+
+    private func performHandoff(
+        destinationURL: URL,
+        websiteDataStore: WKWebsiteDataStore,
+        requestGeneration: UInt64
+    ) async -> (
+        request: URLRequest,
+        websiteDataStore: WKWebsiteDataStore,
+        generation: UInt64
+    )? {
         let tokens: BrowserAppSessionTokens?
         if let current = try? await coordinator.currentTokens() {
             tokens = BrowserAppSessionTokens(
@@ -45,35 +127,47 @@ final class BrowserAppSessionController {
             tokens = nil
         }
 
-        guard requestGeneration == generation, let tokens else { return nil }
-        return handoff.request(destinationURL: destinationURL, tokens: tokens)
-    }
-
-    func clearCmuxWebSession() async {
-        generation &+= 1
-        let stores = trackedWebsiteDataStores()
-        handoffStores.removeAllObjects()
-        for store in stores {
-            await clearCmuxWebSession(in: store)
+        guard handoffIsCurrent(requestGeneration),
+              let tokens,
+              let exchangeRequest = handoff.request(
+                  destinationURL: destinationURL,
+                  tokens: tokens
+              ) else {
+            return nil
         }
-    }
 
-    private func trackedWebsiteDataStores() -> [WKWebsiteDataStore] {
-        var stores = Dictionary(
-            uniqueKeysWithValues: handoffStores.allObjects.map { store in
-                (ObjectIdentifier(store), store)
-            }
+        let response: URLResponse
+        do {
+            let result = try await session.data(for: exchangeRequest)
+            response = result.1
+        } catch {
+            return nil
+        }
+        guard handoffIsCurrent(requestGeneration),
+              let httpResponse = response as? HTTPURLResponse,
+              let cookies = handoff.sessionCookies(
+                  from: httpResponse,
+                  projectID: projectID
+              ) else {
+            return nil
+        }
+
+        await clearCmuxWebSession(in: websiteDataStore)
+        guard handoffIsCurrent(requestGeneration) else { return nil }
+        for cookie in cookies {
+            await set(cookie, in: websiteDataStore.httpCookieStore)
+            guard handoffIsCurrent(requestGeneration) else { return nil }
+        }
+
+        return (
+            URLRequest(url: destinationURL),
+            websiteDataStore,
+            requestGeneration
         )
-        let profileStore = BrowserProfileStore.shared
-        stores[ObjectIdentifier(WKWebsiteDataStore.default())] = WKWebsiteDataStore.default()
-        stores[ObjectIdentifier(
-            profileStore.websiteDataStore(for: profileStore.builtInDefaultProfileID)
-        )] = profileStore.websiteDataStore(for: profileStore.builtInDefaultProfileID)
-        for profile in profileStore.profiles {
-            let store = profileStore.websiteDataStore(for: profile.id)
-            stores[ObjectIdentifier(store)] = store
-        }
-        return Array(stores.values)
+    }
+
+    private func handoffIsCurrent(_ requestGeneration: UInt64) -> Bool {
+        acceptsHandoffs && !Task.isCancelled && requestGeneration == generation
     }
 
     private func clearCmuxWebSession(in store: WKWebsiteDataStore) async {
@@ -99,6 +193,15 @@ final class BrowserAppSessionController {
     ) async {
         await withCheckedContinuation { continuation in
             store.delete(cookie) { continuation.resume() }
+        }
+    }
+
+    private func set(
+        _ cookie: HTTPCookie,
+        in store: WKHTTPCookieStore
+    ) async {
+        await withCheckedContinuation { continuation in
+            store.setCookie(cookie) { continuation.resume() }
         }
     }
 }

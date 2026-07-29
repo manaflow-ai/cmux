@@ -7,6 +7,16 @@ import { env } from "../../app/env";
 export const PRO_TESTFLIGHT_GROUP_ID =
   env.CMUX_PRO_TESTFLIGHT_GROUP_ID ||
   "34fbede5-3880-4560-b1bb-a45787249780";
+export const FOUNDER_TESTFLIGHT_GROUP_ID =
+  "3ee84bfa-10ad-4f23-a45c-f9a3b037373e";
+
+export type RemoveTesterOptions = {
+  /**
+   * Before the dedicated Pro group existed, Pro testers were added to the
+   * Founder group. This fallback is reserved for a Pro subscription lapse.
+   */
+  readonly removeLegacyFounderMembership?: boolean;
+};
 
 type JsonApiResource = {
   readonly id: string;
@@ -51,12 +61,14 @@ export async function testerGroupStatus(
 }
 
 async function testerIsInProGroup(testerId: string): Promise<boolean> {
+  return (await testerGroupIDs(testerId)).has(PRO_TESTFLIGHT_GROUP_ID);
+}
+
+async function testerGroupIDs(testerId: string): Promise<Set<string>> {
   const response = await ascFetch<JsonApiList>(
     `/v1/betaTesters/${encodeURIComponent(testerId)}/betaGroups?limit=200`,
   );
-  return Boolean(
-    response.data?.some((group) => group.id === PRO_TESTFLIGHT_GROUP_ID),
-  );
+  return new Set(response.data?.map((group) => group.id) ?? []);
 }
 
 export async function enrollTester(
@@ -101,14 +113,35 @@ export async function enrollTester(
   }
 }
 
-export async function removeTester(email: string): Promise<void> {
+export async function removeTester(
+  email: string,
+  options: RemoveTesterOptions = {},
+): Promise<void> {
   const tester = await findBetaTesterByEmail(email);
   if (!tester) return;
+  let groupID = PRO_TESTFLIGHT_GROUP_ID;
+  if (options.removeLegacyFounderMembership) {
+    const groupIDs = await testerGroupIDs(tester.id);
+    if (groupIDs.has(PRO_TESTFLIGHT_GROUP_ID)) {
+      groupID = PRO_TESTFLIGHT_GROUP_ID;
+    } else if (groupIDs.has(FOUNDER_TESTFLIGHT_GROUP_ID)) {
+      groupID = FOUNDER_TESTFLIGHT_GROUP_ID;
+    } else {
+      return;
+    }
+  }
+  await removeTesterFromGroup(tester.id, groupID);
+}
+
+async function removeTesterFromGroup(
+  testerId: string,
+  groupID: string,
+): Promise<void> {
   try {
-    await ascFetch(`/v1/betaGroups/${encodeURIComponent(PRO_TESTFLIGHT_GROUP_ID)}/relationships/betaTesters`, {
+    await ascFetch(`/v1/betaGroups/${encodeURIComponent(groupID)}/relationships/betaTesters`, {
       method: "DELETE",
       body: JSON.stringify({
-        data: [{ type: "betaTesters", id: tester.id }],
+        data: [{ type: "betaTesters", id: testerId }],
       }),
     });
   } catch (error) {

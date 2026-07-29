@@ -159,14 +159,20 @@ struct MacAuthComposition {
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
             beginSignOut: {
+                browserAppSession.beginSignOut()
                 MobileHostIrohRuntime.shared.beginSignOutPreparation()
+            },
+            localSignOut: {
+                await browserAppSession.clearCmuxWebSession()
+            },
+            onSignedIn: {
+                browserAppSession.resumeAfterSignIn()
             },
             onSignedOut: { accessToken, refreshToken in
                 await MobileHostIrohRuntime.shared.revokeAfterSignOut(
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )
-                await browserAppSession.clearCmuxWebSession()
             }
         )
     }

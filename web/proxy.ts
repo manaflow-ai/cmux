@@ -69,7 +69,12 @@ export default function middleware(request: NextRequest) {
   }
 
   if (pathname === "/app-pro-welcome" || pathname === "/app-pro-welcome/") {
-    return NextResponse.next();
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(
+      "x-next-intl-locale",
+      preferredAppRouteLocale(request),
+    );
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Post-checkout pages live outside the [locale] tree, like /app-pricing.
@@ -246,6 +251,20 @@ function preferredFallbackContentLocale(
     request.headers.get("accept-language") ?? "",
     availableLocales,
     availableLocales[0] ?? routing.defaultLocale,
+  );
+}
+
+function preferredAppRouteLocale(
+  request: NextRequest,
+): (typeof routing.locales)[number] {
+  const cookieLocale = request.cookies.get("NEXT_LOCALE")?.value;
+  if (cookieLocale && routing.locales.some((locale) => locale === cookieLocale)) {
+    return cookieLocale as (typeof routing.locales)[number];
+  }
+  return preferredLocaleFromAcceptLanguage(
+    request.headers.get("accept-language") ?? "",
+    routing.locales,
+    routing.defaultLocale,
   );
 }
 
