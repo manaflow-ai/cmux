@@ -261,6 +261,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         scope: MobileShellScopeSnapshot,
         instances: [MobilePresenceReconnectEvidence]
     )?
+    var presencePushRecoveryThrottle = MobilePresencePushRecoveryThrottle()
     /// Whether the current attach ticket has a non-empty auth token and has not expired.
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
@@ -1334,6 +1335,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // projections.
         resetStateSyncForAccountBoundary()
         lastPresenceReconnectEvidence = nil
+        presencePushRecoveryThrottle.reset()
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
         invalidatePairingAttempt()
