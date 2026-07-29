@@ -12834,18 +12834,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return menu.items.first(where: { $0.title == reloadConfigurationTitle })
     }
 
+    @discardableResult
     func reloadConfiguration(
         soft: Bool = false,
         source: String,
         reloadSettingsFromFile: Bool = true,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
-        completion: @escaping
-            GhosttyApp.ConfigurationReloadCompletion = {}
-    ) {
+        completion:
+            GhosttyApp.ConfigurationReloadCompletion? = nil
+    ) -> Bool {
 #if DEBUG
         cmuxDebugLog("reload.config.request source=\(source) soft=\(soft)")
 #endif
-        GhosttyApp.shared.reloadConfiguration(
+        return GhosttyApp.shared.reloadConfiguration(
             soft: soft,
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,

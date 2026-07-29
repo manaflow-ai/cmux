@@ -11,8 +11,20 @@ final class TerminalConfigurationReloadCoordinator {
         TerminalConfigurationReloadPhase = .idle
     private var pendingRequest:
         TerminalPendingConfigurationReload?
+    private let maximumOutstandingCompletionCount: Int
+    private var outstandingCompletionCount = 0
+    private var activeCompletionCount = 0
 
-    nonisolated init() {}
+    nonisolated init(
+        maximumOutstandingCompletionCount: Int = 32
+    ) {
+        precondition(
+            maximumOutstandingCompletionCount > 0,
+            "Configuration reload completion capacity must be positive"
+        )
+        self.maximumOutstandingCompletionCount =
+            maximumOutstandingCompletionCount
+    }
 
     var isReloadActive: Bool {
         phase == .preparing || phase == .reconciling
@@ -22,20 +34,52 @@ final class TerminalConfigurationReloadCoordinator {
         phase == .waitingForFontWork
     }
 
-    /// Queues a request and returns whether its idle-to-waiting transition
-    /// needs a font-work barrier scheduled.
+    /// Queues a request while bounding completion closures across the active
+    /// and pending transactions. Reload semantics are retained even when
+    /// excess completion closures are rejected.
     func enqueue(
-        _ request: TerminalPendingConfigurationReload
-    ) -> Bool {
+        _ originalRequest: TerminalPendingConfigurationReload
+    ) -> TerminalConfigurationReloadEnqueueResult {
+        var request = originalRequest
+        let requestedCompletionCount =
+            request.completions.count
+        let availableCompletionCount = max(
+            0,
+            maximumOutstandingCompletionCount
+                - outstandingCompletionCount
+        )
+        let retainedCompletionCount = min(
+            requestedCompletionCount,
+            availableCompletionCount
+        )
+        if retainedCompletionCount
+            < requestedCompletionCount {
+            request.completions = Array(
+                request.completions.prefix(
+                    retainedCompletionCount
+                )
+            )
+        }
+        outstandingCompletionCount +=
+            retainedCompletionCount
+
         if var pendingRequest {
             pendingRequest.merge(request)
             self.pendingRequest = pendingRequest
         } else {
             pendingRequest = request
         }
-        guard phase == .idle else { return false }
-        phase = .waitingForFontWork
-        return true
+
+        let needsFontWorkBarrier = phase == .idle
+        if needsFontWorkBarrier {
+            phase = .waitingForFontWork
+        }
+        return TerminalConfigurationReloadEnqueueResult(
+            needsFontWorkBarrier: needsFontWorkBarrier,
+            rejectedCompletionCount:
+                requestedCompletionCount
+                - retainedCompletionCount
+        )
     }
 
     /// Starts the transaction admitted by the current font-work barrier.
@@ -50,6 +94,12 @@ final class TerminalConfigurationReloadCoordinator {
             return nil
         }
         self.pendingRequest = nil
+        precondition(
+            activeCompletionCount == 0,
+            "Only one configuration reload can be active"
+        )
+        activeCompletionCount =
+            pendingRequest.completions.count
         phase = .preparing
         return pendingRequest
     }
@@ -69,6 +119,14 @@ final class TerminalConfigurationReloadCoordinator {
             phase == .preparing || phase == .reconciling,
             "Only an active configuration reload can finish"
         )
+        precondition(
+            activeCompletionCount
+                <= outstandingCompletionCount,
+            "Active completions must be part of the outstanding total"
+        )
+        outstandingCompletionCount -=
+            activeCompletionCount
+        activeCompletionCount = 0
         guard pendingRequest != nil else {
             phase = .idle
             return false

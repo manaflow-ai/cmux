@@ -1227,18 +1227,26 @@ class TerminalController {
                 reloadConfigurationWaiterAdmission.claim() else {
             return "ERROR: reload_config busy"
         }
-        let didComplete: Void? = socketAwaitCallback(
+        let reloadDidComplete: Bool? = socketAwaitCallback(
             timeout: 30
         ) { completion in
             Task { @MainActor in
-                self.controlSidebarReloadConfig {
-                    completion(())
+                let completionWasAdmitted =
+                    self.controlSidebarReloadConfigWithAdmission {
+                        completion(true)
+                        waiterLease.retire()
+                    }
+                if !completionWasAdmitted {
+                    completion(false)
                     waiterLease.retire()
                 }
             }
         }
-        guard didComplete != nil else {
+        guard let reloadDidComplete else {
             return "ERROR: reload_config timed out"
+        }
+        guard reloadDidComplete else {
+            return "ERROR: reload_config busy"
         }
         return "OK Reloaded config"
     }

@@ -215,16 +215,22 @@ struct ConfigSettingsView: View {
             )
             statusIsError = false
         }
+        let completionWasAdmitted: Bool
         if let appDelegate = AppDelegate.shared {
-            appDelegate.reloadConfiguration(
-                source: "settings.configWindow.reload",
-                completion: completion
-            )
+            completionWasAdmitted =
+                appDelegate.reloadConfiguration(
+                    source: "settings.configWindow.reload",
+                    completion: completion
+                )
         } else {
-            GhosttyApp.shared.reloadConfiguration(
-                source: "settings.configWindow.reload",
-                completion: completion
-            )
+            completionWasAdmitted =
+                GhosttyApp.shared.reloadConfiguration(
+                    source: "settings.configWindow.reload",
+                    completion: completion
+                )
+        }
+        if !completionWasAdmitted {
+            reportReloadAdmissionFailure()
         }
     }
 
@@ -245,16 +251,22 @@ struct ConfigSettingsView: View {
                     )
                     statusIsError = false
                 }
+            let completionWasAdmitted: Bool
             if let appDelegate = AppDelegate.shared {
-                appDelegate.reloadConfiguration(
-                    source: "settings.configWindow.save",
-                    completion: completion
-                )
+                completionWasAdmitted =
+                    appDelegate.reloadConfiguration(
+                        source: "settings.configWindow.save",
+                        completion: completion
+                    )
             } else {
-                GhosttyApp.shared.reloadConfiguration(
-                    source: "settings.configWindow.save",
-                    completion: completion
-                )
+                completionWasAdmitted =
+                    GhosttyApp.shared.reloadConfiguration(
+                        source: "settings.configWindow.save",
+                        completion: completion
+                    )
+            }
+            if !completionWasAdmitted {
+                reportReloadAdmissionFailure()
             }
         } catch {
             NSSound.beep()
@@ -264,6 +276,16 @@ struct ConfigSettingsView: View {
             )
             statusIsError = true
         }
+    }
+
+    private func reportReloadAdmissionFailure() {
+        statusMessage = String(
+            localized:
+                "settings.config.status.reloadBusy",
+            defaultValue:
+                "Reload queued; too many requests are pending to confirm completion."
+        )
+        statusIsError = true
     }
 
     private func openCurrentSourceInEditor() {

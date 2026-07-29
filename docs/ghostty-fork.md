@@ -42,6 +42,8 @@ fixes.
 The pinned `80d7fb35a` universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-80d7fb35ac74f4c3cb4456b65b3d495cb1513eee-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+The release tag is the durable remote ref for this branch pin and must remain
+published while the parent gitlink references `80d7fb35a`.
 
 ### `os/open` stderr drain spin and zombie leak
 

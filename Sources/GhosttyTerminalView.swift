@@ -1851,38 +1851,35 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
+    @discardableResult
     func reloadConfiguration(
         soft: Bool = false,
         source: String = "unspecified",
         reloadSettingsFromFile: Bool = true,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
-        completion: @escaping ConfigurationReloadCompletion = {}
-    ) {
+        completion: ConfigurationReloadCompletion? = nil
+    ) -> Bool {
         let request = TerminalPendingConfigurationReload(
             soft: soft,
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,
             preferredColorScheme: preferredColorScheme,
-            completions: [completion]
+            completions: completion.map { [$0] } ?? []
         )
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                enqueueConfigurationReload(request)
-            }
-        } else {
-            DispatchQueue.main.sync {
-                enqueueConfigurationReload(request)
-            }
-        }
+        return enqueueConfigurationReload(request)
     }
 
     @MainActor
     private func enqueueConfigurationReload(
         _ request: TerminalPendingConfigurationReload
-    ) {
-        if configurationReloadCoordinator.enqueue(request) {
+    ) -> Bool {
+        let result =
+            configurationReloadCoordinator.enqueue(request)
+        if result.needsFontWorkBarrier {
             schedulePendingConfigurationReload()
         }
+        return result.retainedAllCompletions
     }
 
     @MainActor
