@@ -38,7 +38,6 @@ fn root_help_is_noun_first_and_does_not_publish_the_old_flat_api() {
         "pairing",
         "projection",
         "provider",
-        "stream",
         "raw",
     ] {
         assert!(help.lines().any(|line| line.trim_start().starts_with(scope)), "{scope}: {help}");
@@ -76,7 +75,6 @@ fn every_public_scope_has_specific_help_instead_of_falling_back_to_root_help() {
         (&["pairing"][..], &["request"][..]),
         (&["projection"][..], &["show", "put"][..]),
         (&["provider"][..], &["authority"][..]),
-        (&["stream"][..], &["cancel"][..]),
         (&["raw"][..], &["operation"][..]),
     ] {
         let mut args = path.to_vec();

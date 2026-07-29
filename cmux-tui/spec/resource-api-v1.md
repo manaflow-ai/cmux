@@ -364,7 +364,7 @@ cmux sidebar plugin list
 
 Root control scopes are `machine`, `session`, `client`, `workspace`, `screen`,
 `pane`, `tab`, `terminal`, `browser`, `notification`, `agent`, `sidebar`,
-`pairing`, `projection`, `stream`, and `raw`. Sidebar resources
+`pairing`, `projection`, `provider`, and `raw`. Sidebar resources
 use the nested `sidebar view` and `sidebar plugin` grammars.
 Hyphenated action-first commands are usage errors with exit code 2.
 
