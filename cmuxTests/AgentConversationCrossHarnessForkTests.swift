@@ -98,6 +98,94 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func claudeToolBlocksDoNotReachCodex() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("claude-tools.jsonl")
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Inspect the renderer"}}"#,
+            #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I will inspect the wakeup path."},{"type":"tool_use","id":"tool-1","name":"Read","input":{"file_path":"/private/credentials.txt"}}]}}"#,
+            #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"TOP-SECRET-TOOL-OUTPUT"}]}}"#,
+            #"{"type":"assistant","message":{"role":"assistant","content":"The wakeup path is stale."}}"#,
+        ].joined(separator: "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-tool-session",
+            transcriptPath: transcript.path
+        )
+
+        let command = try #require(try await AgentConversationForkRequest(
+            targetHarness: .codex,
+            destination: .newWorkspace
+        ).startupCommandOverride(sourceSnapshot: snapshot))
+
+        #expect(command.contains("I will inspect the wakeup path."))
+        #expect(command.contains("The wakeup path is stale."))
+        #expect(!command.contains("/private/credentials.txt"))
+        #expect(!command.contains("TOP-SECRET-TOOL-OUTPUT"))
+    }
+
+    @Test
+    func transferRetentionSkipsToolOutputBeforeBudgetingLatestDialogue() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("codex-tool-tail.jsonl")
+        try [
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Opening request"}]}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"LATEST-DIALOGUE-MARKER"}]}}"#,
+            #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"\#(String(repeating: "x", count: 40_000))"}}"#,
+        ].joined(separator: "\n").write(to: transcript, atomically: true, encoding: .utf8)
+
+        let turns = try await SessionTranscriptLoader.load(source: .init(
+            agent: .codex,
+            sessionId: "codex-tool-tail",
+            fileURL: transcript,
+            retention: .transferOpeningUserAndLatest(
+                turnLimit: 1_000,
+                textByteLimit: 32 * 1_024
+            )
+        ))
+
+        #expect(turns.contains { $0.text.contains("Opening request") })
+        #expect(turns.contains { $0.text.contains("LATEST-DIALOGUE-MARKER") })
+        #expect(!turns.contains { $0.role == .tool })
+    }
+
+    @Test
+    func antigravityTransferOpeningLookupIsByteBounded() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("antigravity-history.jsonl")
+        let paddingText = String(repeating: "x", count: 1_024)
+        let padding = (0..<5_000).map { index in
+            #"{"conversationId":"padding-\#(index)","display":"\#(paddingText)"}"#
+        }
+        try (
+            padding
+                + [
+                    #"{"conversationId":"bounded-session","display":"OUT-OF-BOUND-OPENING"}"#,
+                    #"{"conversationId":"bounded-session","display":"LATEST-ANTIGRAVITY-MARKER"}"#,
+                ]
+        ).joined(separator: "\n").write(
+            to: transcript,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let turns = try await SessionTranscriptLoader.load(source: .init(
+            agent: .registered(RegisteredSessionAgent(id: "antigravity")),
+            sessionId: "bounded-session",
+            fileURL: transcript,
+            retention: .transferOpeningUserAndLatest(
+                turnLimit: 1,
+                textByteLimit: 32 * 1_024
+            )
+        ))
+
+        #expect(turns.map(\.text) == ["LATEST-ANTIGRAVITY-MARKER"])
+    }
+
+    @Test
     func openCodeDatabaseTranscriptSeedsClaudeCode() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
