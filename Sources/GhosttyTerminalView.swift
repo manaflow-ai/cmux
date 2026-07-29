@@ -5469,7 +5469,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         textInputCommandPerformed = false
         textInputCallbackPerformed = false
         textInputEditSession.beginEvent(
-            translatedText: textForKeyEvent(textInputEvent)
+            translatedText: textForKeyEvent(textInputEvent),
+            rawText: event.characters
         )
         defer {
             keyTextAccumulator = nil

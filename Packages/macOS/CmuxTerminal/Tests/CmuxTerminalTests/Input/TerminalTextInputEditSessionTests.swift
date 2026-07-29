@@ -56,6 +56,21 @@ import Testing
         #expect(!session.hasMarkedText)
     }
 
+    @Test func rawNativePayloadCommitsWithoutStartingAnEdit() {
+        var session = TerminalTextInputEditSession()
+        session.beginEvent(
+            translatedText: "translated",
+            rawText: "raw"
+        )
+        #expect(session.insertText(
+            "raw",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        ).isEmpty)
+
+        #expect(session.finishEvent(consumedByTextInput: true) == ["raw"])
+        #expect(!session.hasMarkedText)
+    }
+
     @Test func consumedReplacementEditsRemainProvisionalUntilCommit() {
         var session = TerminalTextInputEditSession()
 

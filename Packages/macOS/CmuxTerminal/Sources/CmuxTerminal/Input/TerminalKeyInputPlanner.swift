@@ -115,13 +115,7 @@ public struct TerminalKeyInputPlanner: Sendable {
     }
 
     private func shouldSuppressControlText(_ text: String?, composing: Bool) -> Bool {
-        guard composing, let text else { return false }
-        let scalars = text.unicodeScalars
-        guard let scalar = scalars.first,
-              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
-            return false
-        }
-        return scalar.value < 0x20
+        composing && TerminalTextInputText.isSingleC0(text)
     }
 
     /// AppKit can surface the event's raw C0/DEL payload through `insertText`
@@ -137,22 +131,13 @@ public struct TerminalKeyInputPlanner: Sendable {
               snapshot.committedText.count == 1,
               let rawText = snapshot.event.rawText,
               snapshot.committedText[0] == rawText,
-              isSingleCommandControlText(rawText),
+              TerminalTextInputText.isSingleC0OrDelete(rawText),
               let recoveredText = forwardableCommandText(
                   snapshot.event.translatedText
               ) else {
             return snapshot.committedText
         }
         return [recoveredText]
-    }
-
-    private func isSingleCommandControlText(_ text: String) -> Bool {
-        let scalars = text.unicodeScalars
-        guard let scalar = scalars.first,
-              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
-            return false
-        }
-        return scalar.value < 0x20 || scalar.value == 0x7F
     }
 
     /// `interpretKeyEvents` may report the same physical key through both
@@ -175,11 +160,6 @@ public struct TerminalKeyInputPlanner: Sendable {
     /// text while keeping native control keys textless for Ghostty's encoder.
     private func forwardableCommandText(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }
-        let scalars = text.unicodeScalars
-        guard let scalar = scalars.first,
-              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
-            return text
-        }
-        return scalar.value < 0x20 || scalar.value == 0x7F ? nil : text
+        return TerminalTextInputText.isSingleC0OrDelete(text) ? nil : text
     }
 }

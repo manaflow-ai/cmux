@@ -20,6 +20,7 @@ public struct TerminalTextInputEditSession: Sendable {
 
     private struct Event: Sendable {
         let translatedText: String?
+        let rawText: String?
         var pendingInsertions: [Insertion] = []
         var receivedExplicitCompositionCallback = false
     }
@@ -46,10 +47,17 @@ public struct TerminalTextInputEditSession: Sendable {
 
     /// Starts collecting the semantic callbacks produced by one native key.
     ///
-    /// - Parameter translatedText: The text produced for the same key after
-    ///   terminal modifier translation.
-    public mutating func beginEvent(translatedText: String?) {
-        event = Event(translatedText: translatedText)
+    /// - Parameters:
+    ///   - translatedText: Text produced after terminal modifier translation.
+    ///   - rawText: Text attached to the original native event.
+    public mutating func beginEvent(
+        translatedText: String?,
+        rawText: String? = nil
+    ) {
+        event = Event(
+            translatedText: translatedText,
+            rawText: rawText
+        )
     }
 
     /// Finishes one native key and resolves otherwise ambiguous `insertText`
@@ -74,10 +82,12 @@ public struct TerminalTextInputEditSession: Sendable {
         guard !insertions.isEmpty else { return [] }
 
         let insertedText = insertions.map(\.text).joined()
-        let correspondsToTranslatedKey =
-            completedEvent.translatedText == insertedText
+        let correspondsToNativeKey =
+            completedEvent.translatedText == insertedText ||
+            completedEvent.rawText == insertedText
         guard consumedByTextInput,
-              !correspondsToTranslatedKey,
+              !correspondsToNativeKey,
+              !TerminalTextInputText.isSingleC0OrDelete(insertedText),
               !completedEvent.receivedExplicitCompositionCallback,
               markedTextOrigin == nil,
               insertions[0].replacementRange.location == NSNotFound else {
