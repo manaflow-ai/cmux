@@ -51,7 +51,6 @@ extension RemoteSessionCoordinator {
                 localRelayPort: localRelayPort
             )
             process.arguments = relayArguments
-            reverseRelayLaunchObserver?(relayArguments)
             process.environment = configuration.sshProcessEnvironment
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.nullDevice

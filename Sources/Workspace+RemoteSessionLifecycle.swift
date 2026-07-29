@@ -104,9 +104,6 @@ extension Workspace {
         var processRunner: any RemoteSessionProcessRunning = RemoteSessionProcessRunner()
 #if DEBUG
         if let override = remoteSessionProcessRunnerOverrideForTesting { processRunner = override }
-        let reverseRelayLaunchObserver = remoteSessionReverseRelayLaunchObserverForTesting
-#else
-        let reverseRelayLaunchObserver: (@Sendable ([String]) -> Void)? = nil
 #endif
         let controller = RemoteSessionCoordinator(
             host: WorkspaceRemoteSessionHostAdapter(workspace: self, controllerID: controllerID),
@@ -124,8 +121,7 @@ extension Workspace {
             ),
             buildInfo: WorkspaceRemoteSessionBuildInfo(),
             daemonStrings: RemoteDaemonStrings.appLocalized,
-            strings: RemoteSessionStrings.appLocalized,
-            reverseRelayLaunchObserver: reverseRelayLaunchObserver
+            strings: RemoteSessionStrings.appLocalized
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller

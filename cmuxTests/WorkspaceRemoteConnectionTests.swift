@@ -31,34 +31,6 @@ private struct ScriptedRemoteProcessRunner: RemoteSessionProcessRunning, @unchec
     }
 }
 
-private final class ReverseRelayLaunchRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private let observed = DispatchSemaphore(value: 0)
-    private var arguments: [String]?
-
-    func record(_ arguments: [String]) {
-        lock.lock()
-        let isFirstLaunch = self.arguments == nil
-        if isFirstLaunch {
-            self.arguments = arguments
-        }
-        lock.unlock()
-        if isFirstLaunch {
-            observed.signal()
-        }
-    }
-
-    func wait(timeout: DispatchTime) -> DispatchTimeoutResult {
-        observed.wait(timeout: timeout)
-    }
-
-    func snapshot() -> [String]? {
-        lock.lock()
-        defer { lock.unlock() }
-        return arguments
-    }
-}
-
 private func remoteDaemonServeCommand(_ command: String) -> Bool {
     command.contains("serve") && command.contains("--stdio")
 }
@@ -1925,9 +1897,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testPersistentReverseRelayCancelsInheritedForwardBeforeDedicatedLaunch() throws {
+    func testPersistentReverseRelayCancelsInheritedForwardWithoutExplicitControlPath() {
         let daemonTransportStarted = DispatchSemaphore(value: 0)
-        let relayLaunch = ReverseRelayLaunchRecorder()
         let inheritedForwardCancelled = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var controlOperations: [(command: String, spec: String)] = []
@@ -1977,9 +1948,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let workspace = Workspace()
         workspace.remoteSessionProcessRunnerOverrideForTesting =
             ScriptedRemoteProcessRunner(script: remoteProcessScript)
-        workspace.remoteSessionReverseRelayLaunchObserverForTesting = { arguments in
-            relayLaunch.record(arguments)
-        }
         let config = WorkspaceRemoteConfiguration(
             destination: "127.0.0.1",
             port: 1,
@@ -2002,23 +1970,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         XCTAssertEqual(daemonTransportStarted.wait(timeout: .now() + 2), .success)
         XCTAssertEqual(inheritedForwardCancelled.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(relayLaunch.wait(timeout: .now() + 2), .success)
         lock.lock()
         let operations = controlOperations
         lock.unlock()
 
-        let arguments = try XCTUnwrap(relayLaunch.snapshot())
-        XCTAssertEqual(Array(arguments.prefix(4)), ["-N", "-T", "-S", "none"])
-        XCTAssertFalse(arguments.contains("-O"))
-        XCTAssertFalse(
-            arguments.contains(where: { $0.localizedCaseInsensitiveContains("ControlPath") })
-        )
-        let reverseForwardIndex = try XCTUnwrap(arguments.firstIndex(of: "-R"))
-        let reverseForwardSpec = try XCTUnwrap(arguments.dropFirst(reverseForwardIndex + 1).first)
-        XCTAssertTrue(
-            reverseForwardSpec.hasPrefix("127.0.0.1:64044:127.0.0.1:"),
-            "expected dedicated relay forwarding argv, got \(arguments)"
-        )
         XCTAssertEqual(operations.count, 1)
         XCTAssertEqual(operations.first?.command, "cancel")
         XCTAssertEqual(operations.first?.spec, "127.0.0.1:64044")

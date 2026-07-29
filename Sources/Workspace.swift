@@ -2433,9 +2433,6 @@ final class Workspace: Identifiable, ObservableObject {
     /// the package process-runner seam (replaces the legacy process-wide
     /// `WorkspaceRemoteSessionController.runProcessOverrideForTesting` static).
     var remoteSessionProcessRunnerOverrideForTesting: (any RemoteSessionProcessRunning)?
-    /// XCTest seam for observing the exact argv passed to the long-lived
-    /// reverse-relay `Process`.
-    var remoteSessionReverseRelayLaunchObserverForTesting: (@Sendable ([String]) -> Void)?
 #endif
     /// The shell-activity classification per panel id; stored in the
     /// surface-registry sub-model.
