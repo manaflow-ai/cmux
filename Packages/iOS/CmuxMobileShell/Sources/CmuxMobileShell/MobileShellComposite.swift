@@ -3822,6 +3822,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             secondaryAggregationRetryTask = nil
             secondaryAggregationRetryMacIDs = []
             secondaryAggregationRetryState.reset()
+        } else if onlyMacDeviceIDs != nil,
+                  allWantedConnected,
+                  secondaryAggregationRetryTask == nil,
+                  secondaryAggregationRetryMacIDs.isEmpty {
+            secondaryAggregationRetryState.reset()
         } else if !wanted.isEmpty, !allWantedConnected {
             // Initial dial failures need the same shared cooldown as ended live
             // streams. Otherwise every presence heartbeat immediately retries all
@@ -6010,6 +6015,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         let resolvesToSameMac = !resolvedForegroundMacID.isEmpty
                             && cmxCanonicalDeviceID(previousFocusedConnection.macDeviceID)
                                 == cmxCanonicalDeviceID(resolvedForegroundMacID)
+                        let retainPreviousAsControl: Bool
+                        if resolvesToSameMac {
+                            retainPreviousAsControl = false
+                        } else {
+                            retainPreviousAsControl =
+                                await canRetainFocusedConnectionInControlPool(
+                                    previousFocusedConnection
+                                )
+                        }
+                        guard isConnectCurrent() else {
+                            await client.disconnect()
+                            return nil
+                        }
                         // Remove the old terminal registration before exposing
                         // the new focused client. A different or anonymous
                         // target can retain the old client as control-only; a
@@ -6029,7 +6047,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         commitFocusedConnectionHandoff(
                             previousFocusedConnection,
                             terminalStopped: terminalStopped,
-                            retainAsControl: !resolvesToSameMac
+                            retainAsControl: retainPreviousAsControl
                         )
                         adoptPooledRemoteClient(client)
                     } else {
@@ -6428,6 +6446,49 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             subscription,
             replacing: connection
         )
+    }
+
+    /// A demoted foreground can enter the warm pool only when it is still an
+    /// online, visible pairing in the current account/team scope. The store
+    /// read crosses the team-change boundary, so scope is revalidated afterward.
+    func canRetainFocusedConnectionInControlPool(
+        _ connection: MacConnection
+    ) async -> Bool {
+        guard multiMacAggregationEnabled,
+              let pairedMacStore,
+              let scope = await currentScopeSnapshot(),
+              let stored = try? await pairedMacStore.loadAll(
+                  stackUserID: scope.userID,
+                  teamID: scope.teamID
+              ).first(where: {
+                  cmxCanonicalDeviceID($0.macDeviceID)
+                      == cmxCanonicalDeviceID(connection.macDeviceID)
+                      && MobileMacInstanceTagAuthority.sameStoredAuthority(
+                          $0.instanceTag,
+                          connection.instanceTag
+                      )
+              }),
+              await isScopeCurrent(scope),
+              await !isHiddenMacDeviceID(
+                  stored.macDeviceID,
+                  instanceTag: stored.instanceTag,
+                  scope: scope
+              ) else {
+            return false
+        }
+        // Some injected/legacy compositions have no live-presence service.
+        // Their current scoped pairing is the only available eligibility
+        // authority. Production compositions with presence remain online-only.
+        guard presence != nil else { return true }
+        let summary = if let instanceTag = stored.instanceTag {
+            presenceMap.instanceSummary(
+                deviceId: stored.macDeviceID,
+                tag: instanceTag
+            )
+        } else {
+            presenceMap.deviceSummary(deviceId: stored.macDeviceID)
+        }
+        return summary?.online == true
     }
 
     func removeFocusedConnection(ifMatching connection: MacConnection) {

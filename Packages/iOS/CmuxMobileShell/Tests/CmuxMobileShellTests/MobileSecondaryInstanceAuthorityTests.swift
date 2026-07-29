@@ -31,6 +31,16 @@ import Testing
             teamID: "team-a",
             now: Date()
         )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Studio A",
+            routes: [route],
+            instanceTag: "feature-a",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date()
+        )
         let router = LivenessHostRouter()
         await router.setHostIdentity(
             deviceID: "mac-b",

@@ -49,6 +49,12 @@ extension MobileShellComposite {
     /// terminal subscription has been removed. The workspace snapshot stays in
     /// `workspacesByMac`, so the aggregate never blinks while roles change.
     func installControlConnection(from connection: MacConnection) {
+        guard multiMacAggregationEnabled else {
+            removeFocusedConnection(ifMatching: connection)
+            connection.client.retire()
+            Task { await connection.client.disconnect() }
+            return
+        }
         let subscription = SecondaryMacSubscription(
             macDeviceID: connection.macDeviceID,
             client: connection.client,
@@ -142,6 +148,14 @@ extension MobileShellComposite {
         let previousForegroundConnection = previousForegroundID.flatMap {
             connections[$0]
         }
+        let previousForegroundIsPoolEligible = if let previousForegroundConnection {
+            await canRetainFocusedConnectionInControlPool(
+                previousForegroundConnection
+            )
+        } else {
+            false
+        }
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
         // Remove the target's control registration before disturbing the live
         // foreground. If this acknowledgement fails, its client is discarded
         // and the ordinary fresh-dial switch path can proceed.
@@ -169,9 +183,11 @@ extension MobileShellComposite {
         // terminal registration is gone.
         var previousForegroundCanStayWarm = false
         if let previousForegroundConnection {
-            previousForegroundCanStayWarm = await unsubscribeTerminalEventStream(
+            let terminalStopped = await unsubscribeTerminalEventStream(
                 on: previousForegroundConnection.client
             )
+            previousForegroundCanStayWarm = terminalStopped
+                && previousForegroundIsPoolEligible
             if !previousForegroundCanStayWarm {
                 await previousForegroundConnection.client.disconnect()
             }
