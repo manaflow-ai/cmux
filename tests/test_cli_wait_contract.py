@@ -52,6 +52,10 @@ class FakeCmuxState:
 class FakeCmuxHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         line = self.rfile.readline()
+        if line.startswith(b"auth "):
+            self.wfile.write(b"ERROR: Unknown command 'auth'\n")
+            self.wfile.flush()
+            line = self.rfile.readline()
         if not line:
             return
         request = json.loads(line.decode("utf-8"))
@@ -84,7 +88,15 @@ def run_cli(
     cwd: str | None = None,
 ) -> RunResult:
     env = dict(os.environ)
-    for key in ["CMUX_SOCKET", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
+    for key in [
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PASSWORD",
+        "CMUX_WORKSPACE_ID",
+        "CMUX_SURFACE_ID",
+        "CMUX_TAB_ID",
+        "CMUX_PANEL_ID",
+    ]:
         env.pop(key, None)
     env["CMUX_SOCKET_PATH"] = socket_path
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
