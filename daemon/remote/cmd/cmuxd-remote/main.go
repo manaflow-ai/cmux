@@ -2679,6 +2679,9 @@ func (s *rpcServer) handlePTYList(req rpcRequest) rpcResponse {
 
 func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAttachment, sessionDone <-chan struct{}) {
 	defer s.untrackPTYAttachment(attachment)
+	if attachment.cancel != nil {
+		defer attachment.cancel()
+	}
 	for {
 		select {
 		case <-ctx.Done():
