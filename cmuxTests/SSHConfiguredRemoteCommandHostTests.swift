@@ -187,9 +187,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     /// `cmux ssh` bootstrap-install flow (ControlMaster disabled → staged
     /// installer hop + interactive session hop): a caller-supplied
-    /// `RemoteCommand` is captured as the program to chain, then removed from
-    /// forwarded SSH options so the session hop's single
-    /// `-o RemoteCommand=<bootstrap>` wins.
+    /// `RemoteCommand` is captured as the program to chain and retained in
+    /// durable workspace options, while the session hop carries only cmux's
+    /// `-o RemoteCommand=<bootstrap>`.
     func testSSHBootstrapStartupChainsExplicitRemoteCommandWithConnectionSharingDisabled() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-rc-boot")
@@ -258,9 +258,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertEqual(configureParams["configured_remote_command"] as? String, "printf caller-command")
         let forwardedOptions = configureParams["ssh_options"] as? [String] ?? []
-        XCTAssertFalse(
-            SSHAgentSocketResolver().hasOptionKey(forwardedOptions, key: "RemoteCommand"),
-            "The configured command must travel in its dedicated field, not remain ahead of cmux's bootstrap option: \(forwardedOptions)"
+        XCTAssertTrue(
+            forwardedOptions.contains("RemoteCommand=printf caller-command"),
+            """
+            Durable workspace options must preserve the caller's explicit RemoteCommand \
+            for fallback restores: \(forwardedOptions)
+            """
         )
 
         let harness = try makeRemoteCommandHostHarness(prefix: "cmux-ssh-rc-bootstrap")
@@ -320,6 +323,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "ControlMaster=auto",
                     "ControlPersist=600",
                     "ControlPath=/tmp/cmux-ssh-%C",
+                    "RemoteCommand=printf caller-command",
                 ],
                 token: "auth-token"
             ),
@@ -328,6 +332,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             command.contains("-o RemoteCommand=none -T cmux-remotecommand-host true"),
             "Restore foreground auth must override a host-configured RemoteCommand before running its command-line `true`; command: \(command)"
+        )
+        XCTAssertFalse(
+            command.contains("RemoteCommand=printf caller-command"),
+            """
+            Restore foreground auth must not forward the durable caller RemoteCommand \
+            alongside cmux's override; command: \(command)
+            """
         )
         XCTAssertEqual(command.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, command)
         XCTAssertFalse(command.contains("-$$"), command)

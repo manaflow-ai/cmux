@@ -126,7 +126,10 @@ enum SSHPTYAttachStartupCommandBuilder {
     private static func sshForegroundAuthCommand(_ auth: ForegroundAuth) -> String {
         let sharingOptions = SSHConnectionSharingOptions()
         var arguments = ["ssh"]
-        let options = sharingOptions.mergingDefaults(into: auth.sshOptions)
+        let options = SSHAgentSocketResolver().removingOptions(
+            named: "RemoteCommand",
+            from: sharingOptions.mergingDefaults(into: auth.sshOptions)
+        )
         if !hasSSHOptionKey(options, key: "ConnectTimeout") {
             arguments += ["-o", "ConnectTimeout=6"]
         }

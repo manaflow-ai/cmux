@@ -9219,14 +9219,8 @@ struct CMUXCLI {
                 configurationResult.status
             ))
         }
-        let forwardedSSHOptions = sshOptions.skipDaemonBootstrap
-            ? inputSSHOptions.sshOptions
-            : SSHAgentSocketResolver().removingOptions(
-                named: "RemoteCommand",
-                from: inputSSHOptions.sshOptions
-            )
         sshOptions.sshOptions = sharingOptions.mergingDefaults(
-            into: forwardedSSHOptions,
+            into: inputSSHOptions.sshOptions,
             userConfiguredControlOptions: resolvedUserSSHConfiguration.flatMap {
                 sharingOptions.userConfiguredControlOptions(fromSSHConfigOutput: $0)
             }
@@ -9964,9 +9958,18 @@ struct CMUXCLI {
         remoteBootstrapScript: String? = nil,
         localCommandScript: String? = nil
     ) -> [String] {
-        var parts = baseSSHArguments(options, localCommandScript: localCommandScript)
         let trimmedRemoteBootstrap = remoteBootstrapScript?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let suppliesRemoteCommand =
+            !options.extraArguments.isEmpty ||
+            trimmedRemoteBootstrap?.isEmpty == false
+        let invocationOptions = suppliesRemoteCommand
+            ? sshCommandOptionsWithoutRemoteCommand(options)
+            : options
+        var parts = baseSSHArguments(
+            invocationOptions,
+            localCommandScript: localCommandScript
+        )
 
         if options.extraArguments.isEmpty {
             if let trimmedRemoteBootstrap, !trimmedRemoteBootstrap.isEmpty {
@@ -10042,9 +10045,10 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         localCommandScript: String? = nil
     ) -> String {
+        let invocationOptions = sshCommandOptionsWithoutRemoteCommand(options)
         guard let staging = RemoteBootstrapStagingCommandBuilder(
             installerSSHArguments: sshArgumentsOverridingHostRemoteCommand(
-                baseSSHArguments(options, localCommandScript: localCommandScript)
+                baseSSHArguments(invocationOptions, localCommandScript: localCommandScript)
             ),
             destination: options.destination,
             remoteRelayPort: options.remoteRelayPort,
@@ -10052,7 +10056,9 @@ struct CMUXCLI {
         ) else {
             return ""
         }
-        let sessionSSHPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
+        let sessionSSHPrefix = baseSSHArguments(invocationOptions)
+            .map(shellQuote)
+            .joined(separator: " ")
         let remoteCommandTemplate = openSSHRemoteCommandValue(
             shellScript: stagedRemoteBootstrapCommandShell(
                 remoteRelayPort: options.remoteRelayPort
@@ -10319,7 +10325,10 @@ struct CMUXCLI {
         passwordCredential: String?,
         controlPathPreflightShellFunction: String?
     ) -> String {
-        var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options))
+        let invocationOptions = sshCommandOptionsWithoutRemoteCommand(options)
+        var authArguments = sshArgumentsOverridingHostRemoteCommand(
+            baseSSHArguments(invocationOptions)
+        )
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
         let attachScript = buildSSHPTYAttachScriptBody(

@@ -192,11 +192,14 @@ extension SessionRemoteWorkspaceSnapshot {
         sshOptions reconnectSSHOptions: [String]? = nil,
         terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) -> String? {
+        let normalizedOptions = reconnectSSHOptions ?? Self.normalizedSSHOptions(sshOptions)
+        let invocationOptions = terminalProfile.remoteCommandArguments.isEmpty
+            ? normalizedOptions
+            : Self.removingRemoteCommand(from: normalizedOptions)
         var arguments = sshBootstrapArguments(
             port: normalizedPort,
-            sshOptions: reconnectSSHOptions
+            sshOptions: invocationOptions
         )
-        let normalizedOptions = reconnectSSHOptions ?? Self.normalizedSSHOptions(sshOptions)
         if !Self.hasSSHOptionKey(normalizedOptions, key: "RequestTTY") {
             arguments.append("-tt")
         }
@@ -218,9 +221,10 @@ extension SessionRemoteWorkspaceSnapshot {
         remoteRelayPort: Int?,
         sshFallbackCommand: String
     ) -> String {
+        let invocationSSHOptions = Self.removingRemoteCommand(from: reconnectSSHOptions)
         let sshArguments = sshBootstrapArguments(
             port: normalizedPort,
-            sshOptions: reconnectSSHOptions
+            sshOptions: invocationSSHOptions
         )
         let moshSSHArguments = [sshArguments[0]]
             + SSHHostConfiguredRemoteCommand().overrideArguments
@@ -256,7 +260,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     staging: staging,
                     sshArguments: moshSSHArguments,
                     destination: normalizedDestination,
-                    sshOptions: reconnectSSHOptions
+                    sshOptions: invocationSSHOptions
                 )
             }
         }
@@ -336,6 +340,10 @@ extension SessionRemoteWorkspaceSnapshot {
 
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
         WorkspaceRemoteConfiguration.hasSSHOptionKey(options, key: key)
+    }
+
+    private static func removingRemoteCommand(from options: [String]) -> [String] {
+        SSHAgentSocketResolver().removingOptions(named: "RemoteCommand", from: options)
     }
 
     private static let defaultFreestylePersistentDaemonSlot = "cmux-default-freestyle-sshd-v1"

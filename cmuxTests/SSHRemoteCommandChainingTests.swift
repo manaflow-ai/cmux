@@ -143,4 +143,40 @@ struct SSHRemoteCommandChainingTests {
         #expect(restored.configuredRemoteCommand == configuredRemoteCommand)
         #expect(startupCommand.contains(expectedBootstrapBase64), "\(startupCommand)")
     }
+
+    @Test
+    func nonPersistentRestorePreservesExplicitRemoteCommandIntent() throws {
+        let cases: [(options: [String], expectedCommandFragment: String?)] = [
+            (["RemoteCommand=printf restored-command"], "'RemoteCommand=printf restored-command'"),
+            (["RemoteCommand=none"], "RemoteCommand=none"),
+            ([], nil),
+        ]
+
+        for testCase in cases {
+            let snapshot = SessionRemoteWorkspaceSnapshot(
+                transport: .ssh,
+                terminalTransport: .ssh,
+                terminalProfile: .shell,
+                destination: "dev@example.com",
+                sshOptions: testCase.options,
+                preserveAfterTerminalExit: true,
+                relayPort: 64_123,
+                persistentDaemonSlot: "ssh-restore-slot"
+            )
+            let restored = try #require(
+                snapshot.workspaceConfiguration(
+                    localSocketPath: "/tmp/cmux-restored.sock",
+                    allowPersistentPTYRestore: false
+                )
+            )
+            let startupCommand = try #require(restored.terminalStartupCommand)
+
+            #expect(restored.sshOptions == testCase.options)
+            if let expectedCommandFragment = testCase.expectedCommandFragment {
+                #expect(startupCommand.contains(expectedCommandFragment), "\(startupCommand)")
+            } else {
+                #expect(!startupCommand.localizedCaseInsensitiveContains("RemoteCommand"), "\(startupCommand)")
+            }
+        }
+    }
 }

@@ -2,6 +2,22 @@ import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    /// Returns an option copy suitable for an SSH invocation where cmux
+    /// supplies the remote command. The caller's `RemoteCommand` remains in
+    /// durable workspace configuration, but must not precede cmux's own
+    /// `RemoteCommand=<bootstrap>` or duplicate a `RemoteCommand=none`
+    /// override on the actual argv.
+    internal func sshCommandOptionsWithoutRemoteCommand(
+        _ options: SSHCommandOptions
+    ) -> SSHCommandOptions {
+        var sanitized = options
+        sanitized.sshOptions = SSHAgentSocketResolver().removingOptions(
+            named: "RemoteCommand",
+            from: options.sshOptions
+        )
+        return sanitized
+    }
+
     /// Inserts `-o RemoteCommand=none` right after the `ssh` executable so a
     /// host-configured (or caller-supplied) `RemoteCommand` cannot conflict
     /// with the command-line remote command this invocation appends — OpenSSH
