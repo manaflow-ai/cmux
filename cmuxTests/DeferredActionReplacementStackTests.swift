@@ -81,7 +81,10 @@ struct DeferredActionReplacementStackTests {
                 recorder: recorder,
                 deinitialized: deinitializations.continuation
             )
-            scheduler.schedule(force: false, delay: .zero) { [probe] _ in
+            scheduler.schedule(force: false, delay: .zero) { [probe, scheduler] _ in
+                // Mirror a SwiftUI value snapshot that transitively retains the
+                // scheduler while its deferred closure is queued.
+                _ = scheduler
                 _ = probe
                 releases.continuation.yield(identifier)
             }

@@ -3597,7 +3597,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     private var layoutFollowUpObservers: [NSObjectProtocol] = []
     private var layoutFollowUpPanelsCancellable: AnyCancellable?
-    private var layoutFollowUpTimeoutWorkItem: DispatchWorkItem?
+    private let layoutFollowUpTimeoutScheduler = MainActorDeferredActionScheduler()
     private var layoutFollowUpReason: String?
     private var layoutFollowUpTerminalFocusPanelId: UUID?
     private var layoutFollowUpBrowserPanelId: UUID?
@@ -10085,7 +10085,7 @@ final class Workspace: Identifiable, ObservableObject {
         layoutFollowUpAttemptVersion &+= 1
         layoutFollowUpAttemptScheduled = false
 
-        if layoutFollowUpTimeoutWorkItem == nil {
+        if !layoutFollowUpTimeoutScheduler.isScheduled {
             installLayoutFollowUpObservers()
         }
         refreshLayoutFollowUpTimeout()
@@ -10165,7 +10165,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
     private func installLayoutFollowUpObservers() {
-        guard layoutFollowUpTimeoutWorkItem == nil else { return }
+        guard !layoutFollowUpTimeoutScheduler.isScheduled else { return }
 
         let enqueueAttempt: () -> Void = { [weak self] in
             self?.wakeLayoutFollowUpForStructuralEvent()
@@ -10226,18 +10226,14 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func refreshLayoutFollowUpTimeout() {
-        layoutFollowUpTimeoutWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
+        layoutFollowUpTimeoutScheduler.schedule(after: .seconds(2)) { [weak self] in
             self?.clearLayoutFollowUp()
         }
-        layoutFollowUpTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
     }
 
     private func clearLayoutFollowUp() {
         clearPendingReparentFocusSuppressions(reason: "workspace.layoutFollowUpEnd")
-        layoutFollowUpTimeoutWorkItem?.cancel()
-        layoutFollowUpTimeoutWorkItem = nil
+        layoutFollowUpTimeoutScheduler.cancel()
         layoutFollowUpObservers.forEach { NotificationCenter.default.removeObserver($0) }
         layoutFollowUpObservers.removeAll()
         layoutFollowUpPanelsCancellable?.cancel()
@@ -10258,7 +10254,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// already-scheduled guard (worst case: a retry scheduled past the 2s
     /// timeout never ran). Mirrors the reset in beginEventDrivenLayoutFollowUp.
     private func wakeLayoutFollowUpForStructuralEvent() {
-        guard layoutFollowUpTimeoutWorkItem != nil else { return }
+        guard layoutFollowUpTimeoutScheduler.isScheduled else { return }
         layoutFollowUpStalledAttemptCount = 0
         layoutFollowUpAttemptVersion &+= 1
         layoutFollowUpAttemptScheduled = false
@@ -10267,7 +10263,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func scheduleLayoutFollowUpAttempt() {
         guard portalRenderingEnabled else { return }
-        guard layoutFollowUpTimeoutWorkItem != nil else { return }
+        guard layoutFollowUpTimeoutScheduler.isScheduled else { return }
         guard !layoutFollowUpAttemptScheduled else { return }
 
         layoutFollowUpAttemptScheduled = true
@@ -10344,7 +10340,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func attemptEventDrivenLayoutFollowUp() {
-        guard layoutFollowUpTimeoutWorkItem != nil, !isAttemptingLayoutFollowUp else { return }
+        guard layoutFollowUpTimeoutScheduler.isScheduled, !isAttemptingLayoutFollowUp else { return }
         guard portalRenderingEnabled else {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
