@@ -60,8 +60,9 @@ beforeEach(() => {
   process.env.SUBROUTER_BASE_URL = "https://subrouter.test";
   process.env.SUBROUTER_ADMIN_TOKEN = "admin-test-token";
   process.env.SUBROUTER_TENANT_KEY_SECRET = secret;
-  delete process.env.SUBROUTER_ALLOWED_TEAM_IDS;
-  delete process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS;
+  process.env.SUBROUTER_ALLOWED_TEAM_IDS = "team-a,team-b,team-c,user-1";
+  process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "0";
+  process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "10000";
   currentUser = stackUser();
   fakeDb = createFakeRouteDb();
   upstream = createMockSubrouter();
@@ -172,6 +173,46 @@ describe("subrouter accounts route", () => {
     expect(uploadResponse.status).toBe(403);
     expect(await uploadResponse.json()).toEqual({ error: "forbidden" });
     expect(upstream.fetch).not.toHaveBeenCalled();
+  });
+
+  test("fails closed when Stack permission enforcement is not configured", async () => {
+    delete process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS;
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "service_unavailable" });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+  });
+
+  test("fails closed when the team rollout allowlist is not configured", async () => {
+    delete process.env.SUBROUTER_ALLOWED_TEAM_IDS;
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "service_unavailable" });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+  });
+
+  test("lets account managers enumerate metadata without leasing credentials", async () => {
+    process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "1";
+    currentUser = {
+      ...stackUser(),
+      listPermissions: async () => [
+        { id: "subrouter:manage_accounts" },
+      ],
+    };
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts"),
+    );
+
+    expect(response.status).toBe(200);
   });
 
   test("returns 503 when subrouter env is not configured", async () => {
@@ -770,6 +811,71 @@ describe("subrouter accounts route", () => {
       cursor: "page-2",
       limit: 100,
     });
+  });
+
+  test("times out Stack team pagination as one authorization operation", async () => {
+    process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "1";
+    process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "20";
+    let releaseFirstPage!: () => void;
+    const firstPageReady = new Promise<void>((resolve) => {
+      releaseFirstPage = resolve;
+    });
+    const listTeams = mock(async (...args: unknown[]) => {
+      const options = args[0] as { readonly cursor?: string } | undefined;
+      if (!options?.cursor) {
+        await firstPageReady;
+        return Object.assign(
+          [{ id: "team-a", displayName: "Team A" }],
+          { nextCursor: "page-2" },
+        );
+      }
+      return Object.assign([], { nextCursor: null });
+    });
+    currentUser = { ...stackUser(), listTeams };
+
+    const routePromise = teamsRoute.GET(request("/api/subrouter/teams"));
+    const result = await Promise.race([
+      routePromise,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 100)),
+    ]);
+    releaseFirstPage();
+    await routePromise;
+
+    expect(result?.status).toBe(503);
+    expect(listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  test("bounds timed-out Stack permission work across concurrent requests", async () => {
+    process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "1";
+    process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "20";
+    let releasePermissions!: () => void;
+    const permissionsReady = new Promise<void>((resolve) => {
+      releasePermissions = resolve;
+    });
+    let active = 0;
+    let maxActive = 0;
+    const listPermissions = mock(async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await permissionsReady;
+      active -= 1;
+      return [{ id: "subrouter:use" }];
+    });
+    currentUser = {
+      ...stackUser(),
+      listPermissions,
+    };
+
+    const routes = Array.from(
+      { length: 12 },
+      () => teamsRoute.GET(request("/api/subrouter/teams")),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    releasePermissions();
+    const responses = await Promise.all(routes);
+
+    expect(responses.every((response) => response.status === 503)).toBe(true);
+    expect(maxActive).toBeLessThanOrEqual(8);
   });
 
   test("resolves one permission snapshot per scope with bounded concurrency", async () => {
