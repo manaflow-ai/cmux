@@ -72,6 +72,10 @@ Known protocol objects reject unknown fields and malformed recognized union
 variants. Open stream unions preserve an unrecognized variant as an immutable
 `Unknown.raw()` object.
 
+`Session.resolveCreation(...)` resolves a durable creation correlation key.
+`Terminal.waitExit(...)` waits for process lifecycle state. It is separate
+from `Terminal.waitFor(...)`, which matches terminal text.
+
 `Decimal` preserves the full unsigned 64-bit range as a canonical JSON string.
 `Secret`, `ProviderCredential`, and `RendererGrant` redact credential material
 from normal string formatting.

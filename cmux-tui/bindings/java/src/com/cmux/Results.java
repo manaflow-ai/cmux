@@ -145,6 +145,144 @@ public final class Results {
         }
     }
 
+    public enum CreationState {
+        PENDING,
+        CREATED,
+        NOT_APPLIED,
+        INDETERMINATE
+    }
+
+    public enum CreationRecovery {
+        RETRY_SAME_IDEMPOTENCY_KEY,
+        RETRY_NEW_IDEMPOTENCY_KEY,
+        WAIT,
+        NONE,
+        DO_NOT_RETRY
+    }
+
+    public record CreationResolution(
+        String correlationKey,
+        CreationState state,
+        CreationRecovery recovery,
+        Optional<String> operation,
+        Optional<String> idempotencyKey,
+        Optional<CreatedPath> createdPath,
+        Optional<String> generation,
+        Optional<Decimal> revision
+    ) {
+        public CreationResolution {
+            bounded(correlationKey, "correlationKey", 1, 128);
+            Objects.requireNonNull(state, "state");
+            Objects.requireNonNull(recovery, "recovery");
+            operation = optional(operation);
+            idempotencyKey = optional(idempotencyKey);
+            createdPath = optional(createdPath);
+            generation = optional(generation);
+            revision = optional(revision);
+            operation.ifPresent(value -> bounded(value, "operation", 1, Integer.MAX_VALUE));
+            idempotencyKey.ifPresent(
+                value -> bounded(value, "idempotencyKey", 1, 128)
+            );
+            generation.ifPresent(
+                value -> bounded(value, "generation", 1, 128)
+            );
+            switch (state) {
+                case CREATED -> {
+                    if (recovery != CreationRecovery.NONE ||
+                            createdPath.isEmpty() ||
+                            generation.isEmpty() ||
+                            revision.isEmpty()) {
+                        throw new IllegalArgumentException(
+                            "created resolution requires none recovery, path, generation, and revision"
+                        );
+                    }
+                }
+                case PENDING -> {
+                    if (recovery != CreationRecovery.WAIT) {
+                        throw new IllegalArgumentException(
+                            "pending resolution requires wait recovery"
+                        );
+                    }
+                }
+                case NOT_APPLIED -> {
+                    if (recovery !=
+                            CreationRecovery.RETRY_SAME_IDEMPOTENCY_KEY &&
+                            recovery !=
+                            CreationRecovery.RETRY_NEW_IDEMPOTENCY_KEY) {
+                        throw new IllegalArgumentException(
+                            "not-applied resolution requires a retry recovery"
+                        );
+                    }
+                }
+                case INDETERMINATE -> {
+                    if (recovery != CreationRecovery.DO_NOT_RETRY) {
+                        throw new IllegalArgumentException(
+                            "indeterminate resolution requires do-not-retry recovery"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    public sealed interface TerminalExitOutcome permits
+            TerminalExitCode, TerminalExitSignal, TerminalExitUnknown {}
+
+    public record TerminalExitCode(int code)
+            implements TerminalExitOutcome {}
+
+    public record TerminalExitSignal(int signal, boolean coreDumped)
+            implements TerminalExitOutcome {
+        public TerminalExitSignal {
+            if (signal <= 0) {
+                throw new IllegalArgumentException("signal must be positive");
+            }
+        }
+    }
+
+    public record TerminalExitUnknown(String reason)
+            implements TerminalExitOutcome {
+        public TerminalExitUnknown {
+            bounded(reason, "reason", 1, Integer.MAX_VALUE);
+        }
+    }
+
+    public sealed interface TerminalWaitExitResult permits
+            TerminalWaitExitPending, TerminalWaitExitExited {
+        Ids.TerminalId terminalId();
+        Decimal revision();
+    }
+
+    public record TerminalWaitExitPending(
+        Ids.TerminalId terminalId,
+        String lifecycle,
+        Decimal revision
+    ) implements TerminalWaitExitResult {
+        public TerminalWaitExitPending {
+            Objects.requireNonNull(terminalId, "terminalId");
+            if (!List.of("launching", "running").contains(lifecycle)) {
+                throw new IllegalArgumentException(
+                    "pending terminal lifecycle is unsupported"
+                );
+            }
+            Objects.requireNonNull(revision, "revision");
+        }
+    }
+
+    public record TerminalWaitExitExited(
+        Ids.TerminalId terminalId,
+        TerminalExitOutcome outcome,
+        Decimal exitedAt,
+        Decimal revision
+    ) implements TerminalWaitExitResult {
+        public TerminalWaitExitExited {
+            Objects.requireNonNull(terminalId, "terminalId");
+            Objects.requireNonNull(outcome, "outcome");
+            Objects.requireNonNull(exitedAt, "exitedAt");
+            Objects.requireNonNull(revision, "revision");
+        }
+    }
+
     public record TerminalCopyResult(String mode, String text) {
         public TerminalCopyResult {
             if (!List.of("screen", "selection", "scrollback").contains(mode)) {
@@ -206,6 +344,24 @@ public final class Results {
         NullableDefault<T> value
     ) {
         return value == null ? NullableDefault.absent() : value;
+    }
+
+    private static <T> Optional<T> optional(Optional<T> value) {
+        return value == null ? Optional.empty() : value;
+    }
+
+    private static void bounded(
+        String value,
+        String name,
+        int minimum,
+        int maximum
+    ) {
+        Objects.requireNonNull(value, name);
+        if (value.length() < minimum || value.length() > maximum) {
+            throw new IllegalArgumentException(
+                name + " length is outside its protocol bounds"
+            );
+        }
     }
 
     private static void positiveUint16(long value, String name) {

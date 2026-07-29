@@ -22,6 +22,7 @@ public final class ResourceApiTest {
         exactCommandAndRouting();
         nullableMetadata();
         strictTypedModels();
+        creationResolutionAndWaitExitStaySeparate();
         typedStream();
         streamCancellationPreservesRouteAndEnd();
         structuredErrorsAreNotRetried();
@@ -221,6 +222,50 @@ public final class ResourceApiTest {
                     .equals("tab_" + HEX),
             "layout result is recursively typed"
         );
+    }
+
+    private static void creationResolutionAndWaitExitStaySeparate() {
+        FakeTransport transport = new FakeTransport();
+        try (Client client = client(transport)) {
+            Session session = client.machine(Selector.current())
+                .session(Selector.current());
+            Results.CreationResolution resolution = session.resolveCreation(
+                new Options.CreationResolve(
+                    Options.Read.defaults(),
+                    "create-key"
+                )
+            );
+            require(
+                resolution.state() == Results.CreationState.PENDING &&
+                    resolution.recovery() ==
+                        Results.CreationRecovery.WAIT,
+                "creation resolution reports durable creation state"
+            );
+            require(
+                transport.lastSent().get("operation")
+                    .equals("session.creation.resolve"),
+                "creation resolution uses its own operation"
+            );
+
+            Results.TerminalWaitExitResult exit = session
+                .terminal(Selector.id(
+                    new Ids.TerminalId("term_" + HEX)
+                ))
+                .waitExit(Options.WaitExit.defaults());
+            require(
+                exit instanceof Results.TerminalWaitExitExited exited &&
+                    exited.outcome() instanceof
+                        Results.TerminalExitSignal signal &&
+                    signal.signal() == 15 &&
+                    !signal.coreDumped(),
+                "terminal wait-exit decodes its closed outcome union"
+            );
+            require(
+                transport.lastSent().get("operation")
+                    .equals("terminal.wait_exit"),
+                "terminal wait-exit remains separate from text matching"
+            );
+        }
     }
 
     private static void typedStream() {
@@ -454,6 +499,23 @@ public final class ResourceApiTest {
             Map<String, Object> result = switch (operation) {
                 case "workspace.run" -> workspaceRunResult();
                 case "client.metadata.update" -> clientSnapshot();
+                case "session.creation.resolve" -> Map.of(
+                    "correlation_key", "create-key",
+                    "state", "pending",
+                    "recovery", "wait"
+                );
+                case "terminal.wait_exit" -> Map.of(
+                    "state", "exited",
+                    "terminal_id", "term_" + HEX,
+                    "lifecycle", "exited",
+                    "outcome", Map.of(
+                        "kind", "signal",
+                        "signal", 15,
+                        "core_dumped", false
+                    ),
+                    "exited_at", "10",
+                    "revision", "11"
+                );
                 case "session.events" -> Map.of(
                     "stream_id",
                     String.valueOf(params.get("stream_id"))

@@ -118,6 +118,16 @@ public final class Terminal {
         );
     }
 
+    public Results.TerminalWaitExitResult waitExit(Options.WaitExit options) {
+        Map<String, Object> params = withExtra(params(), options.read().extra());
+        options.timeoutMillis().ifPresent(
+            value -> params.put(Wire.TIMEOUT_MS, value)
+        );
+        return Client.decodeTerminalWaitExit(
+            client.requestValue(Operations.TERMINAL_WAIT_EXIT, params, null)
+        );
+    }
+
     public Results.TerminalCopyResult copy(Options.Copy options) {
         Map<String, Object> params = withExtra(params(), options.read().extra());
         if (!options.mode().isEmpty()) {

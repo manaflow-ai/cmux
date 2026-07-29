@@ -116,6 +116,13 @@ public final class Options {
     public record SessionEvents(Stream stream, Optional<Cursor> cursor) {
         public SessionEvents { stream = Options.stream(stream); cursor = opt(cursor); }
     }
+    public record CreationResolve(Read read, String correlationKey) {
+        public CreationResolve {
+            read = Options.read(read);
+            Objects.requireNonNull(correlationKey, "correlationKey");
+            bounded(correlationKey, "correlationKey", 1, 128);
+        }
+    }
     public record TerminalDefaults(Mutation mutation, Map<String, Object> defaults) {
         public TerminalDefaults { mutation = mut(mutation); defaults = copy(defaults); }
     }
@@ -386,6 +393,16 @@ public final class Options {
     public record Wait(Read read, String condition, long timeoutMillis) {
         public Wait { read = Options.read(read); Objects.requireNonNull(condition, "condition"); nonnegative(timeoutMillis, "timeoutMillis"); }
     }
+    public record WaitExit(Read read, Optional<Decimal> timeoutMillis) {
+        public WaitExit {
+            read = Options.read(read);
+            timeoutMillis = opt(timeoutMillis);
+        }
+
+        public static WaitExit defaults() {
+            return new WaitExit(Read.defaults(), Optional.empty());
+        }
+    }
     public record Copy(Read read, String mode) {
         public Copy { read = Options.read(read); Objects.requireNonNull(mode, "mode"); }
     }
@@ -555,4 +572,12 @@ public final class Options {
     private static void nonnegative(long value, String name) { if (value < 0) throw new IllegalArgumentException(name + " must not be negative"); }
     private static void positive(long value, String name) { if (value <= 0) throw new IllegalArgumentException(name + " must be positive"); }
     private static void finite(double value, String name) { if (!Double.isFinite(value)) throw new IllegalArgumentException(name + " must be finite"); }
+    private static void bounded(String value, String name, int minimum, int maximum) {
+        if (value.length() < minimum || value.length() > maximum) {
+            throw new IllegalArgumentException(
+                name + " must contain " + minimum + " to " + maximum +
+                    " characters"
+            );
+        }
+    }
 }

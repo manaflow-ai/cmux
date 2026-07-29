@@ -69,6 +69,12 @@ public final class ExternalJarConsumerTest {
         MutationResult.class.getMethod("value");
         CreatedTerminalPath.class.getMethod("terminalId");
         Results.TerminalScreenResult.class.getMethod("text");
+        Results.CreationResolution.class.getMethod("state");
+        Results.TerminalWaitExitResult.class.getMethod("revision");
+        Session.class.getMethod(
+            "resolveCreation",
+            com.cmux.Options.CreationResolve.class
+        );
         ResourceStream.class.getMethod("poll", Duration.class);
         MutationOutcomeUncertain.class.getMethod("operation");
         MutationOutcomeUncertain.class.getMethod("idempotencyKey");

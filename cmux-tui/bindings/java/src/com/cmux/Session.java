@@ -44,6 +44,21 @@ public final class Session {
         );
     }
 
+    public Results.CreationResolution resolveCreation(
+        Options.CreationResolve options
+    ) {
+        Map<String, Object> params = withExtra(
+            route.params(),
+            options.read().extra()
+        );
+        params.put("correlation_key", options.correlationKey());
+        return Client.decodeCreationResolution(client.requestValue(
+            Operations.SESSION_CREATION_RESOLVE,
+            params,
+            null
+        ));
+    }
+
     public ResourceStream<SessionEvent> events(Options.SessionEvents options) {
         Map<String, Object> params = withExtra(route.params(), options.stream().extra());
         options.cursor().ifPresent(cursor -> params.put(Wire.CURSOR, cursorMap(cursor)));

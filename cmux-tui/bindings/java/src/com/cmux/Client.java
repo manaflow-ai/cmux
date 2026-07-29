@@ -1729,6 +1729,70 @@ public final class Client implements AutoCloseable {
         );
     }
 
+    static Results.CreationResolution decodeCreationResolution(Object value) {
+        Map<String, Object> fields = Wire.object(
+            value,
+            "creation resolution"
+        );
+        requireExactFields(
+            fields,
+            "creation resolution",
+            "correlation_key",
+            Wire.STATE,
+            "recovery",
+            "operation",
+            Wire.IDEMPOTENCY_KEY,
+            "created_path",
+            Wire.GENERATION,
+            Wire.REVISION
+        );
+        Results.CreationState state;
+        Results.CreationRecovery recovery;
+        try {
+            state = Results.CreationState.valueOf(
+                Wire.string(fields.get(Wire.STATE), "creation state")
+                    .toUpperCase(java.util.Locale.ROOT)
+            );
+            recovery = Results.CreationRecovery.valueOf(
+                Wire.string(fields.get("recovery"), "creation recovery")
+                    .toUpperCase(java.util.Locale.ROOT)
+            );
+        } catch (IllegalArgumentException error) {
+            throw new ProtocolError(
+                "creation resolution has an unrecognized state or recovery",
+                error
+            );
+        }
+        Optional<CreatedPath> createdPath = fields.containsKey("created_path")
+            ? Optional.of(decodeCreatedPath(
+                Wire.object(fields.get("created_path"), "created path")
+            ))
+            : Optional.empty();
+        Optional<Decimal> revision = fields.containsKey(Wire.REVISION)
+            ? Optional.of(Wire.decimal(
+                fields.get(Wire.REVISION),
+                "creation revision"
+            ))
+            : Optional.empty();
+        try {
+            return new Results.CreationResolution(
+                Wire.string(
+                    fields.get("correlation_key"),
+                    "creation correlation_key"
+                ),
+                state,
+                recovery,
+                optionalString(fields, "operation"),
+                optionalString(fields, Wire.IDEMPOTENCY_KEY),
+                createdPath,
+                optionalString(fields, Wire.GENERATION),
+                revision
+            );
+        } catch (IllegalArgumentException error) {
+            throw new ProtocolError("invalid creation resolution", error);
+        }
+    }
+
     static Results.ShutdownResult decodeShutdownResult(Object value) {
         Map<String, Object> fields = exactObject(
             value,
@@ -1893,6 +1957,149 @@ public final class Client implements AutoCloseable {
             Wire.bool(fields.get("matched"), "terminal wait matched"),
             Wire.string(fields.get(Wire.TEXT), "terminal wait text")
         );
+    }
+
+    static Results.TerminalWaitExitResult decodeTerminalWaitExit(Object value) {
+        Map<String, Object> fields = Wire.object(
+            value,
+            "terminal wait-exit result"
+        );
+        String state = Wire.string(
+            fields.get(Wire.STATE),
+            "terminal wait-exit state"
+        );
+        if (state.equals("pending")) {
+            fields = exactObject(
+                value,
+                "terminal wait-exit pending",
+                Wire.STATE,
+                "terminal_id",
+                "lifecycle",
+                Wire.REVISION
+            );
+            try {
+                return new Results.TerminalWaitExitPending(
+                    requiredExactId(
+                        fields,
+                        "terminal_id",
+                        Ids.TerminalId::new
+                    ),
+                    Wire.string(
+                        fields.get("lifecycle"),
+                        "terminal lifecycle"
+                    ),
+                    Wire.decimal(
+                        fields.get(Wire.REVISION),
+                        "terminal exit revision"
+                    )
+                );
+            } catch (IllegalArgumentException error) {
+                throw new ProtocolError(
+                    "invalid pending terminal exit result",
+                    error
+                );
+            }
+        }
+        if (!state.equals("exited")) {
+            throw new ProtocolError("terminal wait-exit state is unrecognized");
+        }
+        fields = exactObject(
+            value,
+            "terminal wait-exit exited",
+            Wire.STATE,
+            "terminal_id",
+            "lifecycle",
+            "outcome",
+            "exited_at",
+            Wire.REVISION
+        );
+        if (!Wire.string(
+                fields.get("lifecycle"),
+                "terminal lifecycle"
+            ).equals("exited")) {
+            throw new ProtocolError(
+                "exited terminal result requires exited lifecycle"
+            );
+        }
+        return new Results.TerminalWaitExitExited(
+            requiredExactId(fields, "terminal_id", Ids.TerminalId::new),
+            decodeTerminalExitOutcome(fields.get("outcome")),
+            Wire.decimal(fields.get("exited_at"), "terminal exited_at"),
+            Wire.decimal(fields.get(Wire.REVISION), "terminal exit revision")
+        );
+    }
+
+    private static Results.TerminalExitOutcome decodeTerminalExitOutcome(
+        Object value
+    ) {
+        Map<String, Object> fields = Wire.object(
+            value,
+            "terminal exit outcome"
+        );
+        String kind = Wire.string(
+            fields.get(Wire.KIND),
+            "terminal exit outcome kind"
+        );
+        return switch (kind) {
+            case "exit" -> {
+                fields = exactObject(
+                    value,
+                    "terminal exit code",
+                    Wire.KIND,
+                    "code"
+                );
+                yield new Results.TerminalExitCode(
+                    integer(fields, "code")
+                );
+            }
+            case "signal" -> {
+                fields = exactObject(
+                    value,
+                    "terminal exit signal",
+                    Wire.KIND,
+                    "signal",
+                    "core_dumped"
+                );
+                try {
+                    yield new Results.TerminalExitSignal(
+                        integer(fields, "signal"),
+                        Wire.bool(
+                            fields.get("core_dumped"),
+                            "terminal core_dumped"
+                        )
+                    );
+                } catch (IllegalArgumentException error) {
+                    throw new ProtocolError(
+                        "invalid terminal exit signal",
+                        error
+                    );
+                }
+            }
+            case "unknown" -> {
+                fields = exactObject(
+                    value,
+                    "terminal exit unknown",
+                    Wire.KIND,
+                    "reason"
+                );
+                try {
+                    yield new Results.TerminalExitUnknown(
+                        Wire.string(
+                            fields.get("reason"),
+                            "terminal exit reason"
+                        )
+                    );
+                } catch (IllegalArgumentException error) {
+                    throw new ProtocolError(
+                        "invalid unknown terminal exit",
+                        error
+                    );
+                }
+            }
+            default -> throw new ProtocolError(
+                "terminal exit outcome kind is unrecognized"
+            );
+        };
     }
 
     static Results.TerminalCopyResult decodeTerminalCopy(Object value) {
