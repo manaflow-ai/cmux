@@ -3254,7 +3254,7 @@ mod unix {
             command.cwd(cwd);
         }
         let child = pty.slave.spawn_command(command)?;
-        let child = crate::spawned_pty_child::SpawnedPtyChild::new(child);
+        let child = crate::spawned_pty_child::SpawnedPtyChild::new(child).with_reaper(reaper);
         #[cfg(test)]
         crate::process_session::fail_after_pty_spawn_for_test()?;
         drop(process_creation);
@@ -3425,6 +3425,10 @@ mod unix {
         let cleanup_host = shared.clone();
         let prepare_host = shared.clone();
         let reap_host = shared.clone();
+        let mut child = child;
+        let reaper = child
+            .take_reaper()
+            .expect("terminal-host PTY child retains its reserved session reaper");
         let mut child = Some(child);
         crate::process_session::enqueue_reserved_session_leader(
             reaper,
