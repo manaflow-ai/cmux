@@ -7023,7 +7023,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             focusFirstItem: focusFirstItem
         )
 #if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let afterResponder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "rs.focus.app.end requested=1 result=\(result ? 1 : 0) " +
             "mode=\(requestedMode?.rawValue ?? (context.fileExplorerState?.mode.rawValue ?? "nil")) " +
@@ -7121,7 +7121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let result = context.keyboardFocusCoordinator.focusFileSearch()
 #if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let afterResponder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "file.search.focus.app.end result=\(result ? 1 : 0) " +
             "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
@@ -7183,7 +7183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 #if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let afterResponder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "find.shortcut.app.end target=\(target) result=\(result ? 1 : 0) " +
             "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
@@ -7223,7 +7223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus()
 #if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let afterResponder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "rs.focus.toggle.end result=\(result ? 1 : 0) " +
             "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
