@@ -180,6 +180,9 @@ jobs:
       - name: Validate Zig install without sudo
         run: ./tests/test_install_zig_ci_no_sudo.sh
 
+      - name: Validate Ghostty Zig version synchronization
+        run: ./tests/test_ghostty_zig_version_sync.sh
+
       - name: Validate virtual display lock
         run: ./tests/test_ci_virtual_display_lock.sh
 
