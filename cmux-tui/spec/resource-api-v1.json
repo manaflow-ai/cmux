@@ -1,28 +1,114 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cmux.dev/schemas/resource-api-v1.json",
-  "title": "cmux.protocol/1 request",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["protocol", "id", "operation", "params"],
-  "properties": {
-    "protocol": {"const": "cmux.protocol/1"},
-    "id": {"type": ["string", "integer"]},
-    "operation": {
+  "title": "cmux.protocol/1 envelope",
+  "oneOf": [
+    {"$ref": "#/$defs/request"},
+    {"$ref": "#/$defs/response"},
+    {"$ref": "#/$defs/streamItem"},
+    {"$ref": "#/$defs/streamEnd"}
+  ],
+  "$defs": {
+    "requestId": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
-    },
-    "params": {"type": "object"},
-    "idempotency_key": {
-      "type": ["string", "null"],
       "minLength": 1,
       "maxLength": 128
-    }
-  },
-  "$defs": {
+    },
+    "decimal": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$",
+      "maxLength": 20
+    },
     "resourceId": {
       "type": "string",
-      "pattern": "^(machine|session|ws|screen|pane|tab|term|browser|client|split|notification|agent|stream|projection|sidebar_view|sidebar_plugin)_[0-9a-f]{32}$"
+      "pattern": "^(machine|session|ws|screen|pane|tab|term|browser|client|split|notification|agent|projection|pairing|sidebar_view|sidebar_plugin)_[0-9a-f]{32}$"
+    },
+    "streamId": {
+      "type": "string",
+      "pattern": "^stream_[0-9a-f]{32}$"
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "type", "id", "operation", "params"],
+      "properties": {
+        "protocol": {"const": "cmux.protocol/1"},
+        "type": {"const": "request"},
+        "id": {"$ref": "#/$defs/requestId"},
+        "operation": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_.]*$"
+        },
+        "params": {"type": "object"},
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "type", "id", "ok"],
+      "properties": {
+        "protocol": {"const": "cmux.protocol/1"},
+        "type": {"const": "response"},
+        "id": {"$ref": "#/$defs/requestId"},
+        "ok": {"type": "boolean"},
+        "result": {},
+        "error": {"$ref": "#/$defs/error"}
+      },
+      "oneOf": [
+        {
+          "properties": {"ok": {"const": true}},
+          "required": ["result"],
+          "not": {"required": ["error"]}
+        },
+        {
+          "properties": {"ok": {"const": false}},
+          "required": ["error"],
+          "not": {"required": ["result"]}
+        }
+      ]
+    },
+    "cursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generation", "revision"],
+      "properties": {
+        "generation": {"type": "string", "minLength": 1, "maxLength": 128},
+        "revision": {"$ref": "#/$defs/decimal"}
+      }
+    },
+    "streamItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "type", "stream_id", "sequence", "item"],
+      "properties": {
+        "protocol": {"const": "cmux.protocol/1"},
+        "type": {"const": "stream_item"},
+        "stream_id": {"$ref": "#/$defs/streamId"},
+        "sequence": {"$ref": "#/$defs/decimal"},
+        "cursor": {"$ref": "#/$defs/cursor"},
+        "item": {}
+      }
+    },
+    "streamEnd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "type", "stream_id", "reason"],
+      "properties": {
+        "protocol": {"const": "cmux.protocol/1"},
+        "type": {"const": "stream_end"},
+        "stream_id": {"$ref": "#/$defs/streamId"},
+        "reason": {
+          "enum": ["completed", "canceled", "closed", "gap", "error"]
+        },
+        "cursor": {"$ref": "#/$defs/cursor"},
+        "error": {"$ref": "#/$defs/error"},
+        "recovery": {"type": "string"}
+      }
     },
     "error": {
       "type": "object",

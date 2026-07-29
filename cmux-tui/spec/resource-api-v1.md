@@ -64,6 +64,10 @@ Every CLI instance selector accepts:
 2. `current`;
 3. an exact name.
 
+`name:<value>` forces name interpretation. It is required for names equal to
+`current`, names shaped like opaque IDs, and names containing `_`. The prefix
+is syntax and is not part of the matched name.
+
 An exact name with zero matches returns `selector.not_found`. More than one
 match returns `selector.ambiguous` with every candidate ID. Resolution and
 mutation use one snapshot, so an ambiguous request cannot partially mutate.
@@ -79,10 +83,10 @@ Request:
 ```json
 {
   "protocol": "cmux.protocol/1",
-  "id": "request-owned-json-scalar",
+  "type": "request",
+  "id": "request-owned-bounded-string",
   "operation": "workspace.list",
-  "params": {},
-  "idempotency_key": null
+  "params": {}
 }
 ```
 
@@ -91,7 +95,8 @@ Success:
 ```json
 {
   "protocol": "cmux.protocol/1",
-  "id": "request-owned-json-scalar",
+  "type": "response",
+  "id": "request-owned-bounded-string",
   "ok": true,
   "result": {}
 }
@@ -102,7 +107,8 @@ Failure:
 ```json
 {
   "protocol": "cmux.protocol/1",
-  "id": "request-owned-json-scalar",
+  "type": "response",
+  "id": "request-owned-bounded-string",
   "ok": false,
   "error": {
     "code": "selector.ambiguous",
@@ -113,28 +119,49 @@ Failure:
 }
 ```
 
-Every mutation requires a non-empty idempotency key. Repeating the same key,
-operation, and canonical parameters returns the committed result. Reusing a
-key with different parameters returns `idempotency.conflict`. SDKs never
-retry mutations implicitly.
+Reads omit `idempotency_key`. Every mutation requires a non-empty key.
+Repeating the same key, operation, and canonical parameters returns the
+committed result. Reusing a key with different parameters returns
+`idempotency.conflict`. Replay lookup runs before selectors and revision
+checks. SDKs never retry mutations implicitly.
 
-Messages are limited to 4 MiB. Each stream queue holds at most 256 events and
-16 MiB. Overflow terminates the stream with `stream.gap`, including the last
-delivered revision, current revision, and generation. A client recovers with
-`session.snapshot`, verifies generation, and resumes after the new revision.
+Requests are limited to 4 MiB. Server responses and stream envelopes are
+limited to 16 MiB. Newlines are framing and do not count toward either limit.
+Each stream queue holds at most 256 messages and 16 MiB, with a separate
+control-message reserve. A slow stream ends with reason `gap`, the current
+cursor, and recovery instructions without breaking other requests or streams.
 
-Stream open returns a `stream_` ID. `stream.cancel` is idempotent. Events use:
+The client generates a connection-scoped `stream_` ID in every stream-open
+request. The router installs the tap and stream registry before acknowledging
+the request, enqueues the success response, then releases the initial
+snapshot. `stream.cancel` is connection-local and idempotent. It purges queued
+items, cleans up taps and sizing leases exactly once, queues one
+`stream_end(canceled)`, then returns its response. No item may follow an end.
+
+Stream items use decimal strings for sequences and cursors:
 
 ```json
 {
   "protocol": "cmux.protocol/1",
+  "type": "stream_item",
   "stream_id": "stream_…",
-  "event": "terminal.output",
-  "revision": 42,
-  "generation": "opaque",
-  "data": {}
+  "sequence": "42",
+  "cursor": {"generation": "opaque", "revision": "105"},
+  "item": {"event": "terminal.output", "data": {}}
 }
 ```
+
+`session.events` accepts an optional generation plus last-applied revision
+cursor. With no cursor, it sends one snapshot then live batches. With a
+covered cursor, it replays through the captured head before live delivery. A
+generation mismatch or expired cursor sends a fresh snapshot with
+`reset_reason`; a cursor ahead of head returns `cursor.invalid`. One atomic
+transaction produces one `session.delta` batch with `previous_revision` and
+the new revision. The journal retains at most 4096 batches and 16 MiB.
+
+Terminal and browser attachments have independent decimal-string sequences.
+Their initial snapshot is delivered after the open response. Overflow
+requires a fresh attachment snapshot.
 
 ## Operations
 
@@ -142,23 +169,23 @@ All mutations below require `idempotency_key`.
 
 | Scope | Operations |
 | --- | --- |
-| machine | `list`, `show`, `session_snapshot`, `open_session` |
-| session | `show`, `snapshot`, `events`, `ping`, `shutdown`, `reload_config` |
+| machine | `list`, `show`, `session_list`, `session_open` |
+| session | `get`, `snapshot`, `events`, `ping`, `shutdown`, `reload_config` |
 | client | `list`, `show`, `label`, `detach`, `set_sizing`, `release_sizing` |
 | window | `title_set`, `title_clear`, `colors_set` |
 | pairing | `list`, `respond` |
 | projection | `get`, `put` |
-| workspace | `list`, `show`, `create`, `rename`, `move`, `close`, `run` |
-| screen | `list`, `show`, `create`, `rename`, `select`, `close`, `layout_export`, `layout_apply` |
-| pane | `list`, `show`, `create`, `split`, `rename`, `focus`, `focus_direction`, `neighbor`, `swap`, `zoom`, `ratio_set`, `close`, `run` |
-| tab | `list`, `show`, `create_terminal`, `create_browser`, `rename`, `select`, `move`, `close` |
-| terminal | `show`, `send`, `keys`, `read`, `scrollback`, `copy`, `wait`, `process`, `resize`, `scroll`, `attach`, `state`, `move`, `close` |
+| workspace | `list`, `get`, `create`, `rename`, `move`, `focus`, `close`, `run`, `layout_apply` |
+| screen | `list`, `get`, `create`, `rename`, `focus`, `close`, `layout_export`, `layout_undo` |
+| pane | `list`, `get`, `create`, `split`, `rename`, `focus`, `focus_direction`, `neighbor`, `swap`, `zoom`, `split_ratio_set`, `viewport_width_set`, `close`, `run` |
+| tab | `list`, `get`, `create_terminal`, `create_browser`, `rename`, `focus`, `move`, `close` |
+| terminal | `create`, `get`, `list`, `run`, `input_write`, `input_keys`, `input_mouse`, `input_focus`, `screen_read`, `history_read`, `history_clear`, `copy`, `wait`, `process_get`, `viewer_sizing_set`, `viewer_resize`, `viewer_release`, `viewport_scroll`, `move`, `attach`, `close` |
 | browser | `show`, `navigate`, `back`, `forward`, `reload`, `activate`, `key`, `text`, `mouse`, `wheel`, `attach`, `close` |
 | notification | `list`, `create` |
 | agent | `list`, `report` |
-| sidebar | `show`, `resize`, `reload`, `disable`, `use_builtin` |
+| sidebar view | `show`, `ensure`, `attach`, `input`, `resize`, `reload`, `use_builtin` |
 | sidebar_plugin | `list`, `install`, `use`, `update`, `remove` |
-| provider | `authority_install`, `workspace_mark`, `workspace_rename`, `workspace_close` |
+| provider | `scope_list`, `action_invoke`, `notice_watch`, `authority_install`, `workspace_mark`, `workspace_rename`, `workspace_close` |
 | stream | `cancel` |
 
 `workspace.create`, `workspace.run`, `pane.run`, `tab.create_terminal`, and
@@ -226,6 +253,11 @@ Language contracts:
 Protocol errors retain `code`, `message`, `details`, and `retryable` in every
 language. All seven SDKs implement the same fake-server and live-server
 conformance cases.
+
+Client, Stream, Notification, Agent, PairingRequest, FrontendProjection,
+SidebarView, ProviderScope, ProviderAction, and ProviderNotice are typed
+session or provider auxiliary resources. They are not inserted into the
+workspace tree. Split IDs appear only in raw layout documents.
 
 ## Separate protocols
 
