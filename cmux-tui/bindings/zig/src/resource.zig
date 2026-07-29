@@ -419,6 +419,7 @@ pub const StreamId = OpaqueId("stream_");
 pub const FrontendProjectionId = OpaqueId("projection_");
 pub const PairingRequestId = OpaqueId("pairing_");
 pub const SidebarViewId = OpaqueId("sidebar_view_");
+pub const SidebarPluginId = OpaqueId("sidebar_plugin_");
 pub const ProviderScopeId = OpaqueId("provider_scope_");
 pub const ProviderActionId = OpaqueId("provider_action_");
 pub const ProviderNoticeId = OpaqueId("provider_notice_");
@@ -707,10 +708,244 @@ pub const SensitiveString = struct {
 
 pub const ProviderCredential = SensitiveString;
 
+pub const ErrorResourceScope = union(enum) {
+    machine,
+    session,
+    workspace,
+    screen,
+    pane,
+    tab,
+    terminal,
+    browser,
+    client,
+    split,
+    stream,
+    notification,
+    agent,
+    frontend_projection,
+    pairing_request,
+    sidebar_view,
+    sidebar_plugin,
+    provider_scope,
+    provider_action,
+    provider_notice,
+    unknown: []const u8,
+
+    pub fn wireName(self: ErrorResourceScope) []const u8 {
+        return switch (self) {
+            inline .machine,
+            .session,
+            .workspace,
+            .screen,
+            .pane,
+            .tab,
+            .terminal,
+            .browser,
+            .client,
+            .split,
+            .stream,
+            .notification,
+            .agent,
+            .frontend_projection,
+            .pairing_request,
+            .sidebar_view,
+            .sidebar_plugin,
+            .provider_scope,
+            .provider_action,
+            .provider_notice,
+            => |_, tag| @tagName(tag),
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const ErrorResourceId = union(enum) {
+    machine: MachineId,
+    session: SessionId,
+    workspace: WorkspaceId,
+    screen: ScreenId,
+    pane: PaneId,
+    tab: TabId,
+    terminal: TerminalId,
+    browser: BrowserId,
+    client: ConnectedClientId,
+    split: SplitId,
+    stream: StreamId,
+    notification: NotificationId,
+    agent: AgentId,
+    frontend_projection: FrontendProjectionId,
+    pairing_request: PairingRequestId,
+    sidebar_view: SidebarViewId,
+    sidebar_plugin: SidebarPluginId,
+    provider_scope: ProviderScopeId,
+    provider_action: ProviderActionId,
+    provider_notice: ProviderNoticeId,
+    unknown: []const u8,
+
+    pub fn slice(self: *const ErrorResourceId) []const u8 {
+        return switch (self.*) {
+            inline .machine,
+            .session,
+            .workspace,
+            .screen,
+            .pane,
+            .tab,
+            .terminal,
+            .browser,
+            .client,
+            .split,
+            .stream,
+            .notification,
+            .agent,
+            .frontend_projection,
+            .pairing_request,
+            .sidebar_view,
+            .sidebar_plugin,
+            .provider_scope,
+            .provider_action,
+            .provider_notice,
+            => |*id| id.slice(),
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const MutationRecovery = union(enum) {
+    inspect_state_then_retry_with_new_key,
+    unknown: []const u8,
+
+    pub fn wireName(self: MutationRecovery) []const u8 {
+        return switch (self) {
+            .inspect_state_then_retry_with_new_key => "inspect_state_then_retry_with_new_key",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const AuthorityDeniedDetails = struct {
+    operation: []const u8,
+};
+
+pub const ConfirmationRequiredDetails = struct {
+    revision: u64,
+    closes_panes: []const PaneId,
+};
+
+pub const CursorGapDetails = struct {
+    requested: Cursor,
+    current: Cursor,
+    oldest_revision: u64,
+};
+
+pub const CursorInvalidDetails = struct {
+    requested: Cursor,
+    current: Cursor,
+    reason: []const u8,
+};
+
+pub const IdempotencyConflictDetails = struct {
+    idempotency_key: []const u8,
+    committed_operation: []const u8,
+};
+
+pub const LocalIoDetails = struct {
+    path: ?[]const u8,
+    reason: []const u8,
+};
+
+pub const MutationIndeterminateDetails = struct {
+    idempotency_key: []const u8,
+    operation: []const u8,
+    recovery: MutationRecovery,
+};
+
+pub const OperationFailedDetails = struct {
+    operation: []const u8,
+    reason: []const u8,
+    extra: ?raw.wire.Object,
+};
+
+pub const ResourceNotFoundDetails = struct {
+    scope: ErrorResourceScope,
+    id: ErrorResourceId,
+};
+
+pub const RevisionConflictDetails = struct {
+    expected: u64,
+    actual: u64,
+};
+
+pub const SelectorAmbiguousDetails = struct {
+    /// `scope` is optional for compatibility with early protocol-v1 servers.
+    scope: ?ErrorResourceScope,
+    /// `selector` is optional for compatibility with early protocol-v1 servers.
+    selector: ?[]const u8,
+    candidates: []const ErrorResourceId,
+};
+
+pub const SelectorInvalidDetails = struct {
+    scope: ErrorResourceScope,
+    selector: []const u8,
+    reason: []const u8,
+};
+
+pub const SelectorNotFoundDetails = struct {
+    scope: ErrorResourceScope,
+    selector: []const u8,
+};
+
+pub const SelectorWrongParentDetails = struct {
+    scope: ErrorResourceScope,
+    selector: []const u8,
+    parent_scope: ErrorResourceScope,
+    expected_parent: []const u8,
+    actual_parent: []const u8,
+};
+
+pub const TransportClosedDetails = struct {
+    reason: []const u8,
+};
+
+pub const ValidationInvalidDetails = struct {
+    field: ?[]const u8,
+    reason: []const u8,
+};
+
+pub const UnrecognizedResourceErrorDetails = struct {
+    raw: raw.wire.Value,
+};
+
+pub const MalformedResourceErrorDetails = struct {
+    raw: raw.wire.Value,
+};
+
+/// Typed catalog details. Unknown error codes and malformed known details keep
+/// their redacted wire value without making callers traverse JSON by default.
+pub const ResourceErrorDetails = union(enum) {
+    authority_denied: AuthorityDeniedDetails,
+    confirmation_required: ConfirmationRequiredDetails,
+    cursor_gap: CursorGapDetails,
+    cursor_invalid: CursorInvalidDetails,
+    idempotency_conflict: IdempotencyConflictDetails,
+    local_io: LocalIoDetails,
+    mutation_indeterminate: MutationIndeterminateDetails,
+    operation_failed: OperationFailedDetails,
+    resource_not_found: ResourceNotFoundDetails,
+    revision_conflict: RevisionConflictDetails,
+    selector_ambiguous: SelectorAmbiguousDetails,
+    selector_invalid: SelectorInvalidDetails,
+    selector_not_found: SelectorNotFoundDetails,
+    selector_wrong_parent: SelectorWrongParentDetails,
+    transport_closed: TransportClosedDetails,
+    validation_invalid: ValidationInvalidDetails,
+    unknown: UnrecognizedResourceErrorDetails,
+    malformed: MalformedResourceErrorDetails,
+};
+
 pub const ResourceError = struct {
     code: []const u8,
     message: []const u8,
-    details: ?raw.wire.Value,
+    details: ResourceErrorDetails,
     retryable: bool,
 
     pub fn format(
@@ -734,7 +969,7 @@ pub const OwnedResourceError = struct {
     }
 };
 
-pub const OwnedResult = struct {
+const OwnedResult = struct {
     owned: raw.wire.OwnedValue,
     value: raw.wire.Value,
 
@@ -744,7 +979,7 @@ pub const OwnedResult = struct {
     }
 };
 
-pub const MutationResult = struct {
+const MutationResult = struct {
     value: raw.wire.Value,
     generation: []const u8,
     revision: u64,
@@ -760,6 +995,9 @@ pub const MutationResult = struct {
         self.* = undefined;
     }
 };
+
+/// Provider actions intentionally return catalog `JsonValue`.
+pub const JsonMutationResult = MutationResult;
 
 pub const RendererGrantOptions = struct {
     endpoint: []const u8,
@@ -999,6 +1237,434 @@ fn objectString(
     };
 }
 
+fn objectBool(
+    object: raw.wire.Object,
+    name: []const u8,
+) !bool {
+    const value = object.get(name) orelse return error.MissingField;
+    return switch (value) {
+        .bool => |item| item,
+        else => error.ExpectedBool,
+    };
+}
+
+fn optionalObjectString(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?[]const u8 {
+    const value = object.get(name) orelse return null;
+    return switch (value) {
+        .null => null,
+        .string => |text| text,
+        else => error.ExpectedString,
+    };
+}
+
+fn detailObject(value: raw.wire.Value) !raw.wire.Object {
+    return switch (value) {
+        .object => |object| object,
+        else => error.ExpectedObject,
+    };
+}
+
+fn parseErrorResourceScope(value: []const u8) ErrorResourceScope {
+    inline for (@typeInfo(ErrorResourceScope).@"union".fields) |field| {
+        if (comptime !std.mem.eql(u8, field.name, "unknown")) {
+            if (std.mem.eql(u8, value, field.name)) {
+                return @unionInit(
+                    ErrorResourceScope,
+                    field.name,
+                    {},
+                );
+            }
+        }
+    }
+    return .{ .unknown = value };
+}
+
+fn parseErrorScopeField(
+    object: raw.wire.Object,
+    required: bool,
+) !?ErrorResourceScope {
+    const encoded = if (object.get("scope")) |value|
+        switch (value) {
+            .string => |text| text,
+            else => return error.ExpectedString,
+        }
+    else if (object.get("kind")) |legacy|
+        switch (legacy) {
+            .string => |text| text,
+            else => return error.ExpectedString,
+        }
+    else if (required)
+        return error.MissingField
+    else
+        return null;
+    return parseErrorResourceScope(encoded);
+}
+
+fn parseAnyErrorResourceId(value: []const u8) !ErrorResourceId {
+    if (std.mem.startsWith(u8, value, MachineId.wire_prefix)) {
+        return .{ .machine = try MachineId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, SessionId.wire_prefix)) {
+        return .{ .session = try SessionId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, WorkspaceId.wire_prefix)) {
+        return .{ .workspace = try WorkspaceId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, ScreenId.wire_prefix)) {
+        return .{ .screen = try ScreenId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, PaneId.wire_prefix)) {
+        return .{ .pane = try PaneId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, TabId.wire_prefix)) {
+        return .{ .tab = try TabId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, TerminalId.wire_prefix)) {
+        return .{ .terminal = try TerminalId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, BrowserId.wire_prefix)) {
+        return .{ .browser = try BrowserId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, ConnectedClientId.wire_prefix)) {
+        return .{ .client = try ConnectedClientId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, SplitId.wire_prefix)) {
+        return .{ .split = try SplitId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, StreamId.wire_prefix)) {
+        return .{ .stream = try StreamId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, NotificationId.wire_prefix)) {
+        return .{ .notification = try NotificationId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, AgentId.wire_prefix)) {
+        return .{ .agent = try AgentId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, FrontendProjectionId.wire_prefix)) {
+        return .{
+            .frontend_projection = try FrontendProjectionId.parse(value),
+        };
+    }
+    if (std.mem.startsWith(u8, value, PairingRequestId.wire_prefix)) {
+        return .{ .pairing_request = try PairingRequestId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, SidebarViewId.wire_prefix)) {
+        return .{ .sidebar_view = try SidebarViewId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, SidebarPluginId.wire_prefix)) {
+        return .{ .sidebar_plugin = try SidebarPluginId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, ProviderScopeId.wire_prefix)) {
+        return .{ .provider_scope = try ProviderScopeId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, ProviderActionId.wire_prefix)) {
+        return .{ .provider_action = try ProviderActionId.parse(value) };
+    }
+    if (std.mem.startsWith(u8, value, ProviderNoticeId.wire_prefix)) {
+        return .{ .provider_notice = try ProviderNoticeId.parse(value) };
+    }
+    return .{ .unknown = value };
+}
+
+fn parseScopedErrorResourceId(
+    scope: ErrorResourceScope,
+    value: []const u8,
+) !ErrorResourceId {
+    return switch (scope) {
+        .machine => .{ .machine = try MachineId.parse(value) },
+        .session => .{ .session = try SessionId.parse(value) },
+        .workspace => .{ .workspace = try WorkspaceId.parse(value) },
+        .screen => .{ .screen = try ScreenId.parse(value) },
+        .pane => .{ .pane = try PaneId.parse(value) },
+        .tab => .{ .tab = try TabId.parse(value) },
+        .terminal => .{ .terminal = try TerminalId.parse(value) },
+        .browser => .{ .browser = try BrowserId.parse(value) },
+        .client => .{ .client = try ConnectedClientId.parse(value) },
+        .split => .{ .split = try SplitId.parse(value) },
+        .stream => .{ .stream = try StreamId.parse(value) },
+        .notification => .{
+            .notification = try NotificationId.parse(value),
+        },
+        .agent => .{ .agent = try AgentId.parse(value) },
+        .frontend_projection => .{
+            .frontend_projection = try FrontendProjectionId.parse(value),
+        },
+        .pairing_request => .{
+            .pairing_request = try PairingRequestId.parse(value),
+        },
+        .sidebar_view => .{
+            .sidebar_view = try SidebarViewId.parse(value),
+        },
+        .sidebar_plugin => .{
+            .sidebar_plugin = try SidebarPluginId.parse(value),
+        },
+        .provider_scope => .{
+            .provider_scope = try ProviderScopeId.parse(value),
+        },
+        .provider_action => .{
+            .provider_action = try ProviderActionId.parse(value),
+        },
+        .provider_notice => .{
+            .provider_notice = try ProviderNoticeId.parse(value),
+        },
+        .unknown => try parseAnyErrorResourceId(value),
+    };
+}
+
+fn parseErrorCursor(value: raw.wire.Value) !Cursor {
+    const object = try detailObject(value);
+    const generation = try objectString(object, "generation");
+    if (generation.len == 0 or generation.len > 128) {
+        return error.InvalidCursorGeneration;
+    }
+    return .{
+        .generation = generation,
+        .revision = try decimalU64(
+            object.get("revision") orelse return error.MissingField,
+        ),
+    };
+}
+
+fn parseMutationRecovery(value: []const u8) MutationRecovery {
+    if (std.mem.eql(
+        u8,
+        value,
+        "inspect_state_then_retry_with_new_key",
+    )) {
+        return .inspect_state_then_retry_with_new_key;
+    }
+    return .{ .unknown = value };
+}
+
+fn isCatalogErrorCode(code: []const u8) bool {
+    return std.mem.eql(u8, code, "authority.denied") or
+        std.mem.eql(u8, code, "confirmation.required") or
+        std.mem.eql(u8, code, "cursor.gap") or
+        std.mem.eql(u8, code, "cursor.invalid") or
+        std.mem.eql(u8, code, "idempotency.conflict") or
+        std.mem.eql(u8, code, "local.io") or
+        std.mem.eql(u8, code, "mutation.indeterminate") or
+        std.mem.eql(u8, code, "operation.failed") or
+        std.mem.eql(u8, code, "resource.not_found") or
+        std.mem.eql(u8, code, "revision.conflict") or
+        std.mem.eql(u8, code, "selector.ambiguous") or
+        std.mem.eql(u8, code, "selector.invalid") or
+        std.mem.eql(u8, code, "selector.not_found") or
+        std.mem.eql(u8, code, "selector.wrong_parent") or
+        std.mem.eql(u8, code, "transport.closed") or
+        std.mem.eql(u8, code, "validation.invalid");
+}
+
+fn parseCatalogErrorDetails(
+    allocator: std.mem.Allocator,
+    code: []const u8,
+    value: raw.wire.Value,
+) !ResourceErrorDetails {
+    const object = try detailObject(value);
+    if (std.mem.eql(u8, code, "authority.denied")) {
+        return .{ .authority_denied = .{
+            .operation = try objectString(object, "operation"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "confirmation.required")) {
+        const raw_panes = switch (object.get("closes_panes") orelse
+            return error.MissingField) {
+            .array => |items| items.items,
+            else => return error.ExpectedArray,
+        };
+        if (raw_panes.len == 0) return error.ExpectedNonEmptyArray;
+        const panes = try allocator.alloc(PaneId, raw_panes.len);
+        for (raw_panes, 0..) |item, index| {
+            panes[index] = try PaneId.parse(switch (item) {
+                .string => |text| text,
+                else => return error.ExpectedString,
+            });
+        }
+        return .{ .confirmation_required = .{
+            .revision = try decimalU64(
+                object.get("revision") orelse return error.MissingField,
+            ),
+            .closes_panes = panes,
+        } };
+    }
+    if (std.mem.eql(u8, code, "cursor.gap")) {
+        return .{ .cursor_gap = .{
+            .requested = try parseErrorCursor(
+                object.get("requested") orelse return error.MissingField,
+            ),
+            .current = try parseErrorCursor(
+                object.get("current") orelse return error.MissingField,
+            ),
+            .oldest_revision = try decimalU64(
+                object.get("oldest_revision") orelse
+                    return error.MissingField,
+            ),
+        } };
+    }
+    if (std.mem.eql(u8, code, "cursor.invalid")) {
+        return .{ .cursor_invalid = .{
+            .requested = try parseErrorCursor(
+                object.get("requested") orelse return error.MissingField,
+            ),
+            .current = try parseErrorCursor(
+                object.get("current") orelse return error.MissingField,
+            ),
+            .reason = try objectString(object, "reason"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "idempotency.conflict")) {
+        return .{ .idempotency_conflict = .{
+            .idempotency_key = try objectString(
+                object,
+                "idempotency_key",
+            ),
+            .committed_operation = try objectString(
+                object,
+                "committed_operation",
+            ),
+        } };
+    }
+    if (std.mem.eql(u8, code, "local.io")) {
+        return .{ .local_io = .{
+            .path = try optionalObjectString(object, "path"),
+            .reason = try objectString(object, "reason"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "mutation.indeterminate")) {
+        return .{ .mutation_indeterminate = .{
+            .idempotency_key = try objectString(
+                object,
+                "idempotency_key",
+            ),
+            .operation = try objectString(object, "operation"),
+            .recovery = parseMutationRecovery(
+                try objectString(object, "recovery"),
+            ),
+        } };
+    }
+    if (std.mem.eql(u8, code, "operation.failed")) {
+        const extra = if (object.get("extra")) |extra_value|
+            switch (extra_value) {
+                .null => null,
+                .object => |extra_object| extra_object,
+                else => return error.ExpectedObject,
+            }
+        else
+            null;
+        return .{ .operation_failed = .{
+            .operation = try objectString(object, "operation"),
+            .reason = try objectString(object, "reason"),
+            .extra = extra,
+        } };
+    }
+    if (std.mem.eql(u8, code, "resource.not_found")) {
+        const scope = (try parseErrorScopeField(object, true)).?;
+        return .{ .resource_not_found = .{
+            .scope = scope,
+            .id = try parseScopedErrorResourceId(
+                scope,
+                try objectString(object, "id"),
+            ),
+        } };
+    }
+    if (std.mem.eql(u8, code, "revision.conflict")) {
+        return .{ .revision_conflict = .{
+            .expected = try decimalU64(
+                object.get("expected") orelse return error.MissingField,
+            ),
+            .actual = try decimalU64(
+                object.get("actual") orelse return error.MissingField,
+            ),
+        } };
+    }
+    if (std.mem.eql(u8, code, "selector.ambiguous")) {
+        const scope = try parseErrorScopeField(object, false);
+        const raw_candidates = switch (object.get("candidates") orelse
+            return error.MissingField) {
+            .array => |items| items.items,
+            else => return error.ExpectedArray,
+        };
+        if (raw_candidates.len < 2) {
+            return error.ExpectedAtLeastTwoCandidates;
+        }
+        const candidates = try allocator.alloc(
+            ErrorResourceId,
+            raw_candidates.len,
+        );
+        for (raw_candidates, 0..) |item, index| {
+            const encoded = switch (item) {
+                .string => |text| text,
+                else => return error.ExpectedString,
+            };
+            candidates[index] = if (scope) |known_scope|
+                try parseScopedErrorResourceId(known_scope, encoded)
+            else
+                try parseAnyErrorResourceId(encoded);
+        }
+        return .{ .selector_ambiguous = .{
+            .scope = scope,
+            .selector = try optionalObjectString(object, "selector"),
+            .candidates = candidates,
+        } };
+    }
+    if (std.mem.eql(u8, code, "selector.invalid")) {
+        return .{ .selector_invalid = .{
+            .scope = (try parseErrorScopeField(object, true)).?,
+            .selector = try objectString(object, "selector"),
+            .reason = try objectString(object, "reason"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "selector.not_found")) {
+        return .{ .selector_not_found = .{
+            .scope = (try parseErrorScopeField(object, true)).?,
+            .selector = try objectString(object, "selector"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "selector.wrong_parent")) {
+        return .{ .selector_wrong_parent = .{
+            .scope = (try parseErrorScopeField(object, true)).?,
+            .selector = try objectString(object, "selector"),
+            .parent_scope = parseErrorResourceScope(
+                try objectString(object, "parent_scope"),
+            ),
+            .expected_parent = try objectString(
+                object,
+                "expected_parent",
+            ),
+            .actual_parent = try objectString(object, "actual_parent"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "transport.closed")) {
+        return .{ .transport_closed = .{
+            .reason = try objectString(object, "reason"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "validation.invalid")) {
+        return .{ .validation_invalid = .{
+            .field = try optionalObjectString(object, "field"),
+            .reason = try objectString(object, "reason"),
+        } };
+    }
+    unreachable;
+}
+
+fn decodeResourceErrorDetails(
+    allocator: std.mem.Allocator,
+    code: []const u8,
+    value: raw.wire.Value,
+) !ResourceErrorDetails {
+    if (!isCatalogErrorCode(code)) {
+        return .{ .unknown = .{ .raw = value } };
+    }
+    return parseCatalogErrorDetails(allocator, code, value) catch |failure| {
+        if (failure == error.OutOfMemory) return failure;
+        return .{ .malformed = .{ .raw = value } };
+    };
+}
+
 fn parseRequiredId(
     comptime Id: type,
     object: raw.wire.Object,
@@ -1186,10 +1852,15 @@ pub const Client = struct {
             u8,
             objectString(object, "message") catch "cmux operation failed",
         );
-        const details = if (object.get("details")) |details_value|
-            try cloneRedacted(allocator, details_value)
-        else
-            null;
+        const raw_details = try cloneRedacted(
+            allocator,
+            object.get("details") orelse .null,
+        );
+        const details = try decodeResourceErrorDetails(
+            allocator,
+            code,
+            raw_details,
+        );
         const retryable = if (object.get("retryable")) |retryable_value|
             switch (retryable_value) {
                 .bool => |item| item,
@@ -1426,7 +2097,7 @@ pub const Client = struct {
         return self.callLocked(operation, params, mutation);
     }
 
-    pub fn read(
+    fn read(
         self: *Client,
         operation: Operation,
         params: raw.wire.Value,
@@ -1434,7 +2105,7 @@ pub const Client = struct {
         return self.callClass(.read, operation, params, null);
     }
 
-    pub fn control(
+    fn control(
         self: *Client,
         operation: Operation,
         params: raw.wire.Value,
@@ -1447,7 +2118,7 @@ pub const Client = struct {
         );
     }
 
-    pub fn mutate(
+    fn mutate(
         self: *Client,
         operation: Operation,
         params: raw.wire.Value,
@@ -1506,7 +2177,7 @@ pub const Client = struct {
         };
     }
 
-    pub fn openSessionEvents(
+    fn openSessionEvents(
         self: *Client,
         params: raw.wire.Value,
     ) !SessionEventStream {
@@ -1514,7 +2185,7 @@ pub const Client = struct {
         return self.openSessionEventsOn(connection, params);
     }
 
-    pub fn openSessionEventsOn(
+    fn openSessionEventsOn(
         self: *Client,
         connection: raw.transport.Connection,
         params: raw.wire.Value,
@@ -1528,7 +2199,7 @@ pub const Client = struct {
         ) };
     }
 
-    pub fn openTerminalAttachment(
+    fn openTerminalAttachment(
         self: *Client,
         params: raw.wire.Value,
     ) !TerminalAttachmentStream {
@@ -1542,7 +2213,7 @@ pub const Client = struct {
         ) };
     }
 
-    pub fn openBrowserAttachment(
+    fn openBrowserAttachment(
         self: *Client,
         params: raw.wire.Value,
     ) !BrowserAttachmentStream {
@@ -1556,7 +2227,7 @@ pub const Client = struct {
         ) };
     }
 
-    pub fn openSidebarView(
+    fn openSidebarView(
         self: *Client,
         params: raw.wire.Value,
     ) !SidebarViewStream {
@@ -1570,7 +2241,7 @@ pub const Client = struct {
         ) };
     }
 
-    pub fn openProviderNotices(
+    fn openProviderNotices(
         self: *Client,
         params: raw.wire.Value,
     ) !ProviderNoticeStream {
@@ -1715,16 +2386,25 @@ pub const Client = struct {
         return ProviderNoticeHandle.init(self, id);
     }
 
-    pub fn machines(self: *Client) !OwnedResult {
+    pub fn listMachines(self: *Client) !MachineList {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
-        return self.read(
-            .machine_list,
-            .{ .object = raw.wire.Object.init(arena.allocator()) },
+        return decodeTypedList(
+            MachineSnapshot,
+            self.allocator,
+            try self.read(
+                .machine_list,
+                .{ .object = raw.wire.Object.init(arena.allocator()) },
+            ),
+            "machines",
         );
     }
 
-    pub fn invokeProviderAction(
+    pub fn machines(self: *Client) !MachineList {
+        return self.listMachines();
+    }
+
+    fn invokeProviderAction(
         self: *Client,
         scope: ProviderScopeId,
         action: ProviderActionId,
@@ -2237,10 +2917,15 @@ fn ownedErrorFromValue(
         u8,
         objectString(object, "message") catch "cmux stream failed",
     );
-    const details = if (object.get("details")) |details_value|
-        try cloneRedacted(owned_allocator, details_value)
-    else
-        null;
+    const raw_details = try cloneRedacted(
+        owned_allocator,
+        object.get("details") orelse .null,
+    );
+    const details = try decodeResourceErrorDetails(
+        owned_allocator,
+        code,
+        raw_details,
+    );
     const retryable = if (object.get("retryable")) |retryable_value|
         switch (retryable_value) {
             .bool => |item| item,
@@ -2629,7 +3314,7 @@ fn TypedStream(comptime Item: type) type {
             };
         }
 
-        pub fn control(
+        fn control(
             self: *Self,
             operation: Operation,
             params: raw.wire.Value,
@@ -2659,6 +3344,12 @@ pub const RunOptions = struct {
     name: ?[]const u8 = null,
     cols: ?u16 = null,
     rows: ?u16 = null,
+};
+
+pub const TerminalHistoryOptions = struct {
+    before: ?u64 = null,
+    limit: ?u32 = null,
+    styled: ?bool = null,
 };
 
 pub const CreateTerminalTabOptions = struct {
@@ -2876,6 +3567,1820 @@ fn encodeBrowserTab(
     }
 }
 
+pub const MachineOrigin = union(enum) {
+    local,
+    external,
+    unknown: []const u8,
+
+    pub fn wireName(self: MachineOrigin) []const u8 {
+        return switch (self) {
+            .local => "local",
+            .external => "external",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const MachineStatus = union(enum) {
+    running,
+    connecting,
+    sleeping,
+    stopped,
+    unavailable,
+    unknown: []const u8,
+
+    pub fn wireName(self: MachineStatus) []const u8 {
+        return switch (self) {
+            .running => "running",
+            .connecting => "connecting",
+            .sleeping => "sleeping",
+            .stopped => "stopped",
+            .unavailable => "unavailable",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const MachineSnapshot = struct {
+    id: MachineId,
+    name: []const u8,
+    origin: MachineOrigin,
+    status: MachineStatus,
+    connectable: bool,
+    provider_scope_id: ?ProviderScopeId,
+    deleted: bool,
+    recoverable: bool,
+    /// Catalog-defined forward-compatible fields.
+    extra: ?raw.wire.Object,
+};
+
+pub const SessionSnapshot = struct {
+    id: SessionId,
+    machine_id: MachineId,
+    name: ?[]const u8,
+    generation: []const u8,
+    revision: u64,
+    connected: bool,
+    /// Catalog-defined forward-compatible fields.
+    extra: ?raw.wire.Object,
+};
+
+pub const WorkspaceSnapshot = struct {
+    id: WorkspaceId,
+    session_id: SessionId,
+    name: []const u8,
+    index: u32,
+    focused: bool,
+    /// Catalog-defined forward-compatible fields.
+    extra: ?raw.wire.Object,
+};
+
+pub const ClientTransport = union(enum) {
+    unix,
+    websocket,
+    unknown: []const u8,
+
+    pub fn wireName(self: ClientTransport) []const u8 {
+        return switch (self) {
+            .unix => "unix",
+            .websocket => "websocket",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const ClientTerminalSize = struct {
+    terminal_id: TerminalId,
+    cols: ?u16,
+    rows: ?u16,
+    participating: bool,
+};
+
+pub const ClientSnapshot = struct {
+    id: ConnectedClientId,
+    session_id: SessionId,
+    name: ?[]const u8,
+    client_kind: ?[]const u8,
+    transport: ClientTransport,
+    connected_seconds: u64,
+    attached_terminal_ids: []const TerminalId,
+    sizes: []const ClientTerminalSize,
+    self: bool,
+    /// Catalog-defined forward-compatible fields.
+    extra: ?raw.wire.Object,
+};
+
+pub const BrowserSource = union(enum) {
+    external,
+    launched,
+    unknown: []const u8,
+
+    pub fn wireName(self: BrowserSource) []const u8 {
+        return switch (self) {
+            .external => "external",
+            .launched => "launched",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const BrowserStatus = union(enum) {
+    starting,
+    live,
+    failed,
+    unknown: []const u8,
+
+    pub fn wireName(self: BrowserStatus) []const u8 {
+        return switch (self) {
+            .starting => "starting",
+            .live => "live",
+            .failed => "failed",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const BrowserSnapshot = struct {
+    id: BrowserId,
+    tab_id: TabId,
+    url: []const u8,
+    title: []const u8,
+    loading: bool,
+    source: BrowserSource,
+    status: BrowserStatus,
+    @"error": ?[]const u8,
+    frames_stalled: bool,
+    size: Size,
+    /// Catalog-defined forward-compatible fields.
+    extra: ?raw.wire.Object,
+};
+
+pub const PixelSize = struct {
+    width_px: u32,
+    height_px: u32,
+};
+
+pub const BrowserViewerResizeResult = struct {
+    accepted: bool,
+    size: PixelSize,
+};
+
+pub const CellPixelFailure = struct {
+    target: []const u8,
+    reason: []const u8,
+};
+
+pub const CellPixelsResult = struct {
+    width_px: u32,
+    height_px: u32,
+    resized_terminals: []const TerminalId,
+    failures: []const CellPixelFailure,
+};
+
+pub const LayoutDirection = union(enum) {
+    horizontal,
+    vertical,
+    unknown: []const u8,
+
+    pub fn wireName(self: LayoutDirection) []const u8 {
+        return switch (self) {
+            .horizontal => "horizontal",
+            .vertical => "vertical",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const LayoutLeaf = struct {
+    pane_id: PaneId,
+    tab_ids: []const TabId,
+    active_tab_id: ?TabId,
+};
+
+pub const LayoutSplit = struct {
+    split_id: SplitId,
+    direction: LayoutDirection,
+    ratio: f64,
+    first: *const LayoutNode,
+    second: *const LayoutNode,
+};
+
+pub const LayoutStack = struct {
+    pane_ids: []const PaneId,
+    expanded_pane_id: PaneId,
+};
+
+pub const LayoutColumn = struct {
+    column_id: SplitId,
+    width: f64,
+    root: *const LayoutNode,
+};
+
+pub const LayoutViewport = struct {
+    base_width: f64,
+    columns: []const LayoutColumn,
+};
+
+pub const UnknownLayoutNode = struct {
+    kind: []const u8,
+    raw_object: raw.wire.Value,
+};
+
+pub const LayoutNode = union(enum) {
+    leaf: LayoutLeaf,
+    split: LayoutSplit,
+    stack: LayoutStack,
+    viewport: LayoutViewport,
+    unknown: UnknownLayoutNode,
+};
+
+pub const LayoutDocument = struct {
+    version: u32,
+    screen_id: ScreenId,
+    active_pane_id: PaneId,
+    zoomed_pane_id: ?PaneId,
+    root: *const LayoutNode,
+    /// Catalog-defined forward-compatible fields.
+    extra: ?raw.wire.Object,
+};
+
+pub const ScreenSnapshot = struct {
+    id: ScreenId,
+    workspace_id: WorkspaceId,
+    name: ?[]const u8,
+    index: u32,
+    focused: bool,
+    layout: LayoutDocument,
+    /// Catalog-defined forward-compatible fields.
+    extra: ?raw.wire.Object,
+};
+
+pub const PaneSnapshot = struct {
+    id: PaneId,
+    screen_id: ScreenId,
+    name: ?[]const u8,
+    focused: bool,
+    zoomed: bool,
+    /// Catalog-defined forward-compatible fields.
+    extra: ?raw.wire.Object,
+};
+
+pub const TabContentKind = union(enum) {
+    terminal,
+    browser,
+    unknown: []const u8,
+
+    pub fn wireName(self: TabContentKind) []const u8 {
+        return switch (self) {
+            .terminal => "terminal",
+            .browser => "browser",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const TabContentId = union(enum) {
+    terminal: TerminalId,
+    browser: BrowserId,
+    unknown: []const u8,
+
+    pub fn slice(self: *const TabContentId) []const u8 {
+        return switch (self.*) {
+            .terminal => |*id| id.slice(),
+            .browser => |*id| id.slice(),
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const TabSnapshot = struct {
+    id: TabId,
+    pane_id: PaneId,
+    name: ?[]const u8,
+    index: u32,
+    focused: bool,
+    content_kind: TabContentKind,
+    content_id: TabContentId,
+    /// Catalog-defined forward-compatible fields.
+    extra: ?raw.wire.Object,
+};
+
+pub const EmptyResult = struct {};
+
+pub const PingResult = struct {
+    alive: bool,
+    cursor: Cursor,
+};
+
+pub const RenderUnderline = union(enum) {
+    single,
+    double,
+    curly,
+    dotted,
+    dashed,
+    unknown: []const u8,
+
+    pub fn wireName(self: RenderUnderline) []const u8 {
+        return switch (self) {
+            .single => "single",
+            .double => "double",
+            .curly => "curly",
+            .dotted => "dotted",
+            .dashed => "dashed",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const RenderRun = struct {
+    text: []const u8,
+    fg: ?[]const u8,
+    bg: ?[]const u8,
+    attrs: u32,
+    underline: ?RenderUnderline,
+    width_hint: ?u16,
+};
+
+pub const RenderRow = struct {
+    row: u16,
+    runs: []const RenderRun,
+};
+
+pub const TerminalScreenResult = struct {
+    text: []const u8,
+    cols: u16,
+    rows: u16,
+    cursor_row: u16,
+    cursor_col: u16,
+    cursor_visible: bool,
+    /// Catalog-defined forward-compatible fields.
+    extra: ?raw.wire.Object,
+};
+
+pub const TerminalStateResult = struct {
+    /// Original catalog field for consumers that persist the wire form.
+    state_base64: []const u8,
+    /// Decoded VT replay bytes.
+    state: []const u8,
+    cols: u16,
+    rows: u16,
+};
+
+pub const TerminalHistoryResult = struct {
+    start: u64,
+    next: ?u64,
+    rows: []const RenderRow,
+};
+
+pub const TerminalWaitResult = struct {
+    matched: bool,
+    text: []const u8,
+};
+
+pub const TerminalCopyMode = union(enum) {
+    screen,
+    selection,
+    scrollback,
+    unknown: []const u8,
+
+    pub fn wireName(self: TerminalCopyMode) []const u8 {
+        return switch (self) {
+            .screen => "screen",
+            .selection => "selection",
+            .scrollback => "scrollback",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const TerminalCopyResult = struct {
+    mode: TerminalCopyMode,
+    text: []const u8,
+};
+
+pub const ProcessInfoResult = struct {
+    pid: u32,
+    executable: ?[]const u8,
+    argv: []const []const u8,
+    cwd: ?[]const u8,
+    children: []const u32,
+};
+
+pub const Size = struct {
+    cols: u16,
+    rows: u16,
+};
+
+pub const ViewerResizeResult = struct {
+    accepted: bool,
+    size: Size,
+};
+
+fn OwnedValue(comptime Value: type) type {
+    return struct {
+        const Self = @This();
+
+        owned: raw.wire.OwnedValue,
+        value: Value,
+
+        pub fn deinit(self: *Self) void {
+            self.owned.deinit();
+            self.* = undefined;
+        }
+    };
+}
+
+fn OwnedDecodedValue(comptime Value: type) type {
+    return struct {
+        const Self = @This();
+
+        owned: raw.wire.OwnedValue,
+        decoded: std.heap.ArenaAllocator,
+        value: Value,
+
+        pub fn deinit(self: *Self) void {
+            self.decoded.deinit();
+            self.owned.deinit();
+            self.* = undefined;
+        }
+    };
+}
+
+fn OwnedList(comptime Item: type) type {
+    return struct {
+        const Self = @This();
+
+        allocator: std.mem.Allocator,
+        owned: raw.wire.OwnedValue,
+        items: []Item,
+
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.items);
+            self.owned.deinit();
+            self.* = undefined;
+        }
+    };
+}
+
+fn TypedMutationResult(comptime Value: type) type {
+    return struct {
+        const Self = @This();
+
+        owned: raw.wire.OwnedValue,
+        value: Value,
+        generation: []const u8,
+        revision: u64,
+        replayed: bool,
+
+        pub fn deinit(self: *Self) void {
+            self.owned.deinit();
+            self.* = undefined;
+        }
+    };
+}
+
+fn TypedDecodedMutationResult(comptime Value: type) type {
+    return struct {
+        const Self = @This();
+
+        owned: raw.wire.OwnedValue,
+        decoded: std.heap.ArenaAllocator,
+        value: Value,
+        generation: []const u8,
+        revision: u64,
+        replayed: bool,
+
+        pub fn deinit(self: *Self) void {
+            self.decoded.deinit();
+            self.owned.deinit();
+            self.* = undefined;
+        }
+    };
+}
+
+pub const OwnedMachineSnapshot = OwnedValue(MachineSnapshot);
+pub const OwnedSessionSnapshot = OwnedValue(SessionSnapshot);
+pub const OwnedWorkspaceSnapshot = OwnedValue(WorkspaceSnapshot);
+pub const OwnedClientSnapshot = OwnedDecodedValue(ClientSnapshot);
+pub const OwnedBrowserSnapshot = OwnedValue(BrowserSnapshot);
+pub const OwnedScreenSnapshot = OwnedDecodedValue(ScreenSnapshot);
+pub const OwnedPaneSnapshot = OwnedValue(PaneSnapshot);
+pub const OwnedTabSnapshot = OwnedValue(TabSnapshot);
+pub const OwnedPingResult = OwnedValue(PingResult);
+pub const OwnedEmptyResult = OwnedValue(EmptyResult);
+pub const OwnedTerminalScreenResult = OwnedValue(TerminalScreenResult);
+pub const OwnedTerminalStateResult =
+    OwnedDecodedValue(TerminalStateResult);
+pub const OwnedTerminalHistoryResult =
+    OwnedDecodedValue(TerminalHistoryResult);
+pub const OwnedTerminalWaitResult = OwnedValue(TerminalWaitResult);
+pub const OwnedTerminalCopyResult = OwnedValue(TerminalCopyResult);
+pub const OwnedProcessInfoResult = OwnedDecodedValue(ProcessInfoResult);
+pub const OwnedViewerResizeResult = OwnedValue(ViewerResizeResult);
+pub const OwnedBrowserViewerResizeResult =
+    OwnedValue(BrowserViewerResizeResult);
+pub const OwnedCellPixelsResult = OwnedDecodedValue(CellPixelsResult);
+pub const MachineList = OwnedList(MachineSnapshot);
+pub const SessionList = OwnedList(SessionSnapshot);
+pub const WorkspaceList = OwnedList(WorkspaceSnapshot);
+pub const MachineMutationResult = TypedMutationResult(MachineSnapshot);
+pub const WorkspaceMutationResult = TypedMutationResult(WorkspaceSnapshot);
+pub const BrowserMutationResult = TypedMutationResult(BrowserSnapshot);
+pub const ScreenMutationResult =
+    TypedDecodedMutationResult(ScreenSnapshot);
+pub const PaneMutationResult = TypedMutationResult(PaneSnapshot);
+pub const TabMutationResult = TypedMutationResult(TabSnapshot);
+pub const CreatedPathMutationResult = TypedMutationResult(CreatedPath);
+pub const CreatedTerminalPathMutationResult =
+    TypedMutationResult(CreatedTerminalPath);
+pub const CreatedBrowserPathMutationResult =
+    TypedMutationResult(CreatedBrowserPath);
+pub const EmptyMutationResult = TypedMutationResult(EmptyResult);
+
+fn parseMachineOrigin(value: []const u8) MachineOrigin {
+    if (std.mem.eql(u8, value, "local")) return .local;
+    if (std.mem.eql(u8, value, "external")) return .external;
+    return .{ .unknown = value };
+}
+
+fn parseMachineStatus(value: []const u8) MachineStatus {
+    if (std.mem.eql(u8, value, "running")) return .running;
+    if (std.mem.eql(u8, value, "connecting")) return .connecting;
+    if (std.mem.eql(u8, value, "sleeping")) return .sleeping;
+    if (std.mem.eql(u8, value, "stopped")) return .stopped;
+    if (std.mem.eql(u8, value, "unavailable")) return .unavailable;
+    return .{ .unknown = value };
+}
+
+fn optionalExtra(object: raw.wire.Object) !?raw.wire.Object {
+    const value = object.get("extra") orelse return null;
+    return switch (value) {
+        .null => null,
+        .object => |extra| extra,
+        else => error.ExpectedObject,
+    };
+}
+
+fn unsignedValue(
+    comptime Int: type,
+    value: raw.wire.Value,
+    minimum: Int,
+) !Int {
+    const decoded = std.math.cast(
+        Int,
+        try decimalU64(value),
+    ) orelse return error.IntegerOverflow;
+    if (decoded < minimum) return error.IntegerOutOfRange;
+    return decoded;
+}
+
+fn objectUnsigned(
+    comptime Int: type,
+    object: raw.wire.Object,
+    name: []const u8,
+    minimum: Int,
+) !Int {
+    return unsignedValue(
+        Int,
+        object.get(name) orelse return error.MissingField,
+        minimum,
+    );
+}
+
+fn optionalUnsigned(
+    comptime Int: type,
+    object: raw.wire.Object,
+    name: []const u8,
+    minimum: Int,
+) !?Int {
+    const value = object.get(name) orelse return null;
+    return try unsignedValue(Int, value, minimum);
+}
+
+fn strictOptionalString(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?[]const u8 {
+    const value = object.get(name) orelse return null;
+    return switch (value) {
+        .string => |text| text,
+        else => error.ExpectedString,
+    };
+}
+
+fn requiredNullableString(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?[]const u8 {
+    const value = object.get(name) orelse return error.MissingField;
+    return switch (value) {
+        .null => null,
+        .string => |text| text,
+        else => error.ExpectedString,
+    };
+}
+
+fn requiredNullableId(
+    comptime Id: type,
+    object: raw.wire.Object,
+    name: []const u8,
+) !?Id {
+    const value = object.get(name) orelse return error.MissingField;
+    return switch (value) {
+        .null => null,
+        .string => |text| try Id.parse(text),
+        else => error.ExpectedString,
+    };
+}
+
+fn requiredNullableUnsigned(
+    comptime Int: type,
+    object: raw.wire.Object,
+    name: []const u8,
+    minimum: Int,
+) !?Int {
+    const value = object.get(name) orelse return error.MissingField;
+    return switch (value) {
+        .null => null,
+        else => try unsignedValue(Int, value, minimum),
+    };
+}
+
+fn strictOptionalId(
+    comptime Id: type,
+    object: raw.wire.Object,
+    name: []const u8,
+) !?Id {
+    const value = object.get(name) orelse return null;
+    return switch (value) {
+        .string => |text| try Id.parse(text),
+        else => error.ExpectedString,
+    };
+}
+
+fn floatValue(value: raw.wire.Value) !f64 {
+    const decoded = switch (value) {
+        .float => |number| number,
+        .integer => |number| @as(f64, @floatFromInt(number)),
+        .number_string => |text| try std.fmt.parseFloat(f64, text),
+        else => return error.ExpectedFloat,
+    };
+    if (!std.math.isFinite(decoded)) return error.InvalidFloat;
+    return decoded;
+}
+
+fn parseClientTransport(value: []const u8) ClientTransport {
+    if (std.mem.eql(u8, value, "unix")) return .unix;
+    if (std.mem.eql(u8, value, "websocket")) return .websocket;
+    return .{ .unknown = value };
+}
+
+fn parseBrowserSource(value: []const u8) BrowserSource {
+    if (std.mem.eql(u8, value, "external")) return .external;
+    if (std.mem.eql(u8, value, "launched")) return .launched;
+    return .{ .unknown = value };
+}
+
+fn parseBrowserStatus(value: []const u8) BrowserStatus {
+    if (std.mem.eql(u8, value, "starting")) return .starting;
+    if (std.mem.eql(u8, value, "live")) return .live;
+    if (std.mem.eql(u8, value, "failed")) return .failed;
+    return .{ .unknown = value };
+}
+
+fn parseLayoutDirection(value: []const u8) LayoutDirection {
+    if (std.mem.eql(u8, value, "horizontal")) return .horizontal;
+    if (std.mem.eql(u8, value, "vertical")) return .vertical;
+    return .{ .unknown = value };
+}
+
+fn parseTabContentKind(value: []const u8) TabContentKind {
+    if (std.mem.eql(u8, value, "terminal")) return .terminal;
+    if (std.mem.eql(u8, value, "browser")) return .browser;
+    return .{ .unknown = value };
+}
+
+fn parseRenderUnderline(value: []const u8) RenderUnderline {
+    if (std.mem.eql(u8, value, "single")) return .single;
+    if (std.mem.eql(u8, value, "double")) return .double;
+    if (std.mem.eql(u8, value, "curly")) return .curly;
+    if (std.mem.eql(u8, value, "dotted")) return .dotted;
+    if (std.mem.eql(u8, value, "dashed")) return .dashed;
+    return .{ .unknown = value };
+}
+
+fn parseTerminalCopyMode(value: []const u8) TerminalCopyMode {
+    if (std.mem.eql(u8, value, "screen")) return .screen;
+    if (std.mem.eql(u8, value, "selection")) return .selection;
+    if (std.mem.eql(u8, value, "scrollback")) return .scrollback;
+    return .{ .unknown = value };
+}
+
+fn decodeClientTerminalSize(
+    value: raw.wire.Value,
+) !ClientTerminalSize {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{ "terminal_id", "cols", "rows", "participating" },
+    );
+    const cols = try requiredNullableUnsigned(
+        u16,
+        object,
+        "cols",
+        1,
+    );
+    const rows = try requiredNullableUnsigned(
+        u16,
+        object,
+        "rows",
+        1,
+    );
+    if ((cols == null) != (rows == null)) {
+        return error.IncompleteTerminalSize;
+    }
+    return .{
+        .terminal_id = try parseRequiredId(
+            TerminalId,
+            object,
+            "terminal_id",
+        ),
+        .cols = cols,
+        .rows = rows,
+        .participating = try objectBool(object, "participating"),
+    };
+}
+
+fn decodeClientSnapshot(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !ClientSnapshot {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{
+            "id",
+            "session_id",
+            "name",
+            "client_kind",
+            "transport",
+            "connected_seconds",
+            "attached_terminal_ids",
+            "sizes",
+            "self",
+            "extra",
+        },
+    );
+    const raw_terminal_ids = switch (object.get(
+        "attached_terminal_ids",
+    ) orelse return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    const terminal_ids = try allocator.alloc(
+        TerminalId,
+        raw_terminal_ids.len,
+    );
+    for (raw_terminal_ids, 0..) |terminal_id, index| {
+        terminal_ids[index] = switch (terminal_id) {
+            .string => |text| try TerminalId.parse(text),
+            else => return error.ExpectedString,
+        };
+    }
+    const raw_sizes = switch (object.get("sizes") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    const sizes = try allocator.alloc(ClientTerminalSize, raw_sizes.len);
+    for (raw_sizes, 0..) |size, index| {
+        sizes[index] = try decodeClientTerminalSize(size);
+    }
+    return .{
+        .id = try parseRequiredId(ConnectedClientId, object, "id"),
+        .session_id = try parseRequiredId(
+            SessionId,
+            object,
+            "session_id",
+        ),
+        .name = try requiredNullableString(object, "name"),
+        .client_kind = try requiredNullableString(
+            object,
+            "client_kind",
+        ),
+        .transport = parseClientTransport(
+            try objectString(object, "transport"),
+        ),
+        .connected_seconds = try decimalU64(
+            object.get("connected_seconds") orelse
+                return error.MissingField,
+        ),
+        .attached_terminal_ids = terminal_ids,
+        .sizes = sizes,
+        .self = try objectBool(object, "self"),
+        .extra = try optionalExtra(object),
+    };
+}
+
+fn decodeSize(value: raw.wire.Value) !Size {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "cols", "rows" });
+    return .{
+        .cols = try objectUnsigned(u16, object, "cols", 1),
+        .rows = try objectUnsigned(u16, object, "rows", 1),
+    };
+}
+
+fn decodePixelSize(value: raw.wire.Value) !PixelSize {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "width_px", "height_px" });
+    return .{
+        .width_px = try objectUnsigned(
+            u32,
+            object,
+            "width_px",
+            1,
+        ),
+        .height_px = try objectUnsigned(
+            u32,
+            object,
+            "height_px",
+            1,
+        ),
+    };
+}
+
+fn decodeBrowserSnapshot(value: raw.wire.Value) !BrowserSnapshot {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{
+            "id",
+            "tab_id",
+            "url",
+            "title",
+            "loading",
+            "source",
+            "status",
+            "error",
+            "frames_stalled",
+            "size",
+            "extra",
+        },
+    );
+    const loading = try objectBool(object, "loading");
+    const status = parseBrowserStatus(
+        try objectString(object, "status"),
+    );
+    const browser_error = try requiredNullableString(object, "error");
+    switch (status) {
+        .starting => if (!loading or browser_error != null)
+            return error.InvalidBrowserState,
+        .live => if (loading or browser_error != null)
+            return error.InvalidBrowserState,
+        .failed => if (loading or browser_error == null)
+            return error.InvalidBrowserState,
+        .unknown => {},
+    }
+    return .{
+        .id = try parseRequiredId(BrowserId, object, "id"),
+        .tab_id = try parseRequiredId(TabId, object, "tab_id"),
+        .url = try objectString(object, "url"),
+        .title = try objectString(object, "title"),
+        .loading = loading,
+        .source = parseBrowserSource(
+            try objectString(object, "source"),
+        ),
+        .status = status,
+        .@"error" = browser_error,
+        .frames_stalled = try objectBool(object, "frames_stalled"),
+        .size = try decodeSize(
+            object.get("size") orelse return error.MissingField,
+        ),
+        .extra = try optionalExtra(object),
+    };
+}
+
+fn decodeBrowserViewerResizeResult(
+    value: raw.wire.Value,
+) !BrowserViewerResizeResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "accepted", "size" });
+    return .{
+        .accepted = try objectBool(object, "accepted"),
+        .size = try decodePixelSize(
+            object.get("size") orelse return error.MissingField,
+        ),
+    };
+}
+
+fn decodeCellPixelsResult(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !CellPixelsResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{
+            "width_px",
+            "height_px",
+            "resized_terminals",
+            "failures",
+        },
+    );
+    const raw_terminals = switch (object.get("resized_terminals") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    const terminals = try allocator.alloc(TerminalId, raw_terminals.len);
+    for (raw_terminals, 0..) |terminal, index| {
+        terminals[index] = switch (terminal) {
+            .string => |text| try TerminalId.parse(text),
+            else => return error.ExpectedString,
+        };
+    }
+    const failure_object = try detailObject(
+        object.get("failures") orelse return error.MissingField,
+    );
+    const failures = try allocator.alloc(
+        CellPixelFailure,
+        failure_object.count(),
+    );
+    var failure_iterator = failure_object.iterator();
+    var failure_index: usize = 0;
+    while (failure_iterator.next()) |entry| : (failure_index += 1) {
+        failures[failure_index] = .{
+            .target = entry.key_ptr.*,
+            .reason = switch (entry.value_ptr.*) {
+                .string => |text| text,
+                else => return error.ExpectedString,
+            },
+        };
+    }
+    return .{
+        .width_px = try objectUnsigned(
+            u32,
+            object,
+            "width_px",
+            1,
+        ),
+        .height_px = try objectUnsigned(
+            u32,
+            object,
+            "height_px",
+            1,
+        ),
+        .resized_terminals = terminals,
+        .failures = failures,
+    };
+}
+
+fn decodeLayoutNode(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !*const LayoutNode {
+    const object = try detailObject(value);
+    const kind = try objectString(object, "kind");
+    const node = try allocator.create(LayoutNode);
+    if (std.mem.eql(u8, kind, "leaf")) {
+        try ensureOnlyFields(
+            object,
+            &.{ "kind", "pane_id", "tab_ids", "active_tab_id" },
+        );
+        const raw_tabs = switch (object.get("tab_ids") orelse
+            return error.MissingField) {
+            .array => |items| items.items,
+            else => return error.ExpectedArray,
+        };
+        const tab_ids = try allocator.alloc(TabId, raw_tabs.len);
+        for (raw_tabs, 0..) |tab, index| {
+            tab_ids[index] = switch (tab) {
+                .string => |text| try TabId.parse(text),
+                else => return error.ExpectedString,
+            };
+        }
+        node.* = .{ .leaf = .{
+            .pane_id = try parseRequiredId(PaneId, object, "pane_id"),
+            .tab_ids = tab_ids,
+            .active_tab_id = try strictOptionalId(
+                TabId,
+                object,
+                "active_tab_id",
+            ),
+        } };
+        return node;
+    }
+    if (std.mem.eql(u8, kind, "split")) {
+        try ensureOnlyFields(
+            object,
+            &.{
+                "kind",
+                "split_id",
+                "direction",
+                "ratio",
+                "first",
+                "second",
+            },
+        );
+        const ratio = try floatValue(
+            object.get("ratio") orelse return error.MissingField,
+        );
+        if (ratio <= 0 or ratio >= 1) {
+            return error.InvalidLayoutRatio;
+        }
+        node.* = .{ .split = .{
+            .split_id = try parseRequiredId(
+                SplitId,
+                object,
+                "split_id",
+            ),
+            .direction = parseLayoutDirection(
+                try objectString(object, "direction"),
+            ),
+            .ratio = ratio,
+            .first = try decodeLayoutNode(
+                allocator,
+                object.get("first") orelse return error.MissingField,
+            ),
+            .second = try decodeLayoutNode(
+                allocator,
+                object.get("second") orelse return error.MissingField,
+            ),
+        } };
+        return node;
+    }
+    if (std.mem.eql(u8, kind, "stack")) {
+        try ensureOnlyFields(
+            object,
+            &.{ "kind", "pane_ids", "expanded_pane_id" },
+        );
+        const raw_panes = switch (object.get("pane_ids") orelse
+            return error.MissingField) {
+            .array => |items| items.items,
+            else => return error.ExpectedArray,
+        };
+        if (raw_panes.len == 0) return error.EmptyLayoutStack;
+        const pane_ids = try allocator.alloc(PaneId, raw_panes.len);
+        for (raw_panes, 0..) |pane, index| {
+            pane_ids[index] = switch (pane) {
+                .string => |text| try PaneId.parse(text),
+                else => return error.ExpectedString,
+            };
+        }
+        const expanded = try parseRequiredId(
+            PaneId,
+            object,
+            "expanded_pane_id",
+        );
+        var contains_expanded = false;
+        for (pane_ids) |pane| {
+            if (std.mem.eql(
+                u8,
+                pane.slice(),
+                expanded.slice(),
+            )) {
+                contains_expanded = true;
+                break;
+            }
+        }
+        if (!contains_expanded) return error.InvalidExpandedPane;
+        node.* = .{ .stack = .{
+            .pane_ids = pane_ids,
+            .expanded_pane_id = expanded,
+        } };
+        return node;
+    }
+    if (std.mem.eql(u8, kind, "viewport")) {
+        try ensureOnlyFields(
+            object,
+            &.{ "kind", "base_width", "columns" },
+        );
+        const base_width = try floatValue(
+            object.get("base_width") orelse return error.MissingField,
+        );
+        if (base_width < 0.1 or base_width > 1) {
+            return error.InvalidViewportWidth;
+        }
+        const raw_columns = switch (object.get("columns") orelse
+            return error.MissingField) {
+            .array => |items| items.items,
+            else => return error.ExpectedArray,
+        };
+        if (raw_columns.len == 0) return error.EmptyLayoutViewport;
+        const columns = try allocator.alloc(
+            LayoutColumn,
+            raw_columns.len,
+        );
+        for (raw_columns, 0..) |raw_column, index| {
+            const column = try detailObject(raw_column);
+            try ensureOnlyFields(
+                column,
+                &.{ "column_id", "width", "root" },
+            );
+            const width = try floatValue(
+                column.get("width") orelse return error.MissingField,
+            );
+            if (width < 0.1 or width > 1) {
+                return error.InvalidViewportWidth;
+            }
+            columns[index] = .{
+                .column_id = try parseRequiredId(
+                    SplitId,
+                    column,
+                    "column_id",
+                ),
+                .width = width,
+                .root = try decodeLayoutNode(
+                    allocator,
+                    column.get("root") orelse
+                        return error.MissingField,
+                ),
+            };
+        }
+        node.* = .{ .viewport = .{
+            .base_width = base_width,
+            .columns = columns,
+        } };
+        return node;
+    }
+    node.* = .{ .unknown = .{
+        .kind = kind,
+        .raw_object = value,
+    } };
+    return node;
+}
+
+fn decodeLayoutDocument(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !LayoutDocument {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{
+            "version",
+            "screen_id",
+            "active_pane_id",
+            "zoomed_pane_id",
+            "root",
+            "extra",
+        },
+    );
+    return .{
+        .version = try objectUnsigned(u32, object, "version", 0),
+        .screen_id = try parseRequiredId(ScreenId, object, "screen_id"),
+        .active_pane_id = try parseRequiredId(
+            PaneId,
+            object,
+            "active_pane_id",
+        ),
+        .zoomed_pane_id = try requiredNullableId(
+            PaneId,
+            object,
+            "zoomed_pane_id",
+        ),
+        .root = try decodeLayoutNode(
+            allocator,
+            object.get("root") orelse return error.MissingField,
+        ),
+        .extra = try optionalExtra(object),
+    };
+}
+
+fn decodeScreenSnapshot(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !ScreenSnapshot {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{ "id", "workspace_id", "name", "index", "focused", "layout", "extra" },
+    );
+    return .{
+        .id = try parseRequiredId(ScreenId, object, "id"),
+        .workspace_id = try parseRequiredId(
+            WorkspaceId,
+            object,
+            "workspace_id",
+        ),
+        .name = try requiredNullableString(object, "name"),
+        .index = try objectUnsigned(u32, object, "index", 0),
+        .focused = try objectBool(object, "focused"),
+        .layout = try decodeLayoutDocument(
+            allocator,
+            object.get("layout") orelse return error.MissingField,
+        ),
+        .extra = try optionalExtra(object),
+    };
+}
+
+fn decodePaneSnapshot(value: raw.wire.Value) !PaneSnapshot {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{ "id", "screen_id", "name", "focused", "zoomed", "extra" },
+    );
+    return .{
+        .id = try parseRequiredId(PaneId, object, "id"),
+        .screen_id = try parseRequiredId(
+            ScreenId,
+            object,
+            "screen_id",
+        ),
+        .name = try requiredNullableString(object, "name"),
+        .focused = try objectBool(object, "focused"),
+        .zoomed = try objectBool(object, "zoomed"),
+        .extra = try optionalExtra(object),
+    };
+}
+
+fn decodeTabSnapshot(value: raw.wire.Value) !TabSnapshot {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{
+            "id",
+            "pane_id",
+            "name",
+            "index",
+            "focused",
+            "content_kind",
+            "content_id",
+            "extra",
+        },
+    );
+    const kind = parseTabContentKind(
+        try objectString(object, "content_kind"),
+    );
+    const encoded_content = try objectString(object, "content_id");
+    const content_id: TabContentId = switch (kind) {
+        .terminal => .{
+            .terminal = try TerminalId.parse(encoded_content),
+        },
+        .browser => .{
+            .browser = try BrowserId.parse(encoded_content),
+        },
+        .unknown => .{ .unknown = encoded_content },
+    };
+    return .{
+        .id = try parseRequiredId(TabId, object, "id"),
+        .pane_id = try parseRequiredId(PaneId, object, "pane_id"),
+        .name = try requiredNullableString(object, "name"),
+        .index = try objectUnsigned(u32, object, "index", 0),
+        .focused = try objectBool(object, "focused"),
+        .content_kind = kind,
+        .content_id = content_id,
+        .extra = try optionalExtra(object),
+    };
+}
+
+fn nullableColorHex(value: raw.wire.Value) !?[]const u8 {
+    return switch (value) {
+        .null => null,
+        .string => |text| if (text.len == 7)
+            text
+        else
+            error.InvalidColorHex,
+        else => error.ExpectedString,
+    };
+}
+
+fn decodeRenderRun(value: raw.wire.Value) !RenderRun {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{ "text", "fg", "bg", "attrs", "underline", "width_hint" },
+    );
+    const underline = if (object.get("underline")) |item|
+        switch (item) {
+            .string => |text| parseRenderUnderline(text),
+            else => return error.ExpectedString,
+        }
+    else
+        null;
+    return .{
+        .text = try objectString(object, "text"),
+        .fg = try nullableColorHex(
+            object.get("fg") orelse return error.MissingField,
+        ),
+        .bg = try nullableColorHex(
+            object.get("bg") orelse return error.MissingField,
+        ),
+        .attrs = try objectUnsigned(u32, object, "attrs", 0),
+        .underline = underline,
+        .width_hint = try optionalUnsigned(
+            u16,
+            object,
+            "width_hint",
+            0,
+        ),
+    };
+}
+
+fn decodeRenderRow(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !RenderRow {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "row", "runs" });
+    const raw_runs = switch (object.get("runs") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    const runs = try allocator.alloc(RenderRun, raw_runs.len);
+    for (raw_runs, 0..) |run, index| {
+        runs[index] = try decodeRenderRun(run);
+    }
+    return .{
+        .row = try objectUnsigned(u16, object, "row", 0),
+        .runs = runs,
+    };
+}
+
+fn decodeTerminalScreenResult(
+    value: raw.wire.Value,
+) !TerminalScreenResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{
+            "text",
+            "cols",
+            "rows",
+            "cursor_row",
+            "cursor_col",
+            "cursor_visible",
+            "extra",
+        },
+    );
+    return .{
+        .text = try objectString(object, "text"),
+        .cols = try objectUnsigned(u16, object, "cols", 1),
+        .rows = try objectUnsigned(u16, object, "rows", 1),
+        .cursor_row = try objectUnsigned(
+            u16,
+            object,
+            "cursor_row",
+            0,
+        ),
+        .cursor_col = try objectUnsigned(
+            u16,
+            object,
+            "cursor_col",
+            0,
+        ),
+        .cursor_visible = try objectBool(object, "cursor_visible"),
+        .extra = try optionalExtra(object),
+    };
+}
+
+fn decodeTerminalStateResult(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !TerminalStateResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "state_base64", "cols", "rows" });
+    const encoded = try objectString(object, "state_base64");
+    return .{
+        .state_base64 = encoded,
+        .state = try raw.decodeBase64Alloc(allocator, encoded),
+        .cols = try objectUnsigned(u16, object, "cols", 1),
+        .rows = try objectUnsigned(u16, object, "rows", 1),
+    };
+}
+
+fn decodeTerminalHistoryResult(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !TerminalHistoryResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "start", "next", "rows" });
+    const raw_rows = switch (object.get("rows") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    const rows = try allocator.alloc(RenderRow, raw_rows.len);
+    for (raw_rows, 0..) |row, index| {
+        rows[index] = try decodeRenderRow(allocator, row);
+    }
+    const next = if (object.get("next")) |item|
+        switch (item) {
+            .null => null,
+            else => try decimalU64(item),
+        }
+    else
+        null;
+    return .{
+        .start = try decimalU64(
+            object.get("start") orelse return error.MissingField,
+        ),
+        .next = next,
+        .rows = rows,
+    };
+}
+
+fn decodeTerminalWaitResult(
+    value: raw.wire.Value,
+) !TerminalWaitResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "matched", "text" });
+    return .{
+        .matched = try objectBool(object, "matched"),
+        .text = try objectString(object, "text"),
+    };
+}
+
+fn decodeTerminalCopyResult(
+    value: raw.wire.Value,
+) !TerminalCopyResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "mode", "text" });
+    return .{
+        .mode = parseTerminalCopyMode(try objectString(object, "mode")),
+        .text = try objectString(object, "text"),
+    };
+}
+
+fn decodeProcessInfoResult(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !ProcessInfoResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(
+        object,
+        &.{ "pid", "executable", "argv", "cwd", "children" },
+    );
+    const raw_argv = switch (object.get("argv") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    const argv = try allocator.alloc([]const u8, raw_argv.len);
+    for (raw_argv, 0..) |argument, index| {
+        argv[index] = switch (argument) {
+            .string => |text| text,
+            else => return error.ExpectedString,
+        };
+    }
+    const raw_children = switch (object.get("children") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    const children = try allocator.alloc(u32, raw_children.len);
+    for (raw_children, 0..) |child, index| {
+        children[index] = try unsignedValue(u32, child, 0);
+    }
+    return .{
+        .pid = try objectUnsigned(u32, object, "pid", 0),
+        .executable = try strictOptionalString(object, "executable"),
+        .argv = argv,
+        .cwd = try strictOptionalString(object, "cwd"),
+        .children = children,
+    };
+}
+
+fn decodeViewerResizeResult(
+    value: raw.wire.Value,
+) !ViewerResizeResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{ "accepted", "size" });
+    const size = try detailObject(
+        object.get("size") orelse return error.MissingField,
+    );
+    try ensureOnlyFields(size, &.{ "cols", "rows" });
+    return .{
+        .accepted = try objectBool(object, "accepted"),
+        .size = .{
+            .cols = try objectUnsigned(u16, size, "cols", 1),
+            .rows = try objectUnsigned(u16, size, "rows", 1),
+        },
+    };
+}
+
+fn decodeMachineSnapshot(value: raw.wire.Value) !MachineSnapshot {
+    const object = try detailObject(value);
+    const provider_scope_id = if (object.get("provider_scope_id")) |id|
+        switch (id) {
+            .null => null,
+            .string => |text| try ProviderScopeId.parse(text),
+            else => return error.ExpectedString,
+        }
+    else
+        null;
+    return .{
+        .id = try parseRequiredId(MachineId, object, "id"),
+        .name = try objectString(object, "name"),
+        .origin = parseMachineOrigin(try objectString(object, "origin")),
+        .status = parseMachineStatus(try objectString(object, "status")),
+        .connectable = try objectBool(object, "connectable"),
+        .provider_scope_id = provider_scope_id,
+        .deleted = try objectBool(object, "deleted"),
+        .recoverable = try objectBool(object, "recoverable"),
+        .extra = try optionalExtra(object),
+    };
+}
+
+fn decodeSessionSnapshot(value: raw.wire.Value) !SessionSnapshot {
+    const object = try detailObject(value);
+    const generation = try objectString(object, "generation");
+    if (generation.len == 0 or generation.len > 128) {
+        return error.InvalidMutationGeneration;
+    }
+    return .{
+        .id = try parseRequiredId(SessionId, object, "id"),
+        .machine_id = try parseRequiredId(
+            MachineId,
+            object,
+            "machine_id",
+        ),
+        .name = try optionalObjectString(object, "name"),
+        .generation = generation,
+        .revision = try decimalU64(
+            object.get("revision") orelse return error.MissingField,
+        ),
+        .connected = try objectBool(object, "connected"),
+        .extra = try optionalExtra(object),
+    };
+}
+
+fn decodeWorkspaceSnapshot(value: raw.wire.Value) !WorkspaceSnapshot {
+    const object = try detailObject(value);
+    const index = std.math.cast(
+        u32,
+        try decimalU64(
+            object.get("index") orelse return error.MissingField,
+        ),
+    ) orelse return error.IntegerOverflow;
+    return .{
+        .id = try parseRequiredId(WorkspaceId, object, "id"),
+        .session_id = try parseRequiredId(
+            SessionId,
+            object,
+            "session_id",
+        ),
+        .name = try objectString(object, "name"),
+        .index = index,
+        .focused = try objectBool(object, "focused"),
+        .extra = try optionalExtra(object),
+    };
+}
+
+fn decodeTypedSnapshot(
+    comptime Snapshot: type,
+    value: raw.wire.Value,
+) !Snapshot {
+    if (comptime Snapshot == MachineSnapshot) {
+        return decodeMachineSnapshot(value);
+    }
+    if (comptime Snapshot == SessionSnapshot) {
+        return decodeSessionSnapshot(value);
+    }
+    if (comptime Snapshot == WorkspaceSnapshot) {
+        return decodeWorkspaceSnapshot(value);
+    }
+    if (comptime Snapshot == BrowserSnapshot) {
+        return decodeBrowserSnapshot(value);
+    }
+    if (comptime Snapshot == PaneSnapshot) {
+        return decodePaneSnapshot(value);
+    }
+    if (comptime Snapshot == TabSnapshot) {
+        return decodeTabSnapshot(value);
+    }
+    @compileError("unsupported typed resource snapshot");
+}
+
+fn decodeOwnedTypedSnapshot(
+    comptime Snapshot: type,
+    result: OwnedResult,
+) !OwnedValue(Snapshot) {
+    var owned_result = result;
+    errdefer owned_result.deinit();
+    const decoded = try decodeTypedSnapshot(
+        Snapshot,
+        owned_result.value,
+    );
+    const snapshot = OwnedValue(Snapshot){
+        .owned = owned_result.owned,
+        .value = decoded,
+    };
+    owned_result = undefined;
+    return snapshot;
+}
+
+fn listItems(
+    value: raw.wire.Value,
+    legacy_field: []const u8,
+) ![]raw.wire.Value {
+    return switch (value) {
+        .array => |items| items.items,
+        .object => |object| switch (object.get(legacy_field) orelse
+            return error.MissingField) {
+            .array => |items| items.items,
+            else => error.ExpectedArray,
+        },
+        else => error.ExpectedArray,
+    };
+}
+
+fn decodeTypedList(
+    comptime Snapshot: type,
+    allocator: std.mem.Allocator,
+    result: OwnedResult,
+    legacy_field: []const u8,
+) !OwnedList(Snapshot) {
+    var owned_result = result;
+    errdefer owned_result.deinit();
+    const values = try listItems(owned_result.value, legacy_field);
+    const items = try allocator.alloc(Snapshot, values.len);
+    errdefer allocator.free(items);
+    for (values, 0..) |value, index| {
+        items[index] = try decodeTypedSnapshot(Snapshot, value);
+    }
+    const list = OwnedList(Snapshot){
+        .allocator = allocator,
+        .owned = owned_result.owned,
+        .items = items,
+    };
+    owned_result = undefined;
+    return list;
+}
+
+fn decodePingResult(result: OwnedResult) !OwnedPingResult {
+    var owned_result = result;
+    errdefer owned_result.deinit();
+    const object = try detailObject(owned_result.value);
+    const decoded = PingResult{
+        .alive = try objectBool(object, "alive"),
+        .cursor = try parseErrorCursor(
+            object.get("cursor") orelse return error.MissingField,
+        ),
+    };
+    const ping = OwnedPingResult{
+        .owned = owned_result.owned,
+        .value = decoded,
+    };
+    owned_result = undefined;
+    return ping;
+}
+
+fn decodeEmptyResult(result: OwnedResult) !OwnedEmptyResult {
+    var owned_result = result;
+    errdefer owned_result.deinit();
+    const object = try detailObject(owned_result.value);
+    if (object.count() != 0) return error.UnexpectedField;
+    const decoded = OwnedEmptyResult{
+        .owned = owned_result.owned,
+        .value = .{},
+    };
+    owned_result = undefined;
+    return decoded;
+}
+
+fn decodeOwnedSimpleResult(
+    comptime Result: type,
+    result: OwnedResult,
+) !OwnedValue(Result) {
+    var owned_result = result;
+    errdefer owned_result.deinit();
+    const value: Result = if (comptime Result == TerminalScreenResult)
+        try decodeTerminalScreenResult(owned_result.value)
+    else if (comptime Result == TerminalWaitResult)
+        try decodeTerminalWaitResult(owned_result.value)
+    else if (comptime Result == TerminalCopyResult)
+        try decodeTerminalCopyResult(owned_result.value)
+    else if (comptime Result == ViewerResizeResult)
+        try decodeViewerResizeResult(owned_result.value)
+    else if (comptime Result == BrowserViewerResizeResult)
+        try decodeBrowserViewerResizeResult(owned_result.value)
+    else
+        @compileError("unsupported simple result");
+    const decoded = OwnedValue(Result){
+        .owned = owned_result.owned,
+        .value = value,
+    };
+    owned_result = undefined;
+    return decoded;
+}
+
+fn decodeOwnedAllocatedResult(
+    comptime Result: type,
+    allocator: std.mem.Allocator,
+    result: OwnedResult,
+) !OwnedDecodedValue(Result) {
+    var owned_result = result;
+    errdefer owned_result.deinit();
+    var decoded_arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer decoded_arena.deinit();
+    const value: Result = if (comptime Result == TerminalStateResult)
+        try decodeTerminalStateResult(
+            decoded_arena.allocator(),
+            owned_result.value,
+        )
+    else if (comptime Result == TerminalHistoryResult)
+        try decodeTerminalHistoryResult(
+            decoded_arena.allocator(),
+            owned_result.value,
+        )
+    else if (comptime Result == ProcessInfoResult)
+        try decodeProcessInfoResult(
+            decoded_arena.allocator(),
+            owned_result.value,
+        )
+    else if (comptime Result == ClientSnapshot)
+        try decodeClientSnapshot(
+            decoded_arena.allocator(),
+            owned_result.value,
+        )
+    else if (comptime Result == CellPixelsResult)
+        try decodeCellPixelsResult(
+            decoded_arena.allocator(),
+            owned_result.value,
+        )
+    else if (comptime Result == ScreenSnapshot)
+        try decodeScreenSnapshot(
+            decoded_arena.allocator(),
+            owned_result.value,
+        )
+    else
+        @compileError("unsupported allocated result");
+    const decoded = OwnedDecodedValue(Result){
+        .owned = owned_result.owned,
+        .decoded = decoded_arena,
+        .value = value,
+    };
+    owned_result = undefined;
+    decoded_arena = undefined;
+    return decoded;
+}
+
+fn decodeTypedMutation(
+    comptime Value: type,
+    result: MutationResult,
+) !TypedMutationResult(Value) {
+    var raw_result = result;
+    errdefer raw_result.deinit();
+    const decoded: Value = if (comptime Value == CreatedPath)
+        try parseCreatedPath(raw_result.value)
+    else if (comptime Value == CreatedTerminalPath)
+        switch (try parseCreatedPath(raw_result.value)) {
+            .terminal => |path| path,
+            else => return error.ExpectedTerminalPath,
+        }
+    else if (comptime Value == CreatedBrowserPath)
+        switch (try parseCreatedPath(raw_result.value)) {
+            .browser => |path| path,
+            else => return error.ExpectedBrowserPath,
+        }
+    else if (comptime Value == EmptyResult) blk: {
+        const object = try detailObject(raw_result.value);
+        if (object.count() != 0) return error.UnexpectedField;
+        break :blk .{};
+    } else try decodeTypedSnapshot(Value, raw_result.value);
+    const typed = TypedMutationResult(Value){
+        .owned = raw_result.owned,
+        .value = decoded,
+        .generation = raw_result.generation,
+        .revision = raw_result.revision,
+        .replayed = raw_result.replayed,
+    };
+    raw_result = undefined;
+    return typed;
+}
+
+fn decodeTypedAllocatedMutation(
+    comptime Value: type,
+    allocator: std.mem.Allocator,
+    result: MutationResult,
+) !TypedDecodedMutationResult(Value) {
+    var raw_result = result;
+    errdefer raw_result.deinit();
+    var decoded_arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer decoded_arena.deinit();
+    const value: Value = if (comptime Value == ScreenSnapshot)
+        try decodeScreenSnapshot(
+            decoded_arena.allocator(),
+            raw_result.value,
+        )
+    else
+        @compileError("unsupported allocated mutation result");
+    const typed = TypedDecodedMutationResult(Value){
+        .owned = raw_result.owned,
+        .decoded = decoded_arena,
+        .value = value,
+        .generation = raw_result.generation,
+        .revision = raw_result.revision,
+        .replayed = raw_result.replayed,
+    };
+    raw_result = undefined;
+    decoded_arena = undefined;
+    return typed;
+}
+
 pub fn ResourceSnapshot(comptime Id: type) type {
     return struct {
         const Self = @This();
@@ -2940,6 +5445,91 @@ fn decodeSnapshot(
     };
     owned_result = undefined;
     return snapshot;
+}
+
+fn RefreshResult(
+    comptime Id: type,
+    comptime scope: []const u8,
+) type {
+    if (std.mem.eql(u8, scope, "machine")) return OwnedMachineSnapshot;
+    if (std.mem.eql(u8, scope, "session")) return OwnedSessionSnapshot;
+    if (std.mem.eql(u8, scope, "workspace")) {
+        return OwnedWorkspaceSnapshot;
+    }
+    return ResourceSnapshot(Id);
+}
+
+fn decodeRefreshResult(
+    comptime Id: type,
+    comptime scope: []const u8,
+    fallback_id: ?Id,
+    result: OwnedResult,
+) !RefreshResult(Id, scope) {
+    if (comptime std.mem.eql(u8, scope, "machine")) {
+        return decodeOwnedTypedSnapshot(MachineSnapshot, result);
+    }
+    if (comptime std.mem.eql(u8, scope, "session")) {
+        return decodeOwnedTypedSnapshot(SessionSnapshot, result);
+    }
+    if (comptime std.mem.eql(u8, scope, "workspace")) {
+        return decodeOwnedTypedSnapshot(WorkspaceSnapshot, result);
+    }
+    return decodeSnapshot(Id, fallback_id, result);
+}
+
+fn RenameMutationResult(comptime scope: []const u8) type {
+    if (std.mem.eql(u8, scope, "machine")) return MachineMutationResult;
+    if (std.mem.eql(u8, scope, "workspace")) {
+        return WorkspaceMutationResult;
+    }
+    if (std.mem.eql(u8, scope, "screen")) return ScreenMutationResult;
+    if (std.mem.eql(u8, scope, "pane")) return PaneMutationResult;
+    if (std.mem.eql(u8, scope, "tab")) return TabMutationResult;
+    return EmptyMutationResult;
+}
+
+fn decodeRenameMutation(
+    comptime scope: []const u8,
+    allocator: std.mem.Allocator,
+    result: MutationResult,
+) !RenameMutationResult(scope) {
+    if (comptime std.mem.eql(u8, scope, "machine")) {
+        return decodeTypedMutation(MachineSnapshot, result);
+    }
+    if (comptime std.mem.eql(u8, scope, "workspace")) {
+        return decodeTypedMutation(WorkspaceSnapshot, result);
+    }
+    if (comptime std.mem.eql(u8, scope, "screen")) {
+        return decodeTypedAllocatedMutation(
+            ScreenSnapshot,
+            allocator,
+            result,
+        );
+    }
+    if (comptime std.mem.eql(u8, scope, "pane")) {
+        return decodeTypedMutation(PaneSnapshot, result);
+    }
+    if (comptime std.mem.eql(u8, scope, "tab")) {
+        return decodeTypedMutation(TabSnapshot, result);
+    }
+    var unsupported = result;
+    unsupported.deinit();
+    return error.UnsupportedHandleOperation;
+}
+
+fn CloseMutationResult(comptime scope: []const u8) type {
+    if (std.mem.eql(u8, scope, "machine")) return MachineMutationResult;
+    return EmptyMutationResult;
+}
+
+fn decodeCloseMutation(
+    comptime scope: []const u8,
+    result: MutationResult,
+) !CloseMutationResult(scope) {
+    if (comptime std.mem.eql(u8, scope, "machine")) {
+        return decodeTypedMutation(MachineSnapshot, result);
+    }
+    return decodeTypedMutation(EmptyResult, result);
 }
 
 const HandleConfig = struct {
@@ -3058,7 +5648,7 @@ fn Handle(
             return Browser.initScoped(self.client, child, route);
         }
 
-        pub fn refresh(self: Self) !ResourceSnapshot(Id) {
+        pub fn refresh(self: Self) !RefreshResult(Id, scope) {
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
@@ -3066,14 +5656,69 @@ fn Handle(
                 null,
             );
             defer params.deinit();
-            return decodeSnapshot(
+            return decodeRefreshResult(
                 Id,
+                scope,
                 self.id(),
                 try self.client.read(config.get, params.asValue()),
             );
         }
 
-        pub fn read(
+        pub fn listSessions(self: Self) !SessionList {
+            if (comptime !std.mem.eql(u8, scope, "machine")) {
+                return error.UnsupportedHandleOperation;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            return decodeTypedList(
+                SessionSnapshot,
+                self.client.allocator,
+                try self.client.read(.session_list, params.asValue()),
+                "sessions",
+            );
+        }
+
+        pub fn listWorkspaces(self: Self) !WorkspaceList {
+            if (comptime !std.mem.eql(u8, scope, "session")) {
+                return error.UnsupportedHandleOperation;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            return decodeTypedList(
+                WorkspaceSnapshot,
+                self.client.allocator,
+                try self.client.read(.workspace_list, params.asValue()),
+                "workspaces",
+            );
+        }
+
+        pub fn ping(self: Self) !OwnedPingResult {
+            if (comptime !std.mem.eql(u8, scope, "session")) {
+                return error.UnsupportedHandleOperation;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            return decodePingResult(
+                try self.client.read(.session_ping, params.asValue()),
+            );
+        }
+
+        fn read(
             self: Self,
             operation: Operation,
             extra: ?raw.wire.Value,
@@ -3088,7 +5733,7 @@ fn Handle(
             return self.client.read(operation, params.asValue());
         }
 
-        pub fn mutate(
+        fn mutate(
             self: Self,
             operation: Operation,
             extra: ?raw.wire.Value,
@@ -3104,7 +5749,7 @@ fn Handle(
             return self.client.mutate(operation, params.asValue(), options);
         }
 
-        pub fn control(
+        fn control(
             self: Self,
             operation: Operation,
             extra: ?raw.wire.Value,
@@ -3122,17 +5767,20 @@ fn Handle(
         pub fn close(
             self: Self,
             options: MutationOptions,
-        ) !MutationResult {
+        ) !CloseMutationResult(scope) {
             const operation = config.close orelse
                 return error.UnsupportedHandleOperation;
-            return self.mutate(operation, null, options);
+            return decodeCloseMutation(
+                scope,
+                try self.mutate(operation, null, options),
+            );
         }
 
         pub fn rename(
             self: Self,
             name: []const u8,
             options: MutationOptions,
-        ) !MutationResult {
+        ) !RenameMutationResult(scope) {
             const operation = config.rename orelse
                 return error.UnsupportedHandleOperation;
             var params = try Params(Id).init(
@@ -3144,13 +5792,21 @@ fn Handle(
             defer params.deinit();
             // Empty is meaningful and is always serialized.
             try params.putString("name", name);
-            return self.client.mutate(operation, params.asValue(), options);
+            return decodeRenameMutation(
+                scope,
+                self.client.allocator,
+                try self.client.mutate(
+                    operation,
+                    params.asValue(),
+                    options,
+                ),
+            );
         }
 
         pub fn clearName(
             self: Self,
             options: MutationOptions,
-        ) !MutationResult {
+        ) !RenameMutationResult(scope) {
             const operation = config.rename orelse
                 return error.UnsupportedHandleOperation;
             if (!config.clear_name_with_null) {
@@ -3164,14 +5820,22 @@ fn Handle(
             );
             defer params.deinit();
             try params.putNull("name");
-            return self.client.mutate(operation, params.asValue(), options);
+            return decodeRenameMutation(
+                scope,
+                self.client.allocator,
+                try self.client.mutate(
+                    operation,
+                    params.asValue(),
+                    options,
+                ),
+            );
         }
 
         pub fn run(
             self: Self,
             run_options: RunOptions,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !CreatedTerminalPathMutationResult {
             const operation = config.run orelse
                 return error.UnsupportedHandleOperation;
             var params = try Params(Id).init(
@@ -3182,10 +5846,13 @@ fn Handle(
             );
             defer params.deinit();
             try encodeRun(Id, &params, run_options);
-            return self.client.mutate(
-                operation,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                CreatedTerminalPath,
+                try self.client.mutate(
+                    operation,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
@@ -3193,7 +5860,7 @@ fn Handle(
             self: Self,
             create: CreateTerminalTabOptions,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !CreatedTerminalPathMutationResult {
             if (comptime !std.mem.eql(u8, scope, "pane")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3205,10 +5872,13 @@ fn Handle(
             );
             defer params.deinit();
             try encodeTerminalTab(Id, &params, create);
-            return self.client.mutate(
-                .tab_create_terminal,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                CreatedTerminalPath,
+                try self.client.mutate(
+                    .tab_create_terminal,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
@@ -3216,7 +5886,7 @@ fn Handle(
             self: Self,
             create: CreateBrowserTabOptions,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !CreatedBrowserPathMutationResult {
             if (comptime !std.mem.eql(u8, scope, "pane")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3228,17 +5898,20 @@ fn Handle(
             );
             defer params.deinit();
             try encodeBrowserTab(Id, &params, create);
-            return self.client.mutate(
-                .tab_create_browser,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                CreatedBrowserPath,
+                try self.client.mutate(
+                    .tab_create_browser,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
         pub fn updateMetadata(
             self: Self,
             update: ClientMetadataUpdate,
-        ) !OwnedResult {
+        ) !OwnedClientSnapshot {
             if (comptime !std.mem.eql(u8, scope, "client")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3270,9 +5943,123 @@ fn Handle(
                 .set => |kind| try params.putString("kind", kind),
                 .clear => try params.putNull("kind"),
             }
-            return self.client.control(
-                .client_metadata_update,
-                params.asValue(),
+            return decodeOwnedAllocatedResult(
+                ClientSnapshot,
+                self.client.allocator,
+                try self.client.control(
+                    .client_metadata_update,
+                    params.asValue(),
+                ),
+            );
+        }
+
+        pub fn readScreen(
+            self: Self,
+        ) !OwnedTerminalScreenResult {
+            if (comptime !std.mem.eql(u8, scope, "terminal")) {
+                return error.UnsupportedHandleOperation;
+            }
+            return decodeOwnedSimpleResult(
+                TerminalScreenResult,
+                try self.read(.terminal_screen_read, null),
+            );
+        }
+
+        pub fn readState(
+            self: Self,
+        ) !OwnedTerminalStateResult {
+            if (comptime !std.mem.eql(u8, scope, "terminal")) {
+                return error.UnsupportedHandleOperation;
+            }
+            return decodeOwnedAllocatedResult(
+                TerminalStateResult,
+                self.client.allocator,
+                try self.read(.terminal_state_read, null),
+            );
+        }
+
+        pub fn readHistory(
+            self: Self,
+            options: TerminalHistoryOptions,
+        ) !OwnedTerminalHistoryResult {
+            if (comptime !std.mem.eql(u8, scope, "terminal")) {
+                return error.UnsupportedHandleOperation;
+            }
+            if (options.limit) |limit| {
+                if (limit == 0 or limit > 10_000) {
+                    return error.InvalidHistoryLimit;
+                }
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            if (options.before) |before| {
+                const encoded = try std.fmt.allocPrint(
+                    params.arena.allocator(),
+                    "{d}",
+                    .{before},
+                );
+                try params.putValue(
+                    "before",
+                    .{ .string = encoded },
+                );
+            }
+            if (options.limit) |limit| {
+                try params.putValue("limit", .{ .integer = limit });
+            }
+            if (options.styled) |styled| {
+                try params.putValue("styled", .{ .bool = styled });
+            }
+            return decodeOwnedAllocatedResult(
+                TerminalHistoryResult,
+                self.client.allocator,
+                try self.client.read(
+                    .terminal_history_read,
+                    params.asValue(),
+                ),
+            );
+        }
+
+        pub fn copy(
+            self: Self,
+            mode: ?TerminalCopyMode,
+        ) !OwnedTerminalCopyResult {
+            if (comptime !std.mem.eql(u8, scope, "terminal")) {
+                return error.UnsupportedHandleOperation;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            if (mode) |value| {
+                try params.putString("mode", value.wireName());
+            }
+            return decodeOwnedSimpleResult(
+                TerminalCopyResult,
+                try self.client.read(
+                    .terminal_copy,
+                    params.asValue(),
+                ),
+            );
+        }
+
+        pub fn processInfo(
+            self: Self,
+        ) !OwnedProcessInfoResult {
+            if (comptime !std.mem.eql(u8, scope, "terminal")) {
+                return error.UnsupportedHandleOperation;
+            }
+            return decodeOwnedAllocatedResult(
+                ProcessInfoResult,
+                self.client.allocator,
+                try self.read(.terminal_process_get, null),
             );
         }
 
@@ -3280,7 +6067,7 @@ fn Handle(
             self: Self,
             pattern: []const u8,
             timeout_ms: ?u64,
-        ) !OwnedResult {
+        ) !OwnedTerminalWaitResult {
             if (comptime !std.mem.eql(u8, scope, "terminal")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3301,17 +6088,37 @@ fn Handle(
                 );
                 try params.putValue(
                     "timeout_ms",
-                    .{ .number_string = encoded },
+                    .{ .string = encoded },
                 );
             }
-            return self.client.read(.terminal_wait, params.asValue());
+            return decodeOwnedSimpleResult(
+                TerminalWaitResult,
+                try self.client.read(.terminal_wait, params.asValue()),
+            );
+        }
+
+        pub fn clearHistory(
+            self: Self,
+            mutation: MutationOptions,
+        ) !EmptyMutationResult {
+            if (comptime !std.mem.eql(u8, scope, "terminal")) {
+                return error.UnsupportedHandleOperation;
+            }
+            return decodeTypedMutation(
+                EmptyResult,
+                try self.mutate(
+                    .terminal_history_clear,
+                    null,
+                    mutation,
+                ),
+            );
         }
 
         pub fn writeText(
             self: Self,
             text: []const u8,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !EmptyMutationResult {
             if (comptime !std.mem.eql(u8, scope, "terminal")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3323,10 +6130,13 @@ fn Handle(
             );
             defer params.deinit();
             try params.putString("text", text);
-            return self.client.mutate(
-                .terminal_input_write,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                EmptyResult,
+                try self.client.mutate(
+                    .terminal_input_write,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
@@ -3334,7 +6144,7 @@ fn Handle(
             self: Self,
             delta_rows: i32,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !EmptyMutationResult {
             if (comptime !std.mem.eql(u8, scope, "terminal")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3349,10 +6159,13 @@ fn Handle(
                 "delta_rows",
                 .{ .integer = delta_rows },
             );
-            return self.client.mutate(
-                .terminal_viewport_scroll,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                EmptyResult,
+                try self.client.mutate(
+                    .terminal_viewport_scroll,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
@@ -3360,7 +6173,7 @@ fn Handle(
             self: Self,
             cols: u16,
             rows: u16,
-        ) !OwnedResult {
+        ) !OwnedViewerResizeResult {
             if (comptime !std.mem.eql(u8, scope, "terminal")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3374,9 +6187,23 @@ fn Handle(
             defer params.deinit();
             try params.putValue("cols", .{ .integer = cols });
             try params.putValue("rows", .{ .integer = rows });
-            return self.client.control(
-                .terminal_viewer_resize,
-                params.asValue(),
+            return decodeOwnedSimpleResult(
+                ViewerResizeResult,
+                try self.client.control(
+                    .terminal_viewer_resize,
+                    params.asValue(),
+                ),
+            );
+        }
+
+        pub fn releaseTerminalViewer(
+            self: Self,
+        ) !OwnedEmptyResult {
+            if (comptime !std.mem.eql(u8, scope, "terminal")) {
+                return error.UnsupportedHandleOperation;
+            }
+            return decodeEmptyResult(
+                try self.control(.terminal_viewer_release, null),
             );
         }
 
@@ -3384,7 +6211,7 @@ fn Handle(
             self: Self,
             url: []const u8,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !BrowserMutationResult {
             if (comptime !std.mem.eql(u8, scope, "browser")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3397,10 +6224,13 @@ fn Handle(
             );
             defer params.deinit();
             try params.putString("url", url);
-            return self.client.mutate(
-                .browser_navigate,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                BrowserSnapshot,
+                try self.client.mutate(
+                    .browser_navigate,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
@@ -3408,7 +6238,7 @@ fn Handle(
             self: Self,
             width_px: u32,
             height_px: u32,
-        ) !OwnedResult {
+        ) !OwnedBrowserViewerResizeResult {
             if (comptime !std.mem.eql(u8, scope, "browser")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3430,9 +6260,12 @@ fn Handle(
                 "height_px",
                 .{ .integer = height_px },
             );
-            return self.client.control(
-                .browser_viewer_resize,
-                params.asValue(),
+            return decodeOwnedSimpleResult(
+                BrowserViewerResizeResult,
+                try self.client.control(
+                    .browser_viewer_resize,
+                    params.asValue(),
+                ),
             );
         }
 
@@ -3440,7 +6273,7 @@ fn Handle(
             self: Self,
             width_px: u32,
             height_px: u32,
-        ) !OwnedResult {
+        ) !OwnedCellPixelsResult {
             if (comptime !std.mem.eql(u8, scope, "client")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3462,24 +6295,30 @@ fn Handle(
                 "height_px",
                 .{ .integer = height_px },
             );
-            return self.client.control(
-                .client_cell_pixels_set,
-                params.asValue(),
+            return decodeOwnedAllocatedResult(
+                CellPixelsResult,
+                self.client.allocator,
+                try self.client.control(
+                    .client_cell_pixels_set,
+                    params.asValue(),
+                ),
             );
         }
 
-        pub fn detachClient(self: Self) !OwnedResult {
+        pub fn detachClient(self: Self) !OwnedEmptyResult {
             if (comptime !std.mem.eql(u8, scope, "client")) {
                 return error.UnsupportedHandleOperation;
             }
-            return self.control(.client_detach, null);
+            return decodeEmptyResult(
+                try self.control(.client_detach, null),
+            );
         }
 
         pub fn createWorkspace(
             self: Self,
             create: CreateWorkspaceOptions,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !CreatedPathMutationResult {
             if (comptime !std.mem.eql(u8, scope, "session")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3495,10 +6334,13 @@ fn Handle(
                 "initial_content",
                 create.initial_content.wireName(),
             );
-            return self.client.mutate(
-                .workspace_create,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                CreatedPath,
+                try self.client.mutate(
+                    .workspace_create,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
@@ -3612,18 +6454,21 @@ fn Handle(
         pub fn createMachine(
             self: Self,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !MachineMutationResult {
             if (comptime !std.mem.eql(u8, scope, "provider_scope")) {
                 return error.UnsupportedHandleOperation;
             }
-            return self.mutate(.machine_create, null, mutation);
+            return decodeTypedMutation(
+                MachineSnapshot,
+                try self.mutate(.machine_create, null, mutation),
+            );
         }
 
         pub fn connectExternal(
             self: Self,
             specifier: SensitiveString,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !MachineMutationResult {
             if (comptime !std.mem.eql(u8, scope, "provider_scope")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3635,10 +6480,13 @@ fn Handle(
             );
             defer params.deinit();
             try params.putString("specifier", specifier.reveal());
-            return self.client.mutate(
-                .machine_connect_external,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                MachineSnapshot,
+                try self.client.mutate(
+                    .machine_connect_external,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
@@ -3647,7 +6495,7 @@ fn Handle(
             action: ProviderActionId,
             parameters: raw.wire.Object,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !JsonMutationResult {
             if (comptime !std.mem.eql(u8, scope, "provider_scope")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3665,7 +6513,7 @@ fn Handle(
             scoped_workspace: WorkspaceId,
             managed: bool,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !WorkspaceMutationResult {
             if (comptime !std.mem.eql(u8, scope, "provider_scope")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3679,10 +6527,13 @@ fn Handle(
             try params.putString("session", scoped_session.slice());
             try params.putString("workspace", scoped_workspace.slice());
             try params.putValue("managed", .{ .bool = managed });
-            return self.client.mutate(
-                .provider_workspace_mark,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                WorkspaceSnapshot,
+                try self.client.mutate(
+                    .provider_workspace_mark,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
@@ -3692,7 +6543,7 @@ fn Handle(
             scoped_workspace: WorkspaceId,
             name: ?[]const u8,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !WorkspaceMutationResult {
             if (comptime !std.mem.eql(u8, scope, "provider_scope")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3710,10 +6561,13 @@ fn Handle(
             } else {
                 try params.putNull("name");
             }
-            return self.client.mutate(
-                .provider_workspace_rename,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                WorkspaceSnapshot,
+                try self.client.mutate(
+                    .provider_workspace_rename,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
@@ -3722,7 +6576,7 @@ fn Handle(
             scoped_session: SessionId,
             scoped_workspace: WorkspaceId,
             mutation: MutationOptions,
-        ) !MutationResult {
+        ) !EmptyMutationResult {
             if (comptime !std.mem.eql(u8, scope, "provider_scope")) {
                 return error.UnsupportedHandleOperation;
             }
@@ -3735,10 +6589,13 @@ fn Handle(
             defer params.deinit();
             try params.putString("session", scoped_session.slice());
             try params.putString("workspace", scoped_workspace.slice());
-            return self.client.mutate(
-                .provider_workspace_close,
-                params.asValue(),
-                mutation,
+            return decodeTypedMutation(
+                EmptyResult,
+                try self.client.mutate(
+                    .provider_workspace_close,
+                    params.asValue(),
+                    mutation,
+                ),
             );
         }
 
@@ -3896,7 +6753,7 @@ pub const ProviderNoticeHandle = struct {
         };
     }
 
-    pub fn acknowledge(self: Self, sequence: u64) !OwnedResult {
+    pub fn acknowledge(self: Self, sequence: u64) !OwnedEmptyResult {
         var params = try Params(ProviderNoticeId).init(
             self.client.allocator,
             "provider_notice",
@@ -3916,9 +6773,11 @@ pub const ProviderNoticeHandle = struct {
             .{sequence},
         );
         try params.putString("sequence", encoded_sequence);
-        return self.client.control(
-            .provider_notice_acknowledge,
-            params.asValue(),
+        return decodeEmptyResult(
+            try self.client.control(
+                .provider_notice_acknowledge,
+                params.asValue(),
+            ),
         );
     }
 };
@@ -3926,7 +6785,58 @@ pub const ProviderNoticeHandle = struct {
 const FakeMode = enum {
     success,
     remote_error,
+    typed_catalog,
 };
+
+const fake_layout_json =
+    "{\"version\":1," ++
+    "\"screen_id\":\"screen_55555555555555555555555555555555\"," ++
+    "\"active_pane_id\":\"pane_66666666666666666666666666666666\"," ++
+    "\"zoomed_pane_id\":null,\"root\":{\"kind\":\"leaf\"," ++
+    "\"pane_id\":\"pane_66666666666666666666666666666666\"," ++
+    "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
+    "\"active_tab_id\":\"tab_77777777777777777777777777777777\"}," ++
+    "\"extra\":{\"layout_future\":true}}";
+
+const fake_screen_snapshot_json =
+    "{\"id\":\"screen_55555555555555555555555555555555\"," ++
+    "\"workspace_id\":\"ws_33333333333333333333333333333333\"," ++
+    "\"name\":\"screen-name\",\"index\":3,\"focused\":true," ++
+    "\"layout\":" ++ fake_layout_json ++
+    ",\"extra\":{\"screen_future\":true}}";
+
+const fake_pane_snapshot_json =
+    "{\"id\":\"pane_66666666666666666666666666666666\"," ++
+    "\"screen_id\":\"screen_55555555555555555555555555555555\"," ++
+    "\"name\":\"pane-name\",\"focused\":true,\"zoomed\":false," ++
+    "\"extra\":{\"pane_future\":true}}";
+
+const fake_tab_snapshot_json =
+    "{\"id\":\"tab_77777777777777777777777777777777\"," ++
+    "\"pane_id\":\"pane_66666666666666666666666666666666\"," ++
+    "\"name\":\"tab-name\",\"index\":4,\"focused\":true," ++
+    "\"content_kind\":\"terminal\"," ++
+    "\"content_id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+    "\"extra\":{\"tab_future\":true}}";
+
+const fake_browser_snapshot_json =
+    "{\"id\":\"browser_88888888888888888888888888888888\"," ++
+    "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+    "\"url\":\"https://cmux.dev/sdk\",\"title\":\"cmux\"," ++
+    "\"loading\":false,\"source\":\"launched\",\"status\":\"live\"," ++
+    "\"error\":null,\"frames_stalled\":false," ++
+    "\"size\":{\"cols\":120,\"rows\":40}," ++
+    "\"extra\":{\"browser_future\":true}}";
+
+const fake_client_snapshot_json =
+    "{\"id\":\"client_99999999999999999999999999999999\"," ++
+    "\"session_id\":\"session_22222222222222222222222222222222\"," ++
+    "\"name\":\"sdk-client\",\"client_kind\":null,\"transport\":\"unix\"," ++
+    "\"connected_seconds\":\"12\",\"attached_terminal_ids\":[" ++
+    "\"term_0123456789abcdef0123456789abcdef\"],\"sizes\":[{" ++
+    "\"terminal_id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+    "\"cols\":120,\"rows\":40,\"participating\":true}]," ++
+    "\"self\":true,\"extra\":{\"client_future\":true}}";
 
 const FakeShared = struct {
     allocator: std.mem.Allocator,
@@ -3980,6 +6890,212 @@ const FakeShared = struct {
                 try self.appendInput(response);
                 continue;
             }
+            if (self.mode == .typed_catalog) {
+                const machine =
+                    "{\"id\":\"machine_11111111111111111111111111111111\"," ++
+                    "\"name\":\"local\",\"origin\":\"local\"," ++
+                    "\"status\":\"running\",\"connectable\":true," ++
+                    "\"deleted\":false,\"recoverable\":false}";
+                const session =
+                    "{\"id\":\"session_22222222222222222222222222222222\"," ++
+                    "\"machine_id\":" ++
+                    "\"machine_11111111111111111111111111111111\"," ++
+                    "\"name\":\"main\",\"generation\":\"catalog-g\"," ++
+                    "\"revision\":\"9\",\"connected\":true}";
+                const workspace_a =
+                    "{\"id\":\"ws_33333333333333333333333333333333\"," ++
+                    "\"session_id\":" ++
+                    "\"session_22222222222222222222222222222222\"," ++
+                    "\"name\":\"duplicate\",\"index\":1," ++
+                    "\"focused\":true}";
+                const workspace_b =
+                    "{\"id\":\"ws_44444444444444444444444444444444\"," ++
+                    "\"session_id\":" ++
+                    "\"session_22222222222222222222222222222222\"," ++
+                    "\"name\":\"duplicate\",\"index\":2," ++
+                    "\"focused\":false}";
+                const read_value: ?[]const u8 =
+                    if (std.mem.eql(u8, operation, "machine.list"))
+                        "[" ++ machine ++ "]"
+                    else if (std.mem.eql(u8, operation, "machine.get"))
+                        machine
+                    else if (std.mem.eql(u8, operation, "session.list"))
+                        "[" ++ session ++ "]"
+                    else if (std.mem.eql(u8, operation, "session.get"))
+                        session
+                    else if (std.mem.eql(u8, operation, "workspace.list"))
+                        "[" ++ workspace_a ++ "," ++ workspace_b ++ "]"
+                    else if (std.mem.eql(u8, operation, "workspace.get"))
+                        workspace_a
+                    else if (std.mem.eql(u8, operation, "session.ping"))
+                        "{\"alive\":true,\"cursor\":{" ++
+                            "\"generation\":\"catalog-g\"," ++
+                            "\"revision\":\"9\"}}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "terminal.screen.read",
+                    ))
+                        "{\"text\":\"prompt$ \",\"cols\":120," ++
+                            "\"rows\":40,\"cursor_row\":3," ++
+                            "\"cursor_col\":8,\"cursor_visible\":true," ++
+                            "\"extra\":{\"future\":\"kept\"}}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "terminal.state.read",
+                    ))
+                        "{\"state_base64\":\"aGVsbG8=\"," ++
+                            "\"cols\":120,\"rows\":40}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "terminal.history.read",
+                    ))
+                        "{\"start\":\"41\",\"next\":\"43\",\"rows\":[" ++
+                            "{\"row\":2,\"runs\":[{\"text\":\"hello\"," ++
+                            "\"fg\":\"#112233\",\"bg\":null," ++
+                            "\"attrs\":5,\"underline\":\"curly\"," ++
+                            "\"width_hint\":5}]}]}"
+                    else if (std.mem.eql(u8, operation, "terminal.wait"))
+                        "{\"matched\":true,\"text\":\"ready\"}"
+                    else if (std.mem.eql(u8, operation, "terminal.copy"))
+                        "{\"mode\":\"selection\",\"text\":\"copied\"}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "terminal.process.get",
+                    ))
+                        "{\"pid\":123,\"executable\":\"/bin/zsh\"," ++
+                            "\"argv\":[\"zsh\",\"-l\"],\"cwd\":\"/tmp\"," ++
+                            "\"children\":[124,125]}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "terminal.viewer.resize",
+                    ))
+                        "{\"accepted\":true,\"size\":{" ++
+                            "\"cols\":100,\"rows\":30}}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "terminal.viewer.release",
+                    ))
+                        "{}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "client.metadata.update",
+                    ))
+                        fake_client_snapshot_json
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "browser.viewer.resize",
+                    ))
+                        "{\"accepted\":true,\"size\":{" ++
+                            "\"width_px\":1440,\"height_px\":900}}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "client.cell_pixels.set",
+                    ))
+                        "{\"width_px\":9,\"height_px\":18," ++
+                            "\"resized_terminals\":[" ++
+                            "\"term_0123456789abcdef0123456789abcdef\"]," ++
+                            "\"failures\":{\"detached\":\"not attached\"}}"
+                    else
+                        null;
+                if (read_value) |value| {
+                    const response = try std.fmt.allocPrint(
+                        self.allocator,
+                        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                            "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                            "\"result\":{s}}}",
+                        .{ id, value },
+                    );
+                    defer self.allocator.free(response);
+                    try self.appendInput(response);
+                    continue;
+                }
+                const mutation_value: ?[]const u8 =
+                    if (std.mem.eql(u8, operation, "workspace.rename"))
+                        workspace_a
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "workspace.create",
+                    ))
+                        "{\"kind\":\"workspace\",\"workspace_id\":" ++
+                            "\"ws_33333333333333333333333333333333\"}"
+                    else if (std.mem.eql(u8, operation, "workspace.close"))
+                        "{}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "terminal.history.clear",
+                    ))
+                        "{}"
+                    else if (std.mem.eql(
+                        u8,
+                        operation,
+                        "browser.navigate",
+                    ))
+                        fake_browser_snapshot_json
+                    else if (std.mem.eql(u8, operation, "screen.rename"))
+                        fake_screen_snapshot_json
+                    else if (std.mem.eql(u8, operation, "pane.rename"))
+                        fake_pane_snapshot_json
+                    else if (std.mem.eql(u8, operation, "tab.rename"))
+                        fake_tab_snapshot_json
+                    else
+                        null;
+                if (mutation_value) |value| {
+                    const response = try std.fmt.allocPrint(
+                        self.allocator,
+                        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                            "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                            "\"result\":{{\"value\":{s}," ++
+                            "\"generation\":\"catalog-g\"," ++
+                            "\"revision\":\"10\"," ++
+                            "\"replayed\":false}}}}",
+                        .{ id, value },
+                    );
+                    defer self.allocator.free(response);
+                    try self.appendInput(response);
+                    continue;
+                }
+            }
+            if (std.mem.eql(
+                u8,
+                operation,
+                "client.metadata.update",
+            )) {
+                const response = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                        "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                        "\"result\":{s}}}",
+                    .{ id, fake_client_snapshot_json },
+                );
+                defer self.allocator.free(response);
+                try self.appendInput(response);
+                continue;
+            }
+            if (std.mem.eql(u8, operation, "browser.navigate")) {
+                const response = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                        "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                        "\"result\":{{\"value\":{s}," ++
+                        "\"generation\":\"g\",\"revision\":\"7\"," ++
+                        "\"replayed\":false}}}}",
+                    .{ id, fake_browser_snapshot_json },
+                );
+                defer self.allocator.free(response);
+                try self.appendInput(response);
+                continue;
+            }
             if (std.mem.eql(
                 u8,
                 operation,
@@ -3988,6 +7104,44 @@ const FakeShared = struct {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
                     "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":true," ++ "\"result\":{{\"endpoint\":\"/tmp/renderer.sock\"," ++ "\"terminal_id\":" ++ "\"term_0123456789abcdef0123456789abcdef\"," ++ "\"token\":\"renderer-secret\"," ++ "\"rights\":[\"read\",\"input\"]," ++ "\"ttl_ms\":5000}}}}",
+                    .{id},
+                );
+                defer self.allocator.free(response);
+                try self.appendInput(response);
+                continue;
+            }
+            if (std.mem.eql(
+                u8,
+                operation,
+                "provider_notice.acknowledge",
+            ) or std.mem.eql(u8, operation, "client.detach")) {
+                const response = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                        "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                        "\"result\":{{}}}}",
+                    .{id},
+                );
+                defer self.allocator.free(response);
+                try self.appendInput(response);
+                continue;
+            }
+            if (std.mem.eql(
+                u8,
+                operation,
+                "terminal.input.write",
+            ) or std.mem.eql(
+                u8,
+                operation,
+                "terminal.viewport.scroll",
+            )) {
+                const response = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                        "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                        "\"result\":{{\"value\":{{}}," ++
+                        "\"generation\":\"g\",\"revision\":\"7\"," ++
+                        "\"replayed\":false}}}}",
                     .{id},
                 );
                 defer self.allocator.free(response);
@@ -4303,16 +7457,15 @@ test "workspace run encodes exact argv and one injected idempotency key" {
     try std.testing.expectEqualStrings("g", result.generation);
     try std.testing.expect(!result.replayed);
     try std.testing.expect(
-        std.meta.fieldIndex(MutationResult, "receipt") == null,
+        std.meta.fieldIndex(
+            CreatedTerminalPathMutationResult,
+            "receipt",
+        ) == null,
     );
-    const created_path = (try result.createdPath()).?;
-    switch (created_path) {
-        .terminal => |path| try std.testing.expectEqualStrings(
-            "term_0123456789abcdef0123456789abcdef",
-            path.terminal_id.slice(),
-        ),
-        else => return error.ExpectedTerminalPath,
-    }
+    try std.testing.expectEqualStrings(
+        "term_0123456789abcdef0123456789abcdef",
+        result.value.terminal_id.slice(),
+    );
     try std.testing.expectEqual(
         @as(usize, 1),
         std.mem.count(u8, shared.output.items, "idempotency_key"),
@@ -4460,6 +7613,457 @@ test "client session name selector keeps current machine route" {
     );
 }
 
+test "typed catalogs preserve duplicate names and own response storage" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .typed_catalog,
+    };
+    defer shared.deinit();
+
+    var catalog = blk: {
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &shared,
+        );
+        var client = Client.init(
+            std.testing.allocator,
+            connection,
+            .{},
+        );
+        defer client.deinit();
+
+        var machines = try client.listMachines();
+        errdefer machines.deinit();
+        const machine_id = machines.items[0].id;
+        var sessions = try client.machine(machine_id).listSessions();
+        errdefer sessions.deinit();
+        const session_id = sessions.items[0].id;
+        var workspaces = try client
+            .machine(machine_id)
+            .session(session_id)
+            .listWorkspaces();
+        errdefer workspaces.deinit();
+        var ping_result = try client
+            .machine(machine_id)
+            .session(session_id)
+            .ping();
+        errdefer ping_result.deinit();
+
+        var refreshed_machine = try client
+            .machine(machine_id)
+            .refresh();
+        defer refreshed_machine.deinit();
+        try std.testing.expectEqualStrings(
+            "local",
+            refreshed_machine.value.name,
+        );
+        var refreshed_session = try client
+            .machine(machine_id)
+            .session(session_id)
+            .refresh();
+        defer refreshed_session.deinit();
+        try std.testing.expectEqual(@as(u64, 9), refreshed_session.value.revision);
+        var refreshed_workspace = try client
+            .machine(machine_id)
+            .session(session_id)
+            .workspace(workspaces.items[0].id)
+            .refresh();
+        defer refreshed_workspace.deinit();
+        try std.testing.expectEqual(@as(u32, 1), refreshed_workspace.value.index);
+
+        var renamed = try client
+            .machine(machine_id)
+            .session(session_id)
+            .workspace(workspaces.items[0].id)
+            .rename(
+            "duplicate",
+            try MutationOptions.withKey("typed-rename"),
+        );
+        defer renamed.deinit();
+        try std.testing.expectEqualStrings("duplicate", renamed.value.name);
+        var created = try client
+            .machine(machine_id)
+            .session(session_id)
+            .createWorkspace(
+            .{ .name = "created", .initial_content = .empty },
+            try MutationOptions.withKey("typed-create"),
+        );
+        defer created.deinit();
+        switch (created.value) {
+            .workspace => |path| try std.testing.expectEqualStrings(
+                "ws_33333333333333333333333333333333",
+                path.workspace_id.slice(),
+            ),
+            else => return error.ExpectedWorkspacePath,
+        }
+        var closed = try client
+            .machine(machine_id)
+            .session(session_id)
+            .workspace(workspaces.items[0].id)
+            .close(try MutationOptions.withKey("typed-close"));
+        defer closed.deinit();
+
+        break :blk .{
+            .machines = machines,
+            .sessions = sessions,
+            .workspaces = workspaces,
+            .ping = ping_result,
+        };
+    };
+    defer catalog.machines.deinit();
+    defer catalog.sessions.deinit();
+    defer catalog.workspaces.deinit();
+    defer catalog.ping.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), catalog.machines.items.len);
+    try std.testing.expectEqual(@as(usize, 1), catalog.sessions.items.len);
+    try std.testing.expectEqual(@as(usize, 2), catalog.workspaces.items.len);
+    try std.testing.expectEqualStrings(
+        "duplicate",
+        catalog.workspaces.items[0].name,
+    );
+    try std.testing.expectEqualStrings(
+        "duplicate",
+        catalog.workspaces.items[1].name,
+    );
+    try std.testing.expect(
+        !std.mem.eql(
+            u8,
+            catalog.workspaces.items[0].id.slice(),
+            catalog.workspaces.items[1].id.slice(),
+        ),
+    );
+    try std.testing.expect(catalog.ping.value.alive);
+    try std.testing.expectEqual(
+        @as(u64, 9),
+        catalog.ping.value.cursor.revision,
+    );
+}
+
+test "remaining catalog controls and rename aliases are typed" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .typed_catalog,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+
+    const client_id = try ConnectedClientId.parse(
+        "client_99999999999999999999999999999999",
+    );
+    const connected_client = client.connectedClient(client_id);
+    var metadata = try connected_client.updateMetadata(.{
+        .name = .{ .set = "sdk-client" },
+    });
+    defer metadata.deinit();
+    try std.testing.expectEqualStrings(
+        "sdk-client",
+        metadata.value.name.?,
+    );
+    try std.testing.expectEqualStrings(
+        "unix",
+        metadata.value.transport.wireName(),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        metadata.value.attached_terminal_ids.len,
+    );
+    try std.testing.expectEqual(
+        @as(?u16, 120),
+        metadata.value.sizes[0].cols,
+    );
+
+    var cell_pixels = try connected_client.setCellPixels(9, 18);
+    defer cell_pixels.deinit();
+    try std.testing.expectEqual(
+        @as(u32, 9),
+        cell_pixels.value.width_px,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        cell_pixels.value.resized_terminals.len,
+    );
+    try std.testing.expectEqualStrings(
+        "not attached",
+        cell_pixels.value.failures[0].reason,
+    );
+
+    const browser_id = try BrowserId.parse(
+        "browser_88888888888888888888888888888888",
+    );
+    const browser = client.browser(browser_id);
+    var navigated = try browser.navigate(
+        "https://cmux.dev/sdk",
+        try MutationOptions.withKey("typed-browser-navigate"),
+    );
+    defer navigated.deinit();
+    try std.testing.expectEqualStrings(
+        "https://cmux.dev/sdk",
+        navigated.value.url,
+    );
+    try std.testing.expectEqualStrings(
+        "live",
+        navigated.value.status.wireName(),
+    );
+    var browser_size = try browser.resizeBrowserViewer(1440, 900);
+    defer browser_size.deinit();
+    try std.testing.expect(browser_size.value.accepted);
+    try std.testing.expectEqual(
+        @as(u32, 1440),
+        browser_size.value.size.width_px,
+    );
+
+    const screen_id = try ScreenId.parse(
+        "screen_55555555555555555555555555555555",
+    );
+    const screen = client.screen(screen_id);
+    var renamed_screen = try screen.rename(
+        "screen-name",
+        try MutationOptions.withKey("typed-screen-rename"),
+    );
+    defer renamed_screen.deinit();
+    try std.testing.expectEqualStrings(
+        "screen-name",
+        renamed_screen.value.name.?,
+    );
+    switch (renamed_screen.value.layout.root.*) {
+        .leaf => |leaf| try std.testing.expectEqual(
+            @as(usize, 1),
+            leaf.tab_ids.len,
+        ),
+        else => return error.ExpectedLayoutLeaf,
+    }
+    var cleared_screen = try screen.clearName(
+        try MutationOptions.withKey("typed-screen-clear"),
+    );
+    defer cleared_screen.deinit();
+
+    const pane_id = try PaneId.parse(
+        "pane_66666666666666666666666666666666",
+    );
+    const pane = client.pane(pane_id);
+    var renamed_pane = try pane.rename(
+        "pane-name",
+        try MutationOptions.withKey("typed-pane-rename"),
+    );
+    defer renamed_pane.deinit();
+    try std.testing.expect(!renamed_pane.value.zoomed);
+    var cleared_pane = try pane.clearName(
+        try MutationOptions.withKey("typed-pane-clear"),
+    );
+    defer cleared_pane.deinit();
+
+    const tab_id = try TabId.parse(
+        "tab_77777777777777777777777777777777",
+    );
+    const tab = client.tab(tab_id);
+    var renamed_tab = try tab.rename(
+        "tab-name",
+        try MutationOptions.withKey("typed-tab-rename"),
+    );
+    defer renamed_tab.deinit();
+    try std.testing.expectEqualStrings(
+        "terminal",
+        renamed_tab.value.content_kind.wireName(),
+    );
+    try std.testing.expectEqualStrings(
+        "term_0123456789abcdef0123456789abcdef",
+        renamed_tab.value.content_id.slice(),
+    );
+    var cleared_tab = try tab.clearName(
+        try MutationOptions.withKey("typed-tab-clear"),
+    );
+    defer cleared_tab.deinit();
+
+    try std.testing.expectEqual(
+        @as(usize, 3),
+        std.mem.count(u8, shared.output.items, "\"name\":null"),
+    );
+}
+
+test "typed terminal reads controls and empty mutation receipts decode" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .typed_catalog,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+    const terminal = client.terminal(terminal_id);
+
+    var screen = try terminal.readScreen();
+    defer screen.deinit();
+    try std.testing.expectEqualStrings("prompt$ ", screen.value.text);
+    try std.testing.expectEqual(@as(u16, 120), screen.value.cols);
+    try std.testing.expect(screen.value.cursor_visible);
+    const future = screen.value.extra.?.get("future").?;
+    try std.testing.expectEqualStrings("kept", future.string);
+
+    var state = try terminal.readState();
+    defer state.deinit();
+    try std.testing.expectEqualStrings("aGVsbG8=", state.value.state_base64);
+    try std.testing.expectEqualStrings("hello", state.value.state);
+
+    var history = try terminal.readHistory(.{
+        .before = 50,
+        .limit = 2,
+        .styled = true,
+    });
+    defer history.deinit();
+    try std.testing.expectEqual(@as(u64, 41), history.value.start);
+    try std.testing.expectEqual(@as(?u64, 43), history.value.next);
+    try std.testing.expectEqual(@as(usize, 1), history.value.rows.len);
+    const run = history.value.rows[0].runs[0];
+    try std.testing.expectEqualStrings("hello", run.text);
+    try std.testing.expectEqualStrings("#112233", run.fg.?);
+    try std.testing.expectEqual(@as(u32, 5), run.attrs);
+    try std.testing.expectEqualStrings(
+        "curly",
+        run.underline.?.wireName(),
+    );
+
+    var waited = try terminal.waitFor("ready", 2_000);
+    defer waited.deinit();
+    try std.testing.expect(waited.value.matched);
+    try std.testing.expectEqualStrings("ready", waited.value.text);
+
+    var copied = try terminal.copy(.selection);
+    defer copied.deinit();
+    try std.testing.expectEqualStrings(
+        "selection",
+        copied.value.mode.wireName(),
+    );
+    try std.testing.expectEqualStrings("copied", copied.value.text);
+
+    var process = try terminal.processInfo();
+    defer process.deinit();
+    try std.testing.expectEqual(@as(u32, 123), process.value.pid);
+    try std.testing.expectEqualStrings("/bin/zsh", process.value.executable.?);
+    try std.testing.expectEqualStrings("zsh", process.value.argv[0]);
+    try std.testing.expectEqual(@as(u32, 125), process.value.children[1]);
+
+    var resized = try terminal.resizeTerminalViewer(100, 30);
+    defer resized.deinit();
+    try std.testing.expect(resized.value.accepted);
+    try std.testing.expectEqual(@as(u16, 100), resized.value.size.cols);
+
+    var released = try terminal.releaseTerminalViewer();
+    defer released.deinit();
+    var cleared = try terminal.clearHistory(
+        try MutationOptions.withKey("typed-history-clear"),
+    );
+    defer cleared.deinit();
+    try std.testing.expectEqual(@as(u64, 10), cleared.revision);
+
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            shared.output.items,
+            "\"before\":\"50\"",
+        ) != null,
+    );
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            shared.output.items,
+            "\"limit\":2",
+        ) != null,
+    );
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            shared.output.items,
+            "\"styled\":true",
+        ) != null,
+    );
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            shared.output.items,
+            "\"timeout_ms\":\"2000\"",
+        ) != null,
+    );
+}
+
+test "typed terminal decoders reject malformed and retain future enums" {
+    var malformed = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"text\":\"bad\",\"cols\":0,\"rows\":1," ++
+            "\"cursor_row\":0,\"cursor_col\":0," ++
+            "\"cursor_visible\":true}",
+        .{},
+    );
+    const malformed_value = malformed.value;
+    const malformed_result = OwnedResult{
+        .owned = malformed,
+        .value = malformed_value,
+    };
+    malformed = undefined;
+    try std.testing.expectError(
+        error.IntegerOutOfRange,
+        decodeOwnedSimpleResult(
+            TerminalScreenResult,
+            malformed_result,
+        ),
+    );
+
+    var future = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"mode\":\"future-copy\",\"text\":\"owned\"}",
+        .{},
+    );
+    const future_value = future.value;
+    const future_result = OwnedResult{
+        .owned = future,
+        .value = future_value,
+    };
+    future = undefined;
+    var decoded = try decodeOwnedSimpleResult(
+        TerminalCopyResult,
+        future_result,
+    );
+    defer decoded.deinit();
+    switch (decoded.value.mode) {
+        .unknown => |value| try std.testing.expectEqualStrings(
+            "future-copy",
+            value,
+        ),
+        else => return error.ExpectedUnknownCopyMode,
+    }
+}
+
+test "typed catalogs reject malformed snapshots without leaking ownership" {
+    var parsed = try raw.wire.parse(
+        std.testing.allocator,
+        "[{\"id\":\"machine_11111111111111111111111111111111\"," ++
+            "\"name\":7,\"origin\":\"local\",\"status\":\"running\"," ++
+            "\"connectable\":true,\"deleted\":false," ++
+            "\"recoverable\":false}]",
+        .{},
+    );
+    const value = parsed.value;
+    const result = OwnedResult{
+        .owned = parsed,
+        .value = value,
+    };
+    parsed = undefined;
+    try std.testing.expectError(
+        error.ExpectedString,
+        decodeTypedList(
+            MachineSnapshot,
+            std.testing.allocator,
+            result,
+            "machines",
+        ),
+    );
+}
+
 test "indeterminate mutations retain fields and never retry" {
     var shared = FakeShared{
         .allocator = std.testing.allocator,
@@ -4491,23 +8095,225 @@ test "indeterminate mutations retain fields and never retry" {
         "external effect may have committed",
         failure.message,
     );
-    const details = failure.details.?.object;
-    try std.testing.expectEqual(@as(usize, 3), details.count());
+    const details = switch (failure.details) {
+        .mutation_indeterminate => |value| value,
+        else => return error.ExpectedMutationIndeterminateDetails,
+    };
     try std.testing.expectEqualStrings(
         "indeterminate-test-key",
-        details.get("idempotency_key").?.string,
+        details.idempotency_key,
     );
     try std.testing.expectEqualStrings(
         "workspace.rename",
-        details.get("operation").?.string,
+        details.operation,
     );
     try std.testing.expectEqualStrings(
         "inspect_state_then_retry_with_new_key",
-        details.get("recovery").?.string,
+        details.recovery.wireName(),
     );
     try std.testing.expectEqual(
         @as(usize, 1),
         std.mem.count(u8, shared.output.items, "idempotency_key"),
+    );
+}
+
+test "catalog error details decode every declared shape" {
+    const DetailTag = std.meta.Tag(ResourceErrorDetails);
+    const Fixture = struct {
+        code: []const u8,
+        details: []const u8,
+        tag: DetailTag,
+    };
+    const fixtures = [_]Fixture{
+        .{
+            .code = "authority.denied",
+            .details = "{\"operation\":\"workspace.list\"}",
+            .tag = .authority_denied,
+        },
+        .{
+            .code = "confirmation.required",
+            .details = "{\"revision\":\"3\",\"closes_panes\":[" ++
+                "\"pane_11111111111111111111111111111111\"]}",
+            .tag = .confirmation_required,
+        },
+        .{
+            .code = "cursor.gap",
+            .details = "{\"requested\":{\"generation\":\"g\"," ++
+                "\"revision\":\"1\"},\"current\":{\"generation\":\"g\"," ++
+                "\"revision\":\"3\"},\"oldest_revision\":\"2\"}",
+            .tag = .cursor_gap,
+        },
+        .{
+            .code = "cursor.invalid",
+            .details = "{\"requested\":{\"generation\":\"old\"," ++
+                "\"revision\":\"1\"},\"current\":{\"generation\":\"new\"," ++
+                "\"revision\":\"1\"},\"reason\":\"generation changed\"}",
+            .tag = .cursor_invalid,
+        },
+        .{
+            .code = "idempotency.conflict",
+            .details = "{\"idempotency_key\":\"key\"," ++
+                "\"committed_operation\":\"workspace.rename\"}",
+            .tag = .idempotency_conflict,
+        },
+        .{
+            .code = "local.io",
+            .details = "{\"path\":\"/tmp/socket\",\"reason\":\"closed\"}",
+            .tag = .local_io,
+        },
+        .{
+            .code = "mutation.indeterminate",
+            .details = "{\"idempotency_key\":\"key\"," ++
+                "\"operation\":\"workspace.rename\",\"recovery\":" ++
+                "\"inspect_state_then_retry_with_new_key\"}",
+            .tag = .mutation_indeterminate,
+        },
+        .{
+            .code = "operation.failed",
+            .details = "{\"operation\":\"workspace.run\"," ++
+                "\"reason\":\"failed\",\"extra\":{\"exit_code\":2}}",
+            .tag = .operation_failed,
+        },
+        .{
+            .code = "resource.not_found",
+            .details = "{\"scope\":\"workspace\",\"id\":" ++
+                "\"ws_11111111111111111111111111111111\"}",
+            .tag = .resource_not_found,
+        },
+        .{
+            .code = "revision.conflict",
+            .details = "{\"expected\":\"4\",\"actual\":\"5\"}",
+            .tag = .revision_conflict,
+        },
+        .{
+            .code = "selector.ambiguous",
+            .details = "{\"scope\":\"workspace\"," ++
+                "\"selector\":\"name:duplicate\",\"candidates\":[" ++
+                "\"ws_11111111111111111111111111111111\"," ++
+                "\"ws_22222222222222222222222222222222\"]}",
+            .tag = .selector_ambiguous,
+        },
+        .{
+            .code = "selector.invalid",
+            .details = "{\"scope\":\"workspace\"," ++
+                "\"selector\":\"invalid\",\"reason\":\"bad syntax\"}",
+            .tag = .selector_invalid,
+        },
+        .{
+            .code = "selector.not_found",
+            .details = "{\"scope\":\"workspace\"," ++
+                "\"selector\":\"name:missing\"}",
+            .tag = .selector_not_found,
+        },
+        .{
+            .code = "selector.wrong_parent",
+            .details = "{\"scope\":\"pane\",\"selector\":" ++
+                "\"pane_11111111111111111111111111111111\"," ++
+                "\"parent_scope\":\"screen\",\"expected_parent\":" ++
+                "\"screen_11111111111111111111111111111111\"," ++
+                "\"actual_parent\":" ++
+                "\"screen_22222222222222222222222222222222\"}",
+            .tag = .selector_wrong_parent,
+        },
+        .{
+            .code = "transport.closed",
+            .details = "{\"reason\":\"peer closed\"}",
+            .tag = .transport_closed,
+        },
+        .{
+            .code = "validation.invalid",
+            .details = "{\"field\":\"name\",\"reason\":\"too long\"}",
+            .tag = .validation_invalid,
+        },
+    };
+
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+
+    for (fixtures) |fixture| {
+        const encoded = try std.fmt.allocPrint(
+            std.testing.allocator,
+            "{{\"code\":\"{s}\",\"message\":\"fixture\"," ++
+                "\"details\":{s},\"retryable\":false}}",
+            .{ fixture.code, fixture.details },
+        );
+        defer std.testing.allocator.free(encoded);
+        var parsed = try raw.wire.parse(
+            std.testing.allocator,
+            encoded,
+            .{},
+        );
+        try client.setError(parsed.value);
+        parsed.deinit();
+        var owned = client.takeResourceError() orelse
+            return error.MissingResourceError;
+        defer owned.deinit();
+        try std.testing.expectEqual(
+            fixture.tag,
+            std.meta.activeTag(owned.value.details),
+        );
+    }
+}
+
+test "malformed known and future error details remain owned and explicit" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    errdefer client.deinit();
+
+    var malformed_source = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"code\":\"selector.ambiguous\",\"message\":\"bad\"," ++
+            "\"details\":{\"candidates\":[" ++
+            "\"ws_11111111111111111111111111111111\"]}," ++
+            "\"retryable\":false}",
+        .{},
+    );
+    try client.setError(malformed_source.value);
+    malformed_source.deinit();
+    var malformed = client.takeResourceError() orelse
+        return error.MissingResourceError;
+    defer malformed.deinit();
+    switch (malformed.value.details) {
+        .malformed => {},
+        else => return error.ExpectedMalformedResourceErrorDetails,
+    }
+
+    var future_source = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"code\":\"future.quota\",\"message\":\"future\"," ++
+            "\"details\":{\"limit\":\"9\",\"auth\":{\"token\":" ++
+            "\"future-secret\"}},\"retryable\":true}",
+        .{},
+    );
+    try client.setError(future_source.value);
+    future_source.deinit();
+    var future = client.takeResourceError() orelse
+        return error.MissingResourceError;
+    client.deinit();
+    defer future.deinit();
+
+    const unknown = switch (future.value.details) {
+        .unknown => |value| value.raw,
+        else => return error.ExpectedUnknownResourceErrorDetails,
+    };
+    const details = try detailObject(unknown);
+    const auth = try detailObject(
+        details.get("auth") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "[REDACTED]",
+        try objectString(auth, "token"),
     );
 }
 

@@ -133,50 +133,33 @@ fn ping(
     allocator: Allocator,
     scoped_session: cmux.Session,
 ) !Value {
-    var result = try scoped_session.read(.session_ping, null);
+    var result = try scoped_session.ping();
     defer result.deinit();
-    const object = try asObject(result.value);
     var output = Object.init(allocator);
-    try output.put(
-        "alive",
-        try cloneValue(
-            allocator,
-            object.get("alive") orelse return error.MissingField,
-        ),
-    );
+    try output.put("alive", .{ .bool = result.value.alive });
     try output.put(
         "cursor",
-        try cloneValue(
-            allocator,
-            object.get("cursor") orelse return error.MissingField,
-        ),
+        try cursorValue(allocator, result.value.cursor),
     );
     return .{ .object = output };
 }
 
 fn mutationValue(
     allocator: Allocator,
-    result: *const cmux.MutationResult,
+    result: *const cmux.WorkspaceMutationResult,
 ) !Value {
-    const logical = try asObject(result.value);
     var output = Object.init(allocator);
     try putString(
         &output,
         allocator,
         "workspace_id",
-        switch (logical.get("id") orelse return error.MissingField) {
-            .string => |text| text,
-            else => return error.ExpectedString,
-        },
+        result.value.id.slice(),
     );
     try putString(
         &output,
         allocator,
         "name",
-        switch (logical.get("name") orelse return error.MissingField) {
-            .string => |text| text,
-            else => return error.ExpectedString,
-        },
+        result.value.name,
     );
     try putString(
         &output,
@@ -186,6 +169,77 @@ fn mutationValue(
     );
     try output.put("revision", try decimal(allocator, result.revision));
     try output.put("replayed", .{ .bool = result.replayed });
+    return .{ .object = output };
+}
+
+fn resourceErrorDetailsValue(
+    allocator: Allocator,
+    details: cmux.ResourceErrorDetails,
+) !Value {
+    var output = Object.init(allocator);
+    switch (details) {
+        .mutation_indeterminate => |value| {
+            try putString(
+                &output,
+                allocator,
+                "idempotency_key",
+                value.idempotency_key,
+            );
+            try putString(
+                &output,
+                allocator,
+                "operation",
+                value.operation,
+            );
+            try putString(
+                &output,
+                allocator,
+                "recovery",
+                value.recovery.wireName(),
+            );
+        },
+        .revision_conflict => |value| {
+            try output.put(
+                "expected",
+                try decimal(allocator, value.expected),
+            );
+            try output.put(
+                "actual",
+                try decimal(allocator, value.actual),
+            );
+        },
+        .selector_ambiguous => |value| {
+            if (value.scope) |scope| {
+                try putString(
+                    &output,
+                    allocator,
+                    "scope",
+                    scope.wireName(),
+                );
+            }
+            if (value.selector) |selector| {
+                try putString(
+                    &output,
+                    allocator,
+                    "selector",
+                    selector,
+                );
+            }
+            var candidates = Array.init(allocator);
+            for (value.candidates) |candidate| {
+                try candidates.append(.{
+                    .string = try allocator.dupe(
+                        u8,
+                        candidate.slice(),
+                    ),
+                });
+            }
+            try output.put("candidates", .{ .array = candidates });
+        },
+        .unknown => |value| return cloneValue(allocator, value.raw),
+        .malformed => |value| return cloneValue(allocator, value.raw),
+        else => return error.UnsupportedConformanceErrorDetails,
+    }
     return .{ .object = output };
 }
 
@@ -226,10 +280,7 @@ fn mutationError(
         try putString(&output, allocator, "message", remote.message);
         try output.put(
             "details",
-            if (remote.details) |details|
-                try cloneValue(allocator, details)
-            else
-                .null,
+            try resourceErrorDetailsValue(allocator, remote.details),
         );
         try output.put("retryable", .{ .bool = remote.retryable });
         return .{ .object = output };
@@ -411,57 +462,32 @@ fn redaction(allocator: Allocator) !Value {
     return .{ .object = output };
 }
 
-fn workspaceItems(value: Value) !Array {
-    return switch (value) {
-        .array => |items| items,
-        .object => |object| switch (object.get("workspaces") orelse
-            return error.MissingField) {
-            .array => |items| items,
-            else => return error.ExpectedArray,
-        },
-        else => error.ExpectedArray,
-    };
-}
-
-fn containsWorkspace(value: Value, id: cmux.WorkspaceId) !bool {
-    const workspaces = try workspaceItems(value);
-    for (workspaces.items) |candidate_value| {
-        const candidate = try asObject(candidate_value);
-        const encoded = switch (candidate.get("id") orelse continue) {
-            .string => |text| text,
-            else => continue,
-        };
-        if (std.mem.eql(u8, encoded, id.slice())) return true;
+fn containsWorkspace(
+    workspaces: []const cmux.WorkspaceSnapshot,
+    id: cmux.WorkspaceId,
+) bool {
+    for (workspaces) |candidate| {
+        if (std.mem.eql(u8, candidate.id.slice(), id.slice())) return true;
     }
     return false;
 }
 
 fn workspaceHasName(
-    value: Value,
+    workspaces: []const cmux.WorkspaceSnapshot,
     id: cmux.WorkspaceId,
     expected_name: []const u8,
-) !bool {
-    const workspaces = try workspaceItems(value);
-    for (workspaces.items) |candidate_value| {
-        const candidate = try asObject(candidate_value);
-        const encoded_id = switch (candidate.get("id") orelse continue) {
-            .string => |text| text,
-            else => continue,
-        };
-        if (!std.mem.eql(u8, encoded_id, id.slice())) continue;
-        const encoded_name = switch (candidate.get("name") orelse return false) {
-            .string => |text| text,
-            else => return false,
-        };
-        return std.mem.eql(u8, encoded_name, expected_name);
+) bool {
+    for (workspaces) |candidate| {
+        if (!std.mem.eql(u8, candidate.id.slice(), id.slice())) continue;
+        return std.mem.eql(u8, candidate.name, expected_name);
     }
     return false;
 }
 
-fn createdWorkspaceId(result: *const cmux.MutationResult) !cmux.WorkspaceId {
-    const created_path = (try result.createdPath()) orelse
-        return error.MissingCreatedPath;
-    return switch (created_path) {
+fn createdWorkspaceId(
+    result: *const cmux.CreatedPathMutationResult,
+) !cmux.WorkspaceId {
+    return switch (result.value) {
         .workspace => |path| path.workspace_id,
         else => error.ExpectedWorkspacePath,
     };
@@ -484,20 +510,19 @@ fn derivedMutationOptions(
 }
 
 fn candidateIdsMatch(
-    details: ?Value,
+    details: cmux.ResourceErrorDetails,
     first: cmux.WorkspaceId,
     second: cmux.WorkspaceId,
-) !bool {
-    const value = details orelse return false;
-    const candidates = try arrayField(value, "candidates");
-    if (candidates.items.len != 2) return false;
+) bool {
+    const candidates = switch (details) {
+        .selector_ambiguous => |value| value.candidates,
+        else => return false,
+    };
+    if (candidates.len != 2) return false;
     var found_first = false;
     var found_second = false;
-    for (candidates.items) |candidate| {
-        const encoded = switch (candidate) {
-            .string => |text| text,
-            else => return false,
-        };
+    for (candidates) |candidate| {
+        const encoded = candidate.slice();
         if (std.mem.eql(u8, encoded, first.slice())) {
             if (found_first) return false;
             found_first = true;
@@ -555,29 +580,25 @@ fn liveFlow(
         try cmux.MutationOptions.withKey("live-rename"),
     );
     defer renamed.deinit();
-    const renamed_object = try asObject(renamed.value);
     const renamed_ok = std.mem.eql(
         u8,
-        switch (renamed_object.get("name") orelse return error.MissingField) {
-            .string => |text| text,
-            else => return error.ExpectedString,
-        },
+        renamed.value.name,
         renamed_name,
     );
-    var listed_result = try scoped_session.read(.workspace_list, null);
+    var listed_result = try scoped_session.listWorkspaces();
     defer listed_result.deinit();
-    const listed = try containsWorkspace(
-        listed_result.value,
+    const listed = containsWorkspace(
+        listed_result.items,
         workspace_id,
     );
     var closed = try scoped_workspace.close(
         try cmux.MutationOptions.withKey("live-close"),
     );
     defer closed.deinit();
-    var remaining = try scoped_session.read(.workspace_list, null);
+    var remaining = try scoped_session.listWorkspaces();
     defer remaining.deinit();
-    const disappeared = !try containsWorkspace(
-        remaining.value,
+    const disappeared = !containsWorkspace(
+        remaining.items,
         workspace_id,
     );
 
@@ -639,13 +660,9 @@ fn liveSetup(
         ),
     );
     defer stable_rename.deinit();
-    const renamed_object = try asObject(stable_rename.value);
     const stable_renamed = std.mem.eql(
         u8,
-        switch (renamed_object.get("name") orelse return error.MissingField) {
-            .string => |text| text,
-            else => return error.ExpectedString,
-        },
+        stable_rename.value.name,
         renamed_name,
     );
 
@@ -692,22 +709,22 @@ fn liveSetup(
             u8,
             ambiguity.value.code,
             "selector.ambiguous",
-        ) and try candidateIdsMatch(
+        ) and candidateIdsMatch(
             ambiguity.value.details,
             duplicate_a_id,
             duplicate_b_id,
         );
 
-        var listed = try scoped_session.read(.workspace_list, null);
+        var listed = try scoped_session.listWorkspaces();
         defer listed.deinit();
         const no_mutation =
-            try workspaceHasName(
-                listed.value,
+            workspaceHasName(
+                listed.items,
                 duplicate_a_id,
                 duplicate_name,
             ) and
-            try workspaceHasName(
-                listed.value,
+            workspaceHasName(
+                listed.items,
                 duplicate_b_id,
                 duplicate_name,
             );
@@ -788,25 +805,25 @@ fn liveRestart(
         .{base_name},
     );
 
-    var listed = try scoped_session.read(.workspace_list, null);
+    var listed = try scoped_session.listWorkspaces();
     defer listed.deinit();
     const same_ids =
-        try containsWorkspace(listed.value, stable_id) and
-        try containsWorkspace(listed.value, duplicate_ids[0]) and
-        try containsWorkspace(listed.value, duplicate_ids[1]);
-    const stable_name_preserved = try workspaceHasName(
-        listed.value,
+        containsWorkspace(listed.items, stable_id) and
+        containsWorkspace(listed.items, duplicate_ids[0]) and
+        containsWorkspace(listed.items, duplicate_ids[1]);
+    const stable_name_preserved = workspaceHasName(
+        listed.items,
         stable_id,
         stable_name,
     );
     const duplicates_preserved =
-        try workspaceHasName(
-            listed.value,
+        workspaceHasName(
+            listed.items,
             duplicate_ids[0],
             duplicate_name,
         ) and
-        try workspaceHasName(
-            listed.value,
+        workspaceHasName(
+            listed.items,
             duplicate_ids[1],
             duplicate_name,
         );
@@ -840,12 +857,12 @@ fn liveRestart(
     );
     defer duplicate_b_close.deinit();
 
-    var remaining = try scoped_session.read(.workspace_list, null);
+    var remaining = try scoped_session.listWorkspaces();
     defer remaining.deinit();
     const disappeared =
-        !try containsWorkspace(remaining.value, stable_id) and
-        !try containsWorkspace(remaining.value, duplicate_ids[0]) and
-        !try containsWorkspace(remaining.value, duplicate_ids[1]);
+        !containsWorkspace(remaining.items, stable_id) and
+        !containsWorkspace(remaining.items, duplicate_ids[0]) and
+        !containsWorkspace(remaining.items, duplicate_ids[1]);
 
     var output = Object.init(allocator);
     try output.put("same_ids", .{ .bool = same_ids });

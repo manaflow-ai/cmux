@@ -12,6 +12,7 @@ pub const ExactCommand = resource.ExactCommand;
 pub const ShellCommand = resource.ShellCommand;
 pub const RunCommand = resource.RunCommand;
 pub const RunOptions = resource.RunOptions;
+pub const TerminalHistoryOptions = resource.TerminalHistoryOptions;
 pub const CreateTerminalTabOptions = resource.CreateTerminalTabOptions;
 pub const CreateBrowserTabOptions = resource.CreateBrowserTabOptions;
 pub const InitialContent = resource.InitialContent;
@@ -23,10 +24,37 @@ pub const CreatedPath = resource.CreatedPath;
 pub const CreatedWorkspaceOnly = resource.CreatedWorkspaceOnly;
 pub const CreatedTerminalPath = resource.CreatedTerminalPath;
 pub const CreatedBrowserPath = resource.CreatedBrowserPath;
-pub const MutationResult = resource.MutationResult;
-pub const OwnedResult = resource.OwnedResult;
+pub const JsonMutationResult = resource.JsonMutationResult;
 pub const ResourceError = resource.ResourceError;
 pub const OwnedResourceError = resource.OwnedResourceError;
+pub const ResourceErrorDetails = resource.ResourceErrorDetails;
+pub const ErrorResourceScope = resource.ErrorResourceScope;
+pub const ErrorResourceId = resource.ErrorResourceId;
+pub const MutationRecovery = resource.MutationRecovery;
+pub const AuthorityDeniedDetails = resource.AuthorityDeniedDetails;
+pub const ConfirmationRequiredDetails =
+    resource.ConfirmationRequiredDetails;
+pub const CursorGapDetails = resource.CursorGapDetails;
+pub const CursorInvalidDetails = resource.CursorInvalidDetails;
+pub const IdempotencyConflictDetails =
+    resource.IdempotencyConflictDetails;
+pub const LocalIoDetails = resource.LocalIoDetails;
+pub const MutationIndeterminateDetails =
+    resource.MutationIndeterminateDetails;
+pub const OperationFailedDetails = resource.OperationFailedDetails;
+pub const ResourceNotFoundDetails = resource.ResourceNotFoundDetails;
+pub const RevisionConflictDetails = resource.RevisionConflictDetails;
+pub const SelectorAmbiguousDetails = resource.SelectorAmbiguousDetails;
+pub const SelectorInvalidDetails = resource.SelectorInvalidDetails;
+pub const SelectorNotFoundDetails = resource.SelectorNotFoundDetails;
+pub const SelectorWrongParentDetails =
+    resource.SelectorWrongParentDetails;
+pub const TransportClosedDetails = resource.TransportClosedDetails;
+pub const ValidationInvalidDetails = resource.ValidationInvalidDetails;
+pub const UnrecognizedResourceErrorDetails =
+    resource.UnrecognizedResourceErrorDetails;
+pub const MalformedResourceErrorDetails =
+    resource.MalformedResourceErrorDetails;
 pub const SensitiveString = resource.SensitiveString;
 pub const ProviderCredential = resource.ProviderCredential;
 pub const RendererGrant = resource.RendererGrant;
@@ -47,11 +75,95 @@ pub const StreamId = resource.StreamId;
 pub const FrontendProjectionId = resource.FrontendProjectionId;
 pub const PairingRequestId = resource.PairingRequestId;
 pub const SidebarViewId = resource.SidebarViewId;
+pub const SidebarPluginId = resource.SidebarPluginId;
 pub const ProviderScopeId = resource.ProviderScopeId;
 pub const ProviderActionId = resource.ProviderActionId;
 pub const ProviderNoticeId = resource.ProviderNoticeId;
 pub const Selector = resource.Selector;
 pub const ResourceSnapshot = resource.ResourceSnapshot;
+pub const MachineOrigin = resource.MachineOrigin;
+pub const MachineStatus = resource.MachineStatus;
+pub const MachineSnapshot = resource.MachineSnapshot;
+pub const SessionSnapshot = resource.SessionSnapshot;
+pub const WorkspaceSnapshot = resource.WorkspaceSnapshot;
+pub const ClientTransport = resource.ClientTransport;
+pub const ClientTerminalSize = resource.ClientTerminalSize;
+pub const ClientSnapshot = resource.ClientSnapshot;
+pub const BrowserSource = resource.BrowserSource;
+pub const BrowserStatus = resource.BrowserStatus;
+pub const BrowserSnapshot = resource.BrowserSnapshot;
+pub const PixelSize = resource.PixelSize;
+pub const BrowserViewerResizeResult =
+    resource.BrowserViewerResizeResult;
+pub const CellPixelFailure = resource.CellPixelFailure;
+pub const CellPixelsResult = resource.CellPixelsResult;
+pub const LayoutDirection = resource.LayoutDirection;
+pub const LayoutLeaf = resource.LayoutLeaf;
+pub const LayoutSplit = resource.LayoutSplit;
+pub const LayoutStack = resource.LayoutStack;
+pub const LayoutColumn = resource.LayoutColumn;
+pub const LayoutViewport = resource.LayoutViewport;
+pub const UnknownLayoutNode = resource.UnknownLayoutNode;
+pub const LayoutNode = resource.LayoutNode;
+pub const LayoutDocument = resource.LayoutDocument;
+pub const ScreenSnapshot = resource.ScreenSnapshot;
+pub const PaneSnapshot = resource.PaneSnapshot;
+pub const TabContentKind = resource.TabContentKind;
+pub const TabContentId = resource.TabContentId;
+pub const TabSnapshot = resource.TabSnapshot;
+pub const EmptyResult = resource.EmptyResult;
+pub const PingResult = resource.PingResult;
+pub const RenderUnderline = resource.RenderUnderline;
+pub const RenderRun = resource.RenderRun;
+pub const RenderRow = resource.RenderRow;
+pub const TerminalScreenResult = resource.TerminalScreenResult;
+pub const TerminalStateResult = resource.TerminalStateResult;
+pub const TerminalHistoryResult = resource.TerminalHistoryResult;
+pub const TerminalWaitResult = resource.TerminalWaitResult;
+pub const TerminalCopyMode = resource.TerminalCopyMode;
+pub const TerminalCopyResult = resource.TerminalCopyResult;
+pub const ProcessInfoResult = resource.ProcessInfoResult;
+pub const Size = resource.Size;
+pub const ViewerResizeResult = resource.ViewerResizeResult;
+pub const OwnedMachineSnapshot = resource.OwnedMachineSnapshot;
+pub const OwnedSessionSnapshot = resource.OwnedSessionSnapshot;
+pub const OwnedWorkspaceSnapshot = resource.OwnedWorkspaceSnapshot;
+pub const OwnedClientSnapshot = resource.OwnedClientSnapshot;
+pub const OwnedBrowserSnapshot = resource.OwnedBrowserSnapshot;
+pub const OwnedScreenSnapshot = resource.OwnedScreenSnapshot;
+pub const OwnedPaneSnapshot = resource.OwnedPaneSnapshot;
+pub const OwnedTabSnapshot = resource.OwnedTabSnapshot;
+pub const OwnedPingResult = resource.OwnedPingResult;
+pub const OwnedEmptyResult = resource.OwnedEmptyResult;
+pub const OwnedTerminalScreenResult =
+    resource.OwnedTerminalScreenResult;
+pub const OwnedTerminalStateResult =
+    resource.OwnedTerminalStateResult;
+pub const OwnedTerminalHistoryResult =
+    resource.OwnedTerminalHistoryResult;
+pub const OwnedTerminalWaitResult = resource.OwnedTerminalWaitResult;
+pub const OwnedTerminalCopyResult = resource.OwnedTerminalCopyResult;
+pub const OwnedProcessInfoResult = resource.OwnedProcessInfoResult;
+pub const OwnedViewerResizeResult = resource.OwnedViewerResizeResult;
+pub const OwnedBrowserViewerResizeResult =
+    resource.OwnedBrowserViewerResizeResult;
+pub const OwnedCellPixelsResult = resource.OwnedCellPixelsResult;
+pub const MachineList = resource.MachineList;
+pub const SessionList = resource.SessionList;
+pub const WorkspaceList = resource.WorkspaceList;
+pub const MachineMutationResult = resource.MachineMutationResult;
+pub const WorkspaceMutationResult = resource.WorkspaceMutationResult;
+pub const BrowserMutationResult = resource.BrowserMutationResult;
+pub const ScreenMutationResult = resource.ScreenMutationResult;
+pub const PaneMutationResult = resource.PaneMutationResult;
+pub const TabMutationResult = resource.TabMutationResult;
+pub const CreatedPathMutationResult =
+    resource.CreatedPathMutationResult;
+pub const CreatedTerminalPathMutationResult =
+    resource.CreatedTerminalPathMutationResult;
+pub const CreatedBrowserPathMutationResult =
+    resource.CreatedBrowserPathMutationResult;
+pub const EmptyMutationResult = resource.EmptyMutationResult;
 pub const Machine = resource.Machine;
 pub const Session = resource.Session;
 pub const Workspace = resource.Workspace;

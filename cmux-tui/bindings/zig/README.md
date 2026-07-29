@@ -38,10 +38,11 @@ for the server platform default shell. `shellWithExecutable` encodes exact
 `[executable, "-lc", script]` arguments.
 
 Each mutation sends one caller-visible idempotency key and never retries
-implicitly. `MutationResult` contains the flat canonical value, generation,
+implicitly. Typed mutation results contain their concrete value, generation,
 revision, and replayed fields. Results never echo the request’s idempotency
-key. `createdPath` parses a typed workspace, terminal, or browser path from a
-creation result’s value.
+key. Creation results expose typed workspace, terminal, or browser paths.
+`JsonMutationResult` exists only for provider actions whose catalog result is
+arbitrary `JsonValue`.
 
 The socket binds a client to its current machine and session. `Client.session`
 accepts ID, current, and name selectors. `Client.workspace(id)` includes
@@ -49,6 +50,67 @@ current machine and session selectors. Nested handles retain every ancestor,
 so current and name targets serialize a complete machine through tab route.
 Constructing, copying, and discarding a handle performs no I/O. Selector name
 slices are borrowed for the handle lifetime.
+
+Machine, session, and workspace discovery returns owned typed snapshots:
+
+```zig
+var machines = try client.listMachines();
+defer machines.deinit();
+for (machines.items) |machine_snapshot| {
+    var sessions = try client
+        .machine(machine_snapshot.id)
+        .listSessions();
+    defer sessions.deinit();
+    for (sessions.items) |session_snapshot| {
+        var workspaces = try client
+            .machine(machine_snapshot.id)
+            .session(session_snapshot.id)
+            .listWorkspaces();
+        defer workspaces.deinit();
+        for (workspaces.items) |workspace_snapshot| {
+            try persistWorkspace(
+                workspace_snapshot.id,
+                workspace_snapshot.name,
+            );
+        }
+    }
+}
+```
+
+Lists preserve every item when names are duplicated. Their snapshot slices
+remain valid until the list is deinitialized, including after the client is
+closed. `refresh` returns the corresponding owned concrete snapshot for
+machine, session, and workspace handles.
+
+Terminal reads decode catalog results without JSON traversal:
+
+```zig
+const terminal = client.terminal(terminal_id);
+
+var screen = try terminal.readScreen();
+defer screen.deinit();
+try stdout.writeAll(screen.value.text);
+
+var history = try terminal.readHistory(.{ .limit = 200, .styled = true });
+defer history.deinit();
+for (history.value.rows) |row| {
+    for (row.runs) |run| try stdout.writeAll(run.text);
+}
+
+var state = try terminal.readState();
+defer state.deinit();
+try replayVt(state.value.state);
+```
+
+`readState` retains `state_base64` and exposes decoded replay bytes as
+`state`. Screen results retain the catalog-defined `extra` map. History,
+state, wait, copy, process, viewer resize/release, renderer grants, and empty
+history-clear mutation receipts all have owned typed results.
+
+Client metadata and cell-pixel controls, browser navigation and viewer
+resizing, and screen, pane, and tab rename/clear results are typed too.
+Provider action results remain arbitrary catalog `JsonValue` and are the only
+resource facade result that requires explicit raw-value traversal.
 
 Names preserve exact bytes. Workspace and machine `clearName` set the empty
 string. Screen, pane, and tab `clearName` send JSON null.
@@ -61,10 +123,17 @@ retain their discriminator and complete raw object. A malformed recognized
 variant is a decode error. Other typed streams retain unknown payload fields
 through each item’s `extra` value. Cancellation waits for both the response
 and terminal stream end, including end-before-response ordering. Structured
-end errors retain code, message, redacted details, and retryability.
+end errors retain code, message, typed redacted details, and retryability.
 Provider notices are acknowledged explicitly with
 `try provider_scope.notice(id).acknowledge(sequence)` after the consumer
 paints the notice; iteration never acknowledges delivery.
+
+Catalog errors use the `ResourceErrorDetails` tagged union. For example,
+`selector_ambiguous.candidates` contains typed `ErrorResourceId` values and
+`mutation_indeterminate` exposes its operation, idempotency key, and recovery
+instruction without JSON traversal. A future error code uses `unknown`; a
+known code with an incompatible payload uses `malformed`. Both fallbacks own
+and retain their redacted raw detail value.
 
 Live renderer grants retain their response storage. Offline tools can build
 the same validated, owned value without transport:
@@ -93,9 +162,9 @@ const protocol = cmux.raw.protocol;
 const RawClient = cmux.raw.Client;
 ```
 
-Every returned `OwnedResult`, `MutationResult`, stream item, stream, and
-renderer grant documents ownership through a `deinit` method. Request slices
-are borrowed only until the call returns.
+Every returned owned snapshot, list, result, mutation result, stream item,
+stream, and renderer grant documents ownership through a `deinit` method.
+Request slices are borrowed only until the call returns.
 
 Build and test:
 

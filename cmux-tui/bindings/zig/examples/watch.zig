@@ -11,12 +11,16 @@ pub fn main() !void {
 
     var machines = try client.machines();
     defer machines.deinit();
-    const encoded = try cmux.raw.wire.stringifyAlloc(
-        allocator,
-        machines.value,
-    );
-    defer allocator.free(encoded);
-    std.debug.print("machine inventory: {s}\n", .{encoded});
+    for (machines.items) |machine| {
+        std.debug.print(
+            "{s}\t{s}\t{s}\n",
+            .{
+                machine.id.slice(),
+                machine.name,
+                machine.status.wireName(),
+            },
+        );
+    }
 }
 
 test "package consumer imports handwritten root and generated raw module" {
@@ -39,6 +43,23 @@ test "package consumer imports handwritten root and generated raw module" {
         @as(usize, 44),
         cmux.raw.protocol.event_count,
     );
+    try std.testing.expect(
+        @hasDecl(cmux.Client, "listMachines"),
+    );
+    try std.testing.expect(
+        @hasDecl(cmux.Machine, "listSessions"),
+    );
+    try std.testing.expect(
+        @hasDecl(cmux.Session, "listWorkspaces"),
+    );
+    try std.testing.expect(@hasDecl(cmux.Terminal, "readScreen"));
+    try std.testing.expect(@hasDecl(cmux.Terminal, "readState"));
+    try std.testing.expect(@hasDecl(cmux.Terminal, "readHistory"));
+    try std.testing.expect(@hasDecl(cmux.Terminal, "processInfo"));
+    try std.testing.expect(@hasDecl(cmux, "TerminalScreenResult"));
+    try std.testing.expect(@hasDecl(cmux, "JsonMutationResult"));
+    try std.testing.expect(!@hasDecl(cmux, "MutationResult"));
+    try std.testing.expect(!@hasDecl(cmux, "OwnedResult"));
 
     // Handle construction stores selectors and routes without touching the
     // client, so an external consumer can compose a route before connecting.
