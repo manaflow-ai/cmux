@@ -189,6 +189,74 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(drainedRecord["hadPendingBackgroundWorkAtStop"] as? Bool == false)
     }
 
+    @Test func clearDoesNotCarryPendingWorkFromSiblingPane() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "bg-clear-sibling")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let siblingSurfaceId = "77777777-7777-7777-7777-777777777777"
+        let siblingSession = "bg-sibling-session"
+        let clearSession = "bg-primary-clear-session"
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [
+                (context.surfaceId, "surface:1", true),
+                (siblingSurfaceId, "surface:2", false),
+            ],
+            ttyName: "ttys-bg-clear-sibling",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-bg-clear-sibling",
+            storeURL: storeURL
+        )
+
+        let siblingPrompt = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit", "--surface", siblingSurfaceId],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(siblingSession)","turn_id":"turn-1","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(siblingPrompt)
+
+        let siblingStop = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop", "--surface", siblingSurfaceId],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(siblingSession)","turn_id":"turn-1","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"build","command":"sleep 1"}],"session_crons":[]}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(siblingStop)
+
+        let clearCommandStart = context.state.snapshot().count
+        let clearResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(clearSession)","source":"clear","cwd":"/tmp/x","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(clearResult)
+        let clearCommands = Array(context.state.snapshot().dropFirst(clearCommandStart))
+
+        #expect(statusLine(clearCommands, value: "Idle") != nil)
+        #expect(
+            statusLine(clearCommands, value: "Running") == nil,
+            "A sibling pane's background work must not keep this pane Running; saw \(clearCommands)"
+        )
+        #expect(lifecycleLine(clearCommands, value: "idle") != nil)
+        #expect(lifecycleLine(clearCommands, value: "running") == nil)
+        let clearRecord = try #require(sessionRecord(storeURL, sessionId: clearSession))
+        #expect(clearRecord["agentLifecycle"] as? String == "idle")
+        #expect(clearRecord["hadPendingBackgroundWorkAtStop"] as? Bool != true)
+    }
+
     @Test func stopWithEmptyArraysTagsIdleAndCachesFalse() throws {
         let session = "bg-empty-session"
         let stdin = #"""
