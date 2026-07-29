@@ -866,18 +866,28 @@ mod tests {
     }
 
     #[test]
-    fn long_conversation_list_uses_cmux_tui_scrollbar_visuals() {
+    fn long_conversation_list_places_cmux_tui_scrollbar_inside_divider() {
         let mut app = long_conversation_app();
         let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();
         terminal.draw(|frame| draw(&mut app, frame)).unwrap();
 
-        let x = app.columns.conversations.x + app.columns.conversations.width - 1;
+        let divider_x = app.columns.conversations.x + app.columns.conversations.width - 1;
+        let scrollbar_x = divider_x - 1;
         let track = (app.columns.conversations.y + 2
             ..app.columns.conversations.y + app.columns.conversations.height)
-            .map(|y| terminal.backend().buffer()[(x, y)].symbol())
+            .map(|y| terminal.backend().buffer()[(scrollbar_x, y)].symbol())
             .collect::<Vec<_>>();
         assert!(track.contains(&"▕"));
-        assert!(!track.contains(&"┃"));
+        assert!(
+            (app.columns.conversations.y
+                ..app.columns.conversations.y + app.columns.conversations.height)
+                .all(|y| terminal.backend().buffer()[(divider_x, y)].symbol() == "│")
+        );
+        let hit_track = app.hits.iter().find_map(|hit| match hit.kind {
+            HitKind::Scrollbar { focus: Focus::Conversations, track, .. } => Some(track),
+            _ => None,
+        });
+        assert_eq!(hit_track.map(|track| track.x), Some(scrollbar_x));
     }
 
     #[test]
@@ -950,7 +960,8 @@ mod tests {
         let mut app = long_conversation_app();
         let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();
         terminal.draw(|frame| draw(&mut app, frame)).unwrap();
-        let x = app.columns.conversations.x + app.columns.conversations.width - 1;
+        let divider_x = app.columns.conversations.x + app.columns.conversations.width - 1;
+        let x = divider_x - 1;
         let top = app.columns.conversations.y + 2;
         let bottom =
             app.columns.conversations.y + app.columns.conversations.height.saturating_sub(1);
