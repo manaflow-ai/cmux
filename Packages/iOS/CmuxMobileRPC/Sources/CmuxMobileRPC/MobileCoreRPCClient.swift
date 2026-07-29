@@ -141,6 +141,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         _ = await (sessionDrain, admissionDrain)
     }
 
+    /// Returns whether `otherRoute` competes for this client's exact physical
+    /// connection lease. Shell handoffs use this before the target reports its
+    /// logical Mac identity, so anonymous and refreshed Iroh routes still
+    /// release an existing same-peer owner before dialing.
+    public func sharesPhysicalTransportRoute(
+        with otherRoute: CmxAttachRoute
+    ) -> Bool {
+        MobileRPCConnectAttemptKey(route: route)
+            == MobileRPCConnectAttemptKey(route: otherRoute)
+    }
+
     /// Synchronously prevent this client from allocating another transport.
     /// Shell ownership changes call this before scheduling actor-isolated
     /// teardown, closing the window where an already-queued RPC could reopen a

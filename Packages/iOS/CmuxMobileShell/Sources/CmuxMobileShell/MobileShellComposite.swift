@@ -7031,14 +7031,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requestedMacDeviceID = pairedMacDeviceID
             ?? (ticketMacDeviceID.isEmpty ? nil : ticketMacDeviceID)
         let previousForegroundKeyBeforeConnect = foregroundMacKey
-        let previousFocusedConnection: MacConnection? = foregroundMacDeviceID.flatMap { macID in
-            guard let connection = connections[macID],
-                  connection.client === remoteClient,
-                  requestedMacDeviceID.map({
-                      cmxCanonicalDeviceID($0) != cmxCanonicalDeviceID(macID)
-                  }) ?? true else { return nil }
-            return connection
-        }
+        let currentFocusedConnection: MacConnection? =
+            foregroundMacDeviceID.flatMap { macID in
+                guard let connection = connections[macID],
+                      connection.client === remoteClient else { return nil }
+                return connection
+            }
         func isConnectCurrent() -> Bool {
             isCurrentConnectionAttempt(generation) && (ifStillCurrent?() ?? true)
         }
@@ -7065,6 +7063,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearRemoteConnectionContext()
             return .noSupportedRoute
         }
+        let targetsCurrentLogicalMac =
+            currentFocusedConnection.map { connection in
+                requestedMacDeviceID.map {
+                    cmxCanonicalDeviceID($0)
+                        == cmxCanonicalDeviceID(connection.macDeviceID)
+                } ?? false
+            } ?? false
+        let targetsCurrentPhysicalRoute =
+            currentFocusedConnection.map { connection in
+                supportedRoutes.contains {
+                    connection.client.sharesPhysicalTransportRoute(with: $0)
+                }
+            } ?? false
+        // A different Mac on a different physical route can authenticate while
+        // the current focus stays live. Same-Mac and same-route targets must
+        // first transfer the old route lease to cleanup, including anonymous
+        // tickets whose logical identity is not known until host status.
+        let previousFocusedConnection =
+            targetsCurrentLogicalMac || targetsCurrentPhysicalRoute
+                ? nil
+                : currentFocusedConnection
         // No connect-time expiry gate: a pairing QR never expires (new QRs
         // carry no expiry at all), and the host authorizes by Stack account,
         // not ticket age. Expiry still gates the RPC-minted attach token at
@@ -7086,7 +7105,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Retiring it here would strand an Iroh control owner long enough for the
         // replacement background dial to time out against that same peer.
         if previousFocusedConnection == nil {
-            replaceRemoteClient(with: nil)
+            if let currentFocusedConnection {
+                removeFocusedConnection(
+                    ifMatching: currentFocusedConnection
+                )
+            }
+            await replaceRemoteClientAwaitingTeardownRegistration(with: nil)
+            guard isConnectCurrent() else { return nil }
         }
 
         guard let runtime else {
@@ -7769,6 +7794,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Set `remoteClient` to a new value (possibly nil) and disconnect the
     /// previous one so we don't leak a persistent transport.
     func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
+        if let previous = replaceRemoteClientOwnership(with: newValue) {
+            Task { await previous.disconnect() }
+        }
+    }
+
+    /// Replace shell ownership, then wait only until the old session has
+    /// detached its transport and transferred the route lease to cleanup. The
+    /// physical close remains asynchronous and bounded by the shared registry.
+    func replaceRemoteClientAwaitingTeardownRegistration(
+        with newValue: MobileCoreRPCClient?
+    ) async {
+        let previous = replaceRemoteClientOwnership(with: newValue)
+        await previous?.disconnect()
+    }
+
+    /// Publish one remote-client ownership change synchronously. Callers choose
+    /// whether teardown registration is fire-and-forget or an awaited handoff.
+    private func replaceRemoteClientOwnership(
+        with newValue: MobileCoreRPCClient?
+    ) -> MobileCoreRPCClient? {
         let previous = remoteClient
         if let previous, previous !== newValue {
             previous.retire()
@@ -7780,9 +7825,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if previous !== newValue {
             terminalSubscriptionHandoffFenceClientID = nil
         }
-        if let previous, previous !== newValue {
-            Task { await previous.disconnect() }
-        }
+        return previous !== newValue ? previous : nil
     }
 
     /// Move focus to an already pooled client without retiring the previous

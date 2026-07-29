@@ -3384,7 +3384,7 @@ import Testing
         let oldRoute = try CmxAttachRoute(
             id: "staged-old",
             kind: .debugLoopback,
-            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_583)
         )
         let targetRoute = try CmxAttachRoute(
             id: "staged-target",
@@ -3672,6 +3672,58 @@ import Testing
         #expect(shell.remoteClient !== originalClient)
         #expect(shell.foregroundMacDeviceIDForTesting() == "test-mac")
         #expect(shell.connections["test-mac"]?.client === shell.remoteClient)
+    }
+
+    @Test func sameMacRedialWaitsForLeaseHandoffButNotPhysicalClose()
+        async throws {
+        let router = LivenessHostRouter()
+        let closeGate = LivenessTransportCloseGate()
+        let clock = TestClock()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox(),
+                closeGate: closeGate
+            ),
+            now: { clock.now }
+        )
+        let shell = MobileShellComposite.preview(runtime: runtime)
+        shell.signIn()
+        let ticket = try makeTicket(clock: clock)
+        #expect(await shell.connectPairingURL(try attachURL(for: ticket)))
+        let originalClient = try #require(shell.remoteClient)
+        let initialWorkspaceRequests = await router.count(
+            of: "workspace.list"
+        )
+
+        let redial = Task { @MainActor in
+            try await shell.connect(
+                ticket: ticket,
+                allowsStackAuthFallback: true,
+                pairedMacDeviceID: ticket.macDeviceID
+            )
+        }
+        await closeGate.waitUntilCloseStarted()
+        #expect(await router.waitForCount(
+            of: "workspace.list",
+            atLeast: initialWorkspaceRequests + 1
+        ))
+        let completion = await MobileShellComposite.raceAgainstDeadline(
+            nanoseconds: 200_000_000
+        ) {
+            do {
+                _ = try await redial.value
+                return true
+            } catch {
+                return false
+            }
+        }
+
+        #expect(completion.value == true)
+        #expect(shell.connectionState == .connected)
+        #expect(shell.remoteClient !== originalClient)
+        await closeGate.release()
+        _ = try? await redial.value
     }
 
     @Test func rejectedAnonymousIdentityPreservesAuthenticatedControlOwner()
