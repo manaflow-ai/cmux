@@ -236,6 +236,17 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             }
         }
 
+        func stdinWriteFailure(_ error: any Error) -> NSError {
+            debugLog(
+                "remote.proc.stdinWriteFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
+                "error=\(error.localizedDescription)"
+            )
+            return NSError(domain: "cmux.remote.process", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to write stdin for \(URL(fileURLWithPath: executable).lastPathComponent): \(error.localizedDescription)",
+                NSUnderlyingErrorKey: error,
+            ])
+        }
+
         let stdinWriteGroup = DispatchGroup()
         if let stdin, let pipe = process.standardInput as? Pipe {
             let inputHandle = pipe.fileHandleForWriting
@@ -277,14 +288,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             }
             stdinWriteGroup.wait()
             finishCaptureAndCloseReadHandles()
-            debugLog(
-                "remote.proc.stdinWriteFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
-                "error=\(stdinWriteError.localizedDescription)"
-            )
-            throw NSError(domain: "cmux.remote.process", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "Failed to write stdin for \(URL(fileURLWithPath: executable).lastPathComponent): \(stdinWriteError.localizedDescription)",
-                NSUnderlyingErrorKey: stdinWriteError,
-            ])
+            throw stdinWriteFailure(stdinWriteError)
         }
 
         if didTimeOut, process.isRunning {
@@ -307,6 +311,10 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         }
 
         stdinWriteGroup.wait()
+        if let stdinWriteError = completionState.snapshot().stdinWriteError {
+            finishCaptureAndCloseReadHandles()
+            throw stdinWriteFailure(stdinWriteError)
+        }
         finishCaptureAndCloseReadHandles()
         let stdout = String(data: captureState.stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: captureState.stderrData, encoding: .utf8) ?? ""
