@@ -100,7 +100,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             independentEventFactory = nil
         }
         self.session = MobileCoreRPCSession(
-            connectAttemptKey: route.mobileRPCConnectAttemptKey,
+            connectAttemptKey: MobileRPCConnectAttemptKey(
+                route: route,
+                expectedPeerDeviceID: ticket.macDeviceID
+            ),
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
@@ -663,11 +666,5 @@ private extension MobileCoreRPCClient {
     func isHostStatusRequest(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return method == "mobile.host.status"
-    }
-}
-
-private extension CmxAttachRoute {
-    var mobileRPCConnectAttemptKey: String {
-        "\(kind.rawValue)|\(id)|\(endpoint.logDescription)"
     }
 }

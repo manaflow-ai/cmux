@@ -4312,19 +4312,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     existing.storedInstanceTag,
                     mac.instanceTag
                 ) else {
-                    existing.cancel()
-                    secondaryMacSubscriptions[mac.macDeviceID] = nil
-                    markSecondaryMacUnavailable(mac.macDeviceID)
-                    if allowsNewConnections {
-                        recordEstablishmentOutcome(
-                            await establishSecondaryMacSubscription(
-                                for: mac,
-                                scope: scope,
-                                authorityValidation: authorityValidation
-                            ),
-                            macDeviceID: mac.macDeviceID
-                        )
-                    }
+                    // A changed stored instance can still address the same
+                    // physical Iroh peer. Reserve and drain the old owner
+                    // before a later aggregation pass dials its replacement.
+                    await retireSecondaryControlOwner(
+                        existing,
+                        macDeviceID: mac.macDeviceID,
+                        shouldRetry: allowsNewConnections
+                    )
                     continue
                 }
                 let refresh = enqueueSecondaryWorkspaceRefresh(

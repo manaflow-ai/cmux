@@ -54,7 +54,7 @@ actor MobileCoreRPCSession {
     }
 
     let taskTimeout = RPCTaskTimeout()
-    private let connectAttemptKey: String?
+    private let connectAttemptKey: MobileRPCConnectAttemptKey?
     let connectAttemptRegistry: MobileRPCConnectAttemptRegistry
     let abandonedConnectCleanupTimeoutNanoseconds: UInt64
     let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
@@ -100,7 +100,7 @@ actor MobileCoreRPCSession {
     var abandonedConnectionCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     init(
-        connectAttemptKey: String? = nil,
+        connectAttemptKey: MobileRPCConnectAttemptKey? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,

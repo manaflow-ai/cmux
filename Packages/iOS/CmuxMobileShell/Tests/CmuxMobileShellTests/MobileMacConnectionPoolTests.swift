@@ -1048,6 +1048,119 @@ import Testing
         })
     }
 
+    @Test func storedAuthorityReplacementDrainsOldControlBeforeRedial()
+        async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "authority-replacement",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-authority-replacement",
+            displayName: "Authority Replacement Mac",
+            routes: [route],
+            instanceTag: "tag-a",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-authority-replacement",
+            instanceTag: "tag-a",
+            displayName: "Authority Replacement Mac"
+        )
+        let closeGate = LivenessTransportCloseGate()
+        let clock = ControlPoolManualClock()
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox(),
+                    closeGate: closeGate
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock,
+            connectionHandoffDrainTimeoutNanoseconds: 1_000_000
+        )
+        await shell.loadPairedMacs()
+        await shell.refreshSecondaryMacWorkspaces()
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions[
+                "mac-authority-replacement"
+            ]?.storedInstanceTag == "tag-a"
+        })
+        let firstHostStatusCount = await router.count(
+            of: "mobile.host.status"
+        )
+
+        try await pairedStore.upsert(
+            macDeviceID: "mac-authority-replacement",
+            displayName: "Authority Replacement Mac",
+            routes: [route],
+            instanceTag: "tag-b",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        await router.setHostIdentity(
+            deviceID: "mac-authority-replacement",
+            instanceTag: "tag-b",
+            displayName: "Authority Replacement Mac"
+        )
+        await shell.refreshSecondaryMacWorkspaces()
+        await closeGate.waitUntilCloseStarted()
+
+        #expect(
+            await router.count(of: "mobile.host.status")
+                == firstHostStatusCount
+        )
+        #expect(
+            shell.secondaryMacSubscriptions[
+                "mac-authority-replacement"
+            ] == nil
+        )
+        #expect(
+            shell.secondaryMacDrainReservations[
+                "mac-authority-replacement"
+            ] != nil
+        )
+        #expect(!shell.secondaryRetryBackoffIsScheduledForTesting())
+
+        await closeGate.release()
+        #expect(try await pollUntil {
+            shell.secondaryRetryBackoffIsScheduledForTesting()
+        })
+        clock.advance(by: .seconds(2))
+        #expect(await router.waitForCount(
+            of: "mobile.host.status",
+            atLeast: firstHostStatusCount + 1
+        ))
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions[
+                "mac-authority-replacement"
+            ]?.storedInstanceTag == "tag-b"
+        })
+    }
+
     @Test func retryStateCoalescesPoolFailuresAndCapsBackoff() {
         var state = MobileControlPoolRetryState()
 

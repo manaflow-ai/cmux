@@ -337,7 +337,10 @@ import Testing
     @Test func abandonedConnectCleanupAllowsOneRecoveryThenCapsDebt()
         async throws {
         let registry = MobileRPCConnectAttemptRegistry()
-        let key = "debugLoopback|test|127.0.0.1:59135"
+        let key = debugConnectAttemptKey(
+            macDeviceID: "test-mac",
+            port: 59_135
+        )
         guard case let .granted(lease) =
                 await registry.beginConnect(key: key) else {
             Issue.record("Expected initial route admission")
@@ -405,7 +408,10 @@ import Testing
     @Test func successfulRecoveryPreservesOlderPhysicalCleanupDebt()
         async {
         let registry = MobileRPCConnectAttemptRegistry()
-        let key = "debugLoopback|test|127.0.0.1:59129"
+        let key = debugConnectAttemptKey(
+            macDeviceID: "test-mac",
+            port: 59_129
+        )
         let firstCleanup = PhysicalCleanupGate()
         let secondCleanup = PhysicalCleanupGate()
 
@@ -441,7 +447,14 @@ import Testing
 
     @Test func connectAttemptLeaseOnlyReleasesMatchingRouteReservation() async {
         let registry = MobileRPCConnectAttemptRegistry()
-        let key = "debugLoopback|test|127.0.0.1:59130"
+        let key = debugConnectAttemptKey(
+            macDeviceID: "test-mac",
+            port: 59_130
+        )
+        let otherKey = debugConnectAttemptKey(
+            macDeviceID: "test-mac-other",
+            port: 59_130
+        )
 
         guard case let .granted(firstLease) =
                 await registry.beginConnect(key: key) else {
@@ -451,7 +464,7 @@ import Testing
         #expect(await registry.beginConnect(key: key) == .busy)
 
         guard case let .granted(otherLease) =
-                await registry.beginConnect(key: "\(key)-other") else {
+                await registry.beginConnect(key: otherKey) else {
             Issue.record("Expected unrelated route admission")
             return
         }
@@ -467,9 +480,81 @@ import Testing
         await registry.finishConnect(lease: nextLease)
     }
 
+    @Test func connectAttemptKeySeparatesPeersAndIgnoresIrohHintChurn()
+        async throws {
+        let identityA = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let identityB = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b", count: 64)
+        )
+        let refreshedHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: "https://relay.example.test/",
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let initialRoute = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identityA, pathHints: [])
+        )
+        let refreshedRoute = try CmxAttachRoute(
+            id: "iroh-refreshed",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: identityA,
+                pathHints: [refreshedHint]
+            )
+        )
+        let otherPeerRoute = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identityB, pathHints: [])
+        )
+        let initialKey = MobileRPCConnectAttemptKey(
+            route: initialRoute,
+            expectedPeerDeviceID: "mac-a"
+        )
+        let refreshedKey = MobileRPCConnectAttemptKey(
+            route: refreshedRoute,
+            expectedPeerDeviceID: "mac-a"
+        )
+        let otherPeerKey = MobileRPCConnectAttemptKey(
+            route: otherPeerRoute,
+            expectedPeerDeviceID: "mac-b"
+        )
+        let otherMacKey = MobileRPCConnectAttemptKey(
+            route: initialRoute,
+            expectedPeerDeviceID: "mac-c"
+        )
+
+        #expect(initialKey == refreshedKey)
+        #expect(initialKey != otherPeerKey)
+        #expect(initialKey != otherMacKey)
+
+        let registry = MobileRPCConnectAttemptRegistry()
+        guard case let .granted(initialLease) =
+                await registry.beginConnect(key: initialKey) else {
+            Issue.record("Expected first peer admission")
+            return
+        }
+        #expect(await registry.beginConnect(key: refreshedKey) == .busy)
+        guard case let .granted(otherPeerLease) =
+                await registry.beginConnect(key: otherPeerKey) else {
+            Issue.record("Expected unrelated peer admission")
+            return
+        }
+        await registry.finishConnect(lease: initialLease)
+        await registry.finishConnect(lease: otherPeerLease)
+    }
+
     @Test func cleanupDebtCapSurfacesRestartRequiredError() async throws {
         let registry = MobileRPCConnectAttemptRegistry()
-        let key = "debugLoopback|test|127.0.0.1:59133"
+        let key = debugConnectAttemptKey(
+            macDeviceID: "test-mac",
+            port: 59_133
+        )
         let firstCleanup = PhysicalCleanupGate()
         let secondCleanup = PhysicalCleanupGate()
 
@@ -567,6 +652,21 @@ import Testing
         #expect(try await transport.sentRequests().isEmpty)
     }
 
+}
+
+private func debugConnectAttemptKey(
+    macDeviceID: String,
+    port: Int
+) -> MobileRPCConnectAttemptKey {
+    let route = try! CmxAttachRoute(
+        id: "test",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: port)
+    )
+    return MobileRPCConnectAttemptKey(
+        route: route,
+        expectedPeerDeviceID: macDeviceID
+    )
 }
 
 private actor PhysicalCleanupGate {

@@ -12,13 +12,16 @@ import Foundation
 public actor MobileRPCConnectAttemptRegistry {
     private static let maximumUnresolvedCleanupsPerRoute = 2
 
-    private var routeStates: [String: MobileRPCConnectRouteState] = [:]
+    private var routeStates:
+        [MobileRPCConnectAttemptKey: MobileRPCConnectRouteState] = [:]
     private var untrackedPhysicalCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     /// Creates an empty registry.
     public init() {}
 
-    func beginConnect(key: String?) -> MobileRPCConnectAdmission {
+    func beginConnect(
+        key: MobileRPCConnectAttemptKey?
+    ) -> MobileRPCConnectAdmission {
         guard let key else { return .granted(.untracked) }
         var state = routeStates[key] ?? MobileRPCConnectRouteState()
         guard state.activeLeaseID == nil else {
@@ -81,7 +84,7 @@ public actor MobileRPCConnectAttemptRegistry {
     }
 
     private func physicalCleanupDidFinish(
-        key: String,
+        key: MobileRPCConnectAttemptKey,
         cleanupID: UUID
     ) {
         guard var state = routeStates[key],
@@ -99,7 +102,7 @@ public actor MobileRPCConnectAttemptRegistry {
 
     private func store(
         _ state: MobileRPCConnectRouteState,
-        forKey key: String
+        forKey key: MobileRPCConnectAttemptKey
     ) {
         if state.activeLeaseID == nil,
            state.physicalCleanupTasks.isEmpty {
