@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import Foundation
@@ -182,6 +183,21 @@ extension MobileShellComposite {
             )
             return false
         }
+        // A tag-less row cannot name its own binding, so the revoke above was the
+        // device-wide wildcard (every tag of this device, for the pinned account).
+        // Local cleanup must match that breadth: the device's coexisting tagged
+        // rows just lost their bindings too, and leaving them saved strands dead
+        // entries in the computer list until the Mac happens to re-register. Each
+        // sibling is deleted by its OWN exact scope. Rows owned by a different
+        // account keep their bindings (the revoke was account-pinned) and stay.
+        var siblingsCleaned = true
+        if computer.instanceTag == nil {
+            siblingsCleaned = await removeWildcardSiblingRows(
+                macDeviceID: computer.macDeviceID,
+                pinnedAccountID: computer.stackUserID ?? scope.userID,
+                displayScope: scope
+            )
+        }
         // Always clear the durable row and hidden marker, even if the scope changed
         // while the revoke was in flight. The row is deleted against ITS OWN stored
         // scope (`computer.stackUserID`/`computer.teamID`), not the live display
@@ -192,13 +208,52 @@ extension MobileShellComposite {
         // the marker was keyed when the row was hidden). Skipping this would report
         // success while leaving the row behind, so returning to the old scope would
         // show the supposedly forgotten computer.
-        return await removeStoredPairedMacRow(
+        let primaryCleaned = await removeStoredPairedMacRow(
             macDeviceID: computer.macDeviceID,
             instanceTag: computer.instanceTag,
             rowStackUserID: computer.stackUserID ?? scope.userID,
             rowTeamID: computer.teamID,
             displayScope: scope
         )
+        return siblingsCleaned && primaryCleaned
+    }
+
+    /// Deletes the device's OTHER (tagged) rows after a wildcard forget, so the
+    /// local list matches the revoke's breadth.
+    ///
+    /// Enumerates what the store can see in the captured display scope (the
+    /// display team plus team-less legacy rows) and deletes only rows owned by
+    /// the account the revoke was pinned to, each through the same exact-scope
+    /// removal as the primary row (which also clears its hidden marker). Rows in
+    /// OTHER teams' scopes are not enumerable here and self-heal when the Mac
+    /// re-registers; rows owned by other accounts still hold live bindings and
+    /// must survive.
+    private func removeWildcardSiblingRows(
+        macDeviceID: String,
+        pinnedAccountID: String,
+        displayScope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        guard let pairedMacStore else { return true }
+        let canonical = cmxCanonicalDeviceID(macDeviceID)
+        let rows = (try? await pairedMacStore.loadAll(
+            stackUserID: pinnedAccountID,
+            teamID: displayScope.teamID
+        )) ?? []
+        var allCleaned = true
+        for row in rows
+        where cmxCanonicalDeviceID(row.macDeviceID) == canonical
+            && row.instanceTag != nil
+            && row.stackUserID == pinnedAccountID {
+            let cleaned = await removeStoredPairedMacRow(
+                macDeviceID: row.macDeviceID,
+                instanceTag: row.instanceTag,
+                rowStackUserID: pinnedAccountID,
+                rowTeamID: row.teamID,
+                displayScope: displayScope
+            )
+            allCleaned = allCleaned && cleaned
+        }
+        return allCleaned
     }
 
     /// Drops one pairing's stored row and hidden marker so it fully disappears.
