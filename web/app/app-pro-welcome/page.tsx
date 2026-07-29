@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getLocale } from "next-intl/server";
 
-import enMessages from "../../messages/en.json";
+import { loadMessages } from "../../i18n/messages";
+import { routing, type Locale } from "../../i18n/routing";
 import {
   appPricingAppearance,
   appPricingFirstParam,
@@ -9,10 +11,21 @@ import {
   appPricingStyle,
 } from "../app-pricing/appearance";
 
-const welcome = enMessages.appProWelcome;
 const APP_BROWSER_QUERY = "cmux_open_in_browser=split-right";
 
 type WelcomeStepKey = "iosApp" | "billing";
+
+type AppProWelcomeMessages = {
+  eyebrow: string;
+  title: string;
+  body: string;
+  done: string;
+  steps: Record<WelcomeStepKey, {
+    title: string;
+    body: string;
+    action: string;
+  }>;
+};
 
 const STEP_HREFS: Record<WelcomeStepKey, string> = {
   iosApp: `/dashboard/testflight?${APP_BROWSER_QUERY}`,
@@ -42,6 +55,10 @@ export default async function AppProWelcomePage({
 
   const appearance = appPricingAppearance(params);
   const pageBackground = appPricingPageBackground(params, appearance);
+  const catalog = await loadMessages(supportedLocale(await getLocale())) as {
+    appProWelcome: AppProWelcomeMessages;
+  };
+  const welcome = catalog.appProWelcome;
 
   return (
     <>
@@ -101,4 +118,9 @@ export default async function AppProWelcomePage({
       </main>
     </>
   );
+}
+
+function supportedLocale(locale: string): Locale {
+  return routing.locales.find((candidate) => candidate === locale)
+    ?? routing.defaultLocale;
 }

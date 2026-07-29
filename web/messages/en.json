@@ -4747,16 +4747,6 @@
     "body": "Pro features are still being built. Cloud access is coming soon, with usage credits accumulated for every month you stay subscribed. Today, Pro includes cmux iOS TestFlight access.",
     "done": "Go to dashboard",
     "steps": {
-      "modelGateway": {
-        "title": "Model gateway",
-        "body": "Route across providers with usage and cost analytics.",
-        "action": "Open model gateway"
-      },
-      "aiAccounts": {
-        "title": "Connect your AI accounts",
-        "body": "Add provider accounts so cmux can route work through them.",
-        "action": "Connect providers"
-      },
       "iosApp": {
         "title": "cmux iOS app",
         "body": "Use cmux on your phone.",

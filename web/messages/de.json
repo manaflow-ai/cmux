@@ -3552,5 +3552,36 @@
     "successBody": "Wir benachrichtigen dich per E-Mail, sobald die {platform}-Version bereit ist.",
     "successBodyAny": "Wir benachrichtigen dich per E-Mail, sobald cmux für deine Plattform bereit ist.",
     "done": "Fertig"
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Willkommen bei cmux Pro 🎉",
+      "fallbackName": "cmux-Fan",
+      "greeting": "Hallo {name},",
+      "thanks": "Danke, dass du cmux Pro abonniert hast! Wir arbeiten noch am vollständigen Pro-Erlebnis, und der Cloud-Zugang ist unterwegs.",
+      "cloudStatus": "Sobald der Cloud-Zugang startet, schreiben wir deinem Konto Nutzungsguthaben für jeden Monat deiner bisherigen Mitgliedschaft gut.",
+      "currentBenefit": "Bis dahin erhältst du mit Pro vorzeitigen Zugriff auf cmux für iOS. Melde dich über den Link unten an. Nach der Registrierung sendet Apple dir deine TestFlight-Einladung.",
+      "testflightLink": "Für TestFlight anmelden: {url}",
+      "testflightLinkLabel": "Für TestFlight anmelden",
+      "signoff": "Schön, dass du dabei bist!\nDas cmux-Team"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro ist aktiv",
+    "title": "Willkommen bei cmux Pro",
+    "body": "Die Pro-Funktionen werden noch entwickelt. Der Cloud-Zugang kommt bald, mit Nutzungsguthaben für jeden Monat deines Abonnements. Derzeit umfasst Pro den TestFlight-Zugang zu cmux für iOS.",
+    "done": "Zum Dashboard",
+    "steps": {
+      "iosApp": {
+        "title": "cmux für iOS",
+        "body": "Nutze cmux auf deinem Smartphone.",
+        "action": "An der iOS-Beta teilnehmen"
+      },
+      "billing": {
+        "title": "Abo verwalten",
+        "body": "Sieh dir dein Abo, deine Rechnungen und die Kündigungsoptionen an.",
+        "action": "Abo verwalten"
+      }
+    }
   }
 }

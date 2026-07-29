@@ -2,14 +2,25 @@ import { Resend } from "resend";
 import type Stripe from "stripe";
 
 import { env } from "../../app/env";
-import enMessages from "../../messages/en.json";
-import jaMessages from "../../messages/ja.json";
+import { preferredLocaleFromAcceptLanguage } from "../../i18n/accept-language";
+import { loadMessages } from "../../i18n/messages";
+import type { Locale } from "../../i18n/routing";
 
 export const DEFAULT_PRO_FROM_EMAIL = "pro@cmux.com";
 export const PRO_REPLY_TO_EMAIL = "pro@cmux.com";
 export const PRO_TESTFLIGHT_SIGNUP_URL = "https://cmux.com/dashboard/testflight";
 
-type ProWelcomeLocale = "en" | "ja";
+type ProWelcomeCopy = {
+  subject: string;
+  fallbackName: string;
+  greeting: string;
+  thanks: string;
+  cloudStatus: string;
+  currentBenefit: string;
+  testflightLink: string;
+  testflightLinkLabel: string;
+  signoff: string;
+};
 
 type ProFulfillmentDependencies = {
   sendEmail: (
@@ -51,7 +62,7 @@ export async function sendProSignupWelcome(
 
   const customerName = checkoutCustomerName(input.session);
   const sessionRef = input.session.id;
-  const payload = buildProWelcomeEmail({
+  const payload = await buildProWelcomeEmail({
     from: formatFromAddress(dependencies.fromEmail()),
     to: email,
     customerName,
@@ -66,16 +77,17 @@ export async function sendProSignupWelcome(
   }
 }
 
-export function buildProWelcomeEmail(input: {
+export async function buildProWelcomeEmail(input: {
   from: string;
   to: string;
   customerName?: string | null;
-  locale: ProWelcomeLocale;
+  locale: Locale;
   sessionRef: string;
-}): ProWelcomeEmail {
-  const copy = input.locale === "ja"
-    ? jaMessages.emails.proWelcome
-    : enMessages.emails.proWelcome;
+}): Promise<ProWelcomeEmail> {
+  const catalog = await loadMessages(input.locale) as {
+    emails: { proWelcome: ProWelcomeCopy };
+  };
+  const copy = catalog.emails.proWelcome;
   const name = firstName(input.customerName) ?? copy.fallbackName;
   const greeting = copy.greeting.replace("{name}", name);
   const testflightLink = copy.testflightLink.replace(
@@ -124,12 +136,23 @@ function checkoutCustomerName(session: Stripe.Checkout.Session): string | null {
   return normalized || null;
 }
 
-function checkoutLocale(session: Stripe.Checkout.Session): ProWelcomeLocale {
+function checkoutLocale(session: Stripe.Checkout.Session): Locale {
   const sessionLocale = session.locale === "auto" ? null : session.locale;
   const preferredLocale = expandedCustomer(session)?.preferred_locales?.[0];
-  const locale = sessionLocale ?? preferredLocale;
-  return locale?.toLowerCase().startsWith("ja") ? "ja" : "en";
+  const locale = (sessionLocale ?? preferredLocale ?? "").trim().toLowerCase();
+  const alias = checkoutLocaleAliases[locale];
+  return alias ?? preferredLocaleFromAcceptLanguage(locale);
 }
+
+const checkoutLocaleAliases: Readonly<Record<string, Locale>> = {
+  "en-gb": "en",
+  "es-419": "es",
+  "fr-ca": "fr",
+  nb: "no",
+  pt: "pt-BR",
+  zh: "zh-CN",
+  "zh-hk": "zh-TW",
+};
 
 function expandedCustomer(session: Stripe.Checkout.Session): Stripe.Customer | null {
   const customer = session.customer;

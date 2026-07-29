@@ -53,8 +53,8 @@ describe("cmux Pro checkout fulfillment", () => {
     expect(options).toEqual({ idempotencyKey: "pro-welcome/cs_pro_1" });
   });
 
-  test("uses the Japanese Pro copy for a Japanese checkout", () => {
-    const email = buildProWelcomeEmail({
+  test("uses the Japanese Pro copy for a Japanese checkout", async () => {
+    const email = await buildProWelcomeEmail({
       from: "cmux Pro <pro@cmux.com>",
       to: "a@example.com",
       customerName: "山田 太郎",
@@ -93,8 +93,8 @@ describe("cmux Pro checkout fulfillment", () => {
     expect(payload.text).toContain("L’accès au cloud arrive bientôt");
   });
 
-  test("escapes the customer name in the HTML email", () => {
-    const email = buildProWelcomeEmail({
+  test("escapes the customer name in the HTML email", async () => {
+    const email = await buildProWelcomeEmail({
       from: "cmux Pro <pro@cmux.com>",
       to: "a@example.com",
       customerName: `<script>&"'`,
