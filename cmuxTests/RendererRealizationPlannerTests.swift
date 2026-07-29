@@ -179,6 +179,75 @@ struct RendererRealizationPlannerTests {
         #expect(deadline == nil)
     }
 
+    @Test @MainActor
+    func visibilityBurstRunsOneSnapshotAndReclaimsFourAtFiveSeconds() async {
+        let harness = RendererRealizationSchedulerHarness(surfaceCount: 5)
+        harness.controller.start()
+        defer { harness.controller.stop() }
+
+        for surface in harness.surfaces.dropFirst() {
+            harness.hide(surface)
+            harness.postVisibilityChange(for: surface)
+        }
+
+        await harness.sleeper.waitUntilSleeping(for: 0.016)
+        await harness.advance(by: 0.016)
+        await harness.sleeper.waitUntilAnySleep()
+
+        // One initial pass plus one coalesced pass for all four notifications.
+        #expect(harness.snapshotCount == 2)
+        #expect(harness.surfaces.reduce(0) { $0 + $1.releaseCount } == 0)
+
+        await harness.advance(by: 4.984)
+        await harness.drain()
+
+        #expect(harness.surfaces.dropFirst().allSatisfy { $0.releaseCount == 1 })
+        #expect(harness.surfaces.first?.releaseCount == 0)
+    }
+
+    @Test @MainActor
+    func revealCancelsPendingRendererReclaimDeadline() async {
+        let harness = RendererRealizationSchedulerHarness(surfaceCount: 2)
+        harness.controller.start()
+        defer { harness.controller.stop() }
+        let hidden = harness.surfaces[1]
+
+        harness.hide(hidden)
+        harness.postVisibilityChange(for: hidden)
+        await harness.sleeper.waitUntilSleeping(for: 0.016)
+        await harness.advance(by: 0.016)
+        await harness.sleeper.waitUntilAnySleep()
+
+        harness.reveal(hidden)
+        harness.postVisibilityChange(for: hidden)
+        await harness.sleeper.waitUntilSleeping(for: 0.016)
+        await harness.advance(by: 0.016)
+        await harness.sleeper.waitUntilIdle()
+
+        await harness.advance(by: 10)
+        await harness.drain()
+        #expect(hidden.releaseCount == 0)
+    }
+
+    @Test @MainActor
+    func stopCancelsPendingRendererReclaimDeadline() async {
+        let harness = RendererRealizationSchedulerHarness(surfaceCount: 2)
+        harness.controller.start()
+        let hidden = harness.surfaces[1]
+
+        harness.hide(hidden)
+        harness.postVisibilityChange(for: hidden)
+        await harness.sleeper.waitUntilSleeping(for: 0.016)
+        await harness.advance(by: 0.016)
+        await harness.sleeper.waitUntilAnySleep()
+
+        harness.controller.stop()
+        await harness.sleeper.waitUntilIdle()
+        await harness.advance(by: 10)
+        await harness.drain()
+        #expect(hidden.releaseCount == 0)
+    }
+
     @Test func onlyRealizedSurfacesAreConsidered() {
         let now: TimeInterval = 1000
         let unrealized = UUID()
@@ -264,5 +333,202 @@ struct RendererRealizationPlannerTests {
         )
 
         #expect(selected.isEmpty)
+    }
+}
+
+@MainActor
+private final class RendererRealizationSchedulerHarness {
+    let notificationCenter = NotificationCenter()
+    let sleeper = RendererRealizationManualSleeper()
+    let surfaces: [RendererRealizationTestSurface]
+    var now: TimeInterval = 1_000
+    var snapshotCount = 0
+
+    lazy var controller = RendererRealizationController(
+        notificationCenter: notificationCenter,
+        surfaceProvider: { [unowned self] in
+            snapshotCount += 1
+            return surfaces
+        },
+        surfaceLookup: { [unowned self] id in
+            surfaces.first { $0.id == id }
+        },
+        settingsProvider: {
+            .init(enabled: true, idleSeconds: 5, maxWarmRenderers: 1)
+        },
+        nowProvider: { [unowned self] in
+            Date(timeIntervalSince1970: now)
+        },
+        sleepFor: { [sleeper] duration in
+            try await sleeper.sleep(for: duration)
+        }
+    )
+
+    init(surfaceCount: Int) {
+        var currentTime: TimeInterval = 1_000
+        self.surfaces = (0..<surfaceCount).map { _ in
+            RendererRealizationTestSurface(now: { currentTime })
+        }
+        for surface in surfaces {
+            surface.now = { [weak self] in self?.now ?? currentTime }
+        }
+    }
+
+    func hide(_ surface: RendererRealizationTestSurface) {
+        surface.isRendererPortalVisible = false
+        surface.rendererLastVisibleAt = now
+    }
+
+    func reveal(_ surface: RendererRealizationTestSurface) {
+        surface.isRendererPortalVisible = true
+    }
+
+    func postVisibilityChange(for surface: RendererRealizationTestSurface) {
+        notificationCenter.post(
+            name: .terminalPortalVisibilityDidChange,
+            object: surface,
+            userInfo: [GhosttyNotificationKey.surfaceId: surface.id]
+        )
+    }
+
+    func advance(by seconds: TimeInterval) async {
+        now += seconds
+        await sleeper.advance(by: seconds)
+        await drain()
+    }
+
+    func drain() async {
+        for _ in 0..<20 { await Task.yield() }
+    }
+}
+
+@MainActor
+private final class RendererRealizationTestSurface: RendererRealizationSurface {
+    let id = UUID()
+    var hasLiveSurface = true
+    var isRendererPortalVisible = true
+    var isRendererRealized = true
+    var isRendererPresented = true
+    var rendererLastVisibleAt: TimeInterval
+    var releaseCount = 0
+    var now: () -> TimeInterval
+
+    init(now: @escaping () -> TimeInterval) {
+        self.now = now
+        self.rendererLastVisibleAt = now()
+    }
+
+    func noteBecameVisibleForRendererReclamation() {
+        rendererLastVisibleAt = now()
+    }
+
+    func ensureRendererPresented() {
+        isRendererPresented = true
+        isRendererRealized = true
+    }
+
+    func releaseRenderer() -> Bool {
+        guard hasLiveSurface, !isRendererPortalVisible, isRendererRealized else { return false }
+        isRendererRealized = false
+        isRendererPresented = false
+        releaseCount += 1
+        return true
+    }
+
+    func retryRendererPresentationAfterActivity() {}
+}
+
+private actor RendererRealizationManualSleeper {
+    private struct PendingSleep {
+        let deadline: TimeInterval
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private struct SleepWaiter {
+        let duration: TimeInterval?
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private var now: TimeInterval = 0
+    private var pending: [UUID: PendingSleep] = [:]
+    private var waiters: [SleepWaiter] = []
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func sleep(for duration: Duration) async throws {
+        let id = UUID()
+        let seconds = Self.seconds(duration)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                pending[id] = PendingSleep(deadline: now + seconds, continuation: continuation)
+                resumeMatchingWaiters()
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
+    }
+
+    func waitUntilSleeping(for duration: TimeInterval) async {
+        if hasPendingSleep(for: duration) { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(SleepWaiter(duration: duration, continuation: continuation))
+        }
+    }
+
+    func waitUntilAnySleep() async {
+        if !pending.isEmpty { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(SleepWaiter(duration: nil, continuation: continuation))
+        }
+    }
+
+    func waitUntilIdle() async {
+        if pending.isEmpty { return }
+        await withCheckedContinuation { continuation in
+            idleWaiters.append(continuation)
+        }
+    }
+
+    func advance(by seconds: TimeInterval) {
+        now += seconds
+        let dueIDs = pending.compactMap { id, sleep in
+            sleep.deadline <= now + 0.000_001 ? id : nil
+        }
+        let due = dueIDs.compactMap { pending.removeValue(forKey: $0) }
+        for sleep in due {
+            sleep.continuation.resume()
+        }
+        resumeIdleWaitersIfNeeded()
+    }
+
+    private func cancel(_ id: UUID) {
+        pending.removeValue(forKey: id)?.continuation.resume(throwing: CancellationError())
+        resumeIdleWaitersIfNeeded()
+    }
+
+    private func hasPendingSleep(for duration: TimeInterval) -> Bool {
+        pending.values.contains { abs(($0.deadline - now) - duration) < 0.000_001 }
+    }
+
+    private func resumeMatchingWaiters() {
+        var matched: [CheckedContinuation<Void, Never>] = []
+        waiters.removeAll { waiter in
+            let isMatch = waiter.duration.map(hasPendingSleep(for:)) ?? !pending.isEmpty
+            if isMatch { matched.append(waiter.continuation) }
+            return isMatch
+        }
+        for continuation in matched { continuation.resume() }
+    }
+
+    private func resumeIdleWaitersIfNeeded() {
+        guard pending.isEmpty else { return }
+        let continuations = idleWaiters
+        idleWaiters.removeAll()
+        for continuation in continuations { continuation.resume() }
+    }
+
+    private static func seconds(_ duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
     }
 }
