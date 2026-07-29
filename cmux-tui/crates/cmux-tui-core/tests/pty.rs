@@ -1353,8 +1353,7 @@ fn render_attach_headless_fans_one_frame_to_render_and_byte_consumers() {
     assert_eq!(initial["size"], serde_json::json!({"cols": 20, "rows": 4}));
     assert_eq!(initial["rows"].as_array().unwrap().len(), 4);
     assert!(initial["cursor"].get("visible").is_some());
-    let initial_history_epoch =
-        initial["history_epoch"].as_u64().expect("render state history epoch");
+    assert!(initial["history_epoch"].as_u64().is_some(), "render state history epoch");
     let response = wait_for(|| read_json_line(&mut render_reader), Duration::from_secs(5))
         .expect("render attach response");
     assert_eq!(response["id"], 1);
@@ -1393,8 +1392,8 @@ fn render_attach_headless_fans_one_frame_to_render_and_byte_consumers() {
     assert_eq!(delta["rows"].as_array().unwrap().len(), 1);
     assert!(delta.get("cursor").is_some());
     assert!(
-        delta["history_epoch"].as_u64().expect("render delta history epoch")
-            > initial_history_epoch
+        delta.get("history_epoch").is_none(),
+        "active-screen output must not invalidate retained history"
     );
 
     let output = wait_for(
