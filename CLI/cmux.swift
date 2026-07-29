@@ -30544,13 +30544,6 @@ export default CMUXSessionRestore;
         // restore record, clear the surface resume binding, and clear PID routing.
         func performAgentSessionTeardown() {
             guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
-            if lifecycleSessionId == nil,
-               let mappedPID = mapped.pid,
-               let inferredPID,
-               mappedPID != inferredPID {
-                telemetry.breadcrumb("\(def.name)-hook.session-end.stale-fallback-suppressed")
-                return
-            }
             sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
             if suppressVisibleMutations {
@@ -30801,6 +30794,29 @@ export default CMUXSessionRestore;
             if !didSendFeedTelemetry, !shouldSuppressGenericFeedTelemetry() {
                 sendAgentFeedTelemetry()
             }
+        }
+        func isCurrentAnonymousHookOccupant() -> Bool {
+            guard lifecycleSessionId == nil else { return true }
+            switch action {
+            case .sessionStart, .noop:
+                return true
+            case .promptSubmit, .stop, .notification, .approvalResponse,
+                 .sessionEnd, .sessionFinalize:
+                break
+            }
+            guard !sessionId.isEmpty,
+                  let inferredPID,
+                  let mapped = try? store.lookup(sessionId: sessionId),
+                  let mappedPID = mapped.pid else {
+                return false
+            }
+            return mappedPID == inferredPID
+        }
+        guard isCurrentAnonymousHookOccupant() else {
+            telemetry.breadcrumb("\(def.name)-hook.stale-anonymous-occupant-suppressed")
+            didSendFeedTelemetry = true
+            print("{}")
+            return
         }
 
         switch action {

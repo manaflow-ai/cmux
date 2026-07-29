@@ -57,7 +57,8 @@ the agent key, session id when available, prior state, and a process-local
 occupant revision. A surface ID used only as a hook-routing fallback is not
 published as an agent session ID. For agents that do not report a session ID,
 each genuine session-start rotates the occupant revision, while later state
-updates remain bound to that revision.
+updates remain bound to that revision by an internal process binding that is
+not included in event payloads.
 
 Use `cmux wait --surface <id|ref|index> --until
 <idle|needs-input|exit> [--timeout <ms>]` to block on that lifecycle. The
