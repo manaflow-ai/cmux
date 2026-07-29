@@ -22,13 +22,12 @@ type StackAuthSessionLike = {
 };
 
 type StackAuthUserLike = {
-  createSession: (options: { expiresInMillis: number }) => Promise<StackAuthSessionLike>;
+  currentSession: StackAuthSessionLike;
 };
 
 type StackServerAppLike = {
   getUser: (options: {
     tokenStore: {
-      accessToken?: string;
       refreshToken: string;
     };
   }) => Promise<StackAuthUserLike | null>;
@@ -256,22 +255,20 @@ export function makeAppSessionHandoffHandler(
     }
 
     const refreshToken = form.get("refresh_token")?.trim();
-    const accessToken = form.get("access_token")?.trim();
     if (!refreshToken) return handoffFailure(request, afterPath);
 
     try {
       const user = await app.getUser({
-        tokenStore: {
-          ...(accessToken ? { accessToken } : {}),
-          refreshToken,
-        },
+        // Authenticate through the refresh grant even when the native access
+        // token is still valid. Otherwise a valid access token plus an
+        // unrelated string could mint a new long-lived browser session.
+        tokenStore: { refreshToken },
       });
       if (!user) return handoffFailure(request, afterPath);
 
-      const session = await user.createSession({
-        expiresInMillis: SESSION_EXPIRES_IN_MS,
-      });
-      const tokens = await session.getTokens();
+      // Reuse the validated native session instead of minting an independent
+      // browser refresh session. Native sign-out then revokes both surfaces.
+      const tokens = await user.currentSession.getTokens();
       if (!tokens.refreshToken || !tokens.accessToken) {
         return handoffFailure(request, afterPath, 502);
       }

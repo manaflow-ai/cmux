@@ -127,25 +127,18 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func browserAppSessionStoreRegistryDoesNotRetainEphemeralStores() throws {
-        let suiteName = "BrowserAppSessionEphemeralStoreTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let registry = BrowserAppSessionStoreRegistry(
-            defaults: defaults,
-            defaultsKey: "owned-stores"
-        )
-        weak var retainedStore: WKWebsiteDataStore?
+    func browserAppSessionWeakStoreReferencesDoNotRetainOwners() throws {
+        var reference: BrowserAppSessionWeakReference<StoreLifetimeProbe>?
+        weak var retainedOwner: StoreLifetimeProbe?
 
         autoreleasepool {
-            let store = WKWebsiteDataStore.nonPersistent()
-            retainedStore = store
-            registry.register(store)
+            let owner = StoreLifetimeProbe()
+            retainedOwner = owner
+            reference = BrowserAppSessionWeakReference(owner)
         }
 
-        #expect(retainedStore == nil)
-        #expect(registry.storesForCleanup().isEmpty)
+        #expect(retainedOwner == nil)
+        #expect(reference?.value == nil)
     }
 
     @Test
@@ -562,6 +555,8 @@ struct BrowserWebContentProcessTests {
         #expect(!popupWindow.isVisible)
     }
 }
+
+private final class StoreLifetimeProbe {}
 
 private final class BrowserWebContentProcessLoadDelegate: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?

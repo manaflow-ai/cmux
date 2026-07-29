@@ -2,13 +2,21 @@ import {
   AscApiError,
   ascFetch,
 } from "./client";
+import {
+  FOUNDER_TESTFLIGHT_GROUP_ID,
+} from "./testflightOwnership";
 import { env } from "../../app/env";
+
+export {
+  FOUNDER_TESTFLIGHT_GROUP_ID,
+  proOwnedLegacyTestflightGroupIDs,
+  recordProOwnedLegacyTestflightGroup,
+  type ProTestflightOwnershipUser,
+} from "./testflightOwnership";
 
 export const PRO_TESTFLIGHT_GROUP_ID =
   env.CMUX_PRO_TESTFLIGHT_GROUP_ID ||
   "34fbede5-3880-4560-b1bb-a45787249780";
-export const FOUNDER_TESTFLIGHT_GROUP_ID =
-  "3ee84bfa-10ad-4f23-a45c-f9a3b037373e";
 
 export type RemoveTesterOptions = {
   /**
@@ -18,24 +26,6 @@ export type RemoveTesterOptions = {
    */
   readonly ownedLegacyGroupIDs?: readonly string[];
 };
-
-const PRO_OWNED_LEGACY_TESTFLIGHT_GROUP_IDS_METADATA_KEY =
-  "cmuxProTestflightOwnedLegacyGroupIDs";
-
-export function proOwnedLegacyTestflightGroupIDs(
-  metadata: unknown,
-): readonly string[] {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
-    return [];
-  }
-  const value = (metadata as Record<string, unknown>)[
-    PRO_OWNED_LEGACY_TESTFLIGHT_GROUP_IDS_METADATA_KEY
-  ];
-  if (!Array.isArray(value)) return [];
-  return value.filter(
-    (groupID): groupID is string => groupID === FOUNDER_TESTFLIGHT_GROUP_ID,
-  );
-}
 
 type JsonApiResource = {
   readonly id: string;

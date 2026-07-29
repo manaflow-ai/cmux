@@ -81,6 +81,14 @@ enum BrowserAppSessionStoreIdentity: Hashable {
     }
 }
 
+final class BrowserAppSessionWeakReference<Value: AnyObject> {
+    weak var value: Value?
+
+    init(_ value: Value) {
+        self.value = value
+    }
+}
+
 /// Persists only the exact WebKit stores that received cmux app-session
 /// cookies. Persistent store identifiers survive an app relaunch; ephemeral
 /// stores remain process-local because WebKit discards their data on exit.
@@ -88,7 +96,9 @@ enum BrowserAppSessionStoreIdentity: Hashable {
 final class BrowserAppSessionStoreRegistry {
     private let defaults: UserDefaults
     private let defaultsKey: String
-    private var liveStores: [ObjectIdentifier: WKWebsiteDataStore] = [:]
+    private var liveStores: [
+        ObjectIdentifier: BrowserAppSessionWeakReference<WKWebsiteDataStore>
+    ] = [:]
     private var identities: Set<BrowserAppSessionStoreIdentity>
 
     init(defaults: UserDefaults, defaultsKey: String) {
@@ -106,7 +116,8 @@ final class BrowserAppSessionStoreRegistry {
     }
 
     func register(_ store: WKWebsiteDataStore) {
-        liveStores[ObjectIdentifier(store)] = store
+        liveStores = liveStores.filter { $0.value.value != nil }
+        liveStores[ObjectIdentifier(store)] = BrowserAppSessionWeakReference(store)
         guard let identity = Self.identity(for: store),
               identities.insert(identity).inserted else {
             return
@@ -115,7 +126,13 @@ final class BrowserAppSessionStoreRegistry {
     }
 
     func storesForCleanup() -> [WKWebsiteDataStore] {
-        var stores = liveStores
+        liveStores = liveStores.filter { $0.value.value != nil }
+        var stores: [ObjectIdentifier: WKWebsiteDataStore] = [:]
+        for (identifier, reference) in liveStores {
+            if let store = reference.value {
+                stores[identifier] = store
+            }
+        }
         for identity in identities {
             let store = Self.store(for: identity)
             stores[ObjectIdentifier(store)] = store

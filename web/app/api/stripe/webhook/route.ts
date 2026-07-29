@@ -129,12 +129,16 @@ async function processStripeEvent(
   dependencies: StripeWebhookDependencies,
 ): Promise<{ processed?: string; skipped?: string }> {
   switch (event.type) {
-    case "checkout.session.completed": {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded": {
       const session = event.data.object;
       if (!isCmuxCheckoutSession(session)) return { skipped: "foreign_checkout" };
       const expanded = await dependencies.stripe().checkout.sessions.retrieve(session.id, {
         expand: ["subscription", "customer"],
       });
+      if (!checkoutPaymentSettled(expanded)) {
+        return { skipped: "checkout_payment_pending" };
+      }
       const result = await dependencies.recordCheckoutCompletion({
         session: expanded,
         subscription: expandedSubscription(expanded),
@@ -146,7 +150,7 @@ async function processStripeEvent(
           session: expanded,
         });
       }
-      return { processed: "checkout.session.completed" };
+      return { processed: event.type };
     }
     case "customer.subscription.created":
     case "customer.subscription.updated":
@@ -173,6 +177,11 @@ async function processStripeEvent(
 
 function isPersonalProCheckout(session: Stripe.Checkout.Session): boolean {
   return session.metadata?.app === "cmux" && session.metadata?.plan === "pro";
+}
+
+function checkoutPaymentSettled(session: Stripe.Checkout.Session): boolean {
+  return session.payment_status === "paid"
+    || session.payment_status === "no_payment_required";
 }
 
 function expandedSubscription(session: Stripe.Checkout.Session): Stripe.Subscription | null {
