@@ -1517,12 +1517,7 @@ fn next_pointer_lifecycle_deadline(failures: &BrowserWorkerErrorState) -> Option
     failures
         .active_pointer_presses
         .values()
-        .filter_map(|press| match (press.compatibility_expires_at, press.release_retry_at) {
-            (Some(lease), Some(retry)) => Some(lease.min(retry)),
-            (Some(lease), None) => Some(lease),
-            (None, Some(retry)) => Some(retry),
-            (None, None) => None,
-        })
+        .filter_map(|press| press.release_retry_at.or(press.compatibility_expires_at))
         .min()
 }
 
