@@ -138,6 +138,26 @@ describe("subrouter accounts route", () => {
     expect(upstream.fetch).not.toHaveBeenCalled();
   });
 
+  test("requires an explicit team when Stack has no selected scope", async () => {
+    currentUser = {
+      ...stackUser(),
+      selectedTeam: null,
+      listTeams: async () => [
+        { id: "team-b", displayName: "Team B" },
+      ],
+    };
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts"),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "team_selection_required",
+    });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+  });
+
   test("rejects teams outside the private beta allowlist", async () => {
     process.env.SUBROUTER_ALLOWED_TEAM_IDS = "team-b";
 
@@ -777,6 +797,55 @@ describe("subrouter accounts route", () => {
     expect(body.teams.find((team) => team.id === "user-1")?.personal).toBe(true);
   });
 
+  test("does not substitute the billing team for an absent Stack selection", async () => {
+    currentUser = {
+      ...stackUser(),
+      selectedTeam: null,
+      listTeams: async () => [
+        { id: "team-b", displayName: "Team B" },
+      ],
+    };
+
+    const response = await teamsRoute.GET(request("/api/subrouter/teams"));
+    const body = await response.json() as {
+      selectedTeamId: string | null;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.selectedTeamId).toBeNull();
+  });
+
+  test("looks up a requested team directly instead of paginating every team", async () => {
+    const listTeams = mock(async (...args: unknown[]) => {
+      const options = args[0] as {
+        readonly cursor?: string;
+        readonly query?: string;
+      } | undefined;
+      if (options?.query === "team-c") {
+        return Object.assign(
+          [{ id: "team-c", displayName: "Team C" }],
+          { nextCursor: "unused-page" },
+        );
+      }
+      return Object.assign(
+        [{ id: "team-b", displayName: "Team B" }],
+        { nextCursor: "page-2" },
+      );
+    });
+    currentUser = { ...stackUser(), listTeams };
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts?teamId=team-c"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(listTeams).toHaveBeenCalledTimes(1);
+    expect(listTeams).toHaveBeenCalledWith({
+      query: "team-c",
+      limit: 100,
+    });
+  });
+
   test("follows Stack team pagination before resolving CLI permissions", async () => {
     const firstPage = Object.assign(
       [{ id: "team-a", displayName: "Team A" }],
@@ -876,6 +945,42 @@ describe("subrouter accounts route", () => {
 
     expect(responses.every((response) => response.status === 503)).toBe(true);
     expect(maxActive).toBeLessThanOrEqual(8);
+  });
+
+  test("opens a bounded circuit after every Stack authorization slot hangs", async () => {
+    process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "1";
+    process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "20";
+    let releasePermissions!: () => void;
+    const permissionsReady = new Promise<void>((resolve) => {
+      releasePermissions = resolve;
+    });
+    const listPermissions = mock(async () => {
+      await permissionsReady;
+      return [{ id: "subrouter:use" }];
+    });
+    currentUser = {
+      ...stackUser(),
+      listPermissions,
+    };
+
+    const saturated = Array.from(
+      { length: 8 },
+      () => teamsRoute.GET(request("/api/subrouter/teams")),
+    );
+    await Promise.all(saturated);
+    expect(listPermissions).toHaveBeenCalledTimes(8);
+
+    process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "1000";
+    const probe = teamsRoute.GET(request("/api/subrouter/teams"));
+    const result = await Promise.race([
+      probe,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 100)),
+    ]);
+
+    releasePermissions();
+    await probe;
+    expect(result?.status).toBe(503);
+    expect(listPermissions).toHaveBeenCalledTimes(8);
   });
 
   test("resolves one permission snapshot per scope with bounded concurrency", async () => {
