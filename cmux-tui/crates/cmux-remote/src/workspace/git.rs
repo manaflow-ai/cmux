@@ -809,6 +809,41 @@ mod tests {
         assert_eq!(combined, full);
     }
 
+    #[tokio::test]
+    async fn unified_diff_cursor_continues_the_original_snapshot() {
+        let (_directory, root) = git_root().await;
+        std::fs::write(root.canonical_root().join("second.txt"), "before\n").unwrap();
+        git(root.canonical_root(), &["add", "second.txt"]);
+        git(root.canonical_root(), &["commit", "-qm", "second"]);
+        std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
+        std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
+
+        let full = diff(&root, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap();
+        let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
+        let full = data.decode().unwrap();
+        let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
+        let maximum = u32::try_from(maximum).unwrap();
+        let first =
+            diff(&root, &[], false, 3, DiffFormat::Unified, None, Some(maximum)).await.unwrap();
+        let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
+            panic!()
+        };
+        let first = String::from_utf8(data.decode().unwrap()).unwrap();
+        let (returned, remaining) = if first.contains("second.txt") {
+            ("second.txt", "tracked.txt")
+        } else {
+            ("tracked.txt", "second.txt")
+        };
+        git(root.canonical_root(), &["checkout", "--", returned]);
+
+        let second = diff(&root, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
+            .await
+            .unwrap();
+        let WorkspaceResponse::Diff { data, .. } = second else { panic!() };
+        let second = String::from_utf8(data.decode().unwrap()).unwrap();
+        assert!(second.contains(remaining), "missing retained diff for {remaining}: {second}");
+    }
+
     #[test]
     fn parses_porcelain_rename_records() {
         let input = b"## main\0R  new.txt\0old.txt\0";

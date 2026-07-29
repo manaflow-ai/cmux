@@ -3934,6 +3934,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn directory_cursor_continues_the_original_snapshot() {
+        let (_directory, root) = root().await;
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            tokio::fs::write(root.canonical_root().join(name), name).await.unwrap();
+        }
+        let first = list_directory(&root, "", false, 1, None).await.unwrap();
+        let WorkspaceResponse::Directory { entries, next_cursor: Some(cursor), .. } = first else {
+            panic!()
+        };
+        assert_eq!(entries[0].name, "a.txt");
+        tokio::fs::remove_file(root.canonical_root().join("a.txt")).await.unwrap();
+
+        let second = list_directory(&root, "", false, 1, Some(&cursor)).await.unwrap();
+        let WorkspaceResponse::Directory { entries, .. } = second else { panic!() };
+        assert_eq!(entries[0].name, "b.txt");
+    }
+
+    #[tokio::test]
     async fn search_is_literal_structured_and_bounded() {
         let (_directory, root) = root().await;
         tokio::fs::create_dir(root.canonical_root().join("src")).await.unwrap();
@@ -3973,6 +3991,21 @@ mod tests {
         assert_eq!(matches[0].line, 2);
         assert_eq!(next_cursor, None);
         assert!(!truncated);
+    }
+
+    #[tokio::test]
+    async fn search_cursor_continues_without_replaying_changed_files() {
+        let (_directory, root) = root().await;
+        let path = root.canonical_root().join("matches.txt");
+        tokio::fs::write(&path, b"needle one\nneedle two\n").await.unwrap();
+        let first = search(&root, "needle", &[], &[], false, 1, None).await.unwrap();
+        let WorkspaceResponse::Search { next_cursor: Some(cursor), .. } = first else { panic!() };
+        tokio::fs::write(&path, b"needle zero\nneedle one\nneedle two\n").await.unwrap();
+
+        let second = search(&root, "needle", &[], &[], false, 1, Some(&cursor)).await.unwrap();
+        let WorkspaceResponse::Search { matches, .. } = second else { panic!() };
+        assert_eq!(matches[0].text, "needle two");
+        assert_eq!(matches[0].line, 2);
     }
 
     #[test]
