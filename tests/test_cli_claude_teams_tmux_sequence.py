@@ -13,7 +13,8 @@ import tempfile
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import resolve_cmux_cli, stable_tmux_numeric_id
+
 INITIAL_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 INITIAL_WINDOW_ID = "22222222-2222-4222-8222-222222222222"
 INITIAL_PANE_ID = "33333333-3333-4333-8333-333333333333"
@@ -325,9 +326,12 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
             print(f"stderr={proc.stderr.strip()}")
             return 1
 
+        initial_pane_token = stable_tmux_numeric_id(INITIAL_PANE_ID)
+        new_pane_token = stable_tmux_numeric_id(NEW_PANE_ID)
+
         tmux_pane = read_text(tmux_pane_log)
-        if tmux_pane != f"%{INITIAL_PANE_ID}":
-            print(f"FAIL: expected TMUX_PANE=%{INITIAL_PANE_ID}, got {tmux_pane!r}")
+        if tmux_pane != f"%{initial_pane_token}":
+            print(f"FAIL: expected TMUX_PANE=%{initial_pane_token}, got {tmux_pane!r}")
             return 1
 
         socket_value = read_text(tmux_socket_log)
@@ -341,12 +345,12 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
             return 1
 
         split_pane = read_text(split_pane_log)
-        if split_pane != f"%{NEW_PANE_ID}":
-            print(f"FAIL: expected split-window to print %{NEW_PANE_ID}, got {split_pane!r}")
+        if split_pane != f"%{new_pane_token}":
+            print(f"FAIL: expected split-window to print %{new_pane_token}, got {split_pane!r}")
             return 1
 
         pane_lines = pane_list_log.read_text(encoding="utf-8").splitlines()
-        expected_panes = [f"%{INITIAL_PANE_ID}", f"%{NEW_PANE_ID}"]
+        expected_panes = [f"%{initial_pane_token}", f"%{new_pane_token}"]
         if pane_lines != expected_panes:
             print(f"FAIL: expected list-panes output {expected_panes!r}, got {pane_lines!r}")
             return 1
