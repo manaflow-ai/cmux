@@ -2,12 +2,13 @@ import Foundation
 import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
-    func testSSHSignalDuringForegroundAuthenticationExitsWithoutWaitingForInput() throws {
+    func testSSHControlCThroughForegroundAuthenticationPTYExitsWithoutWaitingForInput() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-foreground-auth-signal-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
+        let authReadyMarker = root.appendingPathComponent("auth-ready")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -18,8 +19,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ])
         try writeForegroundAuthSignalShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
-            "trap 'exit 130' HUP INT TERM",
-            "kill -INT \"${CMUX_SSH_STARTUP_PID:?}\"",
+            "trap 'exit 130' INT",
+            "printf '%s\\n' ready > \"${CMUX_TEST_AUTH_READY_MARKER:?}\"",
             "while :; do /bin/sleep 30; done",
         ])
         for executable in [fakeCLI, fakeSSH] {
@@ -33,12 +34,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_AUTH_READY_MARKER"] = authReadyMarker.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
 
         let process = Process()
         let standardInput = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", startupCommand]
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "-e", "/dev/null", "/bin/sh", "-c", startupCommand]
         process.environment = environment
         process.standardInput = standardInput
         process.standardOutput = FileHandle.nullDevice
@@ -47,6 +49,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let exited = expectation(description: "foreground authentication signal exits startup wrapper")
         process.terminationHandler = { _ in exited.fulfill() }
         try process.run()
+
+        let authReadyDeadline = Date().addingTimeInterval(3)
+        while !fileManager.fileExists(atPath: authReadyMarker.path),
+              process.isRunning,
+              Date() < authReadyDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        XCTAssertTrue(
+            fileManager.fileExists(atPath: authReadyMarker.path),
+            "Timed out waiting for foreground authentication to enter its nested PTY"
+        )
+        if fileManager.fileExists(atPath: authReadyMarker.path) {
+            try standardInput.fileHandleForWriting.write(contentsOf: Data([0x03]))
+        }
 
         let result = XCTWaiter.wait(for: [exited], timeout: 3)
         if process.isRunning {

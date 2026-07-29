@@ -89,23 +89,29 @@ struct SSHPTYAttachRetryScriptBuilderTests {
     ) throws {
         let markerURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-backoff-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: markerURL) }
+        let transcriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-backoff-transcript-\(UUID().uuidString)")
+        try Data().write(to: transcriptURL)
+        let transcriptHandle = try FileHandle(forWritingTo: transcriptURL)
+        defer {
+            try? transcriptHandle.close()
+            try? FileManager.default.removeItem(at: markerURL)
+            try? FileManager.default.removeItem(at: transcriptURL)
+        }
 
         let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
             command: "cmux_test_attach",
             reauthenticates: reauthenticates
         )
         let script = ([
-            "cmux_ssh_attach_active_child_pid=",
-            "cmux_ssh_attach_active_child_launching=0",
             "cmux_ssh_attach_signal_exit() {",
             "  cmux_ssh_attach_signal_status=\"$1\"",
             "  cmux_ssh_attach_signal_name=\"$2\"",
-            "  if [ -n \"${cmux_ssh_attach_active_child_pid:-}\" ]; then",
-            "    /bin/kill -\"$cmux_ssh_attach_signal_name\" \"$cmux_ssh_attach_active_child_pid\" >/dev/null 2>&1 || true",
-            "    wait \"$cmux_ssh_attach_active_child_pid\" 2>/dev/null || true",
-            "    cmux_ssh_attach_active_child_pid=",
-            "  elif [ \"${cmux_ssh_attach_active_child_launching:-0}\" = 1 ]; then",
+            "  if [ -n \"${cmux_ssh_attach_backoff_pid:-}\" ]; then",
+            "    /bin/kill -\"$cmux_ssh_attach_signal_name\" \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true",
+            "    wait \"$cmux_ssh_attach_backoff_pid\" 2>/dev/null || true",
+            "    cmux_ssh_attach_backoff_pid=",
+            "  elif [ \"${cmux_ssh_attach_backoff_launching:-0}\" = 1 ]; then",
             "    cmux_ssh_attach_pending_signal=\"$cmux_ssh_attach_signal_status\"",
             "    cmux_ssh_attach_pending_signal_name=\"$cmux_ssh_attach_signal_name\"",
             "    return",
@@ -129,7 +135,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
+        process.standardOutput = transcriptHandle
         process.standardError = FileHandle.nullDevice
 
         try process.run()
@@ -140,7 +146,14 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             Thread.sleep(forTimeInterval: 0.01)
         }
         #expect(FileManager.default.fileExists(atPath: markerURL.path))
-        Thread.sleep(forTimeInterval: 0.1)
+        #expect(
+            waitForFile(
+                at: transcriptURL,
+                containing: "remote PTY bridge closed; reattaching",
+                while: process,
+                timeout: 3
+            )
+        )
 
         let shellPID = try #require(
             Int32(
@@ -164,6 +177,100 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             #expect(process.terminationReason == .exit)
             #expect(process.terminationStatus == expectedStatus)
         }
+    }
+
+    @Test func reconnectBackoffPreservesQueuedTerminalInput() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-queued-input-\(UUID().uuidString)")
+        let transcriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-queued-input-transcript-\(UUID().uuidString)")
+        try Data().write(to: transcriptURL)
+        let transcriptHandle = try FileHandle(forWritingTo: transcriptURL)
+        defer {
+            try? transcriptHandle.close()
+            try? FileManager.default.removeItem(at: logURL)
+            try? FileManager.default.removeItem(at: transcriptURL)
+        }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: false
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "cmux_test_attach() {",
+            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"",
+            "  if [ \"$count\" -eq 0 ]; then return 255; fi",
+            "  IFS= read -r cmux_test_input || return 42",
+            "  printf 'input:%s\\n' \"$cmux_test_input\" >> \"$CMUX_TEST_LOG\"",
+            "  return 0",
+            "}",
+        ] + retryLines).joined(separator: "\n")
+
+        let process = Process()
+        let standardInput = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [
+            "-c",
+            "import os, pty, sys; status = pty.spawn(['/bin/sh', '-c', sys.argv[1]]); sys.exit(os.waitstatus_to_exitcode(status))",
+            script,
+        ]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_LOG": logURL.path,
+            "CMUX_SSH_RECONNECT_DELAY_SECONDS": "1",
+            "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "1",
+        ]) { _, override in override }
+        process.standardInput = standardInput
+        process.standardOutput = transcriptHandle
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        let enteredBackoff = waitForFile(
+            at: transcriptURL,
+            containing: "remote PTY bridge closed; reattaching",
+            while: process,
+            timeout: 3
+        )
+        #expect(enteredBackoff)
+        if enteredBackoff {
+            try standardInput.fileHandleForWriting.write(contentsOf: Data("queued-input\n".utf8))
+        }
+        try? standardInput.fileHandleForWriting.close()
+
+        let exitDeadline = Date().addingTimeInterval(3)
+        while process.isRunning, Date() < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        let exited = !process.isRunning
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+        process.waitUntilExit()
+
+        #expect(exited)
+        if exited {
+            #expect(process.terminationReason == .exit)
+            #expect(process.terminationStatus == 0)
+            #expect(try String(contentsOf: logURL, encoding: .utf8) == "attach\nattach\ninput:queued-input\n")
+        }
+    }
+
+    private func waitForFile(
+        at url: URL,
+        containing expectedContents: String,
+        while process: Process,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning, Date() < deadline {
+            let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            if contents.contains(expectedContents) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return false
     }
 
     private func run(
