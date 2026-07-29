@@ -9292,7 +9292,9 @@ impl App {
         )) = &event
         {
             let mouse = *mouse;
-            if self.pointer_route_is_stale_for_mouse(&mouse) {
+            if self.pointer_route_is_stale_for_mouse(&mouse)
+                || self.fresh_pointer_motion_must_follow_deferred(input_sequence)
+            {
                 self.retain_pointer_motion_with_sequence(
                     mouse,
                     input_sequence,
@@ -10337,6 +10339,14 @@ impl App {
             }
             _ => false,
         }
+    }
+
+    fn fresh_pointer_motion_must_follow_deferred(&self, input_sequence: Option<u64>) -> bool {
+        input_sequence.is_none()
+            && self
+                .deferred_input
+                .iter()
+                .any(|input| matches!(input.event, TerminalInput::Mouse(_)))
     }
 
     fn fresh_input_must_follow_deferred(
