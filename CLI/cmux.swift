@@ -767,18 +767,9 @@ final class ClaudeHookSessionStore {
             let inheritedPendingBackgroundWork: Bool
             switch pendingBackgroundWorkBoundary {
             case .unchanged:
+                // Activity hooks do not own the one-shot transfer. Only an
+                // explicit lifecycle boundary below may consume or discard it.
                 inheritedPendingBackgroundWork = false
-                if markActive,
-                   let normalizedSurfaceId,
-                   let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId],
-                   !clearBackgroundWorkTransferMatchesSource(
-                       transfer,
-                       sessionId: normalized,
-                       incomingPID: pid
-                   ) {
-                    // A new active owner makes a mismatched clear tombstone stale.
-                    state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
-                }
             case .discardTransfer:
                 inheritedPendingBackgroundWork = false
                 if let normalizedSurfaceId {
@@ -1616,22 +1607,6 @@ final class ClaudeHookSessionStore {
             }
             return normalizeOptional(transfer.workspaceId) == workspaceId
         }
-    }
-
-    private func clearBackgroundWorkTransferMatchesSource(
-        _ transfer: ClaudeHookClearBackgroundWorkTransfer,
-        sessionId: String,
-        incomingPID: Int?
-    ) -> Bool {
-        guard normalizeOptional(transfer.sourceSessionId) == sessionId else {
-            return false
-        }
-        return processGenerationMatches(
-            recordedPID: transfer.pid,
-            recordedStartSeconds: transfer.pidStartSeconds,
-            recordedStartMicroseconds: transfer.pidStartMicroseconds,
-            incomingPID: incomingPID
-        )
     }
 
     private func authorizeResumeSessionStart(
