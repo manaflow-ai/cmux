@@ -5,12 +5,13 @@ internal import CMUXMobileCore
 /// candidate close under one route lease.
 actor MobileRPCConnectCancellationClose {
     private var closeTask: Task<Void, Never>?
+    private var settledWithoutClose = false
     private var startWaiters: [
-        CheckedContinuation<Task<Void, Never>, Never>
+        CheckedContinuation<Task<Void, Never>?, Never>
     ] = []
 
     func start(_ candidate: any CmxByteTransport) {
-        guard closeTask == nil else { return }
+        guard closeTask == nil, !settledWithoutClose else { return }
         let task = Task.detached {
             await candidate.close()
         }
@@ -22,11 +23,21 @@ actor MobileRPCConnectCancellationClose {
         }
     }
 
-    func task(waitForStart: Bool) async -> Task<Void, Never>? {
+    func finishWithoutClose() {
+        guard closeTask == nil, !settledWithoutClose else { return }
+        settledWithoutClose = true
+        let waiters = startWaiters
+        startWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    func task() async -> Task<Void, Never>? {
         if let closeTask {
             return closeTask
         }
-        guard waitForStart else {
+        if settledWithoutClose {
             return nil
         }
         return await withCheckedContinuation {

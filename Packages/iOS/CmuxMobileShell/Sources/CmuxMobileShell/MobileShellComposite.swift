@@ -656,6 +656,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let pairedMacStore: (any MobilePairedMacStoring)?
     /// Single compatibility authority shared by registry, persistence, and live connections.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
+    /// Single physical-Mac identity authority shared by every connection role.
+    let macInstanceTagAuthority: MobileMacInstanceTagAuthority
     private let pairedMacRestoreBoundary: PairedMacRestoreBoundary?
     /// Best-effort, team-scoped lookup of fresher attach routes from the device
     /// registry. Optional and failure-tolerant: when `nil` or unreachable,
@@ -1191,6 +1193,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
+        self.macInstanceTagAuthority = MobileMacInstanceTagAuthority()
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
         self.personalIrohDiscovery = personalIrohDiscovery
@@ -2482,7 +2485,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             cmxCanonicalDeviceID(macDeviceID)
         ]?.first {
             $0.macDeviceID == macDeviceID
-                && mobileMacStoredAuthorityMatches(
+                && macInstanceTagAuthority.sameStoredAuthority(
                     $0.instanceTag,
                     instanceTag
                 )
@@ -2969,7 +2972,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // FAST PATH: if a live read-only connection to this Mac already exists,
         // promote it to the foreground (reuse the client) instead of re-dialing.
         if instanceTag == nil
-            || mobileMacStoredAuthorityMatches(
+            || macInstanceTagAuthority.sameStoredAuthority(
                 instanceTag,
                 secondaryMacSubscriptions[macDeviceID]?.storedInstanceTag
             ),
@@ -3029,7 +3032,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            connectionState == .connected,
            remoteClient != nil,
            refreshedTarget.instanceTag == nil
-            || mobileMacStoredAuthorityMatches(
+            || macInstanceTagAuthority.sameStoredAuthority(
                 refreshedTarget.instanceTag,
                 activeMacInstanceTag
             ) {
@@ -3093,7 +3096,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && remoteClient != nil
             && foregroundMacDeviceID == macDeviceID
             && (refreshedTarget.instanceTag == nil
-                || mobileMacStoredAuthorityMatches(
+                || macInstanceTagAuthority.sameStoredAuthority(
                     refreshedTarget.instanceTag,
                     activeMacInstanceTag
                 ))
@@ -3124,7 +3127,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && remoteClient != nil
                 && foregroundMacDeviceID == macDeviceID
                 && (refreshedTarget.instanceTag == nil
-                    || mobileMacStoredAuthorityMatches(
+                    || macInstanceTagAuthority.sameStoredAuthority(
                         refreshedTarget.instanceTag,
                         activeMacInstanceTag
                     ))
@@ -3149,7 +3152,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && remoteClient != nil
                 && foregroundMacDeviceID == macDeviceID
                 && (refreshedTarget.instanceTag == nil
-                    || mobileMacStoredAuthorityMatches(
+                    || macInstanceTagAuthority.sameStoredAuthority(
                         refreshedTarget.instanceTag,
                         activeMacInstanceTag
                     ))
@@ -3230,7 +3233,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && focusedForegroundConnection?.client === remoteClient
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
             && (previousActive.instanceTag == nil
-                || mobileMacStoredAuthorityMatches(
+                || macInstanceTagAuthority.sameStoredAuthority(
                     previousActive.instanceTag,
                     activeMacInstanceTag
                 ))
@@ -3344,7 +3347,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard self.connectionState == .connected,
                   self.remoteClient != nil,
                   self.foregroundMacDeviceID == macDeviceID,
-                  instanceTag == nil || mobileMacStoredAuthorityMatches(
+                  instanceTag == nil || macInstanceTagAuthority.sameStoredAuthority(
                     instanceTag,
                     self.activeMacInstanceTag
                   ) else { return }
@@ -3462,7 +3465,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // An authenticated status response may refresh metadata only for
             // the Mac this connection already represents. A mismatched reply
             // cannot rewrite another paired record.
-            guard mobileMacAuthenticatedDeviceMatches(
+            guard macInstanceTagAuthority.authenticatedDeviceMatches(
                 reportedDeviceID: reportedID,
                 expectedDeviceID: ticket.macDeviceID
             ) else {
@@ -3953,7 +3956,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
             return .permanentFailure
         }
-        if mobileSecondaryStatusAuthority(
+        if macInstanceTagAuthority.secondaryStatusAuthority(
             expectedDeviceID: mac.macDeviceID,
             storedInstanceTag: mac.instanceTag,
             reportedDeviceID: status.macDeviceID,
@@ -3975,7 +3978,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return .permanentFailure
             }
         }
-        switch mobileSecondaryStatusAuthority(
+        switch macInstanceTagAuthority.secondaryStatusAuthority(
             expectedDeviceID: mac.macDeviceID,
             storedInstanceTag: mac.instanceTag,
             reportedDeviceID: status.macDeviceID,
@@ -4003,8 +4006,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             client: client,
             route: route,
             ticket: ticket,
-            storedInstanceTag: normalizedMobileMacIdentityValue(mac.instanceTag),
-            authenticatedInstanceTag: normalizedMobileMacIdentityValue(
+            storedInstanceTag: macInstanceTagAuthority.normalize(mac.instanceTag),
+            authenticatedInstanceTag: macInstanceTagAuthority.normalize(
                 status.macInstanceTag
             ),
             supportedHostCapabilities: capabilities,
@@ -4309,7 +4312,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // teardown work until promotion succeeds or explicitly
                 // releases the claim.
                 guard !existing.isTransitioningToFocus else { continue }
-                guard mobileMacStoredAuthorityMatches(
+                guard macInstanceTagAuthority.sameStoredAuthority(
                     existing.storedInstanceTag,
                     mac.instanceTag
                 ) else {
@@ -4418,7 +4421,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 teamID: scope.teamID
             ).first(where: {
                 $0.macDeviceID == macDeviceID
-                    && mobileMacStoredAuthorityMatches(
+                    && macInstanceTagAuthority.sameStoredAuthority(
                         $0.instanceTag,
                         subscription.storedInstanceTag
                     )
@@ -4426,7 +4429,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         guard secondaryMacSubscriptions[macDeviceID] === subscription,
               let currentMac,
-              mobileMacStoredAuthorityMatches(
+              macInstanceTagAuthority.sameStoredAuthority(
                   currentMac.instanceTag,
                   subscription.storedInstanceTag
               ) else {
@@ -4721,7 +4724,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             teamID: scope.teamID
         ).first(where: {
             $0.macDeviceID == macID
-                && mobileMacStoredAuthorityMatches(
+                && macInstanceTagAuthority.sameStoredAuthority(
                     $0.instanceTag,
                     handle.storedInstanceTag
                 )
@@ -4737,7 +4740,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   scope: scope
               ),
               let currentMac,
-              mobileMacStoredAuthorityMatches(
+              macInstanceTagAuthority.sameStoredAuthority(
                   currentMac.instanceTag,
                   handle.storedInstanceTag
               ) else {
@@ -7326,7 +7329,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         recordHostAuthenticationFailure(route: route, failure: .protocolViolation)
                         continue routeLoop
                     }
-                    let authority = resolveMobileMacInstanceTag(
+                    let authority = macInstanceTagAuthority.resolve(
                         expectation: instanceTagExpectation,
                         reportedInstanceTag: reportedInstanceTag
                     )
@@ -7354,7 +7357,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     if let expectedDeviceID,
                        hasAuthenticatedIdentity,
-                       !mobileMacAuthenticatedDeviceMatches(
+                       !macInstanceTagAuthority.authenticatedDeviceMatches(
                            reportedDeviceID: reportedDeviceID,
                            expectedDeviceID: expectedDeviceID
                        ) {
@@ -7976,7 +7979,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               ).first(where: {
                   cmxCanonicalDeviceID($0.macDeviceID)
                       == cmxCanonicalDeviceID(connection.macDeviceID)
-                      && mobileMacStoredAuthorityMatches(
+                      && macInstanceTagAuthority.sameStoredAuthority(
                           $0.instanceTag,
                           connection.storedInstanceTag
                       )

@@ -159,17 +159,13 @@ actor MobileCoreRPCSession {
                     do {
                         let candidate = try await connecting.task.value
                         if let cancellationCloseTask =
-                            await connecting.cancellationClose.task(
-                                waitForStart: !connecting.completed
-                            ) {
+                            await connecting.cancellationClose.task() {
                             await cancellationCloseTask.value
                         }
                         await candidate.close()
                     } catch {
                         if let cancellationCloseTask =
-                            await connecting.cancellationClose.task(
-                                waitForStart: !connecting.completed
-                            ) {
+                            await connecting.cancellationClose.task() {
                             await cancellationCloseTask.value
                         }
                     }
@@ -484,9 +480,14 @@ actor MobileCoreRPCSession {
                     try await withTaskCancellationHandler {
                         try await candidate.connect()
                     } onCancel: {
-                        Task {
+                        Task.detached {
                             await cancellationClose.start(candidate)
                         }
+                    }
+                    if Task.isCancelled {
+                        _ = await cancellationClose.task()
+                    } else {
+                        await cancellationClose.finishWithoutClose()
                     }
                     // A cancellation-ignoring transport must still return its
                     // late candidate to the existing abandoned-connect cleanup
@@ -508,6 +509,11 @@ actor MobileCoreRPCSession {
                     }
                     return candidate
                 } catch is CancellationError {
+                    if Task.isCancelled {
+                        _ = await cancellationClose.task()
+                    } else {
+                        await cancellationClose.finishWithoutClose()
+                    }
                     throw CancellationError()
                 } catch {
                     // Some transports surface their close error instead of
@@ -515,8 +521,10 @@ actor MobileCoreRPCSession {
                     // them. Treat the task's cancellation bit as authoritative
                     // so an abandoned dial never becomes a false failure event.
                     if Task.isCancelled {
+                        _ = await cancellationClose.task()
                         throw CancellationError()
                     }
+                    await cancellationClose.finishWithoutClose()
                     if let diagnosticTransport, let transportConnectObserver {
                         transportConnectObserver(
                             .failed(
@@ -686,65 +694,59 @@ actor MobileCoreRPCSession {
     }
 
     private func cancelConnectingWaiter(id connectionID: UUID, waiterID: UUID) async {
-        guard transport == nil, connectionTask?.id == connectionID, let task = connectionTask?.task else {
+        guard transport == nil,
+              let connecting = connectionTask,
+              connecting.id == connectionID else {
             return
         }
         connectionTask?.waiters.remove(waiterID)
         guard connectionTask?.waiters.isEmpty == true else { return }
-        let lease = connectionTask?.lease
-        let cancellationClose = connectionTask?.cancellationClose
-        if connectionTask?.completed == true {
+        if connecting.completed {
             connectionTask = nil
             startAbandonedConnectionCleanup(
-                task: task,
-                lease: lease,
-                cancellationClose: cancellationClose
-                    ?? MobileRPCConnectCancellationClose(),
+                task: connecting.task,
+                lease: connecting.lease,
+                cancellationClose: connecting.cancellationClose,
                 cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
                 lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
             )
             return
         }
         connectionTask = nil
-        task.cancel()
+        connecting.task.cancel()
         startAbandonedConnectionCleanup(
-            task: task,
-            lease: lease,
-            cancellationClose: cancellationClose
-                ?? MobileRPCConnectCancellationClose(),
-            waitsForCancellationClose: true,
+            task: connecting.task,
+            lease: connecting.lease,
+            cancellationClose: connecting.cancellationClose,
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )
     }
     private func timeoutConnectingWaiter(id connectionID: UUID, waiterID: UUID) async {
-        guard transport == nil, connectionTask?.id == connectionID, let task = connectionTask?.task else {
+        guard transport == nil,
+              let connecting = connectionTask,
+              connecting.id == connectionID else {
             return
         }
         connectionTask?.waiters.remove(waiterID)
         guard connectionTask?.waiters.isEmpty == true else { return }
-        let lease = connectionTask?.lease
-        let cancellationClose = connectionTask?.cancellationClose
-        if connectionTask?.completed == true {
+        if connecting.completed {
             connectionTask = nil
             startAbandonedConnectionCleanup(
-                task: task,
-                lease: lease,
-                cancellationClose: cancellationClose
-                    ?? MobileRPCConnectCancellationClose(),
+                task: connecting.task,
+                lease: connecting.lease,
+                cancellationClose: connecting.cancellationClose,
                 cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
                 lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
             )
             return
         }
         connectionTask = nil
-        task.cancel()
+        connecting.task.cancel()
         startAbandonedConnectionCleanup(
-            task: task,
-            lease: lease,
-            cancellationClose: cancellationClose
-                ?? MobileRPCConnectCancellationClose(),
-            waitsForCancellationClose: true,
+            task: connecting.task,
+            lease: connecting.lease,
+            cancellationClose: connecting.cancellationClose,
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )

@@ -8,17 +8,13 @@ extension MobileCoreRPCSession {
             do {
                 let candidate = try await connecting.task.value
                 if let cancellationCloseTask =
-                    await connecting.cancellationClose.task(
-                        waitForStart: !connecting.completed
-                    ) {
+                    await connecting.cancellationClose.task() {
                     await cancellationCloseTask.value
                 }
                 await candidate.close()
             } catch {
                 if let cancellationCloseTask =
-                    await connecting.cancellationClose.task(
-                        waitForStart: !connecting.completed
-                    ) {
+                    await connecting.cancellationClose.task() {
                     await cancellationCloseTask.value
                 }
             }
@@ -50,7 +46,6 @@ extension MobileCoreRPCSession {
         startAbandonedConnectionCleanup(
             task: task,
             lease: lease,
-            cancellationClose: MobileRPCConnectCancellationClose(),
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )
@@ -59,9 +54,7 @@ extension MobileCoreRPCSession {
     func startAbandonedConnectionCleanup(
         task: Task<any CmxByteTransport, any Error>,
         lease: MobileRPCConnectAttemptLease?,
-        cancellationClose: MobileRPCConnectCancellationClose =
-            MobileRPCConnectCancellationClose(),
-        waitsForCancellationClose: Bool = false,
+        cancellationClose: MobileRPCConnectCancellationClose? = nil,
         cleanupTimeoutNanoseconds: UInt64,
         lateCloseTimeoutNanoseconds: UInt64
     ) {
@@ -72,8 +65,7 @@ extension MobileCoreRPCSession {
             let cleaner = MobileRPCAbandonedConnectCleaner(
                 registry: connectAttemptRegistry,
                 lease: lease,
-                cancellationClose: cancellationClose,
-                waitsForCancellationClose: waitsForCancellationClose
+                cancellationClose: cancellationClose
             )
             do {
                 let candidate = try await taskTimeout.value(

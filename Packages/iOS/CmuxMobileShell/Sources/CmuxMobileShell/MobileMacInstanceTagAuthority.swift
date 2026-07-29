@@ -1,99 +1,111 @@
 internal import CMUXMobileCore
 import Foundation
 
-func mobileMacInstanceTagExpectation(
-    storedInstanceTag: String?
-) -> MobileMacInstanceTagExpectation {
-    guard let tag = normalizedMobileMacIdentityValue(storedInstanceTag) else {
-        return .adopt
-    }
-    return .preserve(tag)
-}
+/// Owns the identity and instance-tag rules shared by foreground reconnects,
+/// registry refreshes, and secondary control connections.
+struct MobileMacInstanceTagAuthority: Sendable {
+    private let canonicalizeDeviceID: @Sendable (String) -> String
 
-func resolveMobileMacInstanceTag(
-    expectation: MobileMacInstanceTagExpectation,
-    reportedInstanceTag: String?
-) -> MobileMacInstanceTagResolution {
-    let reported = normalizedMobileMacIdentityValue(reportedInstanceTag)
-    switch expectation {
-    case .adopt:
-        return .accept(reported)
-    case .preserve(let expected):
-        let expected = normalizedMobileMacIdentityValue(expected)
-        guard reported == nil || reported == expected else { return .reject }
-        return .accept(expected)
-    case .require(let expected):
-        guard let expected = normalizedMobileMacIdentityValue(expected),
-              reported == expected else {
-            return .reject
+    init(
+        canonicalizeDeviceID: @escaping @Sendable (String) -> String = {
+            cmxCanonicalDeviceID($0)
         }
-        return .accept(expected)
+    ) {
+        self.canonicalizeDeviceID = canonicalizeDeviceID
     }
-}
 
-func mobileMacAuthenticatedDeviceMatches(
-    reportedDeviceID: String?,
-    expectedDeviceID: String
-) -> Bool {
-    guard let reported = normalizedMobileMacIdentityValue(reportedDeviceID) else {
-        return false
+    func expectation(
+        storedInstanceTag: String?
+    ) -> MobileMacInstanceTagExpectation {
+        guard let tag = normalize(storedInstanceTag) else {
+            return .adopt
+        }
+        return .preserve(tag)
     }
-    return cmxCanonicalDeviceID(reported)
-        == cmxCanonicalDeviceID(expectedDeviceID)
-}
 
-func mobileMacStoredAuthorityMatches(_ lhs: String?, _ rhs: String?) -> Bool {
-    normalizedMobileMacIdentityValue(lhs)
-        == normalizedMobileMacIdentityValue(rhs)
-}
+    func resolve(
+        expectation: MobileMacInstanceTagExpectation,
+        reportedInstanceTag: String?
+    ) -> MobileMacInstanceTagResolution {
+        let reported = normalize(reportedInstanceTag)
+        switch expectation {
+        case .adopt:
+            return .accept(reported)
+        case .preserve(let expected):
+            let expected = normalize(expected)
+            guard reported == nil || reported == expected else {
+                return .reject
+            }
+            return .accept(expected)
+        case .require(let expected):
+            guard let expected = normalize(expected),
+                  reported == expected else {
+                return .reject
+            }
+            return .accept(expected)
+        }
+    }
 
-/// Secondary aggregation is stricter than a foreground compatibility
-/// reconnect: it must authenticate the physical Mac, and an already-tagged
-/// record must prove that exact tag before any workspace is attributed to it.
-func mobileSecondaryStatusMatches(
-    expectedDeviceID: String,
-    storedInstanceTag: String?,
-    reportedDeviceID: String?,
-    reportedInstanceTag: String?
-) -> Bool {
-    mobileSecondaryStatusAuthority(
-        expectedDeviceID: expectedDeviceID,
-        storedInstanceTag: storedInstanceTag,
-        reportedDeviceID: reportedDeviceID,
-        reportedInstanceTag: reportedInstanceTag
-    ) == .accepted
-}
+    func authenticatedDeviceMatches(
+        reportedDeviceID: String?,
+        expectedDeviceID: String
+    ) -> Bool {
+        guard let reported = normalize(reportedDeviceID) else {
+            return false
+        }
+        return canonicalizeDeviceID(reported)
+            == canonicalizeDeviceID(expectedDeviceID)
+    }
 
-func normalizedMobileMacIdentityValue(_ value: String?) -> String? {
-    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !trimmed.isEmpty else {
-        return nil
+    func sameStoredAuthority(_ lhs: String?, _ rhs: String?) -> Bool {
+        normalize(lhs) == normalize(rhs)
     }
-    return trimmed
-}
 
-func mobileSecondaryStatusAuthority(
-    expectedDeviceID: String,
-    storedInstanceTag: String?,
-    reportedDeviceID: String?,
-    reportedInstanceTag: String?
-) -> MobileSecondaryStatusAuthority {
-    guard normalizedMobileMacIdentityValue(reportedDeviceID) != nil else {
-        return .identityUnavailable
+    /// Secondary aggregation requires a physical-Mac identity. An already
+    /// tagged record must also prove that exact tag before publishing state.
+    func secondaryStatusMatches(
+        expectedDeviceID: String,
+        storedInstanceTag: String?,
+        reportedDeviceID: String?,
+        reportedInstanceTag: String?
+    ) -> Bool {
+        secondaryStatusAuthority(
+            expectedDeviceID: expectedDeviceID,
+            storedInstanceTag: storedInstanceTag,
+            reportedDeviceID: reportedDeviceID,
+            reportedInstanceTag: reportedInstanceTag
+        ) == .accepted
     }
-    guard mobileMacAuthenticatedDeviceMatches(
-        reportedDeviceID: reportedDeviceID,
-        expectedDeviceID: expectedDeviceID
-    ) else {
-        return .rejected
+
+    func secondaryStatusAuthority(
+        expectedDeviceID: String,
+        storedInstanceTag: String?,
+        reportedDeviceID: String?,
+        reportedInstanceTag: String?
+    ) -> MobileSecondaryStatusAuthority {
+        guard normalize(reportedDeviceID) != nil else {
+            return .identityUnavailable
+        }
+        guard authenticatedDeviceMatches(
+            reportedDeviceID: reportedDeviceID,
+            expectedDeviceID: expectedDeviceID
+        ) else {
+            return .rejected
+        }
+        guard let stored = normalize(storedInstanceTag) else {
+            return .accepted
+        }
+        return normalize(reportedInstanceTag) == stored
+            ? .accepted
+            : .rejected
     }
-    guard let stored = normalizedMobileMacIdentityValue(
-        storedInstanceTag
-    ) else {
-        return .accepted
+
+    func normalize(_ value: String?) -> String? {
+        guard let trimmed = value?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
-    return normalizedMobileMacIdentityValue(reportedInstanceTag)
-        == stored
-        ? .accepted
-        : .rejected
 }

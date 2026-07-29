@@ -3,8 +3,7 @@ internal import CMUXMobileCore
 struct MobileRPCAbandonedConnectCleaner: Sendable {
     let registry: MobileRPCConnectAttemptRegistry
     let lease: MobileRPCConnectAttemptLease?
-    let cancellationClose: MobileRPCConnectCancellationClose
-    let waitsForCancellationClose: Bool
+    let cancellationClose: MobileRPCConnectCancellationClose?
 
     func finishLateAbandonedCandidate(
         task: Task<any CmxByteTransport, any Error>,
@@ -40,17 +39,13 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
             do {
                 let candidate = try await task.value
                 if let cancellationCloseTask =
-                    await cancellationClose.task(
-                        waitForStart: waitsForCancellationClose
-                    ) {
+                    await cancellationClose?.task() {
                     await cancellationCloseTask.value
                 }
                 await candidate.close()
             } catch {
                 if let cancellationCloseTask =
-                    await cancellationClose.task(
-                        waitForStart: waitsForCancellationClose
-                    ) {
+                    await cancellationClose?.task() {
                     await cancellationCloseTask.value
                 }
             }
@@ -70,9 +65,7 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
         timeoutNanoseconds: UInt64
     ) async -> MobileRPCAbandonedCandidateClose {
         let closeTask = Task<Void, any Error> {
-            if let cancellationCloseTask = await cancellationClose.task(
-                waitForStart: waitsForCancellationClose
-            ) {
+            if let cancellationCloseTask = await cancellationClose?.task() {
                 await cancellationCloseTask.value
             }
             await candidate.close()
@@ -97,9 +90,7 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
     func finishCancellationClose(
         timeoutNanoseconds: UInt64
     ) async {
-        guard let cancellationCloseTask = await cancellationClose.task(
-            waitForStart: waitsForCancellationClose
-        ) else {
+        guard let cancellationCloseTask = await cancellationClose?.task() else {
             await clearFinishedConnectGate()
             return
         }
