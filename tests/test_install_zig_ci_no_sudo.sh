@@ -102,6 +102,9 @@ CONCURRENT_OUTPUT_ONE="$TMP_DIR/concurrent-output-one"
 CONCURRENT_OUTPUT_TWO="$TMP_DIR/concurrent-output-two"
 CONCURRENT_PATH_OUTPUT_ONE="$TMP_DIR/concurrent-path-one"
 CONCURRENT_PATH_OUTPUT_TWO="$TMP_DIR/concurrent-path-two"
+ORPHAN_LOCK_INSTALL_PARENT="$TMP_DIR/orphan-lock-install"
+ORPHAN_LOCK_OUTPUT="$TMP_DIR/orphan-lock-output"
+ORPHAN_LOCK_PATH_OUTPUT="$TMP_DIR/orphan-lock-path"
 DEFAULT_OUTPUT_FILE="$TMP_DIR/default-output"
 DEFAULT_GITHUB_PATH_FILE="$TMP_DIR/default-github-path"
 DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
@@ -527,6 +530,45 @@ if [ -e "${CONCURRENT_INSTALL_ROOT}.install-lock" ] \
   || [ -e "$CONCURRENT_INSTALL_ROOT/$ZIG_NAME" ]; then
   cat "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_OUTPUT_TWO"
   echo "FAIL: concurrent Zig cache publication left lock, staging, or nested toolchain state" >&2
+  exit 1
+fi
+
+mkdir -p "$ORPHAN_LOCK_INSTALL_PARENT/${ZIG_NAME}.install-lock"
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  FAKE_ZIG_VERSION="98.98.98" \
+  FAKE_ZIG_LIB_DIR="$FIXTURE_ROOT/$ZIG_NAME/lib" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_FORCE_LOCAL_INSTALL=1 \
+  ZIG_INSTALL_ROOT="$ORPHAN_LOCK_INSTALL_PARENT" \
+  ZIG_PATH_OUTPUT="$ORPHAN_LOCK_PATH_OUTPUT" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$ORPHAN_LOCK_OUTPUT" 2>&1 &
+ORPHAN_LOCK_PID=$!
+
+for _ in $(seq 1 50); do
+  if ! kill -0 "$ORPHAN_LOCK_PID" 2>/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
+
+if kill -0 "$ORPHAN_LOCK_PID" 2>/dev/null; then
+  kill "$ORPHAN_LOCK_PID" 2>/dev/null || true
+  wait "$ORPHAN_LOCK_PID" 2>/dev/null || true
+  cat "$ORPHAN_LOCK_OUTPUT"
+  echo "FAIL: installer did not recover an interrupted cache lock without a PID" >&2
+  exit 1
+fi
+
+ORPHAN_LOCK_STATUS=0
+wait "$ORPHAN_LOCK_PID" || ORPHAN_LOCK_STATUS=$?
+if [ "$ORPHAN_LOCK_STATUS" -ne 0 ] \
+  || [ ! -x "$ORPHAN_LOCK_INSTALL_PARENT/$ZIG_NAME/zig" ] \
+  || [ -e "$ORPHAN_LOCK_INSTALL_PARENT/${ZIG_NAME}.install-lock" ]; then
+  cat "$ORPHAN_LOCK_OUTPUT"
+  echo "FAIL: installer did not replace an interrupted cache lock with a complete toolchain" >&2
   exit 1
 fi
 
