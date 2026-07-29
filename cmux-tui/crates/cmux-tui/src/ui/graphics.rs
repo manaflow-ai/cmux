@@ -1261,8 +1261,8 @@ mod tests {
     }
 
     #[test]
-    fn terminal_probe_waits_for_both_completion_markers() {
-        assert!(!terminal_probe_complete(b"\x1b[?62;c"));
+    fn terminal_probe_finishes_at_da1_ordering_marker() {
+        assert!(terminal_probe_complete(b"\x1b[?62;c"));
         assert!(!terminal_probe_complete(b"\x1b_Gi=31;OK\x1b\\"));
     }
 
