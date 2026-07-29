@@ -11993,7 +11993,10 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.code, "selector.invalid");
-        assert_eq!(error.details["context"]["missing_parent"], "workspace");
+        assert_eq!(error.details["scope"], "pane");
+        assert!(
+            error.details["reason"].as_str().is_some_and(|reason| reason.contains("workspace"))
+        );
 
         let mut wrong_type = routed_selectors(&machine, &session);
         wrong_type.workspace = Some(topology.browsers[0].public_id.to_string());
