@@ -145,6 +145,25 @@ extension AgentHibernationController {
         }
     }
 
+    func releaseArmedRestoreMonitorAfterAbortedTeardown(
+        _ snapshot: AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot,
+        sessionId: String?,
+        restoreOwnedSnapshotPaths: inout Set<String>
+    ) async {
+        await cancelPostTeardownRestoreTaskForReplacement(
+            transcriptPath: snapshot.transcriptPath
+        )
+        restoreOwnedSnapshotPaths.remove(snapshot.snapshotPath)
+        guard AgentHibernationTranscriptGuard.liveFileVersionStillMatches(snapshot) else {
+            AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
+                snapshot,
+                sessionId: sessionId
+            )
+            return
+        }
+        try? FileManager.default.removeItem(atPath: snapshot.snapshotPath)
+    }
+
     private static func snapshotOutcomes(
         for requests: [ConfirmedTeardownRequest]
     ) async -> [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome] {

@@ -119,6 +119,51 @@ struct AgentHibernationRestoreMonitorTests {
 
     @MainActor
     @Test
+    func lateAbortReleasesArmedMonitorAndDisposesItsSnapshot() async throws {
+        let controller = AgentHibernationController.shared
+        defer { resetSharedHibernationState(controller) }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-late-abort-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshotURL = directory.appendingPathComponent("snapshot.jsonl")
+        let content = #"{"type":"user","message":{"content":"protected"}}"# + "\n"
+        try content.write(to: live, atomically: true, encoding: .utf8)
+        try content.write(to: snapshotURL, atomically: true, encoding: .utf8)
+        let snapshot = try #require(
+            AgentHibernationTranscriptGuard.snapshotStillMatchesLive(
+                .init(
+                    transcriptPath: live.path,
+                    snapshotPath: snapshotURL.path
+                )
+            )
+        )
+        var restoreOwnedSnapshotPaths: Set<String> = [snapshot.snapshotPath]
+        #expect(controller.armPostTeardownRestoreMonitor(
+            snapshot: snapshot,
+            processIDs: []
+        ))
+
+        await controller.releaseArmedRestoreMonitorAfterAbortedTeardown(
+            snapshot,
+            sessionId: "late-abort",
+            restoreOwnedSnapshotPaths: &restoreOwnedSnapshotPaths
+        )
+
+        let monitorKey = AgentHibernationController.postTeardownRestoreTaskKey(
+            transcriptPath: live.path
+        )
+        #expect(controller.postTeardownRestoreTasksByTranscriptPath[monitorKey] == nil)
+        #expect(restoreOwnedSnapshotPaths.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: snapshotURL.path) == false)
+        #expect(try String(contentsOf: live, encoding: .utf8) == content)
+    }
+
+    @MainActor
+    @Test
     func armedForfeitMonitorRestoresClobberedTranscriptAndRefusesDuplicates() async throws {
         let controller = AgentHibernationController.shared
         defer { resetSharedHibernationState(controller) }

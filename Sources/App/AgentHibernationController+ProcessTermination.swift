@@ -189,6 +189,13 @@ extension AgentHibernationController {
         snapshot.map({
             AgentHibernationTranscriptGuard.liveFileVersionStillMatches($0)
         }) ?? true else {
+            if let snapshot {
+                await releaseArmedRestoreMonitorAfterAbortedTeardown(
+                    snapshot,
+                    sessionId: record.agent.sessionId,
+                    restoreOwnedSnapshotPaths: &restoreOwnedSnapshotPaths
+                )
+            }
             return false
         }
 
@@ -228,6 +235,13 @@ extension AgentHibernationController {
         )
         switch terminationResult {
         case .rejected:
+            if let snapshot {
+                await releaseArmedRestoreMonitorAfterAbortedTeardown(
+                    snapshot,
+                    sessionId: record.agent.sessionId,
+                    restoreOwnedSnapshotPaths: &restoreOwnedSnapshotPaths
+                )
+            }
             return false
         case .exited:
             finishTeardown()
