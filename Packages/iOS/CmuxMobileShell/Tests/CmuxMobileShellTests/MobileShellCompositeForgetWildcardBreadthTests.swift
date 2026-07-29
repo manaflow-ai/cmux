@@ -1,0 +1,159 @@
+import CMUXMobileCore
+import CmuxMobilePairedMac
+import Foundation
+import Testing
+@testable import CmuxMobileShell
+
+/// A forget capability that records each revoke's exact target, so a test can
+/// see whether the revoke was tag-exact or a device-wide wildcard.
+@MainActor
+private final class WildcardRecordingForget: MobileIrohMacForgetting {
+    private(set) var revokes: [(macDeviceID: String, instanceTag: String?)] = []
+
+    func forgetComputer(
+        macDeviceID: String,
+        instanceTag: String?,
+        expectedAccountID _: String
+    ) async throws {
+        revokes.append((macDeviceID, instanceTag))
+    }
+}
+
+/// Regression coverage for the BREADTH of a forget.
+///
+/// A row with no instance tag cannot name which broker binding is its own, so
+/// forgetting it revokes EVERY binding for the device (wildcard) — that side is
+/// fixed. The local cleanup must match that breadth: deleting only the exact
+/// nil-tag row leaves the device's tagged sibling rows saved locally while
+/// their bindings were just revoked, so they linger as dead entries that
+/// resurface in the computer list until the Mac happens to re-register. A
+/// tag-known forget stays narrow on both sides; only the wildcard case widens.
+@MainActor
+@Suite struct MobileShellCompositeForgetWildcardBreadthTests {
+    @Test func wildcardForgetDeletesEveryLocalRowOfTheDevice() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // The same device paired twice: a tagged dev-build row and an untagged
+        // row (tag unknown). Both owned by user-1, team-less. The TAGGED row is
+        // seeded FIRST: a tagged upsert CLAIMS an existing untagged row of the
+        // same device, but an untagged upsert never claims a tagged row, so this
+        // order leaves two coexisting rows — the mixed state a legacy add after
+        // a tagged pairing produces.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (feature)",
+            routes: [try Self.route("100.82.214.113")],
+            instanceTag: "feature",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        )
+        let forget = WildcardRecordingForget()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: base,
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { nil },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == nil
+        })
+
+        let ok = await store.forgetHiddenComputer(hidden)
+
+        #expect(ok)
+        // The nil-tag row cannot name its binding, so the revoke was the
+        // device-wide wildcard (instanceTag nil = all tags).
+        #expect(forget.revokes.count == 1)
+        #expect(forget.revokes.first?.macDeviceID == "mac-a")
+        #expect(forget.revokes.first?.instanceTag == nil)
+        // Local cleanup must match the wildcard's breadth: EVERY row of the
+        // device is gone, including the tagged sibling whose binding was just
+        // revoked. Leaving it saved strands a dead entry in the computer list.
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+    }
+
+    /// A tag-known forget stays narrow: it revokes exactly its own binding and
+    /// deletes exactly its own row, leaving the device's other rows alone.
+    @Test func tagExactForgetLeavesSiblingRowsAlone() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // Tagged row first, untagged second: same coexistence recipe as above.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (feature)",
+            routes: [try Self.route("100.82.214.113")],
+            instanceTag: "feature",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        )
+        let forget = WildcardRecordingForget()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: base,
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { nil },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: "feature")
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == "feature"
+        })
+
+        let ok = await store.forgetHiddenComputer(hidden)
+
+        #expect(ok)
+        #expect(forget.revokes.count == 1)
+        #expect(forget.revokes.first?.instanceTag == "feature")
+        // Only the tagged row is gone; the untagged sibling survives.
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" && $0.instanceTag == "feature" })
+        #expect(remaining.contains { $0.macDeviceID == "mac-a" && $0.instanceTag == nil })
+    }
+
+    private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
+        try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
+    }
+}
