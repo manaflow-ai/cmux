@@ -50,9 +50,12 @@ struct AgentConversationForkRequest: Equatable, Sendable {
 
     func startupCommandOverride(
         sourceSnapshot: SessionRestorableAgentSnapshot,
+        forceConversationTransfer: Bool = false,
         exportService: AgentConversationExportService = .live
     ) async throws -> String? {
-        guard !targetHarness.usesNativeFork(for: sourceSnapshot.kind) else {
+        guard targetHarness != .current,
+              forceConversationTransfer
+                || !targetHarness.usesNativeFork(for: sourceSnapshot.kind) else {
             return nil
         }
         let handoffMessage = try await exportService.message(for: sourceSnapshot)

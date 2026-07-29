@@ -25,20 +25,31 @@ extension Workspace {
         ) else {
             return false
         }
-        let usesNativeFork = request.targetHarness.usesNativeFork(for: snapshot.kind)
+        let sourceSnapshotFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(
+            snapshot,
+            isRemoteTerminal: sourceIsRemote
+        )
+        guard let initialSelection = agentConversationForkSelection(
+            forPanelId: panelId,
+            request: request
+        ),
+              ContentView.commandPaletteForkSnapshotFingerprint(
+                  initialSelection.snapshot,
+                  isRemoteTerminal: sourceIsRemote
+              ) == sourceSnapshotFingerprint else {
+            return false
+        }
+        let usesNativeFork = initialSelection.requiresNativeForkCapability
         guard usesNativeFork
             ? snapshot.forkCommand != nil
             : AgentConversationSource(snapshot: snapshot).hasDeterministicTranscriptSource else {
             return false
         }
-        let sourceSnapshotFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(
-            snapshot,
-            isRemoteTerminal: sourceIsRemote
-        )
         let startupCommandOverride: String?
         do {
             startupCommandOverride = try await request.startupCommandOverride(
                 sourceSnapshot: snapshot,
+                forceConversationTransfer: !usesNativeFork,
                 exportService: exportService
             )
         } catch {

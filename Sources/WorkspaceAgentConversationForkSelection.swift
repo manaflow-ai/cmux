@@ -23,11 +23,13 @@ extension Workspace {
         request: AgentConversationForkRequest,
         liveAgentIndex: SharedLiveAgentIndex
     ) -> WorkspaceAgentConversationForkSelection? {
-        if request.targetHarness != .current,
-           let transferSnapshot = agentConversationTransferSnapshot(
-               forPanelId: panelId,
-               liveAgentIndex: liveAgentIndex
-           ),
+        let transferSnapshot = request.targetHarness == .current
+            ? nil
+            : agentConversationTransferSnapshot(
+                forPanelId: panelId,
+                liveAgentIndex: liveAgentIndex
+            )
+        if let transferSnapshot,
            !request.targetHarness.usesNativeFork(for: transferSnapshot.kind) {
             return WorkspaceAgentConversationForkSelection(
                 snapshot: transferSnapshot,
@@ -43,7 +45,14 @@ extension Workspace {
         guard nativeSelection.availability.isAvailable,
               let nativeSnapshot = nativeSelection.snapshot,
               request.targetHarness.usesNativeFork(for: nativeSnapshot.kind) else {
-            return nil
+            guard let transferSnapshot else { return nil }
+            // Named same-harness choices prefer native fork, but a deterministic
+            // transcript remains actionable when that capability is unavailable.
+            return WorkspaceAgentConversationForkSelection(
+                snapshot: transferSnapshot,
+                validationFallbackSnapshot: nil,
+                requiresNativeForkCapability: false
+            )
         }
         return WorkspaceAgentConversationForkSelection(
             snapshot: nativeSnapshot,
