@@ -445,6 +445,90 @@ def verify_failed_clear_store_preserves_visible_state(cli_path: str) -> None:
                 )
 
 
+def verify_session_crons_do_not_cross_clear(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    old_session_id = f"cron-old-{uuid.uuid4().hex}"
+    clear_session_id = f"cron-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "cron-clear-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "scheduled work remains",
+                "background_tasks": [],
+                "session_crons": [{"id": "cron-1"}],
+            },
+            env,
+        )
+
+        stopped_record = json.loads(state_path.read_text())["sessions"][old_session_id]
+        if stopped_record.get("hadPendingBackgroundWorkAtStop") is not True:
+            raise RuntimeError(
+                "Session crons must still suppress idle reminders before /clear:\n"
+                f"stopped_record={stopped_record!r}"
+            )
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        clear_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
+            env,
+        )
+        clear_commands = server.commands[clear_start:]
+
+        if not has_command_with(
+            clear_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "A session-scoped cron crossed /clear and kept the new session Running:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+        if has_command_with(
+            clear_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "Session-scoped cron work must not transfer into the clear session:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+
+        clear_record = json.loads(state_path.read_text())["sessions"][clear_session_id]
+        if clear_record.get("agentLifecycle") != "idle":
+            raise RuntimeError(
+                "The clear session inherited a lifecycle from a retired cron:\n"
+                f"clear_record={clear_record!r}"
+            )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -641,6 +725,7 @@ def main() -> int:
             "prompt-submit",
         )
         verify_failed_clear_store_preserves_visible_state(cli_path)
+        verify_session_crons_do_not_cross_clear(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
