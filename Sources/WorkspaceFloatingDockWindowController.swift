@@ -78,6 +78,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     private var hasAppliedInitialScreenPlacement = false
     private var isScreenConfigurationChanging = false
     private var presentation: Presentation = .visible
+    private var presentationTargetFrame: CGRect?
     private var accessoryIsTransientForVisibleRename = false
     private weak var renameFocusController: MainWindowFocusController?
     private var renameFocusSessionID: UUID?
@@ -233,6 +234,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             attachVisiblePanel(panel, to: parentWindow)
             panel.orderFront(nil)
         }
+        presentationTargetFrame = panel.frame
         dock.store.setVisibleInUI(true)
         finishShowing(panel, focus: focus)
     }
@@ -270,6 +272,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         presentationGeneration &+= 1
         isAnimatingPresentation = false
         presentation = .visible
+        presentationTargetFrame = nil
         stashOverlay.isHidden = true
         if let panel = window as? WorkspaceFloatingDockPanel {
             panel.presentsStashedWindow = false
@@ -289,6 +292,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         isAnimatingPresentation = false
         if let parkingSnapshot {
             presentation = .parked(parkingSnapshot)
+            presentationTargetFrame = parkingSnapshot.parkedFrame
             setPanelFrame(parkingSnapshot.parkedFrame, display: false)
         }
         dock.ownsInputFocus = false
@@ -351,6 +355,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             presentation = .revealed(snapshot)
             targetFrame = snapshot.revealedFrame
         }
+        presentationTargetFrame = targetFrame
         persistRestorableFrame(snapshot.restoreFrame)
         detachParkedPanel(panel)
         stashOverlay.isHidden = false
@@ -395,6 +400,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         let wasKeyWindow = panel.isKeyWindow
         persistRestorableFrame(originalFrame)
         presentation = .parked(snapshot)
+        presentationTargetFrame = snapshot.parkedFrame
         hideParkingAccessory(animated: false)
         detachParkedPanel(panel)
         stashOverlay.isHidden = false
@@ -423,8 +429,11 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             )
             panel.animator().setFrame(snapshot.parkedFrame, display: true)
         } completionHandler: { [weak self, weak panel] in
-            guard let self, let panel,
-                  self.presentationGeneration == generation else { return }
+            guard let self, let panel else { return }
+            guard self.presentationGeneration == generation else {
+                self.settleLatestPresentationTarget(on: panel)
+                return
+            }
             if self.dock.isStashed {
                 self.completeStash(
                     panel: panel,
@@ -474,6 +483,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         let generation = presentationGeneration
         let destinationFrame = parkingSnapshot.restoreFrame
         presentation = .visible
+        presentationTargetFrame = destinationFrame
         accessoryIsTransientForVisibleRename = false
         hideParkingAccessory(animated: true)
         stashOverlay.isHidden = true
@@ -502,9 +512,12 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             )
             panel.animator().setFrame(destinationFrame, display: true)
         } completionHandler: { [weak self, weak panel] in
-            guard let self, let panel,
-                  self.presentationGeneration == generation,
-                  !self.dock.isStashed else { return }
+            guard let self, let panel else { return }
+            guard self.presentationGeneration == generation else {
+                self.settleLatestPresentationTarget(on: panel)
+                return
+            }
+            guard !self.dock.isStashed else { return }
             self.isAnimatingPresentation = false
             panel.ignoresMouseEvents = false
             self.setPanelFrame(destinationFrame, display: true)
@@ -530,6 +543,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         let targetFrame = isRevealed
             ? parkingSnapshot.revealedFrame
             : parkingSnapshot.parkedFrame
+        presentationTargetFrame = targetFrame
         if isRevealed {
             showParkingAccessory(
                 panel: panel,
@@ -566,6 +580,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     }
 
     private func animatePanel(_ panel: NSWindow, to frame: CGRect, duration: TimeInterval) {
+        presentationTargetFrame = frame
         guard panel.frame != frame else { return }
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             setPanelFrame(frame, display: true)
@@ -584,12 +599,21 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             )
             panel.animator().setFrame(frame, display: true)
         } completionHandler: { [weak self, weak panel] in
-            guard let self, let panel,
-                  self.presentationGeneration == generation,
-                  self.dock.isStashed else { return }
+            guard let self, let panel else { return }
+            guard self.presentationGeneration == generation else {
+                self.settleLatestPresentationTarget(on: panel)
+                return
+            }
+            guard self.dock.isStashed else { return }
             self.isAnimatingPresentation = false
             self.setPanelFrame(frame, display: true)
         }
+    }
+
+    private func settleLatestPresentationTarget(on panel: NSWindow) {
+        guard let presentationTargetFrame else { return }
+        isAnimatingPresentation = false
+        setPanelFrame(presentationTargetFrame, display: panel.isVisible)
     }
 
     /// Uses AppKit's native cascade policy so a new floating window follows
@@ -605,6 +629,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     func teardown() {
         presentationGeneration &+= 1
         isAnimatingPresentation = false
+        presentationTargetFrame = nil
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
         endRenameFocusSession()
