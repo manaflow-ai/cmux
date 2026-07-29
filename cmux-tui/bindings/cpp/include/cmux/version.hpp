@@ -4,6 +4,6 @@
 
 namespace cmux {
 
-inline constexpr std::string_view kSdkVersion = "0.4.0";
+inline constexpr std::string_view kSdkVersion = "1.0.0";
 
 }  // namespace cmux

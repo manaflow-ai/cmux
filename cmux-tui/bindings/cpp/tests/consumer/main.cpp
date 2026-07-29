@@ -27,7 +27,7 @@ int main() {
     return selector.wire() != "name:current" || !command ||
                    command.value().argv().size() != 2 ||
                    !(raw_request == cmux::raw::IdentifyRequest{}) ||
-                   cmux::kSdkVersion != "0.4.0"
+                   cmux::kSdkVersion != "1.0.0"
                ? 1
                : 0;
 }
