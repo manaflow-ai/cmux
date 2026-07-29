@@ -366,7 +366,19 @@ struct WorkspaceDetailView: View {
 
     private func reconnectToWorkspaceMac() {
         Task {
-            await store.reconnectToMac(macDeviceID: workspace.macDeviceID)
+            if toasts.isEnabled {
+                await store.reconnectToMac(macDeviceID: workspace.macDeviceID)
+                return
+            }
+            // Flag off is byte-for-byte legacy: the fullscreen overlay's
+            // Reconnect keeps the original sequence, including switchToMac's
+            // already-foreground fast path and aggregate recovery.
+            if let macDeviceID = workspace.macDeviceID,
+               !macDeviceID.isEmpty,
+               await store.switchToMac(macDeviceID: macDeviceID) {
+                return
+            }
+            await store.reconnectOrRefresh()
         }
     }
 

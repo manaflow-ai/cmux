@@ -83,7 +83,15 @@ extension MobileShellComposite {
         if let targetMacDeviceID, await switchToMac(macDeviceID: targetMacDeviceID) {
             return
         }
-        _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+        if await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID) {
+            return
+        }
+        // Failed dials run their own cleanup with the default non-preserving
+        // teardown, dropping the secondary subscriptions preserved above (the
+        // foreground id is already nil, so that filter keeps only the
+        // anonymous key). Rebuild them so a failed foreground redial cannot
+        // strand healthy secondary Macs.
+        await refreshSecondaryMacWorkspaces()
     }
 
     /// UI-facing recover action for the workspace list when it is showing an
