@@ -106,6 +106,10 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
             searchStart = token.upperBound
             let text = command[token]
             if text == "--" { break }
+            // An unquoted # at the start of a word begins a comment running to
+            // the end of the line; nothing after it is an executable flag, and
+            // the newline stop above already ends the scan there.
+            if text.hasPrefix("#") { break }
             // An unquoted ;, |, or & ends the simple command, but the token's
             // prefix before it (e.g. `--model=old;`) is still ordinary flag
             // syntax that must be processed so the stale value cannot win.

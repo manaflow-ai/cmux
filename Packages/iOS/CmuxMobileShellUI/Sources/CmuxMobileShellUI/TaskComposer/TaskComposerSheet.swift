@@ -129,10 +129,15 @@ struct TaskComposerSheet: View {
                 templateStore: store.taskTemplateStore,
                 openDirectory: openDirectory
             )
+        // A draft model that fails curated-list validation changes the request
+        // bytes, so its operation ID (and any recovery bound to it) must not
+        // be reused for the resulting default-model command.
+        let draftModelSurvivedValidation = draft?.modelID == nil || initialModelID != nil
         let restoredOperationID = (
             draft?.templateID == selectedTemplateID
                 && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
                 && canRestoreDraftDirectory
+                && draftModelSurvivedValidation
         ) ? draft?.operationID : nil
         let initialPrompt = draft?.prompt ?? ""
         let initialWorkspaceName = draft?.workspaceName ?? ""
@@ -152,6 +157,7 @@ struct TaskComposerSheet: View {
         let canRestoreCompletedOperation = draft?.templateID == selectedTemplateID
             && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
             && canRestoreDraftDirectory
+            && draftModelSurvivedValidation
         let initialCompletedOperationRecovery = (canRestoreCompletedOperation
             ? draft?.completedOperationID
             : nil)

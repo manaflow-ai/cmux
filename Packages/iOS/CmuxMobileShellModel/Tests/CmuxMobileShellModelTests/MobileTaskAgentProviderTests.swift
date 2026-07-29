@@ -260,6 +260,14 @@ import Testing
         )
     }
 
+    @Test func commentedFlagIsNotRewritten() {
+        let command = "claude # --model old"
+        #expect(
+            MobileTaskAgentProvider.claude.command(applying: "claude-opus-4-8", to: command)
+                == "claude --model 'claude-opus-4-8' # --model old"
+        )
+    }
+
     @Test func backgroundAndPipeOperatorsStillEndTheScan() {
         #expect(
             MobileTaskAgentProvider.codex.command(applying: "gpt-5.5", to: "codex & tail --model x")
