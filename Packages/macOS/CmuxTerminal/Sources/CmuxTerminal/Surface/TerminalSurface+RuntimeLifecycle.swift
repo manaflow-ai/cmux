@@ -481,6 +481,63 @@ extension TerminalSurface {
     }
 
     @MainActor
+    private func deferRuntimeSurfaceCreationForConfigurationReload(
+        view: any TerminalSurfaceNativeViewing,
+        source: RuntimeSurfaceCreationSource
+    ) -> Bool {
+        if configurationReloadDeferredRuntimeSurfaceCreation {
+            configurationReloadDeferredRuntimeSurfaceCreationSource =
+                (
+                    configurationReloadDeferredRuntimeSurfaceCreationSource
+                    ?? source
+                ).promoted(with: source)
+            configurationReloadDeferredRuntimeSurfaceView = view
+            return true
+        }
+
+        configurationReloadDeferredRuntimeSurfaceCreation = true
+        configurationReloadDeferredRuntimeSurfaceCreationSource =
+            source
+        configurationReloadDeferredRuntimeSurfaceView = view
+        let accepted =
+            engine
+                .deferRuntimeSurfaceCreationForConfigurationReload {
+                    [weak self] in
+                    self?
+                        .resumeRuntimeSurfaceCreationAfterConfigurationReload()
+                }
+        guard accepted else {
+            configurationReloadDeferredRuntimeSurfaceCreation = false
+            configurationReloadDeferredRuntimeSurfaceCreationSource =
+                nil
+            configurationReloadDeferredRuntimeSurfaceView = nil
+            return false
+        }
+        return true
+    }
+
+    @MainActor
+    private func resumeRuntimeSurfaceCreationAfterConfigurationReload() {
+        let source =
+            configurationReloadDeferredRuntimeSurfaceCreationSource
+            ?? .normal
+        let view =
+            configurationReloadDeferredRuntimeSurfaceView
+            ?? attachedView
+            ?? surfaceView
+        configurationReloadDeferredRuntimeSurfaceCreation = false
+        configurationReloadDeferredRuntimeSurfaceCreationSource = nil
+        configurationReloadDeferredRuntimeSurfaceView = nil
+
+        guard allowsRuntimeSurfaceCreation(),
+              surface == nil else {
+            return
+        }
+        prepareFontSizeForDeferredConfigurationRuntimeCreation()
+        createSurface(for: view, source: source)
+    }
+
+    @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
@@ -492,6 +549,12 @@ extension TerminalSurface {
                 "createSurface SKIPPED surface=\(id.uuidString) tab=\(tabId.uuidString) lifecycle=\(portalLifecycleState.rawValue)"
             )
 #endif
+            return
+        }
+        if deferRuntimeSurfaceCreationForConfigurationReload(
+            view: view,
+            source: source
+        ) {
             return
         }
         let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)
@@ -558,6 +621,15 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
+        guard let surfaceCallbackContext else {
+            preconditionFailure(
+                "A native terminal surface requires callback userdata"
+            )
+        }
+        installFontSizeActionObservation(
+            on: createdSurface,
+            callbackContext: surfaceCallbackContext
+        )
         if source == .scheduledRestore || source == .inputDemand {
             requiresRestoreSpawnPacing = false
         }
@@ -621,7 +693,10 @@ extension TerminalSurface {
            inheritedFontSizeLineage.basePoints > 0 {
             let inheritedBaseFontPoints = inheritedFontSizeLineage.basePoints
             let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints, percent: globalFontMagnificationPercent())
-            let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
+            let action =
+                ghosttySetFontSizeBindingAction(
+                    inheritedRuntimeFontPoints
+                )
             _ = performInternalBindingAction(action)
         }
 
