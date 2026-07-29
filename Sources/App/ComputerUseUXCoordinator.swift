@@ -16,8 +16,10 @@ final class ComputerUseUXCoordinator {
     private let workspaceTitle: @MainActor (UUID) -> String?
     private let featureEnabled: @MainActor () -> Bool
     private let liveSessionProjection: ComputerUseLiveSessionProjection
+    private let activityLifecycle = ComputerUseActivityLifecycle()
 
     private var menuBarController: ComputerUseMenuBarController?
+    private var menuBarSnapshotStore: ComputerUseMenuBarSnapshotStore?
     private var watchTargetController: ComputerUseWatchTargetController?
     private var onboardingWindowController: ComputerUseOnboardingWindowController?
     private var enabledSettingTask: Task<Void, Never>?
@@ -102,7 +104,7 @@ final class ComputerUseUXCoordinator {
             ) {
                 guard !Task.isCancelled else { return }
                 guard let event = notification.object as? WorkstreamEvent else { continue }
-                self?.recordToolInvocation(event)
+                self?.handleWorkstreamEvent(event)
             }
         }
 
@@ -132,6 +134,7 @@ final class ComputerUseUXCoordinator {
 
         let snapshotStore = ComputerUseMenuBarSnapshotStore(
             liveSessionProjection: liveSessionProjection,
+            activityLifecycle: activityLifecycle,
             stateRepository: stateRepository,
             stateDirectoryURL: stateDirectoryURL,
             configStore: configStore,
@@ -139,6 +142,7 @@ final class ComputerUseUXCoordinator {
             workspaceTitle: workspaceTitle,
             featureEnabled: featureEnabled
         )
+        menuBarSnapshotStore = snapshotStore
         menuBarController = ComputerUseMenuBarController(
             snapshotStore: snapshotStore,
             isRunningInBackground: { driverSessionID, logicalSessionID in
@@ -237,6 +241,7 @@ final class ComputerUseUXCoordinator {
         onboardingGateTask = nil
         menuBarController?.removeFromMenuBar()
         menuBarController = nil
+        menuBarSnapshotStore = nil
         watchTargetController?.stop()
         watchTargetController = nil
         onboardingWindowController?.dismiss()
@@ -260,8 +265,46 @@ final class ComputerUseUXCoordinator {
         controller.present(startingAt: startingPoint)
     }
 
-    private func recordToolInvocation(_ event: WorkstreamEvent) {
-        guard Self.isComputerUseToolInvocation(event) else { return }
+    private func handleWorkstreamEvent(_ event: WorkstreamEvent) {
+        let isComputerUseInvocation = Self.isComputerUseToolInvocation(event)
+        if isComputerUseInvocation {
+            reconcileToolInvocation(event)
+        }
+        guard
+            let driverSessionID = liveSessionProjection.driverSessionID(
+                surfaceID: event.surfaceId,
+                agentSessionID: event.sessionId
+            )
+        else {
+            return
+        }
+
+        switch event.hookEventName {
+        case .preToolUse where isComputerUseInvocation:
+            Task { @MainActor [runtimeService] in
+                _ = await runtimeService.setDriverCursorVisible(
+                    true,
+                    driverSessionID: driverSessionID
+                )
+            }
+        case .stop, .sessionEnd:
+            activityLifecycle.recordCompletion(
+                driverSessionID: driverSessionID,
+                receivedAt: event.receivedAt
+            )
+            menuBarSnapshotStore?.driverSessionDidComplete(driverSessionID)
+            Task { @MainActor [runtimeService] in
+                _ = await runtimeService.setDriverCursorVisible(
+                    false,
+                    driverSessionID: driverSessionID
+                )
+            }
+        default:
+            break
+        }
+    }
+
+    private func reconcileToolInvocation(_ event: WorkstreamEvent) {
         guard onboardingGateTask == nil else { return }
         onboardingGateTask = Task { @MainActor [weak self] in
             guard let self else { return }

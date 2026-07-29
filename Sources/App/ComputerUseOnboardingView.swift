@@ -24,6 +24,7 @@ struct ComputerUseOnboardingView: View {
     @State private var screenRecordingGranted = false
     @State private var permissionStatusIsKnown = false
     @State private var refreshInFlight = false
+    @State private var permissionChangeRefreshInFlight = false
     @State private var permissionCheckArmed = false
     @State private var helperAppURL: URL?
     @State private var helperIcon: NSImage?
@@ -88,6 +89,17 @@ struct ComputerUseOnboardingView: View {
         .onChange(of: presentationState.returnToOverviewGeneration) {
             step = .overview
             refreshPermissions()
+        }
+        .onChange(of: presentationState.permissionSnapshot) {
+            guard let snapshot = presentationState.permissionSnapshot else {
+                return
+            }
+            refreshHelperPresentation()
+            applyPermissions(
+                statusIsKnown: snapshot.statusIsKnown,
+                accessibilityGranted: snapshot.accessibilityGranted,
+                screenRecordingGranted: snapshot.screenRecordingGranted
+            )
         }
         .task {
             await refreshPermissionsNow()
@@ -477,7 +489,24 @@ struct ComputerUseOnboardingView: View {
     private func handleHelperDragEnded(operation: NSDragOperation) {
         guard operation != [] else { return }
         permissionCheckArmed = true
-        refreshPermissions()
+        Task { @MainActor in
+            await refreshPermissionsAfterPermissionChange()
+        }
+    }
+
+    private func refreshPermissionsAfterPermissionChange() async {
+        guard !permissionChangeRefreshInFlight else { return }
+        permissionChangeRefreshInFlight = true
+        defer { permissionChangeRefreshInFlight = false }
+        let status = await runtimeService
+            .refreshHelperStatusAfterPermissionChange()
+        guard !Task.isCancelled else { return }
+        refreshHelperPresentation()
+        applyPermissions(
+            statusIsKnown: runtimeService.permissionStatusIsKnown,
+            accessibilityGranted: status.accessibility,
+            screenRecordingGranted: status.screenRecording
+        )
     }
 
     private func prepareHelperForOnboarding() {
@@ -671,21 +700,28 @@ struct ComputerUseOnboardingView: View {
         // user with "attempting to bypass" wording out of nowhere.
         presentationState.beginScreenCaptureConsent()
         Task { @MainActor in
-            let ready = await runtimeService.verifyDirectScreenCapture()
+            let verification = await runtimeService
+                .verifyDirectScreenCaptureOutcome()
             // Completion is forbidden while this flag is set. Clear the
             // prompt-capable phase before applying the successful result so
             // the controller can atomically replace the companion with Done.
             directCaptureVerificationInFlight = false
             presentationState.endScreenCaptureConsent()
             guard !Task.isCancelled else { return }
-            directCaptureReady = ready
-            if ready {
+            directCaptureReady = verification == .ready
+            if verification == .ready {
                 applyPermissions(
                     statusIsKnown: permissionStatusIsKnown,
                     accessibilityGranted: accessibilityGranted,
                     screenRecordingGranted: screenRecordingGranted
                 )
             } else {
+                if verification == .unavailable {
+                    // A helper replacement is not a user denial. Permit a later
+                    // TCC/status event or explicit Allow action to retry instead
+                    // of leaving this onboarding run permanently attempted.
+                    directCaptureVerificationAttempted = false
+                }
                 step = .screenRecording
                 onExpandedRequested()
             }

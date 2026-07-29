@@ -563,6 +563,93 @@ struct ComputerUseUXTests {
         #expect(projection.sessionsByDriverSessionID()[driverSessionID] == nil)
     }
 
+    @Test @MainActor
+    func computerUseHookResolutionRequiresCurrentSurfaceAndAgentGeneration() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let processID = ProcessInfo.processInfo.processIdentifier
+        let currentIdentity = try #require(
+            AgentPIDProcessIdentity(pid: processID)
+        )
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "current-agent-generation"
+            ),
+            lifecycle: .running,
+            updatedAt: Date().timeIntervalSince1970,
+            processLiveness: .running,
+            processIDs: [Int(processID)],
+            agentProcessIDs: [Int(processID)],
+            agentProcessIdentities: [Int(processID): currentIdentity]
+        )
+        let projection = ComputerUseLiveSessionProjection(
+            liveEntries: {
+                [(
+                    panelKey: RestorableAgentSessionIndex.PanelKey(
+                        workspaceId: workspaceID,
+                        panelId: surfaceID
+                    ),
+                    entry: entry
+                )]
+            },
+            scheduleRefreshIfStale: {}
+        )
+        let expectedDriverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+
+        #expect(projection.driverSessionID(
+            surfaceID: surfaceID.uuidString,
+            agentSessionID: "current-agent-generation"
+        ) == expectedDriverSessionID)
+        #expect(projection.driverSessionID(
+            surfaceID: surfaceID.uuidString,
+            agentSessionID: "replaced-agent-generation"
+        ) == nil)
+        #expect(projection.driverSessionID(
+            surfaceID: UUID().uuidString,
+            agentSessionID: "current-agent-generation"
+        ) == nil)
+    }
+
+    @Test @MainActor
+    func completedComputerUseTurnRetiresOnlyStateAtOrBeforeItsCutoff() {
+        let lifecycle = ComputerUseActivityLifecycle()
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: UUID()
+        )
+        let completion = Date(timeIntervalSince1970: 1_900_000_000)
+        lifecycle.recordCompletion(
+            driverSessionID: driverSessionID,
+            receivedAt: completion
+        )
+        let cutoffs = lifecycle.completionCutoffs()
+
+        #expect(!ComputerUseActivityLifecycle.isDisplayEligible(
+            driverSessionID: driverSessionID,
+            lastActionAt: completion.addingTimeInterval(-1),
+            completionCutoffs: cutoffs
+        ))
+        #expect(!ComputerUseActivityLifecycle.isDisplayEligible(
+            driverSessionID: driverSessionID,
+            lastActionAt: completion,
+            completionCutoffs: cutoffs
+        ))
+        #expect(ComputerUseActivityLifecycle.isDisplayEligible(
+            driverSessionID: driverSessionID,
+            lastActionAt: completion.addingTimeInterval(1),
+            completionCutoffs: cutoffs
+        ))
+        #expect(ComputerUseActivityLifecycle.isDisplayEligible(
+            driverSessionID: ComputerUseSessionScope.driverSessionID(
+                surfaceID: UUID()
+            ),
+            lastActionAt: completion.addingTimeInterval(-1),
+            completionCutoffs: cutoffs
+        ))
+    }
+
     @Test func computerUseSettingsNavigationRawValuesStayInSync() {
         #expect(SettingsSectionID.computerUse.rawValue == SettingsNavigationTarget.computerUse.rawValue)
     }
@@ -939,6 +1026,26 @@ struct ComputerUseUXTests {
 
         presentationState.endScreenCaptureConsent()
         #expect(!presentationState.screenCaptureConsentPending)
+    }
+
+    @Test @MainActor
+    func permissionCompanionPublishesItsRecoveredStatusToTheMainOnboarding() {
+        let presentationState = ComputerUseOnboardingPresentationState()
+
+        presentationState.publishPermissionSnapshot(
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: true
+        )
+
+        #expect(
+            presentationState.permissionSnapshot
+                == ComputerUseOnboardingPermissionSnapshot(
+                    statusIsKnown: true,
+                    accessibilityGranted: true,
+                    screenRecordingGranted: true
+                )
+        )
     }
 
     /// Regression: ScreenCaptureKit can return from its first direct-content
@@ -1810,6 +1917,72 @@ struct ComputerUseUXTests {
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
+    func directCaptureVerificationDistinguishesDenialFromHelperUnavailability() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-direct-capture-outcome-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-cu-capture-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: home,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "direct-capture-outcome"],
+            authenticationToken: "agent-capability",
+            hostAuthenticationToken: "host-capability"
+        )
+        let currentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let deniedResponder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"capturable":false}}"#
+        )
+        let denied = await ComputerUseRuntimeService
+            .verifyDirectScreenCaptureOutcome(
+                paths: paths,
+                expectedPeerIdentity: currentIdentity
+            )
+        deniedResponder.stop()
+
+        let unavailableResponder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":false}"#
+        )
+        let unavailable = await ComputerUseRuntimeService
+            .verifyDirectScreenCaptureOutcome(
+                paths: paths,
+                expectedPeerIdentity: currentIdentity
+            )
+        unavailableResponder.stop()
+
+        #expect(denied == .notCapturable)
+        #expect(unavailable == .unavailable)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func nativePermissionRequestRejectsAReusedHelperProcessIdentity() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -2088,6 +2261,7 @@ struct ComputerUseUXTests {
             liveSessionProjection: ComputerUseLiveSessionProjection(
                 liveAgentIndex: sharedIndex
             ),
+            activityLifecycle: ComputerUseActivityLifecycle(),
             stateRepository: ComputerUseStateRepository(
                 authenticationKey: Self.stateAuthenticationKey
             ),

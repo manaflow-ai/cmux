@@ -4,6 +4,12 @@ import Darwin
 import Foundation
 import Security
 
+enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
+    case ready
+    case notCapturable
+    case unavailable
+}
+
 /// The single app-side owner of the standalone Computer Use helper lifecycle.
 ///
 /// The main cmux process never calls TCC-protected APIs and never executes the
@@ -193,6 +199,35 @@ final class ComputerUseRuntimeService {
         return status()
     }
 
+    /// Reconciles the helper immediately after a known TCC mutation, then reads
+    /// status from that recovered generation.
+    ///
+    /// A drag into System Settings can terminate both helper profiles. Waiting
+    /// for two periodic health misses adds several seconds before recovery even
+    /// starts, so onboarding uses this explicit path for its drag and TCC-event
+    /// callbacks. Other passive status reads remain lifecycle-neutral.
+    @discardableResult
+    func refreshHelperStatusAfterPermissionChange() async
+        -> (accessibility: Bool, screenRecording: Bool)
+    {
+        guard acceptsNewLaunches, !Task.isCancelled else { return status() }
+        permissionRefreshGeneration &+= 1
+        guard desiredEnabled else {
+            return await refreshHelperStatus()
+        }
+        missedHelperHealthChecks = 0
+        let recovery = scheduleHelperRecovery()
+        await recovery?.value
+        guard
+            acceptsNewLaunches,
+            desiredEnabled,
+            !Task.isCancelled
+        else {
+            return status()
+        }
+        return await refreshHelperStatus()
+    }
+
     func revealHelperInFinder() {
         Task { @MainActor [weak self] in
             guard let self, let url = await ensureStandaloneHelperInstalled() else { return }
@@ -291,14 +326,20 @@ final class ComputerUseRuntimeService {
     /// window picker bypass consent. It is called only from the Screenshots
     /// onboarding step after the ordinary Screen Recording grant is present.
     func verifyDirectScreenCapture() async -> Bool {
-        await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
+        await verifyDirectScreenCaptureOutcome() == .ready
+    }
+
+    func verifyDirectScreenCaptureOutcome()
+        async -> ComputerUseDirectScreenCaptureVerification
+    {
+        await serializeHelperLifecycle(cancelledResult: .unavailable) { [weak self] in
             guard
                 let self,
                 self.desiredEnabled,
                 self.acceptsNewLaunches,
                 !Task.isCancelled
             else {
-                return false
+                return .unavailable
             }
             await self.startIfNeededWithinLifecycle()
             guard
@@ -307,9 +348,9 @@ final class ComputerUseRuntimeService {
                 AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
                     == expectedPeerIdentity
             else {
-                return false
+                return .unavailable
             }
-            return await Self.verifyDirectScreenCapture(
+            return await Self.verifyDirectScreenCaptureOutcome(
                 paths: self.paths,
                 transport: self.transport,
                 expectedPeerIdentity: expectedPeerIdentity
@@ -324,6 +365,18 @@ final class ComputerUseRuntimeService {
         transport: SocketTransport = SocketTransport(),
         expectedPeerIdentity: AgentPIDProcessIdentity
     ) async -> Bool {
+        await verifyDirectScreenCaptureOutcome(
+            paths: paths,
+            transport: transport,
+            expectedPeerIdentity: expectedPeerIdentity
+        ) == .ready
+    }
+
+    nonisolated static func verifyDirectScreenCaptureOutcome(
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport = SocketTransport(),
+        expectedPeerIdentity: AgentPIDProcessIdentity
+    ) async -> ComputerUseDirectScreenCaptureVerification {
         guard
             let response = await sendDaemonRequest(
                 ["method": "verify_screen_capture"],
@@ -332,14 +385,18 @@ final class ComputerUseRuntimeService {
                 timeout: 60,
                 expectedPeerIdentity: expectedPeerIdentity,
                 socketURL: paths.daemonSocketURL
-            ),
+            )
+        else {
+            return .unavailable
+        }
+        guard
             response["ok"] as? Bool == true,
             let result = response["result"] as? [String: Any],
             let capturable = result["capturable"] as? Bool
         else {
-            return false
+            return .unavailable
         }
-        return capturable
+        return capturable ? .ready : .notCapturable
     }
 
     /// Ends one exact cmux-managed proxy generation through the authenticated
@@ -1136,13 +1193,19 @@ final class ComputerUseRuntimeService {
         scheduleHelperRecovery()
     }
 
-    private func scheduleHelperRecovery() {
-        guard recoveryTask == nil else { return }
-        recoveryTask = Task { @MainActor [weak self] in
+    @discardableResult
+    private func scheduleHelperRecovery() -> Task<Void, Never>? {
+        guard desiredEnabled, acceptsNewLaunches else { return nil }
+        if let recoveryTask {
+            return recoveryTask
+        }
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.startIfNeeded()
             self.recoveryTask = nil
         }
+        recoveryTask = task
+        return task
     }
 
     nonisolated static func shouldRecoverAfterHelperTermination(
