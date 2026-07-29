@@ -449,31 +449,6 @@ struct FilePreviewReviewFeedbackTests {
 struct FilePreviewSaveShortcutTests {
     @Test
     func savingTextViewUsesChordedSaveShortcut() async throws {
-        KeyboardShortcutSettings.resetAll()
-        defer { KeyboardShortcutSettings.resetAll() }
-
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(
-                first: ShortcutStroke(
-                    key: "k",
-                    command: true,
-                    shift: false,
-                    option: false,
-                    control: false,
-                    keyCode: UInt16(kVK_ANSI_K)
-                ),
-                second: ShortcutStroke(
-                    key: "s",
-                    command: true,
-                    shift: false,
-                    option: false,
-                    control: false,
-                    keyCode: UInt16(kVK_ANSI_S)
-                )
-            ),
-            for: .saveFilePreview
-        )
-
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("txt")
@@ -506,10 +481,36 @@ struct FilePreviewSaveShortcutTests {
             keyEvent(key: "s", keyCode: UInt16(kVK_ANSI_S))
         )
 
-        #expect(textView.performKeyEquivalent(with: prefixEvent))
+        let originalSaveShortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                first: ShortcutStroke(
+                    key: "k",
+                    command: true,
+                    shift: false,
+                    option: false,
+                    control: false,
+                    keyCode: UInt16(kVK_ANSI_K)
+                ),
+                second: ShortcutStroke(
+                    key: "s",
+                    command: true,
+                    shift: false,
+                    option: false,
+                    control: false,
+                    keyCode: UInt16(kVK_ANSI_S)
+                )
+            ),
+            for: .saveFilePreview
+        )
+        let handledPrefix = textView.performKeyEquivalent(with: prefixEvent)
+        #expect(handledPrefix)
         #expect(!panel.isSaving)
-        #expect(try String(contentsOf: url, encoding: .utf8) == "original")
-        #expect(textView.performKeyEquivalent(with: suffixEvent))
+        #expect((try? String(contentsOf: url, encoding: .utf8)) == "original")
+
+        let handledSuffix = textView.performKeyEquivalent(with: suffixEvent)
+        KeyboardShortcutSettings.setShortcut(originalSaveShortcut, for: .saveFilePreview)
+        #expect(handledSuffix)
         let savedContent = await waitForSavedContent(in: saveRecorder)
         #expect(savedContent == "saved by chord")
     }
