@@ -17,7 +17,7 @@ struct MacConnection {
     let route: CmxAttachRoute
     /// The live RPC client for this Mac.
     let client: MobileCoreRPCClient
-    /// The connection-attempt generation that established this client.
+    /// The live generation published when this client took focus.
     let generation: UUID
     /// Human-readable name shown in per-Mac connection diagnostics.
     let displayName: String?

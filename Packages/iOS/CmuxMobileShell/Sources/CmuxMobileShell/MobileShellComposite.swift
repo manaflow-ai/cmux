@@ -890,6 +890,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
     @ObservationIgnored var macSwitchRestoreBaseline: MobilePairedMac?
     @ObservationIgnored private var macSwitchCancelRestoreGeneration: UInt64 = 0
+    /// Focus generations whose terminal subscription has been removed for a
+    /// role handoff but whose registry transition has not committed yet.
+    @ObservationIgnored var focusedHandoffPreparedGenerations: Set<UUID> = []
     private var chatEventSourceGeneration: UUID
     /// One authoritative per-Mac connection registry. Compatibility accessors
     /// below keep focused/control call sites reviewable while every mutation
@@ -2953,8 +2956,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for: previousActive.macDeviceID,
             instanceTag: previousActive.instanceTag
         ))
+        let foregroundHandoffNeedsRepair = foregroundMacDeviceID.flatMap {
+            connections[$0]
+        }.map {
+            focusedHandoffPreparedGenerations.contains($0.generation)
+        } ?? false
         let previousStillForeground = connectionState == .connected
             && remoteClient != nil
+            && !foregroundHandoffNeedsRepair
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
             && (previousActive.instanceTag == nil
                 || MobileMacInstanceTagAuthority.sameStoredAuthority(
@@ -3931,9 +3940,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             requestedCanonicalIDs?.contains(cmxCanonicalDeviceID(macDeviceID))
                 ?? true
         }
-        let macs = secondaryAggregationCandidateMacs(
-            from: visibleLoadedMacs
-        ).filter { isRequested($0.macDeviceID) }
+        let macs = secondaryAggregationTargets(
+            from: visibleLoadedMacs,
+            requestedCanonicalIDs: requestedCanonicalIDs
+        )
         var transientFailureMacIDs: Set<String> = []
         func recordEstablishmentOutcome(
             _ outcome: SecondaryMacEstablishmentOutcome,
@@ -4130,6 +4140,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let visibleLoadedMacs = await visibleStoredPairedMacs(from: loadedMacs, scope: scope)
         guard await isAggregationScopeValid(scope) else { return [] }
         return secondaryAggregationCandidateMacs(from: visibleLoadedMacs).map(\.macDeviceID)
+    }
+
+    func secondaryAggregationTargets(
+        from visibleLoadedMacs: [MobilePairedMac],
+        requestedCanonicalIDs: Set<String>?
+    ) -> [MobilePairedMac] {
+        let candidates = secondaryAggregationCandidateMacs(
+            from: visibleLoadedMacs
+        )
+        guard let requestedCanonicalIDs else { return candidates }
+        // An incremental offline edge may free one of the bounded warm slots.
+        // Include newly eligible Macs that have no owner so the same pass
+        // backfills capacity, while existing unrelated owners avoid a full
+        // workspace/feed refresh.
+        let existingControlIDs = Set(
+            secondaryMacSubscriptions.keys.map(cmxCanonicalDeviceID)
+        )
+        return candidates.filter { candidate in
+            let candidateID = cmxCanonicalDeviceID(candidate.macDeviceID)
+            return requestedCanonicalIDs.contains(candidateID)
+                || !existingControlIDs.contains(candidateID)
+        }
     }
 
     func secondaryAggregationCandidateMacs(from visibleLoadedMacs: [MobilePairedMac]) -> [MobilePairedMac] {
@@ -6005,6 +6037,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the loop, do not send the text) and leave everything staged for a retry.
         let submitSignInGeneration = signInGeneration
         let submitConnectionGeneration = connectionGeneration
+        let submitClient = remoteClient
         // Deliver each image first and await it, so the agent's terminal has the
         // file paths before the text arrives. Remove each only after its send is
         // acknowledged; on failure stop and keep the rest (and the text) staged.
@@ -6016,7 +6049,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // are left staged (no removal happened for this iteration).
             guard isComposerSubmitIdentityCurrent(
                 signIn: submitSignInGeneration,
-                connection: submitConnectionGeneration
+                connection: submitConnectionGeneration,
+                client: submitClient
             ) else { return }
             // Re-check the attachment is still staged for the captured terminal
             // before uploading it. The user can delete a not-yet-acked chip while
@@ -6044,7 +6078,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // session.
         guard isComposerSubmitIdentityCurrent(
             signIn: submitSignInGeneration,
-            connection: submitConnectionGeneration
+            connection: submitConnectionGeneration,
+            client: submitClient
         ) else { return }
         // Submit the captured text to the captured terminal (a no-op when empty,
         // e.g. an images-only send). All images acked by here, so the text
@@ -6070,8 +6105,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// in-flight submit.
     ///
     /// Internal (not private) so tests can drive the captured-identity recheck.
-    func isComposerSubmitIdentityCurrent(signIn: Int, connection: UUID) -> Bool {
-        signIn == signInGeneration && connection == connectionGeneration
+    func isComposerSubmitIdentityCurrent(
+        signIn: Int,
+        connection: UUID,
+        client: MobileCoreRPCClient? = nil
+    ) -> Bool {
+        signIn == signInGeneration
+            && connection == connectionGeneration
+            && (client == nil || remoteClient === client)
     }
 
     /// Bump the connection generation so any composer submit (or other
@@ -6311,6 +6352,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
+        var liveConnectionGeneration = generation
         let ticketMacDeviceID = ticket.macDeviceID
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedMacDeviceID = pairedMacDeviceID
@@ -6648,7 +6690,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             terminalStopped: terminalStopped,
                             retainAsControl: retainPreviousAsControl
                         )
-                        adoptPooledRemoteClient(client)
+                        liveConnectionGeneration =
+                            adoptPooledRemoteClient(client)
                     } else {
                         replaceRemoteClient(with: client)
                     }
@@ -6657,7 +6700,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     activeMacInstanceTag = resolvedInstanceTag
                     prepareTerminalThemeRevisionAuthority(
                         macInstanceTag: resolvedInstanceTag, producerEpoch: status.terminalThemeRevisionEpoch,
-                        connectionID: generation.uuidString
+                        connectionID: liveConnectionGeneration.uuidString
                     )
                     clearPairingError()
                     // Set the foreground Mac id BEFORE applying the list so the
@@ -6730,7 +6773,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             ticket: resolvedTicket,
                             route: route,
                             client: client,
-                            generation: generation,
+                            generation: liveConnectionGeneration,
                             displayName: connectedHostName,
                             instanceTag: activeMacInstanceTag,
                             supportedHostCapabilities: authenticatedCapabilities,
@@ -6750,7 +6793,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         scheduleFullWorkspaceListRefreshIfAvailable(
                             client: client,
                             route: route,
-                            generation: generation
+                            generation: liveConnectionGeneration
                         )
                     }
                     return nil
@@ -6964,6 +7007,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
+        focusedHandoffPreparedGenerations.removeAll()
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
         macConnectionStatus = .unavailable
@@ -7014,20 +7058,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Move focus to an already pooled client without retiring the previous
     /// client. The caller must first remove the previous terminal subscription,
     /// then re-register that client with control-only topics.
-    func adoptPooledRemoteClient(_ newValue: MobileCoreRPCClient) {
-        guard remoteClient !== newValue else { return }
+    @discardableResult
+    func adoptPooledRemoteClient(_ newValue: MobileCoreRPCClient) -> UUID {
+        guard remoteClient !== newValue else { return connectionGeneration }
         stopTerminalRefreshPolling()
         cancelRemoteOperationTasks()
         clearPendingTerminalInputForFocusChange()
         resetTerminalOutputTracking()
+        // Authentication can stage the target while the old client remains
+        // routable. Publish a fresh live generation at the actual swap so work
+        // begun during staging cannot cross onto the target connection.
+        connectionGeneration = UUID()
         remoteClient = newValue
         chatEventSourceGeneration = UUID()
+        return connectionGeneration
     }
 
     /// Atomically replace any control owner with focus, then synchronously
     /// retire the displaced transport before its asynchronous close finishes.
     func installFocusedConnection(_ connection: MacConnection) {
         let displaced = macConnectionRegistry.transitionToFocused(connection)
+        // The app has one focused role. Publishing its replacement resolves
+        // any prepared marker left by the previous focus or a restore redial.
+        focusedHandoffPreparedGenerations.removeAll()
         guard let displaced else { return }
         displaced.detachKeepingClient()
         guard displaced.client !== connection.client else { return }
@@ -7129,7 +7182,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     @discardableResult
     func removeFocusedConnection(ifMatching connection: MacConnection) -> Bool {
-        macConnectionRegistry.removeFocused(ifMatching: connection)
+        let removed = macConnectionRegistry.removeFocused(
+            ifMatching: connection
+        )
+        if removed {
+            focusedHandoffPreparedGenerations.remove(connection.generation)
+        }
+        return removed
     }
 
     /// A superseded handoff may return after the old Mac has already
@@ -7139,7 +7198,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func invalidateFocusedConnectionAfterAbortedHandoff(
         _ connection: MacConnection
     ) {
-        guard isFocusedConnectionCurrent(connection),
+        guard isFocusedConnectionCurrent(connection) else {
+            focusedHandoffPreparedGenerations.remove(connection.generation)
+            return
+        }
+        // A cancellation restore or newer connect publishes its generation
+        // before replacing the old client. Leave the prepared marker intact so
+        // that attempt repairs the terminal subscription instead of accepting
+        // this renderless foreground as healthy.
+        guard connectionGeneration == connection.generation,
               remoteClient === connection.client,
               foregroundMacDeviceID.map({
                   cmxCanonicalDeviceID($0)
@@ -7147,6 +7214,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               }) == true else {
             return
         }
+        focusedHandoffPreparedGenerations.remove(connection.generation)
         removeFocusedConnection(ifMatching: connection)
         if var offline = workspacesByMac[connection.macDeviceID] {
             offline.status = .unavailable

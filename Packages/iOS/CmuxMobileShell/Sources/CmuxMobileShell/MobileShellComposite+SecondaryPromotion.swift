@@ -15,16 +15,29 @@ extension MobileShellComposite {
     func prepareFocusedConnectionForHandoff(
         _ connection: MacConnection
     ) async -> Bool {
+        guard isFocusedConnectionCurrent(connection) else { return false }
+        // Publish non-readiness before the unsubscribe await. Cancellation can
+        // run while the acknowledgement is being delivered, and restoration
+        // must never accept this focus after the host removed its render stream.
+        focusedHandoffPreparedGenerations.insert(connection.generation)
         let terminalStopped = await unsubscribeTerminalEventStream(
             on: connection.client
         )
         guard terminalStopped else {
             if isFocusedConnectionCurrent(connection) {
                 await connection.client.disconnect()
+            } else {
+                focusedHandoffPreparedGenerations.remove(
+                    connection.generation
+                )
             }
             return false
         }
-        return isFocusedConnectionCurrent(connection)
+        guard isFocusedConnectionCurrent(connection) else {
+            focusedHandoffPreparedGenerations.remove(connection.generation)
+            return false
+        }
+        return true
     }
 
     /// Commit a prepared focused-client role transition without suspension.
@@ -34,6 +47,9 @@ extension MobileShellComposite {
         terminalStopped: Bool,
         retainAsControl: Bool
     ) {
+        defer {
+            focusedHandoffPreparedGenerations.remove(connection.generation)
+        }
         guard terminalStopped else {
             removeFocusedConnection(ifMatching: connection)
             return
@@ -81,6 +97,7 @@ extension MobileShellComposite {
             }
             return
         }
+        focusedHandoffPreparedGenerations.remove(connection.generation)
         startSecondaryEventConsumer(
             subscription,
             displayName: connection.displayName
@@ -253,7 +270,7 @@ extension MobileShellComposite {
             unregisteredPreviousClient.retire()
             Task { await unregisteredPreviousClient.disconnect() }
         }
-        adoptPooledRemoteClient(sub.client)
+        let liveConnectionGeneration = adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
         connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
@@ -264,7 +281,7 @@ extension MobileShellComposite {
             ticket: sub.ticket,
             route: sub.route,
             client: sub.client,
-            generation: generation,
+            generation: liveConnectionGeneration,
             displayName: displayName ?? connectedHostName,
             instanceTag: activeMacInstanceTag,
             supportedHostCapabilities: sub.supportedHostCapabilities,

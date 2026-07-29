@@ -184,6 +184,81 @@ import Testing
         #expect(!candidates.contains { $0.macDeviceID == "mac-0" })
     }
 
+    @Test func incrementalOfflineEdgeBackfillsFreedControlSlot() throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: false,
+            presence: IdlePresence()
+        )
+        let candidateCount =
+            MobileShellComposite.maximumWarmControlConnectionCount + 1
+        let pairedMacs = try (0 ..< candidateCount).map {
+            try Self.pairedMac(
+                id: "mac-\($0)",
+                instanceTag: "tag-\($0)"
+            )
+        }
+        shell.applyPresenceUpdate(
+            Self.snapshot(pairedMacs.enumerated().map { index, mac in
+                Self.instance(
+                    deviceID: mac.macDeviceID,
+                    tag: mac.instanceTag ?? "",
+                    online: index != 0
+                )
+            }),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+        for mac in pairedMacs.prefix(
+            MobileShellComposite.maximumWarmControlConnectionCount
+        ) {
+            let route = try #require(mac.routes.first)
+            let ticket = try CmxAttachTicket(
+                workspaceID: "",
+                terminalID: nil,
+                macDeviceID: mac.macDeviceID,
+                macDisplayName: mac.displayName,
+                routes: [route],
+                expiresAt: Date().addingTimeInterval(3_600)
+            )
+            shell.secondaryMacSubscriptions[mac.macDeviceID] =
+                SecondaryMacSubscription(
+                    macDeviceID: mac.macDeviceID,
+                    client: MobileCoreRPCClient(
+                        runtime: runtime,
+                        route: route,
+                        ticket: ticket,
+                        allowsStackAuthFallback: true
+                    ),
+                    route: route,
+                    ticket: ticket,
+                    storedInstanceTag: mac.instanceTag,
+                    supportedHostCapabilities: [],
+                    actionCapabilities: .none
+                )
+        }
+
+        let targets = shell.secondaryAggregationTargets(
+            from: pairedMacs,
+            requestedCanonicalIDs: ["mac-0"]
+        )
+
+        #expect(targets.map(\.macDeviceID) == [
+            "mac-\(candidateCount - 1)",
+        ])
+    }
+
     @Test func promotedControlSlotMakesRoomForPreviousFocus() {
         let capacity =
             MobileShellComposite.maximumWarmControlConnectionCount
@@ -839,10 +914,17 @@ import Testing
         let shell = MobileShellComposite(runtime: runtime, isSignedIn: true)
         shell.remoteClient = oldClient
         shell.supportedHostCapabilities = ["workspace.actions.v1"]
+        let stagedGeneration = shell.connectionGeneration
 
         shell.adoptPooledRemoteClient(newClient)
 
         #expect(shell.remoteClient === newClient)
+        #expect(shell.connectionGeneration != stagedGeneration)
+        #expect(!shell.isComposerSubmitIdentityCurrent(
+            signIn: shell.signInGeneration,
+            connection: shell.connectionGeneration,
+            client: oldClient
+        ))
         #expect(shell.supportedHostCapabilities.isEmpty)
     }
 
@@ -1012,13 +1094,94 @@ import Testing
         )
         #expect(!response.isEmpty)
 
-        shell.connectionGeneration = UUID()
+        shell.connectionGeneration = currentGeneration
         shell.invalidateFocusedConnectionAfterAbortedHandoff(current)
 
         #expect(shell.connections["mac-a"] == nil)
         #expect(shell.remoteClient == nil)
         #expect(shell.foregroundMacDeviceID == nil)
         #expect(shell.connectionState == .disconnected)
+        await client.disconnect()
+    }
+
+    @Test func cancelledPreparedHandoffRemainsRepairableAcrossNewGeneration() async throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "cancelled-prepared-handoff",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let focusedGeneration = UUID()
+        let connection = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: focusedGeneration,
+            displayName: "Mac A",
+            instanceTag: "mmpool",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected
+        )
+        shell.connectionGeneration = focusedGeneration
+        shell.remoteClient = client
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.connections["mac-a"] = connection
+
+        #expect(await shell.prepareFocusedConnectionForHandoff(connection))
+        #expect(shell.focusedHandoffPreparedGenerations.contains(
+            focusedGeneration
+        ))
+
+        let restoreGeneration = UUID()
+        shell.connectionGeneration = restoreGeneration
+        shell.invalidateFocusedConnectionAfterAbortedHandoff(connection)
+
+        #expect(shell.connections["mac-a"]?.generation == focusedGeneration)
+        #expect(shell.remoteClient === client)
+        #expect(shell.connectionState == .connected)
+        #expect(shell.focusedHandoffPreparedGenerations.contains(
+            focusedGeneration
+        ))
+
+        shell.installFocusedConnection(MacConnection(
+            macDeviceID: "mac-a",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: restoreGeneration,
+            displayName: "Mac A",
+            instanceTag: "mmpool",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        ))
+        #expect(shell.focusedHandoffPreparedGenerations.isEmpty)
         await client.disconnect()
     }
 
