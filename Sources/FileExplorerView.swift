@@ -99,17 +99,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
             ObjectIdentifier: (node: FileExplorerNode, reloadChildren: Bool, expansion: Bool?)
         ] = [:]
         private var pendingNodeOrder: [ObjectIdentifier] = []
+        private var pendingNodeOrderIndex = 0
         private var pendingSelectionChange = false
         private var pendingGitStatusPaths: Set<String> = []
         private var pendingAllVisibleGitStatusChange = false
-        private var pendingFullOutlineReload = false
         private var pendingRootNodesRevision: Int?
         private var outlineChangeFlushTask: Task<Void, Never>?
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
         private(set) var lastNodeChangeVisibleRowInspectionCount = 0
-        private static let maximumPendingNodeChangeCount = 64
+        private static let maximumNodeChangesPerFlush = 64
         let iconRenderContext: CmuxResolvedIconRenderContext
 
         @MainActor
@@ -244,6 +244,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 pendingSelectionChange = true
             }
 
+            scheduleOutlineChangeFlush()
+        }
+
+        private func scheduleOutlineChangeFlush() {
             guard outlineChangeFlushTask == nil else { return }
             outlineChangeFlushTask = Task { @MainActor [weak self] in
                 await Task.yield()
@@ -256,7 +260,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             reloadChildren: Bool,
             expansion: Bool? = nil
         ) {
-            guard !pendingFullOutlineReload else { return }
             let key = ObjectIdentifier(node)
             if var pending = pendingNodeChanges[key] {
                 pending.reloadChildren = pending.reloadChildren || reloadChildren
@@ -265,12 +268,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 }
                 pendingNodeChanges[key] = pending
             } else {
-                guard pendingNodeChanges.count < Self.maximumPendingNodeChangeCount else {
-                    pendingNodeChanges.removeAll(keepingCapacity: false)
-                    pendingNodeOrder.removeAll(keepingCapacity: false)
-                    pendingFullOutlineReload = true
-                    return
-                }
                 pendingNodeChanges[key] = (
                     node: node,
                     reloadChildren: reloadChildren,
@@ -283,10 +280,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private func clearPendingOutlineChanges() {
             pendingNodeChanges.removeAll(keepingCapacity: false)
             pendingNodeOrder.removeAll(keepingCapacity: false)
+            pendingNodeOrderIndex = 0
             pendingSelectionChange = false
             pendingGitStatusPaths.removeAll(keepingCapacity: false)
             pendingAllVisibleGitStatusChange = false
-            pendingFullOutlineReload = false
             pendingRootNodesRevision = nil
         }
 
@@ -299,10 +296,22 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 return
             }
 
-            let changes = pendingNodeOrder.compactMap { pendingNodeChanges[$0] }
-            let shouldApplySelection = pendingSelectionChange
-                || changes.contains(where: \.reloadChildren)
-            let shouldReloadOutline = pendingFullOutlineReload
+            if lastRootNodesRevision != store.rootNodesRevision {
+                reloadIfNeeded()
+            }
+
+            let batchEnd = min(
+                pendingNodeOrderIndex + Self.maximumNodeChangesPerFlush,
+                pendingNodeOrder.count
+            )
+            let batchKeys = pendingNodeOrder[pendingNodeOrderIndex..<batchEnd]
+            let changes = batchKeys.compactMap { pendingNodeChanges.removeValue(forKey: $0) }
+            pendingNodeOrderIndex = batchEnd
+            if changes.contains(where: \.reloadChildren) {
+                pendingSelectionChange = true
+            }
+            let hasMoreNodeChanges = pendingNodeOrderIndex < pendingNodeOrder.count
+            let shouldApplySelection = !hasMoreNodeChanges && pendingSelectionChange
             let gitStatusPaths: Set<String>?
             let hasGitStatusChange: Bool
             if pendingAllVisibleGitStatusChange {
@@ -315,16 +324,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 gitStatusPaths = pendingGitStatusPaths
                 hasGitStatusChange = true
             }
-            clearPendingOutlineChanges()
+            pendingGitStatusPaths.removeAll(keepingCapacity: false)
+            pendingAllVisibleGitStatusChange = false
 
-            if shouldReloadOutline {
-                reloadOutlinePreservingState()
-                return
-            }
-            if !changes.isEmpty, !applyNodeChanges(changes) {
-                reloadOutlinePreservingState()
-                return
-            }
+            applyNodeChanges(changes)
             if hasGitStatusChange, let outlineView {
                 applyGitStatusChange(paths: gitStatusPaths, in: outlineView)
             }
@@ -333,14 +336,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
                 }
             }
-        }
 
-        private func reloadOutlinePreservingState() {
-            guard let outlineView else { return }
-            withProgrammaticOutlineUpdate {
-                outlineView.reloadData()
-                restoreExpansionState(store.expandedPaths, in: outlineView)
-                applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+            if hasMoreNodeChanges {
+                scheduleOutlineChangeFlush()
+            } else {
+                pendingNodeOrder.removeAll(keepingCapacity: true)
+                pendingNodeOrderIndex = 0
+                pendingSelectionChange = false
+                pendingRootNodesRevision = nil
             }
         }
 
@@ -412,9 +415,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         @MainActor
         private func applyNodeChanges(
             _ changes: [(node: FileExplorerNode, reloadChildren: Bool, expansion: Bool?)]
-        ) -> Bool {
+        ) {
             lastNodeChangeVisibleRowInspectionCount = 0
-            guard let outlineView else { return true }
+            guard let outlineView else { return }
             let requestedNodeIds = Set(changes.map { ObjectIdentifier($0.node) })
             let visibleRange = outlineView.rows(in: outlineView.visibleRect)
 
@@ -479,7 +482,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     }
                 }
             }
-            return true
         }
 
         @MainActor
