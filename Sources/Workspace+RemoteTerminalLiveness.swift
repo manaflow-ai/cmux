@@ -2,6 +2,8 @@ import CmuxControlSocket
 import CmuxCore
 import Foundation
 
+// This file keeps the closed lifecycle vocabulary beside its only behavior
+// owner; these value types have no independent state, dependencies, or callers.
 enum WorkspaceRemoteTerminalSessionPhase: Equatable {
     case launching
     case connected

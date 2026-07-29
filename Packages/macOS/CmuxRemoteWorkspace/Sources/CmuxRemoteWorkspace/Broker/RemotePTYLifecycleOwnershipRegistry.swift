@@ -1,11 +1,10 @@
 /// Broker-queue-confined ownership index for exact PTY attachment generations.
 struct RemotePTYLifecycleOwnershipRegistry {
-    private struct Owner {
-        let transportKey: String
-        let attachmentKey: RemotePTYAttachmentKey
-        let commitLease: RemotePTYLifecycleCommitLease
-    }
-
+    private typealias Owner = (
+        transportKey: String,
+        attachmentKey: RemotePTYAttachmentKey,
+        commitLease: RemotePTYLifecycleCommitLease
+    )
     private var owners: [RemotePTYLifecycleKey: Owner] = [:]
     private var currentByAttachmentStorage: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] = [:]
     private var ended = RemotePTYEndedLifecycleRegistry()
@@ -24,7 +23,7 @@ struct RemotePTYLifecycleOwnershipRegistry {
            let displacedOwner = owners[displacedLifecycleKey] {
             displacedOwner.commitLease.invalidate()
         }
-        owners[lifecycleKey] = Owner(
+        owners[lifecycleKey] = (
             transportKey: transportKey,
             attachmentKey: attachmentKey,
             commitLease: RemotePTYLifecycleCommitLease()

@@ -184,6 +184,8 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         lifecycleID: String
     ) -> RemotePTYLifecycleOwner? {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        // Lifecycle ownership is part of the broker's existing queue-confined
+        // registry; this one-shot readiness lookup does not cross into UI work.
         return queue.sync {
             ptyLifecycleOwnership.currentOwner(lifecycleKey)
         }
@@ -201,6 +203,8 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         lifecycleID: String
     ) -> RemotePTYLifecycleWrapperEndClaim? {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        // Claiming must stay ordered with the broker's other queue-confined
+        // lifecycle mutations; cleanup is enqueued only after this sync returns.
         let claim = queue.sync {
             ptyLifecycleOwnership.claimAfterWrapperEnd(lifecycleKey)
         }

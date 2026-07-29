@@ -4,13 +4,16 @@ internal import os
 ///
 /// The broker invalidates the lease whenever the lifecycle is replaced,
 /// acknowledged, ended, claimed, or removed with its transport. Callers must
-/// perform only a bounded in-memory mutation inside ``commitIfCurrent(_:)``.
+/// perform only a bounded in-memory state mutation inside
+/// ``commitIfCurrent(_:)``. Payload construction, broker calls, presentation,
+/// and notifications must run after the method returns.
 ///
 /// Thread safety relies on confining validity to the internal lock and running
 /// caller operations synchronously without escaping their originating executor.
 public final class RemotePTYLifecycleCommitLease: @unchecked Sendable {
-    // Lock carve-out: broker callbacks and a synchronous main-actor commit need
-    // one non-suspending validity check that stays atomic with the mutation.
+    // Lock carve-out: one-way broker invalidation and the synchronous main-actor
+    // state commit need a non-suspending atomic boundary. The closure is limited
+    // to bounded state writes and cannot call the broker or publish callbacks.
     private let validity = OSAllocatedUnfairLock(initialState: true)
 
     /// Creates a current lifecycle commit lease.

@@ -4,25 +4,6 @@ import os
 import Testing
 @testable import CmuxControlSocket
 
-private final class FixedRemotePTYLifecycleCommitLease:
-    ControlRemotePTYLifecycleCommitLease,
-    Sendable
-{
-    let isCurrent: Bool
-
-    init(isCurrent: Bool) {
-        self.isCurrent = isCurrent
-    }
-
-    @MainActor
-    func commitIfCurrent(
-        _ operation: @MainActor @Sendable () -> Bool
-    ) -> Bool {
-        guard isCurrent else { return false }
-        return operation()
-    }
-}
-
 @MainActor
 @Suite("ControlCommandCoordinator workspace domain")
 struct ControlCommandCoordinatorWorkspaceTests {
