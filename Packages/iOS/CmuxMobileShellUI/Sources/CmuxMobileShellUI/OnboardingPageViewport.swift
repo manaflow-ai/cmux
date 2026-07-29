@@ -29,9 +29,10 @@ struct OnboardingPageViewport<PageContent: View>: View {
         self.onNavigate = onNavigate
         self.pageContent = pageContent
         _scrolledStage = State(initialValue: stage)
+        let pageIndex = OnboardingStage.allCases.firstIndex(of: stage) ?? 0
         let lastIndex = max(OnboardingStage.allCases.count - 1, 1)
         initialAnchor = UnitPoint(
-            x: CGFloat(stage.rawValue) / CGFloat(lastIndex),
+            x: CGFloat(pageIndex) / CGFloat(lastIndex),
             y: 0.5
         )
     }
