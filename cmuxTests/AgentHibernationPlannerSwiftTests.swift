@@ -134,6 +134,8 @@ struct AgentHibernationPlannerSwiftTests {
             lastActivityAt: 0,
             isProtected: false,
             hasLiveProcess: false,
+            containsUnrelatedProcess: false,
+            panelProcessIDs: [],
             processIDs: [],
             processIdentities: [:]
         )
@@ -466,6 +468,8 @@ struct AgentHibernationPlannerSwiftTests {
             lastActivityAt: 100,
             isProtected: false,
             hasLiveProcess: false,
+            containsUnrelatedProcess: false,
+            panelProcessIDs: [],
             processIDs: [],
             processIdentities: [:]
         )

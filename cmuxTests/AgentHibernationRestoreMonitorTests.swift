@@ -271,6 +271,83 @@ struct AgentHibernationRestoreMonitorTests {
         #expect(try String(contentsOf: retained, encoding: .utf8) == snapshotContent)
     }
 
+    @Test
+    func committedMonitorDefersRestoreChecksUntilExactProcessExit() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-exact-exit-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let metadataStub = #"{"type":"last-prompt","prompt":"continue"}"# + "\n"
+        let snapshotContent = #"{"type":"user","message":{"content":"protected"}}"# + "\n"
+        try metadataStub.write(to: live, atomically: true, encoding: .utf8)
+        try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
+        let waitStarted = AsyncStream<Void>.makeStream()
+        let allowExit = AsyncStream<Void>.makeStream()
+
+        let task = Task {
+            await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+                snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
+                processIDs: [101],
+                initialRetryDelaysNanoseconds: [0],
+                backstopDelaysSeconds: [],
+                awaitProcessExit: {
+                    waitStarted.continuation.yield()
+                    for await _ in allowExit.stream {
+                        break
+                    }
+                    return true
+                }
+            )
+        }
+        var waitStartedIterator = waitStarted.stream.makeAsyncIterator()
+        _ = await waitStartedIterator.next()
+
+        #expect(try String(contentsOf: live, encoding: .utf8) == metadataStub)
+        #expect(FileManager.default.fileExists(atPath: snapshot.path))
+
+        allowExit.continuation.yield()
+        allowExit.continuation.finish()
+        await task.value
+        #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(snapshotContent))
+        #expect(FileManager.default.fileExists(atPath: snapshot.path) == false)
+        waitStarted.continuation.finish()
+    }
+
+    @Test
+    func cappedExitObservationStillRunsTranscriptRecoveryChecks() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-hibernation-capped-exit-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let metadataStub = #"{"type":"last-prompt","prompt":"continue"}"# + "\n"
+        let snapshotContent = #"{"type":"user","message":{"content":"protected"}}"# + "\n"
+        try metadataStub.write(to: live, atomically: true, encoding: .utf8)
+        try snapshotContent.write(to: snapshot, atomically: true, encoding: .utf8)
+
+        await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+            snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
+            processIDs: [101],
+            initialRetryDelaysNanoseconds: [0],
+            backstopDelaysSeconds: [],
+            awaitProcessExit: { false }
+        )
+
+        #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(snapshotContent))
+        #expect(FileManager.default.fileExists(atPath: snapshot.path) == false)
+    }
+
     @MainActor
     @Test
     func monitorKeyResolvesSymlinkedTranscriptPathAliases() throws {
@@ -315,6 +392,54 @@ struct AgentHibernationRestoreMonitorTests {
 
         #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(snapshotContent))
         #expect(FileManager.default.fileExists(atPath: snapshot.path))
+    }
+
+    @MainActor
+    @Test
+    func committedTerminationRecoveryKeepsRestoreMonitorArmedUntilExactExit() async throws {
+        let controller = AgentHibernationController.shared
+        defer { resetSharedHibernationState(controller) }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-termination-failure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshotURL = directory.appendingPathComponent("snapshot.jsonl")
+        let protectedContent = #"{"type":"user","message":{"content":"protected"}}"# + "\n"
+        let clobberedContent = #"{"type":"last-prompt","prompt":"continue"}"# + "\n"
+        try protectedContent.write(to: live, atomically: true, encoding: .utf8)
+        try protectedContent.write(to: snapshotURL, atomically: true, encoding: .utf8)
+        let snapshot = AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot(
+            transcriptPath: live.path,
+            snapshotPath: snapshotURL.path
+        )
+        let processExit = AsyncStream<Void>.makeStream()
+        #expect(controller.armPostTeardownRestoreMonitor(
+            snapshot: snapshot,
+            processIDs: [101],
+            awaitProcessExit: {
+                for await _ in processExit.stream { return true }
+                return false
+            }
+        ))
+        let monitor = try #require(
+            controller.postTeardownRestoreTasksByTranscriptPath.values.first?.task
+        )
+
+        try clobberedContent.write(to: live, atomically: true, encoding: .utf8)
+
+        #expect(controller.postTeardownRestoreTasksByTranscriptPath.isEmpty == false)
+        #expect(FileManager.default.fileExists(atPath: snapshotURL.path))
+
+        processExit.continuation.yield()
+        processExit.continuation.finish()
+        await monitor.value
+
+        #expect(controller.postTeardownRestoreTasksByTranscriptPath.isEmpty)
+        #expect(try String(contentsOf: live, encoding: .utf8).hasPrefix(protectedContent))
+        #expect(FileManager.default.fileExists(atPath: snapshotURL.path) == false)
     }
 
     @MainActor

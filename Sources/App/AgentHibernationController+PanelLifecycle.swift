@@ -2,7 +2,7 @@ import Foundation
 
 extension AgentHibernationController {
     func discardTrackingStateForClosedPanel(workspaceId: UUID, panelId: UUID) {
-        committedTerminationObservationsByPanelID.removeValue(forKey: panelId)?.task.cancel()
+        limitCommittedTerminationObservationAfterPanelClose(panelID: panelId)
         let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
         activityByPanel.removeValue(forKey: key)
         terminalInputByPanel.removeValue(forKey: key)
@@ -48,6 +48,50 @@ extension AgentHibernationController {
         // preserves raw input/lifecycle safety but requires a fresh qualification.
         discardTransientTrackingState(for: sourceKey)
         discardTransientTrackingState(for: destinationKey)
+    }
+
+    func limitCommittedTerminationObservationAfterPanelClose(
+        panelID: UUID,
+        cleanupDelay: Duration = .seconds(30),
+        sleepUntilDeadline: @escaping @Sendable (Duration) async -> Bool = { duration in
+            do {
+                try await ContinuousClock().sleep(for: duration)
+                return true
+            } catch {
+                return false
+            }
+        }
+    ) {
+        guard let observation = committedTerminationObservationsByPanelID[panelID] else {
+            return
+        }
+        let observationRequestID = observation.requestID
+        committedTerminationCleanupByPanelID
+            .removeValue(forKey: panelID)?
+            .task
+            .cancel()
+        let cleanupID = UUID()
+        let cleanupTask = Task { @MainActor [weak self] in
+            guard await sleepUntilDeadline(cleanupDelay),
+                  let self,
+                  !Task.isCancelled,
+                  self.committedTerminationCleanupByPanelID[panelID]?.requestID ==
+                    cleanupID,
+                  self.committedTerminationObservationsByPanelID[panelID]?.requestID ==
+                    observationRequestID,
+                  let removed = self.committedTerminationObservationsByPanelID.removeValue(
+                      forKey: panelID
+                  ) else {
+                return
+            }
+            self.committedTerminationCleanupByPanelID.removeValue(forKey: panelID)
+            removed.task?.cancel()
+            await removed.processExitCompletion.finish(false)
+        }
+        committedTerminationCleanupByPanelID[panelID] = CommittedTerminationCleanup(
+            requestID: cleanupID,
+            task: cleanupTask
+        )
     }
 
     private func transferTimestamp(

@@ -1,5 +1,14 @@
 import Foundation
 
+extension AgentHibernationRecord {
+    var hasPressureSafeProcessEvidence: Bool {
+        hasLiveProcess &&
+            !containsUnrelatedProcess &&
+            !processIDs.isEmpty &&
+            processIdentities.count == processIDs.count
+    }
+}
+
 extension AppDelegate {
     @MainActor
     func agentHibernationPanelIsProtected(workspace: Workspace, panelId: UUID) -> Bool {
@@ -49,7 +58,11 @@ extension AppDelegate {
                         panelId: panelId,
                         fallback: index.lifecycle(workspaceId: workspace.id, panelId: panelId)
                     )
-                    let processIDs = index.processIDs(workspaceId: workspace.id, panelId: panelId)
+                    let processEntry = index.entry(
+                        workspaceId: workspace.id,
+                        panelId: panelId
+                    )
+                    let panelProcessIDs = processEntry?.processIDs ?? []
                     records.append(
                         AgentHibernationRecord(
                             key: key,
@@ -60,12 +73,11 @@ extension AppDelegate {
                             hasUnconfirmedTerminalInput: terminalInputAt > lifecycleChangeAt,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
-                            hasLiveProcess: !processIDs.isEmpty,
-                            processIDs: processIDs,
-                            processIdentities: index.processIdentities(
-                                workspaceId: workspace.id,
-                                panelId: panelId
-                            )
+                            hasLiveProcess: !panelProcessIDs.isEmpty,
+                            containsUnrelatedProcess: processEntry?.containsUnrelatedProcess ?? false,
+                            panelProcessIDs: processEntry?.hibernationPanelProcessIDs ?? [],
+                            processIDs: processEntry?.terminationProcessIDs ?? [],
+                            processIdentities: processEntry?.terminationProcessIdentities ?? [:]
                         )
                     )
                 }

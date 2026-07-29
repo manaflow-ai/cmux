@@ -161,7 +161,7 @@ struct AgentHibernationTrackingLifecycleTests {
     }
 
     @Test
-    func permanentPanelCloseCancelsCommittedTerminationObservation() async {
+    func permanentPanelCloseKeepsTranscriptExitObservationUntilExit() async {
         let controller = AgentHibernationController.shared
         let panel = TerminalPanel(workspaceId: UUID())
         let identity = AgentPIDProcessIdentity(
@@ -186,7 +186,9 @@ struct AgentHibernationTrackingLifecycleTests {
             },
             onExit: {
                 didCompleteHibernation = true
-            }
+                return true
+            },
+            onRecovery: {}
         )
         let observationTask = controller
             .committedTerminationObservationsByPanelID[panel.id]?
@@ -197,7 +199,195 @@ struct AgentHibernationTrackingLifecycleTests {
         await observationTask?.value
 
         #expect(controller.committedTerminationObservationsByPanelID[panel.id] == nil)
+        #expect(didCompleteHibernation)
+    }
+
+    @Test
+    func permanentPanelCloseBoundsTranscriptExitObservation() async {
+        let controller = AgentHibernationController.shared
+        let panel = TerminalPanel(workspaceId: UUID())
+        let identity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let exitEvents = AsyncStream<Void>.makeStream()
+        let processExitCompletion = AgentHibernationProcessExitCompletion()
+        var didCompleteHibernation = false
+        controller.observeCommittedTermination(
+            panelID: panel.id,
+            terminations: [
+                .init(
+                    processID: 101,
+                    processIdentity: identity,
+                    processGroupID: 1
+                ),
+            ],
+            processExitCompletion: processExitCompletion,
+            waitForExit: { _ in
+                for await _ in exitEvents.stream {}
+                return true
+            },
+            onExit: {
+                didCompleteHibernation = true
+                return true
+            },
+            onRecovery: {}
+        )
+
+        panel.close()
+        controller.limitCommittedTerminationObservationAfterPanelClose(
+            panelID: panel.id,
+            cleanupDelay: .zero,
+            sleepUntilDeadline: { _ in true }
+        )
+        let didExit = await processExitCompletion.wait()
+
+        #expect(!didExit)
+        #expect(controller.committedTerminationObservationsByPanelID[panel.id] == nil)
         #expect(!didCompleteHibernation)
+        exitEvents.continuation.finish()
+    }
+
+    @Test
+    func panelCloseCleanupFollowsObservationIntoRecovery() async throws {
+        let controller = AgentHibernationController.shared
+        let panelID = UUID()
+        let identity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let initialWaitStarted = AsyncStream<Void>.makeStream()
+        let allowInitialFailure = AsyncStream<Void>.makeStream()
+        let nativeReadiness = AsyncStream<Void>.makeStream()
+        let allowCleanup = AsyncStream<Void>.makeStream()
+        let processExitCompletion = AgentHibernationProcessExitCompletion()
+        controller.observeCommittedTermination(
+            panelID: panelID,
+            terminations: [
+                .init(
+                    processID: 101,
+                    processIdentity: identity,
+                    processGroupID: 1
+                ),
+            ],
+            processExitCompletion: processExitCompletion,
+            waitForExit: { _ in
+                initialWaitStarted.continuation.yield()
+                for await _ in allowInitialFailure.stream { return false }
+                return false
+            },
+            waitForRecoveryReadiness: {
+                for await _ in nativeReadiness.stream { return true }
+                return false
+            },
+            onExit: { true },
+            onRecovery: {}
+        )
+        let initialObservation = try #require(
+            controller.committedTerminationObservationsByPanelID[panelID]
+        )
+        let initialObservationTask = try #require(initialObservation.task)
+        var initialWaitIterator = initialWaitStarted.stream.makeAsyncIterator()
+        _ = await initialWaitIterator.next()
+
+        controller.limitCommittedTerminationObservationAfterPanelClose(
+            panelID: panelID,
+            cleanupDelay: .zero,
+            sleepUntilDeadline: { _ in
+                for await _ in allowCleanup.stream { return true }
+                return false
+            }
+        )
+        let cleanupTask = try #require(
+            controller.committedTerminationCleanupByPanelID[panelID]?.task
+        )
+        allowInitialFailure.continuation.yield()
+        allowInitialFailure.continuation.finish()
+        await initialObservationTask.value
+
+        let recoveryObservation = try #require(
+            controller.committedTerminationObservationsByPanelID[panelID]
+        )
+        #expect(recoveryObservation.requestID == initialObservation.requestID)
+
+        allowCleanup.continuation.yield()
+        allowCleanup.continuation.finish()
+        await cleanupTask.value
+
+        #expect(controller.committedTerminationObservationsByPanelID[panelID] == nil)
+        #expect(await processExitCompletion.wait() == false)
+        initialWaitStarted.continuation.finish()
+        nativeReadiness.continuation.finish()
+    }
+
+    @Test
+    func panelCloseCleanupOwnsCommitBeforeNativeRecoveryCanSuspend() async throws {
+        let controller = AgentHibernationController.shared
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let requestID = UUID()
+        let processExitCompletion = AgentHibernationProcessExitCompletion()
+        let allowCleanup = AsyncStream<Void>.makeStream()
+        let allowLateRecovery = AsyncStream<Void>.makeStream()
+        var didRecover = false
+
+        controller.registerCommittedTerminationObservation(
+            panelID: panelID,
+            requestID: requestID,
+            processExitCompletion: processExitCompletion
+        )
+        #expect(
+            controller.committedTerminationObservationsByPanelID[panelID]?
+                .requestID == requestID
+        )
+
+        controller.discardTrackingStateForClosedPanel(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        #expect(controller.committedTerminationCleanupByPanelID[panelID] != nil)
+        controller.limitCommittedTerminationObservationAfterPanelClose(
+            panelID: panelID,
+            cleanupDelay: .zero,
+            sleepUntilDeadline: { _ in
+                for await _ in allowCleanup.stream { return true }
+                return false
+            }
+        )
+        let cleanupTask = try #require(
+            controller.committedTerminationCleanupByPanelID[panelID]?.task
+        )
+
+        let lateRecoveryTask = Task { @MainActor in
+            for await _ in allowLateRecovery.stream {
+                controller.observeCommittedTerminationRecovery(
+                    panelID: panelID,
+                    requestID: requestID,
+                    terminations: [],
+                    processExitCompletion: processExitCompletion,
+                    onRecovery: {
+                        didRecover = true
+                    }
+                )
+                return
+            }
+        }
+
+        allowCleanup.continuation.yield()
+        allowCleanup.continuation.finish()
+        await cleanupTask.value
+
+        #expect(controller.committedTerminationObservationsByPanelID[panelID] == nil)
+        #expect(await processExitCompletion.wait() == false)
+
+        allowLateRecovery.continuation.yield()
+        allowLateRecovery.continuation.finish()
+        await lateRecoveryTask.value
+
+        #expect(controller.committedTerminationObservationsByPanelID[panelID] == nil)
+        #expect(!didRecover)
     }
 
     private func expectTrackingWasDiscarded(

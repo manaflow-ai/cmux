@@ -94,6 +94,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
+    var onRequestAgentHibernationTerminationRetry: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
 

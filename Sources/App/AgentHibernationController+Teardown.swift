@@ -272,7 +272,8 @@ extension AgentHibernationController {
     func armPostTeardownRestoreMonitor(
         snapshot: AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot,
         processIDs: Set<Int>,
-        snapshotDisposal: AgentHibernationTranscriptGuard.PostTeardownSnapshotDisposal = .deleteWhenSafe
+        snapshotDisposal: AgentHibernationTranscriptGuard.PostTeardownSnapshotDisposal = .deleteWhenSafe,
+        awaitProcessExit: (@Sendable () async -> Bool)? = nil
     ) -> Bool {
         let transcriptPath = snapshot.transcriptPath
         let requestID = UUID()
@@ -282,6 +283,7 @@ extension AgentHibernationController {
                 snapshot: snapshot,
                 processIDs: processIDs,
                 snapshotDisposal: snapshotDisposal,
+                awaitProcessExit: awaitProcessExit,
                 shouldContinue: {
                     await MainActor.run {
                         AgentHibernationController.shared.postTeardownRestoreTaskIsCurrent(

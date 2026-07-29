@@ -30,7 +30,11 @@ struct AgentResumeLivenessTests {
             processIDs: processIDs,
             processIdentities: [:],
             agentProcessIDs: processIDs,
-            agentProcessIdentities: [:]
+            agentProcessIdentities: [:],
+            hibernationPanelProcessIDs: processIDs,
+            terminationProcessIDs: processIDs,
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
         )
     }
 

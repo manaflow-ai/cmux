@@ -255,6 +255,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var restoredRuntimeSurfaceStartQueued = false
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
+    var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
+    var agentHibernationRuntimeTeardownReservation:
+        TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var claudeCommandShim: ClaudeCommandShim?

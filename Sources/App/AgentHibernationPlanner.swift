@@ -1,3 +1,4 @@
+import CmuxTerminal
 import Foundation
 
 enum AgentHibernationReclaimTrigger: Equatable, Sendable {
@@ -6,8 +7,6 @@ enum AgentHibernationReclaimTrigger: Equatable, Sendable {
 }
 
 enum AgentHibernationPlanner {
-    private static let systemMemoryPressureBatchLimit = 2
-
     static func selectedPanelKeys(
         inputs: [AgentHibernationPlannerInput],
         settings: AgentHibernationSettings.Values,
@@ -22,7 +21,11 @@ enum AgentHibernationPlanner {
             excess = liveRestorable.count - settings.maxLiveTerminals
         case .systemMemoryPressure:
             // Snapshot and reclaim a small batch before the next pressure pass.
-            excess = min(liveRestorable.count, systemMemoryPressureBatchLimit)
+            excess = min(
+                liveRestorable.count,
+                TerminalSurfaceRuntimeTeardownCoordinator
+                    .maximumIsolatedHibernationTeardownCount
+            )
         }
         guard excess > 0 else { return [] }
 

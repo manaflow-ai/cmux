@@ -16,6 +16,15 @@ extension AgentHibernationController {
             for: record,
             index: index
         )
+        let currentProcessEntry = index.entry(
+            workspaceId: record.key.workspaceId,
+            panelId: record.key.panelId
+        )
+        let currentHibernationPanelProcessIDs =
+            currentProcessEntry?.hibernationPanelProcessIDs ?? []
+        let currentTerminationProcessIDs = currentProcessEntry?.terminationProcessIDs ?? []
+        let currentTerminationProcessIdentities =
+            currentProcessEntry?.terminationProcessIdentities ?? [:]
         return (shouldProceed?() ?? true) &&
             AgentHibernationTrackingGate.isEnabled() &&
             record.isStillOwnedByOriginalWorkspace &&
@@ -26,14 +35,13 @@ extension AgentHibernationController {
                         panelId: record.key.panelId
                     )
             ) &&
-            index.processIDs(
-                workspaceId: record.key.workspaceId,
-                panelId: record.key.panelId
-            ) == record.processIDs &&
-            index.processIdentities(
-                workspaceId: record.key.workspaceId,
-                panelId: record.key.panelId
-            ) == record.processIdentities &&
+            (
+                request.trigger != .systemMemoryPressure ||
+                    currentProcessEntry?.containsUnrelatedProcess == false
+            ) &&
+            currentHibernationPanelProcessIDs == record.panelProcessIDs &&
+            currentTerminationProcessIDs == record.processIDs &&
+            currentTerminationProcessIdentities == record.processIdentities &&
             TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
                 TabManager.restorableAgentSnapshotFingerprint(record.agent) &&
             !record.terminalPanel.isAgentHibernated &&

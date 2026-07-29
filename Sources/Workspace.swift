@@ -4750,16 +4750,24 @@ final class Workspace: Identifiable, ObservableObject {
         return snapshot
     }
 
+    @discardableResult
     func enterAgentHibernation(
         panelId: UUID,
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date
-    ) {
+    ) -> Bool {
         guard let terminalPanel = panels[panelId] as? TerminalPanel,
-              !terminalPanel.isAgentHibernated || terminalPanel.isAgentHibernationTerminating else {
-            return
+              !terminalPanel.isAgentHibernated ||
+                terminalPanel.isAgentHibernationCommitPending else {
+            return false
         }
-        guard agent.resumeCommand != nil else { return }
+        guard agent.resumeCommand != nil,
+              terminalPanel.enterAgentHibernation(
+                agent: agent,
+                lastActivityAt: lastActivityAt
+              ) else {
+            return false
+        }
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
@@ -4770,7 +4778,7 @@ final class Workspace: Identifiable, ObservableObject {
         if !keys.isEmpty {
             refreshTrackedAgentPorts()
         }
-        terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt)
+        return true
     }
 
     @discardableResult

@@ -16,6 +16,8 @@ struct AgentHibernationRecord {
     let lastActivityAt: TimeInterval
     let isProtected: Bool
     let hasLiveProcess: Bool
+    let containsUnrelatedProcess: Bool
+    let panelProcessIDs: Set<Int>
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
 }
@@ -41,6 +43,8 @@ final class AgentHibernationController {
     var postSnapshotValidationIndexTask: PostSnapshotValidationIndexTask?
     var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
     var committedTerminationObservationsByPanelID: [UUID: CommittedTerminationObservation] = [:]
+    var committedTerminationCleanupByPanelID: [UUID: CommittedTerminationCleanup] = [:]
+    let processSnapshotCoordinator = AgentHibernationProcessSnapshotCoordinator()
     var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
     var memoryPressureEvaluation: (id: UUID, task: Task<Void, Never>)?
@@ -274,10 +278,7 @@ final class AgentHibernationController {
               !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
               (trigger == .systemMemoryPressure || !record.hasLiveProcess),
-              (
-                  trigger != .systemMemoryPressure ||
-                      record.processIdentities.count == record.processIDs.count
-              ),
+              trigger != .systemMemoryPressure || record.hasPressureSafeProcessEvidence,
               record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)

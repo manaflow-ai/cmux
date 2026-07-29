@@ -12,6 +12,11 @@ extension AgentHibernationRecord {
 }
 
 extension AgentHibernationController {
+    /// Bounds synchronous exact-kernel validation in the final signal commit boundary.
+    nonisolated static let maximumScopedProcessTerminationCount = 32
+    /// Bounds full process-table refreshes while discovering late process generations.
+    nonisolated static let maximumProcessExitEpochRefreshCount = 8
+
     struct ProcessTerminationScope: Sendable {
         let key: AgentHibernationPanelKey
         let processIDs: Set<Int>
@@ -22,6 +27,19 @@ extension AgentHibernationController {
         let processID: Int
         let processIdentity: AgentPIDProcessIdentity
         let processGroupID: pid_t
+        let ttyDevice: Int64?
+
+        init(
+            processID: Int,
+            processIdentity: AgentPIDProcessIdentity,
+            processGroupID: pid_t,
+            ttyDevice: Int64? = nil
+        ) {
+            self.processID = processID
+            self.processIdentity = processIdentity
+            self.processGroupID = processGroupID
+            self.ttyDevice = ttyDevice
+        }
     }
 
     nonisolated static func processIdentities(
@@ -63,9 +81,10 @@ extension AgentHibernationController {
                             processIdentityProvider: {
                                 AgentPIDProcessIdentity(pid: pid_t($0))
                             },
-                            processArgumentsProvider:
-                                CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:),
-                            processGroupProvider: { getpgid(pid_t($0)) }
+                            processGroupProvider: { getpgid(pid_t($0)) },
+                            processTTYDeviceProvider: {
+                                agentLiveProcessIdentity(pid: pid_t($0))?.ttyDevice
+                            }
                         )
                     )
                 }
@@ -82,28 +101,29 @@ extension AgentHibernationController {
     nonisolated static func validatedScopedProcessTerminations(
         for scope: ProcessTerminationScope,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity?,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
-        processGroupProvider: (Int) -> pid_t
+        processGroupProvider: (Int) -> pid_t,
+        processTTYDeviceProvider: (Int) -> Int64? = {
+            agentLiveProcessIdentity(pid: pid_t($0))?.ttyDevice
+        }
     ) -> [ScopedProcessTermination]? {
-        guard Set(scope.processIdentities.keys) == scope.processIDs else { return nil }
+        guard scope.processIDs.count <= maximumScopedProcessTerminationCount,
+              Set(scope.processIdentities.keys) == scope.processIDs else {
+            return nil
+        }
         var terminations: [ScopedProcessTermination] = []
         for processID in scope.processIDs.sorted(by: >) {
             guard processID > 0,
                   processID <= Int(Int32.max),
                   let expectedIdentity = scope.processIdentities[processID],
-                  processIdentityProvider(processID) == expectedIdentity,
-                  let process = processArgumentsProvider(processID),
-                  process.matchesCMUXScope(
-                      workspaceId: scope.key.workspaceId,
-                      surfaceId: scope.key.panelId
-                  ) else {
+                  processIdentityProvider(processID) == expectedIdentity else {
                 return nil
             }
             terminations.append(
                 ScopedProcessTermination(
                     processID: processID,
                     processIdentity: expectedIdentity,
-                    processGroupID: processGroupProvider(processID)
+                    processGroupID: processGroupProvider(processID),
+                    ttyDevice: processTTYDeviceProvider(processID)
                 )
             )
         }
@@ -133,6 +153,8 @@ extension AgentHibernationController {
             )
             return false
         }
+        let processExitCompletion = AgentHibernationProcessExitCompletion()
+        let committedTerminationRequestID = UUID()
 
         if let snapshot {
             // Hand off any older monitor only after every other precondition passed.
@@ -164,7 +186,10 @@ extension AgentHibernationController {
             // trigger an interrupted-exit transcript rewrite.
             guard armPostTeardownRestoreMonitor(
                 snapshot: snapshot,
-                processIDs: record.processIDs
+                processIDs: record.processIDs,
+                awaitProcessExit: {
+                    await processExitCompletion.wait()
+                }
             ) else {
                 preserveSnapshotAfterAbortedTeardown(
                     snapshot,
@@ -205,36 +230,133 @@ extension AgentHibernationController {
         let panelID = record.key.panelId
         let workspaceID = record.key.workspaceId
         let agent = record.agent
-        let finishTeardown: @MainActor () -> Void = {
+        let finalizeTeardown: @MainActor () -> Bool = {
             [weak workspace = record.workspace, weak terminalPanel = record.terminalPanel] in
-            guard let terminalPanel else { return }
+            guard let terminalPanel else { return true }
             if let workspace,
                let currentPanel = workspace.panels[panelID] as? TerminalPanel,
                currentPanel === terminalPanel,
                terminalPanel.workspaceId == workspaceID,
-               terminalPanel.isAgentHibernationTerminating {
-                workspace.enterAgentHibernation(
+               terminalPanel.isAgentHibernationCommitPending {
+                return workspace.enterAgentHibernation(
                     panelId: panelID,
                     agent: agent,
                     lastActivityAt: lastActivityAt
                 )
-            } else {
-                // A live move carries the phase on TerminalPanel. Its new owner
-                // gets the same resumable state without consulting the source.
-                terminalPanel.completeAgentHibernationTermination()
+            }
+            // A live move carries the phase on TerminalPanel. Its new owner
+            // gets the same resumable state without consulting the source.
+            terminalPanel.completeAgentHibernationTermination()
+            return true
+        }
+        let finishTeardown: @MainActor () async -> Bool = {
+            [weak terminalPanel = record.terminalPanel] in
+            guard let terminalPanel else { return true }
+            guard await terminalPanel.surface.waitForAgentHibernationRuntimeTeardown(
+                timeout: .seconds(5)
+            ) else {
+                return false
+            }
+            return finalizeTeardown()
+        }
+        let recoverTeardown: @MainActor () async -> Void = {
+            [weak terminalPanel = record.terminalPanel] in
+            guard terminalPanel != nil else { return }
+            _ = finalizeTeardown()
+        }
+        let waitForRecoveryReadiness: @MainActor @Sendable () async -> Bool = {
+            [weak terminalPanel = record.terminalPanel] in
+            guard let terminalPanel else { return true }
+            return await terminalPanel.surface.waitForAgentHibernationRuntimeTeardown(
+                timeout: .seconds(30)
+            )
+        }
+        let beginTerminationRecovery: @MainActor () async -> Void = {
+            [weak terminalPanel = record.terminalPanel] in
+            terminalPanel?.beginAgentHibernationTerminationRecovery()
+        }
+        let handleRecoveryFailure: @MainActor () async -> Void = {
+            [weak self, weak terminalPanel = record.terminalPanel] in
+            guard let self, let terminalPanel else { return }
+            terminalPanel.failAgentHibernationTermination()
+            terminalPanel.onRequestAgentHibernationTerminationRetry = {
+                [weak self, weak terminalPanel] in
+                guard let self, let terminalPanel else { return }
+                self.retryCommittedTerminationRecovery(panelID: terminalPanel.id)
             }
         }
-        let terminationResult = terminateScopedProcessesForHibernation(
+        let beginRecoveryRetry: @MainActor () -> Void = {
+            [weak terminalPanel = record.terminalPanel] in
+            terminalPanel?.beginAgentHibernationTerminationRecovery()
+        }
+        let finalCommitIsSafe: @MainActor @Sendable () -> Bool = {
+            [weak self, weak terminalPanel = record.terminalPanel] in
+            guard let self, let terminalPanel,
+                  self.teardownIsStillSafe(
+                request,
+                index: preSignalIndex,
+                shouldProceed: shouldProceed
+                  ),
+                  (snapshot.map {
+                    AgentHibernationTranscriptGuard.liveFileVersionStillMatches($0)
+                  } ?? true) else {
+                return false
+            }
+            return terminalPanel.surface.reserveAgentHibernationRuntimeTeardown()
+        }
+        let processGroupLeaders = Self.processGroupLeaders(
+            in: scopedProcessTerminations
+        )
+        let processScopeKey = record.key
+        let processSnapshotCoordinator = processSnapshotCoordinator
+        let retryTermination: CommittedTerminationRetry = {
+            [weak self, weak terminalPanel = record.terminalPanel] in
+            guard !scopedProcessTerminations.isEmpty else {
+                return .exited
+            }
+            guard let epoch = await processSnapshotCoordinator.refreshedExitEpoch(
+                processGroupLeaders: processGroupLeaders,
+                processScopeKey: processScopeKey,
+                ttyDevice: Self.commonTTYDevice(in: scopedProcessTerminations),
+                excluding: []
+            ) else {
+                return .rejected
+            }
+            return await Self.terminateScopedProcessEpochForHibernation(
+                epoch,
+                processScopeKey: processScopeKey,
+                shouldCommit: {
+                    guard let self, let terminalPanel,
+                          terminalPanel.isAgentHibernationCommitPending,
+                          self.committedTerminationObservationsByPanelID[panelID]?
+                            .requestID == committedTerminationRequestID else {
+                        return false
+                    }
+                    return true
+                }
+            )
+        }
+        let terminationResult = await Self.terminateScopedProcessesForHibernation(
             scopedProcessTerminations,
+            processScopeKey: record.key,
+            shouldCommit: finalCommitIsSafe,
             onTeardownCommit: {
-                record.terminalPanel.beginAgentHibernationTermination(
-                    agent: record.agent,
+                [self, weak terminalPanel = record.terminalPanel] in
+                registerCommittedTerminationObservation(
+                    panelID: panelID,
+                    requestID: committedTerminationRequestID,
+                    processExitCompletion: processExitCompletion
+                )
+                terminalPanel?.beginAgentHibernationTermination(
+                    agent: agent,
                     lastActivityAt: lastActivityAt
                 )
             }
         )
         switch terminationResult {
         case .rejected:
+            record.terminalPanel.surface
+                .cancelAgentHibernationRuntimeTeardownReservation()
             if let snapshot {
                 await releaseArmedRestoreMonitorAfterAbortedTeardown(
                     snapshot,
@@ -244,12 +366,63 @@ extension AgentHibernationController {
             }
             return false
         case .exited:
-            finishTeardown()
+            guard committedTerminationObservationsByPanelID[panelID]?.requestID ==
+                    committedTerminationRequestID else {
+                return false
+            }
+            await processExitCompletion.finish(true)
+            guard committedTerminationObservationsByPanelID[panelID]?.requestID ==
+                    committedTerminationRequestID else {
+                return false
+            }
+            guard await finishTeardown() else {
+                guard committedTerminationObservationsByPanelID[panelID]?.requestID ==
+                        committedTerminationRequestID else {
+                    return false
+                }
+                await beginTerminationRecovery()
+                guard committedTerminationObservationsByPanelID[panelID]?.requestID ==
+                        committedTerminationRequestID else {
+                    return false
+                }
+                observeCommittedTerminationRecovery(
+                    panelID: panelID,
+                    requestID: committedTerminationRequestID,
+                    terminations: [],
+                    processScopeKey: nil,
+                    processExitCompletion: processExitCompletion,
+                    retryTermination: retryTermination,
+                    waitForRecoveryReadiness: waitForRecoveryReadiness,
+                    recoveryDeadline: .seconds(60),
+                    onRecovery: recoverTeardown,
+                    onRecoveryFailure: handleRecoveryFailure,
+                    onRecoveryRetry: beginRecoveryRetry
+                )
+                return false
+            }
+            guard committedTerminationObservationsByPanelID[panelID]?.requestID ==
+                    committedTerminationRequestID else {
+                return false
+            }
+            removeCommittedTerminationObservation(
+                panelID: panelID,
+                requestID: committedTerminationRequestID
+            )
         case .committedAwaitingExit:
             observeCommittedTermination(
                 panelID: panelID,
+                requestID: committedTerminationRequestID,
                 terminations: scopedProcessTerminations,
-                onExit: finishTeardown
+                processScopeKey: record.key,
+                processExitCompletion: processExitCompletion,
+                retryTermination: retryTermination,
+                waitForRecoveryReadiness: waitForRecoveryReadiness,
+                recoveryDeadline: .seconds(60),
+                onExit: finishTeardown,
+                onFailure: beginTerminationRecovery,
+                onRecovery: recoverTeardown,
+                onRecoveryFailure: handleRecoveryFailure,
+                onRecoveryRetry: beginRecoveryRetry
             )
             return false
         }
@@ -258,161 +431,4 @@ extension AgentHibernationController {
             !record.terminalPanel.isAgentHibernationTerminating
     }
 
-    @discardableResult
-    func terminateScopedProcessesForHibernation(
-        _ terminations: [ScopedProcessTermination],
-        onTeardownCommit: @MainActor () -> Void = {},
-        currentProcessID: pid_t = getpid(),
-        currentProcessGroupID: pid_t = getpgrp(),
-        processIdentityProvider: (pid_t) -> AgentPIDProcessIdentity? = {
-            AgentPIDProcessIdentity(pid: $0)
-        },
-        processGroupProvider: (pid_t) -> pid_t = { getpgid($0) },
-        signalErrorProvider: (pid_t, Int32) -> Int32? = { target, signal in
-            kill(target, signal) == 0 ? nil : errno
-        }
-    ) -> ScopedProcessTerminationResult {
-        guard !terminations.isEmpty else {
-            onTeardownCommit()
-            return .exited
-        }
-        guard terminations.allSatisfy({ termination in
-            let pid = pid_t(termination.processID)
-            return pid != currentProcessID &&
-                processIdentityProvider(pid) == termination.processIdentity &&
-                processGroupProvider(pid) == termination.processGroupID
-        }) else {
-            return .rejected
-        }
-        var teardownIsCommitted = false
-        let commitTeardownIfNeeded = {
-            guard !teardownIsCommitted else { return }
-            teardownIsCommitted = true
-            onTeardownCommit()
-        }
-        var signaledProcessGroups: Set<pid_t> = []
-        for termination in terminations {
-            let pid = pid_t(termination.processID)
-            let processGroupID = termination.processGroupID
-            if processGroupID > 1,
-               processGroupID != currentProcessGroupID,
-               signaledProcessGroups.insert(processGroupID).inserted {
-                if let error = signalErrorProvider(-processGroupID, SIGTERM) {
-                    if error != ESRCH, !teardownIsCommitted {
-                        return .rejected
-                    }
-                } else {
-                    commitTeardownIfNeeded()
-                }
-            }
-            if let error = signalErrorProvider(pid, SIGTERM) {
-                if error != ESRCH, !teardownIsCommitted {
-                    return .rejected
-                }
-            } else {
-                commitTeardownIfNeeded()
-            }
-        }
-        // Every target may have exited between validation and signaling. That is
-        // still a committed teardown: there is no live generation left to kill.
-        commitTeardownIfNeeded()
-        // A later signal error cannot roll back a teardown after the first signal.
-        // Exact-generation exit is completed by a stored per-panel observation so
-        // one slow process cannot block later critical-pressure reclamation batches.
-        return .committedAwaitingExit
-    }
-
-    func observeCommittedTermination(
-        panelID: UUID,
-        terminations: [ScopedProcessTermination],
-        waitForExit: @escaping @Sendable ([ScopedProcessTermination]) async -> Bool = {
-            await AgentHibernationController
-                .waitForExactProcessGenerationsToExitWithoutTimeout($0)
-        },
-        onExit: @escaping @MainActor () -> Void
-    ) {
-        committedTerminationObservationsByPanelID
-            .removeValue(forKey: panelID)?
-            .task
-            .cancel()
-        let requestID = UUID()
-        let task = Task { @MainActor [weak self] in
-            let didExit = await waitForExit(terminations)
-            guard let self,
-                  self.committedTerminationObservationsByPanelID[panelID]?.requestID ==
-                    requestID else {
-                return
-            }
-            self.committedTerminationObservationsByPanelID.removeValue(forKey: panelID)
-            guard didExit, !Task.isCancelled else { return }
-            onExit()
-        }
-        committedTerminationObservationsByPanelID[panelID] = CommittedTerminationObservation(
-            requestID: requestID,
-            task: task
-        )
-    }
-
-    #if compiler(>=6.2)
-    @concurrent
-    #else
-    @Sendable
-    #endif
-    nonisolated static func waitForExactProcessGenerationsToExitWithoutTimeout(
-        _ terminations: [ScopedProcessTermination],
-        processIdentityProvider: @escaping @Sendable (pid_t) -> AgentPIDProcessIdentity? = {
-            AgentPIDProcessIdentity(pid: $0)
-        }
-    ) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            for termination in terminations {
-                group.addTask(priority: .utility) {
-                    await waitForExactProcessGenerationToExit(
-                        termination,
-                        processIdentityProvider: processIdentityProvider
-                    )
-                }
-            }
-            for await didExit in group where !didExit {
-                group.cancelAll()
-                return false
-            }
-            return true
-        }
-    }
-
-    private nonisolated static func waitForExactProcessGenerationToExit(
-        _ termination: ScopedProcessTermination,
-        processIdentityProvider: @escaping @Sendable (pid_t) -> AgentPIDProcessIdentity?
-    ) async -> Bool {
-        let processID = pid_t(termination.processID)
-        guard processIdentityProvider(processID) == termination.processIdentity else {
-            return true
-        }
-
-        let exitEvents = AsyncStream<Void>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let source = DispatchSource.makeProcessSource(
-                identifier: processID,
-                eventMask: .exit,
-                queue: .global(qos: .utility)
-            )
-            source.setEventHandler {
-                continuation.yield()
-                continuation.finish()
-            }
-            continuation.onTermination = { @Sendable _ in
-                source.cancel()
-            }
-            source.resume()
-        }
-        // Close the registration race without ever accepting a reused PID.
-        guard processIdentityProvider(processID) == termination.processIdentity else {
-            return true
-        }
-
-        for await _ in exitEvents {
-            return true
-        }
-        return processIdentityProvider(processID) != termination.processIdentity
-    }
 }

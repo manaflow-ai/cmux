@@ -1,9 +1,8 @@
 import Foundation
 
 extension AgentHibernationController {
-    struct InFlightTeardown: Sendable {
+    struct CommittedTerminationCleanup {
         let requestID: UUID
-        let trigger: AgentHibernationReclaimTrigger
+        let task: Task<Void, Never>
     }
-
 }

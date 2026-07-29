@@ -603,8 +603,9 @@ final class DockSplitStore: BonsplitDelegate {
         let live = Set(bonsplitController.allTabIds)
         let staleTabIds = surfaceIdToPanelId.keys.filter { !live.contains($0) }
         let stalePanelIds = Set(staleTabIds.compactMap { surfaceIdToPanelId[$0] })
-        surfaceIdToPanelId = surfaceIdToPanelId.filter { !stalePanelIds.contains($0.value) }
-        for panelId in stalePanelIds {
+        surfaceIdToPanelId = surfaceIdToPanelId.filter { live.contains($0.key) }
+        let livePanelIds = Set(surfaceIdToPanelId.values)
+        for panelId in stalePanelIds.subtracting(livePanelIds) {
             discardPanelStateAndClose(panelId: panelId)
         }
     }

@@ -913,6 +913,10 @@ struct RestorableAgentSessionIndex: Sendable {
         let processIdentities: [Int: AgentPIDProcessIdentity]
         let agentProcessIDs: Set<Int>
         let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
+        let hibernationPanelProcessIDs: Set<Int>
+        let terminationProcessIDs: Set<Int>
+        let terminationProcessIdentities: [Int: AgentPIDProcessIdentity]
+        let containsUnrelatedProcess: Bool
     }
 
     enum ProcessDetectedSessionIDSource: Equatable, Sendable {
@@ -928,6 +932,12 @@ struct RestorableAgentSessionIndex: Sendable {
         processIDs: Set<Int>,
         agentProcessIDs: Set<Int>,
         sessionIDSource: ProcessDetectedSessionIDSource
+    )
+
+    typealias HibernationProcessScope = (
+        panelProcessIDs: Set<Int>,
+        terminationProcessIDs: Set<Int>,
+        containsUnrelatedProcess: Bool
     )
 
     private struct SessionKey: Hashable {
@@ -1062,15 +1072,25 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
-            fileManager: fileManager
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: processSnapshot.sampledAt.timeIntervalSince1970
         )
+        let hibernationProcessScopes = detectedSnapshots.mapValues { detected in
+            processSnapshot.agentHibernationProcessScope(
+                panelProcessIDs: detected.processIDs,
+                agentProcessIDs: detected.agentProcessIDs
+            )
+        }
         return load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: detectedSnapshots
+            detectedSnapshots: detectedSnapshots,
+            hibernationProcessScopes: hibernationProcessScopes
         )
     }
 
@@ -1079,6 +1099,7 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
+        hibernationProcessScopes: [PanelKey: HibernationProcessScope] = [:],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
@@ -1216,7 +1237,14 @@ struct RestorableAgentSessionIndex: Sendable {
                     processIDs: liveProcessID.map { [$0] } ?? [],
                     processIdentities: liveProcessIdentities,
                     agentProcessIDs: liveProcessID.map { [$0] } ?? [],
-                    agentProcessIdentities: liveProcessIdentities
+                    agentProcessIdentities: liveProcessIdentities,
+                    hibernationPanelProcessIDs: liveProcessID.map { [$0] } ?? [],
+                    terminationProcessIDs: liveProcessID.map { [$0] } ?? [],
+                    terminationProcessIdentities: liveProcessIdentities,
+                    // A saved hook PID proves liveness but cannot prove the
+                    // surrounding pane is exclusive. Critical-pressure
+                    // termination requires a fresh process-tree detection.
+                    containsUnrelatedProcess: liveProcessID != nil
                 )
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesByPanelAndKind[panelKindKey],
@@ -1258,9 +1286,24 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
-        func processDetectedEntry(snapshot: SessionRestorableAgentSnapshot, lifecycle: AgentHibernationLifecycleState?, updatedAt: TimeInterval, detected: ProcessDetectedSnapshotEntry) -> Entry {
-            let processIdentities = processIdentities(
+        func processDetectedEntry(
+            key: PanelKey,
+            snapshot: SessionRestorableAgentSnapshot,
+            lifecycle: AgentHibernationLifecycleState?,
+            updatedAt: TimeInterval,
+            detected: ProcessDetectedSnapshotEntry
+        ) -> Entry {
+            let processIdentities = Self.processIdentities(
                 for: detected.processIDs,
+                processIdentityProvider: processIdentityProvider
+            )
+            let hibernationScope = hibernationProcessScopes[key] ?? (
+                detected.processIDs,
+                detected.agentProcessIDs,
+                !detected.processIDs.isSubset(of: detected.agentProcessIDs)
+            )
+            let terminationProcessIdentities = Self.processIdentities(
+                for: hibernationScope.terminationProcessIDs,
                 processIdentityProvider: processIdentityProvider
             )
             return Entry(
@@ -1271,7 +1314,11 @@ struct RestorableAgentSessionIndex: Sendable {
                 agentProcessIDs: detected.agentProcessIDs,
                 agentProcessIdentities: processIdentities.filter {
                     detected.agentProcessIDs.contains($0.key)
-                }
+                },
+                hibernationPanelProcessIDs: hibernationScope.panelProcessIDs,
+                terminationProcessIDs: hibernationScope.terminationProcessIDs,
+                terminationProcessIdentities: terminationProcessIdentities,
+                containsUnrelatedProcess: hibernationScope.containsUnrelatedProcess
             )
         }
 
@@ -1297,7 +1344,7 @@ struct RestorableAgentSessionIndex: Sendable {
                    detected: detected,
                    processIdentityProvider: processIdentityProvider
                ) {
-                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if detected.sessionIDSource == .forkParentFallback,
                       Self.forkParentFallbackMustYield(kind: detected.snapshot.kind, toExisting: resolved[key]) {
                 // A nested fork process inside another agent's pane must not displace
@@ -1309,7 +1356,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
                 // live process evidence for the restored panel. The workspace UUID can rotate during
                 // session restore, but the surface id is intentionally reused on the normal restore path.
-                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -1318,9 +1365,9 @@ struct RestorableAgentSessionIndex: Sendable {
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
             ) {
-                resolved[key] = processDetectedEntry(snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
             } else {
-                resolved[key] = processDetectedEntry(snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
             }
         }
 
