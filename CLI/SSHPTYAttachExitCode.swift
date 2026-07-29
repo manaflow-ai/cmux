@@ -2,13 +2,13 @@ import Foundation
 
 /// Owns ssh-pty-attach exit-code semantics.
 ///
-/// Exit codes 254 and 255 are the only retryable statuses recognized by the
-/// embedded wrapper loops in `SSHPTYAttachStartupCommandBuilder.retryingAttachLines`
-/// and `CMUXCLI.sshPTYAttachRetryLoopLines`; keep those shell contracts in sync
-/// with this taxonomy. The classifier patterns mirror
+/// Exit codes 252, 254, and 255 are handled by `SSHPTYAttachRetryLoop`.
+/// Status 252 has its own bounded consecutive-failure budget; 254 and 255 use
+/// the general reconnect budget. The classifier patterns mirror
 /// `userFacingRemotePTYErrorMessage` in `CLI/CMUXCLI+RemotePTYErrors.swift`.
 enum SSHPTYAttachExitCode: Int32 {
     case fatal = 1
+    case bridgeClosedWithoutProgress = 252
     case sessionNotFound = 253
     case bridgeClosedSessionRunning = 254
     case retryableTransient = 255

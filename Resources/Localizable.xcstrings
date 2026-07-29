@@ -50463,6 +50463,57 @@
         }
       }
     },
+    "cli.sshPtyAttach.bridgeClosedReattaching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.bridgeClosedWithoutProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-pty-attach: bridge closed without receiving output while the remote PTY session is still running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-pty-attach: 出力を受信しないままブリッジが閉じましたが、リモート PTY セッションは引き続き実行中です"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.noProgressRetryLimitReached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge made no progress after %s attempts; stopping retries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジは %s 回試行しても進行しなかったため、再試行を停止します。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.remoteSessionLostRespawn": {
       "extractionState": "manual",
       "localizations": {
