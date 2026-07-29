@@ -279,17 +279,28 @@ extension TerminalController: ControlPaneContext {
                     initialDividerPosition: initialDividerPosition
                 )
                 guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
-                guard controlWorkspaceMutationTargetIsAvailable(tabManager) else {
-                    return .tabManagerUnavailable
-                }
-                let shouldFocus = v2FocusAllowed(requested: inputs.requestedFocus)
                 let focusIntent = remoteTmuxSplitFocusIntent(requested: inputs.requestedFocus)
-                guard remoteTarget.requestSplit(vertical: orientation == .vertical, focusIntent: focusIntent) else {
-                    return .createFailed
-                }
-                if shouldFocus,
-                   !controlPrepareWorkspaceFocus(tabManager, workspace: ws) {
+                switch controlPerformRemoteTmuxMutation(
+                    prepare: {
+                        v2PrepareWorkspaceMutation(
+                            tabManager,
+                            workspace: ws,
+                            requestedFocus: inputs.requestedFocus
+                        )
+                    },
+                    mutation: {
+                        remoteTarget.requestSplit(
+                            vertical: orientation == .vertical,
+                            focusIntent: focusIntent
+                        )
+                    }
+                ) {
+                case .unavailable:
                     return .tabManagerUnavailable
+                case .rejected:
+                    return .createFailed
+                case .performed:
+                    break
                 }
                 return .routedToRemote(
                     windowID: v2ResolveWindowId(tabManager: tabManager),
