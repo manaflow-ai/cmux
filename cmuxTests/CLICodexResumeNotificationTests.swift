@@ -9,12 +9,12 @@ struct CLICodexResumeNotificationTests {
     private let workspaceID = "11111111-1111-1111-1111-111111111111"
     private let surfaceID = "22222222-2222-2222-2222-222222222222"
     private let resumedSessionID = "33333333-3333-4333-8333-333333333333"
+    private let fixtureTimestamp: TimeInterval = 1_778_888_888
 
     @Test("A Stop hook rebinds a resumed session to its live PID and notifies")
     func resumedStopRebindsLivePIDAndNotifies() throws {
         let root = temporaryRoot("live-pid")
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
-        let now = Date().timeIntervalSince1970
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -24,7 +24,7 @@ struct CLICodexResumeNotificationTests {
                     sessionID: resumedSessionID,
                     pid: 999_999,
                     runtimeStatus: "running",
-                    updatedAt: now
+                    updatedAt: fixtureTimestamp
                 ),
             ],
             to: stateURL
@@ -61,7 +61,7 @@ struct CLICodexResumeNotificationTests {
                     sessionID: otherSessionID,
                     pid: Int(getpid()),
                     runtimeStatus: "running",
-                    updatedAt: Date().timeIntervalSince1970
+                    updatedAt: fixtureTimestamp
                 ),
             ],
             to: stateURL
@@ -90,7 +90,7 @@ struct CLICodexResumeNotificationTests {
             sessionID: resumedSessionID,
             pid: Int(getpid()),
             runtimeStatus: "running",
-            updatedAt: Date().timeIntervalSince1970
+            updatedAt: fixtureTimestamp
         )
         resumedRecord["activePromptDepth"] = 1
         resumedRecord["activePromptTurnId"] = "turn-resumed"
