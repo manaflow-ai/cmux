@@ -385,6 +385,9 @@ def main() -> int:
             print(f"stdout={reinstall.stdout.strip()}")
             print(f"stderr={reinstall.stderr.strip()}")
             return 1
+        extension_override = os.environ.get("CMUX_TEST_OMP_EXTENSION_OVERRIDE")
+        if extension_override:
+            shutil.copyfile(extension_override, extension_path)
 
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
@@ -392,17 +395,24 @@ def main() -> int:
         fake_env_log = root / "fake-cmux-env.log"
         fake_concurrency_log = root / "fake-cmux-concurrency.log"
         fake_pid_log = root / "fake-cmux-pids.log"
+        fake_started_args_log = root / "fake-cmux-started-args.log"
         fake_args_log.touch()
         fake_pid_log.touch()
+        fake_started_args_log.touch()
         fake_lock_dir = root / "fake-cmux.lock"
         make_executable(
             fake_cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
 if ! mkdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null; then
-  printf 'overlap\n' >> "$FAKE_CMUX_CONCURRENCY_LOG"
+  active_pid="$(cat "$FAKE_CMUX_LOCK_DIR/pid" 2>/dev/null || true)"
+  if [ -n "$active_pid" ] && kill -0 "$active_pid" 2>/dev/null; then
+    printf 'overlap\n' >> "$FAKE_CMUX_CONCURRENCY_LOG"
+  fi
 fi
+printf '%s\n' "$$" > "$FAKE_CMUX_LOCK_DIR/pid"
 printf '%s\n' "$$" >> "$FAKE_CMUX_PID_LOG"
+printf '%s\n' "$*" >> "$FAKE_CMUX_STARTED_ARGS_LOG"
 kill -STOP "$$"
 printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
 cat >> "$FAKE_CMUX_STDIN_LOG"
@@ -417,6 +427,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
     printf 'amp=missing\n'
   fi
 } >> "$FAKE_CMUX_ENV_LOG"
+rm -f "$FAKE_CMUX_LOCK_DIR/pid"
 rmdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null || true
 """,
         )
@@ -448,6 +459,7 @@ rmdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null || true
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
         check_env["FAKE_CMUX_CONCURRENCY_LOG"] = str(fake_concurrency_log)
         check_env["FAKE_CMUX_PID_LOG"] = str(fake_pid_log)
+        check_env["FAKE_CMUX_STARTED_ARGS_LOG"] = str(fake_started_args_log)
         check_env["FAKE_CMUX_LOCK_DIR"] = str(fake_lock_dir)
         check_env["AMP_API_KEY"] = "amp-secret"
         check_source = """
@@ -578,16 +590,26 @@ for (let index = 0; index < 40; index += 1) {
 }
 await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, parentCtx);
 await handlers.get("session_shutdown")({}, parentCtx);
-const hungPidLines = fs.readFileSync(process.env.FAKE_CMUX_PID_LOG, "utf8")
-  .split("\\n")
-  .filter((line) => line.trim().length > 0);
-const hungPid = Number(hungPidLines.at(-1));
-if (!Number.isInteger(hungPid) || hungPid <= 0) throw new Error(`missing hung hook pid: ${hungPidLines}`);
-try {
-  process.kill(hungPid, 0);
-  throw new Error(`shutdown completed before hook child ${hungPid} closed`);
-} catch (error) {
-  if (!error || error.code !== "ESRCH") throw error;
+const hungPidLines = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
+const startedArgs = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG);
+if (hungPidLines.length !== 8) {
+  throw new Error(`shutdown did not start the queued Stop after cancelling the active hook: ${hungPidLines}`);
+}
+if (
+  startedArgs.at(-2) !== "hooks omp session-start" ||
+  startedArgs.at(-1) !== "hooks omp stop"
+) {
+  throw new Error(`shutdown did not preserve the queued Stop after timeout: ${startedArgs}`);
+}
+for (const rawPid of hungPidLines.slice(-2)) {
+  const hungPid = Number(rawPid);
+  if (!Number.isInteger(hungPid) || hungPid <= 0) throw new Error(`missing hung hook pid: ${hungPidLines}`);
+  try {
+    process.kill(hungPid, 0);
+    throw new Error(`shutdown completed before hook child ${hungPid} closed`);
+  } catch (error) {
+    if (!error || error.code !== "ESRCH") throw error;
+  }
 }
 """
         try:
@@ -611,12 +633,20 @@ try {
                 for line in fake_args_log.read_text(encoding="utf-8").splitlines()
                 if line.strip()
             ]
+            started_args_lines = [
+                line
+                for line in fake_started_args_log.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
             for raw_pid in pid_lines:
                 try:
                     os.kill(int(raw_pid), signal.SIGKILL)
                 except (ProcessLookupError, ValueError):
                     pass
-            print(f"FAIL: generated OMP extension timed out; pids={pid_lines!r} args={args_lines!r}")
+            print(
+                "FAIL: generated OMP extension timed out; "
+                f"pids={pid_lines!r} started_args={started_args_lines!r} args={args_lines!r}"
+            )
             return 1
         if check.returncode != 0:
             print("FAIL: generated OMP extension is not importable or blocks handlers")

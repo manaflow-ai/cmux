@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension ClaudeHookSessionStore {
@@ -35,51 +36,105 @@ extension ClaudeHookSessionStore {
                 !supersededIDs.contains($0.value.sessionId)
             }
         }
-        return pendingSupersededSessionCleanupCandidates(in: state, owner: owner)
+        return claimPendingSupersededSessionCleanupCandidates(in: &state, owner: owner)
     }
 
     func pendingSupersededSessionCleanupCandidates(
-        for owner: ClaudeHookSessionRecord,
-        excludingSessionIds: Set<String> = []
+        for owner: ClaudeHookSessionRecord
     ) throws -> [ClaudeHookSessionRecord] {
         try withLockedState { state in
-            pendingSupersededSessionCleanupCandidates(
-                in: state,
-                owner: owner,
-                excludingSessionIds: excludingSessionIds
-            )
+            claimPendingSupersededSessionCleanupCandidates(in: &state, owner: owner)
         }
     }
 
-    private func pendingSupersededSessionCleanupCandidates(
-        in state: ClaudeHookSessionStoreFile,
-        owner: ClaudeHookSessionRecord,
-        excludingSessionIds: Set<String> = []
+    private func claimPendingSupersededSessionCleanupCandidates(
+        in state: inout ClaudeHookSessionStoreFile,
+        owner: ClaudeHookSessionRecord
     ) -> [ClaudeHookSessionRecord] {
-        guard let pid = owner.pid,
-              let startSeconds = owner.pidStartSeconds,
-              let startMicroseconds = owner.pidStartMicroseconds else {
-            return []
+        let orderedRecords = state.pendingSupersededSessionCleanup.values.sorted {
+            if $0.updatedAt != $1.updatedAt {
+                return $0.updatedAt < $1.updatedAt
+            }
+            if $0.startedAt != $1.startedAt {
+                return $0.startedAt < $1.startedAt
+            }
+            return $0.sessionId < $1.sessionId
         }
-        return Array(
-            state.pendingSupersededSessionCleanup.values
-                .filter {
-                    !excludingSessionIds.contains($0.sessionId)
-                        && $0.pid == pid
-                        && $0.pidStartSeconds == startSeconds
-                        && $0.pidStartMicroseconds == startMicroseconds
-                }
-                .sorted {
-                    if $0.startedAt != $1.startedAt {
-                        return $0.startedAt < $1.startedAt
-                    }
-                    if $0.updatedAt != $1.updatedAt {
-                        return $0.updatedAt < $1.updatedAt
-                    }
-                    return $0.sessionId < $1.sessionId
-                }
-                .prefix(Self.maxSupersededCleanupBatchSize)
-        )
+        var candidates: [ClaudeHookSessionRecord] = []
+        for record in orderedRecords {
+            guard Self.sameProcessGeneration(record, owner)
+                    || Self.processGenerationIsConfirmedDead(record) else {
+                continue
+            }
+            candidates.append(record)
+            if candidates.count == Self.maxSupersededCleanupBatchSize {
+                break
+            }
+        }
+        guard !candidates.isEmpty else { return [] }
+
+        // Claiming a batch advances its durable retry order before external
+        // socket work begins. Failed records therefore rotate behind records
+        // that have not been tried yet, and concurrent hooks do not repeatedly
+        // select the same oldest four.
+        var claimed: [ClaudeHookSessionRecord] = []
+        var attemptedAt = max(
+            Date().timeIntervalSince1970,
+            state.pendingSupersededSessionCleanup.values.map(\.updatedAt).max() ?? 0
+        ).nextUp
+        for candidate in candidates {
+            guard var current = state.pendingSupersededSessionCleanup[candidate.sessionId],
+                  current.pid == candidate.pid,
+                  current.pidStartSeconds == candidate.pidStartSeconds,
+                  current.pidStartMicroseconds == candidate.pidStartMicroseconds,
+                  current.workspaceId == candidate.workspaceId,
+                  current.surfaceId == candidate.surfaceId,
+                  current.updatedAt == candidate.updatedAt else {
+                continue
+            }
+            current.updatedAt = attemptedAt
+            attemptedAt = attemptedAt.nextUp
+            state.pendingSupersededSessionCleanup[candidate.sessionId] = current
+            claimed.append(current)
+        }
+        return claimed
+    }
+
+    private static func sameProcessGeneration(
+        _ lhs: ClaudeHookSessionRecord,
+        _ rhs: ClaudeHookSessionRecord
+    ) -> Bool {
+        guard let pid = lhs.pid,
+              let startSeconds = lhs.pidStartSeconds,
+              let startMicroseconds = lhs.pidStartMicroseconds else {
+            return false
+        }
+        return rhs.pid == pid
+            && rhs.pidStartSeconds == startSeconds
+            && rhs.pidStartMicroseconds == startMicroseconds
+    }
+
+    private static func processGenerationIsConfirmedDead(_ record: ClaudeHookSessionRecord) -> Bool {
+        guard let pid = record.pid,
+              pid > 0,
+              pid <= Int(Int32.max),
+              let startSeconds = record.pidStartSeconds,
+              let startMicroseconds = record.pidStartMicroseconds else {
+            return false
+        }
+
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        if size == expectedSize {
+            return Int64(info.pbi_start_tvsec) != startSeconds
+                || Int64(info.pbi_start_tvusec) != startMicroseconds
+        }
+
+        if Darwin.kill(pid_t(pid), 0) == 0 || errno == EPERM {
+            return false
+        }
+        return errno == ESRCH
     }
 
     func acknowledgeSupersededSessionCleanup(_ candidates: [ClaudeHookSessionRecord]) throws {

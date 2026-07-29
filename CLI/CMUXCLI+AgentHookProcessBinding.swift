@@ -106,39 +106,31 @@ extension CMUXCLI {
         store: ClaudeHookSessionStore,
         client: SocketClient
     ) {
-        var attemptedSessionIds: Set<String> = []
         var records = initialRecords
         if records.isEmpty {
             records = (try? store.pendingSupersededSessionCleanupCandidates(for: owner)) ?? []
         }
-        while !records.isEmpty {
-            attemptedSessionIds.formUnion(records.map(\.sessionId))
-            var clearedRecords: [ClaudeHookSessionRecord] = []
-            for record in records {
-                guard clearAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: record.workspaceId,
-                    surfaceId: record.surfaceId,
-                    sessionId: record.sessionId
-                ) else {
-                    continue
-                }
-                let pidKey = "\(statusKey).\(record.sessionId)"
-                do {
-                    _ = try sendV1Command(
-                        "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status",
-                        client: client
-                    )
-                    clearedRecords.append(record)
-                } catch {
-                    continue
-                }
+        var clearedRecords: [ClaudeHookSessionRecord] = []
+        for record in records {
+            guard clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: record.workspaceId,
+                surfaceId: record.surfaceId,
+                sessionId: record.sessionId
+            ) else {
+                continue
             }
-            try? store.acknowledgeSupersededSessionCleanup(clearedRecords)
-            records = (try? store.pendingSupersededSessionCleanupCandidates(
-                for: owner,
-                excludingSessionIds: attemptedSessionIds
-            )) ?? []
+            let pidKey = "\(statusKey).\(record.sessionId)"
+            do {
+                _ = try sendV1Command(
+                    "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status",
+                    client: client
+                )
+                clearedRecords.append(record)
+            } catch {
+                continue
+            }
         }
+        try? store.acknowledgeSupersededSessionCleanup(clearedRecords)
     }
 }

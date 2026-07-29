@@ -19,7 +19,7 @@ struct CLIOmpSupersededCleanupTests {
     private static let ompPID = Int(getpid())
 
     @Test
-    func boundedCleanupDrainsEveryBatchAndRetriesPersistedFailures() throws {
+    func boundedCleanupRotatesPersistedFailuresAcrossLaterHooks() throws {
         let context = try Harness.makeContext(name: "omp-cleanup-bound")
         defer { context.cleanup() }
 
@@ -62,15 +62,7 @@ struct CLIOmpSupersededCleanupTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let commands = context.state.snapshot()
-        let clearedCheckpoints = commands.compactMap { command -> String? in
-            guard let payload = Self.jsonObject(command),
-                  payload["method"] as? String == "surface.resume.clear",
-                  let params = payload["params"] as? [String: Any] else {
-                return nil
-            }
-            return params["checkpoint_id"] as? String
-        }
-        #expect(clearedCheckpoints == priorSessionIds)
+        #expect(Self.clearedCheckpoints(in: commands) == Array(priorSessionIds.prefix(4)))
         #expect(!commands.contains { $0.hasPrefix("clear_agent_pid omp.") })
 
         let savedAfterFailure = try #require(
@@ -112,21 +104,119 @@ struct CLIOmpSupersededCleanupTests {
         #expect(!retryResult.timedOut, Comment(rawValue: retryResult.stderr))
         #expect(retryResult.status == 0, Comment(rawValue: retryResult.stderr))
         let retryCommands = retryContext.state.snapshot()
-        let retriedCheckpoints = retryCommands.compactMap { command -> String? in
-            guard let payload = Self.jsonObject(command),
-                  payload["method"] as? String == "surface.resume.clear",
-                  let params = payload["params"] as? [String: Any] else {
-                return nil
-            }
-            return params["checkpoint_id"] as? String
-        }
-        #expect(retriedCheckpoints == priorSessionIds)
-        #expect(retryCommands.filter { $0.hasPrefix("clear_agent_pid omp.") }.count == priorSessionIds.count)
+        let secondBatch = [priorSessionIds[4], priorSessionIds[5], priorSessionIds[0], priorSessionIds[1]]
+        #expect(Self.clearedCheckpoints(in: retryCommands) == secondBatch)
+        #expect(retryCommands.filter { $0.hasPrefix("clear_agent_pid omp.") }.count == secondBatch.count)
 
-        let savedAfterRetry = try #require(
+        let savedAfterPrompt = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))) as? [String: Any]
         )
-        #expect(savedAfterRetry["pendingSupersededSessionCleanup"] == nil)
+        let pendingAfterPrompt = try #require(savedAfterPrompt["pendingSupersededSessionCleanup"] as? [String: Any])
+        #expect(Set(pendingAfterPrompt.keys) == Set([priorSessionIds[2], priorSessionIds[3]]))
+
+        let stopContext = try Harness.makeContext(name: "omp-cleanup-stop")
+        defer { stopContext.cleanup() }
+        let stopServerHandled = Harness.startDeliveryTargetServer(
+            context: stopContext,
+            surfacesByWorkspace: [
+                Self.staleWorkspaceId: [Self.staleSurfaceId],
+                Self.liveWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+        var stopEnvironment = Harness.hookEnvironment(context: stopContext)
+        stopEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        stopEnvironment["CMUX_OMP_PID"] = String(Self.ompPID)
+
+        let stopResult = Harness.runHookProcess(
+            context: stopContext,
+            arguments: [
+                "hooks", "omp", "stop",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
+            environment: stopEnvironment,
+            standardInput: #"{"session_id":"\#(currentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop"}"#
+        )
+
+        #expect(stopServerHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!stopResult.timedOut, Comment(rawValue: stopResult.stderr))
+        #expect(stopResult.status == 0, Comment(rawValue: stopResult.stderr))
+        let finalBatch = [priorSessionIds[2], priorSessionIds[3]]
+        let stopCommands = stopContext.state.snapshot()
+        #expect(Self.clearedCheckpoints(in: stopCommands) == finalBatch)
+        #expect(stopCommands.filter { $0.hasPrefix("clear_agent_pid omp.") }.count == finalBatch.count)
+
+        let savedAfterStop = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))) as? [String: Any]
+        )
+        #expect(savedAfterStop["pendingSupersededSessionCleanup"] == nil)
+    }
+
+    @Test
+    func laterOMPProcessRecoversCleanupOwnedByDeadGeneration() throws {
+        let context = try Harness.makeContext(name: "omp-cleanup-dead")
+        defer { context.cleanup() }
+
+        let deadOwner = Process()
+        deadOwner.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        deadOwner.arguments = ["60"]
+        try deadOwner.run()
+        defer {
+            if deadOwner.isRunning {
+                deadOwner.terminate()
+                deadOwner.waitUntilExit()
+            }
+        }
+        let deadPID = Int(deadOwner.processIdentifier)
+        let deadIdentity = try #require(Self.waitForProcessStartIdentity(pid: deadPID))
+        deadOwner.terminate()
+        deadOwner.waitUntilExit()
+        #expect(Darwin.kill(pid_t(deadPID), 0) != 0)
+
+        let staleSessionId = "omp-cleanup-dead-owner"
+        let currentSessionId = "omp-cleanup-live-owner"
+        try Self.writePendingSessions(
+            to: context.root.appendingPathComponent("omp-hook-sessions.json"),
+            sessionIds: [staleSessionId],
+            cwd: context.root.path,
+            pid: deadPID,
+            identity: deadIdentity
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.staleWorkspaceId: [Self.staleSurfaceId],
+                Self.liveWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: [
+                "hooks", "omp", "session-start",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(currentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        #expect(Self.clearedCheckpoints(in: commands) == [staleSessionId])
+        #expect(commands.contains { $0.hasPrefix("clear_agent_pid omp.\(staleSessionId) ") })
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: context.root.appendingPathComponent("omp-hook-sessions.json"))) as? [String: Any]
+        )
+        #expect(saved["pendingSupersededSessionCleanup"] == nil)
     }
 
     private static func writePriorSessions(
@@ -166,6 +256,49 @@ struct CLIOmpSupersededCleanupTests {
         try data.write(to: storeURL)
     }
 
+    private static func writePendingSessions(
+        to storeURL: URL,
+        sessionIds: [String],
+        cwd: String,
+        pid: Int,
+        identity: (seconds: Int64, microseconds: Int64)
+    ) throws {
+        let timestamp = Date.now.timeIntervalSince1970
+        var pending: [String: Any] = [:]
+        for (index, sessionId) in sessionIds.enumerated() {
+            pending[sessionId] = [
+                "sessionId": sessionId,
+                "workspaceId": Self.staleWorkspaceId,
+                "surfaceId": Self.staleSurfaceId,
+                "cwd": cwd,
+                "pid": pid,
+                "pidStartSeconds": identity.seconds,
+                "pidStartMicroseconds": identity.microseconds,
+                "isRestorable": true,
+                "startedAt": timestamp + Double(index),
+                "updatedAt": timestamp + Double(index),
+            ]
+        }
+        let store: [String: Any] = [
+            "version": 1,
+            "pendingSupersededSessionCleanup": pending,
+            "sessions": [:] as [String: Any],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: storeURL)
+    }
+
+    private static func waitForProcessStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
+        let deadline = Date().addingTimeInterval(2)
+        repeat {
+            if let identity = processStartIdentity(pid: pid) {
+                return identity
+            }
+            usleep(10_000)
+        } while Date() < deadline
+        return nil
+    }
+
     private static func processStartIdentity(pid: Int) -> (seconds: Int64, microseconds: Int64)? {
         var info = proc_bsdinfo()
         let expectedSize = MemoryLayout<proc_bsdinfo>.stride
@@ -181,6 +314,17 @@ struct CLIOmpSupersededCleanupTests {
             data.append(0)
         }
         return data.base64EncodedString()
+    }
+
+    private static func clearedCheckpoints(in commands: [String]) -> [String] {
+        commands.compactMap { command -> String? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear",
+                  let params = payload["params"] as? [String: Any] else {
+                return nil
+            }
+            return params["checkpoint_id"] as? String
+        }
     }
 
     private static func jsonObject(_ line: String) -> [String: Any]? {

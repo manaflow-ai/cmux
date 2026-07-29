@@ -231,6 +231,7 @@ const hookShutdownDeadlineMs = 2000;
 const hookQueue: QueuedHook[] = [];
 let hookWorker: Promise<void> | null = null;
 let activeHook: RunningHook | null = null;
+let activeHookSubcommand: string | null = null;
 
 async function drainHookQueue(): Promise<void> {
   while (hookQueue.length > 0) {
@@ -238,8 +239,12 @@ async function drainHookQueue(): Promise<void> {
     if (!next) continue;
     const running = startHook(next.invocation, next.subcommand);
     activeHook = running;
+    activeHookSubcommand = next.subcommand;
     await running.completion;
-    if (activeHook === running) activeHook = null;
+    if (activeHook === running) {
+      activeHook = null;
+      activeHookSubcommand = null;
+    }
   }
 }
 
@@ -251,29 +256,38 @@ function startHookWorker(): void {
   });
 }
 
+async function waitForHookWorker(worker: Promise<void>, timeoutMs: number): Promise<boolean> {
+  let completed = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  await Promise.race([
+    worker.then(() => {
+      completed = true;
+    }),
+    new Promise<void>((resolve) => {
+      timeout = setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
+  return completed;
+}
+
 async function awaitHookQueueDrain(): Promise<void> {
   for (let index = hookQueue.length - 1; index >= 0; index -= 1) {
     if (hookQueue[index]?.subcommand === "prompt-submit") hookQueue.splice(index, 1);
   }
   const worker = hookWorker;
   if (!worker) return;
-  let timedOut = false;
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  await Promise.race([
-    worker,
-    new Promise<void>((resolve) => {
-      timeout = setTimeout(() => {
-        timedOut = true;
-        resolve();
-      }, hookShutdownDeadlineMs);
-    }),
-  ]);
-  if (timeout) clearTimeout(timeout);
-  if (timedOut) {
-    hookQueue.splice(0);
-    activeHook?.cancel();
-    await worker;
+  if (await waitForHookWorker(worker, hookShutdownDeadlineMs)) return;
+
+  for (let index = hookQueue.length - 1; index >= 0; index -= 1) {
+    if (hookQueue[index]?.subcommand !== "stop") hookQueue.splice(index, 1);
   }
+  if (activeHookSubcommand !== "stop") activeHook?.cancel();
+  if (await waitForHookWorker(worker, hookShutdownDeadlineMs)) return;
+
+  hookQueue.splice(0);
+  activeHook?.cancel();
+  await worker;
 }
 
 function enqueueHook(invocation: HookInvocation, subcommand: string): void {
