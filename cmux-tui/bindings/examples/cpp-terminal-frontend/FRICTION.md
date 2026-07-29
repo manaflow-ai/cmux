@@ -1,56 +1,43 @@
 # C++ SDK friction
 
-## Public API used
+Production code uses `cmux::Client`, opaque resource IDs, resource handles,
+typed creation paths, typed terminal results, typed attachment items, and
+`cmux::Result`. It does not use numeric mux IDs, generated protocol-v10 models,
+raw commands, or JSON documents.
 
-Production code uses `cmux::Client`, generated request/result models, generated
-event variants, `cmux::Result`, and `ClientOptions`. It does not construct raw
-JSON or call raw command names.
+Tests implement the public `cmux::Transport` interface and use public
+`cmux::Json` only to simulate and inspect wire envelopes.
 
-Tests implement the public `cmux::Transport` interface, inject public
-`TransportFactory` callbacks, and use public `cmux::Json` helpers to act as a
-deterministic fake server. Raw JSON access is confined to verifying request
-envelopes in those fake-server tests.
+The strict resource API resolved the earlier attachment problems. A
+`TerminalAttachmentStream` now owns the stream connection, exposes typed
+snapshot, patch, scroll, and unknown variants, provides bounded `poll`, and
+routes typed viewer resize, release, and cancellation through that connection.
+Opaque ID parsers, selectors, typed screen/history results, durable terminal
+lifecycle and exit outcomes, deterministic creation paths, and correlation
+recovery also work directly.
 
-## Prioritized improvements
+Remaining friction:
 
-1. P0: Return an attachment handle with its server client ID. `attach_render`
-   opens a separate connection but returns only `RenderStream`. To call
-   `set_client_sizing` for that viewer, this example must call `list_clients`
-   before and after attach, diff client IDs, then match surface and grid. Two
-   concurrent attachments can make that inference ambiguous.
+1. `Workspace::run` does not accept `CallOptions`, so one launch cannot set a
+   deadline or cancellation token independently of the client-wide timeout.
+2. `Terminal::read_history` and `Terminal::attach` accept generic
+   `Json::Object` options. This example can use their defaults, but non-default
+   paging or attachment flags lose compile-time field checking.
+3. Styled history has no standard plain-text projection. Text consumers must
+   concatenate render runs and pages themselves.
+4. The SDK validates render item shapes but does not provide a screen reducer.
+   Each frontend still implements full-frame replacement, indexed patching,
+   resize reset, cursor, color, and scroll state.
+5. Selecting the focused terminal from `ResourceSnapshot` requires joining a
+   focused `TabSnapshot.content_id` to `TerminalSnapshot`. A shared
+   `focused_terminal()` policy helper would prevent each consumer from
+   repeating this join.
+6. `ResourceStream::poll` is bounded, and `cancel` is deterministic, but an
+   already-open stream does not accept a stop token. Graceful shutdown requires
+   timed polling followed by explicit cancellation.
+7. `Session::resolve_creation` returns the correct closed `CreatedPath` union,
+   but recovery of a known operation still requires a runtime variant check.
 
-2. P0: Route sizing operations through the attachment connection.
-   `release_surface_size` on `Client` affects the control connection, while the
-   size claim belongs to the hidden render-stream connection. The example can
-   release the claim only by closing the stream, so it cannot keep a warm
-   attachment while hiding its viewport. An `Attachment` object should expose
-   resize, release, close, surface ID, and client ID on one connection.
-
-3. P1: Encode render-stream ordering in its type. `RenderStream` is an alias for
-   `Stream<Event>`, so consumers must reject deltas before the first
-   `render-state`, filter unrelated events, detect overflow, and interpret
-   detach themselves. A `RenderAttachment::initial_state()` plus a
-   `RenderUpdate` union would make the snapshot boundary explicit.
-
-4. P1: Add topology selectors. Selecting the active PTY requires nested
-   workspace, screen, `Pane::Variant`, active-tab index, dead flag, and tab-kind
-   checks. Helpers such as `Tree::active_terminal()` and
-   `Tree::find_surface(Id)` would remove repeated policy code.
-
-5. P1: Provide a tested screen reducer. Every renderer must implement the same
-   full-frame replacement, indexed-row patching, resize invalidation,
-   default-color update, cursor update, and scroll metadata rules. A small
-   optional `RenderModel` utility would preserve protocol semantics without
-   imposing a UI toolkit.
-
-6. P2: Add cancellation and reconnect policy hooks. `Stream::next()` has only a
-   timeout, so graceful signal handling requires polling. A stop token and a
-   reconnect helper that guarantees cache invalidation until a fresh snapshot
-   would reduce application lifecycle code.
-
-7. P2: Add composable `Result` operations. Checked access is safe, but every
-   typed call needs manual success tests and error moves. `and_then`,
-   `transform`, and `value_or` would make multi-command setup easier to read.
-
-8. P2: Add ID parsing and formatting helpers. CLI consumers currently parse an
-   integer themselves and cannot accept the short surface IDs shown by cmux.
+The example's recovery, lifecycle validation, attachment ownership, and opaque
+ID routing are principled. The local screen reducer is necessary application
+logic, but it is generic enough to belong in an optional SDK utility.

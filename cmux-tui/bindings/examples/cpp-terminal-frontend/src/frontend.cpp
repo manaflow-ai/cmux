@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <set>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <variant>
 
@@ -21,7 +20,7 @@ namespace {
 
     std::vector<cmux::RenderRow> result(height);
     std::vector<bool> seen(height, false);
-    for (std::uint32_t index = 0; index < height; ++index) {
+    for (std::uint16_t index = 0; index < height; ++index) {
         result[index].row = index;
     }
     for (const auto& row : incoming) {
@@ -44,371 +43,220 @@ namespace {
 [[nodiscard]] cmux::Result<void> patch_rows(
     std::vector<cmux::RenderRow>& target,
     const std::vector<cmux::RenderRow>& incoming) {
-    std::set<std::uint32_t> seen;
+    std::set<std::uint16_t> seen;
     for (const auto& row : incoming) {
         if (row.row >= target.size()) {
             return cmux::make_error(
                 cmux::ErrorCode::protocol,
-                "a render delta row index is outside the current viewport");
+                "a render patch row index is outside the current viewport");
         }
         if (!seen.insert(row.row).second) {
             return cmux::make_error(
                 cmux::ErrorCode::protocol,
-                "a render delta contains a duplicate row index");
+                "a render patch contains a duplicate row index");
         }
         target[row.row] = row;
     }
     return {};
 }
 
-[[nodiscard]] bool has_capability(
-    const cmux::IdentifyResult& identify,
-    std::string_view capability) {
-    if (!identify.capabilities) {
-        return false;
-    }
-    return std::ranges::find(*identify.capabilities, capability) !=
-           identify.capabilities->end();
+[[nodiscard]] bool snapshot_contains(
+    const cmux::ResourceSnapshot& snapshot,
+    const cmux::TerminalId& id) {
+    return std::ranges::any_of(
+        snapshot.terminals,
+        [&](const cmux::TerminalSnapshot& terminal) {
+            return terminal.id == id;
+        });
 }
 
-[[nodiscard]] const cmux::Tab* selected_tab(const cmux::Tree& tree) {
-    const auto candidate_from_pane = [](const cmux::Pane& pane) -> const cmux::Tab* {
-        const auto* live = std::get_if<cmux::LivePane>(&pane.value);
-        if (!live || live->active_tab >= live->tabs.size()) {
-            return nullptr;
-        }
-        const auto& tab = live->tabs[live->active_tab];
-        return !tab.dead && tab.kind == cmux::TabKind::pty ? &tab : nullptr;
-    };
-
-    for (const auto& workspace : tree.workspaces) {
-        if (!workspace.active) {
-            continue;
-        }
-        for (const auto& screen : workspace.screens) {
-            if (!screen.active) {
-                continue;
-            }
-            for (const auto& pane : screen.panes) {
-                const auto* live = std::get_if<cmux::LivePane>(&pane.value);
-                if (live && live->id == screen.active_pane) {
-                    if (const auto* tab = candidate_from_pane(pane)) {
-                        return tab;
-                    }
-                }
-            }
-        }
-    }
-
-    for (const auto& workspace : tree.workspaces) {
-        for (const auto& screen : workspace.screens) {
-            for (const auto& pane : screen.panes) {
-                const auto* live = std::get_if<cmux::LivePane>(&pane.value);
-                if (!live) {
-                    continue;
-                }
-                for (const auto& tab : live->tabs) {
-                    if (!tab.dead && tab.kind == cmux::TabKind::pty) {
-                        return &tab;
-                    }
-                }
-            }
-        }
-    }
-    return nullptr;
-}
-
-[[nodiscard]] bool tree_contains_surface(
-    const cmux::Tree& tree,
-    cmux::Id surface) {
-    for (const auto& workspace : tree.workspaces) {
-        for (const auto& screen : workspace.screens) {
-            for (const auto& pane : screen.panes) {
-                const auto* live = std::get_if<cmux::LivePane>(&pane.value);
-                if (!live) {
-                    continue;
-                }
-                for (const auto& tab : live->tabs) {
-                    if (!tab.dead && tab.kind == cmux::TabKind::pty &&
-                        tab.surface == surface) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    return false;
-}
-
-[[nodiscard]] bool client_is_attached(
-    const cmux::ClientInfo& client,
-    cmux::Id surface,
-    std::uint16_t columns,
-    std::uint16_t rows) {
-    const bool attached =
-        std::ranges::find(client.attached, surface) != client.attached.end();
-    if (!attached) {
-        return false;
-    }
-    return std::ranges::any_of(client.sizes, [&](const cmux::ClientSize& size) {
-        return size.surface == surface && size.cols == columns && size.rows == rows;
-    });
-}
-
-struct ConnectedAttempt {
-    cmux::Client client;
-    cmux::RenderStream stream;
-    cmux::Id surface;
-    std::uint64_t attachment_client;
-
-    ConnectedAttempt(
-        cmux::Client value_client,
-        cmux::RenderStream value_stream,
-        cmux::Id value_surface,
-        std::uint64_t value_attachment_client)
-        : client(std::move(value_client)),
-          stream(std::move(value_stream)),
-          surface(value_surface),
-          attachment_client(value_attachment_client) {}
-
-    ConnectedAttempt(ConnectedAttempt&&) noexcept = default;
-    ConnectedAttempt& operator=(ConnectedAttempt&&) noexcept = default;
+struct LaunchOutcome {
+    cmux::TerminalId terminal_id;
+    bool recovered = false;
 };
 
-[[nodiscard]] cmux::Result<ConnectedAttempt> connect_attempt(
-    const FrontendConfig& config) {
-    auto connected = cmux::Client::connect(config.client_options);
-    if (!connected) {
-        return std::move(connected).error();
-    }
-    auto client = std::move(connected).value();
-
-    auto identify = client.identify();
-    if (!identify) {
-        return std::move(identify).error();
-    }
-    if (identify.value().protocol < 10) {
-        return cmux::make_error(
-            cmux::ErrorCode::unsupported,
-            "the terminal frontend requires cmux-tui protocol 10");
-    }
-    if (!has_capability(identify.value(), "attach-initial-size")) {
-        return cmux::make_error(
-            cmux::ErrorCode::unsupported,
-            "the terminal frontend requires the attach-initial-size capability");
+[[nodiscard]] cmux::Result<LaunchOutcome> launch_terminal(
+    const cmux::Session& session,
+    const LaunchRequest& request) {
+    auto mutation = cmux::MutationOptions::with_key(request.idempotency_key);
+    if (!mutation) {
+        return std::move(mutation).error();
     }
 
-    auto topology = client.list_workspaces();
-    if (!topology) {
-        return std::move(topology).error();
+    cmux::RunOptions run(request.command);
+    run.cwd = request.cwd;
+    run.name = request.name;
+    run.correlation_key = request.correlation_key;
+    auto workspace = request.workspace
+        ? session.workspace(*request.workspace)
+        : session.workspace(
+              cmux::Selector<cmux::WorkspaceId>::current());
+    auto launched = workspace.run(
+        std::move(run),
+        std::move(mutation).value());
+    if (launched) {
+        return LaunchOutcome{
+            std::move(launched).value().value.terminal_id,
+            false,
+        };
     }
 
-    cmux::Id surface{};
-    if (config.preferred_surface) {
-        if (!tree_contains_surface(topology.value(), *config.preferred_surface)) {
-            return cmux::make_error(
-                cmux::ErrorCode::invalid_argument,
-                "the requested surface is not a live PTY in list-workspaces");
-        }
-        surface = *config.preferred_surface;
-    } else {
-        const cmux::Tab* tab = selected_tab(topology.value());
-        if (!tab) {
-            return cmux::make_error(
-                cmux::ErrorCode::invalid_argument,
-                "list-workspaces contains no live PTY surface");
-        }
-        surface = tab->surface;
+    cmux::Error error = std::move(launched).error();
+    if (error.code != cmux::ErrorCode::outcome_uncertain ||
+        !error.uncertain_mutation) {
+        return error;
     }
-
-    auto clients_before = client.list_clients();
-    if (!clients_before) {
-        return std::move(clients_before).error();
-    }
-    std::set<std::uint64_t> prior_client_ids;
-    for (const auto& info : clients_before.value().value) {
-        prior_client_ids.insert(info.client);
-    }
-
-    cmux::AttachSurfaceRequest attach_request;
-    attach_request.surface = surface;
-    attach_request.cols = cmux::Field<std::uint16_t>(config.columns);
-    attach_request.rows = cmux::Field<std::uint16_t>(config.rows);
-    auto attached = client.attach_render(attach_request);
-    if (!attached) {
-        return std::move(attached).error();
-    }
-    auto stream = std::move(attached).value();
-
-    auto clients_after = client.list_clients();
-    if (!clients_after) {
-        return std::move(clients_after).error();
-    }
-    std::optional<std::uint64_t> attachment_client;
-    for (const auto& info : clients_after.value().value) {
-        if (!prior_client_ids.contains(info.client) &&
-            client_is_attached(info, surface, config.columns, config.rows)) {
-            if (attachment_client) {
-                return cmux::make_error(
-                    cmux::ErrorCode::protocol,
-                    "multiple new clients match the render attachment");
-            }
-            attachment_client = info.client;
-        }
-    }
-    if (!attachment_client) {
+    const auto& uncertain = *error.uncertain_mutation;
+    if (uncertain.operation != cmux::Operation::workspace_run ||
+        uncertain.idempotency_key != request.idempotency_key) {
         return cmux::make_error(
             cmux::ErrorCode::protocol,
-            "could not identify the SDK's render-stream connection in list-clients");
+            "workspace.run returned mismatched uncertain mutation details");
     }
 
-    cmux::SetClientSizingRequest sizing;
-    sizing.surface = surface;
-    sizing.client = cmux::Field<std::uint64_t>(*attachment_client);
-    sizing.enabled = true;
-    sizing.exclusive = false;
-    auto sized = client.set_client_sizing(sizing);
-    if (!sized) {
-        return std::move(sized).error();
+    auto resolved = session.resolve_creation(request.correlation_key);
+    if (!resolved) {
+        return std::move(resolved).error();
     }
-
-    return ConnectedAttempt(
-        std::move(client), std::move(stream), surface, *attachment_client);
+    const auto& resolution = resolved.value();
+    if (resolution.correlation_key != request.correlation_key ||
+        resolution.state != cmux::CreationState::created) {
+        return cmux::make_error(
+            cmux::ErrorCode::protocol,
+            "creation correlation did not resolve to a created path");
+    }
+    if (resolution.operation &&
+        *resolution.operation !=
+            cmux::operation_name(cmux::Operation::workspace_run)) {
+        return cmux::make_error(
+            cmux::ErrorCode::protocol,
+            "creation correlation resolved to a different operation");
+    }
+    if (resolution.idempotency_key &&
+        *resolution.idempotency_key != request.idempotency_key) {
+        return cmux::make_error(
+            cmux::ErrorCode::protocol,
+            "creation correlation resolved to a different idempotency key");
+    }
+    if (!resolution.created_path) {
+        return cmux::make_error(
+            cmux::ErrorCode::protocol,
+            "created resolution omitted its path");
+    }
+    const auto* path = std::get_if<cmux::CreatedTerminalPath>(
+        &*resolution.created_path);
+    if (!path) {
+        return cmux::make_error(
+            cmux::ErrorCode::protocol,
+            "workspace.run resolution was not a terminal path");
+    }
+    return LaunchOutcome{path->terminal_id, true};
 }
 
-enum class OutcomeKind {
-    stopped,
-    detached,
-    reconnect,
-};
+[[nodiscard]] bool exit_outcomes_equal(
+    const cmux::TerminalExitOutcome& left,
+    const cmux::TerminalExitOutcome& right) {
+    if (left.index() != right.index()) {
+        return false;
+    }
+    if (const auto* code = std::get_if<cmux::TerminalExitCode>(&left)) {
+        return code->code ==
+               std::get<cmux::TerminalExitCode>(right).code;
+    }
+    if (const auto* signal = std::get_if<cmux::TerminalExitSignal>(&left)) {
+        const auto& other = std::get<cmux::TerminalExitSignal>(right);
+        return signal->signal == other.signal &&
+               signal->core_dumped == other.core_dumped;
+    }
+    return std::get<cmux::TerminalExitUnknown>(left).reason ==
+           std::get<cmux::TerminalExitUnknown>(right).reason;
+}
 
-struct ConsumeOutcome {
-    OutcomeKind kind;
-    cmux::Error error;
-};
+[[nodiscard]] cmux::Result<void> validate_wait_snapshot(
+    const cmux::TerminalId& terminal_id,
+    const cmux::TerminalWaitExitResult& waited,
+    const cmux::TerminalSnapshot& snapshot) {
+    if (snapshot.id != terminal_id) {
+        return cmux::make_error(
+            cmux::ErrorCode::protocol,
+            "terminal.get returned a different opaque terminal ID");
+    }
+    if (const auto* exited =
+            std::get_if<cmux::TerminalWaitExitExited>(&waited)) {
+        if (exited->terminal_id != terminal_id ||
+            snapshot.lifecycle != cmux::TerminalLifecycle::exited ||
+            snapshot.running || !snapshot.exit) {
+            return cmux::make_error(
+                cmux::ErrorCode::protocol,
+                "terminal.get did not retain the waited exit");
+        }
+        const auto& durable = *snapshot.exit;
+        if (!exit_outcomes_equal(durable.outcome, exited->outcome) ||
+            durable.exited_at != exited->exited_at ||
+            durable.revision != exited->revision) {
+            return cmux::make_error(
+                cmux::ErrorCode::protocol,
+                "terminal.get exit differs from terminal.wait_exit");
+        }
+        return {};
+    }
+    const auto& pending = std::get<cmux::TerminalWaitExitPending>(waited);
+    if (pending.terminal_id != terminal_id) {
+        return cmux::make_error(
+            cmux::ErrorCode::protocol,
+            "terminal.wait_exit returned a different terminal ID");
+    }
+    return {};
+}
 
-[[nodiscard]] ConsumeOutcome consume_stream(
-    ConnectedAttempt& attempt,
+[[nodiscard]] cmux::Result<void> apply_item(
     ScreenBuffer& screen,
     FrontendStats& stats,
-    const FrontendConfig& config,
-    const TerminalFrontend::StopRequested& stop_requested,
+    const cmux::TerminalAttachmentItem& item,
     const TerminalFrontend::FrameCallback& on_frame) {
-    while (!stop_requested()) {
-        auto next = attempt.stream.next(config.stream_poll_timeout);
-        if (!next) {
-            if (next.error().code == cmux::ErrorCode::timeout) {
-                continue;
-            }
-            ++stats.transport_failures;
-            return {
-                OutcomeKind::reconnect,
-                std::move(next).error(),
-            };
-        }
-
-        const cmux::Event& event = next.value();
-        if (const auto* state = std::get_if<cmux::RenderStateEvent>(&event.value)) {
-            if (state->surface != attempt.surface) {
-                return {
-                    OutcomeKind::reconnect,
-                    cmux::make_error(
-                        cmux::ErrorCode::protocol,
-                        "render-state belongs to a different surface"),
-                };
-            }
-            auto applied = screen.apply(*state);
-            if (!applied) {
-                return {OutcomeKind::reconnect, std::move(applied).error()};
-            }
-            ++stats.snapshots;
-            if (on_frame) {
-                on_frame(screen);
-            }
-            continue;
-        }
-
-        if (const auto* delta = std::get_if<cmux::RenderDeltaEvent>(&event.value)) {
-            if (!screen.has_snapshot || delta->surface != attempt.surface) {
-                return {
-                    OutcomeKind::reconnect,
-                    cmux::make_error(
-                        cmux::ErrorCode::protocol,
-                        "render-delta arrived before its matching render-state"),
-                };
-            }
-            auto applied = screen.apply(*delta);
-            if (!applied) {
-                return {OutcomeKind::reconnect, std::move(applied).error()};
-            }
-            ++stats.deltas;
-            if (on_frame) {
-                on_frame(screen);
-            }
-            continue;
-        }
-
-        if (const auto* scroll = std::get_if<cmux::ScrollChangedEvent>(&event.value)) {
-            if (!screen.has_snapshot || scroll->surface != attempt.surface) {
-                return {
-                    OutcomeKind::reconnect,
-                    cmux::make_error(
-                        cmux::ErrorCode::protocol,
-                        "scroll-changed arrived before its matching render-state"),
-                };
-            }
-            auto applied = screen.apply(*scroll);
-            if (!applied) {
-                return {OutcomeKind::reconnect, std::move(applied).error()};
-            }
-            ++stats.scroll_updates;
-            if (on_frame) {
-                on_frame(screen);
-            }
-            continue;
-        }
-
-        if (const auto* overflow = std::get_if<cmux::OverflowEvent>(&event.value)) {
-            if (!overflow->surface || *overflow->surface == attempt.surface) {
-                ++stats.overflows;
-                return {
-                    OutcomeKind::reconnect,
-                    cmux::make_error(cmux::ErrorCode::protocol, overflow->error),
-                };
-            }
-            continue;
-        }
-
-        if (const auto* detached = std::get_if<cmux::DetachedEvent>(&event.value)) {
-            if (detached->surface == attempt.surface) {
-                ++stats.detaches;
-                return {OutcomeKind::detached, {}};
-            }
-            continue;
-        }
-
-        if (std::holds_alternative<cmux::UnknownEvent>(event.value)) {
-            ++stats.unknown_events;
-        }
+    cmux::Result<void> applied;
+    bool changed = false;
+    if (const auto* snapshot =
+            std::get_if<cmux::TerminalAttachSnapshot>(&item)) {
+        applied = screen.apply(*snapshot);
+        ++stats.snapshots;
+        changed = true;
+    } else if (const auto* patch =
+                   std::get_if<cmux::TerminalAttachPatch>(&item)) {
+        applied = screen.apply(*patch);
+        ++stats.patches;
+        changed = true;
+    } else if (const auto* scroll =
+                   std::get_if<cmux::TerminalAttachScroll>(&item)) {
+        applied = screen.apply(*scroll);
+        ++stats.scroll_updates;
+        changed = true;
+    } else {
+        ++stats.unknown_items;
+        return {};
     }
-    return {OutcomeKind::stopped, {}};
+    if (!applied) {
+        return std::move(applied).error();
+    }
+    if (changed && on_frame) {
+        on_frame(screen);
+    }
+    return {};
 }
 
-[[nodiscard]] bool retryable(const cmux::Error& error) {
-    return error.code != cmux::ErrorCode::invalid_argument &&
-           error.code != cmux::ErrorCode::unsupported &&
-           error.code != cmux::ErrorCode::command;
-}
-
-void wait_before_reconnect(
-    std::chrono::milliseconds delay,
-    const TerminalFrontend::StopRequested& stop_requested) {
-    constexpr auto slice = std::chrono::milliseconds(10);
-    while (delay > std::chrono::milliseconds::zero() && !stop_requested()) {
-        const auto current = std::min(delay, slice);
-        std::this_thread::sleep_for(current);
-        delay -= current;
+[[nodiscard]] cmux::Result<void> end_error(
+    const std::optional<cmux::StreamEnd>& end) {
+    if (!end ||
+        (end->reason != cmux::StreamEndReason::gap &&
+         end->reason != cmux::StreamEndReason::error)) {
+        return {};
     }
+    if (end->error) {
+        return *end->error;
+    }
+    return cmux::make_error(
+        cmux::ErrorCode::protocol,
+        "terminal attachment ended without a recoverable snapshot boundary");
 }
 
 }  // namespace
@@ -417,17 +265,18 @@ void ScreenBuffer::clear() noexcept {
     *this = ScreenBuffer{};
 }
 
-cmux::Result<void> ScreenBuffer::apply(const cmux::RenderStateEvent& event) {
-    auto replaced = replace_rows(event.size.rows, event.rows);
+cmux::Result<void> ScreenBuffer::apply(
+    const cmux::TerminalAttachSnapshot& item) {
+    auto replaced = replace_rows(item.render.size.rows, item.render.rows);
     if (!replaced) {
         return std::move(replaced).error();
     }
-    surface = event.surface;
-    size = event.size;
-    cursor = event.cursor;
-    default_foreground = event.default_fg;
-    default_background = event.default_bg;
-    scrollback_rows = event.scrollback_rows;
+    terminal = item.terminal_id;
+    size = item.render.size;
+    cursor = item.render.cursor;
+    default_foreground = item.render.default_fg;
+    default_background = item.render.default_bg;
+    scrollback_rows = item.render.scrollback_rows;
     scroll_offset = 0;
     at_bottom = true;
     rows = std::move(replaced).value();
@@ -435,54 +284,56 @@ cmux::Result<void> ScreenBuffer::apply(const cmux::RenderStateEvent& event) {
     return {};
 }
 
-cmux::Result<void> ScreenBuffer::apply(const cmux::RenderDeltaEvent& event) {
-    if (!has_snapshot || event.surface != surface) {
+cmux::Result<void> ScreenBuffer::apply(
+    const cmux::TerminalAttachPatch& item) {
+    if (!has_snapshot || !terminal || *terminal != item.terminal_id) {
         return cmux::make_error(
             cmux::ErrorCode::protocol,
-            "render delta does not match an initialized screen");
+            "render patch does not match an initialized terminal");
     }
-    if (event.size && !event.full) {
+    if (item.render.size && !item.render.full_reset) {
         return cmux::make_error(
             cmux::ErrorCode::protocol,
-            "a render delta with size must be a full replacement");
+            "a render patch with size must be a full reset");
     }
 
-    if (event.full) {
-        const cmux::Size next_size = event.size.value_or(size);
-        auto replaced = replace_rows(next_size.rows, event.rows);
+    if (item.render.full_reset) {
+        const cmux::Size next_size = item.render.size.value_or(size);
+        auto replaced = replace_rows(next_size.rows, item.render.rows);
         if (!replaced) {
             return std::move(replaced).error();
         }
         size = next_size;
         rows = std::move(replaced).value();
     } else {
-        auto patched = patch_rows(rows, event.rows);
+        auto patched = patch_rows(rows, item.render.rows);
         if (!patched) {
             return std::move(patched).error();
         }
     }
 
-    cursor = event.cursor;
-    if (event.default_fg) {
-        default_foreground = *event.default_fg;
+    cursor = item.render.cursor;
+    if (item.render.default_fg) {
+        default_foreground = *item.render.default_fg;
     }
-    if (event.default_bg) {
-        default_background = *event.default_bg;
+    if (item.render.default_bg) {
+        default_background = *item.render.default_bg;
     }
-    if (event.scrollback_rows) {
-        scrollback_rows = *event.scrollback_rows;
+    if (item.render.scrollback_rows) {
+        scrollback_rows = *item.render.scrollback_rows;
     }
     return {};
 }
 
-cmux::Result<void> ScreenBuffer::apply(const cmux::ScrollChangedEvent& event) {
-    if (!has_snapshot || event.surface != surface) {
+cmux::Result<void> ScreenBuffer::apply(
+    const cmux::TerminalAttachScroll& item) {
+    if (!has_snapshot || !terminal || *terminal != item.terminal_id) {
         return cmux::make_error(
             cmux::ErrorCode::protocol,
-            "scroll update does not match an initialized screen");
+            "scroll update does not match an initialized terminal");
     }
-    scroll_offset = event.offset;
-    at_bottom = event.at_bottom;
+    scroll_offset = item.scroll.offset;
+    at_bottom = item.scroll.at_bottom;
     return {};
 }
 
@@ -493,6 +344,47 @@ std::string ScreenBuffer::plain_text() const {
             result += run.text;
         }
         if (index + 1 < rows.size()) {
+            result.push_back('\n');
+        }
+    }
+    return result;
+}
+
+cmux::Result<cmux::TerminalId> select_terminal(
+    const cmux::ResourceSnapshot& snapshot) {
+    for (const auto& tab : snapshot.tabs) {
+        if (!tab.focused) {
+            continue;
+        }
+        if (const auto* id = std::get_if<cmux::TerminalId>(
+                &tab.content_id);
+            id && snapshot_contains(snapshot, *id)) {
+            return *id;
+        }
+    }
+    const auto running = std::ranges::find_if(
+        snapshot.terminals,
+        [](const cmux::TerminalSnapshot& terminal) {
+            return terminal.lifecycle == cmux::TerminalLifecycle::running;
+        });
+    if (running != snapshot.terminals.end()) {
+        return running->id;
+    }
+    if (!snapshot.terminals.empty()) {
+        return snapshot.terminals.front().id;
+    }
+    return cmux::make_error(
+        cmux::ErrorCode::invalid_argument,
+        "the session contains no terminal");
+}
+
+std::string plain_text(const cmux::TerminalHistoryResult& history) {
+    std::string result;
+    for (std::size_t index = 0; index < history.rows.size(); ++index) {
+        for (const auto& run : history.rows[index].runs) {
+            result += run.text;
+        }
+        if (index + 1 < history.rows.size()) {
             result.push_back('\n');
         }
     }
@@ -520,46 +412,151 @@ cmux::Result<void> TerminalFrontend::run(
             cmux::ErrorCode::invalid_argument,
             "the stream poll timeout must be positive");
     }
-
-    std::size_t reconnects_used = 0;
-    while (!stop_requested()) {
-        screen_.clear();
-        selected_surface_.reset();
-        auto attempt_result = connect_attempt(config_);
-        if (!attempt_result) {
-            cmux::Error error = std::move(attempt_result).error();
-            if (!retryable(error) || reconnects_used >= config_.max_reconnects) {
-                return error;
-            }
-            ++reconnects_used;
-            ++stats_.reconnects;
-            wait_before_reconnect(config_.reconnect_delay, stop_requested);
-            continue;
-        }
-
-        ++stats_.connections;
-        auto attempt = std::move(attempt_result).value();
-        selected_surface_ = attempt.surface;
-        ConsumeOutcome outcome = consume_stream(
-            attempt, screen_, stats_, config_, stop_requested, on_frame);
-
-        attempt.stream.close();
-        attempt.client.close();
-
-        if (outcome.kind == OutcomeKind::stopped ||
-            outcome.kind == OutcomeKind::detached) {
-            return {};
-        }
-        if (!retryable(outcome.error) ||
-            reconnects_used >= config_.max_reconnects) {
-            return std::move(outcome.error);
-        }
-
-        ++reconnects_used;
-        ++stats_.reconnects;
-        wait_before_reconnect(config_.reconnect_delay, stop_requested);
+    if (config_.preferred_terminal && config_.launch) {
+        return cmux::make_error(
+            cmux::ErrorCode::invalid_argument,
+            "preferred_terminal and launch are mutually exclusive");
     }
-    return {};
+
+    screen_.clear();
+    stats_ = {};
+    selected_terminal_.reset();
+    recovered_launch_ = false;
+    initial_screen_.reset();
+    initial_history_.reset();
+    initial_terminal_.reset();
+    exit_wait_.reset();
+    final_terminal_.reset();
+    stream_end_.reset();
+
+    auto connected = cmux::Client::connect(config_.client_options);
+    if (!connected) {
+        return std::move(connected).error();
+    }
+    auto client = std::move(connected).value();
+    auto session =
+        client.session(cmux::Selector<cmux::SessionId>::current());
+
+    if (config_.launch) {
+        auto launched = launch_terminal(session, *config_.launch);
+        if (!launched) {
+            return std::move(launched).error();
+        }
+        selected_terminal_ = launched.value().terminal_id;
+        recovered_launch_ = launched.value().recovered;
+    } else if (config_.preferred_terminal) {
+        selected_terminal_ = config_.preferred_terminal;
+    } else {
+        auto snapshot = session.snapshot();
+        if (!snapshot) {
+            return std::move(snapshot).error();
+        }
+        auto selected = select_terminal(snapshot.value());
+        if (!selected) {
+            return std::move(selected).error();
+        }
+        selected_terminal_ = std::move(selected).value();
+    }
+
+    auto terminal = client.terminal(*selected_terminal_);
+    auto before = terminal.refresh();
+    if (!before) {
+        return std::move(before).error();
+    }
+    initial_terminal_ = std::move(before).value();
+    auto screen = terminal.read_screen();
+    if (!screen) {
+        return std::move(screen).error();
+    }
+    initial_screen_ = std::move(screen).value();
+    auto history = terminal.read_history();
+    if (!history) {
+        return std::move(history).error();
+    }
+    initial_history_ = std::move(history).value();
+
+    auto attached = terminal.attach();
+    if (!attached) {
+        return std::move(attached).error();
+    }
+    auto stream = std::move(attached).value();
+    auto resized = stream.resize_viewer(config_.columns, config_.rows);
+    if (!resized) {
+        auto ignored = stream.cancel();
+        static_cast<void>(ignored);
+        return std::move(resized).error();
+    }
+    if (!resized.value().accepted) {
+        auto ignored = stream.cancel();
+        static_cast<void>(ignored);
+        return cmux::make_error(
+            cmux::ErrorCode::command,
+            "terminal viewer rejected the requested grid");
+    }
+
+    while (!stop_requested()) {
+        auto next = stream.poll(config_.stream_poll_timeout);
+        if (!next) {
+            if (next.error().code == cmux::ErrorCode::timeout) {
+                ++stats_.poll_timeouts;
+                continue;
+            }
+            cmux::Error failure = std::move(next).error();
+            if (!stream.closed()) {
+                auto ignored = stream.cancel();
+                static_cast<void>(ignored);
+            }
+            return failure;
+        }
+        if (!next.value()) {
+            stream_end_ = stream.end();
+            break;
+        }
+        auto applied = apply_item(
+            screen_,
+            stats_,
+            next.value()->value,
+            on_frame);
+        if (!applied) {
+            auto ignored = stream.cancel();
+            static_cast<void>(ignored);
+            return std::move(applied).error();
+        }
+    }
+
+    if (!stream.closed()) {
+        auto released = stream.release_viewer();
+        if (!released) {
+            auto ignored = stream.cancel();
+            static_cast<void>(ignored);
+            return std::move(released).error();
+        }
+        auto canceled = stream.cancel();
+        if (!canceled) {
+            return std::move(canceled).error();
+        }
+        ++stats_.cancellations;
+        stream_end_ = std::move(canceled).value();
+    }
+    auto ended = end_error(stream_end_);
+    if (!ended) {
+        return std::move(ended).error();
+    }
+
+    auto waited = terminal.wait_exit(0);
+    if (!waited) {
+        return std::move(waited).error();
+    }
+    exit_wait_ = std::move(waited).value();
+    auto after = terminal.refresh();
+    if (!after) {
+        return std::move(after).error();
+    }
+    final_terminal_ = std::move(after).value();
+    return validate_wait_snapshot(
+        *selected_terminal_,
+        *exit_wait_,
+        *final_terminal_);
 }
 
 }  // namespace cmux_example
