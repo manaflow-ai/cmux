@@ -15,6 +15,14 @@ if ! command -v zig &> /dev/null; then
     echo "Install via: brew install zig"
     exit 1
 fi
+ZIG_REQUIRED="$(bash "$SCRIPT_DIR/ghostty-zig-version.sh" "$PROJECT_DIR")"
+ZIG_ACTUAL="$(zig version)"
+if [[ "$ZIG_ACTUAL" != "$ZIG_REQUIRED" ]]; then
+    echo "Error: Ghostty requires zig ${ZIG_REQUIRED}, but $(command -v zig) reports ${ZIG_ACTUAL}."
+    echo "Install or upgrade via: brew install zig"
+    exit 1
+fi
+echo "zig ${ZIG_ACTUAL} found at $(command -v zig)"
 
 echo "==> Checking for Rust..."
 # Xcode uses a non-login shell, so verify the same PATH used by the sidecar

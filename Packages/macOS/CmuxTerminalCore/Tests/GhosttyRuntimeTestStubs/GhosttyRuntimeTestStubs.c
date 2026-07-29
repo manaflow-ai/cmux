@@ -1,5 +1,8 @@
 #include "include/GhosttyRuntimeTestStubs.h"
 
+#if defined(__APPLE__)
+#include <dlfcn.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -17,14 +20,16 @@ typedef struct {
 } GhosttyRuntimeTestConfig;
 
 #if defined(__APPLE__)
-extern int ghostty_init(uintptr_t argc, char **argv) __attribute__((weak_import));
+typedef int (*GhosttyInitFunction)(uintptr_t argc, char **argv);
 
 // Newer Ghostty archives can be pulled into the test bundle by libc symbols
 // before any Ghostty API is referenced. Initialize that real runtime before
-// Swift Testing starts. The weak import deliberately does not pull older
-// archives, where these test stubs remain the active implementation.
+// Swift Testing starts. Dynamic lookup avoids a link-time reference when
+// SwiftPM leaves the archive unloaded and these stubs are the implementation.
 __attribute__((constructor))
 static void initialize_linked_ghostty_runtime(void) {
+    GhosttyInitFunction ghostty_init =
+        (GhosttyInitFunction)dlsym(RTLD_DEFAULT, "ghostty_init");
     if (ghostty_init == NULL) return;
 
     static char process_name[] = "CmuxTerminalCoreTests";
