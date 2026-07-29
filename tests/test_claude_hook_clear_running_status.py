@@ -313,6 +313,128 @@ def verify_stop_first_clear_transfers_background_work(cli_path: str) -> None:
             )
 
 
+def verify_unrelated_turn_event_preserves_pending_clear_handoff(
+    cli_path: str,
+    unrelated_subcommand: str,
+) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    old_session_id = f"{unrelated_subcommand}-source-{uuid.uuid4().hex}"
+    unrelated_session_id = (
+        f"{unrelated_subcommand}-unrelated-{uuid.uuid4().hex}"
+    )
+    clear_session_id = f"{unrelated_subcommand}-replacement-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = (
+            Path(server.root.name)
+            / f"{unrelated_subcommand}-unrelated-clear-state.json"
+        )
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "source-turn", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "source-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        if unrelated_subcommand == "prompt-submit":
+            unrelated_payload: dict[str, object] = {
+                "session_id": unrelated_session_id,
+                "turn_id": "unrelated-turn",
+                "cwd": "/tmp",
+            }
+        elif unrelated_subcommand == "stop":
+            unrelated_payload = {
+                "session_id": unrelated_session_id,
+                "turn_id": "unrelated-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "unrelated turn completed late",
+                "background_tasks": [],
+                "session_crons": [],
+            }
+        else:
+            raise ValueError(f"Unsupported unrelated hook: {unrelated_subcommand}")
+
+        # With no active owner between SessionEnd(clear) and SessionStart(clear),
+        # an unrelated late event must not erase the pane's one-shot handoff.
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            unrelated_subcommand,
+            unrelated_payload,
+            env,
+        )
+
+        clear_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
+            env,
+        )
+        clear_commands = server.commands[clear_start:]
+
+        if not has_command_with(
+            clear_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                f"An unrelated {unrelated_subcommand} erased the /clear handoff:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+        if has_command_with(
+            clear_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                f"An unrelated {unrelated_subcommand} made the /clear handoff idle:\n"
+                f"clear_commands={clear_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        clear_record = state["sessions"].get(clear_session_id)
+        if clear_record is None or clear_record.get("agentLifecycle") != "running":
+            raise RuntimeError(
+                f"The clear replacement did not inherit after an unrelated "
+                f"{unrelated_subcommand}:\nclear_record={clear_record!r}\n"
+                f"state={state!r}"
+            )
+        surface_owner = state["activeSessionsBySurface"].get(surface_id)
+        if surface_owner is None or surface_owner.get("sessionId") != clear_session_id:
+            raise RuntimeError(
+                f"The clear replacement did not reclaim ownership after an unrelated "
+                f"{unrelated_subcommand}:\nsurface_owner={surface_owner!r}\n"
+                f"state={state!r}"
+            )
+
+
 def verify_stale_start_preserves_pending_clear_handoff(cli_path: str) -> None:
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
@@ -1955,6 +2077,14 @@ def main() -> int:
 
     try:
         verify_stop_first_clear_transfers_background_work(cli_path)
+        verify_unrelated_turn_event_preserves_pending_clear_handoff(
+            cli_path,
+            "prompt-submit",
+        )
+        verify_unrelated_turn_event_preserves_pending_clear_handoff(
+            cli_path,
+            "stop",
+        )
         verify_stale_start_preserves_pending_clear_handoff(cli_path)
         verify_stale_turn_event_preserves_pending_clear_handoff(cli_path, "stop")
         verify_stale_turn_event_preserves_pending_clear_handoff(
