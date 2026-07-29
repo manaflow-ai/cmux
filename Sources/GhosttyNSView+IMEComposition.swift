@@ -2,20 +2,6 @@ import AppKit
 import Carbon.HIToolbox
 
 extension GhosttyNSView {
-    /// Clamps AppKit's marked-text selection into the active preedit buffer.
-    func normalizedMarkedSelectionRange(_ range: NSRange, markedLength: Int) -> NSRange {
-        guard markedLength > 0 else {
-            return NSRange(location: NSNotFound, length: 0)
-        }
-        guard range.location != NSNotFound else {
-            return NSRange(location: markedLength, length: 0)
-        }
-
-        let clampedLocation = min(max(range.location, 0), markedLength)
-        let clampedLength = min(max(range.length, 0), markedLength - clampedLocation)
-        return NSRange(location: clampedLocation, length: clampedLength)
-    }
-
     /// Clamps an AppKit substring query so it can be served from marked text.
     func clampedMarkedTextRange(_ range: NSRange, markedLength: Int) -> NSRange? {
         guard range.length > 0, range.location != NSNotFound else { return nil }
@@ -54,6 +40,38 @@ extension GhosttyNSView {
             return !event.modifierFlags.isDisjoint(
                 with: [.shift, .control, .option, .command]
             )
+        default:
+            return false
+        }
+    }
+
+    /// Replays a submit key when AppKit committed the unchanged preedit but did
+    /// not emit a command callback for the physical key.
+    func replaysPhysicalKeyAfterLiteralPreeditCommit(
+        _ event: NSEvent
+    ) -> Bool {
+        switch Int(event.keyCode) {
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Replays plain horizontal navigation after AppKit moves only the
+    /// provisional caret. Modified arrows remain owned by the input method.
+    func replaysPhysicalKeyAfterPreeditCaretMove(
+        _ event: NSEvent
+    ) -> Bool {
+        guard event.modifierFlags.isDisjoint(
+            with: [.shift, .control, .option, .command]
+        ) else {
+            return false
+        }
+
+        switch Int(event.keyCode) {
+        case kVK_LeftArrow, kVK_RightArrow:
+            return true
         default:
             return false
         }

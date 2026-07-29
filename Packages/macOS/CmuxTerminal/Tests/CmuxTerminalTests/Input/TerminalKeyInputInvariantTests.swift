@@ -29,36 +29,54 @@ import Testing
             for hasMarkedText in booleans {
                 for textInputConsumed in booleans {
                     for textInputCommandPerformed in booleans {
-                        for replaysPhysicalKeyAfterPreeditCommit in booleans {
-                            for committedText in committedTextVariants {
-                                for translatedText in textVariants {
-                                    for rawText in textVariants {
-                                        let snapshot = TerminalKeyInputSnapshot(
-                                            hadMarkedText: hadMarkedText,
-                                            hasMarkedText: hasMarkedText,
-                                            textInputConsumed: textInputConsumed,
-                                            textInputCommandPerformed: textInputCommandPerformed,
-                                            committedText: committedText,
-                                            event: TerminalKeyInputEvent(
-                                                translatedText: translatedText,
-                                                rawText: rawText,
-                                                replaysPhysicalKeyAfterPreeditCommit:
-                                                    replaysPhysicalKeyAfterPreeditCommit
-                                            )
-                                        )
-                                        checkedTransitions += 1
+                        for preeditCaretMoved in booleans {
+                            for committedTextMatchesPreedit in booleans {
+                                for replayCommit in booleans {
+                                    for replayLiteralCommit in booleans {
+                                        for replayCaretMove in booleans {
+                                            for committedText in committedTextVariants {
+                                                for translatedText in textVariants {
+                                                    for rawText in textVariants {
+                                                        let snapshot = TerminalKeyInputSnapshot(
+                                                            hadMarkedText: hadMarkedText,
+                                                            hasMarkedText: hasMarkedText,
+                                                            textInputConsumed: textInputConsumed,
+                                                            textInputCommandPerformed: textInputCommandPerformed,
+                                                            committedText: committedText,
+                                                            preeditCaretMoved: preeditCaretMoved,
+                                                            committedTextMatchesPreedit: committedTextMatchesPreedit,
+                                                            event: TerminalKeyInputEvent(
+                                                                translatedText: translatedText,
+                                                                rawText: rawText,
+                                                                replaysPhysicalKeyAfterPreeditCommit:
+                                                                    replayCommit,
+                                                                replaysPhysicalKeyAfterLiteralPreeditCommit:
+                                                                    replayLiteralCommit,
+                                                                replaysPhysicalKeyAfterPreeditCaretMove:
+                                                                    replayCaretMove
+                                                            )
+                                                        )
+                                                        checkedTransitions += 1
 
-                                        if planner.actions(for: snapshot) != ghosttyReferenceActions(for: snapshot),
-                                           mismatches.count < 10 {
-                                            mismatches.append(
-                                                "had=\(hadMarkedText) has=\(hasMarkedText) " +
-                                                    "consumed=\(textInputConsumed) " +
-                                                    "command=\(textInputCommandPerformed) " +
-                                                    "replay=\(replaysPhysicalKeyAfterPreeditCommit) " +
-                                                    "committed=\(committedText) " +
-                                                    "translated=\(String(describing: translatedText)) " +
-                                                    "raw=\(String(describing: rawText))"
-                                            )
+                                                        if planner.actions(for: snapshot) != ghosttyReferenceActions(for: snapshot),
+                                                           mismatches.count < 10 {
+                                                            mismatches.append(
+                                                                "had=\(hadMarkedText) has=\(hasMarkedText) " +
+                                                                    "consumed=\(textInputConsumed) " +
+                                                                    "command=\(textInputCommandPerformed) " +
+                                                                    "caret=\(preeditCaretMoved) " +
+                                                                    "matches=\(committedTextMatchesPreedit) " +
+                                                                    "replay=\(replayCommit) " +
+                                                                    "literal=\(replayLiteralCommit) " +
+                                                                    "move=\(replayCaretMove) " +
+                                                                    "committed=\(committedText) " +
+                                                                    "translated=\(String(describing: translatedText)) " +
+                                                                    "raw=\(String(describing: rawText))"
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -69,7 +87,7 @@ import Testing
             }
         }
 
-        #expect(checkedTransitions == 4_000)
+        #expect(checkedTransitions == 64_000)
         #expect(mismatches.isEmpty)
     }
 
@@ -247,8 +265,13 @@ import Testing
             let replaysUnconsumedPhysicalKey =
                 !snapshot.textInputConsumed &&
                 !physicalKeyDuplicatesCommittedText
+            let replaysLiteralCommitKey =
+                snapshot.committedTextMatchesPreedit &&
+                snapshot.event
+                    .replaysPhysicalKeyAfterLiteralPreeditCommit
             if replaysUnconsumedPhysicalKey ||
                 snapshot.event.replaysPhysicalKeyAfterPreeditCommit ||
+                replaysLiteralCommitKey ||
                 replaysDistinctCommand {
                 actions.append(.sendKey(text: nil, composing: false))
             }
@@ -281,6 +304,12 @@ import Testing
                     composing: false
                 ),
             ]
+        }
+
+        if snapshot.textInputConsumed,
+           snapshot.preeditCaretMoved,
+           snapshot.event.replaysPhysicalKeyAfterPreeditCaretMove {
+            return [.sendKey(text: nil, composing: false)]
         }
 
         if snapshot.textInputConsumed {

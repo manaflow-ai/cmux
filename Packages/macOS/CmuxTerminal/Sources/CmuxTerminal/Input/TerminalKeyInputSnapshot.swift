@@ -16,6 +16,14 @@ public struct TerminalKeyInputSnapshot: Sendable, Equatable {
     /// Text committed by AppKit while interpreting the key.
     public let committedText: [String]
 
+    /// Whether AppKit moved a collapsed caret inside otherwise unchanged
+    /// preedit text.
+    public let preeditCaretMoved: Bool
+
+    /// Whether committed text exactly matches the preedit present before the
+    /// key was interpreted.
+    public let committedTextMatchesPreedit: Bool
+
     /// The locale-independent native key description.
     public let event: TerminalKeyInputEvent
 
@@ -28,6 +36,9 @@ public struct TerminalKeyInputSnapshot: Sendable, Equatable {
     ///     event.
     ///   - textInputCommandPerformed: Whether text input delegated a command.
     ///   - committedText: Text committed during interpretation.
+    ///   - preeditCaretMoved: Whether AppKit moved an unchanged preedit caret.
+    ///   - committedTextMatchesPreedit: Whether the commit is the prior
+    ///     preedit text verbatim.
     ///   - event: The translated native key description.
     public init(
         hadMarkedText: Bool,
@@ -35,6 +46,8 @@ public struct TerminalKeyInputSnapshot: Sendable, Equatable {
         textInputConsumed: Bool = false,
         textInputCommandPerformed: Bool = false,
         committedText: [String],
+        preeditCaretMoved: Bool = false,
+        committedTextMatchesPreedit: Bool = false,
         event: TerminalKeyInputEvent
     ) {
         self.hadMarkedText = hadMarkedText
@@ -42,6 +55,8 @@ public struct TerminalKeyInputSnapshot: Sendable, Equatable {
         self.textInputConsumed = textInputConsumed
         self.textInputCommandPerformed = textInputCommandPerformed
         self.committedText = committedText
+        self.preeditCaretMoved = preeditCaretMoved
+        self.committedTextMatchesPreedit = committedTextMatchesPreedit
         self.event = event
     }
 }

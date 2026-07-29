@@ -190,6 +190,59 @@ import Testing
         ])
     }
 
+    @Test func literalPreeditCommitReplaysSubmitKey() {
+        let actions = planner.actions(for: snapshot(
+            hadMarkedText: true,
+            textInputConsumed: true,
+            committedText: ["opaque"],
+            committedTextMatchesPreedit: true,
+            translatedText: "\r",
+            replaysPhysicalKeyAfterLiteralPreeditCommit: true
+        ))
+
+        #expect(actions == [
+            .sendCommittedText("opaque"),
+            .sendKey(text: nil, composing: false),
+        ])
+    }
+
+    @Test func replacementCommitDoesNotReplaySubmitKey() {
+        let actions = planner.actions(for: snapshot(
+            hadMarkedText: true,
+            textInputConsumed: true,
+            committedText: ["replacement"],
+            committedTextMatchesPreedit: false,
+            translatedText: "\r",
+            replaysPhysicalKeyAfterLiteralPreeditCommit: true
+        ))
+
+        #expect(actions == [.sendCommittedText("replacement")])
+    }
+
+    @Test func consumedPreeditCaretMoveReplaysHorizontalKey() {
+        let actions = planner.actions(for: snapshot(
+            hasMarkedText: true,
+            textInputConsumed: true,
+            preeditCaretMoved: true,
+            translatedText: "\u{F703}",
+            replaysPhysicalKeyAfterPreeditCaretMove: true
+        ))
+
+        #expect(actions == [.sendKey(text: nil, composing: false)])
+    }
+
+    @Test func consumedCandidateSelectionChangeRemainsOwnedByTextInput() {
+        let actions = planner.actions(for: snapshot(
+            hasMarkedText: true,
+            textInputConsumed: true,
+            preeditCaretMoved: false,
+            translatedText: "\u{F703}",
+            replaysPhysicalKeyAfterPreeditCaretMove: true
+        ))
+
+        #expect(actions.isEmpty)
+    }
+
     @Test func committedTextWithoutPriorPreeditUsesPhysicalKey() {
         let actions = planner.actions(for: snapshot(
             committedText: ["你"],
@@ -431,9 +484,13 @@ import Testing
         textInputConsumed: Bool = false,
         textInputCommandPerformed: Bool = false,
         committedText: [String] = [],
+        preeditCaretMoved: Bool = false,
+        committedTextMatchesPreedit: Bool = false,
         translatedText: String?,
         rawText: String? = nil,
-        replaysPhysicalKeyAfterPreeditCommit: Bool = false
+        replaysPhysicalKeyAfterPreeditCommit: Bool = false,
+        replaysPhysicalKeyAfterLiteralPreeditCommit: Bool = false,
+        replaysPhysicalKeyAfterPreeditCaretMove: Bool = false
     ) -> TerminalKeyInputSnapshot {
         TerminalKeyInputSnapshot(
             hadMarkedText: hadMarkedText,
@@ -441,11 +498,17 @@ import Testing
             textInputConsumed: textInputConsumed,
             textInputCommandPerformed: textInputCommandPerformed,
             committedText: committedText,
+            preeditCaretMoved: preeditCaretMoved,
+            committedTextMatchesPreedit: committedTextMatchesPreedit,
             event: TerminalKeyInputEvent(
                 translatedText: translatedText,
                 rawText: rawText ?? translatedText,
                 replaysPhysicalKeyAfterPreeditCommit:
-                    replaysPhysicalKeyAfterPreeditCommit
+                    replaysPhysicalKeyAfterPreeditCommit,
+                replaysPhysicalKeyAfterLiteralPreeditCommit:
+                    replaysPhysicalKeyAfterLiteralPreeditCommit,
+                replaysPhysicalKeyAfterPreeditCaretMove:
+                    replaysPhysicalKeyAfterPreeditCaretMove
             )
         )
     }

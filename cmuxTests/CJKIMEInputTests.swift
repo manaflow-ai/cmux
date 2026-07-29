@@ -191,16 +191,16 @@ final class CJKIMEMarkedTextTests: XCTestCase {
         // with a real event context, verify accumulation.
         view.setKeyTextAccumulatorForTesting([])
 
-        // Directly test unmarkText + accumulator (the core of insertText's behavior)
+        // unmarkText makes provisional document text permanent, so the
+        // terminal must receive it exactly once.
         view.unmarkText()
-        XCTAssertFalse(view.hasMarkedText(), "unmarkText should clear marked text (as insertText does)")
+        XCTAssertFalse(view.hasMarkedText(), "unmarkText should clear marked text")
         XCTAssertEqual(view.markedRange(), NSRange(location: NSNotFound, length: 0))
-
-        // Verify the accumulator would receive the text
-        var acc = view.keyTextAccumulatorForTesting ?? []
-        acc.append("한")
-        view.setKeyTextAccumulatorForTesting(acc)
-        XCTAssertEqual(view.keyTextAccumulatorForTesting, ["한"], "Committed Korean text should be accumulated")
+        XCTAssertEqual(
+            view.keyTextAccumulatorForTesting,
+            ["한"],
+            "Committed text should be accumulated"
+        )
         view.setKeyTextAccumulatorForTesting(nil)
     }
 

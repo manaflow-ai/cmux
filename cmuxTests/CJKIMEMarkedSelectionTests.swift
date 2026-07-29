@@ -116,6 +116,47 @@ struct CJKIMEMarkedSelectionTests {
         }
     }
 
+    @Test func semanticPreeditTransitionsUsePhysicalKeyRoles() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let probes: [(
+            UInt16,
+            NSEvent.ModifierFlags,
+            literalCommit: Bool,
+            caretMove: Bool
+        )] = [
+            (UInt16(kVK_Return), [], true, false),
+            (UInt16(kVK_ANSI_KeypadEnter), [], true, false),
+            (UInt16(kVK_RightArrow), [], false, true),
+            (UInt16(kVK_LeftArrow), [], false, true),
+            (UInt16(kVK_RightArrow), [.shift], false, false),
+            (UInt16(kVK_ANSI_A), [], false, false),
+        ]
+
+        for probe in probes {
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: probe.1,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "",
+                charactersIgnoringModifiers: "",
+                isARepeat: false,
+                keyCode: probe.0
+            ))
+
+            #expect(
+                view.replaysPhysicalKeyAfterLiteralPreeditCommit(event)
+                    == probe.literalCommit
+            )
+            #expect(
+                view.replaysPhysicalKeyAfterPreeditCaretMove(event)
+                    == probe.caretMove
+            )
+        }
+    }
+
     @Test(arguments: [
         "你",
         "臺",

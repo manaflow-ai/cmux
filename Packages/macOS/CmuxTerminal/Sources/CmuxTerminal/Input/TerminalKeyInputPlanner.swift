@@ -48,9 +48,14 @@ public struct TerminalKeyInputPlanner: Sendable {
             let replaysUnconsumedPhysicalKey =
                 !snapshot.textInputConsumed &&
                 !physicalKeyDuplicatesCommittedText
+            let replaysLiteralCommitKey =
+                snapshot.committedTextMatchesPreedit &&
+                snapshot.event
+                    .replaysPhysicalKeyAfterLiteralPreeditCommit
             let replaysPhysicalKey =
                 replaysUnconsumedPhysicalKey ||
                 snapshot.event.replaysPhysicalKeyAfterPreeditCommit ||
+                replaysLiteralCommitKey ||
                 replaysDistinctCommand
             if replaysPhysicalKey {
                 actions.append(.sendKey(text: nil, composing: false))
@@ -89,6 +94,12 @@ public struct TerminalKeyInputPlanner: Sendable {
                     composing: false
                 ),
             ]
+        }
+
+        if snapshot.textInputConsumed,
+           snapshot.preeditCaretMoved,
+           snapshot.event.replaysPhysicalKeyAfterPreeditCaretMove {
+            return [.sendKey(text: nil, composing: false)]
         }
 
         if snapshot.textInputConsumed {
