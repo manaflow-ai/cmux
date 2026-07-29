@@ -381,6 +381,7 @@ def verify_unrelated_turn_event_preserves_pending_clear_handoff(
 
         # With no active owner between SessionEnd(clear) and SessionStart(clear),
         # an unrelated late event must not erase the pane's one-shot handoff.
+        unrelated_start = len(server.commands)
         run_claude_hook(
             cli_path,
             server.socket_path,
@@ -388,6 +389,43 @@ def verify_unrelated_turn_event_preserves_pending_clear_handoff(
             unrelated_payload,
             env,
         )
+        unrelated_commands = server.commands[unrelated_start:]
+        forbidden_fragments = [
+            "set_agent_pid claude_code ",
+            "set_agent_lifecycle claude_code ",
+            "set_status claude_code ",
+            "clear_notifications ",
+            "notify_target_async ",
+            '"method":"surface.resume.set"',
+            '"method":"surface.resume.clear"',
+        ]
+        for fragment in forbidden_fragments:
+            if has_command(unrelated_commands, fragment):
+                raise RuntimeError(
+                    f"An unrelated {unrelated_subcommand} published inside the "
+                    f"/clear ownership gap:\nfragment={fragment!r}\n"
+                    f"commands={unrelated_commands!r}"
+                )
+
+        pending_state = json.loads(state_path.read_text())
+        if unrelated_session_id in pending_state.get("sessions", {}):
+            raise RuntimeError(
+                f"An unrelated {unrelated_subcommand} persisted inside the "
+                f"/clear ownership gap:\nstate={pending_state!r}"
+            )
+        if surface_id in pending_state.get("activeSessionsBySurface", {}):
+            raise RuntimeError(
+                f"An unrelated {unrelated_subcommand} claimed the clear-tombstoned "
+                f"surface:\nstate={pending_state!r}"
+            )
+        if surface_id not in pending_state.get(
+            "clearBackgroundWorkTransfersBySurface",
+            {},
+        ):
+            raise RuntimeError(
+                f"An unrelated {unrelated_subcommand} erased the pending clear "
+                f"tombstone:\nstate={pending_state!r}"
+            )
 
         clear_start = len(server.commands)
         run_claude_hook(
