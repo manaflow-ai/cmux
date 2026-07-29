@@ -615,6 +615,7 @@ describe("subrouter accounts route", () => {
           agentType: "codex",
           sessionId: "session-1",
           model: "gpt-5",
+          requiredAuthMode: "oauth",
         }),
       }),
     );
@@ -635,7 +636,25 @@ describe("subrouter accounts route", () => {
       agentType: "codex",
       sessionId: "session-1",
       model: "gpt-5",
+      requiredAuthMode: "oauth",
     });
+  });
+
+  test("rejects an invalid required credential auth mode", async () => {
+    seedTenantMapping(fakeDb);
+    const response = await leasesRoute.POST(
+      request("/api/subrouter/leases", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "codex",
+          sessionId: "session-1",
+          requiredAuthMode: "password",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(upstream.lastLeaseBody).toBeNull();
   });
 
   test("does not provision a tenant when requesting a lease without shared accounts", async () => {
@@ -752,6 +771,48 @@ describe("subrouter accounts route", () => {
       cursor: "page-2",
       limit: 100,
     });
+  });
+
+  test("resolves one permission snapshot per scope with bounded concurrency", async () => {
+    process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "1";
+    const teams = Array.from({ length: 12 }, (_, index) => ({
+      id: `team-${index}`,
+      displayName: `Team ${index}`,
+    }));
+    let active = 0;
+    let maxActive = 0;
+    const listPermissions = mock(async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Bun.sleep(5);
+      active -= 1;
+      return [
+        { id: "subrouter:use" },
+        { id: "subrouter:manage_accounts" },
+      ];
+    });
+    const hasPermission = mock(async () => {
+      throw new Error("hasPermission performs a duplicate permission request");
+    });
+    currentUser = {
+      ...stackUser(),
+      selectedTeam: teams[0],
+      listTeams: async () => teams,
+      listPermissions,
+      hasPermission,
+    };
+
+    const response = await teamsRoute.GET(request("/api/subrouter/teams"));
+    const body = await response.json() as {
+      teams: Array<{ id: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.teams).toHaveLength(teams.length + 1);
+    expect(listPermissions).toHaveBeenCalledTimes(teams.length + 1);
+    expect(hasPermission).not.toHaveBeenCalled();
+    expect(maxActive).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(8);
   });
 });
 
