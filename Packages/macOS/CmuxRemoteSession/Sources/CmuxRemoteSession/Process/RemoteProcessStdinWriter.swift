@@ -1,9 +1,11 @@
 internal import CmuxFoundation
 internal import Foundation
 
-protocol RemoteProcessStdinWriting: Sendable {
+struct RemoteProcessStdinWriter: RemoteProcessStdinWriting {
     func write(
         _ data: Data,
         to handle: FileHandle
-    ) throws
+    ) throws {
+        try handle.writeProcessPipeInput(data)
+    }
 }

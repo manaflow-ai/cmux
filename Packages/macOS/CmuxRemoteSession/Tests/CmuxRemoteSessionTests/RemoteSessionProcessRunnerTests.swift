@@ -17,15 +17,6 @@ import Testing
 extension RemoteSubprocessTests {
 @Suite("RemoteSessionProcessRunner")
 struct RemoteSessionProcessRunnerTests {
-    private struct FailingStdinWriter: RemoteProcessStdinWriting {
-        func write(
-            _ data: Data,
-            to handle: FileHandle
-        ) throws {
-            throw POSIXError(.EIO)
-        }
-    }
-
     @Test("Capture survives the pipe read handles being torn down mid-run")
     func captureSurvivesPipeReadHandleTeardown() throws {
         let didCloseReadHandles = DispatchSemaphore(value: 0)
@@ -97,7 +88,7 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("An unexpected stdin write error terminates the child and keeps the pinned runner error")
     func unexpectedStdinWriteErrorTerminatesChildAndKeepsPinnedRunnerError() {
-        let runner = RemoteSessionProcessRunner(stdinWriter: FailingStdinWriter())
+        let runner = RemoteSessionProcessRunner(stdinWriter: FailingRemoteProcessStdinWriter())
         let startedAt = ProcessInfo.processInfo.systemUptime
 
         #expect {
