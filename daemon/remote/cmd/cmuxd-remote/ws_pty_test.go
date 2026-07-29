@@ -57,6 +57,21 @@ func (c *cancelAfterFirstErrContext) Err() error {
 	return nil
 }
 
+type gatedDoneContext struct {
+	context.Context
+	observed chan<- struct{}
+	release  <-chan struct{}
+}
+
+func (c gatedDoneContext) Done() <-chan struct{} {
+	select {
+	case c.observed <- struct{}{}:
+	default:
+	}
+	<-c.release
+	return c.Context.Done()
+}
+
 func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server, *wsPTYHub) {
 	t.Helper()
 	stderr := &bytes.Buffer{}
@@ -461,19 +476,65 @@ func TestAttachRPCFastExitCoalescedWaitersShareGeneration(t *testing.T) {
 		t.Fatal("first fast-exit attach never attempted PTY allocation")
 	}
 	waiterJoined := make(chan struct{}, 1)
+	releaseWaiter := make(chan struct{})
 	secondResult := attach(
-		doneObservedContext{Context: context.Background(), observed: waiterJoined},
+		gatedDoneContext{
+			Context:  context.Background(),
+			observed: waiterJoined,
+			release:  releaseWaiter,
+		},
 		"second",
 	)
 	select {
 	case <-waiterJoined:
 	case <-time.After(time.Second):
 		close(releaseStart)
+		close(releaseWaiter)
 		t.Fatal("second fast-exit attach did not join the in-flight generation")
 	}
 	close(releaseStart)
 
-	results := []attachResult{<-firstResult, <-secondResult}
+	first := <-firstResult
+	if first.err != nil {
+		close(releaseWaiter)
+		t.Fatalf("first coalesced fast-exit attach: %v", first.err)
+	}
+	if first.attachment == nil || first.sessionDone == nil {
+		close(releaseWaiter)
+		t.Fatal("first coalesced fast-exit attach returned incomplete attachment")
+	}
+	select {
+	case <-first.sessionDone:
+	case <-time.After(5 * time.Second):
+		close(releaseWaiter)
+		t.Fatal("fast-exit process did not finish while its final claimant was pending")
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey("coalesced-fast-exit")]
+	remainingClaims := 0
+	initialPhase := wsPTYSessionInitialActive
+	if session != nil {
+		remainingClaims = session.initialClaims
+		initialPhase = session.initialPhase
+	}
+	hub.mu.Unlock()
+	if session == nil {
+		close(releaseWaiter)
+		t.Fatal("fast-exit generation was removed before its final claimant consumed it")
+	}
+	if remainingClaims != 1 {
+		close(releaseWaiter)
+		t.Fatalf("fast-exit generation claims = %d, want final pending claimant", remainingClaims)
+	}
+	if initialPhase != wsPTYSessionFinishedBeforeInitialAttachment {
+		close(releaseWaiter)
+		t.Fatalf("fast-exit generation phase = %d, want finished-before-initial-attachment", initialPhase)
+	}
+
+	close(releaseWaiter)
+	second := <-secondResult
+	results := []attachResult{first, second}
 	for index, result := range results {
 		if result.err != nil {
 			t.Fatalf("coalesced fast-exit attach %d: %v", index+1, result.err)
@@ -481,10 +542,8 @@ func TestAttachRPCFastExitCoalescedWaitersShareGeneration(t *testing.T) {
 		if result.attachment == nil || result.sessionDone == nil {
 			t.Fatalf("coalesced fast-exit attach %d returned incomplete attachment", index+1)
 		}
-		select {
-		case <-result.sessionDone:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("coalesced fast-exit attach %d did not observe session exit", index+1)
+		if result.sessionDone != first.sessionDone {
+			t.Fatalf("coalesced fast-exit attach %d received a different generation", index+1)
 		}
 	}
 	if got := startCount.Load(); got != 1 {
@@ -541,6 +600,45 @@ func TestAttachRPCLateCancellationSchedulesPublishedSessionReap(t *testing.T) {
 		t.Fatal("late-canceled published session has no idle reap timer")
 	}
 
+	reattached, _, _, err := hub.attachRPC(
+		context.Background(),
+		"late-canceled-session",
+		"replacement-attachment",
+		80,
+		24,
+		"",
+		"",
+		true,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("reattach retained late-canceled session: %v", err)
+	}
+	hub.mu.Lock()
+	session = hub.sessions[persistentPTYSessionKey("late-canceled-session")]
+	attachmentCount = 0
+	hasIdleTimer = false
+	initialPhase := wsPTYSessionAwaitingInitialAttachment
+	if session != nil {
+		attachmentCount = len(session.attachments)
+		hasIdleTimer = session.idleTimer != nil
+		initialPhase = session.initialPhase
+	}
+	hub.mu.Unlock()
+	if session == nil {
+		t.Fatal("late-canceled session disappeared before replacement attach")
+	}
+	if attachmentCount != 1 {
+		t.Fatalf("reattached late-canceled session attachments = %d, want 1", attachmentCount)
+	}
+	if hasIdleTimer {
+		t.Fatal("reattached late-canceled session retained its idle reap timer")
+	}
+	if initialPhase != wsPTYSessionInitialActive {
+		t.Fatalf("reattached late-canceled session phase = %d, want active", initialPhase)
+	}
+
+	hub.dropAttachment(reattached)
 	session.terminateProcesses()
 	session.closePTYFiles()
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
@@ -1530,6 +1628,55 @@ func TestTerminateProcessesRunsOnlyOnce(t *testing.T) {
 
 	if lookupCount != 1 {
 		t.Fatalf("process teardown ran %d times, want exactly once", lookupCount)
+	}
+}
+
+func TestWaitSessionProcessLeavesBufferedMasterOutputForPump(t *testing.T) {
+	master, slave, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("open buffered output pipe: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = slave.Close()
+	})
+
+	const marker = "CMUX_BUFFERED_FAST_EXIT_OUTPUT\n"
+	if _, err := slave.Write([]byte(marker)); err != nil {
+		t.Fatalf("buffer fast-exit output: %v", err)
+	}
+	command := exec.Command("/bin/sh", "-c", "exit 0")
+	if err := command.Start(); err != nil {
+		t.Fatalf("start fast-exit command: %v", err)
+	}
+
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	t.Cleanup(hub.closeAll)
+	session := &wsPTYSession{
+		id:           "buffered-fast-exit",
+		key:          persistentPTYSessionKey("buffered-fast-exit"),
+		cmd:          command,
+		ptyFile:      master,
+		ttyFile:      slave,
+		attachments:  map[string]*wsPTYAttachment{},
+		done:         make(chan struct{}),
+		initialPhase: wsPTYSessionInitialActive,
+	}
+	hub.sessions[session.key] = session
+
+	// Deliberately reap the process before starting the pump. The process
+	// waiter may close the slave, but the pump must retain ownership of the
+	// master long enough to drain output already buffered by the terminal.
+	hub.waitSessionProcess(session)
+	hub.pumpSession(session)
+
+	if got := string(session.scrollback); got != marker {
+		t.Fatalf("drained buffered output = %q, want %q", got, marker)
+	}
+	select {
+	case <-session.done:
+	default:
+		t.Fatal("buffered fast-exit session did not finish after its output drained")
 	}
 }
 

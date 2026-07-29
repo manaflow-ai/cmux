@@ -143,7 +143,9 @@ func newRPCRequestDispatcher(
 func (d *rpcRequestDispatcher) dispatch(req rpcRequest) error {
 	// PTY allocation can block inside the operating system. Only pty.attach is
 	// allowed to overtake the otherwise-serialized request stream; both frame
-	// writers serialize the resulting concurrent response writes.
+	// writers serialize the resulting concurrent response writes. Before
+	// reading the next request, wait only until the attach has reserved or
+	// selected its hub generation so a following pty.close cannot overtake it.
 	if req.Method != "pty.attach" {
 		return d.server.handleRequestAndWriteResponse(req)
 	}
@@ -163,9 +165,12 @@ func (d *rpcRequestDispatcher) dispatch(req rpcRequest) error {
 		})
 	}
 
+	reservationReady := make(chan struct{})
 	go func() {
 		defer func() { <-d.ptyAttachSlots }()
-		if err := d.server.handlePTYAttachAndWriteResponse(d.ctx, req); err != nil {
+		if err := d.server.handlePTYAttachAndWriteResponseWithReservation(d.ctx, req, func() {
+			close(reservationReady)
+		}); err != nil {
 			select {
 			case d.asyncErrors <- err:
 			default:
@@ -176,7 +181,12 @@ func (d *rpcRequestDispatcher) dispatch(req rpcRequest) error {
 			}
 		}
 	}()
-	return nil
+	select {
+	case <-reservationReady:
+		return nil
+	case <-d.ctx.Done():
+		return d.ctx.Err()
+	}
 }
 
 func (d *rpcRequestDispatcher) takeAsyncError() error {
@@ -1636,7 +1646,15 @@ func (s *rpcServer) handleRequestAndWriteResponse(req rpcRequest) error {
 }
 
 func (s *rpcServer) handlePTYAttachAndWriteResponse(ctx context.Context, req rpcRequest) error {
-	response := s.handlePTYAttachContext(ctx, req)
+	return s.handlePTYAttachAndWriteResponseWithReservation(ctx, req, nil)
+}
+
+func (s *rpcServer) handlePTYAttachAndWriteResponseWithReservation(
+	ctx context.Context,
+	req rpcRequest,
+	reservationReady func(),
+) error {
+	response := s.handlePTYAttachContextWithReservation(ctx, req, reservationReady)
 	if ctx.Err() != nil {
 		return nil
 	}
@@ -2194,6 +2212,26 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 }
 
 func (s *rpcServer) handlePTYAttachContext(ctx context.Context, req rpcRequest) rpcResponse {
+	return s.handlePTYAttachContextWithReservation(ctx, req, nil)
+}
+
+func (s *rpcServer) handlePTYAttachContextWithReservation(
+	ctx context.Context,
+	req rpcRequest,
+	reservationReady func(),
+) rpcResponse {
+	var reservationOnce sync.Once
+	notifyReservationReady := func() {
+		reservationOnce.Do(func() {
+			if reservationReady != nil {
+				reservationReady()
+			}
+		})
+	}
+	// Validation and other errors before the hub owns a generation still need
+	// to release the serialized request reader.
+	defer notifyReservationReady()
+
 	sessionID, ok := getStringParam(req.Params, "session_id")
 	if !ok || strings.TrimSpace(sessionID) == "" {
 		return rpcResponse{
@@ -2248,7 +2286,7 @@ func (s *rpcServer) handlePTYAttachContext(ctx context.Context, req rpcRequest) 
 			},
 		}
 	}
-	attachment, attachmentCtx, sessionDone, err := hub.attachRPC(
+	attachment, attachmentCtx, sessionDone, err := hub.attachRPCWithReservation(
 		ctx,
 		sessionID,
 		attachmentID,
@@ -2258,6 +2296,7 @@ func (s *rpcServer) handlePTYAttachContext(ctx context.Context, req rpcRequest) 
 		attachmentToken,
 		requireExisting,
 		inputSeqAck,
+		notifyReservationReady,
 	)
 	if err != nil {
 		return rpcResponse{

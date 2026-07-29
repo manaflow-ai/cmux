@@ -843,13 +843,52 @@ func (h *wsPTYHub) attachRPC(
 	requireExisting bool,
 	inputSeqAck bool,
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
+	return h.attachRPCWithReservation(
+		ctx,
+		sessionID,
+		attachmentID,
+		cols,
+		rows,
+		command,
+		clientToken,
+		requireExisting,
+		inputSeqAck,
+		nil,
+	)
+}
+
+func (h *wsPTYHub) attachRPCWithReservation(
+	ctx context.Context,
+	sessionID string,
+	attachmentID string,
+	cols int,
+	rows int,
+	command string,
+	clientToken string,
+	requireExisting bool,
+	inputSeqAck bool,
+	reservationReady func(),
+) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return nil, nil, nil, errors.New("session_id is required")
 	}
 	attachmentID = strings.TrimSpace(attachmentID)
 	cols, rows = normalizePTYSize(cols, rows)
-	return h.prepareAttachment(ctx, nil, sessionID, attachmentID, cols, rows, true, command, clientToken, requireExisting, inputSeqAck)
+	return h.prepareAttachmentWithReservation(
+		ctx,
+		nil,
+		sessionID,
+		attachmentID,
+		cols,
+		rows,
+		true,
+		command,
+		clientToken,
+		requireExisting,
+		inputSeqAck,
+		reservationReady,
+	)
 }
 
 func (h *wsPTYHub) prepareAttachment(
@@ -864,6 +903,36 @@ func (h *wsPTYHub) prepareAttachment(
 	clientToken string,
 	requireExisting bool,
 	inputSeqAck bool,
+) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
+	return h.prepareAttachmentWithReservation(
+		ctx,
+		conn,
+		sessionID,
+		attachmentID,
+		cols,
+		rows,
+		persistent,
+		command,
+		clientToken,
+		requireExisting,
+		inputSeqAck,
+		nil,
+	)
+}
+
+func (h *wsPTYHub) prepareAttachmentWithReservation(
+	ctx context.Context,
+	conn *websocket.Conn,
+	sessionID string,
+	attachmentID string,
+	cols int,
+	rows int,
+	persistent bool,
+	command string,
+	clientToken string,
+	requireExisting bool,
+	inputSeqAck bool,
+	reservationReady func(),
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	h.mu.Lock()
 	if h.closed {
@@ -901,10 +970,16 @@ func (h *wsPTYHub) prepareAttachment(
 				h.mu.Unlock()
 				return nil, nil, nil, fmt.Errorf("persistent PTY session %q is no longer running", sessionID)
 			}
+			if reservationReady != nil {
+				reservationReady()
+			}
 			break
 		}
 		if start := h.startingSessions[sessionKey]; start != nil {
 			start.waiters++
+			if reservationReady != nil {
+				reservationReady()
+			}
 			closedCh := h.closedCh
 			h.mu.Unlock()
 			select {
@@ -948,6 +1023,9 @@ func (h *wsPTYHub) prepareAttachment(
 		}
 		start := &wsPTYSessionStart{done: make(chan struct{})}
 		h.startingSessions[sessionKey] = start
+		if reservationReady != nil {
+			reservationReady()
+		}
 		h.mu.Unlock()
 
 		startedSession, startErr := h.startSession(sessionKey, sessionID, cols, rows, command)
@@ -1076,7 +1154,7 @@ func (h *wsPTYHub) prepareAttachment(
 	shouldApplySize := false
 	if !finishedBeforeInitialAttachment {
 		session.attachments[attachmentID] = attachment
-		session.initialPhase = wsPTYSessionInitialActive
+		h.activateInitialSessionIfReadyLocked(session)
 		shouldApplySize = h.recomputeSessionSizeLocked(session)
 	}
 	if ownsInitialClaim {
@@ -1099,6 +1177,7 @@ func (h *wsPTYHub) releaseInitialClaimLocked(session *wsPTYSession) {
 		return
 	}
 	session.initialClaims--
+	h.activateInitialSessionIfReadyLocked(session)
 	if session.initialClaims != 0 ||
 		session.initialPhase != wsPTYSessionFinishedBeforeInitialAttachment ||
 		h.sessions[session.key] != session {
@@ -1107,6 +1186,15 @@ func (h *wsPTYHub) releaseInitialClaimLocked(session *wsPTYSession) {
 	delete(h.sessions, session.key)
 	h.cancelIdleReapLocked(session)
 	session.closed = true
+}
+
+func (h *wsPTYHub) activateInitialSessionIfReadyLocked(session *wsPTYSession) {
+	if session != nil &&
+		session.initialPhase == wsPTYSessionAwaitingInitialAttachment &&
+		session.initialClaims == 0 &&
+		len(session.attachments) > 0 {
+		session.initialPhase = wsPTYSessionInitialActive
+	}
 }
 
 func (h *wsPTYHub) startSession(sessionKey wsPTYSessionKey, sessionID string, cols int, rows int, command string) (*wsPTYSession, error) {
@@ -1176,8 +1264,8 @@ func (h *wsPTYHub) startSession(sessionKey wsPTYSessionKey, sessionID string, co
 }
 
 func (h *wsPTYHub) runSession(session *wsPTYSession) {
-	go h.waitSessionProcess(session)
 	go h.pumpSession(session)
+	go h.waitSessionProcess(session)
 	go h.writeInputLoop(session)
 }
 
@@ -1572,9 +1660,11 @@ func (h *wsPTYHub) waitSessionProcess(session *wsPTYSession) {
 	// The process created by startPTYCommand is the POSIX session leader. Its
 	// exit ends the terminal session even when a shielded background job still
 	// holds the PTY slave open, so tear down every remaining member before
-	// closing the master and allowing pumpSession to finalize hub state.
+	// closing our slave. pumpSession exclusively owns the master on normal
+	// process exit so it can drain buffered output before EOF and finalization.
+	// Explicit hub teardown still closes both sides to interrupt a stuck pump.
 	session.terminateProcesses()
-	session.closePTYFiles()
+	session.closeTTYFile()
 }
 
 func (session *wsPTYSession) closePTYFiles() {

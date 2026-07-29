@@ -1296,12 +1296,6 @@ func TestStdioRPCCloseOvertakesStalledPTYStart(t *testing.T) {
 			"command":                 "sleep 30",
 		},
 	})
-	select {
-	case <-startEntered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("PTY attach never reached its stalled allocation")
-	}
-
 	writePersistentTestFrame(t, bufio.NewWriter(stdinWriter), rpcRequest{
 		ID:     2,
 		Method: "pty.close",
@@ -1309,6 +1303,11 @@ func TestStdioRPCCloseOvertakesStalledPTYStart(t *testing.T) {
 			"session_id": "close-stalled-start",
 		},
 	})
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PTY attach never reached its stalled allocation")
+	}
 	closeResponse := waitForRPCResponseID(t, output, 2, time.Second)
 	if ok, _ := closeResponse["ok"].(bool); !ok {
 		t.Fatalf("close pending PTY start failed: %v", closeResponse)
@@ -1355,12 +1354,23 @@ func TestStdioRPCShortCommandStartsExactlyOnce(t *testing.T) {
 			"client_attachment_token": "short-token",
 			"cols":                    80,
 			"rows":                    24,
-			"command":                 "exit 0",
+			"command":                 "printf 'MARKER\\n'; exit 0",
 		},
 	})
 	response := waitForRPCResponseID(t, output, 1, 5*time.Second)
 	if ok, _ := response["ok"].(bool); !ok {
 		t.Fatalf("short command attach failed: %v", response)
+	}
+	dataEvent := waitForRPCEvent(t, output, 0, func(event map[string]any) bool {
+		if event["event"] != "pty.data" {
+			return false
+		}
+		encoded, _ := event["data_base64"].(string)
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		return err == nil && bytes.Contains(decoded, []byte("MARKER"))
+	})
+	if dataEvent["session_id"] != "short-command" {
+		t.Fatalf("short command data event = %v", dataEvent)
 	}
 	exitEvent := waitForRPCEvent(t, output, 0, func(event map[string]any) bool {
 		return event["event"] == "pty.exit"
@@ -1370,6 +1380,18 @@ func TestStdioRPCShortCommandStartsExactlyOnce(t *testing.T) {
 	}
 	if got := startCount.Load(); got != 1 {
 		t.Fatalf("short command PTY start count = %d, want exactly 1", got)
+	}
+	exitCount := 0
+	for _, line := range rpcEventLines(output) {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err == nil &&
+			event["event"] == "pty.exit" &&
+			event["session_id"] == "short-command" {
+			exitCount++
+		}
+	}
+	if exitCount != 1 {
+		t.Fatalf("short command exit event count = %d, want exactly 1; output=%q", exitCount, output.String())
 	}
 }
 
