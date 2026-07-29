@@ -309,8 +309,17 @@ extension AgentHibernationController {
         )
         let processScopeKey = record.key
         let processSnapshotCoordinator = processSnapshotCoordinator
-        let retryTermination: CommittedTerminationRetry = {
+        let retryTerminationIsSafe: @MainActor @Sendable () -> Bool = {
             [weak self, weak terminalPanel = record.terminalPanel] in
+            guard let self, let terminalPanel,
+                  terminalPanel.isAgentHibernationCommitPending,
+                  self.committedTerminationObservationsByPanelID[panelID]?
+                    .requestID == committedTerminationRequestID else {
+                return false
+            }
+            return true
+        }
+        let retryTermination: CommittedTerminationRetry = {
             guard !scopedProcessTerminations.isEmpty else {
                 return .exited
             }
@@ -325,15 +334,7 @@ extension AgentHibernationController {
             return await Self.terminateScopedProcessEpochForHibernation(
                 epoch,
                 processScopeKey: processScopeKey,
-                shouldCommit: {
-                    guard let self, let terminalPanel,
-                          terminalPanel.isAgentHibernationCommitPending,
-                          self.committedTerminationObservationsByPanelID[panelID]?
-                            .requestID == committedTerminationRequestID else {
-                        return false
-                    }
-                    return true
-                }
+                shouldCommit: retryTerminationIsSafe
             )
         }
         let terminationResult = await Self.terminateScopedProcessesForHibernation(

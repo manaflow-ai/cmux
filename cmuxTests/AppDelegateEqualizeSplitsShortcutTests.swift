@@ -8044,10 +8044,10 @@ private final class ManualWorkspaceFontSizeDrainScheduler {
 
 @MainActor
 private final class ManualTerminalFontConfigurationReloadScheduler {
-    private var actions: [@MainActor () -> Void] = []
+    private var actions: [@MainActor @Sendable () -> Void] = []
 
     func schedule(
-        action: @escaping @MainActor () -> Void
+        action: @escaping @MainActor @Sendable () -> Void
     ) {
         actions.append(action)
     }

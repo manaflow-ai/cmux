@@ -1156,7 +1156,9 @@ class GhosttyApp {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reloadConfiguration(source: "settings.terminal.copyOnSelect")
+            _ = MainActor.assumeIsolated {
+                self?.reloadConfiguration(source: "settings.terminal.copyOnSelect")
+            }
         })
 
         #endif

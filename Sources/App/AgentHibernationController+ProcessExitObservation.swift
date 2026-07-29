@@ -335,7 +335,9 @@ extension AgentHibernationController {
             let didRecover = await Self.waitForCommittedTerminationRecovery(
                 terminations: didExit ? [] : terminations,
                 processScopeKey: processScopeKey,
-                waitForRecoveryExit: didExit ? { _ in true } : waitForRecoveryExit,
+                waitForRecoveryExit: didExit
+                    ? Self.completedRecoveryExitWait
+                    : waitForRecoveryExit,
                 waitForRecoveryReadiness: waitForRecoveryReadiness,
                 recoveryDeadline: recoveryDeadline,
                 sleepUntilRecoveryDeadline: sleepUntilRecoveryDeadline,
@@ -441,5 +443,8 @@ extension AgentHibernationController {
             )
         }
     }
+
+    private nonisolated static let completedRecoveryExitWait:
+        @Sendable ([ScopedProcessTermination]) async -> Bool = { _ in true }
 
 }
