@@ -11,7 +11,7 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
     RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
-    WorkspaceMutation,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget};
 
@@ -447,15 +447,19 @@ impl Mux {
 pub(crate) struct ResourceEffectProjection {
     pub(crate) patch: ResourcePatch,
     pub(crate) changes: Value,
+    pub(crate) result: Value,
 }
 
 impl Mux {
-    /// Project the complete live tree into one durable patch. Content effects
-    /// use this after the external operation succeeds and commit it together
-    /// with the effect receipt. Full projection keeps close/collapse behavior
-    /// exact even when removing the last tab also removes a pane or screen.
-    pub(crate) fn resource_effect_projection(&self) -> anyhow::Result<ResourceEffectProjection> {
-        let registry = self.workspace_registry.lock().unwrap();
+    /// Project the complete live tree into one durable patch while the caller
+    /// holds the registry -> state writer fence. The matching effect receipt
+    /// must be committed before either guard is released.
+    pub(super) fn resource_effect_projection_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        result: Value,
+    ) -> anyhow::Result<ResourceEffectProjection> {
         let before = registry.resource_topology_snapshot()?;
         let terminal_records = registry
             .terminal_snapshot()?
@@ -463,17 +467,21 @@ impl Mux {
             .into_iter()
             .map(|terminal| (terminal.terminal_id.clone(), terminal))
             .collect::<HashMap<_, _>>();
-        let mut state = self.state.lock().unwrap();
         // Local UI mutations can attach resource-identified surfaces before
         // their reverse indexes are populated. Full projection is the
         // reconciliation boundary, so rebuild from the live tree first.
         state.rebuild_resource_indexes();
-        ensure_split_public_ids(&mut state)?;
+        ensure_split_public_ids(state)?;
 
         let before_browsers = before
             .browsers
             .iter()
             .map(|browser| (browser.public_id.clone(), browser.clone()))
+            .collect::<HashMap<_, _>>();
+        let before_pane_ordinals = before
+            .panes
+            .iter()
+            .map(|pane| (pane.public_id.clone(), pane.creation_ordinal))
             .collect::<HashMap<_, _>>();
         let mut live_workspaces = HashSet::new();
         let mut live_screens = HashSet::new();
@@ -553,11 +561,9 @@ impl Mux {
                                 .map(|identity| identity.tab_id.clone())
                         })
                     });
-                    let creation_ordinal = before
-                        .panes
-                        .iter()
-                        .find(|candidate| candidate.public_id == pane.public_id)
-                        .map(|candidate| candidate.creation_ordinal)
+                    let creation_ordinal = before_pane_ordinals
+                        .get(&pane.public_id)
+                        .copied()
                         .unwrap_or(pane.id);
                     changes.push(ResourceChange::UpsertPane(RegistryPane {
                         public_id: pane.public_id.clone(),
@@ -842,7 +848,15 @@ impl Mux {
         Ok(ResourceEffectProjection {
             patch: ResourcePatch { changes },
             changes: Value::Array(deltas),
+            result,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resource_effect_projection(&self) -> anyhow::Result<ResourceEffectProjection> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        self.resource_effect_projection_locked(&registry, &mut state, json!({}))
     }
 }
 

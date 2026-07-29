@@ -17,6 +17,8 @@ use super::{
     validation_error,
 };
 use crate::browser::{BrowserSource, BrowserStatus};
+use crate::model::State;
+use crate::mux::ResourceEffectProjection;
 use crate::resource::{
     BrowserPublicId, ContentPublicId, ResourceError, ResourceOperation, TerminalPublicId,
     WireDecimal,
@@ -24,7 +26,7 @@ use crate::resource::{
 use crate::resource_api::public_session_snapshot;
 use crate::workspace_registry::{
     RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus, ResourceChange,
-    ResourcePatch,
+    ResourcePatch, WorkspaceRegistry,
 };
 use crate::{Mux, ResourceSelectors, ResourceTarget, Surface, SurfaceKind, WorkspaceMutation};
 
@@ -574,113 +576,101 @@ fn commit_projected_browser_effect(
     browser_id: &BrowserPublicId,
     returns_browser: bool,
 ) -> Result<Value, ResourceError> {
-    let projection = match targeted_browser_effect_projection(mux, browser_id) {
-        Ok(projection) => projection,
-        Err(_) => return Err(effects::mark_indeterminate(mux, prepared)),
-    };
-    let value = if returns_browser {
-        match find_upsert_change(&projection.changes, "browser", browser_id.as_str()) {
-            Some(browser) => browser,
-            None => return Err(effects::mark_indeterminate(mux, prepared)),
-        }
-    } else {
-        json!({})
-    };
-    commit_projection(mux, prepared, projection.patch, projection.changes, value)
-}
-
-struct TargetedBrowserEffectProjection {
-    patch: ResourcePatch,
-    changes: Value,
+    let browser_id = browser_id.clone();
+    let commit = mux.commit_resource_effect_projection(
+        &prepared.idempotency_key,
+        &prepared.operation,
+        &prepared.fingerprint,
+        move |registry, state| {
+            targeted_browser_effect_projection(registry, state, &browser_id, returns_browser)
+        },
+    );
+    finish_projection_commit(mux, prepared, commit)
 }
 
 fn targeted_browser_effect_projection(
-    mux: &Mux,
+    registry: &WorkspaceRegistry,
+    state: &State,
     browser_id: &BrowserPublicId,
-) -> anyhow::Result<TargetedBrowserEffectProjection> {
-    mux.with_resource_projection(|registry, state| {
-        let topology = registry.resource_topology_snapshot()?;
-        let mut browser = topology
-            .browsers
-            .iter()
-            .find(|candidate| &candidate.public_id == browser_id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("browser has no durable metadata"))?;
-        let mut tab = topology
-            .tabs
-            .iter()
-            .find(|tab| tab.content_id == ContentPublicId::Browser(browser_id.clone()))
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("browser has no durable tab"))?;
-        let content_id = ContentPublicId::Browser(browser_id.clone());
-        let surface_id = state
-            .resource_indexes
-            .content
-            .get(&content_id)
-            .copied()
-            .ok_or_else(|| anyhow::anyhow!("browser has no live surface slot"))?;
-        let surface = state
-            .surfaces
-            .get(&surface_id)
-            .filter(|surface| surface.kind() == SurfaceKind::Browser)
-            .ok_or_else(|| anyhow::anyhow!("browser has no live browser surface"))?;
+    returns_browser: bool,
+) -> anyhow::Result<ResourceEffectProjection> {
+    let topology = registry.resource_topology_snapshot()?;
+    let mut browser = topology
+        .browsers
+        .iter()
+        .find(|candidate| &candidate.public_id == browser_id)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("browser has no durable metadata"))?;
+    let mut tab = topology
+        .tabs
+        .iter()
+        .find(|tab| tab.content_id == ContentPublicId::Browser(browser_id.clone()))
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("browser has no durable tab"))?;
+    let content_id = ContentPublicId::Browser(browser_id.clone());
+    let surface_id = state
+        .resource_indexes
+        .content
+        .get(&content_id)
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("browser has no live surface slot"))?;
+    let surface = state
+        .surfaces
+        .get(&surface_id)
+        .filter(|surface| surface.kind() == SurfaceKind::Browser)
+        .ok_or_else(|| anyhow::anyhow!("browser has no live browser surface"))?;
 
-        let url = surface.browser_url().unwrap_or_else(|| browser.url.clone());
-        let source = surface.browser_source();
-        let status = surface
-            .browser_status()
-            .ok_or_else(|| anyhow::anyhow!("browser surface has no status"))?;
-        let (cols, rows) = surface.size();
-        browser.url = url.clone();
-        browser.cols = cols.max(1);
-        browser.rows = rows.max(1);
-        if let Some(source) = source {
-            browser.source = match source {
-                BrowserSource::External => RegistryBrowserSource::External,
-                BrowserSource::Launched => RegistryBrowserSource::Launched,
-            };
-        }
-        browser.status = match &status {
-            BrowserStatus::Starting => RegistryBrowserStatus::Starting,
-            BrowserStatus::Live => RegistryBrowserStatus::Live,
-            BrowserStatus::Failed(_) => RegistryBrowserStatus::Failed,
+    let url = surface.browser_url().unwrap_or_else(|| browser.url.clone());
+    let source = surface.browser_source();
+    let status =
+        surface.browser_status().ok_or_else(|| anyhow::anyhow!("browser surface has no status"))?;
+    let (cols, rows) = surface.size();
+    browser.url = url.clone();
+    browser.cols = cols.max(1);
+    browser.rows = rows.max(1);
+    if let Some(source) = source {
+        browser.source = match source {
+            BrowserSource::External => RegistryBrowserSource::External,
+            BrowserSource::Launched => RegistryBrowserSource::Launched,
         };
-        tab.browser_url = Some(url.clone());
+    }
+    browser.status = match &status {
+        BrowserStatus::Starting => RegistryBrowserStatus::Starting,
+        BrowserStatus::Live => RegistryBrowserStatus::Live,
+        BrowserStatus::Failed(_) => RegistryBrowserStatus::Failed,
+    };
+    tab.browser_url = Some(url.clone());
 
-        let source_name =
-            source.map(BrowserSource::as_str).unwrap_or_else(|| match browser.source {
-                RegistryBrowserSource::External => "external",
-                RegistryBrowserSource::Launched => "launched",
-                RegistryBrowserSource::Unknown => match browser.launch {
-                    RegistryBrowserLaunch::Create => "launched",
-                    RegistryBrowserLaunch::Adopted => "external",
-                },
-            });
-        let status_name = status.as_str();
-        let value = json!({
-            "id":browser_id,
-            "tab_id":tab.public_id,
-            "url":url,
-            "title":surface.title(),
-            "loading":status_name == "starting",
-            "source":source_name,
-            "status":status_name,
-            "error":status.error(),
-            "frames_stalled":surface.browser_frames_stalled().unwrap_or(false),
-            "size":{
-                "cols":cols.max(1),
-                "rows":rows.max(1),
-            },
-        });
-        Ok(TargetedBrowserEffectProjection {
-            patch: ResourcePatch {
-                changes: vec![
-                    ResourceChange::UpsertBrowser(browser),
-                    ResourceChange::UpsertTab(tab),
-                ],
-            },
-            changes: upsert_change("browser", browser_id.as_str(), value),
-        })
+    let source_name = source.map(BrowserSource::as_str).unwrap_or_else(|| match browser.source {
+        RegistryBrowserSource::External => "external",
+        RegistryBrowserSource::Launched => "launched",
+        RegistryBrowserSource::Unknown => match browser.launch {
+            RegistryBrowserLaunch::Create => "launched",
+            RegistryBrowserLaunch::Adopted => "external",
+        },
+    });
+    let status_name = status.as_str();
+    let value = json!({
+        "id":browser_id,
+        "tab_id":tab.public_id,
+        "url":url,
+        "title":surface.title(),
+        "loading":status_name == "starting",
+        "source":source_name,
+        "status":status_name,
+        "error":status.error(),
+        "frames_stalled":surface.browser_frames_stalled().unwrap_or(false),
+        "size":{
+            "cols":cols.max(1),
+            "rows":rows.max(1),
+        },
+    });
+    Ok(ResourceEffectProjection {
+        patch: ResourcePatch {
+            changes: vec![ResourceChange::UpsertBrowser(browser), ResourceChange::UpsertTab(tab)],
+        },
+        changes: upsert_change("browser", browser_id.as_str(), value.clone()),
+        result: if returns_browser { value } else { json!({}) },
     })
 }
 
@@ -689,28 +679,21 @@ fn commit_projected_effect(
     prepared: PreparedEffect,
     value: Value,
 ) -> Result<Value, ResourceError> {
-    let projection = match mux.resource_effect_projection() {
-        Ok(projection) => projection,
-        Err(_) => return Err(effects::mark_indeterminate(mux, prepared)),
-    };
-    commit_projection(mux, prepared, projection.patch, projection.changes, value)
-}
-
-fn commit_projection(
-    mux: &Arc<Mux>,
-    prepared: PreparedEffect,
-    patch: ResourcePatch,
-    changes: Value,
-    value: Value,
-) -> Result<Value, ResourceError> {
-    let commit = match mux.commit_resource_effect_patch(
+    let commit = mux.commit_full_resource_effect_projection(
         &prepared.idempotency_key,
         &prepared.operation,
         &prepared.fingerprint,
-        &patch,
-        &value,
-        &changes,
-    ) {
+        value,
+    );
+    finish_projection_commit(mux, prepared, commit)
+}
+
+fn finish_projection_commit(
+    mux: &Arc<Mux>,
+    prepared: PreparedEffect,
+    commit: anyhow::Result<crate::workspace_registry::ResourcePatchCommit>,
+) -> Result<Value, ResourceError> {
+    let commit = match commit {
         Ok(commit) => commit,
         Err(_) => {
             let _ = mux.mark_resource_effect_indeterminate(&prepared.idempotency_key);
@@ -1837,7 +1820,11 @@ mod tests {
             .expect("created browser is durable");
         assert_eq!(durable_browser.status, RegistryBrowserStatus::Starting);
 
-        let projection = targeted_browser_effect_projection(&mux, &browser_id).unwrap();
+        let projection = mux
+            .with_resource_projection(|registry, state| {
+                targeted_browser_effect_projection(registry, state, &browser_id, true)
+            })
+            .unwrap();
         let deltas = projection.changes.as_array().unwrap();
         assert_eq!(deltas.len(), 1);
         assert_eq!(deltas[0]["kind"], "upsert");

@@ -34,6 +34,26 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
         .unwrap();
 }
 
+#[test]
+fn legacy_workspace_commit_does_not_publish_a_resource_event() {
+    let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+    seed_workspace(&mut registry, "legacy-only");
+
+    let snapshot = registry.snapshot().unwrap();
+    assert_eq!(snapshot.revision, 1);
+    assert_eq!(snapshot.resource_revision, 0);
+    assert!(registry.resource_events_after(0).unwrap().batches.is_empty());
+    assert_eq!(
+        registry
+            .connection
+            .query_row("SELECT COUNT(*) FROM resource_mutations", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+        0
+    );
+}
+
 fn terminal(id: &str, workspace_key: &str) -> RegistryTerminal {
     RegistryTerminal {
         terminal_id: id.into(),

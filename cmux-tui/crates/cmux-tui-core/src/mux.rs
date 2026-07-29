@@ -981,6 +981,8 @@ pub struct Mux {
     viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_mutation_metrics: Mutex<Option<ResourceMutationMetrics>>,
+    #[cfg(test)]
+    resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -1265,6 +1267,8 @@ impl Mux {
             viewport_split_after_spawn: Mutex::new(None),
             #[cfg(test)]
             resource_mutation_metrics: Mutex::new(None),
+            #[cfg(test)]
+            resource_projection_before_commit: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(default_colors),
@@ -3089,26 +3093,52 @@ impl Mux {
         Ok(revision)
     }
 
-    pub(crate) fn commit_resource_effect_patch(
+    /// Capture a post-effect live projection and commit its topology, public
+    /// deltas, and effect receipt while holding one registry -> state writer
+    /// fence. This prevents another topology writer from landing between the
+    /// captured tree and its durable revision.
+    pub(crate) fn commit_resource_effect_projection(
         &self,
         idempotency_key: &str,
         operation: &str,
         fingerprint: &Value,
-        patch: &ResourcePatch,
-        result: &Value,
-        deltas: &Value,
+        project: impl FnOnce(&WorkspaceRegistry, &mut State) -> anyhow::Result<ResourceEffectProjection>,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let commit = self.workspace_registry.lock().unwrap().commit_resource_effect_patch(
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        let projection = project(&registry, &mut state)?;
+        #[cfg(test)]
+        if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
+            hook();
+        }
+        let commit = registry.commit_resource_effect_patch(
             idempotency_key,
             operation,
             fingerprint,
-            patch,
-            result,
-            deltas,
+            &projection.patch,
+            &projection.result,
+            &projection.changes,
         )?;
-        self.state.lock().unwrap().resource_revision = commit.revision;
+        state.resource_revision = commit.revision;
+        drop(state);
+        drop(registry);
         self.publish_resource_event();
         Ok(commit)
+    }
+
+    pub(crate) fn commit_full_resource_effect_projection(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        result: Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_resource_effect_projection(
+            idempotency_key,
+            operation,
+            fingerprint,
+            |registry, state| self.resource_effect_projection_locked(registry, state, result),
+        )
     }
 
     pub(crate) fn mark_resource_effect_indeterminate(
@@ -12339,6 +12369,130 @@ mod tests {
         assert_eq!(registry.resource_topology_snapshot().unwrap().revision, 0);
         assert!(registry.snapshot().unwrap().workspaces.is_empty());
         registry.set_resource_patch_failure(false).unwrap();
+    }
+
+    fn begin_test_resource_effect(mux: &Mux, idempotency_key: &str, operation: &str) -> Value {
+        let fingerprint = serde_json::json!({
+            "operation": operation,
+            "fixture": idempotency_key,
+        });
+        assert!(matches!(
+            mux.prepare_resource_effect(
+                idempotency_key,
+                operation,
+                &fingerprint,
+                &serde_json::json!({}),
+                None,
+                Some(0),
+            )
+            .unwrap(),
+            ResourceEffectPreparation::Execute { resumed: false, .. }
+        ));
+        mux.mark_resource_effect_executing(idempotency_key, operation, &fingerprint).unwrap();
+        fingerprint
+    }
+
+    #[test]
+    fn projected_effect_failure_rolls_back_revision_event_and_topology() {
+        let mux = test_mux();
+        let surface =
+            mux.new_browser_tab("about:blank#rollback".into(), None, Some((80, 24))).unwrap();
+        let fingerprint =
+            begin_test_resource_effect(&mux, "effect-projection-rollback", "test.project");
+        let before_epoch = mux.resource_event_epoch();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+
+        let error = mux
+            .commit_full_resource_effect_projection(
+                "effect-projection-rollback",
+                "test.project",
+                &fingerprint,
+                serde_json::json!({"projected":true}),
+            )
+            .unwrap_err();
+
+        assert!(error.to_string().contains("forced resource patch failure"));
+        assert_eq!(mux.resource_event_epoch(), before_epoch);
+        mux.with_state(|state| assert_eq!(state.resource_revision, 0));
+        let registry = mux.workspace_registry.lock().unwrap();
+        assert_eq!(registry.resource_topology_snapshot().unwrap().revision, 0);
+        assert!(registry.resource_events_after(0).unwrap().batches.is_empty());
+        registry.set_resource_patch_failure(false).unwrap();
+        surface.kill();
+    }
+
+    #[test]
+    fn projected_effect_holds_writer_fence_through_commit_and_publishes_once() {
+        use std::sync::mpsc;
+
+        let mux = test_mux();
+        let surface = mux.new_browser_tab("about:blank#race".into(), None, Some((80, 24))).unwrap();
+        let original_name = mux.with_state(|state| state.workspaces[0].name.clone());
+        let fingerprint =
+            begin_test_resource_effect(&mux, "effect-projection-race", "test.project");
+        let projection_ready = Arc::new(std::sync::Barrier::new(2));
+        let allow_commit = Arc::new(std::sync::Barrier::new(2));
+        *mux.resource_projection_before_commit.lock().unwrap() = Some(Arc::new({
+            let projection_ready = projection_ready.clone();
+            let allow_commit = allow_commit.clone();
+            move || {
+                projection_ready.wait();
+                allow_commit.wait();
+            }
+        }));
+
+        let commit_thread = {
+            let mux = mux.clone();
+            let fingerprint = fingerprint.clone();
+            std::thread::spawn(move || {
+                mux.commit_full_resource_effect_projection(
+                    "effect-projection-race",
+                    "test.project",
+                    &fingerprint,
+                    serde_json::json!({"projected":true}),
+                )
+                .unwrap()
+            })
+        };
+        projection_ready.wait();
+
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        let racing_writer = {
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                let mut state = mux.state.lock().unwrap();
+                state.workspaces[0].name = "Raced after capture".into();
+                acquired_tx.send(()).unwrap();
+            })
+        };
+        assert!(
+            acquired_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "a topology writer entered between projection capture and durable commit"
+        );
+        allow_commit.wait();
+        let commit = commit_thread.join().unwrap();
+        acquired_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        racing_writer.join().unwrap();
+        *mux.resource_projection_before_commit.lock().unwrap() = None;
+
+        assert_eq!(commit.revision, 1);
+        assert_eq!(mux.resource_event_epoch(), 1);
+        let registry = mux.workspace_registry.lock().unwrap();
+        let snapshot = registry.snapshot().unwrap();
+        assert_eq!(snapshot.resource_revision, 1);
+        assert_eq!(snapshot.workspaces[0].name, original_name);
+        let events = registry.resource_events_after(0).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        let changes = events.batches[0].changes.as_array().unwrap();
+        assert!(!changes.is_empty());
+        for (sequence, change) in changes.iter().enumerate() {
+            assert_eq!(change["sequence"], sequence);
+            assert!(matches!(change["kind"].as_str(), Some("upsert" | "delete")));
+            assert!(change["resource"].is_string());
+            assert!(change["id"].is_string());
+            assert!(change.get("event").is_none());
+        }
+        surface.kill();
     }
 
     #[test]

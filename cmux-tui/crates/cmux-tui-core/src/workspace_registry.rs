@@ -46,7 +46,7 @@ pub use resource_store::{
     ResourceEventPage, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
 };
 use resource_store::{
-    collect_screen_split_public_ids, create_resource_schema, migrate_resource_browser_metadata,
+    create_resource_schema, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, validate_resource_invariants,
 };
 
@@ -1023,12 +1023,6 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("workspace revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
-        let previous_resource_revision = transaction_resource_revision(&tx)?;
-        let resource_revision = previous_resource_revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-        let sqlite_resource_revision = i64::try_from(resource_revision)
-            .context("resource revision exceeds SQLite integer range")?;
         let previous_active_workspace = tx
             .query_row("SELECT value FROM meta WHERE key = 'active_workspace_id'", [], |row| {
                 row.get::<_, String>(0)
@@ -1053,11 +1047,6 @@ impl WorkspaceRegistry {
         // post-commit effect and can therefore be retried after a daemon crash
         // without ever letting a frontend resurrect the terminal elsewhere.
         tombstone_terminals_in_removed_workspaces(&tx, workspaces, mutation)?;
-        tombstone_resources_in_removed_workspaces(&tx, workspaces, sqlite_resource_revision)?;
-
-        for workspace in workspaces {
-            upsert_workspace_resource(&tx, workspace, sqlite_resource_revision)?;
-        }
         tx.execute(
             "UPDATE workspaces SET tombstoned = 1, position = NULL,
              updated_revision = ?1, deleted_revision = ?1
@@ -1112,10 +1101,6 @@ impl WorkspaceRegistry {
         }
         tx.execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
         tx.execute(
-            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-            [resource_revision.to_string()],
-        )?;
-        tx.execute(
             "INSERT INTO mutations(
                origin, mutation_id, fingerprint, result_json, committed_revision
              ) VALUES(?1, ?2, ?3, ?4, ?5)",
@@ -1134,42 +1119,6 @@ impl WorkspaceRegistry {
                 result_json
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                event_kind,
-                fingerprint,
-                result_json,
-                sqlite_resource_revision
-            ],
-        )?;
-        let resource_deltas = canonical_json(&serde_json::json!([{
-            "event": event_kind,
-            "workspace_id": workspaces
-                .iter()
-                .find(|workspace| workspace.key == workspace_key)
-                .map(|workspace| workspace.public_id.as_str()),
-            "workspace_key": workspace_key,
-            "result": result,
-        }]))?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_resource_revision,
-                i64::try_from(previous_resource_revision)
-                    .context("resource revision exceeds SQLite integer range")?,
-                mutation.origin,
-                mutation.id,
-                resource_deltas,
-            ],
-        )?;
-        prune_resource_events(&tx)?;
         tx.commit()?;
         Ok(RegistryCommit { revision, result: result.clone(), replayed: false })
     }
@@ -1594,142 +1543,6 @@ fn upsert_workspace_resource(
            updated_revision=excluded.updated_revision",
         params![workspace.public_id.as_str(), workspace.key, revision],
     )?;
-    Ok(())
-}
-
-fn tombstone_resources_in_removed_workspaces(
-    transaction: &Transaction<'_>,
-    remaining_workspaces: &[RegistryWorkspace],
-    revision: i64,
-) -> anyhow::Result<()> {
-    let remaining = remaining_workspaces
-        .iter()
-        .map(|workspace| workspace.public_id.as_str())
-        .collect::<HashSet<_>>();
-    let removed = {
-        let mut statement = transaction.prepare(
-            "SELECT public_id FROM resource_workspaces
-             WHERE deleted_revision IS NULL ORDER BY created_revision ASC, public_id ASC",
-        )?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .filter(|public_id| !remaining.contains(public_id.as_str()))
-            .collect::<Vec<_>>()
-    };
-    for workspace_id in removed {
-        let screens = {
-            let mut statement = transaction.prepare(
-                "SELECT public_id, layout_json, viewport_json FROM resource_screens
-                 WHERE workspace_id = ?1 AND deleted_revision IS NULL",
-            )?;
-            statement
-                .query_map([&workspace_id], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        let screen_ids = screens.iter().map(|(id, _, _)| id.clone()).collect::<Vec<_>>();
-        let pane_ids = {
-            let mut panes = Vec::new();
-            for screen_id in &screen_ids {
-                let mut statement = transaction.prepare(
-                    "SELECT public_id FROM resource_panes
-                     WHERE screen_id = ?1 AND deleted_revision IS NULL",
-                )?;
-                panes.extend(
-                    statement
-                        .query_map([screen_id], |row| row.get::<_, String>(0))?
-                        .collect::<Result<Vec<_>, _>>()?,
-                );
-            }
-            panes
-        };
-        let tab_and_content_ids = {
-            let mut ids = Vec::new();
-            for pane_id in &pane_ids {
-                let mut statement = transaction.prepare(
-                    "SELECT public_id, content_id FROM resource_tabs
-                     WHERE pane_id = ?1 AND deleted_revision IS NULL",
-                )?;
-                ids.extend(
-                    statement
-                        .query_map([pane_id], |row| {
-                            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                        })?
-                        .collect::<Result<Vec<_>, _>>()?,
-                );
-            }
-            ids
-        };
-        let mut identity_ids = vec![workspace_id.clone()];
-        identity_ids.extend(screen_ids.iter().cloned());
-        identity_ids.extend(pane_ids.iter().cloned());
-        for (tab_id, content_id) in &tab_and_content_ids {
-            identity_ids.push(tab_id.clone());
-            identity_ids.push(content_id.clone());
-        }
-        for (_, layout_json, viewport_json) in &screens {
-            let layout: RegistryLayoutNode = serde_json::from_str(layout_json)?;
-            let viewport: RegistryViewport = serde_json::from_str(viewport_json)?;
-            collect_screen_split_public_ids(&layout, &viewport, &mut identity_ids);
-        }
-
-        for (_, content_id) in &tab_and_content_ids {
-            transaction.execute(
-                "UPDATE resource_terminals
-                 SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
-                 WHERE public_id = ?2 AND deleted_revision IS NULL",
-                params![revision, content_id],
-            )?;
-            transaction.execute(
-                "UPDATE resource_browsers
-                 SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
-                 WHERE public_id = ?2 AND deleted_revision IS NULL",
-                params![revision, content_id],
-            )?;
-        }
-        for (tab_id, _) in &tab_and_content_ids {
-            transaction.execute(
-                "UPDATE resource_tabs SET position = NULL, updated_revision = ?1,
-                   deleted_revision = ?1
-                 WHERE public_id = ?2 AND deleted_revision IS NULL",
-                params![revision, tab_id],
-            )?;
-        }
-        for pane_id in &pane_ids {
-            transaction.execute(
-                "UPDATE resource_panes SET updated_revision = ?1, deleted_revision = ?1
-                 WHERE public_id = ?2 AND deleted_revision IS NULL",
-                params![revision, pane_id],
-            )?;
-        }
-        for screen_id in &screen_ids {
-            transaction.execute(
-                "UPDATE resource_screens SET position = NULL, updated_revision = ?1,
-                   deleted_revision = ?1
-                 WHERE public_id = ?2 AND deleted_revision IS NULL",
-                params![revision, screen_id],
-            )?;
-        }
-        transaction.execute(
-            "UPDATE resource_workspaces SET updated_revision = ?1, deleted_revision = ?1
-             WHERE public_id = ?2 AND deleted_revision IS NULL",
-            params![revision, workspace_id],
-        )?;
-        for public_id in identity_ids {
-            transaction.execute(
-                "UPDATE resource_identities SET updated_revision = ?1, deleted_revision = ?1
-                 WHERE public_id = ?2 AND deleted_revision IS NULL",
-                params![revision, public_id],
-            )?;
-        }
-    }
     Ok(())
 }
 

@@ -1641,30 +1641,16 @@ impl Mux {
                         )));
                     }
                 };
-                let projection = match self.resource_effect_projection() {
-                    Ok(projection) => projection,
-                    Err(_error) => {
-                        #[cfg(test)]
-                        eprintln!("resource topology effect projection failed: {_error:#}");
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
-                            &mutation.id,
-                            &operation_name,
-                        )));
-                    }
-                };
-                match self.commit_resource_effect_patch(
+                match self.commit_full_resource_effect_projection(
                     &mutation.id,
                     &operation_name,
                     fingerprint,
-                    &projection.patch,
-                    &result,
-                    &projection.changes,
+                    result,
                 ) {
                     Ok(commit) => Ok(commit),
                     Err(_error) => {
                         #[cfg(test)]
-                        eprintln!("resource topology effect commit failed: {_error:#}");
+                        eprintln!("resource topology effect projection commit failed: {_error:#}");
                         let _ = self.mark_resource_effect_indeterminate(&mutation.id);
                         Err(anyhow::Error::new(resource_effect_indeterminate(
                             &mutation.id,
@@ -1757,31 +1743,18 @@ impl Mux {
                         );
                     }
                 };
-                let projection = match self.resource_effect_projection() {
-                    Ok(projection) => projection,
-                    Err(error) => {
-                        #[cfg(test)]
-                        eprintln!("correlated resource creation projection failed: {error:#}");
-                        let failure = resource_creation_failure(&recovery, &error);
-                        return creation_settlement_result(
-                            self.settle_resource_creation(recovery, Some(failure))?,
-                            &idempotency_key,
-                            &operation_name,
-                        );
-                    }
-                };
-                match self.commit_resource_effect_patch(
+                match self.commit_full_resource_effect_projection(
                     &idempotency_key,
                     &operation_name,
                     fingerprint,
-                    &projection.patch,
-                    &result,
-                    &projection.changes,
+                    result,
                 ) {
                     Ok(commit) => Ok(commit),
                     Err(error) => {
                         #[cfg(test)]
-                        eprintln!("correlated resource creation commit failed: {error:#}");
+                        eprintln!(
+                            "correlated resource creation projection commit failed: {error:#}"
+                        );
                         let failure = resource_creation_failure(&recovery, &error);
                         creation_settlement_result(
                             self.settle_resource_creation(recovery, Some(failure))?,
@@ -1801,23 +1774,11 @@ impl Mux {
     ) -> anyhow::Result<ResourceCreationSettlement> {
         match self.resource_creation_evidence(&recovery)? {
             ResourceCreationEvidence::Created(created_path) => {
-                let projection = match self.resource_effect_projection() {
-                    Ok(projection) => projection,
-                    Err(_) => {
-                        if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
-                            return Ok(settlement);
-                        }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        return Ok(ResourceCreationSettlement::Indeterminate);
-                    }
-                };
-                match self.commit_resource_effect_patch(
+                match self.commit_full_resource_effect_projection(
                     &recovery.idempotency_key,
                     &recovery.operation,
                     &recovery.fingerprint,
-                    &projection.patch,
-                    &created_path,
-                    &projection.changes,
+                    created_path,
                 ) {
                     Ok(commit) => Ok(ResourceCreationSettlement::Created(commit)),
                     Err(_) => {
