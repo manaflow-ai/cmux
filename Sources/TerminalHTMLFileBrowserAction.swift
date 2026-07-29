@@ -12,7 +12,8 @@ struct TerminalHTMLFileBrowserAction {
 
     func browserURL(for fileURL: URL) -> URL? {
         let pathExtension = fileURL.pathExtension.lowercased()
-        guard (pathExtension == "html" || pathExtension == "htm"),
+        guard fileURL.isFileURL,
+              pathExtension == "html" || pathExtension == "htm",
               BrowserAvailabilitySettings.isEnabled(defaults: defaults) else {
             return nil
         }

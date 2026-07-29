@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import struct CmuxSettings.AppCatalogSection
@@ -58,6 +59,10 @@ struct TerminalLinkOpenCoordinatorTests {
         defaults.removePersistentDomain(forName: suiteName)
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        defaults.set(
+            true,
+            forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        )
         return defaults
     }
 
@@ -147,21 +152,39 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(externallyOpened.isEmpty)
     }
 
+    @Test(
+        "Visible HTML paths open in Browser instead of File Preview",
+        arguments: ["html", "htm"]
+    )
+    @MainActor
+    func visibleHTMLPathOpensInBrowser(pathExtension: String) throws {
+        _ = NSApplication.shared
+        let defaults = makeDefaults()
+        let htmlURL = try makeHTMLFixture(pathExtension: pathExtension)
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path,
+            defaults: defaults
+        ))
+
+        let browser = try #require(
+            workspace.panels.values.compactMap { $0 as? BrowserPanel }.first
+        )
+        #expect(browser.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
+        #expect(!workspace.panels.values.contains { $0 is FilePreviewPanel })
+    }
+
     @Test("Dock terminal HTML links open in the cmux Browser")
     @MainActor
     func dockHTMLLinkOpensInBrowser() throws {
         let defaults = makeDefaults()
-        let standardDefaults = UserDefaults.standard
-        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
-        let previousSupportedFiles = standardDefaults.object(forKey: supportedFilesKey)
-        defer {
-            if let previousSupportedFiles {
-                standardDefaults.set(previousSupportedFiles, forKey: supportedFilesKey)
-            } else {
-                standardDefaults.removeObject(forKey: supportedFilesKey)
-            }
-        }
-        standardDefaults.set(true, forKey: supportedFilesKey)
 
         let remoteWebsiteDataStoreIdentifier = UUID()
         let store = DockSplitStore(
@@ -184,16 +207,8 @@ struct TerminalLinkOpenCoordinatorTests {
         let terminalPanelId = try #require(
             store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
         )
-        let fixtureDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
-        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
-        try "<!doctype html><title>dock HTML</title>".write(
-            to: htmlURL,
-            atomically: true,
-            encoding: .utf8
-        )
-        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+        let htmlURL = try makeHTMLFixture(pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
 
         var externallyOpened: [URL] = []
         let coordinator = TerminalLinkOpenCoordinator(
@@ -290,28 +305,8 @@ struct TerminalLinkOpenCoordinatorTests {
     @MainActor
     func deferredHTMLRouteRejectsRemoteTerminal() throws {
         let defaults = makeDefaults()
-        let standardDefaults = UserDefaults.standard
-        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
-        let previousSupportedFiles = standardDefaults.object(forKey: supportedFilesKey)
-        defer {
-            if let previousSupportedFiles {
-                standardDefaults.set(previousSupportedFiles, forKey: supportedFilesKey)
-            } else {
-                standardDefaults.removeObject(forKey: supportedFilesKey)
-            }
-        }
-        standardDefaults.set(true, forKey: supportedFilesKey)
-
-        let fixtureDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
-        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
-        try "<!doctype html><title>remote transition</title>".write(
-            to: htmlURL,
-            atomically: true,
-            encoding: .utf8
-        )
-        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+        let htmlURL = try makeHTMLFixture(pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
 
         let sourcePanelId = UUID()
         let container = MutableTerminalLinkContainer()
@@ -346,28 +341,8 @@ struct TerminalLinkOpenCoordinatorTests {
     @MainActor
     func deferredHTMLRouteRejectsDeletedFile() throws {
         let defaults = makeDefaults()
-        let standardDefaults = UserDefaults.standard
-        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
-        let previousSupportedFiles = standardDefaults.object(forKey: supportedFilesKey)
-        defer {
-            if let previousSupportedFiles {
-                standardDefaults.set(previousSupportedFiles, forKey: supportedFilesKey)
-            } else {
-                standardDefaults.removeObject(forKey: supportedFilesKey)
-            }
-        }
-        standardDefaults.set(true, forKey: supportedFilesKey)
-
-        let fixtureDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
-        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
-        try "<!doctype html><title>deleted target</title>".write(
-            to: htmlURL,
-            atomically: true,
-            encoding: .utf8
-        )
-        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+        let htmlURL = try makeHTMLFixture(pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
 
         let sourcePanelId = UUID()
         let container = MutableTerminalLinkContainer()
@@ -396,5 +371,18 @@ struct TerminalLinkOpenCoordinatorTests {
 
         #expect(container.browserURLs.isEmpty)
         #expect(externallyOpened == [htmlURL])
+    }
+
+    private func makeHTMLFixture(pathExtension: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-html-click-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("index.\(pathExtension)")
+        try "<h1>hello</h1><p style=\"color:green\">rendered</p>".write(
+            to: fileURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        return fileURL
     }
 }

@@ -37,6 +37,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var artifactFilesEnabled: Bool = false
     var terminalFolderTapEnabled: Bool = true
     var terminalFilesChipEnabled: Bool = false
+    var showMissingFiles: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
@@ -52,6 +53,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFolderTapEnabled: terminalFolderTapEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
+            showMissingFiles: showMissingFiles,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled,
             visibleArtifactCount: visibleArtifactCount,
             onArtifactFilesRequested: onArtifactFilesRequested,
@@ -133,6 +135,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
+            showMissingFiles: showMissingFiles,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
@@ -171,6 +174,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactFilesEnabled: Bool
         var terminalFolderTapEnabled: Bool
         var artifactChipGate: TerminalArtifactChipFeatureGate
+        var showMissingFiles: Bool
         var sessionArtifactCountEnabled: Bool
         var visibleArtifactCount: Int
         var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
@@ -227,6 +231,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             artifactFilesEnabled: Bool,
             terminalFolderTapEnabled: Bool,
             terminalFilesChipEnabled: Bool,
+            showMissingFiles: Bool = false,
             sessionArtifactCountEnabled: Bool,
             visibleArtifactCount: Int,
             onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
@@ -244,6 +249,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 artifactsAvailable: artifactFilesEnabled,
                 preferenceEnabled: terminalFilesChipEnabled
             )
+            self.showMissingFiles = showMissingFiles
             self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
             self.visibleArtifactCount = visibleArtifactCount
             self.artifactCountNeedsRefresh = artifactChipGate.isEnabled
@@ -299,7 +305,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         surfaceView.retryViewportReport()
                         return
                     }
-                    surfaceView.markViewportReportConfirmed()
+                    surfaceView.markViewportReportConfirmed(reportID: report.id)
                     if let renderEpoch = effectiveGrid.renderEpoch,
                        let renderRevisionFloor = effectiveGrid.renderRevisionFloor {
                         self.verifiedReplayState.acknowledgeViewport(

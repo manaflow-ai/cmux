@@ -47,7 +47,10 @@ struct TerminalLinkOpenCoordinator {
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
             let fileURL = URL(fileURLWithPath: resolvedPath)
-            if CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) {
+            if CommandClickFileOpenRouter.shouldRouteInCmux(
+                path: resolvedPath,
+                defaults: defaults
+            ) {
                 log("link.openURL resolvedAsFilePath=\(resolvedPath)")
                 return routeLocalFile(
                     fileURL,
@@ -76,7 +79,10 @@ struct TerminalLinkOpenCoordinator {
         if TerminalOpenURLFileRoutingPolicy().shouldAttemptCmuxFileRouting(
             rawOpenURLValue: trimmed,
             target: target
-        ), CommandClickFileOpenRouter.shouldRouteInCmux(path: target.url.path) {
+        ), CommandClickFileOpenRouter.shouldRouteInCmux(
+            path: target.url.path,
+            defaults: defaults
+        ) {
             return routeLocalFile(
                 target.url,
                 request: request,
@@ -111,7 +117,7 @@ struct TerminalLinkOpenCoordinator {
 
         if let browserURL = TerminalHTMLFileBrowserAction(defaults: defaults)
             .browserURL(for: fileURL) {
-            return openHTMLFileInBrowser(
+            return deferHTMLFileOpen(
                 fileURL,
                 browserURL: browserURL,
                 request: request,
@@ -130,7 +136,7 @@ struct TerminalLinkOpenCoordinator {
         return true
     }
 
-    private func openHTMLFileInBrowser(
+    private func deferHTMLFileOpen(
         _ fileURL: URL,
         browserURL: URL,
         request: TerminalLinkOpenRequest,
@@ -147,7 +153,7 @@ struct TerminalLinkOpenCoordinator {
                 request.sourceWorkspaceId,
                 sourcePanelId
             )
-            let fallback: @MainActor @Sendable () -> Void = { [self] in
+            let externalFallback: @MainActor @Sendable () -> Void = { [self] in
                 if !self.externalOpen(fileURL) {
                     NSSound.beep()
                 }
@@ -155,8 +161,11 @@ struct TerminalLinkOpenCoordinator {
 
             guard let currentContainer,
                   !currentContainer.terminalLinkIsRemoteTerminal(sourcePanelId),
-                  CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
-                fallback()
+                  CommandClickFileOpenRouter.shouldRouteInCmux(
+                      path: fileURL.path,
+                      defaults: self.defaults
+                  ) else {
+                externalFallback()
                 return
             }
 
@@ -169,17 +178,17 @@ struct TerminalLinkOpenCoordinator {
             }
 
             self.log(
-                "link.openURL local HTML Browser open failed, using file fallback " +
+                "link.openURL local HTML browser open failed, using file fallback " +
                 "surfaceId=\(sourcePanelId) url=\(browserURL)"
             )
             if currentContainer.deferTerminalFileLinkOpen(
-                   sourcePanelId: sourcePanelId,
-                   filePath: fileURL.path,
-                   fallback: fallback
-               ) {
+                sourcePanelId: sourcePanelId,
+                filePath: fileURL.path,
+                fallback: externalFallback
+            ) {
                 return
             }
-            fallback()
+            externalFallback()
         }
         return true
     }
