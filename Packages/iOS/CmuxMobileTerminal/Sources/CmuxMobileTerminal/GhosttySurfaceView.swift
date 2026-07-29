@@ -8,6 +8,7 @@ import GhosttyKit
 import OSLog
 import Synchronization
 import UIKit
+import os
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
@@ -218,7 +219,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             || pendingVerifiedReplayViewportAnchorRestore != nil
             || pendingCopyableTextRead != nil || pendingVerifiedReplayPresentation != nil
     }
-    private(set) var userViewportInteractionGeneration: UInt64 = 0
+    /// User viewport-interaction clock. Incremented on the main actor at
+    /// every user-driven viewport mutation; read inside output-queue blocks
+    /// immediately before a viewport-mutating C call so a stale restore
+    /// enqueued before a newer gesture cannot overwrite it.
+    nonisolated let userViewportInteractionClock =
+        OSAllocatedUnfairLock<UInt64>(initialState: 0)
+    var userViewportInteractionGeneration: UInt64 {
+        userViewportInteractionClock.withLock { $0 }
+    }
+    func bumpUserViewportInteractionGeneration() {
+        userViewportInteractionClock.withLock { $0 &+= 1 }
+    }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
@@ -1759,7 +1771,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        userViewportInteractionGeneration &+= 1
+        bumpUserViewportInteractionGeneration()
         if scrollPresentationAuthority.appliesLocally {
             applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
         }
@@ -2396,7 +2408,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// because it runs after everything already queued, so key-repeat during a
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
-        userViewportInteractionGeneration &+= 1
+        bumpUserViewportInteractionGeneration()
         guard let surface, !scrollToBottomInFlight else { return }
         scrollToBottomInFlight = true
         let generation = surfaceGeneration
@@ -2774,7 +2786,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// only explicit user input does (plus the one-time initial-output scroll
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
-        userViewportInteractionGeneration &+= 1
+        bumpUserViewportInteractionGeneration()
         resetCursorBlink()
         // A flick still decelerating would fight the snap: deltas already in
         // `pendingScrollLines` flush on the display-link frame AFTER the snap

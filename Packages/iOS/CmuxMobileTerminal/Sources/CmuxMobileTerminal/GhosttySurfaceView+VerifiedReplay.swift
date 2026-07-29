@@ -33,7 +33,7 @@ extension GhosttySurfaceView {
         )
         let workQueue = outputQueue
         return await withCheckedContinuation { continuation in
-            let interactionGeneration = userViewportInteractionGeneration
+            let interactionGeneration = userViewportInteractionClock.withLock { $0 }
             let operationID = registerPendingVerifiedReplayViewportAnchorCapture(
                 continuation: continuation
             )
@@ -98,6 +98,7 @@ extension GhosttySurfaceView {
             generation: surfaceGeneration
         )
         let workQueue = outputQueue
+        let clock = userViewportInteractionClock
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingVerifiedReplayViewportAnchorRestore(
                 continuation: continuation
@@ -115,14 +116,22 @@ extension GhosttySurfaceView {
                     )
                     : nil
                 var restoredScrollbar = ghostty_surface_scrollbar_s()
-                let restored = targetTopRow.map {
-                    ghostty_surface_scroll_to_row_if_revision(
-                        operation.surface,
-                        $0,
-                        postReplay.row_space_revision,
-                        &restoredScrollbar
+                let restored: Bool
+                if clock.withLock({ $0 }) != captured.interactionGeneration {
+                    MobileDebugLog.anchormux(
+                        "verified_replay.viewport_restore.skipped reason=user_interaction_late"
                     )
-                } ?? false
+                    restored = false
+                } else {
+                    restored = targetTopRow.map {
+                        ghostty_surface_scroll_to_row_if_revision(
+                            operation.surface,
+                            $0,
+                            postReplay.row_space_revision,
+                            &restoredScrollbar
+                        )
+                    } ?? false
+                }
                 if readPostReplay {
                     MobileDebugLog.anchormux(
                         "verified_replay.viewport_restore preTotal=\(anchor.totalRows) preTopDistance=\(anchor.topRowDistanceFromBottom) postTotal=\(postReplay.total) postOffset=\(postReplay.offset) postLen=\(postReplay.len) targetTop=\(targetTopRow.map(String.init) ?? "nil") restored=\(restored)"
