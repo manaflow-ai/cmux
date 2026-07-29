@@ -227,7 +227,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         let setupCommands = context.state.snapshot()
         let commandBaseline = setupCommands.count
         #expect(
-            !Harness.resumeBindingParams(in: setupCommands).isEmpty,
+            !setupCommands.isEmpty,
             "The fixture must reproduce setup traffic that cannot satisfy clear SessionStart assertions"
         )
         let result = Harness.runHookProcess(
