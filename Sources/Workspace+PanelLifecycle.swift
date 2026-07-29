@@ -405,6 +405,7 @@ extension Workspace {
         publishSurfaceClosedEvent: Bool,
         clearSurfaceNotifications: Bool,
         requestTransferredRemoteCleanup: Bool,
+        discardAgentHibernationTracking: Bool,
         cleanupControllerSurfaceState: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         if publishSurfaceClosedEvent {
@@ -446,6 +447,12 @@ extension Workspace {
         }
 
         panels.removeValue(forKey: panelId)
+        if discardAgentHibernationTracking {
+            AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+                workspaceId: id,
+                panelId: panelId
+            )
+        }
         untrackRemoteTerminalSurface(panelId)
         discardRemoteDirectoryTrustState(panelId: panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)

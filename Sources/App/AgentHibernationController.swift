@@ -39,9 +39,9 @@ final class AgentHibernationController {
     var postTeardownRestoreDrainTask: Task<Void, Never>?
     var postSnapshotValidationIndexSequence: UInt64 = 0
     var postSnapshotValidationIndexTask: PostSnapshotValidationIndexTask?
-    private var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
-    private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
-    private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
+    var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
+    var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
+    var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
     var memoryPressureEvaluation: (id: UUID, task: Task<Void, Never>)?
 
     private init() {}

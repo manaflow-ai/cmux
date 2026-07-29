@@ -7605,6 +7605,7 @@ final class Workspace: Identifiable, ObservableObject {
             publishSurfaceClosedEvent: false,
             clearSurfaceNotifications: false,
             requestTransferredRemoteCleanup: true,
+            discardAgentHibernationTracking: false,
             cleanupControllerSurfaceState: false
         )
         GhosttyApp.terminalSurfaceRegistry.unregister(oldPanel.surface)
@@ -8519,6 +8520,7 @@ final class Workspace: Identifiable, ObservableObject {
                 publishSurfaceClosedEvent: true,
                 clearSurfaceNotifications: true,
                 requestTransferredRemoteCleanup: true,
+                discardAgentHibernationTracking: true,
                 cleanupControllerSurfaceState: true
             )
         }
@@ -8864,6 +8866,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         var detached = splitLayout.takeDetachedTransfer(tabId)
+        if detached == nil {
+            AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+                workspaceId: id,
+                panelId: panelId
+            )
+        }
         if shouldSkipControlMasterCleanupAfterDetach, let detachedTransfer = detached, detachedTransfer.isRemoteTerminal {
             skipControlMasterCleanupAfterDetachedRemoteTransfer = true
             if detachedTransfer.remoteCleanupConfiguration == nil {
@@ -9019,6 +9027,11 @@ final class Workspace: Identifiable, ObservableObject {
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
             customSidebarPanel.reattach(to: self)
         }
+        AgentHibernationController.shared.transferTrackingStateForMovedPanel(
+            panelId: detached.panelId,
+            from: detached.sourceWorkspaceId,
+            to: id
+        )
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,
             toTabId: id,
@@ -11825,6 +11838,7 @@ extension Workspace: BonsplitDelegate {
             publishSurfaceClosedEvent: !isDetaching,
             clearSurfaceNotifications: !preservesSurfaceForDetach,
             requestTransferredRemoteCleanup: false,
+            discardAgentHibernationTracking: !isDetaching,
             cleanupControllerSurfaceState: !isDetaching
         )
         if !isDetaching {
@@ -12015,6 +12029,7 @@ extension Workspace: BonsplitDelegate {
                     publishSurfaceClosedEvent: true,
                     clearSurfaceNotifications: true,
                     requestTransferredRemoteCleanup: true,
+                    discardAgentHibernationTracking: !isDetachingCloseTransaction,
                     cleanupControllerSurfaceState: !isDetachingCloseTransaction
                 )
                 if !isDetachingCloseTransaction {

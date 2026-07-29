@@ -910,6 +910,7 @@ struct RestorableAgentSessionIndex: Sendable {
         /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
         let processLiveness: RestorableAgentProcessLiveness
         let processIDs: Set<Int>
+        let processIdentities: [Int: AgentPIDProcessIdentity]
         let agentProcessIDs: Set<Int>
         let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
     }
@@ -971,6 +972,10 @@ struct RestorableAgentSessionIndex: Sendable {
 
     func processIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
         entry(workspaceId: workspaceId, panelId: panelId)?.processIDs ?? []
+    }
+
+    func processIdentities(workspaceId: UUID, panelId: UUID) -> [Int: AgentPIDProcessIdentity] {
+        entry(workspaceId: workspaceId, panelId: panelId)?.processIdentities ?? [:]
     }
 
     func agentProcessIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
@@ -1209,6 +1214,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     updatedAt: effectiveRecord.updatedAt,
                     processLiveness: processObservation.liveness,
                     processIDs: liveProcessID.map { [$0] } ?? [],
+                    processIdentities: liveProcessIdentities,
                     agentProcessIDs: liveProcessID.map { [$0] } ?? [],
                     agentProcessIdentities: liveProcessIdentities
                 )
@@ -1253,14 +1259,19 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         func processDetectedEntry(snapshot: SessionRestorableAgentSnapshot, lifecycle: AgentHibernationLifecycleState?, updatedAt: TimeInterval, detected: ProcessDetectedSnapshotEntry) -> Entry {
-            Entry(
+            let processIdentities = processIdentities(
+                for: detected.processIDs,
+                processIdentityProvider: processIdentityProvider
+            )
+            return Entry(
                 snapshot: snapshot, lifecycle: lifecycle, updatedAt: updatedAt,
                 processLiveness: .running,
-                processIDs: detected.processIDs, agentProcessIDs: detected.agentProcessIDs,
-                agentProcessIdentities: agentProcessIdentities(
-                    for: detected.agentProcessIDs,
-                    processIdentityProvider: processIdentityProvider
-                )
+                processIDs: detected.processIDs,
+                processIdentities: processIdentities,
+                agentProcessIDs: detected.agentProcessIDs,
+                agentProcessIdentities: processIdentities.filter {
+                    detected.agentProcessIDs.contains($0.key)
+                }
             )
         }
 
@@ -1350,7 +1361,7 @@ struct RestorableAgentSessionIndex: Sendable {
             .max { $0.updatedAt < $1.updatedAt }
     }
 
-    private static func agentProcessIdentities(
+    private static func processIdentities(
         for processIDs: Set<Int>,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     ) -> [Int: AgentPIDProcessIdentity] {

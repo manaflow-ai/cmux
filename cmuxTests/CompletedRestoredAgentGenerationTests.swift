@@ -235,6 +235,7 @@ struct CompletedRestoredAgentGenerationTests {
             updatedAt: updatedAt,
             processLiveness: .running,
             processIDs: [Int(identity.pid)],
+            processIdentities: [Int(identity.pid): identity],
             agentProcessIDs: [Int(identity.pid)],
             agentProcessIdentities: [Int(identity.pid): identity]
         )

@@ -62,8 +62,9 @@ extension AppDelegate {
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
                             hasLiveProcess: !processIDs.isEmpty,
                             processIDs: processIDs,
-                            processIdentities: AgentHibernationController.processIdentities(
-                                for: processIDs
+                            processIdentities: index.processIdentities(
+                                workspaceId: workspace.id,
+                                panelId: panelId
                             )
                         )
                     )
