@@ -39,7 +39,7 @@ struct ApplicationSurfaceTests {
             targetFrameRate: panel.targetFrameRate,
             runtime: runtime,
             leaseProvider: { nil },
-            onStateChanged: { _ in },
+            onStateChanged: { _, _ in },
             onMovedToWindow: { view in
                 panel.captureViewDidMoveToWindow(view, token: token)
             }
@@ -195,7 +195,7 @@ struct ApplicationSurfaceTests {
             targetFrameRate: 60,
             runtime: FakeApplicationSurfaceRuntime(),
             leaseProvider: { nil },
-            onStateChanged: { _ in },
+            onStateChanged: { _, _ in },
             onMovedToWindow: { _ in }
         )
 
@@ -457,7 +457,7 @@ struct ApplicationSurfaceTests {
             targetFrameRate: 60,
             runtime: runtime,
             leaseProvider: { nil },
-            onStateChanged: { _ in },
+            onStateChanged: { _, _ in },
             onMovedToWindow: { _ in }
         )
         weak var retainedView = view
@@ -549,7 +549,7 @@ struct ApplicationSurfaceTests {
             targetFrameRate: 60,
             runtime: runtime,
             leaseProvider: { nil },
-            onStateChanged: { _ in },
+            onStateChanged: { _, _ in },
             onMovedToWindow: { _ in }
         )
         panel.attach(view, token: token)
@@ -598,7 +598,7 @@ struct ApplicationSurfaceTests {
             targetFrameRate: 60,
             runtime: runtime,
             leaseProvider: { nil },
-            onStateChanged: { _ in },
+            onStateChanged: { _, _ in },
             onMovedToWindow: { _ in }
         )
         let windowID = UUID()

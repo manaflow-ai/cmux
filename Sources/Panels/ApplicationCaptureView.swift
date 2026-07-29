@@ -49,7 +49,7 @@ final class ApplicationCaptureView: NSView {
     private let targetFrameRate: Int
     private let runtime: any ApplicationSurfaceRuntime
     private let leaseProvider: @MainActor () async -> ApplicationSurfaceRuntimeLease?
-    private let onStateChanged: (ApplicationCaptureState) -> Void
+    private let onStateChanged: (ApplicationCaptureState, String?) -> Void
     private let onMovedToWindow: (ApplicationCaptureView) -> Void
     private let onPointerDown: () -> Void
     private let remoteFrameView = CmuxRemoteFrameView(frame: .zero)
@@ -71,11 +71,22 @@ final class ApplicationCaptureView: NSView {
         } catch ApplicationSurfaceRuntimeError.pointOutsideContent {
             return false
         } catch ApplicationSurfaceRuntimeError.windowUnavailable {
-            self.handleRuntimeFailure(.windowUnavailable)
+            self.handleRuntimeFailure(
+                .windowUnavailable,
+                failureDetail: ApplicationSurfaceRuntimeError
+                    .windowUnavailable.localizedDescription
+            )
         } catch ApplicationSurfaceRuntimeError.permissionRequired {
-            self.handleRuntimeFailure(.permissionRequired)
+            self.handleRuntimeFailure(
+                .permissionRequired,
+                failureDetail: ApplicationSurfaceRuntimeError
+                    .permissionRequired.localizedDescription
+            )
         } catch {
-            self.handleRuntimeFailure(.failed)
+            self.handleRuntimeFailure(
+                .failed,
+                failureDetail: error.localizedDescription
+            )
         }
         return false
     }
@@ -137,7 +148,7 @@ final class ApplicationCaptureView: NSView {
         targetFrameRate: Int,
         runtime: any ApplicationSurfaceRuntime,
         leaseProvider: @escaping @MainActor () async -> ApplicationSurfaceRuntimeLease?,
-        onStateChanged: @escaping (ApplicationCaptureState) -> Void,
+        onStateChanged: @escaping (ApplicationCaptureState, String?) -> Void,
         onMovedToWindow: @escaping (ApplicationCaptureView) -> Void,
         onPointerDown: @escaping () -> Void = {}
     ) {
@@ -155,7 +166,7 @@ final class ApplicationCaptureView: NSView {
         addSubview(remoteFrameView)
         remoteFrameView.onFirstFrame = { [weak self] in
             guard let self, self.shouldCaptureNow, self.session != nil else { return }
-            self.onStateChanged(.streaming)
+            self.onStateChanged(.streaming, nil)
         }
         remoteFrameView.onFramePresented = { [weak self] in
             self?.recordPresentedFrame()
@@ -172,7 +183,10 @@ final class ApplicationCaptureView: NSView {
                     + " window=\(self.sourceWindowID)"
                     + " error=\(error.localizedDescription)"
             )
-            self.handleRuntimeFailure(.failed)
+            self.handleRuntimeFailure(
+                .failed,
+                failureDetail: error.localizedDescription
+            )
         }
     }
 
@@ -247,7 +261,7 @@ final class ApplicationCaptureView: NSView {
         }
         let generation = UUID()
         captureGeneration = generation
-        onStateChanged(.starting)
+        onStateChanged(.starting, nil)
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -272,7 +286,11 @@ final class ApplicationCaptureView: NSView {
             guard let lease else {
                 self.captureDesired = false
                 self.remoteFrameView.setActive(false)
-                self.onStateChanged(.failed)
+                self.onStateChanged(
+                    .failed,
+                    ApplicationSurfaceRuntimeError
+                        .helperUnavailable.localizedDescription
+                )
                 return
             }
             self.lease = lease
@@ -311,12 +329,20 @@ final class ApplicationCaptureView: NSView {
             } catch ApplicationSurfaceRuntimeError.permissionRequired {
                 self.captureDesired = false
                 self.remoteFrameView.setActive(false)
-                self.onStateChanged(.permissionRequired)
+                self.onStateChanged(
+                    .permissionRequired,
+                    ApplicationSurfaceRuntimeError
+                        .permissionRequired.localizedDescription
+                )
             } catch ApplicationSurfaceRuntimeError.windowUnavailable {
                 self.captureDesired = false
                 self.targetUnavailable = true
                 self.remoteFrameView.setActive(false)
-                self.onStateChanged(.windowUnavailable)
+                self.onStateChanged(
+                    .windowUnavailable,
+                    ApplicationSurfaceRuntimeError
+                        .windowUnavailable.localizedDescription
+                )
             } catch {
                 self.captureDesired = false
                 self.remoteFrameView.setActive(false)
@@ -325,7 +351,7 @@ final class ApplicationCaptureView: NSView {
                         + " window=\(self.sourceWindowID)"
                         + " error=\(error.localizedDescription)"
                 )
-                self.onStateChanged(.failed)
+                self.onStateChanged(.failed, error.localizedDescription)
             }
         }
     }
@@ -342,7 +368,7 @@ final class ApplicationCaptureView: NSView {
         remoteFrameView.setActive(false)
         remoteFrameView.resetTransport()
         if reportState {
-            onStateChanged(.suspended)
+            onStateChanged(.suspended, nil)
         }
         pendingScrollX = 0
         pendingScrollY = 0
@@ -682,7 +708,10 @@ final class ApplicationCaptureView: NSView {
                             + " window=\(self.sourceWindowID)"
                             + " reason=\(String(describing: failure))"
                     )
-                    self.handleRuntimeFailure(.failed)
+                    self.handleRuntimeFailure(
+                        .failed,
+                        failureDetail: Self.genericCaptureFailureDetail
+                    )
                     return
                 }
                 guard
@@ -699,11 +728,19 @@ final class ApplicationCaptureView: NSView {
                     )
                 } catch ApplicationSurfaceRuntimeError.windowUnavailable {
                     guard self.captureGeneration == generation else { return }
-                    self.handleRuntimeFailure(.windowUnavailable)
+                    self.handleRuntimeFailure(
+                        .windowUnavailable,
+                        failureDetail: ApplicationSurfaceRuntimeError
+                            .windowUnavailable.localizedDescription
+                    )
                     return
                 } catch ApplicationSurfaceRuntimeError.permissionRequired {
                     guard self.captureGeneration == generation else { return }
-                    self.handleRuntimeFailure(.permissionRequired)
+                    self.handleRuntimeFailure(
+                        .permissionRequired,
+                        failureDetail: ApplicationSurfaceRuntimeError
+                            .permissionRequired.localizedDescription
+                    )
                     return
                 } catch {
                     guard self.captureGeneration == generation else { return }
@@ -712,7 +749,10 @@ final class ApplicationCaptureView: NSView {
                             + " window=\(self.sourceWindowID)"
                             + " error=\(error.localizedDescription)"
                     )
-                    self.handleRuntimeFailure(.failed)
+                    self.handleRuntimeFailure(
+                        .failed,
+                        failureDetail: error.localizedDescription
+                    )
                     return
                 }
             }
@@ -735,12 +775,15 @@ final class ApplicationCaptureView: NSView {
         releaseForwardedInputs()
     }
 
-    private func handleRuntimeFailure(_ state: ApplicationCaptureState) {
+    private func handleRuntimeFailure(
+        _ state: ApplicationCaptureState,
+        failureDetail: String?
+    ) {
         guard captureDesired else { return }
         if state == .windowUnavailable {
             targetUnavailable = true
         }
-        onStateChanged(state)
+        onStateChanged(state, failureDetail)
         stopCapture()
     }
 
@@ -749,7 +792,17 @@ final class ApplicationCaptureView: NSView {
             "applicationSurface.input.queueFull"
                 + " window=\(sourceWindowID)"
         )
-        handleRuntimeFailure(.failed)
+        handleRuntimeFailure(
+            .failed,
+            failureDetail: Self.genericCaptureFailureDetail
+        )
+    }
+
+    private static var genericCaptureFailureDetail: String {
+        String(
+            localized: "panel.application.captureFailed.detail",
+            defaultValue: "cmux could not capture this window. Try again or choose another window."
+        )
     }
 
     static func shouldCapture(

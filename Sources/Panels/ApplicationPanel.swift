@@ -21,6 +21,7 @@ final class ApplicationPanel: Panel {
     private(set) var captureGeneration = UUID()
 
     private var targetTitle: String?
+    private var captureRuntimeFailureDetail: String?
     @ObservationIgnored
     private var hostedView: ApplicationCaptureView?
     @ObservationIgnored
@@ -91,8 +92,10 @@ final class ApplicationPanel: Panel {
         return captureState == .failed ? "capture_failed" : nil
     }
     var captureFailureDetail: String? {
-        guard case .failed(let detail) = pickerModel.phase else { return nil }
-        return detail
+        if case .failed(let detail) = pickerModel.phase {
+            return detail
+        }
+        return captureRuntimeFailureDetail
     }
 
     init?(
@@ -192,7 +195,7 @@ final class ApplicationPanel: Panel {
         targetTitle = window.title
         displayTitleDidChange?(displayTitle)
         pickerModel.selectedWindowID = window.windowID
-        captureState = .suspended
+        setCaptureState(.suspended)
         captureGeneration = UUID()
     }
 
@@ -203,7 +206,7 @@ final class ApplicationPanel: Panel {
         processID = nil
         targetTitle = nil
         displayTitleDidChange?(displayTitle)
-        captureState = .suspended
+        setCaptureState(.suspended)
         captureGeneration = UUID()
         pickerModel.query = ""
         pickerModel.phase = .idle
@@ -244,8 +247,12 @@ final class ApplicationPanel: Panel {
             leaseProvider: { [weak self] in
                 await self?.applicationSurfaceLease()
             },
-            onStateChanged: { [weak self] state in
-                self?.updateCaptureState(state, token: captureToken)
+            onStateChanged: { [weak self] state, failureDetail in
+                self?.updateCaptureState(
+                    state,
+                    failureDetail: failureDetail,
+                    token: captureToken
+                )
             },
             onMovedToWindow: { [weak self] view in
                 self?.captureViewDidMoveToWindow(view, token: captureToken)
@@ -296,9 +303,13 @@ final class ApplicationPanel: Panel {
         fulfillPendingFocusIfPossible()
     }
 
-    func updateCaptureState(_ state: ApplicationCaptureState, token: UUID) {
+    func updateCaptureState(
+        _ state: ApplicationCaptureState,
+        failureDetail: String? = nil,
+        token: UUID
+    ) {
         guard activeCaptureToken == token else { return }
-        captureState = state
+        setCaptureState(state, failureDetail: failureDetail)
     }
 
     func setCaptureVisibleInUI(
@@ -370,9 +381,9 @@ final class ApplicationPanel: Panel {
     }
 
     func retryCaptureAfterPermissions() {
-        captureState = captureVisibleInUI && canvasRendering
+        setCaptureState(captureVisibleInUI && canvasRendering
             ? .starting
-            : .suspended
+            : .suspended)
         applyCaptureVisibility()
     }
 
@@ -400,8 +411,21 @@ final class ApplicationPanel: Panel {
     private func applyCaptureVisibility() {
         let shouldCapture = captureVisibleInUI && canvasRendering
         if !shouldCapture, captureTarget != nil {
-            captureState = .suspended
+            switch captureState {
+            case .starting, .streaming:
+                setCaptureState(.suspended)
+            case .suspended, .permissionRequired, .windowUnavailable, .failed:
+                break
+            }
         }
         hostedView?.setCaptureActive(shouldCapture)
+    }
+
+    private func setCaptureState(
+        _ state: ApplicationCaptureState,
+        failureDetail: String? = nil
+    ) {
+        captureState = state
+        captureRuntimeFailureDetail = state == .failed ? failureDetail : nil
     }
 }
