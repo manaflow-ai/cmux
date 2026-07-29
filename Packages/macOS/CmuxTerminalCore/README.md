@@ -10,7 +10,7 @@ The terminal domain's core leaf: pure and Sendable terminal logic with no view d
 - `LinkRouting/` — `TerminalLinkRouter` and `TerminalOpenURLTarget`, routing terminal links to the embedded browser or the system through the `BrowserHostNormalizing` seam.
 - `SurfaceCallbacks/` — `GhosttySurfaceCallbackContext`, the retained userdata for libghostty callbacks, behind the `TerminalSurfaceControlling`/`TerminalSurfaceHosting` seams.
 - `SurfaceValues/` — the Sendable surface value DTOs (`PendingKeyEvent`, `PendingSocketInput`, `ParsedSocketInput`, `NamedKeySendResult`, `InputSendResult`, `PortalLifecycleState`, `PortalHostLease`).
-- `TitleChurn/` — `TerminalTitleChurnFilter`, the value normalizer that collapses animated Braille title prefixes before ingress deduplication.
+- `TitleChurn/` — `TerminalTitleChurnFilter`, the value normalizer that collapses known standalone Braille spinner tokens before ingress deduplication.
 - `Scrollbar/` — `GhosttyScrollbar`, the runtime scrollback geometry snapshot.
 - `DebugSupport/` — DEBUG-only UI-test scaffolding (`TerminalChildExitProbe`, scalar-hex journaling).
 

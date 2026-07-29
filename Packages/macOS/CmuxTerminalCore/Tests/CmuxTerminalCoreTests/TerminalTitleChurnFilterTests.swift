@@ -15,8 +15,8 @@ struct TerminalTitleChurnFilterTests {
         #expect(stableTitles == ["pnpm install"])
     }
 
-    @Test func collapsesAnyLeadingBraillePatternRun() {
-        #expect(filter.stableTitle(for: "  ⠀⣿  Building project") == "Building project")
+    @Test func collapsesStandaloneSpinnerAfterLeadingWhitespace() {
+        #expect(filter.stableTitle(for: "  ⠋  Building project") == "Building project")
     }
 
     @Test func preservesOrdinaryTitlesExactly() {
@@ -24,11 +24,15 @@ struct TerminalTitleChurnFilterTests {
         #expect(filter.stableTitle(for: "  zsh - ~/project  ") == "  zsh - ~/project  ")
         #expect(filter.stableTitle(for: "Build ⠋ step") == "Build ⠋ step")
         #expect(filter.stableTitle(for: "⟿ not a Braille spinner") == "⟿ not a Braille spinner")
+        #expect(filter.stableTitle(for: "⠋-project") == "⠋-project")
+        #expect(filter.stableTitle(for: "⠋⠑⠇⠇⠕") == "⠋⠑⠇⠇⠕")
+        #expect(filter.stableTitle(for: "⠋ ⠑⠇⠇⠕") == "⠋ ⠑⠇⠇⠕")
+        #expect(filter.stableTitle(for: "⣿ Building project") == "⣿ Building project")
     }
 
     @Test func dropsSpinnerOnlyFramesWithoutChangingEmptyTitleSemantics() {
         #expect(filter.stableTitle(for: "⠋") == nil)
-        #expect(filter.stableTitle(for: "  ⣿  ") == nil)
+        #expect(filter.stableTitle(for: "  ⠙  ") == nil)
         #expect(filter.stableTitle(for: "") == "")
         #expect(filter.stableTitle(for: "   ") == "   ")
     }
