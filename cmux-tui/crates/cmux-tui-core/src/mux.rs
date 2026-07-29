@@ -11049,6 +11049,15 @@ mod tests {
         let (snapshot, mut topology) = resource_restore_fixture();
         let empty_pane = topology.panes[0].public_id.clone();
         topology.tabs.retain(|tab| tab.pane_id != empty_pane);
+        let retained_browsers = topology
+            .tabs
+            .iter()
+            .filter_map(|tab| match &tab.content_id {
+                ContentPublicId::Browser(browser) => Some(browser.clone()),
+                ContentPublicId::Terminal(_) => None,
+            })
+            .collect::<HashSet<_>>();
+        topology.browsers.retain(|browser| retained_browsers.contains(&browser.public_id));
         topology.panes[0].active_tab = None;
         let restored = restore_resource_state(snapshot, topology).unwrap();
         assert!(
@@ -11064,6 +11073,7 @@ mod tests {
         topology.screens.clear();
         topology.panes.clear();
         topology.tabs.clear();
+        topology.browsers.clear();
         assert!(restore_resource_state(snapshot, topology).unwrap().state.workspaces.is_empty());
     }
 
