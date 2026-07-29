@@ -134,6 +134,47 @@ extension Workspace {
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
     }
 
+    /// True when `binding` is a plain (non-tmux) agent-hook resume binding
+    /// whose session no longer shows up as a live process. Generalizes the
+    /// tmux-only `isProcessDetected` staleness signal in
+    /// `reconcileSurfaceResumeBindings` so a normal exit of a resumed
+    /// non-tmux agent doesn't leave a binding that gets replayed as a resume
+    /// on the next relaunch (#8446).
+    ///
+    /// `restorableAgentIndex`, when supplied, is a freshly loaded index from
+    /// the same scan generation as the caller's `SurfaceResumeBindingIndex`
+    /// (see `ProcessDetectedResumeIndexes.load()`); prefer it over the
+    /// separately TTL-cached `SharedLiveAgentIndex.shared.index` so pruning
+    /// and the binding scan it is paired with always describe the same
+    /// point-in-time snapshot instead of two independently stale ones.
+    func isStaleAgentHookBinding(
+        _ binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+    ) -> Bool {
+        // `RestorableAgentSessionIndex` / `SharedLiveAgentIndex` are built by
+        // scanning LOCAL processes (pid/sysctl-based). A `.persistentSSH`
+        // agent-hook binding's process runs on the remote host and can never
+        // appear in that local scan, so treating it as this function's kind
+        // of "stale" would prune every live remote agent-hook binding on the
+        // very next reconciliation. Only judge local-launch bindings here;
+        // remote bindings are left to whatever governs their own lifecycle.
+        guard binding.isAgentHookBinding,
+              binding.launchFlavor == .local,
+              let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !checkpointId.isEmpty,
+              let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !kind.isEmpty else {
+            return false
+        }
+        let liveIndex = restorableAgentIndex ?? SharedLiveAgentIndex.shared.index
+        return !AgentResumeLiveness.hasLiveProcess(
+            for: liveIndex?.entry(workspaceId: id, panelId: panelId),
+            kind: kind,
+            sessionId: checkpointId
+        )
+    }
+
     func seedSessionRestoredAgentState(
         panelId: UUID,
         restorableAgent: SessionRestorableAgentSnapshot?,
@@ -182,6 +223,10 @@ extension Workspace {
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+            agentSessionRetryCoordinator.agentLifecycleDidChange(
+                panelId: targetPanelId,
+                lifecycle: lifecycle
+            )
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
     }
@@ -199,6 +244,7 @@ extension Workspace {
             }
             didClear = true
             if recordsHibernationActivity {
+                agentSessionRetryCoordinator.agentLifecycleDidClear(panelId: panelId)
                 recordAgentLifecycleChange(panelId: panelId)
             }
         }
@@ -213,6 +259,7 @@ extension Workspace {
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
+        agentSessionRetryCoordinator.cancel(panelId: panelId)
         guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
         let manualStates = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
         if !manualStates.isEmpty {
@@ -234,8 +281,9 @@ extension Workspace {
 
     func clearAllAgentLifecycleStates() {
         let panelIds = Array(agentLifecycleStatesByPanelId.keys)
-        guard !panelIds.isEmpty else { return }
         agentLifecycleStatesByPanelId.removeAll()
+        agentSessionRetryCoordinator.cancelAll()
+        guard !panelIds.isEmpty else { return }
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
         }

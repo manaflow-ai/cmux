@@ -11,7 +11,7 @@ const clients: ClientInfo[] = [
     kind: "web",
     connected_seconds: 10,
     attached: [7],
-    sizes: [{ surface: 7, cols: 126, rows: 38 }],
+    sizes: [{ surface: 7, cols: 126, rows: 38, size_participating: true }],
     self: true,
   },
   {

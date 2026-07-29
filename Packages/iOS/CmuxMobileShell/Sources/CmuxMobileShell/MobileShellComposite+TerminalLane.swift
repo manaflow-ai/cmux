@@ -16,7 +16,8 @@ extension MobileShellComposite {
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
-            authorizationMode: .transportAdmission
+            authorizationMode: .transportAdmission,
+            sessionPurpose: .featureLane
         )
         let connectionGeneration = connectionGeneration
         let lifecycleID = terminalLaneLifecycleID

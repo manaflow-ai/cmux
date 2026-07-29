@@ -111,6 +111,9 @@ jobs:
           # otherwise-correct build; the guarded regression (events serialized
           # behind a 100ms read poll) inflates far past this bound anyway.
           CMUX_TEST_WS_LATENCY_BUDGET_MS: "2000"
+          # Process-exit and PTY-reader tests also use bounded polling. Keep
+          # their normal deadlines strict while allowing for instrumentation.
+          CMUX_TEST_TIMEOUT_SCALE: "4"
         run: |
           while IFS= read -r bin; do
             [ -n "$bin" ] || continue
@@ -169,6 +172,10 @@ jobs:
       - name: cargo test
         working-directory: cmux-tui
         run: cargo test --workspace --locked
+
+      - name: crossterm parser tests
+        working-directory: cmux-tui
+        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib
 
       - name: TUI smoke test (scripted pty)
         working-directory: cmux-tui

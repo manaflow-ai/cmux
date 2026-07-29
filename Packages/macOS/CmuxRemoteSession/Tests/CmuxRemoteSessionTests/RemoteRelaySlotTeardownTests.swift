@@ -385,6 +385,7 @@ struct RemoteRelaySlotTeardownTests {
                 persistentDaemonSlot: "ssh-test-slot"
             ),
             proxyBroker: RemoteProxyBroker(tunnelProvider: IntentionalCleanupTestTunnelProvider()),
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),

@@ -520,25 +520,11 @@ extension RemoteTmuxWindowMirror {
             )
     }
 
-    func seedActivePaneIfNeeded() {
-        let live = renderedLayout.paneIDsInOrder
-        let seed = connection?.activePaneByWindow[windowId] ?? live.first
-        if activePaneId.map({ live.contains($0) }) != true, let seed {
-            setActivePane(seed, fromTmux: true)
-        } else if let activePaneId {
-            setActivePane(activePaneId, fromTmux: true)
-        }
-    }
-
     func refreshPaneTitles() {
         for paneId in renderedLayout.paneIDsInOrder { updatePaneTitle(paneId) }
     }
 
     func tmuxPaneId(forTab tabId: TabID) -> Int? { paneIdByTabId[tabId] }
-
-    func isFocused(tabId: TabID) -> Bool {
-        tmuxPaneId(forTab: tabId).map { $0 == activePaneId } ?? false
-    }
 
     func updatePaneCwd(paneId: Int, path: String) {
         cwdByPaneId[paneId] = path
@@ -548,18 +534,6 @@ extension RemoteTmuxWindowMirror {
     func updatePaneTitle(_ paneId: Int) {
         guard let tabId = tabIdByPaneId[paneId] else { return }
         bonsplitController.updateTab(tabId, title: title(forPane: paneId))
-    }
-
-    func focusBonsplitPane(forTmuxPane paneId: Int) {
-        // Idempotence guard: reconciles re-assert the active pane on every
-        // %layout-change echo, and an unconditional focusPane would mutate
-        // Bonsplit focus state (and fire didFocusPane) each time, stealing
-        // first responder from whatever the user is typing in.
-        guard let bonsplitPane = paneIdByPaneId[paneId],
-              bonsplitController.focusedPaneId != bonsplitPane else { return }
-        isApplyingTmuxFocus = true
-        bonsplitController.focusPane(bonsplitPane)
-        isApplyingTmuxFocus = false
     }
 
     func title(forPane paneId: Int) -> String {
@@ -606,7 +580,7 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     ) -> Bool {
         guard !isApplyingRemoteLayout else { return true }
         if let tmuxPane = paneIdByBonsplitPane[pane] {
-            _ = requestSplit(fromPane: tmuxPane, vertical: orientation == .vertical)
+            _ = requestSplit(fromPane: tmuxPane, vertical: orientation == .vertical, focusIntent: .focusCreatedPane)
         }
         return false
     }

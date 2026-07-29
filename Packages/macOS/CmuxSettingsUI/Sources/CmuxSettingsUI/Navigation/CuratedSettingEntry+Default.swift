@@ -37,6 +37,12 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "minimal-mode", title: "Minimal Mode", synonyms: "app.minimalMode presentation compact chrome layout simple titlebar controls"),
             .init(section: .app, id: "keep-workspace-open", title: "Keep Workspace Open When Closing Last Surface", synonyms: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
             .init(section: .app, id: "focus-pane-first-click", title: "Focus Pane on First Click", synonyms: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
+            .init(
+                section: .app,
+                id: "focus-history-scope",
+                title: String(localized: "settings.app.focusHistoryIncludesPanesAndTabs", defaultValue: "Include Panes and Tabs in Focus History"),
+                synonyms: "app.focusHistoryIncludesPanesAndTabs focus history back forward panes tabs workspaces only navigation"
+            ),
             .init(section: .app, id: "file-drops", title: "File Drops", synonyms: "drag drop files finder path text terminal editor split preview shift"),
             .init(section: .app, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
@@ -106,6 +112,15 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .terminal, id: "copy-on-select", title: "Copy on Selection", synonyms: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
             .init(section: .terminal, id: "agent-auto-resume", title: "Resume Agent Sessions on Reopen", synonyms: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
+            .init(
+                section: .terminal,
+                id: "agent-auto-retry",
+                title: String(localized: "settings.terminal.agentAutoRetry", defaultValue: "Retry Failed Agent Sessions"),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.terminal.agent-auto-retry",
+                    defaultValue: "terminal.autoRetryAgentSessions auto retry resume error failure transport api rate limit overloaded agents claude codex"
+                )
+            ),
             .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: "Hibernate After Idle Seconds", synonyms: "terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),
             .init(section: .terminal, id: "agent-hibernation-max", title: "Max Live Agent Terminals", synonyms: "terminal.agentHibernation.maxLiveTerminals max live agent terminals limit count hibernate"),
@@ -201,6 +216,14 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
+            .init(
+                section: .mobile,
+                id: "artifactFolderAccess",
+                title: String(localized: "settings.mobile.artifactFolderAccess", defaultValue: "Folder Access"),
+                detailText: String(localized: "settings.mobile.artifactFolderAccess.subtitleSubtree", defaultValue: "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."),
+                paths: ["mobile.artifactFolderAccess"],
+                synonyms: "ios iphone ipad mobile files folders directory subtree one level authorization security"
+            ),
 
             // Custom Sidebars
             .init(section: .customSidebars, id: "enabled", title: String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), synonyms: "custom sidebars enable show vibe swift json interpreted picker beta"),

@@ -1,7 +1,7 @@
 import Foundation
 
 /// A rectangle reported by the design-mode runtime in CSS viewport points.
-public nonisolated struct BrowserDesignModeRect: Codable, Equatable, Sendable {
+public struct BrowserDesignModeRect: Codable, Equatable, Sendable {
     /// The horizontal viewport coordinate.
     public let x: Double
     /// The vertical viewport coordinate.

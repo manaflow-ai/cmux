@@ -22,6 +22,17 @@ struct MobilePairingConnectionTransitionTests {
         )
     }
 
+    private func makeTailscaleReady() -> MobilePairingModel.Ready {
+        MobilePairingModel.Ready(
+            attachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
+            legacyAttachURL: nil,
+            primaryTransport: .tailscaleCompatibility,
+            macName: "Test Mac",
+            tailscaleLines: ["100.64.0.1:7777"],
+            manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
+        )
+    }
+
     @Test("A phone attaching above the baseline flips a displayed ticket to connected")
     func readyFlipsToConnectedOnAttach() {
         let ready = makeReady()
@@ -127,6 +138,25 @@ struct MobilePairingConnectionTransitionTests {
         #expect(plan.primaryDisclosureMode == .legacyPrivateNetworkCompatibility)
         #expect(plan.primaryTransport == .tailscaleCompatibility)
         #expect(!plan.offersLegacyCode)
+    }
+
+    @Test("A displayed compatibility QR upgrades when Iroh publishes")
+    func tailscaleCompatibilityUpgradesToIroh() throws {
+        let compatibility = makeTailscaleReady()
+        let publishedRoutes = [try tailscaleRoute(), try irohRoute()]
+
+        #expect(MobilePairingModel.shouldUpgradePrimaryTransport(
+            from: .ready(compatibility),
+            routes: publishedRoutes
+        ))
+        #expect(!MobilePairingModel.shouldUpgradePrimaryTransport(
+            from: .ready(makeReady()),
+            routes: publishedRoutes
+        ))
+        #expect(!MobilePairingModel.shouldUpgradePrimaryTransport(
+            from: .ready(compatibility),
+            routes: [try tailscaleRoute()]
+        ))
     }
 
     @Test("Loopback alone never produces a physical-device QR")

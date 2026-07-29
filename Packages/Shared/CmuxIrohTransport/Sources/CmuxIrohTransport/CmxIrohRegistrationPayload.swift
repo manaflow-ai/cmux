@@ -15,6 +15,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
         case pairingEnabled
         case capabilities
         case pathHints
+        case directPorts
     }
 
     /// Current route-disclosure contract understood by the broker.
@@ -39,6 +40,8 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
     public let capabilities: [String]
     /// Fresh reachability hints whose privacy scope remains explicit.
     public let pathHints: [CmxIrohPathHint]
+    /// Endpoint-observed UDP ports, without any private IP address.
+    public let directPorts: CmxIrohDirectPorts?
 
     /// Creates a payload matching the broker contract.
     ///
@@ -55,6 +58,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
         pairingEnabled: Bool,
         capabilities: [String],
         pathHints: [CmxIrohPathHint],
+        directPorts: CmxIrohDirectPorts? = nil,
         now: Date = Date()
     ) throws {
         guard Self.isBrokerUUID(deviceID),
@@ -80,7 +84,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
             }
         }
         routeContractVersion = 1
-        self.deviceID = deviceID.lowercased()
+        self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
         self.tag = tag
         self.platform = platform
@@ -90,6 +94,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
         self.pairingEnabled = pairingEnabled
         self.capabilities = capabilities
         self.pathHints = pathHints
+        self.directPorts = directPorts
     }
 
     private static func isBrokerUUID(_ value: String) -> Bool {

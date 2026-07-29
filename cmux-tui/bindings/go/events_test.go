@@ -2,6 +2,20 @@ package cmux
 
 import "testing"
 
+func TestParseLayoutChangedExposesScreen(t *testing.T) {
+	event := parseEvent(map[string]any{
+		"event":  "layout-changed",
+		"screen": float64(7),
+	})
+	layout, ok := event.(LayoutChangedEvent)
+	if !ok {
+		t.Fatalf("event type = %T, want LayoutChangedEvent", event)
+	}
+	if layout.Screen != 7 {
+		t.Fatalf("screen = %d, want 7", layout.Screen)
+	}
+}
+
 func TestParseTitleChangedIncludesAuthoritativeTitle(t *testing.T) {
 	event := parseEvent(map[string]any{
 		"event":   "title-changed",

@@ -115,7 +115,7 @@ struct SocketACLReloadRegressionTests {
                         accessMode: SocketControlSettings.migrateMode(rawMode),
                         preferredSocketPath: socketPath
                     ),
-                    preferredTabManager: tabManager,
+                    routingFallbackTabManager: tabManager,
                     source: source
                 )
                 reloadContinuation.yield(source)
@@ -126,7 +126,7 @@ struct SocketACLReloadRegressionTests {
                 accessMode: .allowAll,
                 preferredSocketPath: socketPath
             ),
-            preferredTabManager: tabManager,
+            routingFallbackTabManager: tabManager,
             source: "test.watcher_baseline"
         )
         #expect(controller.socketServer.isRunning)
@@ -155,7 +155,7 @@ struct SocketACLReloadRegressionTests {
                 accessMode: .cmuxOnly,
                 preferredSocketPath: firstPath
             ),
-            preferredTabManager: TabManager(),
+            routingFallbackTabManager: TabManager(),
             source: "test.path_baseline"
         )
         #expect(controller.socketServer.currentSocketPath == firstPath)
@@ -165,7 +165,7 @@ struct SocketACLReloadRegressionTests {
                 accessMode: .automation,
                 preferredSocketPath: secondPath
             ),
-            preferredTabManager: TabManager(),
+            routingFallbackTabManager: TabManager(),
             source: "test.path_change"
         )
 
@@ -200,7 +200,7 @@ struct SocketACLReloadRegressionTests {
                 accessMode: .automation,
                 preferredSocketPath: configuredPath
             ),
-            preferredTabManager: TabManager(),
+            routingFallbackTabManager: TabManager(),
             source: "test.pending_rearm_path_change"
         )
 
@@ -241,7 +241,7 @@ struct SocketACLReloadRegressionTests {
                 accessMode: .automation,
                 preferredSocketPath: preferredPath
             ),
-            preferredTabManager: TabManager(),
+            routingFallbackTabManager: TabManager(),
             source: "test.fallback_reconcile"
         )
 
@@ -268,7 +268,7 @@ struct SocketACLReloadRegressionTests {
                 accessMode: .cmuxOnly,
                 preferredSocketPath: socketPath
             ),
-            preferredTabManager: tabManager,
+            routingFallbackTabManager: tabManager,
             source: "test.missing_path_baseline"
         )
         #expect(controller.socketServer.isRunning)
@@ -279,7 +279,7 @@ struct SocketACLReloadRegressionTests {
                 accessMode: .automation,
                 preferredSocketPath: socketPath
             ),
-            preferredTabManager: tabManager,
+            routingFallbackTabManager: tabManager,
             source: "test.missing_path_reconfigure"
         )
 

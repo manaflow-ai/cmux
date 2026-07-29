@@ -36,7 +36,7 @@ describe("Iroh route boundary", () => {
     expect(called).toBe(false);
   });
 
-  test("fails closed when the firewall check rejects", async () => {
+  test("keeps authenticated discovery available when the optional firewall rejects", async () => {
     let brokerCalled = false;
     const dependencies = {
       verify: async () => USER,
@@ -60,9 +60,70 @@ describe("Iroh route boundary", () => {
       dependencies,
     );
 
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ bindings: [] });
+    expect(brokerCalled).toBe(true);
+  });
+
+  test("fails closed for mutations when the firewall check rejects", async () => {
+    let brokerCalled = false;
+    const response = await handleIrohRoute(
+      authedPost("/api/devices/iroh/challenge", {}),
+      "challenge",
+      {
+        verify: async () => USER,
+        broker: broker({
+          issueChallenge: () => {
+            brokerCalled = true;
+            return Effect.succeed({});
+          },
+        }),
+        firewall: {
+          id: "iroh-test-rule",
+          check: async () => {
+            throw new Error("firewall unavailable");
+          },
+        },
+      },
+    );
+
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "iroh_service_unavailable" });
     expect(brokerCalled).toBe(false);
+  });
+
+  test("fails open when the configured rate-limit rule no longer exists", async () => {
+    let brokerCalled = false;
+    let firewallCalled = false;
+    const dependencies = {
+      verify: async () => USER,
+      broker: broker({
+        discover: () => {
+          brokerCalled = true;
+          return Effect.succeed({ bindings: [] });
+        },
+      }),
+      firewall: {
+        id: "iroh-test-rule",
+        check: async () => {
+          firewallCalled = true;
+          return { rateLimited: false, error: "not-found" as const };
+        },
+      },
+    };
+
+    const response = await handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh"),
+      "discover",
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ bindings: [] });
+    // Prove the not-found path specifically: the firewall must have run and
+    // returned not-found, and the handler must have failed open to the broker.
+    expect(firewallCalled).toBe(true);
+    expect(brokerCalled).toBe(true);
   });
 
   test("bounds a firewall check that never settles", async () => {
@@ -95,9 +156,9 @@ describe("Iroh route boundary", () => {
       dependencies,
     );
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "iroh_service_unavailable" });
-    expect(brokerCalled).toBe(false);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ bindings: [] });
+    expect(brokerCalled).toBe(true);
     expect(aborted).toBe(true);
   });
 
@@ -136,7 +197,7 @@ describe("Iroh route boundary", () => {
       discover("user-2"),
       discover("user-3"),
     ]);
-    expect(responses.map((response) => response.status)).toEqual([503, 503, 503, 503]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200]);
     expect(started).toBe(2);
     expect(aborted).toBe(2);
     expect(admission.activeCount).toBe(0);
@@ -178,11 +239,11 @@ describe("Iroh route boundary", () => {
       },
     );
 
-    expect((await discover()).status).toBe(503);
+    expect((await discover()).status).toBe(200);
     expect(aborted).toBe(true);
     expect((await discover()).status).toBe(200);
     expect(started).toBe(2);
-    expect(brokerCalls).toBe(1);
+    expect(brokerCalls).toBe(2);
     expect(admission.activeCount).toBe(0);
   });
 

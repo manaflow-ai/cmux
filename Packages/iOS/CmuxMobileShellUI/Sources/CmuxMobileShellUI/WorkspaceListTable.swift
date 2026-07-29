@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import SwiftUI
 import UIKit
@@ -16,9 +17,13 @@ struct WorkspaceListTable: UIViewRepresentable {
     let wrapWorkspaceTitles: Bool
     let previewLineLimit: Int
     let unreadIndicatorLeftShift: Double
-    let profilePictureLeftShift: Double
-    let profilePictureSize: Double
     let connectionStatus: MobileMacConnectionStatus
+    /// Whether the connected Mac advertises `workspace.changes.v1`.
+    let workspaceChangesCapable: Bool
+    /// Changes chips keyed by the workspace's RPC identifier
+    /// (`MobileWorkspacePreview.rpcWorkspaceID.rawValue`).
+    let workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip]
+    let openWorkspaceChanges: (@MainActor (MobileWorkspacePreview) -> Void)?
 
     let connectionRequiresReauth: Bool
     let connectionRecoveryFailed: Bool
@@ -37,6 +42,7 @@ struct WorkspaceListTable: UIViewRepresentable {
     let setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let renameRequest: ((MobileWorkspacePreview.ID) -> Void)?
+    var customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
     let createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
     let renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)?
     let setGroupPinned: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
@@ -68,7 +74,6 @@ struct WorkspaceListTable: UIViewRepresentable {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.accessibilityIdentifier = "MobileWorkspaceList"
         context.coordinator.attach(to: tableView)
-        context.coordinator.update(configuration: self, in: tableView)
         return tableView
     }
 

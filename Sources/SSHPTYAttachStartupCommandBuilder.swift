@@ -53,10 +53,14 @@ enum SSHPTYAttachStartupCommandBuilder {
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }
 
-    static func restoredRemoteShellCommand(relayPort: Int) -> String {
+    static func restoredRemoteShellCommand(
+        relayPort: Int,
+        initialCommand: String? = nil
+    ) -> String {
         RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: relayPort,
             shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+            initialCommand: initialCommand,
             bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
             bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
             bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "fish/config.fish")
@@ -118,8 +122,9 @@ enum SSHPTYAttachStartupCommandBuilder {
     }
 
     private static func sshForegroundAuthCommand(_ auth: ForegroundAuth) -> String {
+        let sharingOptions = SSHConnectionSharingOptions()
         var arguments = ["ssh"]
-        let options = sshOptionsWithRestoreControlDefaults(auth.sshOptions)
+        let options = sharingOptions.mergingDefaults(into: auth.sshOptions)
         if !hasSSHOptionKey(options, key: "ConnectTimeout") {
             arguments += ["-o", "ConnectTimeout=6"]
         }
@@ -141,33 +146,48 @@ enum SSHPTYAttachStartupCommandBuilder {
         // The command-line `true` below conflicts with a host-configured
         // RemoteCommand unless overridden (issue #7246).
         arguments += SSHHostConfiguredRemoteCommand().overrideArguments
+        let preflight = sharingOptions.controlPathPreflightShellFunction(
+            sshArguments: arguments,
+            destination: auth.destination,
+            options: options
+        )
         arguments += ["-T", auth.destination, "true"]
-        return arguments.map(shellQuote).joined(separator: " ")
+        let command = arguments.map(shellQuote).joined(separator: " ")
+        guard let lockPath = sharingOptions.foregroundAuthenticationLockPath(
+            destination: auth.destination,
+            port: auth.port,
+            options: options
+        ) else {
+            return command
+        }
+        let inFlightPath = lockPath + ".inflight"
+        var lockedCommand = [
+            "umask 077",
+            "cmux_ssh_auth_inflight_path=\(shellQuote(inFlightPath))",
+            "cmux_ssh_auth_lock_path=\(shellQuote(lockPath))",
+            "printf '%s\\n' \"$$\" > \"$cmux_ssh_auth_inflight_path\" || exit 255",
+            "cmux_ssh_clear_auth_inflight() { if [ \"$(/bin/cat -- \"$cmux_ssh_auth_inflight_path\" 2>/dev/null || true)\" = \"$$\" ]; then /bin/rm -f -- \"$cmux_ssh_auth_inflight_path\" 2>/dev/null || true; fi; }",
+            "trap 'cmux_ssh_clear_auth_inflight' EXIT",
+            "trap 'cmux_ssh_clear_auth_inflight; exit 129' HUP",
+            "trap 'cmux_ssh_clear_auth_inflight; exit 130' INT",
+            "trap 'cmux_ssh_clear_auth_inflight; exit 143' TERM",
+            ": >> \"$cmux_ssh_auth_lock_path\" || exit 255",
+            "zmodload zsh/system || exit 255",
+            "zsystem flock -t 45 -e -f cmux_ssh_auth_lock_fd \"$cmux_ssh_auth_lock_path\" || exit 255",
+            preflight,
+            preflight == nil ? nil : "cmux_ssh_preflight_control_path",
+            "command \(command)",
+            "cmux_ssh_auth_status=$?",
+            "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi",
+        ].compactMap { $0 }
+        lockedCommand += sharingOptions.successfulForegroundAuthenticationCleanupShellLines()
+        lockedCommand.append("exit 0")
+        return "/bin/zsh -fc \(shellQuote(lockedCommand.joined(separator: "\n")))"
     }
 
     static func sshOptionsWithRestoreControlDefaults(_ options: [String], relayPort: Int? = nil) -> [String] {
-        var merged = options.compactMap(normalized)
-        let controlMaster = sshOptionValue(named: "ControlMaster", in: merged)
-        let controlMasterDisabled = sshOptionValueIsDisabled(controlMaster)
-        if controlMaster == nil {
-            merged.append("ControlMaster=auto")
-        }
-        if !controlMasterDisabled {
-            if !hasSSHOptionKey(merged, key: "ControlPersist") {
-                merged.append("ControlPersist=600")
-            }
-            if !hasSSHOptionKey(merged, key: "ControlPath") {
-                merged.append("ControlPath=\(restoreControlPathTemplate(relayPort: relayPort))")
-            }
-        }
-        return merged
-    }
-
-    private static func restoreControlPathTemplate(relayPort: Int?) -> String {
-        if let relayPort, relayPort > 0 {
-            return "/tmp/cmux-ssh-\(getuid())-\(relayPort)-%C"
-        }
-        return "/tmp/cmux-ssh-\(getuid())-%C"
+        _ = relayPort
+        return SSHConnectionSharingOptions().mergingDefaults(into: options)
     }
 
     static func sshOptionsSupportReusableForegroundAuth(_ options: [String]) -> Bool {

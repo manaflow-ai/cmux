@@ -23,6 +23,7 @@
 		8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20032DF3A00100A66F90 /* CMUXMobileCore */; };
 		8B7E20022DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20042DF3A00100A66F90 /* CMUXMobileCore */; };
 		8B7E20052DF3A00100A66F90 /* CmuxMobileTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20062DF3A00100A66F90 /* CmuxMobileTransport */; };
+		8B7E20112DF3A00100A66F90 /* CmuxIrohReleaseGateSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20122DF3A00100A66F90 /* CmuxIrohReleaseGateSupport */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +64,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8B7E20112DF3A00100A66F90 /* CmuxIrohReleaseGateSupport in Frameworks */,
 				8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */,
 				8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */,
 				8B7E20052DF3A00100A66F90 /* CmuxMobileTransport in Frameworks */,
@@ -172,6 +174,7 @@
 			);
 			name = cmux;
 			packageProductDependencies = (
+				8B7E20122DF3A00100A66F90 /* CmuxIrohReleaseGateSupport */,
 				8B41F6842DEDD25C001A66F9 /* cmuxFeature */,
 				8B7E20032DF3A00100A66F90 /* CMUXMobileCore */,
 				8B7E20062DF3A00100A66F90 /* CmuxMobileTransport */,
@@ -548,6 +551,10 @@
 		8B7E20062DF3A00100A66F90 /* CmuxMobileTransport */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CmuxMobileTransport;
+		};
+		8B7E20122DF3A00100A66F90 /* CmuxIrohReleaseGateSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxIrohReleaseGateSupport;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

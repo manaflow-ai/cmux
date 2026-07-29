@@ -51,7 +51,7 @@ extension TabManager: NotificationDismissalHosting {
 
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
-        return panelId(forSurfaceOrPanelId: surfaceId, in: workspace)
+        return workspace.surfaceOwnershipTarget(for: surfaceId)?.containerPanelID
     }
 
     func workspaceHasManualPanelUnread(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -131,10 +131,26 @@ extension TabManager: NotificationDismissalHosting {
     }
 
     func workspaceTriggerNotificationDismissFlash(workspaceId: UUID, panelId: UUID) {
-        tabs.first(where: { $0.id == workspaceId })?.triggerNotificationDismissFlash(panelId: panelId)
+        if AppDelegate.shared?.routeNotificationAttentionFlash(
+            workspaceID: workspaceId,
+            panelID: panelId,
+            reason: .notificationDismiss
+        ) == true {
+            return
+        }
+        tabs.first(where: { $0.id == workspaceId })?
+            .triggerNotificationDismissFlash(panelId: panelId)
     }
 
     func workspaceTriggerUnreadIndicatorDismissFlash(workspaceId: UUID, panelId: UUID) {
-        tabs.first(where: { $0.id == workspaceId })?.triggerUnreadIndicatorDismissFlash(panelId: panelId)
+        if AppDelegate.shared?.routeNotificationAttentionFlash(
+            workspaceID: workspaceId,
+            panelID: panelId,
+            reason: .unreadIndicatorDismiss
+        ) == true {
+            return
+        }
+        tabs.first(where: { $0.id == workspaceId })?
+            .triggerUnreadIndicatorDismissFlash(panelId: panelId)
     }
 }

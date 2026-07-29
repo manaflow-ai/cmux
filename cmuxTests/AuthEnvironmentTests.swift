@@ -9,6 +9,80 @@ import Testing
 
 @Suite("Auth environment")
 struct AuthEnvironmentTests {
+    @Test("macOS production auth override selects the production Stack project")
+    func macOSProductionAuthOverrideSelectsProductionStackProject() {
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: ["CMUX_AUTH_ENVIRONMENT": " production "],
+            isDebugBuild: true
+        ) == .production)
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "production"],
+            isDebugBuild: true
+        ) == "9790718f-14cd-4f7e-824d-eaf527a82b82")
+        #expect(AuthEnvironment.resolvedStackPublishableClientKey(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "production"],
+            isDebugBuild: true
+        ) == "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr")
+    }
+
+    @Test("invalid macOS auth override fails toward the build channel")
+    func invalidMacOSAuthOverrideFailsTowardBuildChannel() {
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "staging"],
+            isDebugBuild: true
+        ) == .development)
+        #expect(AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: ["CMUX_AUTH_ENVIRONMENT": "staging"],
+            isDebugBuild: false
+        ) == .production)
+    }
+
+    @Test("explicit Stack values override the selected auth channel")
+    func explicitStackValuesOverrideSelectedAuthChannel() {
+        let environment = [
+            "CMUX_AUTH_ENVIRONMENT": "production",
+            "CMUX_STACK_PROJECT_ID": "test-project",
+            "CMUX_STACK_PUBLISHABLE_CLIENT_KEY": "test-key",
+        ]
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: environment,
+            isDebugBuild: true
+        ) == "test-project")
+        #expect(AuthEnvironment.resolvedStackPublishableClientKey(
+            environment: environment,
+            isDebugBuild: true
+        ) == "test-key")
+    }
+
+    @Test("Iroh broker uses shared staging in debug without moving other APIs")
+    func irohBrokerUsesSharedStagingInDebugWithoutMovingOtherAPIs() {
+        let defaultURL = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: ["CMUX_VM_API_BASE_URL": "http://localhost:9450"],
+            isDebugBuild: true
+        )
+        #expect(defaultURL?.absoluteString == "https://cmux-staging.vercel.app")
+
+        let overrideURL = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [
+                "CMUX_IROH_BROKER_BASE_URL": "https://broker.example.test/root/",
+                "CMUX_VM_API_BASE_URL": "http://localhost:9450",
+            ],
+            isDebugBuild: true
+        )
+        #expect(overrideURL?.absoluteString == "https://broker.example.test/root/")
+
+        let releaseURL = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [:],
+            isDebugBuild: false
+        )
+        #expect(releaseURL?.absoluteString == "https://cmux.com")
+
+        #expect(AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: ["CMUX_IROH_BROKER_BASE_URL": ":// malformed"],
+            isDebugBuild: true
+        ) == nil)
+    }
+
     @Test("debug callback scheme uses sanitized tag")
     func debugCallbackSchemeUsesSanitizedTag() {
         #expect(

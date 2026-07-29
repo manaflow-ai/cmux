@@ -12,6 +12,12 @@ extension MobileShellComposite {
     /// healthy even though the old foreground session was intentionally torn
     /// down.
     public var workspaceListConnectionStatus: MobileMacConnectionStatus {
+        if pairedMacs.isEmpty, hasHiddenComputers {
+            // Hidden Macs have no reconnectable row or workspace target. Present
+            // the normal shell as an ordinary empty list instead of advertising a
+            // reconnect action that cannot reach anything visible.
+            return .connected
+        }
         let foregroundKey: String?
         if let id = foregroundMacDeviceID, workspacesByMac[id] != nil {
             foregroundKey = id
@@ -55,6 +61,14 @@ extension MobileShellComposite {
             return
         }
         let reconnectTargetMacDeviceID = workspaceListReconnectTargetMacDeviceID()
+        // This is the user's explicit Reconnect/pull gesture: like
+        // `recoverMobileConnection(trigger: .manual)`, it must bypass the
+        // automatic-retry cooldown. Without this, a transient backoff recorded
+        // by a failed (or deadline-abandoned) automatic attempt silently
+        // swallows the user's tap and the dial never happens.
+        if let accountID = identityProvider?.currentUserID {
+            clearTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
         if connectionState == .connected {
             // The live event stream can fail before the RPC client's transport
             // closes. In that state the workspace list correctly renders the

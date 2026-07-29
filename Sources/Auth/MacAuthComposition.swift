@@ -33,6 +33,18 @@ struct MacAuthComposition {
         defaults: UserDefaults = .standard
     ) {
         let bundleIdentifier = Bundle.main.bundleIdentifier
+        let resolvedAuthEnvironment = AuthEnvironment.resolvedStackAuthEnvironment(
+            environment: environment,
+            isDebugBuild: Self.isDebugBuild
+        )
+        let stackProjectID = AuthEnvironment.resolvedStackProjectID(
+            environment: environment,
+            isDebugBuild: Self.isDebugBuild
+        )
+        let stackPublishableClientKey = AuthEnvironment.resolvedStackPublishableClientKey(
+            environment: environment,
+            isDebugBuild: Self.isDebugBuild
+        )
         let tokenStore = FallbackTokenStore(
             primary: KeychainStackTokenStore(
                 service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier)
@@ -60,8 +72,8 @@ struct MacAuthComposition {
 
         let config = AuthConfig(
             stack: CMUXAuthConfig(
-                projectId: AuthEnvironment.stackProjectID,
-                publishableClientKey: AuthEnvironment.stackPublishableClientKey
+                projectId: stackProjectID,
+                publishableClientKey: stackPublishableClientKey
             ),
             magicLinkCallbackURL: AuthEnvironment.websiteOrigin
                 .appendingPathComponent("auth/callback", isDirectory: false)
@@ -91,11 +103,22 @@ struct MacAuthComposition {
         // `shouldStartAutoLogin` gate then fires unchanged. Compiled out of
         // release builds.
         let resolvedEnvironment = Self.environmentWithDogfoodAutoSignIn(environment)
+        let authProjectSwitched = Self.detectAuthProjectSwitch(
+            resolvedProjectID: stackProjectID,
+            buildDefaultProjectID: AuthEnvironment.resolvedStackProjectID(
+                environment: [:],
+                isDebugBuild: Self.isDebugBuild
+            ),
+            defaults: defaults
+        )
         let launch = AuthLaunchOptions(
             clearAuthRequested: resolvedEnvironment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: false,
             environment: resolvedEnvironment,
-            includesDevAuth: Self.includesDevAuth
+            includesDevAuth: Self.includesDevAuth(
+                resolvedAuthEnvironment: resolvedAuthEnvironment
+            ),
+            clearStaleAuthOnLaunch: authProjectSwitched
         )
 
         let anchor = AuthPresentationContextProvider()
@@ -158,12 +181,32 @@ struct MacAuthComposition {
             .appendingPathComponent(bundleIdentifier ?? "cmux", isDirectory: true)
     }
 
-    private static var includesDevAuth: Bool {
+    private static var isDebugBuild: Bool {
         #if DEBUG
         true
         #else
         false
         #endif
+    }
+
+    private static func includesDevAuth(
+        resolvedAuthEnvironment: CMUXAuthEnvironment
+    ) -> Bool {
+        isDebugBuild && resolvedAuthEnvironment == .development
+    }
+
+    nonisolated static let storedStackProjectIDKey = "cmux.auth.stackProjectID"
+
+    /// Keep cached identities and Stack tokens from crossing projects when one
+    /// tagged Debug bundle is rebuilt with `--prod-auth`, or switched back.
+    nonisolated static func detectAuthProjectSwitch(
+        resolvedProjectID: String,
+        buildDefaultProjectID: String,
+        defaults: UserDefaults
+    ) -> Bool {
+        let previous = defaults.string(forKey: storedStackProjectIDKey) ?? buildDefaultProjectID
+        defaults.set(resolvedProjectID, forKey: storedStackProjectIDKey)
+        return previous != resolvedProjectID
     }
 
     #if DEBUG

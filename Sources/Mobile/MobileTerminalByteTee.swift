@@ -46,6 +46,11 @@ final class MobileTerminalByteTee {
         var seq: UInt64 = 0
         /// Tail-trimmed ring (~256 KB) for replay on cold attach.
         var replayBuffer: Data = Data()
+        /// Unique lifetime of this surface's render revision sequence.
+        var renderEpoch = UUID().uuidString
+        /// Producer capture order, independent of byte sequence. Geometry-only
+        /// captures advance this even when `seq` is unchanged.
+        var renderRevision: UInt64 = 0
     }
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
@@ -108,6 +113,27 @@ final class MobileTerminalByteTee {
 
     func currentSequence(surfaceID: UUID) -> UInt64? {
         statesBySurfaceID[surfaceID]?.seq
+    }
+
+    /// Returns the producer identity that orders every render-grid capture.
+    ///
+    /// The state is installed even before the first capture so a viewport RPC
+    /// can return a floor in the same epoch that the subsequent replay uses.
+    func currentRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
+        let state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+        statesBySurfaceID[surfaceID] = state
+        return (epoch: state.renderEpoch, revision: state.renderRevision)
+    }
+
+    /// Claims the next epoch-aware render-grid capture identity for one surface.
+    func nextRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
+        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+        state.renderRevision &+= 1
+        if state.renderRevision == 0 {
+            state.renderRevision = 1
+        }
+        statesBySurfaceID[surfaceID] = state
+        return (epoch: state.renderEpoch, revision: state.renderRevision)
     }
 
     /// Opens a bounded raw-output subscription for one authenticated Iroh

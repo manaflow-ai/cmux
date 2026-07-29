@@ -7,15 +7,14 @@ extension PullRequestPollService {
     // MARK: Settings
 
     public func sidebarPullRequestPollingSettingsDidChange() {
-        let isEnabled = sidebarPullRequestPollingEnabled
-        guard isEnabled != lastSidebarPullRequestPollingEnabled else {
+        let activity = sidebarPullRequestActivity
+        guard activity != lastSidebarPullRequestActivity else {
             return
         }
-        lastSidebarPullRequestPollingEnabled = isEnabled
+        lastSidebarPullRequestActivity = activity
 
-        guard isEnabled else {
-            resetWorkspacePullRequestRefreshState()
-            host?.clearAllSidebarPullRequestMetadata()
+        guard activity.performsActivePolling else {
+            stopWorkspacePullRequestPolling(activity: activity)
             return
         }
 
@@ -31,10 +30,10 @@ extension PullRequestPollService {
         target: String?
     ) {
         guard let host, host.workspaceExists(workspaceId) else { return }
-        guard sidebarPullRequestPollingEnabled else {
-            clearWorkspacePullRequestMetadata(
-                for: WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-            )
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let activity = sidebarPullRequestActivity
+        guard activity.acceptsPassiveReports else {
+            stopWorkspacePullRequestPolling(for: key, activity: activity)
             return
         }
         reconcileLocalPullRequestActionIfPossible(
@@ -43,6 +42,10 @@ extension PullRequestPollService {
             action: action,
             target: target
         )
+        guard activity.performsActivePolling else {
+            stopWorkspacePullRequestPolling(for: key, activity: activity)
+            return
+        }
         scheduleWorkspacePullRequestRefresh(
             workspaceId: workspaceId,
             panelId: panelId,

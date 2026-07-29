@@ -5,7 +5,8 @@ import Foundation
 actor TestIrohEndpoint: CmxIrohEndpoint {
     private let peerIdentity: CmxIrohPeerIdentity
     private let directAddresses: [String]
-    private let pathHints: [CmxIrohPathHint]
+    private var pathHints: [CmxIrohPathHint]
+    private let pathHintsAfterRelayReplacement: [CmxIrohPathHint]?
     private let healthStream: AsyncStream<CmxIrohEndpointHealthEvent>
     private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
     private var closeCallCount = 0
@@ -17,11 +18,13 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
     init(
         identity: CmxIrohPeerIdentity,
         directAddresses: [String] = [],
-        pathHints: [CmxIrohPathHint] = []
+        pathHints: [CmxIrohPathHint] = [],
+        pathHintsAfterRelayReplacement: [CmxIrohPathHint]? = nil
     ) {
         peerIdentity = identity
         self.directAddresses = directAddresses
         self.pathHints = pathHints
+        self.pathHintsAfterRelayReplacement = pathHintsAfterRelayReplacement
         let health = AsyncStream<CmxIrohEndpointHealthEvent>.makeStream()
         healthStream = health.stream
         healthContinuation = health.continuation
@@ -53,6 +56,9 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
             throw TestIrohTransportError.relayUpdateFailed
         }
         relayUpdates.append(relays)
+        if let pathHintsAfterRelayReplacement {
+            pathHints = pathHintsAfterRelayReplacement
+        }
     }
 
     func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) throws {

@@ -201,6 +201,9 @@ extension CmxIrohEndpointServerTests {
             reconnects.append(reconnect)
             await endpoint.enqueue(reconnect)
             #expect(await recorder.next().identity == firstRemoteIdentity)
+            if reconnects.count > 1 {
+                await reconnects[reconnects.count - 2].waitUntilClosed()
+            }
         }
         #expect(await reconnects[0].observedCloseCallCount() == 1)
         #expect(await reconnects[1].observedCloseCallCount() == 1)

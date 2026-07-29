@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 import Foundation
 
 /// Route authority expected from the authenticated Mac status handshake.
@@ -48,7 +49,8 @@ struct MobileMacInstanceTagAuthority {
         reportedDeviceID: String?,
         expectedDeviceID: String
     ) -> Bool {
-        normalized(reportedDeviceID)?.caseInsensitiveCompare(expectedDeviceID) == .orderedSame
+        guard let reported = normalized(reportedDeviceID) else { return false }
+        return cmxCanonicalDeviceID(reported) == cmxCanonicalDeviceID(expectedDeviceID)
     }
 
     static func sameStoredAuthority(_ lhs: String?, _ rhs: String?) -> Bool {

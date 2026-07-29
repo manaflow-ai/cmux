@@ -23,7 +23,7 @@ struct RendererRealizationMemoryPressureReclaimResult: Equatable, Sendable {
 /// Periodically releases the GPU renderer (Metal swap chain / IOSurface, ~40MB
 /// each) of terminal surfaces that have been offscreen and idle, while keeping
 /// their PTY and terminal state alive. The renderer is rebuilt on re-show via
-/// `TerminalSurface.realizeRenderer()` driven from `setVisibleInUI(true)`.
+/// `TerminalSurface.ensureRendererPresented()` driven from `setVisibleInUI(true)`.
 ///
 /// macOS-only (AppKit). Sibling of `AgentHibernationController`, but
 /// non-destructive: no process is killed, so it is safe to default ON.
@@ -70,12 +70,12 @@ final class RendererRealizationController {
     }
 
     /// The timer always runs once started; `evaluate` reads `enabled` fresh each
-    /// pass and no-ops when the feature is off. Keeping it running (rather than
+    /// pass and skips reclamation when the feature is off. Keeping it running (rather than
     /// cancelling when disabled) means toggling the setting back on from any
     /// surface, including the Settings window which writes UserDefaults directly
     /// without posting a change notification, takes effect on the next pass
-    /// instead of requiring a relaunch. The disabled-pass cost is a settings read
-    /// plus an early return every 20s.
+    /// instead of requiring a relaunch. The disabled pass still repairs any
+    /// visible surface whose presentation enqueue previously dropped.
     private func ensureTimerRunning() {
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
@@ -90,15 +90,11 @@ final class RendererRealizationController {
         self.timer = timer
     }
 
-    /// Schedule a reclamation pass on the next main-actor turn. Called when a
-    /// re-show realize enqueue dropped, so the controller re-realizes the
-    /// now-visible-but-unrealized surface immediately rather than waiting for the
-    /// periodic tick. Async (not re-entrant): the caller is already mid
-    /// `realizeRenderer`.
-    func scheduleImmediatePass() {
-        Task { @MainActor in
-            RendererRealizationController.shared.evaluate(now: Date())
-        }
+    /// Repairs only the surface whose renderer reported activity after a
+    /// dropped presentation enqueue.
+    func scheduleRendererPresentationRepair(surfaceID: UUID) {
+        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else { return }
+        surface.retryRendererPresentationAfterActivity()
     }
 
     @discardableResult
@@ -128,9 +124,6 @@ final class RendererRealizationController {
         remainingSystemMemoryPressureRetries: Int = 0,
         onSystemMemoryPressureRetryResult: (@MainActor (RendererRealizationMemoryPressureReclaimResult, Date) -> Void)? = nil
     ) -> RendererRealizationMemoryPressureReclaimResult {
-        let settings = RendererRealizationSettings.values()
-        guard settings.enabled else { return .empty }
-
         // Iterate the global registry rather than re-deriving per-workspace
         // visibility: each TerminalSurface carries its own authoritative
         // on-screen flag (driven by setVisibleInUI, the same signal that drives
@@ -138,17 +131,20 @@ final class RendererRealizationController {
         let surfaces = GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
 
         // Keep currently-visible surfaces ranked at the top of the warm set, and
-        // re-realize any that are visible but not realized. setVisibleInUI
-        // normally realizes on re-show, but its enqueue can drop (a `.forever`
-        // mailbox push can fail on a spurious wakeup while full), which would
-        // leave a visible terminal drawing into a defunct swap chain. This pass
-        // self-heals that within one tick. realizeRenderer is idempotent.
+        // ensure every visible renderer has completed presentation. This covers
+        // both a reclaimed renderer and a hidden-at-birth renderer whose first
+        // release/realize enqueue dropped. Presentation repair remains active
+        // even when reclamation is disabled because visible rendering must not
+        // depend on a memory-saving preference.
         for surface in surfaces where surface.isRendererPortalVisible {
             surface.noteBecameVisibleForRendererReclamation()
-            if surface.hasLiveSurface, !surface.isRendererRealized {
-                surface.realizeRenderer()
+            if surface.hasLiveSurface, !surface.isRendererPresented {
+                surface.ensureRendererPresented()
             }
         }
+
+        let settings = RendererRealizationSettings.values()
+        guard settings.enabled else { return .empty }
 
         let inputs = surfaces.compactMap { surface -> RendererRealizationPlannerInput? in
             guard surface.hasLiveSurface else { return nil }

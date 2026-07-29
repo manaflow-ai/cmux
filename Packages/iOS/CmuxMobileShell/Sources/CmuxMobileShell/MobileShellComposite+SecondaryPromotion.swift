@@ -101,6 +101,7 @@ extension MobileShellComposite {
         markMacConnectionHealthy()
         stopTerminalRefreshPolling()
         startTerminalRefreshPolling()
+        scheduleForegroundNotificationFeedRefresh(client: sub.client)
         syncSelectedTerminalForWorkspace()
         enqueueActivePairedMacWrite(
             macDeviceID: macID,
