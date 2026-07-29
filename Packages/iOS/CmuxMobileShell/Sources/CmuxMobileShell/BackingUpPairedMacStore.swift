@@ -67,22 +67,28 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         self.backupTeamStore = backupTeamStore
     }
 
-    /// Mapping key for one pairing's server-verified backup team.
-    private func backupTeamKey(account: String, pairingID: String) -> String {
-        "\(account)\u{0}\(pairingID)"
+    /// Mapping key for one pairing's server-verified backup team. The ROW's
+    /// own team is part of the key: the local store deliberately allows the
+    /// same (account, device, tag) pairing to exist under several team scopes,
+    /// so a key without the team would let team B's upload overwrite team A's
+    /// destination and later route A's tombstone into B's backup.
+    private func backupTeamKey(account: String, rowTeamID: String?, pairingID: String) -> String {
+        "\(account)\u{0}\(rowTeamID ?? "")\u{0}\(pairingID)"
     }
 
     /// Persist the server-verified backup team for a batch of pairings (the
-    /// restore snapshot's echo).
+    /// restore snapshot's echo). `rowTeamID` is the team the restored rows are
+    /// stamped with (the restore scope's team).
     private func recordResolvedBackupTeams(
         _ pairingIDs: [String],
+        rowTeamID: String?,
         teamID: String,
         account: String
     ) async {
         for pairingID in pairingIDs {
             await backupTeamStore.save(
                 teamID,
-                key: backupTeamKey(account: account, pairingID: pairingID)
+                key: backupTeamKey(account: account, rowTeamID: rowTeamID, pairingID: pairingID)
             )
         }
     }
@@ -623,6 +629,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                     onResolvedBackupTeam: { [weak self] pairingIDs, resolvedTeamID in
                         await self?.recordResolvedBackupTeams(
                             pairingIDs,
+                            rowTeamID: restoreTeam,
                             teamID: resolvedTeamID,
                             account: account
                         )
@@ -756,6 +763,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 resolvedTeamID,
                 key: backupTeamKey(
                     account: account,
+                    rowTeamID: team,
                     pairingID: MobilePairedMac.pairingID(
                         macDeviceID: macDeviceID,
                         instanceTag: instanceTag
@@ -801,6 +809,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                     onResolvedBackupTeam: { [weak self] pairingIDs, resolvedTeamID in
                         await self?.recordResolvedBackupTeams(
                             pairingIDs,
+                            rowTeamID: restoreTeam,
                             teamID: resolvedTeamID,
                             account: account
                         )
@@ -925,7 +934,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         var groups: [String: [String]] = [:]
         for pairingID in ids.sorted() {
             let mapped = await backupTeamStore.load(
-                key: backupTeamKey(account: account, pairingID: pairingID)
+                key: backupTeamKey(account: account, rowTeamID: teamID, pairingID: pairingID)
             )
             groups[mapped ?? teamID ?? "", default: []].append(pairingID)
         }
@@ -950,7 +959,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             remaining.subtract(pairingIDs)
             for pairingID in pairingIDs {
                 await backupTeamStore.remove(
-                    key: backupTeamKey(account: account, pairingID: pairingID)
+                    key: backupTeamKey(account: account, rowTeamID: teamID, pairingID: pairingID)
                 )
             }
         }

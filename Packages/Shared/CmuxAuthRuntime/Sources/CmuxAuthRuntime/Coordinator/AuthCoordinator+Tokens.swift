@@ -131,32 +131,57 @@ extension AuthCoordinator {
     /// ``currentTokens()`` reads the access and refresh tokens through two
     /// separate awaits, so a ``forceRefreshAccessToken()`` landing between them
     /// can rotate the pair and return an old access token with a rotated refresh
-    /// token. This captures the refresh token ONCE, then derives the access token
-    /// FOR that exact refresh via
-    /// ``AuthClient/freshAccessToken(accessToken:refreshToken:)`` with no access
-    /// hint, which mints a token from the captured refresh. The returned access
-    /// therefore always belongs to the returned refresh, even if another force
-    /// refresh rotates the store concurrently. (Passing the stored access as a
-    /// hint would risk reusing a still-unexpired but torn access, so it is
-    /// deliberately omitted.)
+    /// token. This instead brackets the read with the refresh token: capture the
+    /// refresh, resolve a usable access token FOR that exact refresh via
+    /// ``AuthClient/freshAccessToken(accessToken:refreshToken:)`` — which REUSES
+    /// the stored access when it is still valid and only mints over the network
+    /// when it is not, so an offline caller with a valid stored pair still
+    /// succeeds — then re-read the refresh token. An unchanged refresh proves no
+    /// rotation crossed the window, so the resolved access belongs to the
+    /// returned refresh; a changed one retries against the new capture. The read
+    /// runs inside the coordinator's bounded token-touching phase like every
+    /// other token accessor.
     /// - Returns: The access and refresh tokens from one coherent capture.
     /// - Throws: ``AuthError/networkError`` when the refresh token survives but a
-    ///   fresh access token cannot be minted from it (transient), or when token
-    ///   storage was unavailable; ``AuthError/unauthorized`` when available
-    ///   storage has no refresh token to derive an access token from.
-    private func consistentTokenPair() async throws -> (accessToken: String, refreshToken: String) {
+    ///   usable access token cannot be resolved for it (transient), when token
+    ///   storage was unavailable, or when rotation kept crossing the read window;
+    ///   ``AuthError/unauthorized`` when available storage has no refresh token
+    ///   to resolve an access token for.
+    public func coherentTokenPair() async throws -> (accessToken: String, refreshToken: String) {
+        try await runTokenTouchingPhase(.accessToken, timeout: timeouts.network) {
+            try await self.coherentTokenPairWithoutStateClear()
+        }
+    }
+
+    private func coherentTokenPairWithoutStateClear() async throws -> (accessToken: String, refreshToken: String) {
         let storageWasAvailable = await isTokenStorageAvailable()
-        guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
-            throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+        for _ in 0..<3 {
+            guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
+                throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+            }
+            // The RAW stored access as the reuse hint: `freshAccessToken`
+            // returns it when it is still likely valid (no network) and mints
+            // from the captured refresh only when it is not.
+            let hint = await client.storedAccessToken()
+            guard let access = await client.freshAccessToken(
+                accessToken: hint,
+                refreshToken: refresh
+            ), !access.isEmpty else {
+                // The refresh token survived but no usable access token could
+                // be resolved for it: stay retryable, matching
+                // currentTokens()'s classification of a surviving-refresh
+                // access miss.
+                throw AuthError.networkError
+            }
+            // The bracket: an unchanged refresh across the access resolution
+            // proves no rotation crossed the window, so the pair is coherent.
+            if await client.refreshToken() == refresh {
+                return (access, refresh)
+            }
         }
-        guard let access = await client.freshAccessToken(accessToken: nil, refreshToken: refresh),
-              !access.isEmpty else {
-            // The refresh token survived but minting an access token from it
-            // failed: stay retryable, matching currentTokens()'s classification
-            // of a surviving-refresh access miss.
-            throw AuthError.networkError
-        }
-        return (access, refresh)
+        // Rotation kept crossing the window; the session is alive, so report
+        // retryable rather than signed-out.
+        throw AuthError.networkError
     }
 
     /// The current session generation. Bumped on every session transition (each
@@ -186,7 +211,7 @@ extension AuthCoordinator {
     /// - Returns: The pinned generation, account id, and both tokens.
     /// - Throws: ``AuthError/unauthorized`` when no account is signed in, a
     ///   session transition is active, or the session changed mid-read;
-    ///   otherwise the same token errors as ``consistentTokenPair()``.
+    ///   otherwise the same token errors as ``coherentTokenPair()``.
     public func authenticatedSessionSnapshot() async throws -> AuthenticatedSessionSnapshot {
         await awaitBootstrapped()
         guard isAuthenticated,
@@ -199,7 +224,7 @@ extension AuthCoordinator {
         // Read both tokens as one coherent pair so a concurrent force refresh
         // cannot pair an old access token with a rotated refresh token; the
         // separately-read `currentTokens()` cannot make that guarantee.
-        let tokens = try await consistentTokenPair()
+        let tokens = try await coherentTokenPair()
         guard sessionGeneration == generation,
               !sessionTokenTransitionIsActive,
               currentUser?.id == accountID else {

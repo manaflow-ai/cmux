@@ -1025,17 +1025,18 @@ public final class MobileIrohRuntimeComposition:
                 let broker = try makeBrokerBundle(
                     accountID: pendingRevocation.accountID,
                     tokenSource: CmxIrohBrokerTokenSource(
-                        // ONE currentTokens() call per fetch: both tokens come
-                        // from the same read, never assembled across two calls a
-                        // session transition could land between.
+                        // A coherent store-level pair per fetch: both tokens
+                        // come from ONE refresh-bracketed capture, never from
+                        // currentTokens()'s two independent awaits that a
+                        // rotation could land between.
                         credentialPair: { [weak auth] in
                             guard let auth,
-                                  let tokens = try? await auth.currentTokens() else {
+                                  let pair = try? await auth.coherentTokenPair() else {
                                 return nil
                             }
                             return CmxIrohBrokerCredentials(
-                                accessToken: tokens.accessToken,
-                                refreshToken: tokens.refreshToken
+                                accessToken: pair.accessToken,
+                                refreshToken: pair.refreshToken
                             )
                         }
                     )
@@ -1372,23 +1373,24 @@ public final class MobileIrohRuntimeComposition:
             cachedRelay = nil
         }
 
-        // Pin the activation's broker to the session that owns `accountID`:
-        // capture ONE coherent snapshot and reuse its pair for every leg while
-        // the live session still matches its generation and account (cheap
-        // local check, no per-leg network). Without the pin, an account switch
-        // mid-activation let later registration/discovery legs send the NEW
-        // session's credentials against THIS activation's endpoint state —
-        // server mutations in the wrong account — before the lifecycle
-        // revision guard could stop the runtime. A session change makes the
-        // source yield nil, so those legs fail closed and the reconcile loop
-        // rebuilds under the new session.
-        let session = try await auth.authenticatedSessionSnapshot()
-        guard session.accountID == accountID else {
+        // Pin the activation's broker to the session identity that owns
+        // `accountID` — a cheap LOCAL check (no token read, no network), so an
+        // offline launch still constructs the runtime and reaches the cached
+        // relay/offline-policy recovery paths. Every broker request then
+        // re-checks the pin and re-reads a coherent pair from the token store:
+        // an account switch fails closed per request (no wrong-account server
+        // mutations before the lifecycle revision guard runs), and an ordinary
+        // token rotation never strands the long-lived runtime on a frozen
+        // activation-time pair.
+        guard auth.currentUser?.id == accountID else {
             throw CmxIrohClientRuntimeError.inactive
         }
         let brokerBundle = try makeBrokerBundle(
             accountID: accountID,
-            tokenSource: brokerTokenSource(pinnedSession: session)
+            tokenSource: brokerTokenSource(
+                pinnedTo: accountID,
+                generation: auth.authSessionGeneration
+            )
         )
         let broker = brokerBundle.client
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?
@@ -2539,6 +2541,10 @@ enum MobileIrohForgetError: Error {
     /// The authenticated account changed after the forget began, so the revoke
     /// was aborted rather than applied to a different account's bindings.
     case accountChanged
+    /// The operation's total deadline elapsed before every matching binding was
+    /// revoked. Already-applied revokes stand; retrying the forget re-discovers
+    /// and revokes only what remains.
+    case deadlineExceeded
 }
 
 extension MobileIrohRuntimeComposition {
@@ -2590,7 +2596,17 @@ extension MobileIrohRuntimeComposition {
             if let instanceTag { return binding.tag == instanceTag }
             return true
         }
+        // Bound the WHOLE operation. A discovery snapshot allows up to 256
+        // bindings and each revoke request carries its own network timeout, so
+        // an unbounded sequential loop could keep the forget (and its UI
+        // progress state) busy for tens of minutes. Past the deadline, stop and
+        // surface the failure: already-applied revokes stand, and retrying the
+        // forget re-discovers and revokes only what remains.
+        let deadline = now().addingTimeInterval(Self.forgetRevokeDeadlineSeconds)
         for binding in matches {
+            guard now() < deadline else {
+                throw MobileIrohForgetError.deadlineExceeded
+            }
             try ensureSessionUnchanged(
                 generation: session.generation,
                 expectedAccountID: expectedAccountID
@@ -2598,6 +2614,11 @@ extension MobileIrohRuntimeComposition {
             try await broker.revoke(bindingID: binding.bindingID)
         }
     }
+
+    /// Total wall-clock budget for one forget's revoke loop. Six sequential
+    /// worst-case broker timeouts fit comfortably; a healthy broker revokes
+    /// dozens of bindings well within it.
+    private static let forgetRevokeDeadlineSeconds: TimeInterval = 60
 
     /// Throws if the authenticated session that initiated the forget was replaced,
     /// so a revoke can never land on a different session's bindings. Requires both
@@ -2618,6 +2639,35 @@ extension MobileIrohRuntimeComposition {
     private func sessionMatches(generation: UInt64, accountID: String) -> Bool {
         guard let auth else { return false }
         return auth.authSessionGeneration == generation && auth.currentUser?.id == accountID
+    }
+
+    /// Broker token source for LONG-LIVED clients (the activation runtime):
+    /// pinned to the activating session's identity, re-reading a coherent pair
+    /// from the token store on every request. Freezing an activation-time pair
+    /// would go stale the moment an ordinary force refresh rotates the Stack
+    /// pair (rotation does not bump the session generation), leaving the
+    /// runtime's relay refresh and discovery failing until an unrelated
+    /// reconcile; the per-request read stays current for the runtime's whole
+    /// lifetime, is store-level (no network while the stored access is valid),
+    /// and the pin still fails closed after a sign-out or account switch.
+    private func brokerTokenSource(
+        pinnedTo expectedAccountID: String,
+        generation: UInt64
+    ) -> CmxIrohBrokerTokenSource {
+        CmxIrohBrokerTokenSource(
+            credentialPair: { [weak self, weak auth] in
+                guard let self, let auth,
+                      await self.sessionMatches(
+                          generation: generation,
+                          accountID: expectedAccountID
+                      ),
+                      let pair = try? await auth.coherentTokenPair() else { return nil }
+                return CmxIrohBrokerCredentials(
+                    accessToken: pair.accessToken,
+                    refreshToken: pair.refreshToken
+                )
+            }
+        )
     }
 
     /// Broker token source that reuses the ONE coherent credential pair captured

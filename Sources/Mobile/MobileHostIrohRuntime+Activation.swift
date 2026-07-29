@@ -91,15 +91,15 @@ extension MobileHostIrohRuntime {
         let rawBroker = try CmxIrohTrustBrokerClient(
             baseURL: brokerBaseURL,
             tokenSource: CmxIrohBrokerTokenSource(
-                // ONE currentTokens() call per fetch: both tokens come from the
-                // same read, never assembled across two calls a session
-                // transition could land between.
+                // A coherent store-level pair per fetch: both tokens come from
+                // ONE refresh-bracketed capture, never from currentTokens()'s
+                // two independent awaits that a rotation could land between.
                 credentialPair: { [weak auth] in
                     guard let auth,
-                          let tokens = try? await auth.currentTokens() else { return nil }
+                          let pair = try? await auth.coherentTokenPair() else { return nil }
                     return CmxIrohBrokerCredentials(
-                        accessToken: tokens.accessToken,
-                        refreshToken: tokens.refreshToken
+                        accessToken: pair.accessToken,
+                        refreshToken: pair.refreshToken
                     )
                 }
             ),
