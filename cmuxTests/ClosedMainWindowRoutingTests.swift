@@ -353,6 +353,7 @@ struct ClosedMainWindowRoutingTests {
         let workspaceC = try #require(managerC.selectedWorkspace)
         let terminalPanelC = try #require(workspaceC.focusedTerminalPanel)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelC.id) === terminalPanelC.surface)
+        let workspaceA = try #require(managerA.selectedWorkspace)
 
         app.unregisterMainWindowContextForTesting(windowId: windowCId)
 
@@ -362,6 +363,73 @@ struct ClosedMainWindowRoutingTests {
         #expect(!app.focusMainWindow(windowId: windowCId))
         #expect(app.tabManager === managerA)
         #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+        #expect(!app.workspaceMoveTargets(
+            excludingWorkspaceId: workspaceA.id,
+            referenceWindowId: windowAId
+        ).contains { $0.windowId == windowCId })
+
+        #expect(!app.moveWorkspaceToWindow(
+            workspaceId: workspaceA.id,
+            windowId: windowCId,
+            focus: true
+        ))
+        #expect(managerA.tabs.contains { $0.id == workspaceA.id })
+        #expect(!managerC.tabs.contains { $0.id == workspaceA.id })
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+    }
+
+    @Test("Recoverable route never rebinds to another window with the same identifier")
+    func recoverableRouteNeverRebindsToAnotherWindowWithSameIdentifier() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        var originalWindow: NSWindow? = makeMainWindow(id: windowId)
+        let replacementWindow = makeMainWindow(id: windowId)
+        originalWindow?.isReleasedWhenClosed = false
+        replacementWindow.isReleasedWhenClosed = false
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            try #require(originalWindow),
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        originalWindow?.makeKeyAndOrderFront(nil)
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+
+        app.unregisterMainWindowContextForTesting(windowId: windowId)
+        if let originalWindow {
+            app.markMainWindowCloseCommitted(originalWindow)
+            originalWindow.orderOut(nil)
+            originalWindow.close()
+        }
+        originalWindow = nil
+        replacementWindow.makeKeyAndOrderFront(nil)
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            replacementWindow.orderOut(nil)
+            replacementWindow.close()
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(app.tabManagerFor(windowId: windowId) == nil)
     }
 }
 
