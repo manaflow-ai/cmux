@@ -766,6 +766,54 @@ final class FileExplorerStore: ObservableObject {
     private var outlineChangeObservers: [UUID: (FileExplorerOutlineChange) -> Void] = [:]
     private var gitStatusRefreshGeneration = 0
 
+    private struct GitStatusRefreshRequest: Sendable {
+        enum Source: Sendable, Equatable {
+            case local(
+                directory: String
+            )
+            case ssh(
+                directory: String,
+                destination: String,
+                port: Int?,
+                identityFile: String?,
+                options: [String]
+            )
+        }
+
+        let generation: Int
+        let source: Source
+
+        func fetch(using provider: GitStatusProvider) async -> [String: GitFileStatus] {
+            switch source {
+            case .local(let directory):
+                return await provider.fetchStatus(directory: directory)
+            case .ssh(
+                let directory,
+                let destination,
+                let port,
+                let identityFile,
+                let options
+            ):
+                return await provider.fetchStatusSSH(
+                    directory: directory,
+                    destination: destination,
+                    port: port,
+                    identityFile: identityFile,
+                    sshOptions: options
+                )
+            }
+        }
+    }
+
+    private struct GitStatusRefreshOperation {
+        let identifier: UUID
+        let source: GitStatusRefreshRequest.Source
+        let task: Task<Void, Never>
+    }
+
+    private var gitStatusRefreshOperation: GitStatusRefreshOperation?
+    private var pendingGitStatusRefresh: GitStatusRefreshRequest?
+
     /// Prefetch debounce: path -> work item
     private var prefetchWorkItems: [String: DispatchWorkItem] = [:]
 
@@ -856,47 +904,84 @@ final class FileExplorerStore: ObservableObject {
         gitStatusRefreshGeneration &+= 1
         let generation = gitStatusRefreshGeneration
         guard !rootPath.isEmpty else {
+            pendingGitStatusRefresh = nil
+            gitStatusRefreshOperation?.task.cancel()
             setGitStatusByPath(
                 [:],
                 change: gitStatusByPath.isEmpty ? nil : .gitStatusChanged(paths: nil)
             )
             return
         }
-        let path = rootPath
-        let previousStatus = gitStatusByPath
+        let source: GitStatusRefreshRequest.Source
         if let sshProvider = provider as? SSHFileExplorerProvider {
-            let dest = sshProvider.destination
-            let port = sshProvider.port
-            let identity = sshProvider.identityFile
-            let opts = sshProvider.sshOptions
-            let gitStatusProvider = self.gitStatusProvider
-            DispatchQueue.global(qos: .utility).async {
-                let status = gitStatusProvider.fetchStatusSSH(
-                    directory: path, destination: dest, port: port,
-                    identityFile: identity, sshOptions: opts
-                )
-                let change = Self.gitStatusChange(
-                    previous: previousStatus,
-                    current: status
-                )
-                DispatchQueue.main.async { [weak self] in
-                    guard self?.gitStatusRefreshGeneration == generation else { return }
-                    self?.setGitStatusByPath(status, change: change)
-                }
-            }
+            source = .ssh(
+                directory: rootPath,
+                destination: sshProvider.destination,
+                port: sshProvider.port,
+                identityFile: sshProvider.identityFile,
+                options: sshProvider.sshOptions
+            )
         } else {
-            let gitStatusProvider = self.gitStatusProvider
-            DispatchQueue.global(qos: .utility).async {
-                let status = gitStatusProvider.fetchStatus(directory: path)
-                let change = Self.gitStatusChange(
-                    previous: previousStatus,
-                    current: status
-                )
-                DispatchQueue.main.async { [weak self] in
-                    guard self?.gitStatusRefreshGeneration == generation else { return }
-                    self?.setGitStatusByPath(status, change: change)
-                }
-            }
+            source = .local(directory: rootPath)
+        }
+        let request = GitStatusRefreshRequest(
+            generation: generation,
+            source: source
+        )
+        guard let operation = gitStatusRefreshOperation else {
+            startGitStatusRefresh(request)
+            return
+        }
+
+        // Keep at most one newest trailing request. A new root cancels the old
+        // command immediately; repeated watcher events for one root let its
+        // current query finish and collapse into one trailing refresh.
+        pendingGitStatusRefresh = request
+        if operation.source != source {
+            operation.task.cancel()
+        }
+    }
+
+    private func startGitStatusRefresh(_ request: GitStatusRefreshRequest) {
+        let identifier = UUID()
+        let provider = gitStatusProvider
+        let task = Task { @MainActor [weak self] in
+            let status = await request.fetch(using: provider)
+            let wasCancelled = Task.isCancelled
+            self?.finishGitStatusRefresh(
+                identifier: identifier,
+                request: request,
+                status: status,
+                wasCancelled: wasCancelled
+            )
+        }
+        gitStatusRefreshOperation = GitStatusRefreshOperation(
+            identifier: identifier,
+            source: request.source,
+            task: task
+        )
+    }
+
+    private func finishGitStatusRefresh(
+        identifier: UUID,
+        request: GitStatusRefreshRequest,
+        status: [String: GitFileStatus],
+        wasCancelled: Bool
+    ) {
+        guard gitStatusRefreshOperation?.identifier == identifier else { return }
+        gitStatusRefreshOperation = nil
+
+        if !wasCancelled, gitStatusRefreshGeneration == request.generation {
+            let change = Self.gitStatusChange(
+                previous: gitStatusByPath,
+                current: status
+            )
+            setGitStatusByPath(status, change: change)
+        }
+
+        if let pending = pendingGitStatusRefresh {
+            pendingGitStatusRefresh = nil
+            startGitStatusRefresh(pending)
         }
     }
 
@@ -1441,5 +1526,6 @@ final class FileExplorerStore: ObservableObject {
     deinit {
         cancelRemoteHomeResolution()
         directoryWatchTask?.cancel()
+        gitStatusRefreshOperation?.task.cancel()
     }
 }

@@ -10,7 +10,7 @@ import Testing
 @Suite(.serialized)
 struct FileExplorerGitStatusProviderTests {
     @Test
-    func statusQueryDoesNotRefreshGitIndex() throws {
+    func statusQueryDoesNotRefreshGitIndex() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
 
@@ -28,14 +28,14 @@ struct FileExplorerGitStatusProviderTests {
             ofItemAtPath: trackedURL.path
         )
 
-        _ = GitStatusProvider().fetchStatus(directory: repoURL.path)
+        _ = await GitStatusProvider().fetchStatus(directory: repoURL.path)
 
         let indexAfterStatus = try Data(contentsOf: indexURL)
         #expect(indexAfterStatus == indexBeforeStatus)
     }
 
     @Test
-    func statusQueryPreservesQuotedAndEscapedFilenames() throws {
+    func statusQueryPreservesQuotedAndEscapedFilenames() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
         try Self.initializeRepo(at: repoURL)
@@ -48,13 +48,13 @@ struct FileExplorerGitStatusProviderTests {
         try Self.runGit(["commit", "-m", "initial"], in: repoURL)
         try "two\n".write(to: trackedURL, atomically: true, encoding: .utf8)
 
-        let status = GitStatusProvider().fetchStatus(directory: nestedURL.path)
+        let status = await GitStatusProvider().fetchStatus(directory: nestedURL.path)
 
         #expect(status[trackedURL.path] == .some(.modified))
     }
 
     @Test
-    func statusQueryExcludesSiblingPathPrefixes() throws {
+    func statusQueryExcludesSiblingPathPrefixes() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
         try Self.initializeRepo(at: repoURL)
@@ -73,7 +73,7 @@ struct FileExplorerGitStatusProviderTests {
         try "two\n".write(to: visibleURL, atomically: true, encoding: .utf8)
         try "two\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
 
-        let status = GitStatusProvider().fetchStatus(directory: explorerRootURL.path)
+        let status = await GitStatusProvider().fetchStatus(directory: explorerRootURL.path)
 
         #expect(status[visibleURL.path] == .some(.modified))
         #expect(status[siblingFileURL.path] == nil)
@@ -81,7 +81,7 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
-    func statusQueryMapsTypeChangedAndUnmergedEntries() throws {
+    func statusQueryMapsTypeChangedAndUnmergedEntries() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
 
@@ -113,7 +113,7 @@ struct FileExplorerGitStatusProviderTests {
         environment["CMUX_TEST_GIT_ENV"] = "expected"
         environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
 
-        let status = GitStatusProvider(
+        let status = await GitStatusProvider(
             gitExecutableURL: fakeGitURL,
             environment: environment
         ).fetchStatus(directory: repoURL.path)
@@ -127,7 +127,7 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
-    func statusQueryHasABoundedProcessDeadline() throws {
+    func statusQueryHasABoundedProcessDeadline() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
 
@@ -154,7 +154,7 @@ struct FileExplorerGitStatusProviderTests {
 
         let clock = ContinuousClock()
         let start = clock.now
-        _ = GitStatusProvider(
+        _ = await GitStatusProvider(
             gitExecutableURL: fakeGitURL,
             environment: environment
         ).fetchStatus(directory: repoURL.path)
@@ -164,7 +164,7 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
-    func sshStatusQueryUsesInjectedProcessEnvironment() throws {
+    func sshStatusQueryUsesInjectedProcessEnvironment() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
 
@@ -183,7 +183,7 @@ struct FileExplorerGitStatusProviderTests {
         environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
         environment["CMUX_TEST_SSH_ENV"] = "expected"
 
-        let status = GitStatusProvider(
+        let status = await GitStatusProvider(
             sshExecutableURL: fakeSSHURL,
             environment: environment
         ).fetchStatusSSH(
@@ -200,7 +200,7 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
-    func sshStatusQueryOverridesHostConfiguredRemoteCommand() throws {
+    func sshStatusQueryOverridesHostConfiguredRemoteCommand() async throws {
         // The remote git status runs as an ssh command-line command, which
         // OpenSSH refuses while a host-configured RemoteCommand is in effect
         // (issue #7246) — the argv must carry `-o RemoteCommand=none` before
@@ -222,7 +222,7 @@ struct FileExplorerGitStatusProviderTests {
         environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
         environment["CMUX_TEST_SSH_ARGV_LOG"] = argvLog.path
 
-        let status = GitStatusProvider(
+        let status = await GitStatusProvider(
             sshExecutableURL: fakeSSHURL,
             environment: environment
         ).fetchStatusSSH(

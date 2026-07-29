@@ -27,6 +27,48 @@ private final class CommandTimer: @unchecked Sendable {
     }
 }
 
+/// Connects structured task cancellation to a process that is installed only
+/// after `Process.run()` succeeds.
+private final class CommandCancellationLatch: @unchecked Sendable {
+    private struct State: Sendable {
+        var isCancelled = false
+        var isFinished = false
+        var action: (@Sendable () -> Void)?
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func install(_ action: @escaping @Sendable () -> Void) {
+        let runImmediately = state.withLock { state -> Bool in
+            guard !state.isFinished else { return false }
+            guard !state.isCancelled else { return true }
+            state.action = action
+            return false
+        }
+        if runImmediately {
+            action()
+        }
+    }
+
+    func cancel() {
+        let action = state.withLock { state -> (@Sendable () -> Void)? in
+            guard !state.isFinished else { return nil }
+            state.isCancelled = true
+            let action = state.action
+            state.action = nil
+            return action
+        }
+        action?()
+    }
+
+    func clear() {
+        state.withLock { state in
+            state.isFinished = true
+            state.action = nil
+        }
+    }
+}
+
 /// Runs external commands with `Process`, capturing output and honoring an
 /// optional deadline.
 ///
@@ -117,133 +159,159 @@ public struct CommandRunner: CommandRunning, Sendable {
 
         let outFD = stdoutPipe.fileHandleForReading.fileDescriptor
         let errFD = stderrPipe.fileHandleForReading.fileDescriptor
+        let cancellation = CommandCancellationLatch()
 
-        return await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
-            // The two stdout/stderr readers, the termination handler, the deadline timer,
-            // and the spawn-failure path race to resume this continuation exactly once.
-            // They run on synchronous, non-async callbacks, so a lock guards the small
-            // shared state (the captured streams, the termination flag, the resumed latch)
-            // and each callback resumes inline. An `actor` here would only force every
-            // callback through `Task`/`await` to guard a few fields. (Per CLAUDE.md's lock
-            // carve-out for synchronous coordination from non-async callbacks.)
-            let state = OSAllocatedUnfairLock(initialState: RunState())
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
+                // The two stdout/stderr readers, the termination handler, the deadline timer,
+                // and the spawn-failure path race to resume this continuation exactly once.
+                // They run on synchronous, non-async callbacks, so a lock guards the small
+                // shared state (the captured streams, the termination flag, the resumed latch)
+                // and each callback resumes inline. An `actor` here would only force every
+                // callback through `Task`/`await` to guard a few fields. (Per CLAUDE.md's lock
+                // carve-out for synchronous coordination from non-async callbacks.)
+                let state = OSAllocatedUnfairLock(initialState: RunState())
 
-            // A stream finished or the process exited: record it, and resume with the
-            // captured output only once stdout, stderr, AND termination have all arrived.
-            // The timeout path never goes through here, so a descendant that inherited a
-            // pipe and holds it open past the deadline can never delay the timeout result.
-            @Sendable func recordAndCompleteIfReady(_ mutate: @Sendable (inout RunState) -> Void) {
-                let (completed, timerToCancel): (CommandResult?, CommandTimer?) =
-                    state.withLock { s in
-                        mutate(&s)
-                        guard !s.resumed, let out = s.stdout, let err = s.stderr, s.didTerminate else {
-                            return (nil, nil)
+                // A stream finished or the process exited: record it, and resume with the
+                // captured output only once stdout, stderr, AND termination have all arrived.
+                // The timeout path never goes through here, so a descendant that inherited a
+                // pipe and holds it open past the deadline can never delay the timeout result.
+                @Sendable func recordAndCompleteIfReady(_ mutate: @Sendable (inout RunState) -> Void) {
+                    let (completed, timerToCancel): (CommandResult?, CommandTimer?) =
+                        state.withLock { s in
+                            mutate(&s)
+                            guard !s.resumed, let out = s.stdout, let err = s.stderr, s.didTerminate else {
+                                return (nil, nil)
+                            }
+                            s.resumed = true
+                            let timer = s.deadlineTimer
+                            s.deadlineTimer = nil
+                            return (
+                                CommandResult(
+                                    stdout: String(data: out, encoding: .utf8),
+                                    stderr: String(data: err, encoding: .utf8),
+                                    exitStatus: s.exitStatus,
+                                    timedOut: false,
+                                    executionError: nil
+                                ),
+                                timer
+                            )
                         }
-                        s.resumed = true
-                        let timer = s.deadlineTimer
-                        s.deadlineTimer = nil
-                        return (
-                            CommandResult(
-                                stdout: String(data: out, encoding: .utf8),
-                                stderr: String(data: err, encoding: .utf8),
-                                exitStatus: s.exitStatus,
-                                timedOut: false,
-                                executionError: nil
-                            ),
-                            timer
-                        )
+                    timerToCancel?.cancel()
+                    if let completed {
+                        cancellation.clear()
+                        continuation.resume(returning: completed)
                     }
-                timerToCancel?.cancel()
-                if let completed { continuation.resume(returning: completed) }
-            }
-
-            // Resume immediately with a terminal result (timeout or spawn failure),
-            // independent of the pipe readers. Returns whether this call won the race.
-            @Sendable func claimImmediate(_ result: CommandResult) -> Bool {
-                let (won, timerToCancel): (Bool, CommandTimer?) =
-                    state.withLock { s in
-                        if s.resumed { return (false, nil) }
-                        s.resumed = true
-                        let timer = s.deadlineTimer
-                        s.deadlineTimer = nil
-                        return (true, timer)
-                    }
-                timerToCancel?.cancel()
-                if won { continuation.resume(returning: result) }
-                return won
-            }
-
-            // Drain both streams on detached tasks so a full pipe buffer cannot deadlock
-            // the child. Fire-and-forget (never structurally awaited) so the timeout path
-            // does not block on them. Keyed by the raw fd so no non-Sendable `FileHandle`
-            // crosses the task boundary.
-            Task.detached {
-                let data = Self.readToEnd(fileDescriptor: outFD)
-                recordAndCompleteIfReady { $0.stdout = data }
-            }
-            Task.detached {
-                let data = Self.readToEnd(fileDescriptor: errFD)
-                recordAndCompleteIfReady { $0.stderr = data }
-            }
-
-            process.terminationHandler = { finished in
-                let status = finished.terminationStatus
-                recordAndCompleteIfReady {
-                    $0.didTerminate = true
-                    $0.exitStatus = status
                 }
-            }
 
-            do {
-                try process.run()
-            } catch {
-                let message = String(describing: error)
+                // Resume immediately with a terminal result (timeout or spawn failure),
+                // independent of the pipe readers. Returns whether this call won the race.
+                @Sendable func claimImmediate(_ result: CommandResult) -> Bool {
+                    let (won, timerToCancel): (Bool, CommandTimer?) =
+                        state.withLock { s in
+                            if s.resumed { return (false, nil) }
+                            s.resumed = true
+                            let timer = s.deadlineTimer
+                            s.deadlineTimer = nil
+                            return (true, timer)
+                        }
+                    timerToCancel?.cancel()
+                    if won {
+                        cancellation.clear()
+                        continuation.resume(returning: result)
+                    }
+                    return won
+                }
+
+                // Drain both streams on detached tasks so a full pipe buffer cannot deadlock
+                // the child. Fire-and-forget (never structurally awaited) so the timeout path
+                // does not block on them. Keyed by the raw fd so no non-Sendable `FileHandle`
+                // crosses the task boundary.
+                Task.detached {
+                    let data = Self.readToEnd(fileDescriptor: outFD)
+                    recordAndCompleteIfReady { $0.stdout = data }
+                }
+                Task.detached {
+                    let data = Self.readToEnd(fileDescriptor: errFD)
+                    recordAndCompleteIfReady { $0.stderr = data }
+                }
+
+                process.terminationHandler = { finished in
+                    let status = finished.terminationStatus
+                    recordAndCompleteIfReady {
+                        $0.didTerminate = true
+                        $0.exitStatus = status
+                    }
+                }
+
+                do {
+                    try process.run()
+                } catch {
+                    let message = String(describing: error)
+                    try? stdoutPipe.fileHandleForWriting.close()
+                    try? stderrPipe.fileHandleForWriting.close()
+                    _ = claimImmediate(
+                        CommandResult(
+                            stdout: nil, stderr: nil, exitStatus: nil, timedOut: false, executionError: message
+                        ))
+                    return
+                }
+
+                // Close the parent's write ends so the readers see EOF once the child (and any
+                // descendants that inherited them) close their copies.
                 try? stdoutPipe.fileHandleForWriting.close()
                 try? stderrPipe.fileHandleForWriting.close()
-                _ = claimImmediate(CommandResult(
-                    stdout: nil, stderr: nil, exitStatus: nil, timedOut: false, executionError: message
-                ))
-                return
-            }
 
-            // Close the parent's write ends so the readers see EOF once the child (and any
-            // descendants that inherited them) close their copies.
-            try? stdoutPipe.fileHandleForWriting.close()
-            try? stderrPipe.fileHandleForWriting.close()
-
-            // Arm the deadline only after a successful launch, so the timeout handler can
-            // never call `terminate()` on an unlaunched Process (which raises). The deadline
-            // bounds the WHOLE capture: it is cancelled only when the continuation resumes
-            // (see the two `claim`/`record` helpers), never on process exit, so a descendant
-            // that exits the immediate child but keeps a pipe open cannot strand `run`
-            // without a deadline. A real deadline needs a timer and the async-native timers
-            // are disallowed here (Task.sleep / DispatchQueue.asyncAfter); it is hidden
-            // behind this runner.
-            if let timeout {
-                let timer = CommandTimer(queue: Self.timerQueue)
-                timer.schedule(deadline: .now() + timeout)
-                timer.setEventHandler {
-                    let timedOut = CommandResult(
-                        stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil
+                cancellation.install {
+                    let cancelled = CommandResult(
+                        stdout: nil,
+                        stderr: nil,
+                        exitStatus: nil,
+                        timedOut: false,
+                        executionError: "cancelled"
                     )
-                    if claimImmediate(timedOut), process.isRunning {
+                    if claimImmediate(cancelled), process.isRunning {
                         process.terminate()
                         Self.scheduleSigkill(process)
                     }
-                    timer.cancel()
                 }
-                // If the command already resumed before we armed the timer, drop it.
-                let alreadyResumed = state.withLock { s -> Bool in
-                    if s.resumed { return true }
-                    s.deadlineTimer = timer
-                    return false
-                }
-                if alreadyResumed {
-                    timer.cancel()
-                } else {
-                    timer.resume()
+
+                // Arm the deadline only after a successful launch, so the timeout handler can
+                // never call `terminate()` on an unlaunched Process (which raises). The deadline
+                // bounds the WHOLE capture: it is cancelled only when the continuation resumes
+                // (see the two `claim`/`record` helpers), never on process exit, so a descendant
+                // that exits the immediate child but keeps a pipe open cannot strand `run`
+                // without a deadline. A real deadline needs a timer and the async-native timers
+                // are disallowed here (Task.sleep / DispatchQueue.asyncAfter); it is hidden
+                // behind this runner.
+                if let timeout {
+                    let timer = CommandTimer(queue: Self.timerQueue)
+                    timer.schedule(deadline: .now() + timeout)
+                    timer.setEventHandler {
+                        let timedOut = CommandResult(
+                            stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil
+                        )
+                        if claimImmediate(timedOut), process.isRunning {
+                            process.terminate()
+                            Self.scheduleSigkill(process)
+                        }
+                        timer.cancel()
+                    }
+                    // If the command already resumed before we armed the timer, drop it.
+                    let alreadyResumed = state.withLock { s -> Bool in
+                        if s.resumed { return true }
+                        s.deadlineTimer = timer
+                        return false
+                    }
+                    if alreadyResumed {
+                        timer.cancel()
+                    } else {
+                        timer.resume()
+                    }
                 }
             }
+        } onCancel: {
+            cancellation.cancel()
         }
     }
 

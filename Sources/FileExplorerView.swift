@@ -415,46 +415,62 @@ struct FileExplorerPanelView: NSViewRepresentable {
             guard let outlineView else { return true }
             let requestedNodeIds = Set(changes.map { ObjectIdentifier($0.node) })
             let visibleRange = outlineView.rows(in: outlineView.visibleRect)
-            guard visibleRange.location != NSNotFound, visibleRange.length > 0 else {
-                return !changes.contains { $0.reloadChildren || $0.expansion != nil }
-            }
 
             var visibleRowsByNodeId: [ObjectIdentifier: Int] = [:]
-            for row in visibleRange.location..<(visibleRange.location + visibleRange.length) {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                let nodeId = ObjectIdentifier(node)
-                if requestedNodeIds.contains(nodeId) {
-                    visibleRowsByNodeId[nodeId] = row
+            if visibleRange.location != NSNotFound, visibleRange.length > 0 {
+                for row in visibleRange.location..<(visibleRange.location + visibleRange.length) {
+                    guard let node = outlineView.item(atRow: row) as? FileExplorerNode else {
+                        continue
+                    }
+                    let nodeId = ObjectIdentifier(node)
+                    if requestedNodeIds.contains(nodeId) {
+                        visibleRowsByNodeId[nodeId] = row
+                    }
                 }
             }
 
-            let structuralChanges = changes.filter { $0.reloadChildren || $0.expansion != nil }
-            guard structuralChanges.count <= 1 else { return false }
-            if let structuralChange = structuralChanges.first,
-               visibleRowsByNodeId[ObjectIdentifier(structuralChange.node)] == nil {
-                return false
-            }
+            let structuralChanges = changes.enumerated()
+                .filter { $0.element.reloadChildren || $0.element.expansion != nil }
+                .sorted { lhs, rhs in
+                    let lhsDepth = lhs.element.node.path.split(separator: "/").count
+                    let rhsDepth = rhs.element.node.path.split(separator: "/").count
+                    if lhsDepth != rhsDepth { return lhsDepth < rhsDepth }
+                    return lhs.offset < rhs.offset
+                }
+                .map { $0.element }
 
             withProgrammaticOutlineUpdate {
-                if let change = structuralChanges.first {
+                // Cell-only changes use the rows captured before structural
+                // mutations can move them.
+                for change in changes where !change.reloadChildren && change.expansion == nil {
+                    if let row = visibleRowsByNodeId[ObjectIdentifier(change.node)] {
+                        refreshVisibleCell(for: change.node, at: row, in: outlineView)
+                    }
+                }
+
+                // Parents precede descendants so a hydration burst updates one
+                // stable subtree at a time. Collapsed offscreen nodes already
+                // expose their newest children when next expanded, so avoid
+                // touching the outline's full row model for them.
+                for change in structuralChanges {
                     let node = change.node
+                    let nodeId = ObjectIdentifier(node)
+                    let isVisible = visibleRowsByNodeId[nodeId] != nil
+                    let isExpanded = outlineView.isItemExpanded(node)
+                    guard isVisible || isExpanded || change.expansion != nil else {
+                        continue
+                    }
+
                     outlineView.reloadItem(node, reloadChildren: change.reloadChildren)
                     if change.expansion == false {
                         if outlineView.isItemExpanded(node) {
                             outlineView.collapseItem(node)
                         }
-                    } else if change.expansion == true || (
-                        change.reloadChildren && store.expandedPaths.contains(node.path)
-                    ) {
+                    } else if change.expansion == true
+                        || (change.reloadChildren && store.expandedPaths.contains(node.path)) {
                         if node.children != nil {
                             outlineView.expandItem(node)
                         }
-                    }
-                }
-
-                for change in changes where !change.reloadChildren && change.expansion == nil {
-                    if let row = visibleRowsByNodeId[ObjectIdentifier(change.node)] {
-                        refreshVisibleCell(for: change.node, at: row, in: outlineView)
                     }
                 }
             }

@@ -9,22 +9,31 @@ struct GitStatusProvider: Sendable {
 
     private let gitExecutableURL: URL
     private let sshExecutableURL: URL
-    private let environment: [String: String]
+    private let commandRunner: any CommandRunning
+    private let processTimeout: TimeInterval
 
     init(
         gitExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
         sshExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        processTimeout: TimeInterval = 5
     ) {
         self.gitExecutableURL = gitExecutableURL
         self.sshExecutableURL = sshExecutableURL
-        self.environment = environment
+        var nonLockingEnvironment = environment
+        nonLockingEnvironment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
+        commandRunner = CommandRunner(
+            environment: nonLockingEnvironment,
+            bundledBinPath: nil,
+            fallbackSearchDirectories: []
+        )
+        self.processTimeout = max(0, processTimeout)
     }
 
-    func fetchStatus(directory: String) -> [String: GitFileStatus] {
-        guard let repoRoot = gitRepoRoot(for: directory) else { return [:] }
+    func fetchStatus(directory: String) async -> [String: GitFileStatus] {
+        guard let repoRoot = await gitRepoRoot(for: directory) else { return [:] }
         return parseGitStatus(
-            output: runGit(in: repoRoot, arguments: ["status", "--porcelain=v1", "-z"]),
+            output: await runGit(in: repoRoot, arguments: ["status", "--porcelain=v1", "-z"]),
             repoRoot: repoRoot,
             explorerRoot: directory
         )
@@ -33,7 +42,7 @@ struct GitStatusProvider: Sendable {
     func fetchStatusSSH(
         directory: String, destination: String, port: Int?,
         identityFile: String?, sshOptions: [String]
-    ) -> [String: GitFileStatus] {
+    ) async -> [String: GitFileStatus] {
         let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
         let cmd = [
             "cd '\(escapedDir)' 2>/dev/null",
@@ -41,7 +50,7 @@ struct GitStatusProvider: Sendable {
             "echo '---GIT_STATUS---'",
             "\(Self.nonLockingRemoteGitCommand) status --porcelain=v1 -z 2>/dev/null",
         ].joined(separator: " && ")
-        guard let output = runSSH(
+        guard let output = await runSSH(
             command: cmd, destination: destination,
             port: port, identityFile: identityFile, sshOptions: sshOptions
         ) else { return [:] }
@@ -139,43 +148,24 @@ struct GitStatusProvider: Sendable {
         return result
     }
 
-    private func gitRepoRoot(for directory: String) -> String? {
-        runGit(in: directory, arguments: ["rev-parse", "--show-toplevel"])?
+    private func gitRepoRoot(for directory: String) async -> String? {
+        await runGit(in: directory, arguments: ["rev-parse", "--show-toplevel"])?
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func runGit(in directory: String, arguments: [String]) -> String? {
-        let process = Process()
-        process.executableURL = gitExecutableURL
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        process.environment = nonLockingGitEnvironment()
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
-    }
-
-    private func nonLockingGitEnvironment() -> [String: String] {
-        var environment = environment
-        environment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
-        return environment
+    private func runGit(in directory: String, arguments: [String]) async -> String? {
+        await commandRunner.runStandardOutput(
+            directory: directory,
+            executable: gitExecutableURL.path,
+            arguments: arguments,
+            timeout: processTimeout
+        )
     }
 
     private func runSSH(
         command: String, destination: String,
         port: Int?, identityFile: String?, sshOptions: [String]
-    ) -> String? {
-        let process = Process()
-        process.executableURL = sshExecutableURL
+    ) async -> String? {
         // The positional command conflicts with a host-configured
         // RemoteCommand unless overridden (issue #7246).
         var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
@@ -184,19 +174,11 @@ struct GitStatusProvider: Sendable {
         for option in sshOptions { args += ["-o", option] }
         args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
         args += [destination, command]
-        process.arguments = args
-        process.environment = environment
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
+        return await commandRunner.runStandardOutput(
+            directory: "/",
+            executable: sshExecutableURL.path,
+            arguments: args,
+            timeout: processTimeout
+        )
     }
 }
