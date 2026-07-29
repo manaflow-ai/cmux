@@ -3,6 +3,36 @@ import CmuxMobileDiagnostics
 import Foundation
 
 extension MobileShellComposite {
+    func startLatencyProbeAutoNavigationIfNeeded() {
+        guard connectionState == .connected,
+              latencyProbeAutoNavigationTask == nil,
+              MobileLatencyProbe.hasUnclaimedConfiguration,
+              terminalOutputStreamTokensBySurfaceID.isEmpty,
+              deeplinkWorkspaceNavigationRequest == nil,
+              workspaces.contains(where: { !$0.terminals.isEmpty }) else {
+            return
+        }
+        latencyProbeAutoNavigationTask = Task { @MainActor [weak self] in
+            defer { self?.latencyProbeAutoNavigationTask = nil }
+            do {
+                try await Task.sleep(for: .seconds(1))
+                guard let self,
+                      self.connectionState == .connected,
+                      self.terminalOutputStreamTokensBySurfaceID.isEmpty,
+                      self.deeplinkWorkspaceNavigationRequest == nil,
+                      let workspaceID = self.workspaces.first(where: {
+                          !$0.terminals.isEmpty
+                      })?.id,
+                      MobileLatencyProbe.claimAutoNavigation() else {
+                    return
+                }
+                self.navigateToWorkspaceForDeeplink(workspaceID, origin: .external)
+            } catch {
+                return
+            }
+        }
+    }
+
     func startLatencyProbeIfReady() {
         guard connectionState == .connected,
               latencyProbeTask == nil,
@@ -39,6 +69,8 @@ extension MobileShellComposite {
     }
 
     func cancelLatencyProbe() {
+        latencyProbeAutoNavigationTask?.cancel()
+        latencyProbeAutoNavigationTask = nil
         latencyProbeTask?.cancel()
         latencyProbeTask = nil
     }

@@ -26,6 +26,19 @@ enum MobileLatencyProbe {
     }()
 
     private static var hasClaimedProcessRun = false
+    private static var hasAutoNavigatedProcessRun = false
+
+    static var hasUnclaimedConfiguration: Bool {
+        configuration != nil && !hasClaimedProcessRun
+    }
+
+    static func claimAutoNavigation() -> Bool {
+        guard hasUnclaimedConfiguration, !hasAutoNavigatedProcessRun else {
+            return false
+        }
+        hasAutoNavigatedProcessRun = true
+        return true
+    }
 
     static func claimConfiguration() -> Configuration? {
         guard !hasClaimedProcessRun, let configuration else { return nil }

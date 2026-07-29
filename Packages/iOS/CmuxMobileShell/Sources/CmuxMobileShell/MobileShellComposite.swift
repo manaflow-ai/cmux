@@ -148,6 +148,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 scheduleWorkspaceChangesSummaryRefresh()
                 #if DEBUG
                 startLatencyProbeIfReady()
+                startLatencyProbeAutoNavigationIfNeeded()
                 #endif
             } else {
                 deactivateAllTerminalLanes()
@@ -991,6 +992,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var rawTerminalInputDrainWaiters: [CheckedContinuation<Void, Never>]
     private var isRawTerminalInputDrainLoopRunning: Bool
     #if DEBUG
+    var latencyProbeAutoNavigationTask: Task<Void, Never>?
     var latencyProbeTask: Task<Void, Never>?
     private var rawTerminalInputLatencyBatchNumber: UInt64
     #endif
@@ -1231,6 +1233,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.rawTerminalInputDrainWaiters = []
         self.isRawTerminalInputDrainLoopRunning = false
         #if DEBUG
+        self.latencyProbeAutoNavigationTask = nil
         self.latencyProbeTask = nil
         self.rawTerminalInputLatencyBatchNumber = 0
         #endif
@@ -8475,6 +8478,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
+        #if DEBUG
+        startLatencyProbeAutoNavigationIfNeeded()
+        #endif
         reconcileWorkspaceChangesSummaryStateWithForeground()
         let changesSummaryWorkspaceIDs = changesSummaryRefreshScope.workspaceIDs(
             fullSnapshotWorkspaceIDs: response.workspaces.map(\.id)
