@@ -17,12 +17,14 @@
    `without_block`, and `footer` are now public composition points. This
    example uses the runtime widget with an application-owned lifecycle footer.
 
+4. `SidebarRuntime` initially exposed an unknown event only as display status.
+   `SidebarModel::unknown_events` and `last_unknown` now retain its kind and raw
+   `Document`, so applications can inspect future payloads without dropping to
+   `SidebarViewStream`.
+
 ## Remaining SDK friction
 
-1. `SidebarRuntime` safely ignores an unknown typed event and reports its kind
-   through `SidebarModel::status`, but it does not expose the preserved raw
-   document to runtime consumers. An application that must log or inspect
-   future payloads still has to own `SidebarViewStream` directly.
+None found by this simulation.
 
 ## Application concerns
 

@@ -295,6 +295,12 @@ fn recovers_gap_preserves_unknown_events_handles_control_and_terminal_end() {
             && monitor.model().rows.first().is_some_and(|row| row.runs[0].text == "after gap")
     });
     assert_eq!(monitor.model().status.as_deref(), Some("unknown event: future_badge"));
+    assert_eq!(monitor.model().unknown_events, 1);
+    let unknown = monitor.model().last_unknown.as_ref().unwrap();
+    assert_eq!(unknown.kind, "future_badge");
+    let raw: Value = unknown.raw.deserialize().unwrap();
+    assert_eq!(raw["kind"], "future_badge");
+    assert_eq!(raw["badge"]["text"], "new in 1.1");
     let gap = monitor.status().last_gap.as_ref().unwrap();
     assert_eq!(gap.reason, StreamEndReason::Gap);
     assert_eq!(gap.recovery.as_deref(), Some("reopen_from_snapshot"));
