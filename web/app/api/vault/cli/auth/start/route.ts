@@ -4,7 +4,7 @@ import { and, count, eq, gt, lt } from "drizzle-orm";
 import { env } from "@/app/env";
 import { cloudDb } from "../../../../../../db/client";
 import { vaultCliAuthRequests } from "../../../../../../db/schema";
-import { withVaultApiRoute } from "../../../../../../services/vault/routeHelpers";
+import { withCliAuthApiRoute } from "../../../../../../services/vault/routeHelpers";
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
@@ -22,7 +22,7 @@ const INTERVAL_SECONDS = 3;
 const MAX_PENDING_REQUESTS = 500;
 
 export async function POST(request: Request): Promise<Response> {
-  return withVaultApiRoute(
+  return withCliAuthApiRoute(
     request,
     "/api/vault/cli/auth/start",
     { "cmux.vault.operation": "cli_auth.start" },

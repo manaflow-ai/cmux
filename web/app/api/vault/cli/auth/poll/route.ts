@@ -4,7 +4,7 @@ import {
   drizzleCliAuthRepository,
   type CliAuthTokens,
 } from "../../../../../../services/vault/cliAuth";
-import { withVaultApiRoute } from "../../../../../../services/vault/routeHelpers";
+import { withCliAuthApiRoute } from "../../../../../../services/vault/routeHelpers";
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
@@ -28,7 +28,7 @@ async function mintStackTokens(userId: string): Promise<CliAuthTokens | null> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  return withVaultApiRoute(
+  return withCliAuthApiRoute(
     request,
     "/api/vault/cli/auth/poll",
     { "cmux.vault.operation": "cli_auth.poll" },
