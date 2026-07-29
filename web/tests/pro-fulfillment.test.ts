@@ -18,7 +18,6 @@ describe("cmux Pro checkout fulfillment", () => {
     await sendProSignupWelcome(
       {
         session: checkoutSession(),
-        stackUserId: "user_1",
       },
       {
         sendEmail,
@@ -79,7 +78,7 @@ describe("cmux Pro checkout fulfillment", () => {
     session.locale = "fr";
 
     await sendProSignupWelcome(
-      { session, stackUserId: "user_1" },
+      { session },
       {
         sendEmail,
         fromEmail: () => "pro@cmux.com",
@@ -111,7 +110,7 @@ describe("cmux Pro checkout fulfillment", () => {
 
     await expect(
       sendProSignupWelcome(
-        { session: checkoutSession(), stackUserId: "user_1" },
+        { session: checkoutSession() },
         {
           sendEmail,
           fromEmail: () => "pro@cmux.com",
@@ -124,7 +123,7 @@ describe("cmux Pro checkout fulfillment", () => {
   test("fails the checkout event when the Pro email provider rejects the send", async () => {
     await expect(
       sendProSignupWelcome(
-        { session: checkoutSession(), stackUserId: "user_1" },
+        { session: checkoutSession() },
         {
           sendEmail: mock(async () => ({
             error: { message: "provider unavailable" },

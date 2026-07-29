@@ -51,7 +51,6 @@ export type ProWelcomeEmail = {
 export async function sendProSignupWelcome(
   input: {
     session: Stripe.Checkout.Session;
-    stackUserId: string;
   },
   dependencies: ProFulfillmentDependencies = defaultDependencies,
 ): Promise<void> {

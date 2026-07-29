@@ -144,7 +144,6 @@ async function processStripeEvent(
       if (result.scope === "user" && isPersonalProCheckout(expanded)) {
         await dependencies.sendProSignupWelcome({
           session: expanded,
-          stackUserId: result.stackUserId,
         });
       }
       return { processed: "checkout.session.completed" };
