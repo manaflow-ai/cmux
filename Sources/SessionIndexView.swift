@@ -1388,7 +1388,8 @@ enum SessionTranscriptLoader {
         let reader = SessionIndexJSONLReader(maximumRecordBytes: maxPreviewRecordBytes)
         var newestFirst: [SessionTranscriptTurn] = []
         var retainedTextBytes = 0
-        reader.fromTailPages(
+        var didSatisfyLatestRetention = false
+        let metrics = reader.fromTailPages(
             url: url,
             maxBytesPerPage: latestTranscriptPageBytes,
             maximumPageCount: latestTranscriptMaximumPageCount
@@ -1409,15 +1410,22 @@ enum SessionTranscriptLoader {
                 )
                 retainedTextBytes = byteTotal.overflow ? .max : byteTotal.partialValue
                 if newestFirst.count >= retention.limit {
+                    didSatisfyLatestRetention = true
                     return true
                 }
                 if retention.textByteLimit.map({ retainedTextBytes >= $0 }) == true {
+                    didSatisfyLatestRetention = true
                     return true
                 }
             }
             return false
         }
         try Task.checkCancellation()
+        try validateLatestTransferScan(
+            metrics,
+            didSatisfyRetention: didSatisfyLatestRetention,
+            retention: retention
+        )
 
         var openingUser: SessionTranscriptTurn?
         _ = reader.fromStart(
@@ -1463,6 +1471,8 @@ enum SessionTranscriptLoader {
         var openingUser: SessionTranscriptTurn?
         var lineIndex = 0
         var didHitTurnLimit = false
+        var retainedTextBytes = 0
+        var didSatisfyLatestRetention = false
         let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
         let metrics = SessionIndexJSONLReader().fromTailPages(
             url: url,
@@ -1486,9 +1496,26 @@ enum SessionTranscriptLoader {
                 return false
             }
             turns.append(turn)
+            if retention.keepsLatestTurns {
+                let byteTotal = retainedTextBytes.addingReportingOverflow(
+                    retention.retainedByteCost(of: retention.bounded(turn))
+                )
+                retainedTextBytes = byteTotal.overflow ? .max : byteTotal.partialValue
+                if turns.count >= retention.limit
+                    || retention.textByteLimit.map({ retainedTextBytes >= $0 }) == true {
+                    didSatisfyLatestRetention = true
+                    return true
+                }
+            }
             return false
         }
         if retention.keepsLatestTurns {
+            try Task.checkCancellation()
+            try validateLatestTransferScan(
+                metrics,
+                didSatisfyRetention: didSatisfyLatestRetention,
+                retention: retention
+            )
             _ = SessionIndexJSONLReader().fromStart(
                 url: url,
                 maxBytes: openingTranscriptByteLimit
@@ -1525,6 +1552,18 @@ enum SessionTranscriptLoader {
             return nil
         }
         return SessionTranscriptTurn(id: id, role: .user, text: text)
+    }
+
+    private static func validateLatestTransferScan(
+        _ metrics: SessionIndexJSONLReadMetrics,
+        didSatisfyRetention: Bool,
+        retention: SessionTranscriptRetention
+    ) throws {
+        guard retention.requiresCompleteLatestScan else { return }
+        guard !metrics.didSkipOversizedRecord,
+              metrics.didReachStart || didSatisfyRetention else {
+            throw SessionTranscriptLoadError.incompleteSource
+        }
     }
 
     private static func antigravityHistorySessionID(in object: [String: Any]) -> String? {
@@ -2034,7 +2073,10 @@ enum SessionTranscriptLoader {
         role: SessionTranscriptRole,
         agent: SessionAgent
     ) -> String? {
-        let text = textFragments(from: value)
+        let text = textFragments(
+            from: value,
+            includesNonDialogueFragments: role != .user && role != .assistant
+        )
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
@@ -2046,15 +2088,29 @@ enum SessionTranscriptLoader {
         return truncatedText(text, role: role)
     }
 
-    private static func textFragments(from value: Any?) -> [String] {
+    private static func textFragments(
+        from value: Any?,
+        includesNonDialogueFragments: Bool
+    ) -> [String] {
         guard let value else { return [] }
         if let string = value as? String {
             return [string]
         }
         if let array = value as? [Any] {
-            return array.flatMap { textFragments(from: $0) }
+            return array.flatMap {
+                textFragments(
+                    from: $0,
+                    includesNonDialogueFragments: includesNonDialogueFragments
+                )
+            }
         }
         guard let object = value as? [String: Any] else {
+            return []
+        }
+        if !includesNonDialogueFragments,
+           let nestedRole = transcriptRole(from: object["role"] as? String),
+           nestedRole != .user,
+           nestedRole != .assistant {
             return []
         }
 
@@ -2064,16 +2120,25 @@ enum SessionTranscriptLoader {
             if let text = object["text"] as? String {
                 return [text]
             }
+        case "system", "developer":
+            guard includesNonDialogueFragments else { return [] }
         case "tool":
+            guard includesNonDialogueFragments else { return [] }
             return openCodeToolFragments(from: object)
         case "tool_use", "function_call":
+            guard includesNonDialogueFragments else { return [] }
             return toolCallFragments(from: object)
         case "tool_result", "function_call_output":
-            let fragments = textFragments(from: object["content"] ?? object["output"] ?? object["result"])
+            guard includesNonDialogueFragments else { return [] }
+            let fragments = textFragments(
+                from: object["content"] ?? object["output"] ?? object["result"],
+                includesNonDialogueFragments: true
+            )
             if !fragments.isEmpty {
                 return fragments
             }
         case "patch":
+            guard includesNonDialogueFragments else { return [] }
             return openCodePatchFragments(from: object)
         case "file":
             return openCodeFileFragments(from: object)
@@ -2082,7 +2147,10 @@ enum SessionTranscriptLoader {
         }
 
         for key in ["text", "content", "output", "result", "message"] {
-            let fragments = textFragments(from: object[key])
+            let fragments = textFragments(
+                from: object[key],
+                includesNonDialogueFragments: includesNonDialogueFragments
+            )
             if !fragments.isEmpty {
                 return fragments
             }

@@ -35,6 +35,13 @@ enum SessionTranscriptRetention: Equatable, Sendable {
         return max(1, textByteLimit)
     }
 
+    var requiresCompleteLatestScan: Bool {
+        if case .transferOpeningUserAndLatest = self {
+            return true
+        }
+        return false
+    }
+
     func includes(_ role: SessionTranscriptRole) -> Bool {
         guard case .transferOpeningUserAndLatest = self else { return true }
         return role == .user || role == .assistant

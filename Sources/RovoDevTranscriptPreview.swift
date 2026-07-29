@@ -3,6 +3,7 @@ import Foundation
 enum SessionTranscriptLoadError: Error {
     case missingFile
     case databaseError(String)
+    case incompleteSource
 }
 
 struct RovoDevTranscriptPreviewTurn: Equatable, Sendable {
