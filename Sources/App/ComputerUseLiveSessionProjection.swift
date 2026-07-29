@@ -1,5 +1,43 @@
 import Foundation
 
+/// Tracks the last agent-turn completion for each stable Computer Use driver.
+///
+/// The MCP proxy intentionally remains alive across Codex turns. Its last
+/// authenticated state file therefore outlives the turn that produced it. A
+/// completion cutoff lets UI consumers retire that state without tombstoning
+/// the proxy, while a later action naturally becomes eligible again.
+@MainActor
+final class ComputerUseActivityLifecycle {
+    private var completionCutoffsByDriverSessionID: [String: Date] = [:]
+
+    func recordCompletion(
+        driverSessionID: String,
+        receivedAt: Date
+    ) {
+        let previous = completionCutoffsByDriverSessionID[driverSessionID]
+            ?? .distantPast
+        completionCutoffsByDriverSessionID[driverSessionID] = max(
+            previous,
+            receivedAt
+        )
+    }
+
+    func completionCutoffs() -> [String: Date] {
+        completionCutoffsByDriverSessionID
+    }
+
+    nonisolated static func isDisplayEligible(
+        driverSessionID: String,
+        lastActionAt: Date,
+        completionCutoffs: [String: Date]
+    ) -> Bool {
+        guard let cutoff = completionCutoffs[driverSessionID] else {
+            return true
+        }
+        return lastActionAt > cutoff
+    }
+}
+
 /// Projects one resilient set of live Computer Use sessions for every UI consumer.
 ///
 /// The shared agent index is rebuilt from several asynchronous process and hook
@@ -58,6 +96,33 @@ final class ComputerUseLiveSessionProjection {
     func sessionsByDriverSessionID() -> [String: ComputerUseLiveDriverSession] {
         reconcile()
         return recordsByDriverSessionID.mapValues(\.session)
+    }
+
+    /// Resolves a hook only when both its surface and raw agent generation still
+    /// match the live projection. A delayed Stop from a replaced Codex process
+    /// must not hide Computer Use activity started by its successor in the pane.
+    func driverSessionID(
+        surfaceID rawSurfaceID: String?,
+        agentSessionID: String
+    ) -> String? {
+        guard
+            let rawSurfaceID,
+            let surfaceID = UUID(uuidString: rawSurfaceID)
+        else {
+            return nil
+        }
+        reconcile()
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+        guard
+            let record = recordsByDriverSessionID[driverSessionID],
+            record.session.surfaceID == surfaceID,
+            record.agentSessionID == agentSessionID
+        else {
+            return nil
+        }
+        return driverSessionID
     }
 
     func currentSession(
