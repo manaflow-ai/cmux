@@ -990,6 +990,99 @@ struct SimulatorPanelIntegrationTests {
         await coordinator.close()
     }
 
+    @Test("A display change releases a held semantic touch")
+    func splitSemanticTouchReleasesAfterDisplayChange() async throws {
+        let client = SimulatorSemanticAutomationPaneClient(behavior: .staticTree)
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        try await coordinator.selectDeviceAndWait(id: client.deviceID)
+        let executor = SimulatorUIAutomationExecutor(
+            timing: InstantSimulatorUIAutomationTiming()
+        )
+        let snapshot = try await executor.perform(
+            .uiSnapshot(sinceScreenHash: nil),
+            coordinator: coordinator
+        )
+        let elementRef = try simulatorElementRef(
+            in: snapshot,
+            identifier: "continue"
+        )
+        _ = try await executor.perform(
+            .uiAction(.touch(
+                elementRef: elementRef,
+                down: true,
+                up: false,
+                delayMilliseconds: 0
+            )),
+            coordinator: coordinator
+        )
+        await client.emitDisplay(.init(
+            width: 2_532,
+            height: 1_170,
+            orientation: .landscapeLeft,
+            scale: 3
+        ))
+
+        do {
+            _ = try await executor.perform(
+                .uiAction(.touch(
+                    elementRef: elementRef,
+                    down: false,
+                    up: true,
+                    delayMilliseconds: 0
+                )),
+                coordinator: coordinator
+            )
+            Issue.record("Expected stale held-touch geometry to fail")
+        } catch let failure as SimulatorUIAutomationFailure {
+            #expect(failure.code == "ui_state_changed")
+        }
+
+        #expect(await client.sentMessages().contains(.releaseInputs))
+        #expect(coordinator.heldUIAutomationTouch(elementRef: elementRef) == nil)
+        await coordinator.close()
+    }
+
+    @Test("An unchanged snapshot preserves the refs it omits")
+    func unchangedSnapshotPreservesExistingRefs() async throws {
+        let client = SimulatorSemanticAutomationPaneClient(behavior: .staticTree)
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        try await coordinator.selectDeviceAndWait(id: client.deviceID)
+        let executor = SimulatorUIAutomationExecutor(
+            timing: InstantSimulatorUIAutomationTiming()
+        )
+        let first = try await executor.perform(
+            .uiSnapshot(sinceScreenHash: nil),
+            coordinator: coordinator
+        )
+        let elementRef = try simulatorElementRef(
+            in: first,
+            identifier: "continue"
+        )
+        let screenHash = try simulatorScreenHash(in: first)
+
+        let unchanged = try await executor.perform(
+            .uiSnapshot(sinceScreenHash: screenHash),
+            coordinator: coordinator
+        )
+        guard case let .object(payload) = unchanged else {
+            Issue.record("Expected an unchanged snapshot payload")
+            await coordinator.close()
+            return
+        }
+        #expect(payload["type"] == .string("runtime-snapshot-unchanged"))
+
+        _ = try await executor.perform(
+            .uiAction(.tap(
+                elementRef: elementRef,
+                preDelayMilliseconds: 0,
+                postDelayMilliseconds: 0
+            )),
+            coordinator: coordinator
+        )
+        #expect(await client.gestureCount() == 1)
+        await coordinator.close()
+    }
+
     @Test("Semantic revalidation rejects input that lands during capture")
     func semanticRevalidationTracksConcurrentMutation() async throws {
         let client = SimulatorSemanticAutomationPaneClient(behavior: .staticTree)
@@ -1030,14 +1123,14 @@ struct SimulatorPanelIntegrationTests {
 
     @Test("Semantic typing waits until the tapped field reports focus")
     func semanticTypingWaitsForFocus() async throws {
+        let timing = InstantSimulatorUIAutomationTiming()
         let client = SimulatorSemanticAutomationPaneClient(
-            behavior: .focusAfterSecondPostTapRead
+            behavior: .focusAfterSecondPostTapRead,
+            timing: timing
         )
         let coordinator = SimulatorPaneCoordinator(client: client)
         try await coordinator.selectDeviceAndWait(id: client.deviceID)
-        let executor = SimulatorUIAutomationExecutor(
-            timing: InstantSimulatorUIAutomationTiming()
-        )
+        let executor = SimulatorUIAutomationExecutor(timing: timing)
         let snapshot = try await executor.perform(
             .uiSnapshot(sinceScreenHash: nil),
             coordinator: coordinator
@@ -1068,6 +1161,7 @@ struct SimulatorPanelIntegrationTests {
         #expect(tapIndex < unfocusedIndex)
         #expect(unfocusedIndex < focusedIndex)
         #expect(focusedIndex < typeIndex)
+        #expect(!(await client.readAccessibilityTooSoonAfterType()))
         await coordinator.close()
     }
 
@@ -1132,14 +1226,22 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
         onTermination: {}
     )
     private let behavior: Behavior
+    private let timing: (any SimulatorUIAutomationTiming)?
     private var actions: [SimulatorControlAction] = []
+    private var messages: [SimulatorWorkerInbound] = []
     private var recordedTimeline: [String] = []
     private var didTap = false
     private var postTapReadCount = 0
+    private var typedAtMilliseconds: Int64?
+    private var observedEarlyPostTypeRead = false
     private var mutationHook: (@MainActor @Sendable () -> Void)?
 
-    init(behavior: Behavior) {
+    init(
+        behavior: Behavior,
+        timing: (any SimulatorUIAutomationTiming)? = nil
+    ) {
         self.behavior = behavior
+        self.timing = timing
     }
 
     func discoverDevices() async throws -> [SimulatorDevice] {
@@ -1175,12 +1277,18 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
 
     func shutdownDevice(id: String) async throws {}
     func subscribe() async -> SimulatorWorkerEventStream { events.stream }
-    func send(_ message: SimulatorWorkerInbound) async {}
+    func send(_ message: SimulatorWorkerInbound) async {
+        messages.append(message)
+    }
 
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
         actions.append(action)
         switch action {
         case .readAccessibility:
+            if let typedAtMilliseconds, let timing,
+               timing.nowMilliseconds() - typedAtMilliseconds < 500 {
+                observedEarlyPostTypeRead = true
+            }
             if didTap { postTapReadCount += 1 }
             let focused = behavior == .focusAfterSecondPostTapRead
                 && didTap
@@ -1200,6 +1308,7 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
             recordedTimeline.append(contentsOf: events.map { $0.phase.rawValue })
             return .none
         case .interactive(.typeText):
+            typedAtMilliseconds = timing?.nowMilliseconds()
             recordedTimeline.append("type")
             return .none
         case .interactive(.keyChord):
@@ -1217,6 +1326,18 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
         _ hook: @escaping @MainActor @Sendable () -> Void
     ) {
         mutationHook = hook
+    }
+
+    func emitDisplay(_ display: SimulatorDisplayMetadata) async {
+        _ = await events.continuation.yield(.message(.display(display)))
+    }
+
+    func sentMessages() -> [SimulatorWorkerInbound] {
+        messages
+    }
+
+    func readAccessibilityTooSoonAfterType() -> Bool {
+        observedEarlyPostTypeRead
     }
 
     func gestureCount() -> Int {
@@ -1314,6 +1435,15 @@ private func simulatorElementRef(
         }
         return ref
     }.first)
+}
+
+private func simulatorScreenHash(in snapshot: JSONValue) throws -> String {
+    guard case let .object(payload) = snapshot,
+          case let .string(screenHash)? = payload["screen_hash"] else {
+        Issue.record("Expected a semantic snapshot screen hash")
+        throw CancellationError()
+    }
+    return screenHash
 }
 
 private actor SimulatorFeatureFlagPaneClient: SimulatorPaneClient {

@@ -199,6 +199,10 @@ struct ControlCommandCoordinatorSimulatorUIAutomationTests {
             ("simulator.wait_for_ui", [
                 "predicate": .string("focused"),
             ]),
+            ("simulator.wait_for_ui", [
+                "predicate": .string("settled"),
+                "poll_interval_milliseconds": .int(1),
+            ]),
             ("simulator.button", [
                 "button": .string("launch-missiles"),
             ]),

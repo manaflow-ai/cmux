@@ -111,6 +111,11 @@ struct SimulatorUIAutomationSnapshotTests {
             identifier: nil,
             role: "text-field"
         ).map(\.element.ref) == ["e1_3"])
+        #expect(record.accessibilityInteractionTargets(
+            label: nil,
+            identifier: "0.2",
+            role: nil
+        ).isEmpty)
         #expect(record.containingText("search").map(\.ref) == ["e1_3"])
         #expect(record.containingText("GENERAL").map(\.ref) == ["e1_2"])
 
