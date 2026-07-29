@@ -114,6 +114,58 @@ struct ClosedMainWindowRoutingTests {
         #expect(!window.isKeyWindow)
     }
 
+    @Test("Production close teardown cannot re-register and refocus its window")
+    func productionCloseTeardownCannotReRegisterAndRefocusItsWindow() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let controller = MainWindowController(window: window)
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        var focusResultDuringControllerTeardown: Bool?
+        controller.onClose = {
+            app.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+            focusResultDuringControllerTeardown = app.focusMainWindow(windowId: windowId)
+        }
+
+        window.close()
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(focusResultDuringControllerTeardown == false)
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
+    }
+
     @Test("Closed main window is not listed or focusable while its objects linger")
     func closedMainWindowIsNotListedOrFocusableWhileItsObjectsLinger() throws {
         _ = NSApplication.shared
