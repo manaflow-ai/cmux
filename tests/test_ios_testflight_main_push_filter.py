@@ -911,13 +911,23 @@ def test_testflight_notes_use_the_same_ios_path_contract() -> None:
 
 def test_scheduled_and_manual_runs_use_independent_concurrency_groups() -> None:
     text = workflow_text()
+    concurrency = scalar_mapping(
+        mapping_block(text, "concurrency", indent=0),
+        indent=2,
+    )
+    group_template = concurrency["group"]
+    run_id_token = "${{ github.run_id }}"
 
-    assert "group: ios-testflight-${{ github.run_id }}" in text
-    assert "github.event_name == 'push' && github.sha" not in text
-    assert "group: ios-testflight-${{ github.ref_name }}" not in text
-    assert "cancel-in-progress: false" in text
-    assert "ios-testflight-assignment-state-complete" not in text
-    assert "CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE" not in text
+    assert concurrency == {
+        "group": "ios-testflight-${{ github.run_id }}",
+        "cancel-in-progress": "false",
+    }
+    assert group_template.count(run_id_token) == 1
+    scheduled_group = group_template.replace(run_id_token, "100")
+    manual_group = group_template.replace(run_id_token, "101")
+    assert scheduled_group == "ios-testflight-100"
+    assert manual_group == "ios-testflight-101"
+    assert scheduled_group != manual_group
 
 
 def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
