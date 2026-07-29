@@ -3984,6 +3984,22 @@ mod tests {
     }
 
     #[test]
+    fn history_epoch_ignores_output_that_only_mutates_the_active_screen() {
+        let mut terminal = Terminal::new(8, 2, 1_000, Callbacks::default()).unwrap();
+        let initial = terminal.history_epoch();
+
+        terminal.vt_write(b"visible");
+        terminal.vt_write(b"\x1b[H\x1b[2K\x1b]2;title\x07");
+
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.history_epoch(), initial);
+
+        terminal.vt_write(b"first\r\nsecond\r\nthird");
+        assert!(terminal.history_rows() > 0);
+        assert!(terminal.history_epoch() > initial);
+    }
+
+    #[test]
     fn history_epochs_change_across_mutations_and_terminal_instances() {
         let mut first = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         let initial = first.history_epoch();
