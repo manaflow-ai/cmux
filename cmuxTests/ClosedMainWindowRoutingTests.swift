@@ -466,6 +466,13 @@ struct ClosedMainWindowRoutingTests {
         ))
         #expect(managerA.tabs.contains { $0.id == workspaceA.id })
         #expect(!managerC.tabs.contains { $0.id == workspaceA.id })
+        #expect(!app.moveWorkspaceToWindow(
+            workspaceId: workspaceC.id,
+            windowId: windowAId,
+            focus: false
+        ))
+        #expect(managerC.tabs.contains { $0.id == workspaceC.id })
+        #expect(!managerA.tabs.contains { $0.id == workspaceC.id })
         #expect(!app.focusMainWindow(windowId: windowCId))
         #expect(!app.focusScriptableMainWindow(windowId: windowCId, bringToFront: true))
         #expect(app.tabManager === managerA)
