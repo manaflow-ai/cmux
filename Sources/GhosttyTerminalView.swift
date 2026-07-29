@@ -1960,10 +1960,6 @@ class GhosttyApp {
         let reloadSettingsFromFile = request.reloadSettingsFromFile
         let preferredColorScheme = request.preferredColorScheme
         reloadConfigurationDepth += 1
-        defer {
-            reloadConfigurationDepth -= 1
-            drainPendingAppearanceSynchronization()
-        }
         let fontTransaction =
             TerminalFontConfigurationReloadTransaction.prepare(
                 appliedMagnificationPercent:
@@ -1991,6 +1987,7 @@ class GhosttyApp {
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
+            finishConfigurationReloadActivity()
             completion()
             return
         }
@@ -2022,6 +2019,7 @@ class GhosttyApp {
                 preferredColorScheme: effectiveReloadColorScheme
             )
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
+            finishConfigurationReloadActivity()
             completion()
             return
         }
@@ -2037,6 +2035,7 @@ class GhosttyApp {
                 )
             }
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
+            finishConfigurationReloadActivity()
             completion()
             return
         }
@@ -2210,8 +2209,19 @@ class GhosttyApp {
                 self.logThemeAction(
                     "reload end source=\(source) soft=\(soft) mode=full"
                 )
+                self.finishConfigurationReloadActivity()
                 completion()
             }
+    }
+
+    @MainActor
+    private func finishConfigurationReloadActivity() {
+        precondition(
+            reloadConfigurationDepth > 0,
+            "Configuration reload activity must balance"
+        )
+        reloadConfigurationDepth -= 1
+        drainPendingAppearanceSynchronization()
     }
 
     @MainActor
