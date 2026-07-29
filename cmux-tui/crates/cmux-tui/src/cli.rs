@@ -240,6 +240,7 @@ USAGE
   cmux [START OPTIONS]
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
+  cmux machine-agent [OPTIONS]
   cmux [GLOBAL OPTIONS] <scope> <action>
 
 GLOBAL OPTIONS
@@ -255,6 +256,7 @@ PROCESS HELP
   cmux help start
   cmux attach --help
   cmux relay --help
+  cmux machine-agent --help
 
 RESOURCE SCOPES
   machine       Inspect the local machine and session route

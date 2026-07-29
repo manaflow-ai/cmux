@@ -24,6 +24,7 @@ fn root_help_is_noun_first_and_does_not_publish_the_old_flat_api() {
     let help = stdout(&output);
     assert!(help.starts_with("cmux - "), "{help}");
     assert!(!help.contains("cmux-tui"), "{help}");
+    assert!(help.contains("cmux machine-agent [OPTIONS]"), "{help}");
     for scope in [
         "machine",
         "session",
