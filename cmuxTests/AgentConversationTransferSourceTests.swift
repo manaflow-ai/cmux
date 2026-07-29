@@ -79,6 +79,59 @@ struct AgentConversationTransferSourceTests {
         #expect(Set(harnessArgument.choices.map(\.value)) == ["claude", "codex", "opencode"])
     }
 
+    @Test
+    func advertisedHarnessChoiceFallsBackWhenNativeProbeIsRejected() async throws {
+        let home = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "rejected-native-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                processDetectedLauncher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: [
+                    "/opt/homebrew/bin/opencode",
+                    "--session",
+                    "rejected-native-session",
+                ],
+                workingDirectory: nil,
+                environment: ["HOME": home.path]
+            )
+        )
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelId)
+        let liveAgentIndex = SharedLiveAgentIndex(
+            forkSupportProvider: { _, _ in false },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+        await liveAgentIndex.refreshForkAvailabilityNow(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            fallbackSnapshot: snapshot
+        )
+        let harnessArgument = try #require(
+            AgentConversationForkRequest.commandPaletteChoiceArguments.first {
+                $0.name == AgentConversationForkRequest.harnessArgumentName
+            }
+        )
+
+        for choice in harnessArgument.choices {
+            let target = try #require(
+                AgentConversationForkRequest.TargetHarness(rawValue: choice.value)
+            )
+            let selection = workspace.agentConversationForkSelection(
+                forPanelId: panelId,
+                request: .init(targetHarness: target, destination: .right),
+                liveAgentIndex: liveAgentIndex
+            )
+            #expect(selection != nil, "Advertised harness \(choice.value) must remain actionable")
+            if target == .opencode {
+                #expect(selection?.requiresNativeForkCapability == false)
+            }
+        }
+    }
+
     @Test(arguments: [RestorableAgentKind.opencode, .hermesAgent])
     func providerWithoutCapturedStorageIdentityIsNotTransferable(
         kind: RestorableAgentKind
