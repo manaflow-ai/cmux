@@ -54,6 +54,22 @@ export function nextScrollbackRequest(window: ScrollbackWindow): ScrollbackReque
   return { start, count: Math.min(window.pageSize, window.total - start) };
 }
 
+export function refreshScrollbackRequest(
+  window: ScrollbackWindow,
+  total: number,
+): ScrollbackRequest | null {
+  const normalizedTotal = Math.max(0, total);
+  if (normalizedTotal === 0) return null;
+  const first = window.rows[0]?.row;
+  const last = window.rows.at(-1)?.row;
+  if (first === undefined || last === undefined) {
+    return latestScrollbackRequest({ ...window, total: normalizedTotal, rows: [] });
+  }
+  const count = Math.min(window.maxRows, normalizedTotal, Math.max(1, last - first + 1));
+  const start = Math.min(Math.max(0, first), normalizedTotal - count);
+  return { start, count };
+}
+
 export function reconcileScrollbackWindow(
   window: ScrollbackWindow,
   previousTotal: number,

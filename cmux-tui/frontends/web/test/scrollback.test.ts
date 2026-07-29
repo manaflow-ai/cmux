@@ -8,6 +8,7 @@ import {
   nextScrollbackRequest,
   previousScrollbackRequest,
   projectRenderGraphicsToRows,
+  refreshScrollbackRequest,
   reconcileScrollbackWindow,
   scrollbackAnchorDelta,
 } from "../src/lib/scrollback";
@@ -105,6 +106,13 @@ describe("scrollback window", () => {
     expect(reconciled.window.total).toBe(340);
     expect(scrollbackAnchorDelta(cached, reconciled.window, "previous")).toBe(0);
     expect(nextScrollbackRequest(reconciled.window)).toEqual({ start: 300, count: 40 });
+  });
+
+  it("refreshes the currently cached range without moving its anchor", () => {
+    const cached = mergeScrollbackPage(createScrollbackWindow(300, 100, 250), page(200, 300, 100));
+    const grown = reconcileScrollbackWindow(cached, 300, 340, false).window;
+
+    expect(refreshScrollbackRequest(grown, 340)).toEqual({ start: 200, count: 100 });
   });
 
   it("merges a page that observes growth before the render delta without dropping cached rows", () => {

@@ -31,8 +31,10 @@ import {
   mergeScrollbackPage,
   nextScrollbackRequest,
   previousScrollbackRequest,
+  refreshScrollbackRequest,
   reconcileScrollbackWindow,
   scrollbackAnchorDelta,
+  type ScrollbackRequest,
   type ScrollbackWindow,
 } from "../lib/scrollback";
 
@@ -118,6 +120,12 @@ interface RenderTerminalController {
   sendText(text: string, paste?: boolean): void;
 }
 
+interface HistoryLoadOptions {
+  preserveScrollAnchor?: boolean;
+  publishLoading?: boolean;
+  request?: ScrollbackRequest;
+}
+
 export function useRenderTerminal({
   client,
   surface,
@@ -150,6 +158,8 @@ export function useRenderTerminal({
     let cacheGeneration = 0;
     let historyActive = false;
     let historyLoading = false;
+    let historyRefreshPending = false;
+    let historyRefreshScheduled = false;
     let reportedFit: TerminalSize | null = null;
     let composing = false;
     let committedComposition: string | null = null;
@@ -256,6 +266,7 @@ export function useRenderTerminal({
     const returnToLive = () => {
       if (!historyActive) return;
       historyActive = false;
+      historyRefreshPending = false;
       publishHistory();
       scheduleAfterRender(() => {
         if (scroller !== null) scroller.scrollTop = scroller.scrollHeight;
@@ -276,24 +287,25 @@ export function useRenderTerminal({
     const resetHistoryCache = (total: number, publish = true) => {
       cacheGeneration += 1;
       historyLoading = false;
+      historyRefreshPending = false;
       cache = createScrollbackWindow(total);
       if (publish) publishHistory();
     };
     const loadHistoryPage = async (
       direction: "latest" | "previous" | "next",
-      publishLoading = true,
+      options: HistoryLoadOptions = {},
     ) => {
       if (cancelled || historyLoading) return;
-      const request = direction === "latest"
+      const request = options.request ?? (direction === "latest"
         ? latestScrollbackRequest(cache)
         : direction === "previous"
           ? previousScrollbackRequest(cache)
-          : nextScrollbackRequest(cache);
+          : nextScrollbackRequest(cache));
       if (request === null) return;
       const generation = cacheGeneration;
       const requestTotal = cache.total;
       historyLoading = true;
-      if (publishLoading) publishHistory();
+      if (options.publishLoading ?? true) publishHistory();
       try {
         const page = await client.readScrollback(surface, request.start, request.count);
         if (cancelled || generation !== cacheGeneration) return;
@@ -303,14 +315,16 @@ export function useRenderTerminal({
         const previousCache = cache;
         const anchorScrollTop = scroller?.scrollTop ?? 0;
         const nextCache = mergeScrollbackPage(previousCache, stablePage);
-        const anchorDelta = direction === "latest"
+        const anchorDelta = direction === "latest" || options.preserveScrollAnchor
           ? 0
           : scrollbackAnchorDelta(previousCache, nextCache, direction);
         cache = nextCache;
         publishHistory();
         scheduleAfterRender(() => {
           if (scroller === null) return;
-          if (direction === "latest") {
+          if (options.preserveScrollAnchor) {
+            scroller.scrollTop = anchorScrollTop;
+          } else if (direction === "latest") {
             scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight - metrics.height);
           } else {
             scroller.scrollTop = Math.max(0, anchorScrollTop + anchorDelta * metrics.height);
@@ -323,10 +337,35 @@ export function useRenderTerminal({
       } finally {
         if (!cancelled && generation === cacheGeneration) {
           historyLoading = false;
+          if (cache.epoch === currentModel?.historyEpoch) historyRefreshPending = false;
           publishHistory();
+          if (historyRefreshPending) requestHistoryEpochRefresh();
         }
       }
     };
+    function requestHistoryEpochRefresh() {
+      if (cancelled || !historyActive || currentModel === null) return;
+      historyRefreshPending = true;
+      if (historyLoading || historyRefreshScheduled) return;
+      historyRefreshScheduled = true;
+      queueMicrotask(() => {
+        historyRefreshScheduled = false;
+        if (cancelled || !historyActive || !historyRefreshPending || historyLoading
+          || currentModel === null) return;
+        if (cache.epoch === currentModel.historyEpoch) {
+          historyRefreshPending = false;
+          return;
+        }
+        const request = refreshScrollbackRequest(cache, currentModel.scrollbackRows);
+        historyRefreshPending = false;
+        if (request === null) return;
+        void loadHistoryPage("latest", {
+          preserveScrollAnchor: true,
+          publishLoading: false,
+          request,
+        });
+      });
+    }
     const enterHistory = () => {
       if (historyActive || (currentModel?.scrollbackRows ?? 0) === 0) return;
       const reachesLatest = cache.rows.at(-1)?.row === cache.total - 1;
@@ -546,11 +585,14 @@ export function useRenderTerminal({
               if (reconciliation.invalidated) {
                 cacheGeneration += 1;
                 historyLoading = false;
+                historyRefreshPending = false;
                 cache = reconciliation.window;
-                if (historyActive) void loadHistoryPage("latest", false);
+                if (historyActive) void loadHistoryPage("latest", { publishLoading: false });
               } else if (reconciliation.window !== cache) {
                 cache = reconciliation.window;
               }
+              if (!reconciliation.invalidated && historyActive
+                && cache.epoch !== nextModel.historyEpoch) requestHistoryEpochRefresh();
               applySurfaceBackground(nextModel.defaultBg);
               if (!historyActive) {
                 scheduleAfterRender(() => {
