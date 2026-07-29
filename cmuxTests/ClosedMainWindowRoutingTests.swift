@@ -438,6 +438,52 @@ struct ClosedMainWindowRoutingTests {
         #expect(workspaceC.panels.count == panelCountBeforeProjectOpen)
         #expect(managerC.selectedTabId == workspaceC.id)
 
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-closed-window-\(UUID().uuidString).txt"
+        )
+        try Data("closed-window".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let panelCountBeforeFileOpen = workspaceC.panels.count
+        let fileOpenResult = TerminalController.shared.withSocketCommandPolicy(
+            commandKey: "file.open",
+            isV2: true,
+            params: ["focus": true]
+        ) {
+            TerminalController.shared.v2FileOpen(params: [
+                "window_id": windowCId.uuidString,
+                "workspace_id": workspaceC.id.uuidString,
+                "path": [fileURL.path],
+                "focus": true,
+            ])
+        }
+        if case .ok = fileOpenResult {
+            Issue.record("Rejected window focus still opened a file surface")
+        }
+        #expect(workspaceC.panels.count == panelCountBeforeFileOpen)
+        #expect(managerC.selectedTabId == workspaceC.id)
+
+        let globalSearchWorkspace = unselectedWorkspaceC
+        let globalSearchPanel = try #require(globalSearchWorkspace.focusedTerminalPanel)
+        app.openGlobalSearchHit(
+            SearchIndexHit(
+                id: "closed-window-hit",
+                windowID: windowCId,
+                workspaceID: globalSearchWorkspace.id,
+                panelID: globalSearchPanel.id,
+                kind: .title,
+                title: "Unavailable target",
+                location: "Unavailable target",
+                anchor: "",
+                snippet: "needle",
+                rank: 0,
+                timestamp: Date(timeIntervalSince1970: 0)
+            ),
+            query: "needle"
+        )
+        #expect(managerC.selectedTabId == workspaceC.id)
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+
         #expect(!app.workspaceMoveTargets(
             excludingWorkspaceId: workspaceA.id,
             referenceWindowId: windowAId

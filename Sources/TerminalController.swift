@@ -265,6 +265,7 @@ class TerminalController {
 
     private nonisolated static let focusIntentV2Methods: Set<String> = [
         "window.focus",
+        "project.open",
         "workspace.select",
         "workspace.next",
         "workspace.previous",
@@ -466,12 +467,6 @@ class TerminalController {
         requested && socketCommandAllowsInAppFocusMutations()
     }
 
-    @discardableResult
-    func v2MaybeFocusWindow(for tabManager: TabManager) -> Bool {
-        guard socketCommandAllowsInAppFocusMutations() else { return true }
-        return controlFocusWindow(for: tabManager)
-    }
-
     func controlFocusWindow(for tabManager: TabManager) -> Bool {
         guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return true }
         guard AppDelegate.shared?.focusMainWindow(windowId: windowId) == true else {
@@ -479,6 +474,11 @@ class TerminalController {
         }
         setActiveTabManager(tabManager)
         return true
+    }
+
+    func controlWorkspaceMutationTargetIsAvailable(_ tabManager: TabManager) -> Bool {
+        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return true }
+        return AppDelegate.shared?.isMainWindowAvailableForMutation(windowId: windowId) == true
     }
 
     func controlPrepareWorkspaceFocus(_ tabManager: TabManager, workspace: Workspace) -> Bool {
@@ -489,16 +489,14 @@ class TerminalController {
         return true
     }
 
-    func v2MaybeSelectWorkspace(_ tabManager: TabManager, workspace: Workspace) {
-        guard socketCommandAllowsInAppFocusMutations() else { return }
-        if tabManager.selectedTabId != workspace.id {
-            tabManager.selectWorkspace(workspace)
-        }
-    }
-
-    func v2PrepareWorkspaceMutation(_ tabManager: TabManager, workspace: Workspace) -> Bool {
-        guard v2MaybeFocusWindow(for: tabManager) else { return false }
-        v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+    func v2PrepareWorkspaceMutation(
+        _ tabManager: TabManager,
+        workspace: Workspace,
+        requestedFocus: Bool = true
+    ) -> Bool {
+        guard controlWorkspaceMutationTargetIsAvailable(tabManager) else { return false }
+        guard v2FocusAllowed(requested: requestedFocus) else { return true }
+        guard controlPrepareWorkspaceFocus(tabManager, workspace: workspace) else { return false }
         return true
     }
 

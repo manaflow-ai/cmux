@@ -5831,6 +5831,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
+    func isMainWindowAvailableForMutation(windowId: UUID) -> Bool {
+        guard let window = windowForMainWindowId(windowId) else { return false }
+        return mainWindowVisibilityController.isWindowAvailableForMutation(
+            window,
+            reason: .focusMainWindow
+        )
+    }
+
     func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
         if !recordHistory {

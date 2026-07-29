@@ -125,15 +125,20 @@ extension TerminalController {
             remotePTYSessionID: inputs.remotePTYSessionID
         ) + inputs.clientUnsupportedRemoteTmuxOptions
         guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
-        guard v2PrepareWorkspaceMutation(tabManager, workspace: workspace) else {
+        guard controlWorkspaceMutationTargetIsAvailable(tabManager) else {
             return .tabManagerUnavailable
         }
+        let shouldFocus = v2FocusAllowed(requested: inputs.requestedFocus)
         let focusIntent = remoteTmuxSplitFocusIntent(requested: inputs.requestedFocus)
         guard location.requestSplit(
             vertical: direction.orientation == .vertical,
             focusIntent: focusIntent
         ) else {
             return .createFailed
+        }
+        if shouldFocus,
+           !controlPrepareWorkspaceFocus(tabManager, workspace: workspace) {
+            return .tabManagerUnavailable
         }
         return .routedToRemote(
             windowID: v2ResolveWindowId(tabManager: tabManager),
@@ -171,15 +176,20 @@ extension TerminalController {
             remotePTYSessionID: inputs.remotePTYSessionID
         )
         guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
-        guard v2PrepareWorkspaceMutation(tabManager, workspace: workspace) else {
+        guard controlWorkspaceMutationTargetIsAvailable(tabManager) else {
             return .tabManagerUnavailable
         }
+        let shouldFocus = v2FocusAllowed(requested: inputs.requestedFocus)
         let routed = AppDelegate.shared?.remoteTmuxController.handleMirrorNewTabRequested(
             workspaceId: workspace.id,
             targetPaneId: location.pane.tmuxPaneID,
-            focus: v2FocusAllowed(requested: inputs.requestedFocus)
+            focus: shouldFocus
         ) ?? false
         guard routed else { return .createFailed }
+        if shouldFocus,
+           !controlPrepareWorkspaceFocus(tabManager, workspace: workspace) {
+            return .tabManagerUnavailable
+        }
         return .routedToRemote(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: workspace.id,
@@ -217,10 +227,8 @@ extension TerminalController {
         }
         let targetSurfaceID = location.pane.panel.id
         let shouldFocus = inputs.hasFocusParam && v2FocusAllowed(requested: inputs.requestedFocus)
-        if shouldFocus {
-            guard v2PrepareWorkspaceMutation(tabManager, workspace: workspace) else {
-                return .tabManagerUnavailable
-            }
+        guard controlWorkspaceMutationTargetIsAvailable(tabManager) else {
+            return .tabManagerUnavailable
         }
         guard location.requestRespawn(
             command: inputs.command,
@@ -229,6 +237,9 @@ extension TerminalController {
             return .respawnFailed(targetSurfaceID)
         }
         if shouldFocus {
+            guard controlPrepareWorkspaceFocus(tabManager, workspace: workspace) else {
+                return .tabManagerUnavailable
+            }
             _ = focusRemoteTmuxControlPane(location, workspace: workspace, tabManager: tabManager)
         }
         return .respawned(

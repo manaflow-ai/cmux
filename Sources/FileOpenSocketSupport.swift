@@ -99,9 +99,13 @@ extension TerminalController {
                 return
             }
 
-            if shouldFocus {
-                v2MaybeFocusWindow(for: tabManager)
-                v2MaybeSelectWorkspace(tabManager, workspace: ws)
+            guard v2PrepareWorkspaceMutation(
+                tabManager,
+                workspace: ws,
+                requestedFocus: shouldFocus
+            ) else {
+                result = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                return
             }
 
             let requestedPaneUUID = v2UUID(params, "pane_id")
