@@ -2,13 +2,16 @@ import Foundation
 
 /// Describes the process exit status and retry policy for an SSH PTY attach.
 ///
-/// Status 252 has a bounded consecutive-failure budget, while statuses 254
-/// and 255 use the general reconnect budget.
+/// Status 252 has a bounded consecutive-failure budget, while statuses 251,
+/// 254, and 255 use the general reconnect budget.
 public enum SSHPTYAttachExitCode: Int32 {
     private static let healthyBridgeUptime: Double = 30
 
     /// A non-retryable attach failure.
     case fatal = 1
+
+    /// Temporary daemon-side admission pressure that should retry without reauthentication.
+    case retryableWithoutReauthentication = 251
 
     /// A rapidly closed bridge that produced no remote PTY output.
     case bridgeClosedWithoutProgress = 252
@@ -27,7 +30,9 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// Failures with these statuses keep app-side surface tracking intact
     /// because the wrapper immediately reattaches on the same surface.
     public var isWrapperRetryable: Bool {
-        self == .bridgeClosedSessionRunning || self == .retryableTransient
+        self == .retryableWithoutReauthentication ||
+            self == .bridgeClosedSessionRunning ||
+            self == .retryableTransient
     }
 
     /// Determines whether a bridge closed before demonstrating useful progress.
@@ -68,6 +73,7 @@ public enum SSHPTYAttachExitCode: Int32 {
             localized: "cli.sshPtyAttach.bridgeClosedReattaching",
             defaultValue: "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s)."
         ).remoteCommandShellQuoted
+        let retryWithoutReauthenticationStatus = retryableWithoutReauthentication.rawValue
         let sessionRunningStatus = bridgeClosedSessionRunning.rawValue
         let transientStatus = retryableTransient.rawValue
 
@@ -96,6 +102,7 @@ public enum SSHPTYAttachExitCode: Int32 {
             "  cmux_ssh_attach_status=$?",
             "  case \"$cmux_ssh_attach_status\" in",
             "    \(noProgressPolicy.status)) cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1)); cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\"; \(noProgressPolicy.limitReachedCommand) ;;",
+            "    \(retryWithoutReauthenticationStatus)) cmux_ssh_attach_no_progress_retry=0 ;;",
             "    \(sessionRunningStatus)) cmux_ssh_attach_no_progress_retry=0; cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;;",
             "    \(transientStatus)) cmux_ssh_attach_no_progress_retry=0; \(reauthenticate) ;;",
             "    *) exit \"$cmux_ssh_attach_status\" ;;",
@@ -114,7 +121,7 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// general reconnect and foreground-authentication policy.
     ///
     /// Status 252 is consumed until its health budget is exhausted. All other
-    /// statuses, including 254 and 255, return unchanged to the enclosing
+    /// statuses, including 251, 254, and 255, return unchanged to the enclosing
     /// wrapper so its existing reconnect and reauthentication behavior remains
     /// the single owner of those transitions.
     ///
@@ -186,7 +193,7 @@ public enum SSHPTYAttachExitCode: Int32 {
             return .fatal
         }
         if normalizedCode == "unavailable" {
-            return .retryableTransient
+            return .retryableWithoutReauthentication
         }
         let rawDescription = [normalizedCode, message]
             .compactMap { $0 }

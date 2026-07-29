@@ -90,28 +90,30 @@ type wsPTYLease = wsLease
 type wsPTYAuthFrame = wsAuthFrame
 
 var (
-	errWSLeaseMissing            = errors.New("attach lease missing")
-	errWSLeaseExpired            = errors.New("attach lease expired")
-	errWSLeaseForbidden          = errors.New("attach lease rejected")
-	errWSPTYHubClosed            = errors.New("PTY hub is closed")
-	errWSPTYStartOwnersSaturated = errors.New("too many PTY sessions are already starting")
-	wsLeaseMu                    sync.Mutex
+	errWSLeaseMissing             = errors.New("attach lease missing")
+	errWSLeaseExpired             = errors.New("attach lease expired")
+	errWSLeaseForbidden           = errors.New("attach lease rejected")
+	errWSPTYHubClosed             = errors.New("PTY hub is closed")
+	errWSPTYStartOwnersSaturated  = errors.New("too many PTY sessions are already starting")
+	errWSPTYStartWaitersSaturated = errors.New("too many PTY session starts are already being awaited")
+	wsLeaseMu                     sync.Mutex
 )
 
 const (
-	defaultPTYCols                           = 80
-	defaultPTYRows                           = 24
-	maxPTYDimension                          = 65535
-	defaultWebSocketScrollbackCap            = 1 << 20
-	defaultWebSocketReplayChunkBytes         = 48 * 1024
-	defaultWebSocketWriteQueueCap            = 256
-	defaultPTYInputQueueCap                  = 256
-	defaultPTYInputChunkBytes                = 16 * 1024
-	defaultWebSocketWriteTimeout             = 10 * time.Second
-	defaultWebSocketSessionIdleTTL           = 24 * time.Hour
-	defaultPTYExitDrainTimeout               = time.Second
-	maxConcurrentPTYSessionStartOwnersPerHub = 16
-	standardExecutablePath                   = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+	defaultPTYCols                            = 80
+	defaultPTYRows                            = 24
+	maxPTYDimension                           = 65535
+	defaultWebSocketScrollbackCap             = 1 << 20
+	defaultWebSocketReplayChunkBytes          = 48 * 1024
+	defaultWebSocketWriteQueueCap             = 256
+	defaultPTYInputQueueCap                   = 256
+	defaultPTYInputChunkBytes                 = 16 * 1024
+	defaultWebSocketWriteTimeout              = 10 * time.Second
+	defaultWebSocketSessionIdleTTL            = 24 * time.Hour
+	defaultPTYExitDrainTimeout                = time.Second
+	maxConcurrentPTYSessionStartOwnersPerHub  = 16
+	maxConcurrentPTYSessionStartWaitersPerHub = 64
+	standardExecutablePath                    = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 )
 
 type wsPTYOutgoingFrame struct {
@@ -235,14 +237,18 @@ type wsPTYHub struct {
 	// PTY startup is not context-cancellable once inside the operating system,
 	// so bound the number of start owners that can survive client teardown.
 	sessionStartSlots chan struct{}
-	closed            bool
-	closedCh          chan struct{}
-	nextAttachmentID  uint64
-	nextAnonymousID   uint64
-	shell             string
-	stderr            io.Writer
-	scrollbackLimit   int
-	sessionIdleTTL    time.Duration
+	// Multiple RPC connections share one persistent hub. Bound joiners here,
+	// rather than only per connection, so one stalled same-session start cannot
+	// retain unbounded goroutines across reconnect churn.
+	sessionStartWaiterSlots chan struct{}
+	closed                  bool
+	closedCh                chan struct{}
+	nextAttachmentID        uint64
+	nextAnonymousID         uint64
+	shell                   string
+	stderr                  io.Writer
+	scrollbackLimit         int
+	sessionIdleTTL          time.Duration
 	// openPTY allocates a PTY master/slave pair. It defaults to creack/pty.Open
 	// (which opens /dev/ptmx) and exists as a field so tests can simulate a
 	// hardened devpts where allocation is denied.
@@ -263,15 +269,16 @@ func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 		idleTTL = defaultWebSocketSessionIdleTTL
 	}
 	return &wsPTYHub{
-		sessions:          map[wsPTYSessionKey]*wsPTYSession{},
-		startingSessions:  map[wsPTYSessionKey]*wsPTYSessionStart{},
-		sessionStartSlots: make(chan struct{}, maxConcurrentPTYSessionStartOwnersPerHub),
-		closedCh:          make(chan struct{}),
-		shell:             strings.TrimSpace(cfg.Shell),
-		stderr:            stderr,
-		scrollbackLimit:   limit,
-		sessionIdleTTL:    idleTTL,
-		openPTY:           pty.Open,
+		sessions:                map[wsPTYSessionKey]*wsPTYSession{},
+		startingSessions:        map[wsPTYSessionKey]*wsPTYSessionStart{},
+		sessionStartSlots:       make(chan struct{}, maxConcurrentPTYSessionStartOwnersPerHub),
+		sessionStartWaiterSlots: make(chan struct{}, maxConcurrentPTYSessionStartWaitersPerHub),
+		closedCh:                make(chan struct{}),
+		shell:                   strings.TrimSpace(cfg.Shell),
+		stderr:                  stderr,
+		scrollbackLimit:         limit,
+		sessionIdleTTL:          idleTTL,
+		openPTY:                 pty.Open,
 	}
 }
 
@@ -978,6 +985,12 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 			break
 		}
 		if start := h.startingSessions[sessionKey]; start != nil {
+			select {
+			case h.sessionStartWaiterSlots <- struct{}{}:
+			default:
+				h.mu.Unlock()
+				return nil, nil, nil, errWSPTYStartWaitersSaturated
+			}
 			start.waiters++
 			if reservationReady != nil {
 				reservationReady()
@@ -986,12 +999,14 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 			h.mu.Unlock()
 			select {
 			case <-start.done:
+				<-h.sessionStartWaiterSlots
 				if start.err != nil {
 					return nil, nil, nil, start.err
 				}
 				claimedSession = start.session
 				ownsInitialClaim = claimedSession != nil
 			case <-closedCh:
+				<-h.sessionStartWaiterSlots
 				h.mu.Lock()
 				if start.session != nil {
 					h.releaseInitialClaimLocked(start.session)
@@ -1001,6 +1016,7 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 				h.mu.Unlock()
 				return nil, nil, nil, errWSPTYHubClosed
 			case <-ctx.Done():
+				<-h.sessionStartWaiterSlots
 				h.mu.Lock()
 				if start.session != nil {
 					h.releaseInitialClaimLocked(start.session)
@@ -1052,6 +1068,10 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 			case existingSession != nil && !existingSession.closed:
 				discardStartedSession = true
 			default:
+				// A completed persistent generation deliberately survives a
+				// transport gap when a counted joiner is canceled concurrently.
+				// Its initial claim is released by that joiner and the ordinary
+				// idle reaper bounds retention until the wrapper reconnects.
 				startedSession.initialClaims = start.waiters
 				if ownerContextErr == nil {
 					startedSession.initialClaims++
@@ -1180,6 +1200,9 @@ func (h *wsPTYHub) releaseInitialClaimLocked(session *wsPTYSession) {
 	}
 	session.initialClaims--
 	h.activateInitialSessionIfReadyLocked(session)
+	// An awaiting persistent generation with no attachments is intentionally
+	// retained for reconnect and bounded by its idle timer. Only a generation
+	// that already exited before any claimant attached is removed immediately.
 	if session.initialClaims != 0 ||
 		session.initialPhase != wsPTYSessionFinishedBeforeInitialAttachment ||
 		h.sessions[session.key] != session {

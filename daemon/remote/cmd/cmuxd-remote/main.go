@@ -2352,7 +2352,8 @@ func ptyAttachErrorMessage(err error) string {
 }
 
 func ptyAttachErrorCode(err error, requireExisting bool) string {
-	if errors.Is(err, errWSPTYStartOwnersSaturated) {
+	if errors.Is(err, errWSPTYStartOwnersSaturated) ||
+		errors.Is(err, errWSPTYStartWaitersSaturated) {
 		return "unavailable"
 	}
 	if requireExisting {
