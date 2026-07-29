@@ -277,7 +277,8 @@ public struct CMUXMobileRootScene: View {
             backup: client,
             teamIDProvider: { await coordinator.resolvedTeamID },
             restoreBoundary: restoreBoundary,
-            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore()
+            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore(),
+            backupTeamStore: UserDefaultsPairedMacBackupTeamStore()
         )
     }
 

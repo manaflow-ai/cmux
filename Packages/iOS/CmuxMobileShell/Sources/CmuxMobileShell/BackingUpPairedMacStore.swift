@@ -37,6 +37,11 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     var lastSignedInAccount: String?
     private let restoreBoundary: PairedMacRestoreBoundary
     private let pendingDeleteStore: any PairedMacPendingDeleteStoring
+    /// Server-verified backup team per pairing (see ``PairedMacBackupTeamStoring``):
+    /// where each record's backup actually lives, learned from the upload echo,
+    /// so its delete tombstone can be routed there instead of re-resolving a
+    /// nil team at delete time.
+    private let backupTeamStore: any PairedMacBackupTeamStoring
     private var pendingDeleteIDsByScope: [String: Set<String>] = [:]
     /// Bumped by every `removeAll()` (sign-out wipe). A restore captures it before
     /// awaiting its task and re-checks after: a restore that completed/resumed
@@ -51,13 +56,20 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         backup: any PairedMacBackingUp,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         restoreBoundary: PairedMacRestoreBoundary = PairedMacRestoreBoundary(),
-        pendingDeleteStore: any PairedMacPendingDeleteStoring = InMemoryPairedMacPendingDeleteStore()
+        pendingDeleteStore: any PairedMacPendingDeleteStoring = InMemoryPairedMacPendingDeleteStore(),
+        backupTeamStore: any PairedMacBackupTeamStoring = InMemoryPairedMacBackupTeamStore()
     ) {
         self.inner = inner
         self.backup = backup
         self.teamIDProvider = teamIDProvider
         self.restoreBoundary = restoreBoundary
         self.pendingDeleteStore = pendingDeleteStore
+        self.backupTeamStore = backupTeamStore
+    }
+
+    /// Mapping key for one pairing's server-verified backup team.
+    private func backupTeamKey(account: String, pairingID: String) -> String {
+        "\(account)\u{0}\(pairingID)"
     }
 
     /// Upsert a paired Mac locally, then mirror the changed backup records.
@@ -690,7 +702,28 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 instanceAuthority: instanceAuthority
             )
         }
-        return await backup.upload(ops: [op], teamID: team, expectedUserID: account)
+        let outcome = await backup.uploadReportingResolvedTeam(
+            ops: [op],
+            teamID: team,
+            expectedUserID: account
+        )
+        // Remember where the server SAID it stored this record. A nil-team
+        // upload is resolved server-side, and that resolution can drift by the
+        // time the record is forgotten; the persisted echo lets the delete
+        // tombstone route to the backup the record actually lives in.
+        if outcome.succeeded, let resolvedTeamID = outcome.resolvedTeamID {
+            await backupTeamStore.save(
+                resolvedTeamID,
+                key: backupTeamKey(
+                    account: account,
+                    pairingID: MobilePairedMac.pairingID(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    )
+                )
+            )
+        }
+        return outcome.succeeded
     }
 
     /// Run the backup restore once per signed-in (account, team) scope this
@@ -824,23 +857,53 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         }
     }
 
+    /// Flush the scope's pending delete tombstones, each to the team its
+    /// record's backup was last stored under (the persisted upload echo),
+    /// falling back to the scope's own team when no echo was recorded. Ids are
+    /// grouped by destination so one request serves each backup; a failed
+    /// group keeps its ids pending for the next flush. A flushed pairing's
+    /// mapping is dropped — its backup record is gone, so there is nothing
+    /// left to route to. Returns the ids still pending.
     @discardableResult
     private func flushPendingDeletes(scope: String, account: String, teamID: String?) async -> Set<String> {
         let ids = await pendingDeleteIDs(scope: scope)
         guard !ids.isEmpty else { return ids }
-        let ops = ids.sorted().map { pairingID -> PairedMacBackupOp in
-            let identity = MobilePairedMac.pairingIdentity(from: pairingID)
-            if let instanceTag = identity.instanceTag {
-                return .deleteInstance(
-                    macDeviceID: identity.macDeviceID,
-                    instanceTag: instanceTag
+        // Team ids are never empty strings (the scope key relies on the same
+        // invariant), so "" is a safe marker for "no team" in the group key.
+        var groups: [String: [String]] = [:]
+        for pairingID in ids.sorted() {
+            let mapped = await backupTeamStore.load(
+                key: backupTeamKey(account: account, pairingID: pairingID)
+            )
+            groups[mapped ?? teamID ?? "", default: []].append(pairingID)
+        }
+        var remaining = ids
+        for (destinationKey, pairingIDs) in groups {
+            let destination = destinationKey.isEmpty ? nil : destinationKey
+            let ops = pairingIDs.map { pairingID -> PairedMacBackupOp in
+                let identity = MobilePairedMac.pairingIdentity(from: pairingID)
+                if let instanceTag = identity.instanceTag {
+                    return .deleteInstance(
+                        macDeviceID: identity.macDeviceID,
+                        instanceTag: instanceTag
+                    )
+                }
+                return .delete(macDeviceID: identity.macDeviceID)
+            }
+            guard await backup.upload(
+                ops: ops,
+                teamID: destination,
+                expectedUserID: account
+            ) else { continue }
+            remaining.subtract(pairingIDs)
+            for pairingID in pairingIDs {
+                await backupTeamStore.remove(
+                    key: backupTeamKey(account: account, pairingID: pairingID)
                 )
             }
-            return .delete(macDeviceID: identity.macDeviceID)
         }
-        guard await backup.upload(ops: ops, teamID: teamID, expectedUserID: account) else { return ids }
-        await savePendingDeleteIDs([], scope: scope)
-        return []
+        await savePendingDeleteIDs(remaining, scope: scope)
+        return remaining
     }
 
 }
