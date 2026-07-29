@@ -19,22 +19,26 @@ IOS_PATHS = (
     "scripts/validate-xcframework-archive.py",
     ".github/workflows/ios-testflight.yml",
 )
-DEMO_VARIANT_GUARD = (
-    "github.event_name == 'workflow_dispatch' "
-    "&& github.event.inputs.variant == 'demo'"
+IOS_SCHEDULES = (
+    "7 * * * *",
+    "37 5,17 * * *",
 )
+RESOLVED_DEMO_VARIANT_GUARD = "needs.decide.outputs.variant == 'demo'"
 MARKETING_OVERRIDE_GUARD = "github.event.inputs.marketing_version_override != ''"
 
 
 def variant_choice(demo: str, internal: str) -> str:
-    return f"${{{{ {DEMO_VARIANT_GUARD} && '{demo}' || '{internal}' }}}}"
+    return (
+        f"${{{{ {RESOLVED_DEMO_VARIANT_GUARD} "
+        f"&& '{demo}' || '{internal}' }}}}"
+    )
 
 
 def summary_choice(external: str, demo: str, internal: str) -> str:
     return (
         "${{ "
         f"{MARKETING_OVERRIDE_GUARD} && '{external}' "
-        f"|| {DEMO_VARIANT_GUARD} && '{demo}' "
+        f"|| {RESOLVED_DEMO_VARIANT_GUARD} && '{demo}' "
         f"|| '{internal}' }}"
     )
 
@@ -82,34 +86,60 @@ def mapping_keys(text: str, indent: int) -> tuple[str, ...]:
     return tuple(keys)
 
 
-def sequence_values(text: str, key: str, indent: int) -> tuple[str, ...]:
-    marker = f"{' ' * indent}{key}:\n"
-    assert marker in text, f"missing {key} sequence"
-    lines = text[text.index(marker) + len(marker) :].splitlines()
-    item_prefix = f"{' ' * (indent + 2)}- "
+def sequence_mapping_values(
+    text: str,
+    key: str,
+    indent: int,
+) -> tuple[str, ...]:
+    item_prefix = f"{' ' * indent}- {key}: "
     values = []
-    for line in lines:
+    for line in text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        line_indent = len(line) - len(line.lstrip())
-        if line_indent <= indent:
-            break
-        assert line.startswith(item_prefix), f"invalid {key} item: {line}"
+        if not line.startswith(item_prefix):
+            continue
         parsed = shlex.split(line.removeprefix(item_prefix), comments=True)
         assert len(parsed) == 1, f"invalid {key} value: {line}"
         values.append(parsed[0])
     return tuple(values)
 
 
-def test_main_push_triggers_only_for_ios_affecting_paths() -> None:
+def javascript_string_array(text: str, name: str) -> tuple[str, ...]:
+    marker = f"const {name} = ["
+    assert marker in text, f"missing {name} array"
+    block = text.split(marker, 1)[1].split("];", 1)[0]
+    values = []
+    for line in block.splitlines():
+        value = line.strip()
+        if not value or value.startswith("//"):
+            continue
+        assert value.endswith(","), f"invalid {name} item: {line}"
+        parsed = shlex.split(value.removesuffix(","), comments=True)
+        assert len(parsed) == 1, f"invalid {name} value: {line}"
+        values.append(parsed[0])
+    return tuple(values)
+
+
+def test_scheduled_uploads_filter_for_ios_affecting_main_changes() -> None:
     text = workflow_text()
     triggers = trigger_block(text)
-    push = mapping_block(triggers, "push", indent=2)
+    schedule = mapping_block(triggers, "schedule", indent=2)
+    expected_workflow_paths = tuple(
+        path.removesuffix("**") for path in IOS_PATHS
+    )
 
-    assert mapping_keys(triggers, indent=2) == ("push", "workflow_dispatch")
-    assert sequence_values(push, "branches", indent=4) == ("main",)
-    assert sequence_values(push, "paths", indent=4) == IOS_PATHS
-    assert "context.eventName === 'push' || context.eventName === 'workflow_dispatch'" in text
+    assert mapping_keys(triggers, indent=2) == (
+        "schedule",
+        "workflow_dispatch",
+    )
+    assert sequence_mapping_values(schedule, "cron", indent=4) == IOS_SCHEDULES
+    assert (
+        javascript_string_array(text, "iosRelevantPaths")
+        == expected_workflow_paths
+    )
+    assert "let shouldBuild = true;" in text
+    assert "if (context.eventName === 'schedule')" in text
+    assert "github.rest.repos.compareCommits" in text
 
 
 def test_mapping_keys_normalizes_quoted_yaml_keys() -> None:
@@ -139,16 +169,15 @@ def test_testflight_notes_use_the_same_ios_path_contract() -> None:
     assert notes_paths == expected_notes_paths
 
 
-def test_main_push_runs_are_preserved_and_uploaded_in_order() -> None:
+def test_scheduled_and_manual_runs_are_preserved_and_uploaded_in_order() -> None:
     text = workflow_text()
 
-    assert (
-        "group: ios-testflight-${{ github.event_name == 'push' && github.sha || github.run_id }}"
-        in text
-    )
+    assert "group: ios-testflight-${{ github.run_id }}" in text
+    assert "github.event_name == 'push' && github.sha" not in text
     assert "group: ios-testflight-${{ github.ref_name }}" not in text
     assert "cancel-in-progress: false" in text
     assert "Number(run.id) < currentRunId" in text
+    assert "['push', 'schedule', 'workflow_dispatch'].includes(run.event)" in text
     assert "uploadJob.status !== 'completed'" in text
     assert "could not inspect earlier TestFlight runs; retrying" in text
     assert "ios-testflight-assignment-state-complete" not in text
@@ -157,6 +186,7 @@ def test_main_push_runs_are_preserved_and_uploaded_in_order() -> None:
 
 def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     text = workflow_text()
+    decide = mapping_block(text, "decide", indent=2)
     upload = mapping_block(text, "upload", indent=2)
     assignment = mapping_block(text, "assign-internal-group", indent=2)
 
@@ -164,11 +194,18 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     display_name_choice = variant_choice("cmux DEMO", "cmux INTERNAL")
     group_choice = (
         "${{ "
-        f"{DEMO_VARIANT_GUARD} "
+        f"{RESOLVED_DEMO_VARIANT_GUARD} "
         "&& 'dd5c5cde-05a6-44e5-bd71-c2ec08a3ebfe' "
         "|| vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}"
     )
 
+    assert "context.payload?.inputs?.variant === 'demo'" in decide
+    assert (
+        "context.eventName === 'schedule' "
+        "&& context.payload?.schedule === demoCron"
+        in decide
+    )
+    assert "core.setOutput('variant', variant)" in decide
     assert upload.count(f"IOS_BETA_BUNDLE_ID: {bundle_choice}") == 2
     assert upload.count(f"IOS_BETA_DISPLAY_NAME: {display_name_choice}") == 2
     assert (
@@ -196,7 +233,7 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
         f"{override_choice('Beta App Review may be required', 'no beta review needed')}"
         in upload
     )
-    assert f"if: {DEMO_VARIANT_GUARD}" in upload
+    assert f"if: {RESOLVED_DEMO_VARIANT_GUARD}" in upload
     assert (
         'echo "- lane: \\`beta\\` '
         '(bundle id \\`${UPLOAD_BUNDLE_ID}\\`, ${UPLOAD_AUDIENCE})"'
@@ -219,9 +256,9 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
 
 
 if __name__ == "__main__":
-    test_main_push_triggers_only_for_ios_affecting_paths()
+    test_scheduled_uploads_filter_for_ios_affecting_main_changes()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
-    test_main_push_runs_are_preserved_and_uploaded_in_order()
+    test_scheduled_and_manual_runs_are_preserved_and_uploaded_in_order()
     test_automatic_lane_stays_on_cmux_internal_identity()
-    print("all iOS TestFlight main-push filter tests passed")
+    print("all iOS TestFlight scheduling tests passed")
