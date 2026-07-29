@@ -22,7 +22,7 @@ fi
 fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-ghostty-zig-version.XXXXXX")"
 trap 'rm -rf "$fixture_dir"' EXIT
 fixture="$fixture_dir/build.zig.zon"
-printf '.{ .minimum_zig_version = "99.1.2", }\n' > "$fixture"
+printf '.{\n    .minimum_zig_version = "99.1.2",\n}\n' > "$fixture"
 fixture_actual="$(GHOSTTY_ZIG_MANIFEST="$fixture" "$RESOLVER")"
 if [[ "$fixture_actual" != "99.1.2" ]]; then
   echo "FAIL: resolver ignored the supplied manifest" >&2

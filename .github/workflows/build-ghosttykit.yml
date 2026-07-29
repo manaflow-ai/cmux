@@ -87,13 +87,7 @@ jobs:
 
       - name: Install zig
         if: steps.check-release.outputs.exists == 'false'
-        run: |
-          set -euo pipefail
-          ZIG_REQUIRED="$(
-            awk -F '"' '/minimum_zig_version/ { print $2; exit }' ghostty/build.zig.zon
-          )"
-          test -n "$ZIG_REQUIRED"
-          ZIG_REQUIRED="$ZIG_REQUIRED" ./scripts/install-zig-ci.sh
+        run: ./scripts/install-zig-ci.sh
 
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false'
