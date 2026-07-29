@@ -293,7 +293,12 @@ extension RemoteDaemonRPCClient {
             throw error
         }
 
-        return try waitForCall(pendingCall, method: method, timeout: timeout)
+        return try waitForCall(
+            pendingCall,
+            method: method,
+            params: params,
+            timeout: timeout
+        )
     }
 
     /// Sends an RPC only when the transport has no unanswered application
@@ -322,12 +327,18 @@ extension RemoteDaemonRPCClient {
         }
 
         guard let admittedCall else { return nil }
-        return try waitForCall(admittedCall, method: method, timeout: timeout)
+        return try waitForCall(
+            admittedCall,
+            method: method,
+            params: params,
+            timeout: timeout
+        )
     }
 
     private func waitForCall(
         _ pendingCall: RemoteDaemonPendingCallRegistry.PendingCall,
         method: String,
+        params: [String: Any],
         timeout: TimeInterval
     ) throws -> [String: Any] {
         let response: [String: Any]
@@ -337,7 +348,12 @@ extension RemoteDaemonRPCClient {
             // PTY allocation can block inside the operating system. Its
             // deadline removes only this pending call; it is not evidence
             // that the shared transport or existing PTY subscriptions died.
-            if method != "pty.attach" {
+            if method == "pty.attach" {
+                sendPTYAttachCancellation(
+                    requestID: pendingCall.id,
+                    attachParams: params
+                )
+            } else {
                 stop(suppressTerminationCallback: false)
             }
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 11, userInfo: [
@@ -367,6 +383,22 @@ extension RemoteDaemonRPCClient {
             NSLocalizedDescriptionKey: "\(method) failed (\(code)): \(message)",
             Self.rpcErrorCodeUserInfoKey: code,
         ])
+    }
+
+    private func sendPTYAttachCancellation(
+        requestID: Int,
+        attachParams: [String: Any]
+    ) {
+        var cancellationParams: [String: Any] = ["request_id": requestID]
+        for key in ["session_id", "attachment_id", "client_attachment_token"] {
+            if let value = attachParams[key] as? String {
+                cancellationParams[key] = value
+            }
+        }
+        try? notify(
+            method: "pty.attach.cancel",
+            params: cancellationParams
+        )
     }
 
     func notify(method: String, params: [String: Any]) throws {

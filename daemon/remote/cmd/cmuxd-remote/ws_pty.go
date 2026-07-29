@@ -854,6 +854,7 @@ func (h *wsPTYHub) attachRPC(
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	return h.attachRPCWithReservation(
 		ctx,
+		ctx,
 		sessionID,
 		attachmentID,
 		cols,
@@ -867,7 +868,8 @@ func (h *wsPTYHub) attachRPC(
 }
 
 func (h *wsPTYHub) attachRPCWithReservation(
-	ctx context.Context,
+	operationCtx context.Context,
+	attachmentLifetimeCtx context.Context,
 	sessionID string,
 	attachmentID string,
 	cols int,
@@ -885,7 +887,8 @@ func (h *wsPTYHub) attachRPCWithReservation(
 	attachmentID = strings.TrimSpace(attachmentID)
 	cols, rows = normalizePTYSize(cols, rows)
 	return h.prepareAttachmentWithReservation(
-		ctx,
+		operationCtx,
+		attachmentLifetimeCtx,
 		nil,
 		sessionID,
 		attachmentID,
@@ -915,6 +918,7 @@ func (h *wsPTYHub) prepareAttachment(
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	return h.prepareAttachmentWithReservation(
 		ctx,
+		ctx,
 		conn,
 		sessionID,
 		attachmentID,
@@ -930,7 +934,8 @@ func (h *wsPTYHub) prepareAttachment(
 }
 
 func (h *wsPTYHub) prepareAttachmentWithReservation(
-	ctx context.Context,
+	operationCtx context.Context,
+	attachmentLifetimeCtx context.Context,
 	conn *websocket.Conn,
 	sessionID string,
 	attachmentID string,
@@ -1019,7 +1024,7 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 				}
 				h.mu.Unlock()
 				return nil, nil, nil, errWSPTYHubClosed
-			case <-ctx.Done():
+			case <-operationCtx.Done():
 				<-h.sessionStartWaiterSlots
 				h.mu.Lock()
 				if start.session != nil {
@@ -1028,7 +1033,7 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 					start.waiters--
 				}
 				h.mu.Unlock()
-				return nil, nil, nil, ctx.Err()
+				return nil, nil, nil, operationCtx.Err()
 			}
 			continue
 		}
@@ -1058,7 +1063,7 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 		h.mu.Lock()
 		delete(h.startingSessions, sessionKey)
 		if startErr == nil {
-			ownerContextErr := ctx.Err()
+			ownerContextErr := operationCtx.Err()
 			switch existingSession := h.sessions[sessionKey]; {
 			case h.closed:
 				startErr = errWSPTYHubClosed
@@ -1103,14 +1108,14 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 			return nil, nil, nil, startErr
 		}
 		if publishedStartedSession && !ownsInitialClaim {
-			return nil, nil, nil, ctx.Err()
+			return nil, nil, nil, operationCtx.Err()
 		}
 		if publishedStartedSession {
 			continue
 		}
 	}
 
-	if err := ctx.Err(); err != nil {
+	if err := operationCtx.Err(); err != nil {
 		if ownsInitialClaim {
 			h.releaseInitialClaimLocked(session)
 		}
@@ -1139,7 +1144,10 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 		superseded = old
 	}
 
-	attachmentCtx, cancel := context.WithCancel(ctx)
+	// Operation cancellation may abandon this attach without ending the
+	// connection. Once published, the attachment follows the connection
+	// lifetime and can be canceled independently by its identity token.
+	attachmentCtx, cancel := context.WithCancel(attachmentLifetimeCtx)
 	clientToken = strings.TrimSpace(clientToken)
 	attachment := &wsPTYAttachment{
 		sessionKey:  sessionKey,

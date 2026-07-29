@@ -116,12 +116,24 @@ type rpcServer struct {
 }
 
 type rpcRequestDispatcher struct {
-	ctx              context.Context
-	cancelConnection context.CancelFunc
-	interruptRead    func()
-	server           *rpcServer
-	ptyAttachSlots   chan struct{}
-	asyncErrors      chan error
+	ctx               context.Context
+	cancelConnection  context.CancelFunc
+	interruptRead     func()
+	server            *rpcServer
+	ptyAttachSlots    chan struct{}
+	// Request cancellation is separate from attachment lifetime: completed
+	// attachments remain connection-owned after their request leaves this map.
+	ptyAttachMu       sync.Mutex
+	ptyAttachRequests map[string]*rpcPTYAttachRequest
+	asyncErrors       chan error
+}
+
+type rpcPTYAttachRequest struct {
+	requestIDKey    string
+	sessionID       string
+	attachmentID    string
+	attachmentToken string
+	cancel          context.CancelFunc
 }
 
 func newRPCRequestDispatcher(
@@ -131,12 +143,13 @@ func newRPCRequestDispatcher(
 	server *rpcServer,
 ) *rpcRequestDispatcher {
 	return &rpcRequestDispatcher{
-		ctx:              ctx,
-		cancelConnection: cancelConnection,
-		interruptRead:    interruptRead,
-		server:           server,
-		ptyAttachSlots:   make(chan struct{}, maxConcurrentPTYAttachRPCsPerConnection),
-		asyncErrors:      make(chan error, 1),
+		ctx:               ctx,
+		cancelConnection:  cancelConnection,
+		interruptRead:     interruptRead,
+		server:            server,
+		ptyAttachSlots:    make(chan struct{}, maxConcurrentPTYAttachRPCsPerConnection),
+		ptyAttachRequests: map[string]*rpcPTYAttachRequest{},
+		asyncErrors:       make(chan error, 1),
 	}
 }
 
@@ -146,6 +159,10 @@ func (d *rpcRequestDispatcher) dispatch(req rpcRequest) error {
 	// writers serialize the resulting concurrent response writes. Before
 	// reading the next request, wait only until the attach has reserved or
 	// selected its hub generation so a following pty.close cannot overtake it.
+	if req.Method == "pty.attach.cancel" {
+		d.cancelPTYAttach(req)
+		return nil
+	}
 	if req.Method != "pty.attach" {
 		return d.server.handleRequestAndWriteResponse(req)
 	}
@@ -165,10 +182,24 @@ func (d *rpcRequestDispatcher) dispatch(req rpcRequest) error {
 		})
 	}
 
+	attachCtx, attachRequest, registered := d.registerPTYAttach(req)
+	if !registered {
+		<-d.ptyAttachSlots
+		return d.server.frameWriter.writeResponse(rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_request",
+				Message: "PTY attach request id is already in progress",
+			},
+		})
+	}
+
 	reservationReady := make(chan struct{})
 	go func() {
 		defer func() { <-d.ptyAttachSlots }()
-		if err := d.server.handlePTYAttachAndWriteResponseWithReservation(d.ctx, req, func() {
+		defer d.finishPTYAttach(attachRequest)
+		if err := d.server.handlePTYAttachAndWriteResponseWithReservation(attachCtx, d.ctx, req, func() {
 			close(reservationReady)
 		}); err != nil {
 			select {
@@ -187,6 +218,84 @@ func (d *rpcRequestDispatcher) dispatch(req rpcRequest) error {
 	case <-d.ctx.Done():
 		return d.ctx.Err()
 	}
+}
+
+func (d *rpcRequestDispatcher) registerPTYAttach(req rpcRequest) (context.Context, *rpcPTYAttachRequest, bool) {
+	ctx, cancel := context.WithCancel(d.ctx)
+	request := &rpcPTYAttachRequest{cancel: cancel}
+	request.sessionID, _ = getStringParam(req.Params, "session_id")
+	request.attachmentID, _ = getStringParam(req.Params, "attachment_id")
+	request.attachmentToken, _ = getStringParam(req.Params, "client_attachment_token")
+	request.sessionID = strings.TrimSpace(request.sessionID)
+	request.attachmentID = strings.TrimSpace(request.attachmentID)
+	request.attachmentToken = strings.TrimSpace(request.attachmentToken)
+
+	requestIDKey, hasRequestID := normalizedRPCRequestID(req.ID)
+	if !req.HasID || !hasRequestID {
+		return ctx, request, true
+	}
+	request.requestIDKey = requestIDKey
+
+	d.ptyAttachMu.Lock()
+	defer d.ptyAttachMu.Unlock()
+	if _, exists := d.ptyAttachRequests[requestIDKey]; exists {
+		cancel()
+		return nil, nil, false
+	}
+	d.ptyAttachRequests[requestIDKey] = request
+	return ctx, request, true
+}
+
+func (d *rpcRequestDispatcher) finishPTYAttach(request *rpcPTYAttachRequest) {
+	if request == nil {
+		return
+	}
+	request.cancel()
+	if request.requestIDKey == "" {
+		return
+	}
+	d.ptyAttachMu.Lock()
+	if current := d.ptyAttachRequests[request.requestIDKey]; current == request {
+		delete(d.ptyAttachRequests, request.requestIDKey)
+	}
+	d.ptyAttachMu.Unlock()
+}
+
+func (d *rpcRequestDispatcher) cancelPTYAttach(req rpcRequest) {
+	requestID, hasRequestID := req.Params["request_id"]
+	requestIDKey, normalized := normalizedRPCRequestID(requestID)
+	var request *rpcPTYAttachRequest
+	if hasRequestID && normalized {
+		d.ptyAttachMu.Lock()
+		request = d.ptyAttachRequests[requestIDKey]
+		d.ptyAttachMu.Unlock()
+	}
+
+	sessionID, _ := getStringParam(req.Params, "session_id")
+	attachmentID, _ := getStringParam(req.Params, "attachment_id")
+	attachmentToken, _ := getStringParam(req.Params, "client_attachment_token")
+	if request != nil {
+		request.cancel()
+		sessionID = request.sessionID
+		attachmentID = request.attachmentID
+		attachmentToken = request.attachmentToken
+	}
+	// The identity cleanup closes the race where the attach completed and left
+	// the request map just before its timeout notification arrived.
+	if d.server.ptyHub != nil {
+		d.server.ptyHub.detachByID(sessionID, attachmentID, attachmentToken)
+	}
+}
+
+func normalizedRPCRequestID(id any) (string, bool) {
+	if id == nil {
+		return "", false
+	}
+	encoded, err := json.Marshal(id)
+	if err != nil {
+		return "", false
+	}
+	return string(encoded), true
 }
 
 func (d *rpcRequestDispatcher) takeAsyncError() error {
@@ -1578,6 +1687,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.session.persistent_daemon",
 					"pty.write.notification",
 					"pty.resize.notification",
+					"pty.attach.cancel",
 					"pty.input.seq_ack",
 					"cli.bridge",
 				},
@@ -1646,16 +1756,22 @@ func (s *rpcServer) handleRequestAndWriteResponse(req rpcRequest) error {
 }
 
 func (s *rpcServer) handlePTYAttachAndWriteResponse(ctx context.Context, req rpcRequest) error {
-	return s.handlePTYAttachAndWriteResponseWithReservation(ctx, req, nil)
+	return s.handlePTYAttachAndWriteResponseWithReservation(ctx, ctx, req, nil)
 }
 
 func (s *rpcServer) handlePTYAttachAndWriteResponseWithReservation(
-	ctx context.Context,
+	operationCtx context.Context,
+	attachmentLifetimeCtx context.Context,
 	req rpcRequest,
 	reservationReady func(),
 ) error {
-	response := s.handlePTYAttachContextWithReservation(ctx, req, reservationReady)
-	if ctx.Err() != nil {
+	response := s.handlePTYAttachContextWithReservation(
+		operationCtx,
+		attachmentLifetimeCtx,
+		req,
+		reservationReady,
+	)
+	if operationCtx.Err() != nil {
 		return nil
 	}
 	return s.frameWriter.writeResponse(response)
@@ -2212,11 +2328,12 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 }
 
 func (s *rpcServer) handlePTYAttachContext(ctx context.Context, req rpcRequest) rpcResponse {
-	return s.handlePTYAttachContextWithReservation(ctx, req, nil)
+	return s.handlePTYAttachContextWithReservation(ctx, ctx, req, nil)
 }
 
 func (s *rpcServer) handlePTYAttachContextWithReservation(
-	ctx context.Context,
+	operationCtx context.Context,
+	attachmentLifetimeCtx context.Context,
 	req rpcRequest,
 	reservationReady func(),
 ) rpcResponse {
@@ -2287,7 +2404,8 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 		}
 	}
 	attachment, attachmentCtx, sessionDone, err := hub.attachRPCWithReservation(
-		ctx,
+		operationCtx,
+		attachmentLifetimeCtx,
 		sessionID,
 		attachmentID,
 		cols,
@@ -2308,7 +2426,7 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 			},
 		}
 	}
-	if err := ctx.Err(); err != nil {
+	if err := operationCtx.Err(); err != nil {
 		hub.dropAttachment(attachment)
 		return rpcResponse{
 			ID: req.ID,
