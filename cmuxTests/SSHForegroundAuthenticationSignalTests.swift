@@ -27,7 +27,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try generatedVMSSHInitialStartupCommand()
+        let startupCommand = try generatedPersistentSSHForegroundAuthenticationStartupCommand()
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -85,7 +85,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try generatedVMSSHInitialStartupCommand()
+        let startupCommand = try generatedPersistentSSHForegroundAuthenticationStartupCommand()
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -166,7 +166,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try generatedVMSSHInitialStartupCommand()
+        let startupCommand = try generatedPersistentSSHForegroundAuthenticationStartupCommand()
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -254,7 +254,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try generatedVMSSHInitialStartupCommand()
+        let startupCommand = try generatedPersistentSSHForegroundAuthenticationStartupCommand()
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
