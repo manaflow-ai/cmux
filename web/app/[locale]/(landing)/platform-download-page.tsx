@@ -81,11 +81,13 @@ export async function PlatformDownloadPage({
             platform={platform}
             artifact={downloads.primary.artifact}
             location="hero"
-            className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
+            className={`${ctaButtonBase} ${ctaButtonDefaultSize} w-full max-w-full justify-center sm:w-auto`}
             style={ctaButtonStyle}
           >
             <DownloadIcon />
-            {t(`${platform}.primaryCta`)}
+            <span className="min-w-0 whitespace-normal text-center">
+              {t(`${platform}.primaryCta`)}
+            </span>
           </PlatformDownloadLink>
           <PlatformDownloadLink
             href={downloads.portable.url}
@@ -195,6 +197,7 @@ function DownloadIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      className="shrink-0"
       aria-hidden="true"
     >
       <path d="M12 3v12" />

@@ -15,6 +15,12 @@ import en from "../messages/en.json";
 const MESSAGE_DIRECTORY = fileURLToPath(
   new URL("../messages/", import.meta.url),
 );
+const PLATFORM_PAGE_SOURCE = fileURLToPath(
+  new URL(
+    "../app/[locale]/(landing)/platform-download-page.tsx",
+    import.meta.url,
+  ),
+);
 
 describe("Windows and Linux downloads", () => {
   test("keeps unpublished platforms gated behind the waitlist", () => {
@@ -114,6 +120,13 @@ describe("Windows and Linux downloads", () => {
         ),
       ).toEqual([]);
     }
+  });
+
+  test("wraps long localized installer labels on narrow screens", async () => {
+    const source = await readFile(PLATFORM_PAGE_SOURCE, "utf8");
+    expect(source).toContain("w-full max-w-full justify-center sm:w-auto");
+    expect(source).toContain("min-w-0 whitespace-normal text-center");
+    expect(source).toContain('className="shrink-0"');
   });
 });
 
