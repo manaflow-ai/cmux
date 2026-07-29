@@ -5540,6 +5540,53 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
+    func testConfigurationReloadCoordinatorBoundsCompletionBearingRequests() {
+        let coordinator =
+            TerminalConfigurationReloadCoordinator()
+        let maximumCompletionCount = 32
+
+        for index in 0..<100 {
+            _ = coordinator.enqueue(
+                TerminalPendingConfigurationReload(
+                    soft: true,
+                    source: "test.completionBound.\(index)",
+                    reloadSettingsFromFile: false,
+                    preferredColorScheme: nil,
+                    completions: [{ _ = index }]
+                )
+            )
+        }
+
+        let request = coordinator.takePendingRequest()
+        XCTAssertEqual(
+            request?.completions.count,
+            maximumCompletionCount,
+            "Coalesced reloads must retain a bounded number of completion closures"
+        )
+
+        for index in 100..<200 {
+            _ = coordinator.enqueue(
+                TerminalPendingConfigurationReload(
+                    soft: true,
+                    source: "test.activeCompletionBound.\(index)",
+                    reloadSettingsFromFile: false,
+                    preferredColorScheme: nil,
+                    completions: [{ _ = index }]
+                )
+            )
+        }
+
+        XCTAssertTrue(coordinator.finishReload())
+        let requestQueuedBehindActiveReload =
+            coordinator.takePendingRequest()
+        XCTAssertEqual(
+            requestQueuedBehindActiveReload?.completions.count,
+            0,
+            "The completion bound must include the active reload, not only the pending request"
+        )
+    }
+
+    @Test
     func testConfigurationReloadQueuesRequestDuringAsyncReconciliation()
         throws {
 #if DEBUG
