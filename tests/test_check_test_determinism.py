@@ -302,6 +302,19 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    expect(finished).toBe(true)\n"
                 "}\n"
             ),
+            "timer-alias-local-destructured-property.ts": (
+                'import { setTimeout as delay } from "node:timers/promises"\n'
+                "const { delay: injectedDelay } = fakeTimers\n"
+                "await delay(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
+            "timer-alias-for-destructured-property.ts": (
+                'import { setTimeout as delay } from "node:timers/promises"\n'
+                "for (const { delay: injectedDelay } of fixtures) {\n"
+                "    await delay(1)\n"
+                "    expect(finished).toBe(true)\n"
+                "}\n"
+            ),
             "timer-alias-after-var-shadow-function.ts": (
                 'import { setTimeout as delay } from "timers/promises"\n'
                 "function verify() {\n"
@@ -773,6 +786,8 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "typealiased-continuous-clock.swift",
                     "optional-continuous-clock-parameter.swift",
                     "timer-alias-destructured-property.ts",
+                    "timer-alias-local-destructured-property.ts",
+                    "timer-alias-for-destructured-property.ts",
                     "swift-multiline-interpolation.swift",
                     "swift-raw-multiline-interpolation.swift",
                     "timer-alias-after-unrelated-import.ts",
@@ -954,6 +969,19 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "timer-alias-renamed-destructuring-shadow.ts": (
                     'import { setTimeout as delay } from "timers/promises"\n'
                     "function verify({ timer: delay }) {\n"
+                    "    await delay(1)\n"
+                    "    expect(completed).toBe(true)\n"
+                    "}\n"
+                ),
+                "timer-alias-local-renamed-destructuring-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "const { timer: delay } = fakeTimers\n"
+                    "await delay(1)\n"
+                    "expect(completed).toBe(true)\n"
+                ),
+                "timer-alias-for-renamed-destructuring-shadow.ts": (
+                    'import { setTimeout as delay } from "timers/promises"\n'
+                    "for (const { timer: delay } of fixtures) {\n"
                     "    await delay(1)\n"
                     "    expect(completed).toBe(true)\n"
                     "}\n"
