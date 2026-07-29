@@ -26,10 +26,12 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
             guard workspace.activeRemoteSessionControllerID == controllerID else { return }
+            let externalRemoteTerminalDocks = AppDelegate.shared?.existingWindowDocks ?? []
             workspace.applyRemoteConnectionStateUpdate(
                 state,
                 detail: detail,
-                target: workspace.remoteDisplayTarget ?? "remote host"
+                target: workspace.remoteDisplayTarget ?? "remote host",
+                externalRemoteTerminalDocks: externalRemoteTerminalDocks
             )
         }
     }

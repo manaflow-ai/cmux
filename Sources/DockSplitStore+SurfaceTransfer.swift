@@ -62,30 +62,68 @@ extension DockSplitStore {
     }
 
     func markRemoteTerminalSessionConnected(panelId: UUID, relayPort: Int?) -> Bool {
+        guard let relayPort, relayPort > 0 else { return false }
+        return markRemoteTerminalSessionConnected(
+            panelId: panelId,
+            authority: .relayPort(relayPort)
+        )
+    }
+
+    func markRemoteTerminalSessionConnected(
+        panelId: UUID,
+        authority: WorkspaceRemoteTerminalAuthority
+    ) -> Bool {
         guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
-              transfer.isRemoteTerminal,
-              relayPort.map({ $0 == transfer.remoteRelayPort }) ?? true else {
+              transfer.isRemoteTerminal else {
             return false
         }
         transfer.remoteTerminalSessionPhase = .connected
+        transfer.remoteTerminalAuthority = authority
         detachedSurfaceTransfersByPanelId[panelId] = transfer
         return true
     }
 
     func markRemoteTerminalSessionEnded(panelId: UUID, relayPort: Int?) -> Bool {
+        guard let relayPort, relayPort > 0 else { return false }
+        return markRemoteTerminalSessionEnded(
+            panelId: panelId,
+            authority: .relayPort(relayPort)
+        )
+    }
+
+    func markRemoteTerminalSessionEnded(
+        panelId: UUID,
+        authority: WorkspaceRemoteTerminalAuthority
+    ) -> Bool {
         guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal,
-              relayPort.map({ $0 == transfer.remoteRelayPort }) ?? true else {
+              transfer.remoteTerminalAuthority.map({ $0 == authority }) ?? true else {
             return false
         }
         transfer.remoteTerminalSessionPhase = .ended
+        transfer.remoteTerminalAuthority = authority
         detachedSurfaceTransfersByPanelId[panelId] = transfer
         return true
     }
 
-    var hasAuthoritativelyConnectedRemoteTerminal: Bool {
-        detachedSurfaceTransfersByPanelId.values.contains {
-            $0.isRemoteTerminal && $0.remoteTerminalSessionPhase == .connected
+    func hasAuthoritativelyConnectedRemoteTerminal(
+        presentationWorkspaceID: UUID,
+        configuration: WorkspaceRemoteConfiguration
+    ) -> Bool {
+        detachedSurfaceTransfersByPanelId.values.contains { transfer in
+            let belongsToPresentationOwner = switch scope {
+            case .workspace:
+                workspaceId == presentationWorkspaceID
+            case .global:
+                transfer.sessionRestoreWorkspaceId == presentationWorkspaceID
+            }
+            guard belongsToPresentationOwner,
+                  transfer.isRemoteTerminal,
+                  transfer.remoteTerminalSessionPhase == .connected,
+                  let authority = transfer.remoteTerminalAuthority else {
+                return false
+            }
+            return authority.matches(configuration)
         }
     }
 
@@ -241,6 +279,7 @@ extension DockSplitStore {
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteTerminalSessionPhase: preservedTransfer?.remoteTerminalSessionPhase,
+            remoteTerminalAuthority: preservedTransfer?.remoteTerminalAuthority,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration

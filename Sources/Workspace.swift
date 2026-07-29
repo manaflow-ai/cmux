@@ -2387,7 +2387,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     var activeRemoteTerminalSurfaceIds: Set<UUID> = []
-    var remoteTerminalSessionPhasesBySurfaceId: [UUID: WorkspaceRemoteTerminalSessionPhase] = [:]
+    var remoteTerminalSessionStatesBySurfaceId: [UUID: WorkspaceRemoteTerminalSessionState] = [:]
     var pendingRemoteTerminalConnectionsBySurfaceId: [UUID: PendingWorkspaceRemoteTerminalConnection] = [:]
     private(set) var remoteDirectoryTrustRequiredPanelIds: Set<UUID> = []
     private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
@@ -2544,14 +2544,17 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConfiguration?.transport == .ssh && hasRemoteTerminalStartupCommand
     }
 
-    private var preservesProxyFailureWhileSSHTerminalIsAlive: Bool {
+    private func preservesProxyFailureWhileSSHTerminalIsAlive(
+        in externalDocks: [DockSplitStore]
+    ) -> Bool {
         preservesProxyFailureForSSHRemoteWorkspace
             && remoteConfiguration?.preserveAfterTerminalExit != true
-            && hasAuthoritativelyConnectedRemoteTerminal
+            && hasAuthoritativelyConnectedRemoteTerminal(in: externalDocks)
     }
 
     private var suppressesProxyOnlySidebarErrorWhileSSHTerminalIsAlive: Bool {
-        isDefaultFreestyleSSHDRemoteWorkspace && preservesProxyFailureWhileSSHTerminalIsAlive
+        isDefaultFreestyleSSHDRemoteWorkspace &&
+            preservesProxyFailureWhileSSHTerminalIsAlive(in: [])
     }
 
     private var suppressesProxyOnlySidebarErrorForDefaultCloud: Bool {
@@ -5542,7 +5545,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteForegroundAuthenticationPhase = nil
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()
-        remoteTerminalSessionPhasesBySurfaceId.removeAll()
+        remoteTerminalSessionStatesBySurfaceId.removeAll()
         pendingRemoteTerminalConnectionsBySurfaceId.removeAll()
         let remoteDirectoryPanelIdsToClear = clearConfiguration ? remoteDirectoryTrustRequiredPanelIds.union(remoteDirectoryReportPanelIds) : []
         let clearedRemoteDirectoryTrust = !remoteDirectoryReportPanelIds.isEmpty ||
@@ -6292,15 +6295,18 @@ final class Workspace: Identifiable, ObservableObject {
     func applyRemoteConnectionStateUpdate(
         _ state: WorkspaceRemoteConnectionState,
         detail: String?,
-        target: String
+        target: String,
+        externalRemoteTerminalDocks: [DockSplitStore] = []
     ) {
         let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
+        let preservesProxyFailureForLiveTerminal =
+            preservesProxyFailureWhileSSHTerminalIsAlive(in: externalRemoteTerminalDocks)
         let preserveConnectedStateForRetry =
             (state == .connecting || state == .reconnecting) &&
                 (
                     (suppressesProxyOnlySidebarErrorForDefaultCloud && hasProxyOnlyRemoteSidebarError) ||
-                        preservesProxyFailureWhileSSHTerminalIsAlive
+                        preservesProxyFailureForLiveTerminal
                 ) // #6409 default cloud; otherwise authoritatively connected non-persistent SSH only (#7366/#7823/#9068)
         let suppressProxyOnlySidebarError =
             suppressesProxyOnlySidebarErrorForDefaultCloud &&
@@ -6308,7 +6314,7 @@ final class Workspace: Identifiable, ObservableObject {
         let effectiveState: WorkspaceRemoteConnectionState
         if state == .error && proxyOnlyError && suppressesProxyOnlySidebarErrorForDefaultCloud {
             effectiveState = .connected
-        } else if state == .error && proxyOnlyError && preservesProxyFailureWhileSSHTerminalIsAlive { // live non-persistent SSH terminal only (#6409 vs #7366/#7823)
+        } else if state == .error && proxyOnlyError && preservesProxyFailureForLiveTerminal { // live non-persistent SSH terminal only (#6409 vs #7366/#7823)
             effectiveState = .connected
         } else if preserveConnectedStateForRetry {
             effectiveState = .connected
@@ -9085,6 +9091,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
             restoreRemoteTerminalSessionPhase(
                 detached.remoteTerminalSessionPhase,
+                authority: detached.remoteTerminalAuthority,
                 surfaceId: detached.panelId
             )
             if let resumeBinding = surfaceResumeBindingsByPanelId[detached.panelId] {
@@ -11820,7 +11827,8 @@ extension Workspace: BonsplitDelegate {
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
-                remoteTerminalSessionPhase: remoteTerminalSessionPhasesBySurfaceId[panelId],
+                remoteTerminalSessionPhase: remoteTerminalSessionStatesBySurfaceId[panelId]?.phase,
+                remoteTerminalAuthority: remoteTerminalSessionStatesBySurfaceId[panelId]?.authority,
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
                     ? remoteConfiguration?.relayPort
                     : nil,

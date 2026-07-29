@@ -227,47 +227,86 @@ struct ControlCommandCoordinatorWorkspaceTests {
             remoteStatus: .object(["connected": .bool(true)])
         )
 
-        guard case .ok = coordinator.handle(request("workspace.remote.terminal_session_connected", [
+        guard case .ok = coordinator.handleSocketWorkerV2(
+            request("workspace.remote.terminal_session_connected", [
             "workspace_id": .string(workspaceID.uuidString),
             "surface_id": .string(surfaceID.uuidString),
             "relay_port": .int(64007),
-        ])) else {
+            ]),
+            context: context
+        ) else {
             Issue.record("unexpected terminal_session_connected result")
             return
         }
 
         #expect(context.terminalSessionConnectedCall?.workspaceID == workspaceID)
         #expect(context.terminalSessionConnectedCall?.surfaceID == surfaceID)
-        #expect(context.terminalSessionConnectedCall?.relayPort == 64007)
-        #expect(context.terminalSessionConnectedCall?.sessionID == nil)
-        #expect(context.terminalSessionConnectedCall?.lifecycleID == nil)
+        #expect(context.terminalSessionConnectedCall?.authority == .relayPort(64007))
     }
 
     @Test func persistentTerminalSessionConnectedForwardsLifecycleAuthority() throws {
-        let (coordinator, context) = coordinator()
         let workspaceID = UUID()
         let surfaceID = UUID()
         let sessionID = "ssh-session"
         let lifecycleID = UUID().uuidString.lowercased()
+        let context = FakeWorkspaceControlCommandContext(
+            currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner(
+                transportKey: "persistent-transport",
+                attachmentID: surfaceID.uuidString
+            )
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
         context.terminalSessionConnectedResolution = .resolved(
             windowID: nil,
             workspaceID: workspaceID,
             remoteStatus: .object(["connected": .bool(true)])
         )
 
-        guard case .ok = coordinator.handle(request("workspace.remote.terminal_session_connected", [
-            "workspace_id": .string(workspaceID.uuidString),
-            "surface_id": .string(surfaceID.uuidString),
-            "session_id": .string(sessionID),
-            "lifecycle_id": .string(lifecycleID),
-        ])) else {
+        guard case .ok = coordinator.handleSocketWorkerV2(
+            request("workspace.remote.terminal_session_connected", [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "session_id": .string(sessionID),
+                "lifecycle_id": .string(lifecycleID),
+            ]),
+            context: context
+        ) else {
             Issue.record("unexpected persistent terminal_session_connected result")
             return
         }
 
-        #expect(context.terminalSessionConnectedCall?.relayPort == nil)
-        #expect(context.terminalSessionConnectedCall?.sessionID == sessionID)
-        #expect(context.terminalSessionConnectedCall?.lifecycleID == lifecycleID)
+        #expect(
+            context.terminalSessionConnectedCall?.authority ==
+                .persistentTransport("persistent-transport")
+        )
+    }
+
+    @Test func persistentTerminalSessionConnectedRejectsAnotherSurfaceOwner() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let context = FakeWorkspaceControlCommandContext(
+            currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner(
+                transportKey: "persistent-transport",
+                attachmentID: UUID().uuidString
+            )
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        guard case .err(let code, _, _) = coordinator.handleSocketWorkerV2(
+            request("workspace.remote.terminal_session_connected", [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "session_id": .string("ssh-session"),
+                "lifecycle_id": .string("current-lifecycle"),
+            ]),
+            context: context
+        ) else {
+            Issue.record("another surface's lifecycle owner was accepted")
+            return
+        }
+
+        #expect(code == "not_found")
+        #expect(context.terminalSessionConnectedCall == nil)
     }
 
     @Test(arguments: [
@@ -284,10 +323,10 @@ struct ControlCommandCoordinatorWorkspaceTests {
         params["workspace_id"] = .string(UUID().uuidString)
         params["surface_id"] = .string(UUID().uuidString)
 
-        guard case .err(let code, _, _) = coordinator.handle(request(
-            "workspace.remote.terminal_session_connected",
-            params
-        )) else {
+        guard case .err(let code, _, _) = coordinator.handleSocketWorkerV2(
+            request("workspace.remote.terminal_session_connected", params),
+            context: context
+        ) else {
             Issue.record("ambiguous terminal authority was accepted")
             return
         }

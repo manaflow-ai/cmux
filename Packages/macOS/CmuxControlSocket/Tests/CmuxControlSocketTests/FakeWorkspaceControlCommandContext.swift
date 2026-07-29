@@ -4,6 +4,7 @@ import CmuxSettings
 
 @MainActor
 final class FakeWorkspaceControlCommandContext: ControlCommandContext {
+    nonisolated let currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner?
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
     var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
@@ -21,9 +22,14 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
     )?
     var terminalSessionConnectedCall: (
-        workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
-        sessionID: String?, lifecycleID: String?
+        workspaceID: UUID,
+        surfaceID: UUID,
+        authority: ControlWorkspaceRemoteTerminalAuthority
     )?
+
+    init(currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner? = nil) {
+        self.currentRemotePTYLifecycleOwner = currentRemotePTYLifecycleOwner
+    }
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -95,11 +101,16 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int?,
-        sessionID: String?,
-        lifecycleID: String?
+        authority: ControlWorkspaceRemoteTerminalAuthority
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
-        terminalSessionConnectedCall = (workspaceID, surfaceID, relayPort, sessionID, lifecycleID)
+        terminalSessionConnectedCall = (workspaceID, surfaceID, authority)
         return terminalSessionConnectedResolution
+    }
+
+    nonisolated func controlCurrentRemotePTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> ControlRemotePTYLifecycleOwner? {
+        currentRemotePTYLifecycleOwner
     }
 }

@@ -48,6 +48,7 @@ extension Workspace {
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         var remoteTerminalSessionPhase: WorkspaceRemoteTerminalSessionPhase? = nil
+        var remoteTerminalAuthority: WorkspaceRemoteTerminalAuthority? = nil
         let remoteRelayPort: Int?
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
@@ -86,6 +87,7 @@ extension Workspace {
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteTerminalSessionPhase: remoteTerminalSessionPhase,
+                remoteTerminalAuthority: remoteTerminalAuthority,
                 remoteRelayPort: remoteRelayPort,
                 remotePTYSessionID: remotePTYSessionID,
                 remoteCleanupConfiguration: configuration

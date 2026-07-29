@@ -692,28 +692,42 @@ extension TerminalController: ControlWorkspaceContext {
         app: AppDelegate,
         dock: DockSplitStore,
         requestedWorkspaceID: UUID
-    ) -> (tabManager: TabManager, workspace: Workspace?)? {
+    ) -> (tabManager: TabManager, workspace: Workspace)? {
         guard let tabManager = app.dockReferenceTabManager(for: dock) else { return nil }
         let workspaceID = dock.scope == .workspace ? dock.workspaceId : requestedWorkspaceID
-        return (tabManager, tabManager.workspacesById[workspaceID])
+        guard let workspaceOwner = app.tabManagerFor(tabId: workspaceID),
+              let workspace = workspaceOwner.workspacesById[workspaceID] else {
+            return nil
+        }
+        return (tabManager, workspace)
+    }
+
+    nonisolated func controlCurrentRemotePTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> ControlRemotePTYLifecycleOwner? {
+        remoteProxyBroker.currentPTYLifecycleOwner(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        ).map {
+            ControlRemotePTYLifecycleOwner(
+                transportKey: $0.transportKey,
+                attachmentID: $0.attachmentID
+            )
+        }
     }
 
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
-        relayPort: Int?,
-        sessionID: String?,
-        lifecycleID: String?
+        authority: ControlWorkspaceRemoteTerminalAuthority
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
-        let generationIsCurrent = switch (sessionID, lifecycleID) {
-        case let (.some(sessionID), .some(lifecycleID)):
-            remoteProxyBroker.isCurrentPTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
-        case (nil, nil):
-            true
-        default:
-            false
+        let terminalAuthority = switch authority {
+        case .relayPort(let relayPort):
+            WorkspaceRemoteTerminalAuthority.relayPort(relayPort)
+        case .persistentTransport(let transportKey):
+            WorkspaceRemoteTerminalAuthority.persistentTransport(transportKey)
         }
-        guard generationIsCurrent else { return .notFound }
 
         let app = AppDelegate.shared
         let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
@@ -725,19 +739,22 @@ extension TerminalController: ControlWorkspaceContext {
                dock: dock,
                requestedWorkspaceID: workspaceId
            ),
-           dock.markRemoteTerminalSessionConnected(panelId: surfaceId, relayPort: relayPort) {
-            _ = dockOwner.workspace?.markRemoteTerminalSessionConnected(
-                surfaceId: surfaceId,
-                relayPort: relayPort,
-                allowUntracked: true
-            )
+           dockOwner.workspace.markRemoteTerminalSessionConnected(
+               surfaceId: surfaceId,
+               authority: terminalAuthority,
+               allowUntracked: true
+           ),
+           dock.markRemoteTerminalSessionConnected(
+               panelId: surfaceId,
+               authority: terminalAuthority
+           ) {
             let windowId = app.windowId(for: dockOwner.tabManager)
             return .resolved(
                 windowID: windowId,
-                workspaceID: dockOwner.workspace?.id,
-                remoteStatus: dockOwner.workspace.flatMap {
-                    JSONValue(foundationObject: $0.remoteStatusPayload())
-                } ?? .object([:])
+                workspaceID: dockOwner.workspace.id,
+                remoteStatus: JSONValue(
+                    foundationObject: dockOwner.workspace.remoteStatusPayload()
+                ) ?? .object([:])
             )
         }
         let located = app?.workspaceContainingPanel(
@@ -747,8 +764,8 @@ extension TerminalController: ControlWorkspaceContext {
         guard let owner = located?.tabManager ?? fallbackOwner,
               let workspace = located?.workspace ?? fallbackWorkspace,
               workspace.markRemoteTerminalSessionConnected(
-                surfaceId: surfaceId,
-                relayPort: relayPort
+                  surfaceId: surfaceId,
+                  authority: terminalAuthority
               ) else {
             return .notFound
         }
@@ -787,7 +804,7 @@ extension TerminalController: ControlWorkspaceContext {
            lifecycleOnly || !generationIsCurrent ||
             dock.markRemoteTerminalSessionEnded(panelId: surfaceId, relayPort: relayPort) {
             if !lifecycleOnly, generationIsCurrent {
-                dockOwner.workspace?.markRemoteTerminalSessionEnded(
+                dockOwner.workspace.markRemoteTerminalSessionEnded(
                     surfaceId: surfaceId,
                     relayPort: relayPort,
                     allowUntracked: true
@@ -796,10 +813,10 @@ extension TerminalController: ControlWorkspaceContext {
             let windowId = app.windowId(for: dockOwner.tabManager)
             return .resolved(
                 windowID: windowId,
-                workspaceID: dockOwner.workspace?.id,
-                remoteStatus: dockOwner.workspace.flatMap {
-                    JSONValue(foundationObject: $0.remoteStatusPayload())
-                } ?? .object([:])
+                workspaceID: dockOwner.workspace.id,
+                remoteStatus: JSONValue(
+                    foundationObject: dockOwner.workspace.remoteStatusPayload()
+                ) ?? .object([:])
             )
         }
         let located = app?.workspaceContainingPanel(

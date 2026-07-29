@@ -126,6 +126,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        // Persistent readiness authenticates against broker-owned lifecycle
+        // state. The broker serializes that state on its own queue, so this
+        // command must never make the main actor wait behind tunnel work.
+        // Parsing and authentication run here; the final workspace/Dock
+        // mutation takes one synchronous controlResolveOnMain hop.
+        "workspace.remote.terminal_session_connected",
         "remote.tmux.sessions",
         "remote.tmux.attach",
         "remote.tmux.detach",

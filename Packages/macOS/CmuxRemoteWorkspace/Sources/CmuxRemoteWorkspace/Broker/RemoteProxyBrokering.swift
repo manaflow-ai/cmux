@@ -56,8 +56,11 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
         lifecycleID: String
     ) throws
 
-    /// Whether this is the current generation for its registered attachment.
-    func isCurrentPTYLifecycle(sessionID: String, lifecycleID: String) -> Bool
+    /// Returns the current broker owner for a wrapper generation.
+    func currentPTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleOwner?
 
     /// Claims and enqueues retirement of a wrapper-owned generation.
     ///

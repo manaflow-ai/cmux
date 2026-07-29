@@ -269,22 +269,33 @@ public protocol ControlWorkspaceContext: AnyObject {
         sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution
 
+    /// Reads the broker-owned attachment for a persistent wrapper generation.
+    ///
+    /// This requirement is nonisolated so worker-lane readiness validation
+    /// completes before the command's single main-actor mutation hop.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The current owner, or `nil` for an unknown or stale generation.
+    nonisolated func controlCurrentRemotePTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> ControlRemotePTYLifecycleOwner?
+
     /// Records an authoritative terminal handshake for
     /// `workspace.remote.terminal_session_connected`.
     ///
     /// - Parameters:
     ///   - workspaceID: The workspace id captured when the terminal launched.
     ///   - surfaceID: The connected terminal surface id.
-    ///   - relayPort: The relay generation for non-persistent SSH, when present.
-    ///   - sessionID: The persistent PTY session, when this wrapper owns one.
-    ///   - lifecycleID: The wrapper-owned PTY lifecycle generation, when present.
+    ///   - authority: The relay or broker transport authority already validated
+    ///     on the socket worker.
     /// - Returns: The connected-session resolution.
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int?,
-        sessionID: String?,
-        lifecycleID: String?
+        authority: ControlWorkspaceRemoteTerminalAuthority
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
 
     /// Records a remote terminal session-end for

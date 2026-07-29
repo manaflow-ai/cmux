@@ -179,7 +179,7 @@ struct SSHStartupManualReconnectTests {
 
         #expect(workspace.reconnectRemoteConnection(surfaceId: panelId))
 
-        #expect(workspace.remoteTerminalSessionPhasesBySurfaceId[panelId] == .launching)
+        #expect(workspace.remoteTerminalSessionStatesBySurfaceId[panelId]?.phase == .launching)
         #expect(!workspace.hasAuthoritativelyConnectedRemoteTerminal)
         workspace.applyRemoteConnectionStateUpdate(
             .reconnecting,

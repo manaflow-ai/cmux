@@ -98,6 +98,115 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
     }
 
     @MainActor
+    func testReconfiguredRelayCannotReuseOldConnectedAuthority() throws {
+        let workspace = Workspace()
+        let firstConfiguration = remoteConfiguration(
+            preserveAfterTerminalExit: false,
+            relayPort: 64007
+        )
+        workspace.configureRemoteConnection(firstConfiguration, autoConnect: false)
+        let surfaceId = try seededTerminalSurfaceID(in: workspace)
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: firstConfiguration.relayPort
+            )
+        )
+
+        let replacementConfiguration = remoteConfiguration(
+            preserveAfterTerminalExit: false,
+            relayPort: 64008
+        )
+        workspace.configureRemoteConnection(replacementConfiguration, autoConnect: false)
+
+        XCTAssertFalse(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Replacement relay reconnecting",
+            target: "host"
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+        XCTAssertFalse(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: firstConfiguration.relayPort
+            )
+        )
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: replacementConfiguration.relayPort
+            )
+        )
+    }
+
+    @MainActor
+    func testWindowDockTerminalPreservesOnlyItsSourceConfigurationPresentation() throws {
+        let workspace = Workspace()
+        let firstConfiguration = remoteConfiguration(
+            preserveAfterTerminalExit: false,
+            relayPort: 64007
+        )
+        workspace.configureRemoteConnection(firstConfiguration, autoConnect: false)
+        let surfaceId = try seededTerminalSurfaceID(in: workspace)
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: surfaceId,
+                relayPort: firstConfiguration.relayPort
+            )
+        )
+
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        let detached = try XCTUnwrap(workspace.detachSurface(panelId: surfaceId))
+        XCTAssertNotNil(
+            dock.attachDetachedSurface(detached, inPane: dockPane, focus: false)
+        )
+
+        XCTAssertTrue(
+            workspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
+        )
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Auxiliary daemon reconnecting",
+            target: "host",
+            externalRemoteTerminalDocks: [dock]
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        let replacementConfiguration = remoteConfiguration(
+            preserveAfterTerminalExit: false,
+            relayPort: 64008
+        )
+        workspace.configureRemoteConnection(replacementConfiguration, autoConnect: false)
+
+        XCTAssertFalse(
+            workspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
+        )
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Replacement relay reconnecting",
+            target: "host",
+            externalRemoteTerminalDocks: [dock]
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+        XCTAssertTrue(
+            dock.markRemoteTerminalSessionConnected(
+                panelId: surfaceId,
+                authority: .relayPort(64008)
+            )
+        )
+        XCTAssertTrue(
+            workspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
+        )
+    }
+
+    @MainActor
     func testTerminalConnectedBeforeRemoteConfigurationIsAppliedAfterSeeding() throws {
         let workspace = Workspace()
         let surfaceId = try seededTerminalSurfaceID(in: workspace)
@@ -174,14 +283,17 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
     }
 
-    private func remoteConfiguration(preserveAfterTerminalExit: Bool) -> WorkspaceRemoteConfiguration {
+    private func remoteConfiguration(
+        preserveAfterTerminalExit: Bool,
+        relayPort: Int = 64007
+    ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "host",
             port: nil,
             identityFile: nil,
             sshOptions: [],
             localProxyPort: nil,
-            relayPort: 64007,
+            relayPort: relayPort,
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",

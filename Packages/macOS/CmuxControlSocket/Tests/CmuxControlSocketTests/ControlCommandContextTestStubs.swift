@@ -364,12 +364,15 @@ extension ControlWorkspaceContext {
         sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution { .notFound }
 
+    nonisolated func controlCurrentRemotePTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> ControlRemotePTYLifecycleOwner? { nil }
+
     func controlWorkspaceRemoteTerminalSessionConnected(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int?,
-        sessionID: String?,
-        lifecycleID: String?
+        authority: ControlWorkspaceRemoteTerminalAuthority
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution { .notFound }
 
     func controlWorkspaceRemoteTerminalSessionEnd(

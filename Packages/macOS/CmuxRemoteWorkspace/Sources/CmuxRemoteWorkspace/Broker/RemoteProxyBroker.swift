@@ -178,11 +178,19 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
-    /// Returns whether a wrapper generation still owns its attachment.
-    public func isCurrentPTYLifecycle(sessionID: String, lifecycleID: String) -> Bool {
+    /// Returns the broker-owned transport attachment for a current generation.
+    public func currentPTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleOwner? {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
         return queue.sync {
-            ptyLifecycleOwnership.isCurrent(lifecycleKey)
+            ptyLifecycleOwnership.currentOwner(lifecycleKey).map {
+                RemotePTYLifecycleOwner(
+                    transportKey: $0.transportKey,
+                    attachmentID: $0.attachmentID
+                )
+            }
         }
     }
 

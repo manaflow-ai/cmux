@@ -227,7 +227,10 @@ final class SSHOverrideUnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked
         lifecycleID: String
     ) throws {}
     func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool { false }
-    func isCurrentPTYLifecycle(sessionID: String, lifecycleID: String) -> Bool { false }
+    func currentPTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleOwner? { nil }
     func resizePTY(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
