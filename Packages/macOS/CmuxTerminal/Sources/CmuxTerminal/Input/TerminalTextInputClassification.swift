@@ -1,17 +1,17 @@
-/// Universal text predicates shared by AppKit edit ownership and terminal key
-/// planning.
-enum TerminalTextInputText {
-    static func isSingleC0(_ text: String?) -> Bool {
+/// Value-semantic classification shared by AppKit edit ownership and terminal
+/// key planning.
+struct TerminalTextInputClassification: Sendable {
+    func isSingleC0(_ text: String?) -> Bool {
         guard let scalar = singleScalar(in: text) else { return false }
         return scalar.value < 0x20
     }
 
-    static func isSingleC0OrDelete(_ text: String?) -> Bool {
+    func isSingleC0OrDelete(_ text: String?) -> Bool {
         guard let scalar = singleScalar(in: text) else { return false }
         return scalar.value < 0x20 || scalar.value == 0x7F
     }
 
-    private static func singleScalar(
+    private func singleScalar(
         in text: String?
     ) -> Unicode.Scalar? {
         guard let text else { return nil }

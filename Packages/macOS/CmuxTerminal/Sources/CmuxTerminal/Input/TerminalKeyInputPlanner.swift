@@ -3,6 +3,8 @@
 /// The planner is locale-independent. AppKit owns text composition and libghostty
 /// owns modifier translation; this type only reconciles the resulting state change.
 public struct TerminalKeyInputPlanner: Sendable {
+    private let textClassification = TerminalTextInputClassification()
+
     /// Creates a terminal key input planner.
     public init() {}
 
@@ -115,7 +117,7 @@ public struct TerminalKeyInputPlanner: Sendable {
     }
 
     private func shouldSuppressControlText(_ text: String?, composing: Bool) -> Bool {
-        composing && TerminalTextInputText.isSingleC0(text)
+        composing && textClassification.isSingleC0(text)
     }
 
     /// AppKit can surface the event's raw C0/DEL payload through `insertText`
@@ -131,7 +133,7 @@ public struct TerminalKeyInputPlanner: Sendable {
               snapshot.committedText.count == 1,
               let rawText = snapshot.event.rawText,
               snapshot.committedText[0] == rawText,
-              TerminalTextInputText.isSingleC0OrDelete(rawText),
+              textClassification.isSingleC0OrDelete(rawText),
               let recoveredText = forwardableCommandText(
                   snapshot.event.translatedText
               ) else {
@@ -160,6 +162,6 @@ public struct TerminalKeyInputPlanner: Sendable {
     /// text while keeping native control keys textless for Ghostty's encoder.
     private func forwardableCommandText(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }
-        return TerminalTextInputText.isSingleC0OrDelete(text) ? nil : text
+        return textClassification.isSingleC0OrDelete(text) ? nil : text
     }
 }

@@ -1,7 +1,8 @@
 import AppKit
 import Carbon.HIToolbox
 import CmuxTerminal
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -20,7 +21,8 @@ private struct CapturedGhosttyKeyIdentityEvent {
 }
 
 @MainActor
-final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
+@Suite(.serialized)
+struct GhosttyConsumedModifierLifecycleTests {
     private final class LifecycleSurfaceView: GhosttyNSView {
         var textInputEventHandler: ((NSEvent) -> Bool)?
         var unshiftedCodepointResolver: ((NSEvent) -> UInt32?)?
@@ -60,7 +62,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         let window: NSWindow
     }
 
-    func testRepeatUsesCurrentTextAndStableBindingIdentity() throws {
+    @Test func repeatUsesCurrentTextAndStableBindingIdentity() throws {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
@@ -93,7 +95,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        let press = try XCTUnwrap(NSEvent.keyEvent(
+        let press = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.shift],
@@ -105,7 +107,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: false,
             keyCode: 0
         ))
-        let repeatEvent = try XCTUnwrap(NSEvent.keyEvent(
+        let repeatEvent = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -117,7 +119,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: true,
             keyCode: 0
         ))
-        let release = try XCTUnwrap(NSEvent.keyEvent(
+        let release = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [],
@@ -137,49 +139,50 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             terminal.surfaceView.keyUp(with: release)
         }
 
-        XCTAssertEqual(capturedEvents.count, 3)
-        guard capturedEvents.count == 3 else { return }
-        XCTAssertEqual(capturedEvents[0].action, GHOSTTY_ACTION_PRESS)
-        XCTAssertEqual(capturedEvents[0].text, "A")
-        XCTAssertEqual(capturedEvents[0].consumedModifiers, GHOSTTY_MODS_SHIFT.rawValue)
-        XCTAssertEqual(capturedEvents[0].unshiftedCodepoint, 0x61)
-        XCTAssertEqual(capturedEvents[1].action, GHOSTTY_ACTION_REPEAT)
-        XCTAssertEqual(
-            capturedEvents[1].text,
-            "ф",
+        try #require(capturedEvents.count == 3)
+        #expect(capturedEvents[0].action == GHOSTTY_ACTION_PRESS)
+        #expect(capturedEvents[0].text == "A")
+        #expect(
+            capturedEvents[0].consumedModifiers
+                == GHOSTTY_MODS_SHIFT.rawValue
+        )
+        #expect(capturedEvents[0].unshiftedCodepoint == 0x61)
+        #expect(capturedEvents[1].action == GHOSTTY_ACTION_REPEAT)
+        #expect(
+            capturedEvents[1].text == "ф",
             "A repeat must use the current AppKit text after translation changes"
         )
-        XCTAssertEqual(
-            capturedEvents[1].consumedModifiers,
-            GHOSTTY_MODS_NONE.rawValue,
+        #expect(
+            capturedEvents[1].consumedModifiers
+                == GHOSTTY_MODS_NONE.rawValue,
             "A repeat must use the modifiers that produced its current text"
         )
-        XCTAssertEqual(
-            capturedEvents[1].unshiftedCodepoint,
-            capturedEvents[0].unshiftedCodepoint,
+        #expect(
+            capturedEvents[1].unshiftedCodepoint
+                == capturedEvents[0].unshiftedCodepoint,
             "A repeat must keep the binding identity established by its press"
         )
-        XCTAssertEqual(capturedEvents[2].action, GHOSTTY_ACTION_RELEASE)
-        XCTAssertNil(capturedEvents[2].text)
-        XCTAssertEqual(
-            capturedEvents[2].consumedModifiers,
-            GHOSTTY_MODS_NONE.rawValue,
+        #expect(capturedEvents[2].action == GHOSTTY_ACTION_RELEASE)
+        #expect(capturedEvents[2].text == nil)
+        #expect(
+            capturedEvents[2].consumedModifiers
+                == GHOSTTY_MODS_NONE.rawValue,
             "Consumed modifiers are event-local text metadata, not release identity"
         )
-        XCTAssertEqual(
-            capturedEvents[2].unshiftedCodepoint,
-            capturedEvents[0].unshiftedCodepoint,
+        #expect(
+            capturedEvents[2].unshiftedCodepoint
+                == capturedEvents[0].unshiftedCodepoint,
             "A release must carry the same binding identity as its press and repeats"
         )
     }
 
-    func testCommandReleaseFromAppMonitorKeepsConsumedMenuBindingIdentityAfterLayoutChange() throws {
+    @Test func commandReleaseFromAppMonitorKeepsConsumedMenuBindingIdentityAfterLayoutChange() throws {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
             terminal.window.orderOut(nil)
         }
-        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let appDelegate = try #require(AppDelegate.shared)
 
         terminal.surfaceView.unshiftedCodepointResolver = { event in
             event.type == .keyUp ? 0x0441 : nil
@@ -202,7 +205,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        let press = try XCTUnwrap(NSEvent.keyEvent(
+        let press = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.command],
@@ -214,7 +217,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: false,
             keyCode: 8
         ))
-        let release = try XCTUnwrap(NSEvent.keyEvent(
+        let release = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [.command],
@@ -229,31 +232,31 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
 
         terminal.window.makeFirstResponder(terminal.surfaceView)
         withExtendedLifetime(terminal.surface) {
-            XCTAssertTrue(
+            #expect(
                 terminal.surfaceView.consumeUnavailableCopyMenuAction(press),
                 "The default Ghostty Copy binding should be consumed after the native menu declines it"
             )
-            XCTAssertTrue(
+            #expect(
                 appDelegate.debugHandleShortcutMonitorEvent(event: release),
                 "The app-local monitor must directly deliver a Command-modified release to its terminal owner"
             )
         }
 
-        XCTAssertEqual(capturedReleases.count, 1)
-        XCTAssertEqual(
-            capturedReleases.first?.unshiftedCodepoint,
-            "c".unicodeScalars.first?.value,
+        #expect(capturedReleases.count == 1)
+        #expect(
+            capturedReleases.first?.unshiftedCodepoint
+                == "c".unicodeScalars.first?.value,
             "A Ghostty-consumed menu binding must release with the identity that was consumed, even after the layout changes"
         )
     }
 
-    func testCommandReleaseFromAppMonitorDoesNotCreateOrphanTerminalRelease() throws {
+    @Test func commandReleaseFromAppMonitorDoesNotCreateOrphanTerminalRelease() throws {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
             terminal.window.orderOut(nil)
         }
-        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let appDelegate = try #require(AppDelegate.shared)
 
         var capturedReleaseCount = 0
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
@@ -264,7 +267,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             capturedReleaseCount += 1
         }
 
-        let release = try XCTUnwrap(NSEvent.keyEvent(
+        let release = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [.command],
@@ -279,15 +282,15 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
 
         terminal.window.makeFirstResponder(terminal.surfaceView)
         withExtendedLifetime(terminal.surface) {
-            XCTAssertFalse(
-                appDelegate.debugHandleShortcutMonitorEvent(event: release),
+            #expect(
+                !appDelegate.debugHandleShortcutMonitorEvent(event: release),
                 "A Command release without recorded terminal ownership must remain outside the terminal"
             )
         }
-        XCTAssertEqual(capturedReleaseCount, 0)
+        #expect(capturedReleaseCount == 0)
     }
 
-    func testCommandReleaseFromAppMonitorUsesRecordedOwnerAfterEventWindowChanges() throws {
+    @Test func commandReleaseFromAppMonitorUsesRecordedOwnerAfterEventWindowChanges() throws {
         let originalTerminal = try makeHostedTerminal()
         let eventWindowTerminal = try makeHostedTerminal()
         defer {
@@ -295,7 +298,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             originalTerminal.window.orderOut(nil)
             eventWindowTerminal.window.orderOut(nil)
         }
-        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let appDelegate = try #require(AppDelegate.shared)
 
         originalTerminal.surfaceView.unshiftedCodepointResolver = { event in
             event.type == .keyUp ? 0x0446 : nil
@@ -314,7 +317,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        let press = try XCTUnwrap(NSEvent.keyEvent(
+        let press = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.command],
@@ -326,7 +329,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: false,
             keyCode: 8
         ))
-        let release = try XCTUnwrap(NSEvent.keyEvent(
+        let release = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [.command],
@@ -342,24 +345,24 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         originalTerminal.window.makeFirstResponder(originalTerminal.surfaceView)
         eventWindowTerminal.window.makeFirstResponder(eventWindowTerminal.surfaceView)
         withExtendedLifetime((originalTerminal.surface, eventWindowTerminal.surface)) {
-            XCTAssertTrue(
+            #expect(
                 originalTerminal.surfaceView.consumeUnavailableCopyMenuAction(press),
                 "The original terminal must record Ghostty's consumed Copy binding"
             )
-            XCTAssertTrue(
+            #expect(
                 appDelegate.debugHandleShortcutMonitorEvent(event: release),
                 "The app-local monitor must deliver the release to the recorded terminal owner"
             )
         }
 
-        XCTAssertEqual(
-            capturedReleaseIdentities,
-            ["c".unicodeScalars.first?.value].compactMap { $0 },
+        #expect(
+            capturedReleaseIdentities
+                == ["c".unicodeScalars.first?.value].compactMap { $0 },
             "Release delivery must retain the original terminal's stable binding identity"
         )
     }
 
-    func testCommandReleaseFromAppMonitorUsesTerminalThatSentPhysicalPress() throws {
+    @Test func commandReleaseFromAppMonitorUsesTerminalThatSentPhysicalPress() throws {
         let originalTerminal = try makeHostedTerminal()
         let eventWindowTerminal = try makeHostedTerminal()
         defer {
@@ -367,7 +370,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             originalTerminal.window.orderOut(nil)
             eventWindowTerminal.window.orderOut(nil)
         }
-        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let appDelegate = try #require(AppDelegate.shared)
 
         originalTerminal.surfaceView.textInputEventHandler = { _ in false }
         originalTerminal.surfaceView.unshiftedCodepointResolver = { event in
@@ -392,7 +395,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        let press = try XCTUnwrap(NSEvent.keyEvent(
+        let press = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.control],
@@ -404,7 +407,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: false,
             keyCode: 7
         ))
-        let release = try XCTUnwrap(NSEvent.keyEvent(
+        let release = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [.command],
@@ -421,30 +424,32 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         eventWindowTerminal.window.makeFirstResponder(eventWindowTerminal.surfaceView)
         withExtendedLifetime((originalTerminal.surface, eventWindowTerminal.surface)) {
             originalTerminal.surfaceView.keyDown(with: press)
-            XCTAssertTrue(
+            #expect(
                 appDelegate.debugHandleShortcutMonitorEvent(event: release),
                 "A physical terminal press must register its exact release owner"
             )
         }
 
-        XCTAssertEqual(capturedEvents.map(\.action), [
-            GHOSTTY_ACTION_PRESS,
-            GHOSTTY_ACTION_RELEASE,
-        ])
-        XCTAssertEqual(
-            capturedEvents.last?.unshiftedCodepoint,
-            "x".unicodeScalars.first?.value,
+        #expect(
+            capturedEvents.map(\.action) == [
+                GHOSTTY_ACTION_PRESS,
+                GHOSTTY_ACTION_RELEASE,
+            ]
+        )
+        #expect(
+            capturedEvents.last?.unshiftedCodepoint
+                == "x".unicodeScalars.first?.value,
             "The release must keep the sending terminal's physical identity when Command is pressed later"
         )
     }
 
-    func testIgnoredGhosttyPressKeepsCommandReleaseOwner() throws {
+    @Test func ignoredGhosttyPressKeepsCommandReleaseOwner() throws {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
             terminal.window.orderOut(nil)
         }
-        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let appDelegate = try #require(AppDelegate.shared)
 
         terminal.surfaceView.textInputEventHandler = { _ in false }
         var capturedActions: [ghostty_input_action_e] = []
@@ -454,7 +459,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        let press = try XCTUnwrap(NSEvent.keyEvent(
+        let press = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.command],
@@ -466,7 +471,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: false,
             keyCode: UInt16(kVK_ANSI_Y)
         ))
-        let release = try XCTUnwrap(NSEvent.keyEvent(
+        let release = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [.command],
@@ -482,30 +487,31 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         terminal.window.makeFirstResponder(terminal.surfaceView)
         withExtendedLifetime(terminal.surface) {
             terminal.surfaceView.keyDown(with: press)
-            XCTAssertEqual(
-                capturedActions,
-                [GHOSTTY_ACTION_PRESS],
+            #expect(
+                capturedActions == [GHOSTTY_ACTION_PRESS],
                 "The unmatched physical press must still be submitted to Ghostty"
             )
-            XCTAssertTrue(
+            #expect(
                 appDelegate.debugHandleShortcutMonitorEvent(event: release),
                 "An ignored Ghostty result must not discard the exact terminal that owns Command key-up"
             )
         }
 
-        XCTAssertEqual(capturedActions, [
-            GHOSTTY_ACTION_PRESS,
-            GHOSTTY_ACTION_RELEASE,
-        ])
+        #expect(
+            capturedActions == [
+                GHOSTTY_ACTION_PRESS,
+                GHOSTTY_ACTION_RELEASE,
+            ]
+        )
     }
 
-    func testTerminalLifecycleResetClearsAppMonitorReleaseOwnership() throws {
+    @Test func terminalLifecycleResetClearsAppMonitorReleaseOwnership() throws {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
             terminal.window.orderOut(nil)
         }
-        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let appDelegate = try #require(AppDelegate.shared)
 
         var capturedReleaseCount = 0
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
@@ -517,7 +523,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        let press = try XCTUnwrap(NSEvent.keyEvent(
+        let press = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.command],
@@ -529,7 +535,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: false,
             keyCode: 8
         ))
-        let release = try XCTUnwrap(NSEvent.keyEvent(
+        let release = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [.command],
@@ -544,17 +550,17 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
 
         terminal.window.makeFirstResponder(terminal.surfaceView)
         withExtendedLifetime(terminal.surface) {
-            XCTAssertTrue(terminal.surfaceView.consumeUnavailableCopyMenuAction(press))
-            XCTAssertTrue(terminal.window.makeFirstResponder(nil))
-            XCTAssertFalse(
-                appDelegate.debugHandleShortcutMonitorEvent(event: release),
+            #expect(terminal.surfaceView.consumeUnavailableCopyMenuAction(press))
+            #expect(terminal.window.makeFirstResponder(nil))
+            #expect(
+                !appDelegate.debugHandleShortcutMonitorEvent(event: release),
                 "Focus loss must invalidate terminal release ownership before the monitor sees key-up"
             )
         }
-        XCTAssertEqual(capturedReleaseCount, 0)
+        #expect(capturedReleaseCount == 0)
     }
 
-    func testComposingPressForwardsMatchingRelease() throws {
+    @Test func composingPressForwardsMatchingRelease() throws {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
@@ -577,7 +583,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        let press = try XCTUnwrap(NSEvent.keyEvent(
+        let press = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -589,7 +595,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: false,
             keyCode: 4
         ))
-        let release = try XCTUnwrap(NSEvent.keyEvent(
+        let release = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [],
@@ -608,14 +614,16 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             terminal.surfaceView.keyUp(with: release)
         }
 
-        XCTAssertEqual(capturedActions, [
-            GHOSTTY_ACTION_PRESS,
-            GHOSTTY_ACTION_RELEASE,
-        ])
-        XCTAssertEqual(capturedComposingStates, [true, false])
+        #expect(
+            capturedActions == [
+                GHOSTTY_ACTION_PRESS,
+                GHOSTTY_ACTION_RELEASE,
+            ]
+        )
+        #expect(capturedComposingStates == [true, false])
     }
 
-    func testCommittedPreeditTextUsesGhosttyNonphysicalKeyEvent() throws {
+    @Test func committedPreeditTextUsesGhosttyNonphysicalKeyEvent() throws {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
@@ -652,7 +660,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        let press = try XCTUnwrap(NSEvent.keyEvent(
+        let press = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -664,7 +672,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: false,
             keyCode: 49
         ))
-        let release = try XCTUnwrap(NSEvent.keyEvent(
+        let release = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [],
@@ -683,18 +691,21 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             terminal.surfaceView.keyUp(with: release)
         }
 
-        XCTAssertEqual(committedTextEvents.count, 1)
-        guard let committedTextEvent = committedTextEvents.first else { return }
-        XCTAssertEqual(committedTextEvent.action, GHOSTTY_ACTION_PRESS)
-        XCTAssertEqual(committedTextEvent.keycode, 0)
-        XCTAssertEqual(committedTextEvent.text, "日本")
-        XCTAssertEqual(committedTextEvent.modifiers, GHOSTTY_MODS_NONE.rawValue)
-        XCTAssertEqual(committedTextEvent.consumedModifiers, GHOSTTY_MODS_NONE.rawValue)
-        XCTAssertEqual(committedTextEvent.unshiftedCodepoint, 0)
-        XCTAssertFalse(committedTextEvent.composing)
+        try #require(committedTextEvents.count == 1)
+        let committedTextEvent = try #require(committedTextEvents.first)
+        #expect(committedTextEvent.action == GHOSTTY_ACTION_PRESS)
+        #expect(committedTextEvent.keycode == 0)
+        #expect(committedTextEvent.text == "日本")
+        #expect(committedTextEvent.modifiers == GHOSTTY_MODS_NONE.rawValue)
+        #expect(
+            committedTextEvent.consumedModifiers
+                == GHOSTTY_MODS_NONE.rawValue
+        )
+        #expect(committedTextEvent.unshiftedCodepoint == 0)
+        #expect(!committedTextEvent.composing)
     }
 
-    func testConsumedPreeditRepeatKeepsAppKitOwnershipThroughRelease() throws {
+    @Test func consumedPreeditRepeatKeepsAppKitOwnershipThroughRelease() throws {
         let terminal = try makeHostedTerminal()
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
@@ -738,7 +749,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        let press = try XCTUnwrap(NSEvent.keyEvent(
+        let press = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.option],
@@ -750,7 +761,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: false,
             keyCode: 14
         ))
-        let repeatEvent = try XCTUnwrap(NSEvent.keyEvent(
+        let repeatEvent = try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -762,7 +773,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             isARepeat: true,
             keyCode: 14
         ))
-        let release = try XCTUnwrap(NSEvent.keyEvent(
+        let release = try #require(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [],
@@ -782,18 +793,20 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             terminal.surfaceView.keyUp(with: release)
         }
 
-        XCTAssertEqual(callbackOrder, [
-            "press.setMarkedText",
-            "repeat.insertText",
-            "repeat.doCommand",
-        ])
-        XCTAssertEqual(committedText, ["é"])
-        XCTAssertEqual(committedTextActions, [GHOSTTY_ACTION_REPEAT])
-        XCTAssertTrue(
+        #expect(
+            callbackOrder == [
+                "press.setMarkedText",
+                "repeat.insertText",
+                "repeat.doCommand",
+            ]
+        )
+        #expect(committedText == ["é"])
+        #expect(committedTextActions == [GHOSTTY_ACTION_REPEAT])
+        #expect(
             physicalActions.isEmpty,
             "A key consumed by the native text-input handler must not leak a press, repeat, or release"
         )
-        XCTAssertFalse(terminal.surfaceView.hasMarkedText())
+        #expect(!terminal.surfaceView.hasMarkedText())
     }
 
     private func makeHostedTerminal() throws -> HostedTerminal {
@@ -813,7 +826,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        let contentView = try XCTUnwrap(window.contentView)
+        let contentView = try #require(window.contentView)
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -827,7 +840,7 @@ final class GhosttyConsumedModifierLifecycleTests: XCTestCase {
         return HostedTerminal(
             surface: surface,
             hostedView: hostedView,
-            surfaceView: try XCTUnwrap(
+            surfaceView: try #require(
                 findGhosttyNSView(in: hostedView) as? LifecycleSurfaceView
             ),
             window: window

@@ -8,12 +8,6 @@ public import Foundation
 /// a semantic commit boundary. It classifies callbacks from event-local state,
 /// without inspecting language, script, locale, or input-source identity.
 public struct TerminalTextInputEditSession: Sendable {
-    // These are global latency and memory budgets for an otherwise
-    // indistinguishable AppKit callback sequence. They do not classify the
-    // active language, input source, script, or payload.
-    private static let maximumSpeculativeEventCount = 8
-    private static let maximumSpeculativeUTF16Length = 32 * 1024
-
     private enum MarkedTextOrigin: Sendable {
         case explicit
         case replacementEdits
@@ -29,7 +23,6 @@ public struct TerminalTextInputEditSession: Sendable {
         let rawText: String?
         var pendingInsertions: [Insertion] = []
         var receivedExplicitCompositionCallback = false
-        var appliedReplacementEdit = false
     }
 
     /// The provisional text currently owned by the input system.
@@ -42,8 +35,8 @@ public struct TerminalTextInputEditSession: Sendable {
     )
 
     private var markedTextOrigin: MarkedTextOrigin?
-    private var replacementEditEventCount = 0
     private var event: Event?
+    private let textClassification = TerminalTextInputClassification()
 
     /// Creates an empty text-input session.
     public init() {}
@@ -97,12 +90,7 @@ public struct TerminalTextInputEditSession: Sendable {
             if !consumedByTextInput || commandPerformed {
                 return commitPendingText()
             }
-            if completedEvent.appliedReplacementEdit {
-                replacementEditEventCount += 1
-            }
-            return shouldCommitSpeculativeText
-                ? commitPendingText()
-                : []
+            return []
         }
 
         let insertedText = insertions.map(\.text).joined()
@@ -110,7 +98,7 @@ public struct TerminalTextInputEditSession: Sendable {
             completedEvent.translatedText == insertedText ||
             completedEvent.rawText == insertedText
         let isControlCallback =
-            TerminalTextInputText.isSingleC0OrDelete(insertedText)
+            textClassification.isSingleC0OrDelete(insertedText)
         let committedInsertions = insertions.compactMap {
             $0.text.isEmpty ? nil : $0.text
         }
@@ -131,10 +119,7 @@ public struct TerminalTextInputEditSession: Sendable {
             )
         }
         guard hasMarkedText else { return committedText }
-        replacementEditEventCount = 1
-        return shouldCommitSpeculativeText
-            ? committedText + commitPendingText()
-            : committedText
+        return committedText
     }
 
     /// Records AppKit's explicit marked-text state.
@@ -150,7 +135,6 @@ public struct TerminalTextInputEditSession: Sendable {
         }
 
         markedTextOrigin = .explicit
-        replacementEditEventCount = 0
         markedSelection = normalizedSelection(
             selectedRange,
             textLength: utf16Length(of: text)
@@ -184,22 +168,15 @@ public struct TerminalTextInputEditSession: Sendable {
             if let event,
                event.translatedText == text ||
                event.rawText == text ||
-               TerminalTextInputText.isSingleC0OrDelete(text) {
+               textClassification.isSingleC0OrDelete(text) {
                 let pendingText = commitPendingText()
                 let directText = directText(for: text, event: event)
                 return pendingText + (directText.isEmpty ? [] : [directText])
             }
-            event?.appliedReplacementEdit = true
-            let committedText = applyReplacementEdit(
+            return applyReplacementEdit(
                 text,
                 replacementRange: replacementRange
             )
-            guard committedText.isEmpty,
-                  hasMarkedText,
-                  shouldCommitSpeculativeText else {
-                return committedText
-            }
-            return commitPendingText()
 
         case nil:
             guard event != nil else {
@@ -234,19 +211,13 @@ public struct TerminalTextInputEditSession: Sendable {
 
     private func directText(for text: String, event: Event) -> String {
         guard text == event.rawText,
-              TerminalTextInputText.isSingleC0OrDelete(text),
+              textClassification.isSingleC0OrDelete(text),
               let translatedText = event.translatedText,
               !translatedText.isEmpty,
-              !TerminalTextInputText.isSingleC0OrDelete(translatedText) else {
+              !textClassification.isSingleC0OrDelete(translatedText) else {
             return text
         }
         return translatedText
-    }
-
-    private var shouldCommitSpeculativeText: Bool {
-        replacementEditEventCount >= Self.maximumSpeculativeEventCount ||
-            utf16Length(of: markedText)
-                > Self.maximumSpeculativeUTF16Length
     }
 
     private mutating func applyReplacementEdit(
@@ -269,9 +240,17 @@ public struct TerminalTextInputEditSession: Sendable {
             return text.isEmpty ? [] : [text]
         }
 
-        let mutableText = NSMutableString(string: markedText)
-        mutableText.replaceCharacters(in: effectiveRange, with: text)
-        markedText = mutableText as String
+        if effectiveRange.location == currentLength,
+           effectiveRange.length == 0 {
+            // Coalesce append-only callbacks into the current document suffix.
+            // The session retains no callback history, so storage is exactly
+            // the text AppKit can still address through a future edit range.
+            markedText.append(contentsOf: text)
+        } else {
+            let mutableText = NSMutableString(string: markedText)
+            mutableText.replaceCharacters(in: effectiveRange, with: text)
+            markedText = mutableText as String
+        }
 
         guard !markedText.isEmpty else {
             clearMarkedText()
@@ -331,7 +310,6 @@ public struct TerminalTextInputEditSession: Sendable {
         markedText = ""
         markedSelection = NSRange(location: NSNotFound, length: 0)
         markedTextOrigin = nil
-        replacementEditEventCount = 0
     }
 
     private func utf16Length(of text: String) -> Int {
