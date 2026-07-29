@@ -1237,6 +1237,27 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
 
 @MainActor
 final class GhosttyBackquoteRegressionTests: XCTestCase {
+    private final class BackquoteSurfaceView: GhosttyNSView {
+        override func handleTextInputEvent(_ event: NSEvent) -> Bool {
+            true
+        }
+    }
+
+    private struct BackquoteSurfaceViewFactory: TerminalSurfaceViewProviding {
+        func makeSurfaceViews(
+            initialFrame: NSRect
+        ) -> (
+            surfaceView: any TerminalSurfaceNativeViewing,
+            paneHost: any TerminalSurfacePaneHosting
+        ) {
+            let surfaceView = BackquoteSurfaceView(frame: initialFrame)
+            return (
+                surfaceView,
+                GhosttySurfaceScrollView(surfaceView: surfaceView)
+            )
+        }
+    }
+
     func testShiftBackquoteEscFallbackSendsLiteralTilde() {
         _ = NSApplication.shared
 
@@ -1244,7 +1265,8 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
-            workingDirectory: nil
+            workingDirectory: nil,
+            dependencies: runtimeDependencies()
         )
         let hostedView = surface.hostedView
 
@@ -1254,10 +1276,8 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         defer {
-            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             window.orderOut(nil)
         }
@@ -1276,11 +1296,6 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        // In a host without an active input context, interpretKeyEvents consumes the
-        // synthetic ESC as insertText("\u{1B}"). Route around AppKit interpretation
-        // so this test observes the layout recovery and terminal send directly.
-        GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
 
         let recoveryProbe = NSEvent.keyEvent(
             with: .keyDown,
@@ -1339,6 +1354,26 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         XCTAssertEqual(
             backquoteUnshiftedCodepoints,
             ["`".unicodeScalars.first?.value].compactMap { $0 }
+        )
+    }
+
+    private func runtimeDependencies() -> TerminalSurfaceRuntimeDependencies {
+        let live = GhosttyApp.terminalSurfaceRuntimeDependencies
+        return TerminalSurfaceRuntimeDependencies(
+            registry: live.registry,
+            engine: live.engine,
+            viewProvider: BackquoteSurfaceViewFactory(),
+            spawnPolicy: live.spawnPolicy,
+            byteTee: live.byteTee,
+            rendererRealization: live.rendererRealization,
+            hibernationRecorder: live.hibernationRecorder,
+            runtimeTeardown: live.runtimeTeardown,
+            restoreSpawnScheduler: live.restoreSpawnScheduler,
+            runtimeFilesystem: live.runtimeFilesystem,
+            sessionPortBase: live.sessionPortBase,
+            sessionPortRangeSize: live.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey: live.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: live.globalFontMagnificationPercent
         )
     }
 }

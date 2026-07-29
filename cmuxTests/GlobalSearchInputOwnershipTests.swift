@@ -151,7 +151,7 @@ extension GlobalSearchShortcutBehaviorTests {
             windowNumber: window.windowNumber
         )
 
-        #expect(!shortcutRoutingShouldBypassForPrintableOptionText(event: event))
+        #expect(event.cmuxIsOptionTextInputCandidate)
         #expect(
             !appDelegate.debugHandleCustomShortcut(event: event),
             "Any marked NSTextInputClient must own non-Command input before Global Search routing"
