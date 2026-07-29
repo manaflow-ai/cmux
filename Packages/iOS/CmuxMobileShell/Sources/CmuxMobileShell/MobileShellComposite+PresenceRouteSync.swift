@@ -146,8 +146,15 @@ extension MobileShellComposite {
                         }
                         // Presence is only a wake-up signal. The recovery pass
                         // still obtains first-pair candidates from the
-                        // authenticated personal broker.
-                        self.recoverMobileConnection(trigger: .presencePush)
+                        // authenticated personal broker. Unchanged heartbeats
+                        // are throttled so a failing recovery loop is not
+                        // restarted on the ~15s presence cadence.
+                        if self.presencePushRecoveryThrottle.shouldRecover(
+                            evidenceChanged: evidenceChanged,
+                            now: self.runtime?.now() ?? Date()
+                        ) {
+                            self.recoverMobileConnection(trigger: .presencePush)
+                        }
                     }
                 }
             }
