@@ -516,11 +516,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
     var bakedDaemonPreflightRequiredCapabilities: [String] {
         requiredDaemonCapabilities.filter {
-            $0 != RemoteDaemonRPCClient.requiredPTYSessionCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYSessionTokenCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability
+            !RemoteDaemonCapability.persistentPTYFamily.contains($0)
         }
     }
 

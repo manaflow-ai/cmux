@@ -94,6 +94,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(auth.lowerBound < retryLoop.lowerBound, script, file: file, line: line)
         XCTAssertEqual(script.components(separatedBy: "cmux_auth_status=$?").count - 1, 1, script, file: file, line: line)
         XCTAssertFalse(script.contains("case \"$cmux_auth_status\" in 254|255) exit 1"), script, file: file, line: line)
-        XCTAssertTrue(script.contains("case \"$cmux_ssh_status\" in 254|255"), script, file: file, line: line)
+        XCTAssertTrue(script.contains("case \"$cmux_ssh_status\" in 251|254|255"), script, file: file, line: line)
     }
 }
