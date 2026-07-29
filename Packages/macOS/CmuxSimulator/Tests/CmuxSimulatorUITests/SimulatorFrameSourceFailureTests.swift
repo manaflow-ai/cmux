@@ -7,12 +7,12 @@ struct SimulatorFrameSourceFailureTests {
     @Test("Failure sentinel is distinct from frame publications")
     func recognizesFailureSentinel() {
         #expect(
-            SimulatorFrameSurfaceSource
-                .publishedWordReportsSourceFailure(Int64.min)
+            SimulatorFramePublicationWord(rawValue: Int64.min)
+                .reportsSourceFailure
         )
         #expect(
-            !SimulatorFrameSurfaceSource
-                .publishedWordReportsSourceFailure(0)
+            !SimulatorFramePublicationWord(rawValue: 0)
+                .reportsSourceFailure
         )
     }
 

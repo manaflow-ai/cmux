@@ -1494,9 +1494,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
     }
 }
-struct SessionApplicationPanelSnapshot: Codable, Sendable {
-    var targetFrameRate: Int?
-}
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
