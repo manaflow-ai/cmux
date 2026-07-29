@@ -258,6 +258,11 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     start-of-turn snapshot and an explicit continuation for messages left
     behind. Do not restore a producer-refillable drain-until-empty loop.
 
+The issue-branch `2258bea96` universal ReleaseFast GhosttyKit archive is
+published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2258bea96ddc005156beceb741b7dabb283ec615-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
 ### PTY reader and child lifecycle teardown
 
 - Commits:

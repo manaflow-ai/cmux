@@ -16,6 +16,23 @@ typedef struct {
     uint32_t diagnostics_count;
 } GhosttyRuntimeTestConfig;
 
+#if defined(__APPLE__)
+extern int ghostty_init(uintptr_t argc, char **argv) __attribute__((weak_import));
+
+// Newer Ghostty archives can be pulled into the test bundle by libc symbols
+// before any Ghostty API is referenced. Initialize that real runtime before
+// Swift Testing starts. The weak import deliberately does not pull older
+// archives, where these test stubs remain the active implementation.
+__attribute__((constructor))
+static void initialize_linked_ghostty_runtime(void) {
+    if (ghostty_init == NULL) return;
+
+    static char process_name[] = "CmuxTerminalCoreTests";
+    char *argv[] = {process_name, NULL};
+    if (ghostty_init(1, argv) != 0) abort();
+}
+#endif
+
 GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_surface_new_with_scrollback_limit(
     void *app,
     const void *config,
