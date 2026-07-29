@@ -52,6 +52,28 @@ import Testing
         }
     }
 
+    @Test func testListApplicationWindowsRejectsUnexpectedArguments() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-application-windows", "--jsoon"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 2, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains(
+                "list-application-windows: unexpected argument '--jsoon'"
+            ),
+            result.stdout
+        )
+    }
+
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-ios-routing-\(UUID().uuidString.prefix(8)).sock"

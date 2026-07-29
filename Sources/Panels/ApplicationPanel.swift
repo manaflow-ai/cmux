@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import Observation
 
@@ -111,7 +112,13 @@ final class ApplicationPanel: Panel {
         guard (1...120).contains(targetFrameRate) else { return nil }
         guard (windowID == nil) == (processID == nil) else { return nil }
         if let windowID, let processID {
-            guard windowID > 0, processID > 0 else { return nil }
+            guard
+                windowID > 0,
+                processID > 0,
+                processID != getpid()
+            else {
+                return nil
+            }
         }
 
         self.id = id
@@ -185,7 +192,14 @@ final class ApplicationPanel: Panel {
     }
 
     func selectWindow(_ window: ApplicationWindowDescriptor) {
-        guard !isClosed, window.windowID > 0, window.processID > 0 else { return }
+        guard
+            !isClosed,
+            window.windowID > 0,
+            window.processID > 0,
+            pid_t(window.processID) != getpid()
+        else {
+            return
+        }
         pickerTask?.cancel()
         pickerTask = nil
         pickerRequestID = UUID()

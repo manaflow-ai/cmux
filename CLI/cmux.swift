@@ -3358,7 +3358,10 @@ struct CMUXCLI {
         return true
     }
 
-    private func runListApplicationWindows(jsonOutput: Bool) {
+    private func runListApplicationWindows(
+        jsonOutput: Bool,
+        hostBundleIdentifier: String?
+    ) {
         let options: CGWindowListOption = [
             .optionOnScreenOnly,
             .excludeDesktopElements,
@@ -3367,11 +3370,25 @@ struct CMUXCLI {
             options,
             kCGNullWindowID
         ) as? [[String: Any]] ?? []
-        let currentProcessID = getpid()
+        var excludedProcessIDs: Set<pid_t> = [getpid()]
+        if let hostBundleIdentifier =
+            hostBundleIdentifier?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ),
+            !hostBundleIdentifier.isEmpty
+        {
+            excludedProcessIDs.formUnion(
+                NSWorkspace.shared.runningApplications.compactMap {
+                    $0.bundleIdentifier == hostBundleIdentifier
+                        ? $0.processIdentifier
+                        : nil
+                }
+            )
+        }
         let windows = rawWindows.compactMap { window in
             ApplicationWindowListFilter.entry(
                 window,
-                currentProcessID: currentProcessID,
+                excludedProcessIDs: excludedProcessIDs,
                 isRegularApplication: { processID in
                     NSRunningApplication(
                         processIdentifier: processID
@@ -3547,7 +3564,24 @@ struct CMUXCLI {
         }
 
         if command == "list-application-windows" {
-            runListApplicationWindows(jsonOutput: jsonOutput)
+            if let unexpected = commandArgs.first {
+                throw CLIError(
+                    message: String(
+                        format: String(
+                            localized:
+                                "cli.applicationSurface.list.error.unexpectedArgument",
+                            defaultValue:
+                                "list-application-windows: unexpected argument '%@'"
+                        ),
+                        unexpected
+                    ),
+                    exitCode: 2
+                )
+            }
+            runListApplicationWindows(
+                jsonOutput: jsonOutput,
+                hostBundleIdentifier: cliBundleIdentifier
+            )
             return
         }
 

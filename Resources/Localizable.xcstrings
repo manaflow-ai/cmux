@@ -135022,6 +135022,23 @@
         }
       }
     },
+    "cli.applicationSurface.list.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list-application-windows: unexpected argument '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list-application-windows: 予期しない引数 '%@'"
+          }
+        }
+      }
+    },
     "cli.applicationSurface.list.help.description": {
       "extractionState": "manual",
       "localizations": {

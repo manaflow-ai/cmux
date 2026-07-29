@@ -1060,8 +1060,13 @@ struct ApplicationSurfaceTests {
     }
 
     @Test func cliListsOnlyCapturableApplicationWindows() throws {
-        let currentProcessID = pid_t(900)
+        let cliProcessID = pid_t(900)
         let applicationProcessID = pid_t(901)
+        let hostProcessID = pid_t(902)
+        let excludedProcessIDs: Set<pid_t> = [
+            cliProcessID,
+            hostProcessID,
+        ]
         let base: [String: Any] = [
             kCGWindowNumber as String: NSNumber(value: 42),
             kCGWindowOwnerPID as String: NSNumber(value: applicationProcessID),
@@ -1084,7 +1089,7 @@ struct ApplicationSurfaceTests {
 
         let listed = try #require(ApplicationWindowListFilter.entry(
             base,
-            currentProcessID: currentProcessID,
+            excludedProcessIDs: excludedProcessIDs,
             isRegularApplication: regularApplication
         ))
         #expect(listed["window_id"] as? Int == 42)
@@ -1093,19 +1098,29 @@ struct ApplicationSurfaceTests {
 
         var invalid = base
         invalid[kCGWindowOwnerPID as String] = NSNumber(
-            value: currentProcessID
+            value: cliProcessID
         )
         #expect(ApplicationWindowListFilter.entry(
             invalid,
-            currentProcessID: currentProcessID,
+            excludedProcessIDs: excludedProcessIDs,
             isRegularApplication: regularApplication
+        ) == nil)
+
+        invalid = base
+        invalid[kCGWindowOwnerPID as String] = NSNumber(
+            value: hostProcessID
+        )
+        #expect(ApplicationWindowListFilter.entry(
+            invalid,
+            excludedProcessIDs: excludedProcessIDs,
+            isRegularApplication: { _ in true }
         ) == nil)
 
         invalid = base
         invalid[kCGWindowSharingState as String] = NSNumber(value: 0)
         #expect(ApplicationWindowListFilter.entry(
             invalid,
-            currentProcessID: currentProcessID,
+            excludedProcessIDs: excludedProcessIDs,
             isRegularApplication: regularApplication
         ) == nil)
 
@@ -1113,7 +1128,7 @@ struct ApplicationSurfaceTests {
         invalid[kCGWindowAlpha as String] = NSNumber(value: 0)
         #expect(ApplicationWindowListFilter.entry(
             invalid,
-            currentProcessID: currentProcessID,
+            excludedProcessIDs: excludedProcessIDs,
             isRegularApplication: regularApplication
         ) == nil)
 
@@ -1121,7 +1136,7 @@ struct ApplicationSurfaceTests {
         invalid[kCGWindowIsOnscreen as String] = false
         #expect(ApplicationWindowListFilter.entry(
             invalid,
-            currentProcessID: currentProcessID,
+            excludedProcessIDs: excludedProcessIDs,
             isRegularApplication: regularApplication
         ) == nil)
 
@@ -1134,15 +1149,42 @@ struct ApplicationSurfaceTests {
         ] as NSDictionary
         #expect(ApplicationWindowListFilter.entry(
             invalid,
-            currentProcessID: currentProcessID,
+            excludedProcessIDs: excludedProcessIDs,
             isRegularApplication: regularApplication
         ) == nil)
 
         #expect(ApplicationWindowListFilter.entry(
             base,
-            currentProcessID: currentProcessID,
+            excludedProcessIDs: excludedProcessIDs,
             isRegularApplication: { _ in false }
         ) == nil)
+    }
+
+    @Test func applicationTargetsRejectTheCurrentCmuxProcess() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        #expect(ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: getpid(),
+            title: "cmux",
+            targetFrameRate: 60,
+            runtime: runtime
+        ) == nil)
+
+        let panel = try #require(ApplicationPanel(
+            workspaceId: UUID(),
+            targetFrameRate: 60,
+            runtime: runtime
+        ))
+        panel.selectWindow(ApplicationWindowDescriptor(
+            windowID: 42,
+            processID: getpid(),
+            owner: "cmux",
+            title: "cmux",
+            width: 800,
+            height: 600
+        ))
+        #expect(panel.captureTarget == nil)
     }
 
     @Test func applicationPointerDownSynchronizesWorkspaceFocus() throws {

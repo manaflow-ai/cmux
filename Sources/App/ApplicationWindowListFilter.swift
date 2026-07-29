@@ -5,7 +5,7 @@ import Foundation
 enum ApplicationWindowListFilter {
     static func entry(
         _ window: [String: Any],
-        currentProcessID: pid_t,
+        excludedProcessIDs: Set<pid_t>,
         isRegularApplication: (pid_t) -> Bool
     ) -> [String: Any]? {
         guard
@@ -33,7 +33,7 @@ enum ApplicationWindowListFilter {
             window[kCGWindowAlpha as String] as? NSNumber
         )?.doubleValue ?? 1
         guard
-            processID != currentProcessID,
+            !excludedProcessIDs.contains(processID),
             isRegularApplication(processID),
             alpha.isFinite,
             alpha > 0.01,
