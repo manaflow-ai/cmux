@@ -27,7 +27,6 @@ struct TerminalPickerMenu: View, Equatable {
             diagnostics.recordContentBuilderEvaluation(rowCount: value.destinations.count)
             #endif
             actions.preparePresentation()
-            switcherPresentationID = UUID()
             isSwitcherPresented = true
         } label: {
             Label(activeSurfaceName, systemImage: "rectangle.stack")
@@ -45,7 +44,6 @@ struct TerminalPickerMenu: View, Equatable {
                 terminalTheme: terminalTheme,
                 dismiss: dismiss
             )
-            .id(switcherPresentationID)
             .frame(
                 width: horizontalSizeClass == .regular
                     ? SurfaceSwitcherMetrics.regularPopoverWidth
