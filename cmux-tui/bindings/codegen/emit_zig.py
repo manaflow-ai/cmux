@@ -848,6 +848,6 @@ def render(ir: SdkIR) -> Mapping[str | PurePosixPath, str | bytes]:
 
 EMITTER = Emitter(
     language="zig",
-    output_root=PurePosixPath("zig/src/generated"),
+    output_root=PurePosixPath("zig/src/raw/generated"),
     render=render,
 )

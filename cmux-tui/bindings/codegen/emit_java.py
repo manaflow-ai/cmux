@@ -25,7 +25,7 @@ _JAVA_RESERVED = {
 }
 
 _HEADER = """// Generated from cmux-tui/spec/sdk-schema.json. DO NOT EDIT.
-package com.cmux.generated;
+package com.cmux.raw;
 
 """
 _SDK_VERSION = "0.4.0"
@@ -1163,6 +1163,6 @@ def emit(ir: SdkIR) -> Mapping[str | PurePosixPath, str | bytes]:
 
 EMITTER = Emitter(
     language="java",
-    output_root=PurePosixPath("java/src/com/cmux/generated"),
+    output_root=PurePosixPath("java/src/com/cmux/raw"),
     render=emit,
 )

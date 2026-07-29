@@ -465,6 +465,6 @@ def emit(ir: ir_module.SdkIR) -> Mapping[str | PurePosixPath, str | bytes]:
 
 EMITTER = writer.Emitter(
     language="typescript",
-    output_root=PurePosixPath("typescript/src/generated"),
+    output_root=PurePosixPath("typescript/src/raw/generated"),
     render=emit,
 )

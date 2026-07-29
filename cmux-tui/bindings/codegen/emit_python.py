@@ -1082,6 +1082,6 @@ def emit(value: SdkIR) -> Mapping[PurePosixPath, str]:
 
 EMITTER = Emitter(
     language="python",
-    output_root=PurePosixPath("python/cmux/_generated"),
+    output_root=PurePosixPath("python/cmux/raw/_generated"),
     render=emit,
 )

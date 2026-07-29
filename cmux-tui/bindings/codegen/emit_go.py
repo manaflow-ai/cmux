@@ -881,7 +881,7 @@ def _render_types(ir: SdkIR, document: Mapping[str, Any]) -> str:
     lines = _header(ir)
     lines.extend(
         [
-            "package cmux",
+            "package raw",
             "",
             "import (",
             '\t"bytes"',
@@ -1119,7 +1119,7 @@ def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
     lines = _header(ir)
     lines.extend(
         [
-            "package cmux",
+            "package raw",
             "",
             "import (",
             '\t"context"',
@@ -1225,7 +1225,7 @@ def _render_events(ir: SdkIR, document: Mapping[str, Any]) -> str:
     lines = _header(ir)
     lines.extend(
         [
-            "package cmux",
+            "package raw",
             "",
             "import (",
             '\t"context"',
@@ -1333,7 +1333,7 @@ def _render_metadata(ir: SdkIR, document: Mapping[str, Any]) -> str:
     lines = _header(ir)
     lines.extend(
         [
-            "package cmux",
+            "package raw",
             "",
             "const (",
             f"\tSDKSchemaVersion = {ir.schema_version}",
@@ -1651,7 +1651,7 @@ def _render_presence_tests(
     lines = _header(ir)
     lines.extend(
         [
-            "package cmux",
+            "package raw",
             "",
             "import (",
             '\t"encoding/json"',
@@ -1876,6 +1876,6 @@ def emit(ir: SdkIR) -> Mapping[str | PurePosixPath, str | bytes]:
 
 EMITTER = Emitter(
     language="go",
-    output_root=PurePosixPath("go"),
+    output_root=PurePosixPath("go/raw"),
     render=emit,
 )
