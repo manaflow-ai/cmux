@@ -159,9 +159,19 @@ struct TerminalLinkOpenCoordinatorTests {
         }
         standardDefaults.set(true, forKey: supportedFilesKey)
 
+        let remoteWebsiteDataStoreIdentifier = UUID()
         let store = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            remoteBrowserSettingsProvider: {
+                DockRemoteBrowserSettings(
+                    proxyEndpoint: nil,
+                    bypassRemoteProxy: false,
+                    isRemoteWorkspace: true,
+                    remoteWebsiteDataStoreIdentifier: remoteWebsiteDataStoreIdentifier,
+                    remoteStatus: nil
+                )
+            },
             browserAvailabilityProvider: { true }
         )
         defer { store.closeAllPanels() }
@@ -206,6 +216,7 @@ struct TerminalLinkOpenCoordinatorTests {
         }
         #expect(browserPanels.count == 1)
         #expect(browserPanels.first?.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
+        #expect(browserPanels.first?.bypassesRemoteWorkspaceProxyForTabDuplication == true)
         #expect(externallyOpened.isEmpty)
     }
 
@@ -229,6 +240,32 @@ struct TerminalLinkOpenCoordinatorTests {
             terminal.hostedView.surfaceView.debugWordPathSnapshotTerminalPanelID()
                 == terminalPanelId
         )
+    }
+
+    @Test("Dock command-click CWD avoids live process inspection")
+    @MainActor
+    func dockCommandClickCWDAvoidsLiveProcessInspection() throws {
+        var liveDirectoryQueries = 0
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true },
+            terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver(
+                liveDirectoryProvider: { _ in
+                    liveDirectoryQueries += 1
+                    return nil
+                }
+            )
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+
+        #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) != nil)
+        #expect(liveDirectoryQueries == 0)
     }
 
     @Test("Deferred HTML routing revalidates remote state")

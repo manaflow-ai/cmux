@@ -246,6 +246,7 @@ struct CommandClickHTMLOpenRoutingTests {
             .first(where: { $0.label == "localFileReadAccessPolicy" })
             .map { String(describing: $0.value) }
         #expect(readAccessPolicy == "fileOnly")
+        #expect(browser.bypassesRemoteWorkspaceProxyForTabDuplication)
     }
 
     @Test
