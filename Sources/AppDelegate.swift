@@ -4698,6 +4698,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             #endif
             return
         }
+        // A registered context is the sole live owner. Recovery authority is
+        // transferred back to the ledger only when that exact context detaches.
         forgetRecoverableMainWindowRoute(windowId: windowId)
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
@@ -4781,11 +4783,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         ensureSocketListenerIfEnabled(tabManager: tabManager, source: "mainWindow.register")
         ensureMobileWorkspaceListObserver(for: tabManager)
-        rememberRecoverableMainWindowRoute(
-            windowId: windowId,
-            tabManager: tabManager,
-            window: window
-        )
         notifyMainWindowContextsDidChange()
         if window.isKeyWindow {
             setActiveMainWindow(window)
