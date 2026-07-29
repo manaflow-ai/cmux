@@ -28,10 +28,14 @@ struct MobileHostOrderedRequestQueue {
 extension MobileHostRPCRequest {
     /// Whether this request writes terminal input and must therefore be
     /// handled in arrival order rather than on a concurrent response task.
+    /// paste_image belongs here too: its handler writes the materialized
+    /// image path into the PTY, so running it concurrently could inject that
+    /// path ahead of earlier queued keystrokes.
     var isOrderedTerminalInput: Bool {
         switch method {
         case "mobile.terminal.input", "terminal.input",
-             "mobile.terminal.paste", "terminal.paste":
+             "mobile.terminal.paste", "terminal.paste",
+             "mobile.terminal.paste_image", "terminal.paste_image":
             true
         default:
             false

@@ -2128,7 +2128,23 @@ actor MobileHostConnection {
         while !Task.isCancelled, !isClosed,
               let request = orderedRequestQueue.dequeue() {
             orderedRequestRunningFrameByteCount = request.frameByteCount
-            await respond(to: request.decodedRequest)
+            // Serialize authorization + application only. The response write
+            // goes to a tracked concurrent task: a peer that stops reading
+            // stalls the serialized transport writer (issue #8842), and an
+            // inline await here would freeze every later terminal input behind
+            // that stall. Stalled response tasks stay in `responseTasks`, so
+            // their accumulated bytes eventually fail quota admission and
+            // close the connection instead of pinning it forever.
+            switch request.decodedRequest {
+            case let .success(decoded):
+                if let response = await successResponsePayload(for: decoded) {
+                    startResponseSendTask(response)
+                }
+            case .failure:
+                // Decode failures are never enqueued ordered; keep the
+                // defensive path identical to the concurrent one.
+                await respond(to: request.decodedRequest)
+            }
             orderedRequestRunningFrameByteCount = nil
         }
         orderedRequestRunningFrameByteCount = nil
@@ -2138,6 +2154,19 @@ actor MobileHostConnection {
         } else if !hasActiveResponseWork {
             startIdleTimeout()
         }
+    }
+
+    private func startResponseSendTask(_ response: Data) {
+        guard !isClosed else { return }
+        let taskID = UUID()
+        let task = Task { [weak self] in
+            _ = await self?.sendResponse(response)
+            await self?.finishResponseTask(taskID)
+        }
+        responseTasks[taskID] = ResponseTask(
+            frameByteCount: response.count,
+            task: task
+        )
     }
 
     private var hasActiveResponseWork: Bool {
@@ -2220,38 +2249,10 @@ actor MobileHostConnection {
         }
         switch decodedRequest {
         case let .success(request):
-            let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
-            if tracksInteractiveActivity {
-                MobileHostRequestActivity.beginRequest()
-            }
-            defer {
-                if tracksInteractiveActivity {
-                    MobileHostRequestActivity.endRequest()
-                }
-            }
-            if let error = await authorizeRequest(request) {
-                guard !isClosed, !Task.isCancelled else {
-                    return
-                }
-                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
+            guard let response = await successResponsePayload(for: request) else {
                 return
             }
-            guard !isClosed, !Task.isCancelled else {
-                return
-            }
-            await onAuthorizedRequest(request)
-            guard !isClosed, !Task.isCancelled else {
-                return
-            }
-            if let intercepted = await handleSubscriptionRPC(request) {
-                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
-                return
-            }
-            let result = await handleRequest(request)
-            guard !isClosed, !Task.isCancelled else {
-                return
-            }
-            _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
+            _ = await sendResponse(response)
         case let .failure(error):
             guard !isClosed, !Task.isCancelled else {
                 return
@@ -2265,6 +2266,47 @@ actor MobileHostConnection {
                 )
             )
         }
+    }
+
+    /// Authorizes and applies one decoded request, returning its encoded
+    /// response envelope, or `nil` when the connection closed or the task was
+    /// cancelled before a response could be produced.
+    private func successResponsePayload(
+        for request: MobileHostRPCRequest
+    ) async -> Data? {
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
+        if tracksInteractiveActivity {
+            MobileHostRequestActivity.beginRequest()
+        }
+        defer {
+            if tracksInteractiveActivity {
+                MobileHostRequestActivity.endRequest()
+            }
+        }
+        if let error = await authorizeRequest(request) {
+            guard !isClosed, !Task.isCancelled else {
+                return nil
+            }
+            return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error)
+        }
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        await onAuthorizedRequest(request)
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        if let intercepted = await handleSubscriptionRPC(request) {
+            return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted)
+        }
+        let result = await handleRequest(request)
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result)
     }
 
     private func handleSubscriptionRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult? {

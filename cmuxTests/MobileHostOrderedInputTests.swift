@@ -43,7 +43,9 @@ struct MobileHostOrderedInputTests {
         let inputResponseIDs = await transport.responseIDs().filter {
             $0.hasPrefix("input-")
         }
-        #expect(inputResponseIDs == ["input-1", "input-2"])
+        // Application order is proven by the gate assertions above; response
+        // writes are dispatched to concurrent tasks and may interleave.
+        #expect(Set(inputResponseIDs) == Set(["input-1", "input-2"]))
         await connection.close(reason: "test complete")
     }
 
@@ -76,6 +78,50 @@ struct MobileHostOrderedInputTests {
         #expect(await transport.closeCount() == 1)
         #expect(await gate.handledRequestCount() == 1)
         await gate.releaseFirstInput()
+    }
+
+    @Test
+    func stalledResponseWriteDoesNotBlockLaterOrderedInput() async throws {
+        let transport = OrderedInputRecordingTransport()
+        await transport.setHoldSends(true)
+        let gate = OrderedInputHandlerGate()
+        let connection = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                await gate.handle(request)
+                return .ok(["handled": request.id ?? NSNull()])
+            },
+            onClose: { _ in }
+        )
+        let batch = try Self.framedBatch([
+            ("stall-1", "terminal.input"),
+            ("stall-2", "terminal.input"),
+        ])
+
+        await connection.debugHandleReceiveDataForTesting(batch)
+
+        // Both inputs must APPLY even though no response write can complete:
+        // a peer that stops reading stalls the serialized writer, and input
+        // application must not sit behind that stall.
+        var bothHandled = false
+        for _ in 0..<2_000 {
+            if await gate.handledRequestCount() >= 2 {
+                bothHandled = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(bothHandled)
+        #expect(await transport.responseIDs().isEmpty)
+
+        await transport.setHoldSends(false)
+        await transport.releaseHeldSends()
+        let responses = await transport.waitForResponseCount(2)
+        #expect(Set(responses) == Set(["stall-1", "stall-2"]))
+        await connection.close(reason: "test complete")
     }
 
     private static func framedBatch(
@@ -165,11 +211,28 @@ private actor OrderedInputRecordingTransport: CmxByteTransport {
     private var responseWaiters:
         [(Int, CheckedContinuation<[String], Never>)] = []
     private var closes = 0
+    private var holdSends = false
+    private var heldSendContinuations: [CheckedContinuation<Void, Never>] = []
 
     func connect() async throws {}
     func receive() async throws -> Data? { nil }
 
+    func setHoldSends(_ hold: Bool) {
+        holdSends = hold
+    }
+
+    func releaseHeldSends() {
+        let continuations = heldSendContinuations
+        heldSendContinuations = []
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
     func send(_ data: Data) async throws {
+        if holdSends {
+            await withCheckedContinuation { heldSendContinuations.append($0) }
+        }
         var buffer = data
         let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
         for payload in payloads {
