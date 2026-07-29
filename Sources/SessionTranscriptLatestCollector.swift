@@ -15,6 +15,7 @@ struct SessionTranscriptLatestCollector: Sendable {
     }
 
     mutating func append(_ turn: SessionTranscriptTurn) {
+        guard retention.includes(turn.role) else { return }
         let boundedTurn = retention.bounded(turn)
         if openingUser == nil, boundedTurn.role == .user {
             openingUser = boundedTurn

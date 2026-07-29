@@ -1305,15 +1305,20 @@ enum SessionTranscriptLoader {
                 didHitTurnLimit = turns.count >= retention.limit
                 return
             }
-            guard let parsed = parseLineData(
+            let parsed = parseLineData(
                 lineData,
                 agent: agent,
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
                 id: lineIndex
-            ) else {
+            )
+            guard !parsed.isEmpty else {
                 return
             }
-            turns.append(parsed)
+            let remainingTurnCount = retention.limit - turns.count
+            turns.append(contentsOf: parsed.prefix(remainingTurnCount))
+            if parsed.count > remainingTurnCount {
+                didHitTurnLimit = true
+            }
             didHitTurnLimit = turns.count >= retention.limit
         }
 
@@ -1389,24 +1394,28 @@ enum SessionTranscriptLoader {
             maximumPageCount: latestTranscriptMaximumPageCount
         ) { object in
             guard !Task.isCancelled else { return true }
-            guard let turn = parseLine(
+            let parsedTurns = parseLine(
                 object,
                 agent: agent,
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
                 id: -(newestFirst.count + 1)
-            ) else {
-                return false
-            }
-            let boundedTurn = retention.bounded(turn)
-            newestFirst.append(boundedTurn)
-            let byteTotal = retainedTextBytes.addingReportingOverflow(
-                retention.retainedByteCost(of: boundedTurn)
             )
-            retainedTextBytes = byteTotal.overflow ? .max : byteTotal.partialValue
-            if newestFirst.count >= retention.limit {
-                return true
+            for turn in parsedTurns.reversed() {
+                guard retention.includes(turn.role) else { continue }
+                let boundedTurn = retention.bounded(turn)
+                newestFirst.append(boundedTurn)
+                let byteTotal = retainedTextBytes.addingReportingOverflow(
+                    retention.retainedByteCost(of: boundedTurn)
+                )
+                retainedTextBytes = byteTotal.overflow ? .max : byteTotal.partialValue
+                if newestFirst.count >= retention.limit {
+                    return true
+                }
+                if retention.textByteLimit.map({ retainedTextBytes >= $0 }) == true {
+                    return true
+                }
             }
-            return retention.textByteLimit.map { retainedTextBytes >= $0 } ?? false
+            return false
         }
         try Task.checkCancellation()
 
@@ -1416,16 +1425,18 @@ enum SessionTranscriptLoader {
             maxBytes: openingTranscriptByteLimit
         ) { object in
             guard !Task.isCancelled else { return true }
-            guard let turn = parseLine(
+            let parsedTurns = parseLine(
                 object,
                 agent: agent,
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
                 id: .min
-            ), turn.role == .user else {
-                return false
+            )
+            for turn in parsedTurns {
+                guard retention.includes(turn.role), turn.role == .user else { continue }
+                openingUser = retention.bounded(turn)
+                return true
             }
-            openingUser = retention.bounded(turn)
-            return true
+            return false
         }
         try Task.checkCancellation()
 
@@ -1479,8 +1490,10 @@ enum SessionTranscriptLoader {
         }
         if retention.keepsLatestTurns {
             _ = SessionIndexJSONLReader().fromStart(
-                url: url
+                url: url,
+                maxBytes: openingTranscriptByteLimit
             ) { object in
+                guard !Task.isCancelled else { return true }
                 guard antigravityHistorySessionID(in: object) == sessionId,
                       let turn = antigravityHistoryTurn(in: object, id: Int.min, agent: agent) else {
                     return false
@@ -1488,6 +1501,7 @@ enum SessionTranscriptLoader {
                 openingUser = turn
                 return true
             }
+            try Task.checkCancellation()
         } else if didHitTurnLimit || !metrics.didReachStart {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
@@ -1780,11 +1794,11 @@ enum SessionTranscriptLoader {
         agent: SessionAgent,
         usesGrokTranscriptLayout: Bool,
         id: Int
-    ) -> SessionTranscriptTurn? {
+    ) -> [SessionTranscriptTurn] {
         guard !lineData.isEmpty,
               shouldParseRawLine(lineData, agent: agent, usesGrokTranscriptLayout: usesGrokTranscriptLayout),
               let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
-            return nil
+            return []
         }
         return parseLine(
             object,
@@ -1799,37 +1813,50 @@ enum SessionTranscriptLoader {
         agent: SessionAgent,
         usesGrokTranscriptLayout: Bool,
         id: Int
-    ) -> SessionTranscriptTurn? {
+    ) -> [SessionTranscriptTurn] {
         switch agent {
         case .claude:
             return parseClaudeLine(object, id: id)
         case .codex:
-            return parseCodexLine(object, id: id)
+            return parseCodexLine(object, id: id).map { [$0] } ?? []
         case .grok, .opencode, .rovodev, .registered:
             return parseGenericLine(
                 object,
                 agent: agent,
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
                 id: id
-            )
+            ).map { [$0] } ?? []
         case .hermesAgent:
-            return nil
+            return []
         }
     }
 
-    private static func parseClaudeLine(_ object: [String: Any], id: Int) -> SessionTranscriptTurn? {
+    private static func parseClaudeLine(_ object: [String: Any], id: Int) -> [SessionTranscriptTurn] {
         guard (object["isMeta"] as? Bool) != true,
               let type = object["type"] as? String,
               type == "user" || type == "assistant" else {
-            return nil
+            return []
         }
         let message = object["message"] as? [String: Any]
-        let role = transcriptRole(from: message?["role"] as? String ?? type) ?? .event
+        let messageRole = transcriptRole(from: message?["role"] as? String ?? type) ?? .event
         let content = message?["content"] ?? object["content"]
-        guard let text = normalizedText(from: content, role: role, agent: .claude) else {
-            return nil
+        let blocks: [Any]
+        if let content = content as? [Any] {
+            blocks = content
+        } else if let content {
+            blocks = [content]
+        } else {
+            blocks = []
         }
-        return SessionTranscriptTurn(id: id, role: role, text: text)
+        return blocks.compactMap { block in
+            let blockType = (block as? [String: Any])?["type"] as? String
+            let blockRole = transcriptRole(from: blockType)
+            let role = blockRole == .tool ? SessionTranscriptRole.tool : messageRole
+            guard let text = normalizedText(from: block, role: role, agent: .claude) else {
+                return nil
+            }
+            return SessionTranscriptTurn(id: id, role: role, text: text)
+        }
     }
 
     private static func parseCodexLine(_ object: [String: Any], id: Int) -> SessionTranscriptTurn? {

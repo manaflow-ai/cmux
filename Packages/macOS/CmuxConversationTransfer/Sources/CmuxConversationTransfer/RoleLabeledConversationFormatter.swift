@@ -5,6 +5,15 @@ public struct RoleLabeledConversationFormatter: ConversationFormatting {
     /// Creates a role-labeled formatter.
     public init() {}
 
+    /// Returns a safe UTF-8 byte-cost bound for a role-labeled turn.
+    /// - Parameter turn: The turn whose role label and text should be measured.
+    /// - Returns: An upper bound for the separators, role label, and sanitized text.
+    public func formattedByteCount(of turn: ConversationTurn) -> Int {
+        let framingByteCount = roleLabel(turn.role).utf8.count + 4
+        let total = turn.text.utf8.count.addingReportingOverflow(framingByteCount)
+        return total.overflow ? .max : total.partialValue
+    }
+
     /// Formats compacted turns into a sanitized, bounded handoff prompt.
     /// - Parameters:
     ///   - compaction: Retained turns and compaction statistics.

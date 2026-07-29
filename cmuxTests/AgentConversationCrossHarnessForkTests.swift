@@ -142,7 +142,7 @@ struct AgentConversationCrossHarnessForkTests {
             fileURL: transcript,
             retention: .transferOpeningUserAndLatest(
                 turnLimit: 1_000,
-                textByteLimit: 32 * 1_024
+                textByteLimit: 8 * 1_024
             )
         ))
 

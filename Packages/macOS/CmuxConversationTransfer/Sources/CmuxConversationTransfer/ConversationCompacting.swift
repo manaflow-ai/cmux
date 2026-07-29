@@ -4,9 +4,11 @@ public protocol ConversationCompacting: Sendable {
     /// - Parameters:
     ///   - turns: Source turns in chronological order.
     ///   - policy: Size and role policy for the handoff.
+    ///   - formattedByteCount: Safe formatted byte-cost bound for each retained turn.
     /// - Returns: The retained turns and compaction statistics.
     func compact(
         _ turns: [ConversationTurn],
-        policy: ConversationTransferPolicy
+        policy: ConversationTransferPolicy,
+        formattedByteCount: @Sendable (ConversationTurn) -> Int
     ) -> ConversationCompaction
 }

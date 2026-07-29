@@ -35,6 +35,11 @@ enum SessionTranscriptRetention: Equatable, Sendable {
         return max(1, textByteLimit)
     }
 
+    func includes(_ role: SessionTranscriptRole) -> Bool {
+        guard case .transferOpeningUserAndLatest = self else { return true }
+        return role == .user || role == .assistant
+    }
+
     func bounded(_ turn: SessionTranscriptTurn) -> SessionTranscriptTurn {
         guard let textByteLimit else { return turn }
         let text = UTF8ByteClipper().clipped(
@@ -52,18 +57,19 @@ enum SessionTranscriptRetention: Equatable, Sendable {
     func boundedTurnsPreservingOpeningAndLatest(
         _ turns: [SessionTranscriptTurn]
     ) -> [SessionTranscriptTurn] {
-        guard let textByteLimit else { return turns }
-        guard !turns.isEmpty else { return [] }
+        let includedTurns = turns.filter { includes($0.role) }
+        guard let textByteLimit else { return includedTurns }
+        guard !includedTurns.isEmpty else { return [] }
         var fitRemainingBytes = textByteLimit
-        let allTurnsFit = turns.allSatisfy { turn in
+        let allTurnsFit = includedTurns.allSatisfy { turn in
             let byteCost = retainedByteCost(of: turn)
             guard byteCost <= fitRemainingBytes else { return false }
             fitRemainingBytes -= byteCost
             return true
         }
-        if allTurnsFit { return turns }
+        if allTurnsFit { return includedTurns }
 
-        let firstUserIndex = turns.firstIndex { $0.role == .user }
+        let firstUserIndex = includedTurns.firstIndex { $0.role == .user }
         var retained: [(index: Int, turn: SessionTranscriptTurn)] = []
         var remainingBytes = textByteLimit
         if let firstUserIndex {
@@ -71,14 +77,14 @@ enum SessionTranscriptRetention: Equatable, Sendable {
                 0,
                 min(remainingBytes, max(1, textByteLimit / 4)) - 2
             )
-            let opening = clipped(turns[firstUserIndex], maximumBytes: openingLimit)
+            let opening = clipped(includedTurns[firstUserIndex], maximumBytes: openingLimit)
             retained.append((firstUserIndex, opening))
             remainingBytes -= retainedByteCost(of: opening)
         }
 
         var tail: [(index: Int, turn: SessionTranscriptTurn)] = []
-        for index in turns.indices.reversed() where index != firstUserIndex && remainingBytes > 2 {
-            let turn = turns[index]
+        for index in includedTurns.indices.reversed() where index != firstUserIndex && remainingBytes > 2 {
+            let turn = includedTurns[index]
             let byteCost = retainedByteCost(of: turn)
             if byteCost <= remainingBytes {
                 tail.append((index, turn))

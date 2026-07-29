@@ -29,7 +29,14 @@ public struct ConversationTransferService: Sendable {
         for turns: [ConversationTurn],
         sourceDisplayName: String
     ) throws -> String {
-        let compaction = compactor.compact(turns, policy: policy)
+        let formatter = self.formatter
+        let compaction = compactor.compact(
+            turns,
+            policy: policy,
+            formattedByteCount: { turn in
+                formatter.formattedByteCount(of: turn)
+            }
+        )
         guard !compaction.turns.isEmpty else {
             throw ConversationTransferError.emptyConversation
         }
