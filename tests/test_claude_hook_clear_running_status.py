@@ -213,6 +213,7 @@ def hook_environment(
     env["CMUX_WORKSPACE_ID"] = workspace_id
     env["CMUX_SURFACE_ID"] = surface_id
     env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
+    env["CMUX_CLAUDE_PID"] = str(os.getpid())
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     return env
@@ -726,9 +727,9 @@ def verify_stale_clear_start_preserves_handoff(cli_path: str) -> None:
         state_path = Path(server.root.name) / "pid-clear-state.json"
         env = hook_environment(server, workspace_id, surface_id, state_path)
         source_env = env.copy()
-        source_env["CMUX_CLAUDE_PID"] = "11111"
+        source_env["CMUX_CLAUDE_PID"] = str(os.getpid())
         stale_env = env.copy()
-        stale_env["CMUX_CLAUDE_PID"] = "22222"
+        stale_env["CMUX_CLAUDE_PID"] = "1"
 
         run_claude_hook(
             cli_path,
@@ -1153,6 +1154,114 @@ def verify_authoritative_resume_supersedes_clear_tombstone(cli_path: str) -> Non
             )
 
 
+def verify_unproven_process_cannot_consume_clear_handoff(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    retired_session_id = f"unproven-retired-{uuid.uuid4().hex}"
+    clear_session_id = f"unproven-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "unproven-clear-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": retired_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": retired_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {
+                "session_id": retired_session_id,
+                "reason": "clear",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+
+        unproven_env = env.copy()
+        unproven_env.pop("CMUX_CLAUDE_PID")
+        rejected_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {
+                "session_id": clear_session_id,
+                "source": "clear",
+                "cwd": "/tmp",
+            },
+            unproven_env,
+        )
+        rejected_commands = server.commands[rejected_start:]
+        forbidden_fragments = [
+            "set_agent_pid claude_code ",
+            "set_agent_lifecycle claude_code ",
+            "set_status claude_code ",
+            "clear_notifications ",
+            '"method":"surface.resume.set"',
+        ]
+        for fragment in forbidden_fragments:
+            if has_command(rejected_commands, fragment):
+                raise RuntimeError(
+                    "An identity-free process consumed a clear handoff:\n"
+                    f"fragment={fragment!r}\ncommands={rejected_commands!r}"
+                )
+
+        state = json.loads(state_path.read_text())
+        transfers = state.get("clearBackgroundWorkTransfersBySurface", {})
+        if surface_id not in transfers:
+            raise RuntimeError(
+                "An identity-free process erased the proven clear handoff:\n"
+                f"state={state!r}"
+            )
+
+        matching_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {
+                "session_id": clear_session_id,
+                "source": "clear",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        matching_commands = server.commands[matching_start:]
+        if not has_command_with(
+            matching_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "The proven process could not consume its clear handoff:\n"
+                f"matching_commands={matching_commands!r}"
+            )
+
+
 def verify_vacant_surface_accepts_authoritative_resume(cli_path: str) -> None:
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
@@ -1194,6 +1303,93 @@ def verify_vacant_surface_accepts_authoritative_resume(cli_path: str) -> None:
                 "An ordinary resume did not persist its idle lifecycle:\n"
                 f"resume_record={resume_record!r}"
             )
+
+
+def verify_new_generation_resumes_same_session(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    session_id = f"same-session-resume-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "same-session-resume-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": session_id, "source": "resume", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": session_id,
+                "turn_id": "original-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+
+        duplicate_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": session_id, "source": "resume", "cwd": "/tmp"},
+            env,
+        )
+        duplicate_commands = server.commands[duplicate_start:]
+        if has_command_with(
+            duplicate_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "A duplicate same-generation resume idled the active turn:\n"
+                f"duplicate_commands={duplicate_commands!r}"
+            )
+
+        replacement_process = subprocess.Popen(
+            ["/bin/cat"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            replacement_env = env.copy()
+            replacement_env["CMUX_CLAUDE_PID"] = str(replacement_process.pid)
+            replacement_start = len(server.commands)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "session-start",
+                {"session_id": session_id, "source": "resume", "cwd": "/tmp"},
+                replacement_env,
+            )
+            replacement_commands = server.commands[replacement_start:]
+            if not has_command_with(
+                replacement_commands,
+                f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+                f"--panel={surface_id}",
+            ):
+                raise RuntimeError(
+                    "A proven new process generation could not resume its stored session:\n"
+                    f"replacement_commands={replacement_commands!r}"
+                )
+
+            state = json.loads(state_path.read_text())
+            record = state["sessions"][session_id]
+            if record.get("pid") != replacement_process.pid:
+                raise RuntimeError(
+                    "The resumed session kept its stale process identity:\n"
+                    f"record={record!r}"
+                )
+        finally:
+            replacement_process.terminate()
+            replacement_process.wait(timeout=2)
 
 
 def verify_late_resume_cannot_replace_clear_successor(cli_path: str) -> None:
@@ -1527,7 +1723,9 @@ def main() -> int:
         verify_repeated_clear_end_does_not_retire_replacement(cli_path)
         verify_guessed_clear_end_uses_stored_surface(cli_path)
         verify_authoritative_resume_supersedes_clear_tombstone(cli_path)
+        verify_unproven_process_cannot_consume_clear_handoff(cli_path)
         verify_vacant_surface_accepts_authoritative_resume(cli_path)
+        verify_new_generation_resumes_same_session(cli_path)
         verify_late_resume_cannot_replace_clear_successor(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
