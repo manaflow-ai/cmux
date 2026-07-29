@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.dev/schemas/resource-api-v1.json",
+  "title": "cmux.protocol/1 request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "id", "operation", "params"],
+  "properties": {
+    "protocol": {"const": "cmux.protocol/1"},
+    "id": {"type": ["string", "integer"]},
+    "operation": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+    },
+    "params": {"type": "object"},
+    "idempotency_key": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "$defs": {
+    "resourceId": {
+      "type": "string",
+      "pattern": "^(machine|session|ws|screen|pane|tab|term|browser|client|split|notification|agent|stream|projection|sidebar_view|sidebar_plugin)_[0-9a-f]{32}$"
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "details", "retryable"],
+      "properties": {
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "details": {},
+        "retryable": {"type": "boolean"}
+      }
+    }
+  }
+}
