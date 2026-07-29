@@ -11,6 +11,7 @@ manifests.  Raw and internal directories must say so in their path.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -2736,18 +2737,48 @@ def _schema_operation_classes(
 def _sdk_descriptor_classes(
     tui: Path,
     diagnostics: list[Diagnostic],
+    expected_catalog_sha256: str,
 ) -> list[tuple[Path, dict[str, str]]]:
     descriptors: list[tuple[Path, dict[str, str]]] = []
     bindings = tui / "bindings"
     if not bindings.exists():
         return descriptors
-    for path in sorted(bindings.rglob(".cmux-resource-api.json")):
+    package_names = ("cpp", "go", "java", "python", "rust", "typescript", "zig")
+    paths: list[Path] = []
+    for package_name in package_names:
+        package = bindings / package_name
+        if not package.exists():
+            continue
+        path = package / ".cmux-resource-api.json"
+        if not path.is_file():
+            diagnostics.append(
+                Diagnostic(
+                    path,
+                    1,
+                    1,
+                    "boundary.sdk-descriptor",
+                    f"{package_name} high-level SDK is missing .cmux-resource-api.json",
+                )
+            )
+            continue
+        paths.append(path)
+    for path in paths:
         document = _json_object(path, diagnostics)
         if document is None:
             continue
         if document.get("protocol") != "cmux.protocol/1":
             diagnostics.append(
                 Diagnostic(path, 1, 1, "boundary.sdk-descriptor", "protocol must be cmux.protocol/1")
+            )
+        if document.get("catalog_sha256") != expected_catalog_sha256:
+            diagnostics.append(
+                Diagnostic(
+                    path,
+                    1,
+                    1,
+                    "boundary.sdk-descriptor",
+                    "catalog_sha256 must match canonical resource-operations-v1.json",
+                )
             )
         value = document.get("operations")
         classes: dict[str, str] = {}
@@ -3000,7 +3031,18 @@ def check_contracts(tui: Path) -> list[Diagnostic]:
             runtime_local_classes,
             "the Rust LocalOperation registry",
         )
-        for descriptor_path, descriptor_classes in _sdk_descriptor_classes(tui, diagnostics):
+        catalog_document = json.loads(canonical_text)
+        catalog_sha256 = hashlib.sha256(
+            json.dumps(
+                catalog_document,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        for descriptor_path, descriptor_classes in _sdk_descriptor_classes(
+            tui, diagnostics, catalog_sha256
+        ):
             _compare_operation_classes(
                 diagnostics,
                 catalog,
