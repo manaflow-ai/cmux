@@ -123,6 +123,74 @@ import Testing
         await session.tearDown(error: .connectionClosed)
     }
 
+    @Test func abandonedDialEmitsCancelledOutcomeAndRetryConnects() async throws {
+        let transport = FirstConnectClosedErrorThenSucceedsTransport()
+        let (events, continuation) = AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
+        let session = MobileCoreRPCSession(
+            makeTransport: { transport },
+            diagnosticTransport: .debugLoopback,
+            transportConnectObserver: { event in
+                _ = continuation.yield(event)
+            }
+        )
+        let first = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            id: "abandoned-connect"
+        )
+        let second = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            id: "retry-after-abandoned-connect"
+        )
+        let deadline = DispatchTime.now().uptimeNanoseconds + 60 * 1_000_000_000
+        let firstTask = Task {
+            try await session.send(
+                payload: first,
+                requestID: "abandoned-connect",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+
+        await transport.waitUntilFirstConnectStarted()
+        firstTask.cancel()
+        do {
+            _ = try await firstTask.value
+            Issue.record("Expected first request to throw CancellationError")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+        await transport.waitUntilFirstConnectFinished()
+
+        let data = try await session.send(
+            payload: second,
+            requestID: "retry-after-abandoned-connect",
+            deadlineUptimeNanoseconds: deadline
+        )
+        let response = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(response["status"] == "ok")
+
+        continuation.finish()
+        let recorded = await collect(events)
+        #expect(recorded.count == 4)
+        guard recorded.count == 4 else {
+            await session.tearDown(error: .connectionClosed)
+            return
+        }
+        guard case let .attempt(firstAttemptID, _) = recorded[0],
+              case let .failed(abandonedID, abandonedTransport, abandonedFailure, _) = recorded[1],
+              case let .attempt(secondAttemptID, _) = recorded[2],
+              case let .connected(connectedID, _, _) = recorded[3] else {
+            Issue.record("Expected attempt, failed(cancelled), attempt, connected")
+            await session.tearDown(error: .connectionClosed)
+            return
+        }
+        #expect(abandonedID == firstAttemptID)
+        #expect(abandonedTransport == .debugLoopback)
+        #expect(abandonedFailure == .cancelled)
+        #expect(connectedID == secondAttemptID)
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func mobileShellErrorsProvideStablePrivacySafeClassifications() {
         #expect(MobileShellConnectionError.invalidResponse.diagnosticFailureKind == .protocolViolation)
         #expect(MobileShellConnectionError.connectionClosed.diagnosticFailureKind == .connectionClosed)
