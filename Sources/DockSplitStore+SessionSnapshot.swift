@@ -325,7 +325,7 @@ extension DockSplitStore {
             observed,
             coordinated,
             cachedTransferAgent,
-        ].compactMap { candidate in
+        ].compactMap { candidate -> SessionRestorableAgentSnapshot? in
             if requiresCurrentManagedSession,
                managedResumeBinding?.hasCompleteManagedSessionIdentity != true {
                 return nil
