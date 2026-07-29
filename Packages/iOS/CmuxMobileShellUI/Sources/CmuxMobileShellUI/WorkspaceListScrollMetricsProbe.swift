@@ -103,10 +103,13 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
     /// Interval between consecutive sweep display-link callbacks; a late
     /// callback means the previous frame overran its budget (a hitch).
     private var sweepFrameDurations: [Double] = []
-    /// Per-callback expected frame interval (`targetTimestamp - timestamp`),
-    /// robust to ProMotion/simulator rate changes mid-sweep.
+    /// The expected interval for each entry of `sweepFrameDurations`,
+    /// captured as `targetTimestamp - timestamp` at the callback that STARTED
+    /// that frame, so each duration is judged against its own frame's budget
+    /// even when ProMotion/simulator refresh rates change mid-sweep.
     private var sweepExpectedDurations: [Double] = []
     private var lastSweepFrameTimestamp: CFTimeInterval?
+    private var lastSweepExpectedDuration: Double?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -142,11 +145,12 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
             }
             baselineAfterSettle()
         case .sweeping:
-            if let last = lastSweepFrameTimestamp {
+            if let last = lastSweepFrameTimestamp, let expected = lastSweepExpectedDuration {
                 sweepFrameDurations.append(link.timestamp - last)
-                sweepExpectedDurations.append(link.targetTimestamp - link.timestamp)
+                sweepExpectedDurations.append(expected)
             }
             lastSweepFrameTimestamp = link.timestamp
+            lastSweepExpectedDuration = link.targetTimestamp - link.timestamp
             sampledDrawHeights.append(Double(listScrollView?.contentSize.height ?? 0))
             stepSweep()
         case .finished:
@@ -242,25 +246,28 @@ final class WorkspaceListScrollMetricsProbeView: UIView {
     }
 
     private var framePacing: FramePacing? {
-        guard !sweepFrameDurations.isEmpty, !sweepExpectedDurations.isEmpty else { return nil }
-        let expected = sweepExpectedDurations.sorted()[sweepExpectedDurations.count / 2]
-        guard expected > 0 else { return nil }
-        let hitchThreshold = expected * 1.5
+        guard !sweepFrameDurations.isEmpty,
+              sweepExpectedDurations.count == sweepFrameDurations.count else { return nil }
+        let medianExpected = sweepExpectedDurations.sorted()[sweepExpectedDurations.count / 2]
+        guard medianExpected > 0 else { return nil }
         var hitchFrameCount = 0
         var hitchTotal: Double = 0
         var maxDuration: Double = 0
         var total: Double = 0
-        for duration in sweepFrameDurations {
+        // Judge each frame against its own captured budget so a legitimate
+        // refresh-rate change mid-sweep is not misclassified as a hitch; the
+        // median is reported only as the representative expected interval.
+        for (duration, expected) in zip(sweepFrameDurations, sweepExpectedDurations) {
             total += duration
             maxDuration = max(maxDuration, duration)
-            if duration >= hitchThreshold {
+            if expected > 0, duration >= expected * 1.5 {
                 hitchFrameCount += 1
                 hitchTotal += duration - expected
             }
         }
         return FramePacing(
             frameCount: sweepFrameDurations.count,
-            expectedFrameMs: expected * 1000,
+            expectedFrameMs: medianExpected * 1000,
             averageFrameMs: total / Double(sweepFrameDurations.count) * 1000,
             maxFrameMs: maxDuration * 1000,
             hitchFrameCount: hitchFrameCount,

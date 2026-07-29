@@ -46,27 +46,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
 
-    /// How one configuration update reached the table.
-    enum PayloadApplyRoute: Equatable {
-        /// No row renders differently; the table was not touched.
-        case noChange
-        /// Payload-only changes with stable heights; the visible changed
-        /// cells were re-configured in place, listed here by item id.
-        case reconfiguredInPlace([String])
-        /// Structure or a row height changed; a snapshot was applied.
-        case snapshotApply
-    }
-    #if DEBUG
-    /// The most recent update's route (behavior hook for package tests).
-    private(set) var lastPayloadApplyRoute: PayloadApplyRoute?
-    #endif
-
-    private func recordPayloadApplyRoute(_ route: PayloadApplyRoute) {
-        #if DEBUG
-        lastPayloadApplyRoute = route
-        #endif
-    }
-
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
         self.configuredItemsByID = Dictionary(
@@ -165,7 +144,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         previousConfiguration = next
 
         guard structureChanged || !changed.isEmpty else {
+            #if DEBUG
             recordPayloadApplyRoute(.noChange)
+            #endif
             return
         }
 
@@ -185,7 +166,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 else { continue }
                 configure(cell, for: configuredItemsByID[item.id] ?? item)
             }
+            #if DEBUG
             recordPayloadApplyRoute(.reconfiguredInPlace(changed.map(\.id)))
+            #endif
             return
         }
 
@@ -199,7 +182,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
         snapshot.reconfigureItems(changed)
         dataSource.apply(snapshot, animatingDifferences: false)
+        #if DEBUG
         recordPayloadApplyRoute(.snapshotApply)
+        #endif
     }
 
     func tableView(

@@ -46,9 +46,21 @@ private final class WorkspaceListLayoutPreviewModel {
             for index in workspaces.indices where index % 10 == updateLane {
                 if liveUpdateMode == .visible {
                     workspaces[index].hasUnread.toggle()
+                    workspaces[index].previewAt = Date()
+                    workspaces[index].lastActivityAt = Date()
+                } else {
+                    // Restamp relative to the row's own clock: the seeded
+                    // timestamps are hours old, so jumping them to `Date()`
+                    // would change the rendered minute on every row's first
+                    // tick and do real row work. A one-second bump keeps
+                    // every tick a sub-minute, render-equivalent delta.
+                    let restamped = (workspaces[index].lastActivityAt
+                        ?? workspaces[index].previewAt
+                        ?? Date())
+                        .addingTimeInterval(1)
+                    workspaces[index].previewAt = restamped
+                    workspaces[index].lastActivityAt = restamped
                 }
-                workspaces[index].previewAt = Date()
-                workspaces[index].lastActivityAt = Date()
             }
             updateLane = (updateLane + 1) % 10
         }
