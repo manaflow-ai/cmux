@@ -16,6 +16,7 @@ IOS_PATHS = (
     "scripts/ensure-ghosttykit.sh",
     "scripts/ghosttykit-checksums.txt",
     "scripts/install-zig-ci.sh",
+    "scripts/ghostty-zig-version.sh",
     "scripts/validate-xcframework-archive.py",
     ".github/workflows/ios-testflight.yml",
 )
