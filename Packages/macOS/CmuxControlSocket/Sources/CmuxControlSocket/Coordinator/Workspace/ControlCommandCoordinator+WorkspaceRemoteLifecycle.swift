@@ -5,9 +5,9 @@ extension ControlCommandCoordinator {
     /// successful SSH/PTY handshake independently of auxiliary proxy state.
     ///
     /// Persistent lifecycle authentication starts on the socket worker because
-    /// the broker owns that state on its serial queue. The exact generation is
-    /// retained and revalidated inside the command's single main-actor hop,
-    /// immediately before the workspace mutation.
+    /// the broker owns that state on its serial queue. Its commit lease validates
+    /// the exact generation inside the command's single main-actor hop without
+    /// synchronously re-entering the broker.
     nonisolated func workspaceRemoteTerminalSessionConnected(
         _ params: [String: JSONValue],
         context: (any ControlCommandContext)?
@@ -19,13 +19,19 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
         let relayPort = strictInt(params, "relay_port")
+        let terminalLifecycleID = optionalTrimmedRawString(
+            params,
+            "terminal_lifecycle_id"
+        ).flatMap(UUID.init(uuidString:))
         let sessionID = optionalTrimmedRawString(params, "session_id")
         let lifecycleID = optionalTrimmedRawString(params, "lifecycle_id")
         let invalidRelayPort = relayPort.map { $0 <= 0 || $0 > 65535 } ?? false
-        let hasRelayAuthority = relayPort != nil
+        let hasRelayAuthority = relayPort != nil && terminalLifecycleID != nil
         let hasPersistentAuthority = sessionID != nil && lifecycleID != nil
         if invalidRelayPort ||
             (params["relay_port"] != nil && relayPort == nil) ||
+            (params["terminal_lifecycle_id"] != nil && terminalLifecycleID == nil) ||
+            (relayPort == nil) != (terminalLifecycleID == nil) ||
             (sessionID == nil) != (lifecycleID == nil) ||
             hasRelayAuthority == hasPersistentAuthority {
             return .err(
@@ -39,8 +45,13 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "Workspace context not available", data: nil)
         }
         let authority: ControlWorkspaceRemoteTerminalAuthority?
-        if let relayPort {
-            authority = .relayPort(relayPort)
+        let persistentOwner: ControlRemotePTYLifecycleOwner?
+        if let relayPort, let terminalLifecycleID {
+            authority = .relayPort(
+                relayPort,
+                terminalLifecycleID: terminalLifecycleID
+            )
+            persistentOwner = nil
         } else if let sessionID,
                   let lifecycleID,
                   let owner = context.controlCurrentRemotePTYLifecycleOwner(
@@ -49,37 +60,35 @@ extension ControlCommandCoordinator {
                   ),
                   owner.attachmentID == surfaceID.uuidString {
             authority = .persistentTransport(owner.transportKey)
+            persistentOwner = owner
         } else {
             authority = nil
+            persistentOwner = nil
         }
 
         return context.controlResolveOnMain { seam in
             let resolution: ControlWorkspaceRemoteTerminalSessionConnectedResolution
             if let authority {
-                let authorityIsCurrent: Bool
                 switch authority {
                 case .relayPort:
-                    authorityIsCurrent = true
-                case .persistentTransport(let transportKey):
-                    if let sessionID, let lifecycleID {
-                        authorityIsCurrent = seam.controlCurrentRemotePTYLifecycleOwner(
-                            sessionID: sessionID,
-                            lifecycleID: lifecycleID
-                        ) == ControlRemotePTYLifecycleOwner(
-                            transportKey: transportKey,
-                            attachmentID: surfaceID.uuidString
-                        )
-                    } else {
-                        authorityIsCurrent = false
-                    }
-                }
-                resolution = authorityIsCurrent
-                    ? seam.controlWorkspaceRemoteTerminalSessionConnected(
+                    resolution = seam.controlWorkspaceRemoteTerminalSessionConnected(
                         workspaceID: workspaceID,
                         surfaceID: surfaceID,
                         authority: authority
                     )
-                    : .notFound
+                case .persistentTransport:
+                    if let persistentOwner {
+                        resolution = persistentOwner.commitLease.commitIfCurrent {
+                            seam.controlWorkspaceRemoteTerminalSessionConnected(
+                                workspaceID: workspaceID,
+                                surfaceID: surfaceID,
+                                authority: authority
+                            )
+                        } ?? .notFound
+                    } else {
+                        resolution = .notFound
+                    }
+                }
             } else {
                 resolution = .notFound
             }

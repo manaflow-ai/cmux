@@ -185,25 +185,28 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     ) -> RemotePTYLifecycleOwner? {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
         return queue.sync {
-            ptyLifecycleOwnership.currentOwner(lifecycleKey).map {
-                RemotePTYLifecycleOwner(
-                    transportKey: $0.transportKey,
-                    attachmentID: $0.attachmentID
-                )
-            }
+            ptyLifecycleOwnership.currentOwner(lifecycleKey)
         }
     }
 
-    /// Claims a generation and enqueues retirement against its exact transport.
+    /// Claims a generation and enqueues retirement against its exact ownership.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The exact retired ownership, or `nil` when it is unknown.
     @discardableResult
-    public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool {
+    public func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
-        let ownership = queue.sync {
+        let claim = queue.sync {
             ptyLifecycleOwnership.claimAfterWrapperEnd(lifecycleKey)
         }
-        guard let ownership else { return false }
+        guard let claim else { return nil }
         queue.async { [weak self] in
-            guard let self, let entry = self.entries[ownership.transportKey] else { return }
+            guard let self, let entry = self.entries[claim.transportKey] else { return }
             if let tunnel = entry.tunnel {
                 _ = tunnel.acknowledgePTYLifecycleIfKnown(
                     sessionID: lifecycleKey.sessionID,
@@ -217,7 +220,19 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                 entry.ptyLifecycleSnapshot = snapshot
             }
         }
-        return ownership.wasCurrent
+        return claim
+    }
+
+    /// Claims a generation and reports whether it was current.
+    @discardableResult
+    public func acknowledgePTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> Bool {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        )?.wasCurrent == true
     }
 
     /// Resizes a PTY attachment through the ready tunnel.

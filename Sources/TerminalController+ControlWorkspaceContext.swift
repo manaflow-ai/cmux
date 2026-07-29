@@ -1,8 +1,18 @@
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
+import CmuxRemoteWorkspace
 import CmuxWorkspaces
 import Foundation
+
+extension RemotePTYLifecycleCommitLease: @retroactive ControlRemotePTYLifecycleCommitLease {
+    @MainActor
+    public func commitIfCurrent(
+        _ operation: @MainActor () -> ControlWorkspaceRemoteTerminalSessionConnectedResolution
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution? {
+        withCurrentCommit(operation)
+    }
+}
 
 /// The workspace-domain witnesses for the stage-3c ``ControlCommandCoordinator``:
 /// the byte-faithful bodies of the former non-group `v2Workspace*` dispatchers,
@@ -692,14 +702,20 @@ extension TerminalController: ControlWorkspaceContext {
         app: AppDelegate,
         dock: DockSplitStore,
         requestedWorkspaceID: UUID
-    ) -> (tabManager: TabManager, workspace: Workspace)? {
+    ) -> (tabManager: TabManager, workspace: Workspace?)? {
         guard let tabManager = app.dockReferenceTabManager(for: dock) else { return nil }
-        let workspaceID = dock.scope == .workspace ? dock.workspaceId : requestedWorkspaceID
-        guard let workspaceOwner = app.tabManagerFor(tabId: workspaceID),
-              let workspace = workspaceOwner.workspacesById[workspaceID] else {
-            return nil
+        switch dock.scope {
+        case .workspace:
+            guard let workspaceOwner = app.tabManagerFor(tabId: dock.workspaceId),
+                  let workspace = workspaceOwner.workspacesById[dock.workspaceId] else {
+                return nil
+            }
+            return (tabManager, workspace)
+        case .global:
+            let workspace = app.tabManagerFor(tabId: requestedWorkspaceID)?
+                .workspacesById[requestedWorkspaceID]
+            return (tabManager, workspace)
         }
-        return (tabManager, workspace)
     }
 
     nonisolated func controlCurrentRemotePTYLifecycleOwner(
@@ -712,7 +728,8 @@ extension TerminalController: ControlWorkspaceContext {
         ).map {
             ControlRemotePTYLifecycleOwner(
                 transportKey: $0.transportKey,
-                attachmentID: $0.attachmentID
+                attachmentID: $0.attachmentID,
+                commitLease: $0.commitLease
             )
         }
     }
@@ -722,11 +739,17 @@ extension TerminalController: ControlWorkspaceContext {
         surfaceID surfaceId: UUID,
         authority: ControlWorkspaceRemoteTerminalAuthority
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
-        let terminalAuthority = switch authority {
-        case .relayPort(let relayPort):
-            WorkspaceRemoteTerminalAuthority.relayPort(relayPort)
+        let (terminalAuthority, terminalLifecycleID) = switch authority {
+        case .relayPort(let relayPort, let terminalLifecycleID):
+            (
+                WorkspaceRemoteTerminalAuthority.relayPort(relayPort),
+                Optional(terminalLifecycleID)
+            )
         case .persistentTransport(let transportKey):
-            WorkspaceRemoteTerminalAuthority.persistentTransport(transportKey)
+            (
+                WorkspaceRemoteTerminalAuthority.persistentTransport(transportKey),
+                Optional<UUID>.none
+            )
         }
 
         let app = AppDelegate.shared
@@ -738,21 +761,35 @@ extension TerminalController: ControlWorkspaceContext {
                       app: app,
                       dock: dock,
                       requestedWorkspaceID: workspaceId
-                  ),
-                  dockOwner.workspace.markDockRemoteTerminalSessionConnected(
-                      surfaceId: surfaceId,
-                      authority: terminalAuthority,
-                      dock: dock
                   ) else {
                 return .notFound
             }
+            let didConnect: Bool
+            if let workspace = dockOwner.workspace {
+                didConnect = workspace.markDockRemoteTerminalSessionConnected(
+                    surfaceId: surfaceId,
+                    authority: terminalAuthority,
+                    terminalLifecycleID: terminalLifecycleID,
+                    dock: dock
+                )
+            } else if dock.scope == .global {
+                didConnect = dock.markRemoteTerminalSessionConnected(
+                    panelId: surfaceId,
+                    authority: terminalAuthority,
+                    presentationWorkspaceID: workspaceId,
+                    terminalLifecycleID: terminalLifecycleID
+                )
+            } else {
+                didConnect = false
+            }
+            guard didConnect else { return .notFound }
             let windowId = app.windowId(for: dockOwner.tabManager)
             return .resolved(
                 windowID: windowId,
-                workspaceID: dockOwner.workspace.id,
-                remoteStatus: JSONValue(
-                    foundationObject: dockOwner.workspace.remoteStatusPayload()
-                ) ?? .object([:])
+                workspaceID: dockOwner.workspace?.id,
+                remoteStatus: dockOwner.workspace.flatMap {
+                    JSONValue(foundationObject: $0.remoteStatusPayload())
+                } ?? .object([:])
             )
         }
         let located = app?.workspaceContainingPanel(
@@ -763,7 +800,8 @@ extension TerminalController: ControlWorkspaceContext {
               let workspace = located?.workspace ?? fallbackWorkspace,
               workspace.markRemoteTerminalSessionConnected(
                   surfaceId: surfaceId,
-                  authority: terminalAuthority
+                  authority: terminalAuthority,
+                  terminalLifecycleID: terminalLifecycleID
               ) else {
             return .notFound
         }
@@ -783,38 +821,77 @@ extension TerminalController: ControlWorkspaceContext {
         lifecycleID: String?,
         lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
-        let generationIsCurrent = switch (sessionID, lifecycleID) {
+        let lifecycleClaim = switch (sessionID, lifecycleID) {
         case let (.some(sessionID), .some(lifecycleID)):
-            remoteProxyBroker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: sessionID, lifecycleID: lifecycleID)
-        case (nil, nil): true
-        default: false
+            remoteProxyBroker.claimPTYLifecycleAfterWrapperEnd(
+                sessionID: sessionID,
+                lifecycleID: lifecycleID
+            )
+        case (nil, nil), (.some, nil), (nil, .some):
+            nil
+        }
+        let generationIsCurrent = switch (sessionID, lifecycleID) {
+        case (.some, .some):
+            lifecycleClaim?.wasCurrent == true &&
+                lifecycleClaim?.attachmentID == surfaceId.uuidString
+        case (nil, nil):
+            true
+        case (.some, nil), (nil, .some):
+            false
+        }
+        let terminalAuthority: WorkspaceRemoteTerminalAuthority? =
+            if let lifecycleClaim {
+                .persistentTransport(lifecycleClaim.transportKey)
+            } else if let relayPort {
+                .relayPort(relayPort)
+            } else {
+                nil
         }
         let app = AppDelegate.shared
         let fallbackOwner = app?.tabManagerFor(tabId: workspaceId)
         let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
-        if let app,
-           let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
-           let dockOwner = controlRemoteTerminalDockOwner(
-               app: app,
-               dock: dock,
-               requestedWorkspaceID: workspaceId
-           ),
-           lifecycleOnly || !generationIsCurrent ||
-            dock.markRemoteTerminalSessionEnded(panelId: surfaceId, relayPort: relayPort) {
+        if let dock = DockSplitStore.liveStore(containingPanel: surfaceId) {
+            guard let app,
+                  let dockOwner = controlRemoteTerminalDockOwner(
+                      app: app,
+                      dock: dock,
+                      requestedWorkspaceID: workspaceId
+                  ),
+                  dock.ownsRemoteTerminalTransfer(
+                      panelId: surfaceId,
+                      presentationWorkspaceID: workspaceId
+                  ) else {
+                return .notFound
+            }
             if !lifecycleOnly, generationIsCurrent {
-                dockOwner.workspace.markRemoteTerminalSessionEnded(
-                    surfaceId: surfaceId,
-                    relayPort: relayPort,
-                    allowUntracked: true
-                )
+                guard let terminalAuthority else {
+                    return .notFound
+                }
+                let didEnd: Bool
+                if let workspace = dockOwner.workspace {
+                    didEnd = workspace.markDockRemoteTerminalSessionEnded(
+                        surfaceId: surfaceId,
+                        authority: terminalAuthority,
+                        relayPort: relayPort,
+                        dock: dock
+                    )
+                } else if dock.scope == .global {
+                    didEnd = dock.markRemoteTerminalSessionEnded(
+                        panelId: surfaceId,
+                        authority: terminalAuthority
+                    )
+                } else {
+                    didEnd = false
+                }
+                guard didEnd else { return .notFound }
             }
             let windowId = app.windowId(for: dockOwner.tabManager)
             return .resolved(
                 windowID: windowId,
-                workspaceID: dockOwner.workspace.id,
-                remoteStatus: JSONValue(
-                    foundationObject: dockOwner.workspace.remoteStatusPayload()
-                ) ?? .object([:])
+                workspaceID: dockOwner.workspace?.id,
+                remoteStatus: dockOwner.workspace.flatMap {
+                    JSONValue(foundationObject: $0.remoteStatusPayload())
+                } ?? .object([:])
             )
         }
         let located = app?.workspaceContainingPanel(

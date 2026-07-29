@@ -12,16 +12,44 @@ extension DockSplitStore {
 
     func markRemoteTerminalSessionConnected(
         panelId: UUID,
-        authority: WorkspaceRemoteTerminalAuthority
+        authority: WorkspaceRemoteTerminalAuthority,
+        terminalLifecycleID: UUID? = nil
     ) -> Bool {
         guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
-              transfer.isRemoteTerminal else {
+              transfer.isRemoteTerminal,
+              transfer.remoteCleanupConfiguration.map(authority.matches) ?? true,
+              matchesTerminalLifecycle(
+                  panelId: panelId,
+                  terminalLifecycleID: terminalLifecycleID
+              ) else {
             return false
         }
         transfer.remoteTerminalSessionPhase = .connected
         transfer.remoteTerminalAuthority = authority
         detachedSurfaceTransfersByPanelId[panelId] = transfer
         return true
+    }
+
+    func markRemoteTerminalSessionConnected(
+        panelId: UUID,
+        authority: WorkspaceRemoteTerminalAuthority,
+        presentationWorkspaceID: UUID,
+        terminalLifecycleID: UUID?
+    ) -> Bool {
+        guard ownsRemoteTerminalTransfer(
+                  panelId: panelId,
+                  presentationWorkspaceID: presentationWorkspaceID
+              ),
+              let configuration = detachedSurfaceTransfersByPanelId[panelId]?
+                  .remoteCleanupConfiguration,
+              authority.matches(configuration) else {
+            return false
+        }
+        return markRemoteTerminalSessionConnected(
+            panelId: panelId,
+            authority: authority,
+            terminalLifecycleID: terminalLifecycleID
+        )
     }
 
     func ownsRemoteTerminalTransfer(
@@ -52,9 +80,24 @@ extension DockSplitStore {
         panelId: UUID,
         authority: WorkspaceRemoteTerminalAuthority
     ) -> Bool {
+        markRemoteTerminalSessionEnded(
+            panelId: panelId,
+            authority: authority,
+            afterValidation: { true }
+        )
+    }
+
+    /// Commits the Dock end transition only after both authorities validate.
+    func markRemoteTerminalSessionEnded(
+        panelId: UUID,
+        authority: WorkspaceRemoteTerminalAuthority,
+        afterValidation workspaceTransition: () -> Bool
+    ) -> Bool {
         guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal,
-              transfer.remoteTerminalAuthority.map({ $0 == authority }) ?? true else {
+              transfer.remoteCleanupConfiguration.map(authority.matches) ?? true,
+              transfer.remoteTerminalAuthority.map({ $0 == authority }) ?? true,
+              workspaceTransition() else {
             return false
         }
         transfer.remoteTerminalSessionPhase = .ended
@@ -78,5 +121,16 @@ extension DockSplitStore {
             }
             return authority.matches(configuration)
         }
+    }
+
+    private func matchesTerminalLifecycle(
+        panelId: UUID,
+        terminalLifecycleID: UUID?
+    ) -> Bool {
+        guard let terminalLifecycleID else { return true }
+        guard let terminalPanel = panels[panelId] as? TerminalPanel else {
+            return false
+        }
+        return terminalPanel.surface.terminalLifecycleId == terminalLifecycleID
     }
 }

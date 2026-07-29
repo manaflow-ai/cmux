@@ -202,13 +202,12 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
             sessionID: "session",
             lifecycleID: "old-generation"
         ) == nil)
-        #expect(broker.currentPTYLifecycleOwner(
+        let currentOwner = broker.currentPTYLifecycleOwner(
             sessionID: "session",
             lifecycleID: "new-generation"
-        ) == RemotePTYLifecycleOwner(
-            transportKey: configuration.proxyBrokerTransportKey,
-            attachmentID: "surface"
-        ))
+        )
+        #expect(currentOwner?.transportKey == configuration.proxyBrokerTransportKey)
+        #expect(currentOwner?.attachmentID == "surface")
 
         let oldGenerationWasCurrent = broker.acknowledgePTYLifecycleAfterWrapperEnd(
             sessionID: "session",

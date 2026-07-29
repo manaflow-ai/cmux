@@ -64,6 +64,18 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
 
     /// Claims and enqueues retirement of a wrapper-owned generation.
     ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The exact retired ownership, or `nil` when it is unknown.
+    @discardableResult
+    func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndClaim?
+
+    /// Claims and enqueues retirement of a wrapper-owned generation.
+    ///
     /// - Returns: Whether this was the current generation for its attachment.
     @discardableResult
     func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool
@@ -96,4 +108,35 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
         command: String?,
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint
+}
+
+extension RemoteProxyBrokering {
+    /// Compatibility claim for test fakes that do not own production broker
+    /// queue state. ``RemoteProxyBroker`` overrides this with one atomic claim.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The exact retired ownership, or `nil` when it is unknown.
+    @discardableResult
+    public func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        guard let owner = currentPTYLifecycleOwner(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        ) else {
+            return nil
+        }
+        let wasCurrent = acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        )
+        return RemotePTYLifecycleWrapperEndClaim(
+            transportKey: owner.transportKey,
+            attachmentID: owner.attachmentID,
+            wasCurrent: wasCurrent
+        )
+    }
 }

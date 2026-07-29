@@ -98,8 +98,15 @@ extension Workspace {
     func markRemoteTerminalSessionConnected(
         surfaceId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
-        allowUntracked: Bool = false
+        allowUntracked: Bool = false,
+        terminalLifecycleID: UUID? = nil
     ) -> Bool {
+        if let terminalLifecycleID {
+            guard let terminalPanel = panels[surfaceId] as? TerminalPanel,
+                  terminalPanel.surface.terminalLifecycleId == terminalLifecycleID else {
+                return false
+            }
+        }
         guard let target = remoteTerminalConnectionTarget(
             surfaceId: surfaceId,
             authority: authority,
@@ -118,6 +125,7 @@ extension Workspace {
     func markDockRemoteTerminalSessionConnected(
         surfaceId: UUID,
         authority: WorkspaceRemoteTerminalAuthority,
+        terminalLifecycleID: UUID? = nil,
         dock: DockSplitStore
     ) -> Bool {
         guard dock.ownsRemoteTerminalTransfer(
@@ -131,7 +139,8 @@ extension Workspace {
               ),
               dock.markRemoteTerminalSessionConnected(
                   panelId: surfaceId,
-                  authority: authority
+                  authority: authority,
+                  terminalLifecycleID: terminalLifecycleID
               ) else {
             return false
         }
@@ -141,6 +150,32 @@ extension Workspace {
             authority: authority
         )
         return true
+    }
+
+    func markDockRemoteTerminalSessionEnded(
+        surfaceId: UUID,
+        authority: WorkspaceRemoteTerminalAuthority,
+        relayPort: Int?,
+        dock: DockSplitStore
+    ) -> Bool {
+        guard dock.ownsRemoteTerminalTransfer(
+                  panelId: surfaceId,
+                  presentationWorkspaceID: id
+              ),
+              let configuration = remoteConfiguration,
+              authority.matches(configuration) else {
+            return false
+        }
+        return dock.markRemoteTerminalSessionEnded(
+            panelId: surfaceId,
+            authority: authority
+        ) {
+            markRemoteTerminalSessionEnded(
+                surfaceId: surfaceId,
+                relayPort: relayPort,
+                allowUntracked: true
+            )
+        }
     }
 
     private func remoteTerminalConnectionTarget(
