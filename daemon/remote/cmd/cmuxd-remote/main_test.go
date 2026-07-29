@@ -1897,6 +1897,11 @@ func TestPersistentDaemonPTYReattachSurvivesClientDisconnect(t *testing.T) {
 	if ok, _ := attach2["ok"].(bool); !ok {
 		t.Fatalf("second pty.attach failed: %v", attach2)
 	}
+	attach2Result, _ := attach2["result"].(map[string]any)
+	replayBytes, _ := attach2Result["replay_bytes"].(float64)
+	if replayBytes <= 0 {
+		t.Fatalf("second pty.attach replay_bytes = %v, want positive scrollback size", attach2Result["replay_bytes"])
+	}
 	readPersistentTestEvent(t, conn2, reader2, func(frame map[string]any) bool {
 		return frame["event"] == "pty.ready" && frame["attachment_id"] == "a2"
 	})

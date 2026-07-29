@@ -91,6 +91,19 @@ struct SSHPTYAttachExitCodeTests {
         )
     }
 
+    @Test("replayed scrollback does not count as live bridge progress")
+    func replayedScrollbackDoesNotCountAsLiveProgress() {
+        var progress = SSHPTYAttachOutputProgress(replayBytes: 6)
+
+        progress.recordOutput(byteCount: 4)
+        #expect(progress.replayBytesRemaining == 2)
+        #expect(!progress.receivedLiveOutput)
+
+        progress.recordOutput(byteCount: 4)
+        #expect(progress.replayBytesRemaining == 0)
+        #expect(progress.receivedLiveOutput)
+    }
+
     private static func writeExecutable(_ url: URL, _ source: String) throws {
         try source.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
