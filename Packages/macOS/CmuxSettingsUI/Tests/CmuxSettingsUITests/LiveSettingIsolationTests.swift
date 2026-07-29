@@ -5,28 +5,16 @@ import Testing
 
 @testable import CmuxSettingsUI
 
-/// Transfers a dynamic property to exactly one detached task after construction;
-/// no other task accesses the boxed value, so the unchecked transfer is exclusive.
-private final class ExclusiveDynamicPropertyBox<Property: DynamicProperty>: @unchecked Sendable {
-    private var property: Property
-
-    init(_ property: Property) {
-        self.property = property
-    }
-
-    func update() {
-        property.update()
-    }
-}
-
 @Suite struct LiveSettingIsolationTests {
     @MainActor
     @Test func dynamicPropertyWitnessRunsWithoutMainActorExecutor() async {
-        let box = ExclusiveDynamicPropertyBox(
-            LiveSetting(\.betaFeatures.extensions)
+        // The lock exclusively owns the non-Sendable property after construction;
+        // every detached access occurs synchronously under that same lock.
+        let box = OSAllocatedUnfairLock(
+            uncheckedState: LiveSetting(\.betaFeatures.extensions)
         )
         let didUpdate = await Task.detached {
-            box.update()
+            box.withLock { $0.update() }
             return true
         }.value
 
@@ -48,6 +36,33 @@ private final class ExclusiveDynamicPropertyBox<Property: DynamicProperty>: @unc
             }
         }
 
+        #expect(activationCount.withLock { $0 } == 1)
+    }
+
+    @Test func asyncReadDriverActivatesExactlyOnceAcrossConcurrentUpdates() async {
+        let driver = SettingReadDriver<Int>()
+        let activationCount = OSAllocatedUnfairLock(initialState: 0)
+        let (activations, activationContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<64 {
+                group.addTask {
+                    driver.activateAsync({
+                        activationCount.withLock { $0 += 1 }
+                        activationContinuation.yield()
+                        return AsyncStream { $0.finish() }
+                    }) { _ in }
+                }
+            }
+        }
+
+        var activationIterator = activations.makeAsyncIterator()
+        let didActivate = await activationIterator.next() != nil
+        activationContinuation.finish()
+
+        #expect(didActivate)
         #expect(activationCount.withLock { $0 } == 1)
     }
 }
