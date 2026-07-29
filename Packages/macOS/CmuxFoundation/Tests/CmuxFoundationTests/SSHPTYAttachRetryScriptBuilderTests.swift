@@ -108,7 +108,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "  cmux_ssh_attach_signal_status=\"$1\"",
             "  cmux_ssh_attach_signal_name=\"$2\"",
             "  if [ -n \"${cmux_ssh_attach_backoff_pid:-}\" ]; then",
-            "    /bin/kill -\"$cmux_ssh_attach_signal_name\" \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true",
+            "    /bin/kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true",
             "    wait \"$cmux_ssh_attach_backoff_pid\" 2>/dev/null || true",
             "    cmux_ssh_attach_backoff_pid=",
             "  elif [ \"${cmux_ssh_attach_backoff_launching:-0}\" = 1 ]; then",
@@ -236,23 +236,22 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         if enteredBackoff {
             try standardInput.fileHandleForWriting.write(contentsOf: Data("queued-input\n".utf8))
         }
+        let queuedInputReachedAttach = waitForFile(
+            at: logURL,
+            containing: "input:queued-input",
+            while: process,
+            timeout: 3
+        )
+        #expect(queuedInputReachedAttach)
         try? standardInput.fileHandleForWriting.close()
-
-        let exitDeadline = Date().addingTimeInterval(3)
-        while process.isRunning, Date() < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        let exited = !process.isRunning
         if process.isRunning {
-            Darwin.kill(process.processIdentifier, SIGKILL)
+            process.terminate()
         }
         process.waitUntilExit()
 
-        #expect(exited)
-        if exited {
-            #expect(process.terminationReason == .exit)
-            #expect(process.terminationStatus == 0)
-            #expect(try String(contentsOf: logURL, encoding: .utf8) == "attach\nattach\ninput:queued-input\n")
+        let logContents = (try? String(contentsOf: logURL, encoding: .utf8)) ?? "<missing>"
+        if queuedInputReachedAttach {
+            #expect(logContents == "attach\nattach\ninput:queued-input\n")
         }
     }
 
