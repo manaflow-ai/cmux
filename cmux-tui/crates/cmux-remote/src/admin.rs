@@ -585,6 +585,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn exact_maximum_request_payload_is_accepted_before_dispatch() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path().join("state"), "boundary-test", true)
+                .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("admin.sock");
+        let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
+        let empty = AdminRequest::Deny { invitation_id: String::new() };
+        let fixed_bytes = serde_json::to_vec(&empty).unwrap().len();
+        let request =
+            AdminRequest::Deny { invitation_id: "x".repeat(MAX_ADMIN_MESSAGE_BYTES - fixed_bytes) };
+        assert_eq!(serde_json::to_vec(&request).unwrap().len(), MAX_ADMIN_MESSAGE_BYTES);
+
+        let response = call_admin(&socket, &request).await.unwrap();
+
+        assert_eq!(response.error.as_deref(), Some("admin response is too large"));
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn exact_maximum_response_payload_is_accepted_before_decode() {
+        let empty = AdminResponse::failure("");
+        let fixed_bytes = serde_json::to_vec(&empty).unwrap().len();
+        let expected = AdminResponse::failure("x".repeat(MAX_ADMIN_MESSAGE_BYTES - fixed_bytes));
+        let mut encoded = serde_json::to_vec(&expected).unwrap();
+        assert_eq!(encoded.len(), MAX_ADMIN_MESSAGE_BYTES);
+        encoded.push(b'\n');
+        let (client, server) = UnixStream::pair().unwrap();
+        let responder = tokio::spawn(async move {
+            let (reader, mut writer) = server.into_split();
+            let mut reader = BufReader::new(reader);
+            let mut request = Vec::new();
+            reader.read_until(b'\n', &mut request).await.unwrap();
+            writer.write_all(&encoded).await.unwrap();
+        });
+
+        let actual = call_admin_over_stream(client, &AdminRequest::Status).await.unwrap();
+
+        assert_eq!(actual, expected);
+        responder.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn client_rejects_wrong_uid_responder_before_writing_request() {
         let directory = tempdir().unwrap();
         let socket = directory.path().join("impostor-admin.sock");
