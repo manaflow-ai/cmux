@@ -32,4 +32,39 @@ for consumer in \
   fi
 done
 
+if ! awk '
+  /^  workflow-guard-tests:$/ { in_job = 1; next }
+  in_job && /^  [[:alnum:]_-]+:$/ { exit }
+  in_job && index($0, "git submodule update --init --depth 1 ghostty") { found = 1 }
+  END { exit !found }
+' "$ROOT_DIR/.github/workflows/ci.yml"; then
+  echo "workflow-guard-tests does not initialize Ghostty before reading its Zig manifest" >&2
+  exit 1
+fi
+
+tui_workflows=(
+  "$ROOT_DIR/.github/workflows/cmux-tui-build-package.yml"
+  "$ROOT_DIR/.github/workflows/cmux-tui.yml"
+)
+count_occurrences() {
+  local needle="$1"
+  shift
+  awk -v needle="$needle" 'index($0, needle) { count++ } END { print count + 0 }' "$@"
+}
+setup_count="$(count_occurrences 'uses: mlugg/setup-zig@' "${tui_workflows[@]}")"
+resolver_count="$(count_occurrences 'id: ghostty-zig-version' "${tui_workflows[@]}")"
+helper_count="$(count_occurrences 'bash ./scripts/ghostty-zig-version.sh' "${tui_workflows[@]}")"
+version_count="$(
+  count_occurrences \
+    'version: ${{ steps.ghostty-zig-version.outputs.version }}' \
+    "${tui_workflows[@]}"
+)"
+if [[ "$setup_count" -eq 0 ||
+      "$resolver_count" -ne "$setup_count" ||
+      "$helper_count" -ne "$setup_count" ||
+      "$version_count" -ne "$setup_count" ]]; then
+  echo "TUI setup-zig steps do not all derive their version from Ghostty" >&2
+  exit 1
+fi
+
 echo "PASS: cmux build scripts use Ghostty's declared Zig version ($actual)"
