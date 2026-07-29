@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -154,40 +155,43 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
-    func statusQueryHasABoundedProcessDeadline() async throws {
+    func statusQueriesForwardTheBoundedProcessDeadline() async throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
-
-        let fakeGitURL = try Self.writeExecutableScript(
-            #"""
-            #!/bin/sh
-            case "$1 $2" in
-            "rev-parse --show-toplevel")
-                printf '%s\n' "$CMUX_TEST_REPO_ROOT"
-                ;;
-            "status --porcelain=v1")
-                sleep 8
-                ;;
-            *)
-                exit 2
-                ;;
-            esac
-            """#,
-            named: "fake-git",
-            in: repoURL
+        let runner = RecordingGitCommandRunner(
+            results: [
+                CommandResult(
+                    stdout: "\(repoURL.path)\n",
+                    stderr: "",
+                    exitStatus: 0,
+                    timedOut: false,
+                    executionError: nil
+                ),
+                CommandResult(
+                    stdout: nil,
+                    stderr: nil,
+                    exitStatus: nil,
+                    timedOut: true,
+                    executionError: nil
+                ),
+            ]
         )
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
+        let expectedTimeout: TimeInterval = 0.125
 
-        let clock = ContinuousClock()
-        let start = clock.now
-        _ = await GitStatusProvider(
-            gitExecutableURL: fakeGitURL,
-            environment: environment
+        let status = await GitStatusProvider(
+            commandRunner: runner,
+            processTimeout: expectedTimeout
         ).fetchStatus(directory: repoURL.path)
-        let elapsed = start.duration(to: clock.now)
+        let recordedArguments = await runner.recordedArguments()
+        let recordedTimeouts = await runner.recordedTimeouts()
 
-        #expect(elapsed < .seconds(7))
+        #expect(status.isEmpty)
+        #expect(recordedArguments.count == 2)
+        #expect(recordedTimeouts == [expectedTimeout, expectedTimeout])
+        #expect(recordedArguments == [
+            ["rev-parse", "--show-toplevel"],
+            ["status", "--porcelain=v1", "-z"],
+        ])
     }
 
     @Test

@@ -460,7 +460,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     let nodeId = ObjectIdentifier(node)
                     let isVisible = visibleRowsByNodeId[nodeId] != nil
                     let isExpanded = outlineView.isItemExpanded(node)
-                    guard isVisible || isExpanded || change.expansion != nil else {
+                    let shouldRestoreExpansion = change.reloadChildren
+                        && store.expandedPaths.contains(node.path)
+                    guard isVisible || isExpanded || change.expansion != nil
+                        || shouldRestoreExpansion else {
                         continue
                     }
 
@@ -469,8 +472,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         if outlineView.isItemExpanded(node) {
                             outlineView.collapseItem(node)
                         }
-                    } else if change.expansion == true
-                        || (change.reloadChildren && store.expandedPaths.contains(node.path)) {
+                    } else if change.expansion == true || shouldRestoreExpansion {
                         if node.children != nil {
                             outlineView.expandItem(node)
                         }

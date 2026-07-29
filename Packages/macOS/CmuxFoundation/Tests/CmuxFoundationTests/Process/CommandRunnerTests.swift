@@ -129,7 +129,7 @@ import Testing
         let leaderPID = try await waitForProcessID(in: pidFile)
 
         #expect(
-            try await waitForZombieProcess(leaderPID),
+            try await waitForUnreapedExit(leaderPID),
             "the exited group leader must remain unreaped so its process-group ID cannot be reused before escalation"
         )
 
@@ -443,17 +443,22 @@ import Testing
         return Darwin.kill(processID, 0) == -1 && errno == ESRCH
     }
 
-    private func waitForZombieProcess(_ processID: pid_t) async throws -> Bool {
+    private func waitForUnreapedExit(_ processID: pid_t) async throws -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .milliseconds(700))
         while clock.now < deadline {
-            var info = proc_bsdinfo()
-            let infoSize = Int32(MemoryLayout.size(ofValue: info))
-            let bytes = withUnsafeMutablePointer(to: &info) {
-                proc_pidinfo(processID, PROC_PIDTBSDINFO, 0, $0, infoSize)
-            }
-            if bytes == infoSize, info.pbi_status == SZOMB {
+            var exitInfo = siginfo_t()
+            let result = Darwin.waitid(
+                P_PID,
+                id_t(processID),
+                &exitInfo,
+                WEXITED | WNOWAIT | WNOHANG
+            )
+            if result == 0, exitInfo.si_pid == processID {
                 return true
+            }
+            if result == -1, errno != EINTR, errno != ECHILD {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
             try await Task.sleep(for: .milliseconds(10))
         }

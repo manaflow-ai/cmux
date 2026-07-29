@@ -197,7 +197,7 @@ public struct CommandRunner: CommandRunning, Sendable {
 
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
-                // The two stdout/stderr readers, the process reaper, the deadline timer,
+                // The two stdout/stderr readers, the process exit observer, the deadline timer,
                 // and the spawn-failure path race to resume this continuation exactly once.
                 // They run on synchronous, non-async callbacks, so a lock guards the small
                 // shared state (the captured streams, the termination flag, the resumed latch)
@@ -211,15 +211,21 @@ public struct CommandRunner: CommandRunning, Sendable {
                 // The timeout path never goes through here, so a descendant that inherited a
                 // pipe and holds it open past the deadline can never delay the timeout result.
                 @Sendable func recordAndCompleteIfReady(_ mutate: @Sendable (inout RunState) -> Void) {
-                    let (completed, timerToCancel): (CommandResult?, CommandTimer?) =
+                    let (completed, timerToCancel, reapProcess): (
+                        CommandResult?,
+                        CommandTimer?,
+                        (@Sendable () -> Void)?
+                    ) =
                         state.withLock { s in
                             mutate(&s)
                             guard !s.resumed, let out = s.stdout, let err = s.stderr, s.didTerminate else {
-                                return (nil, nil)
+                                return (nil, nil, nil)
                             }
                             s.resumed = true
                             let timer = s.deadlineTimer
                             s.deadlineTimer = nil
+                            let reapProcess = s.processReapAction
+                            s.processReapAction = nil
                             return (
                                 CommandResult(
                                     stdout: String(data: out, encoding: .utf8),
@@ -228,11 +234,13 @@ public struct CommandRunner: CommandRunning, Sendable {
                                     timedOut: false,
                                     executionError: nil
                                 ),
-                                timer
+                                timer,
+                                reapProcess
                             )
                         }
                     timerToCancel?.cancel()
                     if let completed {
+                        reapProcess?()
                         cancellation.clear()
                         continuation.resume(returning: completed)
                     }
@@ -247,6 +255,7 @@ public struct CommandRunner: CommandRunning, Sendable {
                             s.resumed = true
                             let timer = s.deadlineTimer
                             s.deadlineTimer = nil
+                            s.processReapAction = nil
                             return (true, timer)
                         }
                     timerToCancel?.cancel()
@@ -330,18 +339,33 @@ public struct CommandRunner: CommandRunning, Sendable {
                 }
                 closeParentPipeHandles()
 
+                state.withLock { s in
+                    guard !s.resumed else { return }
+                    s.processReapAction = {
+                        Self.reapProcess(processIdentifier: processGroupID)
+                    }
+                }
+
                 DispatchQueue.global(qos: .utility).async {
-                    var rawStatus: Int32 = 0
-                    var waitResult: pid_t
+                    // Observe exit without reaping. Keeping the group leader as a
+                    // zombie reserves its PID and process-group ID until either all
+                    // output is captured or timeout/cancellation escalation finishes.
+                    var exitInfo = siginfo_t()
+                    var waitResult: Int32
                     repeat {
-                        waitResult = Darwin.waitpid(processGroupID, &rawStatus, 0)
+                        waitResult = Darwin.waitid(
+                            P_PID,
+                            id_t(processGroupID),
+                            &exitInfo,
+                            WEXITED | WNOWAIT
+                        )
                     } while waitResult == -1 && errno == EINTR
 
-                    if waitResult == processGroupID {
-                        let completedRawStatus = rawStatus
+                    if waitResult == 0 {
+                        let observedExitStatus = exitInfo.si_status
                         recordAndCompleteIfReady {
                             $0.didTerminate = true
-                            $0.exitStatus = Self.exitStatus(from: completedRawStatus)
+                            $0.exitStatus = observedExitStatus
                         }
                     } else {
                         let code = POSIXErrorCode(rawValue: errno) ?? .EIO
@@ -417,7 +441,7 @@ public struct CommandRunner: CommandRunning, Sendable {
         }
     }
 
-    /// Mutable state shared across the stdout/stderr readers, process reaper, deadline
+    /// Mutable state shared across the stdout/stderr readers, process exit observer, deadline
     /// timer, and spawn-failure path while one `run` resolves; guarded by a lock.
     private struct RunState: Sendable {
         var stdout: Data?
@@ -427,6 +451,9 @@ public struct CommandRunner: CommandRunning, Sendable {
         var resumed = false
         // The command deadline timer, cancelled when the continuation resumes (any path).
         var deadlineTimer: CommandTimer?
+        // Normal completion reaps only after exit and both captured streams arrive.
+        // Timeout/cancellation clears this and transfers reaping to SIGKILL escalation.
+        var processReapAction: (@Sendable () -> Void)?
     }
 
     private static func terminateOwnedProcessTree(
@@ -444,12 +471,21 @@ public struct CommandRunner: CommandRunning, Sendable {
         let timer = CommandTimer(queue: timerQueue)
         timer.schedule(deadline: .now() + sigkillGraceSeconds)
         timer.setEventHandler {
-            if Darwin.killpg(processGroupID, 0) == 0 || errno == EPERM {
-                _ = Darwin.killpg(processGroupID, SIGKILL)
+            _ = Darwin.killpg(processGroupID, SIGKILL)
+            DispatchQueue.global(qos: .utility).async {
+                reapProcess(processIdentifier: processGroupID)
             }
             timer.cancel()
         }
         timer.resume()
+    }
+
+    private static func reapProcess(processIdentifier: pid_t) {
+        var rawStatus: Int32 = 0
+        var waitResult: pid_t
+        repeat {
+            waitResult = Darwin.waitpid(processIdentifier, &rawStatus, 0)
+        } while waitResult == -1 && errno == EINTR
     }
 
     private static func spawnCommand(
@@ -534,14 +570,6 @@ public struct CommandRunner: CommandRunning, Sendable {
         try throwIfPOSIXError(spawnStatus)
         guard processIdentifier > 1 else { throw POSIXError(.ECHILD) }
         return processIdentifier
-    }
-
-    private static func exitStatus(from rawStatus: Int32) -> Int32 {
-        let terminatingSignal = rawStatus & 0x7f
-        if terminatingSignal == 0 {
-            return (rawStatus >> 8) & 0xff
-        }
-        return terminatingSignal
     }
 
     private static func throwIfPOSIXError(_ status: Int32) throws {

@@ -16,18 +16,23 @@ struct GitStatusProvider: Sendable {
         gitExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
         sshExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        commandRunner: (any CommandRunning)? = nil,
         processTimeout: TimeInterval = 5
     ) {
         self.gitExecutableURL = gitExecutableURL
         self.sshExecutableURL = sshExecutableURL
-        var nonLockingEnvironment = environment
-        nonLockingEnvironment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
-        commandRunner = CommandRunner(
-            environment: nonLockingEnvironment,
-            bundledBinPath: nil,
-            fallbackSearchDirectories: [],
-            standardErrorCaptureLimit: 0
-        )
+        if let commandRunner {
+            self.commandRunner = commandRunner
+        } else {
+            var nonLockingEnvironment = environment
+            nonLockingEnvironment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
+            self.commandRunner = CommandRunner(
+                environment: nonLockingEnvironment,
+                bundledBinPath: nil,
+                fallbackSearchDirectories: [],
+                standardErrorCaptureLimit: 0
+            )
+        }
         self.processTimeout = max(0, processTimeout)
     }
 
