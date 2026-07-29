@@ -8266,7 +8266,14 @@ impl Mux {
         runtime.last_error = Some("sidebar plugin exited".to_string());
         runtime.retry_at = Some(Instant::now() + delay);
         drop(runtime);
-        self.state.lock().unwrap().surfaces.remove(&id);
+        let retired = {
+            let mut state = self.state.lock().unwrap();
+            take_surface_for_retirement(self, &mut state, id)
+        };
+        if let Some(surface) = retired {
+            self.purge_surface_side_tables(id);
+            self.retire_surface_runtime(surface);
+        }
         true
     }
 
