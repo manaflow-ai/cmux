@@ -516,7 +516,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(refreshedBaseCommit, promptCommit)
     }
 
-    func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
+    func testClaudeStopFromPreviousSessionDoesNotClobberClearIdleStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
 
@@ -544,6 +544,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(lateOldStart.timedOut, lateOldStart.stderr)
         XCTAssertEqual(lateOldStart.status, 0, lateOldStart.stderr)
 
+        let staleStopCommandStart = context.state.commands.count
         let staleStop = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "stop"],
@@ -552,18 +553,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(staleStop.timedOut, staleStop.stderr)
         XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
 
+        let staleStopCommands = context.state.commands.dropFirst(staleStopCommandStart)
+        XCTAssertFalse(
+            staleStopCommands.contains { $0.hasPrefix("set_status claude_code ") },
+            "A stale Stop must not mutate the clear session's status, saw \(staleStopCommands)"
+        )
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                $0.hasPrefix("set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
-        )
-        XCTAssertFalse(
-            context.state.commands.contains {
-                $0.hasPrefix("set_status claude_code Idle ") && $0.contains("--tab=\(context.workspaceId)")
-            },
-            "Expected stale Stop from old session not to clobber the clear session, saw \(context.state.commands)"
+            "Expected clear SessionStart to establish an idle Claude session, saw \(context.state.commands)"
         )
         let resumeBindingRequests = context.state.commands.compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),

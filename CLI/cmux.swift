@@ -24252,11 +24252,10 @@ struct CMUXCLI {
                 surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             )
-            let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
+            let shouldEstablishActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
             if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
-                // Non-clear SessionStart can arrive late from startup/resume/compact
-                // after /clear, so only /clear or replacement of a stopped owner
-                // establishes a new active boundary.
+                // Only /clear or replacement of a stopped owner establishes a
+                // boundary. SessionStart is idle; UserPromptSubmit starts a turn.
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -24266,11 +24265,11 @@ struct CMUXCLI {
                     pid: claudePid,
                     launchCommand: launchCommand,
                     isRestorable: false,
-                    agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
-                    markActive: shouldPromoteActiveSession,
+                    agentLifecycle: shouldEstablishActiveSession ? .idle : .unknown,
+                    markActive: shouldEstablishActiveSession,
                     turnId: parsedInput.turnId
                 )
-                if shouldPromoteActiveSession {
+                if shouldEstablishActiveSession {
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -24285,9 +24284,8 @@ struct CMUXCLI {
                 }
             }
             // Register PID for stale-session detection and OSC suppression.
-            // Startup/resume SessionStart remains non-visible; /clear is a
-            // new active boundary and must keep the sidebar Running before
-            // any late pre-clear Stop can write Idle.
+            // The active-session gate protects the accepted idle boundary from
+            // late pre-clear events.
             // Fork launches register their PID only with an authoritative
             // surface: the hook reports the PARENT session id (which is often
             // the workspace-active session), and the pre-prompt fork SessionEnd
@@ -24296,7 +24294,7 @@ struct CMUXCLI {
             // never owned.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative
-                : shouldPromoteActiveSession ||
+                : shouldEstablishActiveSession ||
                     shouldApplyClaudeHookVisibleMutation(
                         sessionStore: sessionStore,
                         parsedInput: parsedInput,
@@ -24310,12 +24308,14 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if isClearSessionStart, !suppressVisibleMutations {
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+            if shouldEstablishActiveSession, !suppressVisibleMutations {
+                if isClearSessionStart {
+                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
+                }
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .running,
+                    lifecycle: .idle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
@@ -24323,9 +24323,9 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Running",
-                    icon: "bolt.fill",
-                    color: "#4C8DFF",
+                    value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                    icon: "pause.circle.fill",
+                    color: "#8E8E93",
                     pid: claudePid
                 )
             }

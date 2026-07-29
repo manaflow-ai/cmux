@@ -239,7 +239,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         )
         #expect(
             commands.contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(Self.liveWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
             },
