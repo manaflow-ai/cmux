@@ -9,6 +9,7 @@ import {
   ConfirmationRequiredError,
   MutationIndeterminateError,
   MutationTransportUncertainError,
+  agentId,
   browserId,
   paneId,
   RendererGrant,
@@ -38,6 +39,7 @@ const SCREEN = screenId(`screen_${HEX_C}`);
 const PANE = paneId(`pane_${HEX_A}`);
 const TAB = tabId(`tab_${HEX_B}`);
 const BROWSER = browserId(`browser_${HEX_A}`);
+const AGENT = agentId(`agent_${HEX_B}`);
 
 type Envelope = Record<string, unknown>;
 
@@ -311,6 +313,23 @@ test("optional fields and expected revisions reach the wire", async () => {
       current.ok(request, []);
       return;
     }
+    if (request.operation === "agent.report") {
+      current.ok(request, {
+        value: {
+          id: AGENT,
+          session_id: SESSION,
+          terminal_id: TERMINAL,
+          state: "working",
+          source: "socket",
+          source_session: "codex-1",
+          updated_at_ms: "10",
+        },
+        generation: "generation-a",
+        revision: "9",
+        replayed: false,
+      });
+      return;
+    }
     current.emit({
       protocol: "cmux.protocol/1",
       type: "response",
@@ -353,6 +372,21 @@ test("optional fields and expected revisions reach the wire", async () => {
     await session.listAgents({ terminalId: TERMINAL, state: "working" }),
     [],
   );
+  const reported = await session.reportAgent(
+    {
+      terminalId: TERMINAL,
+      state: "working",
+      source: "socket",
+      sourceSession: "codex-1",
+    },
+    {
+      idempotencyKey: "agent-status",
+      expectedRevision: decimalString("9"),
+    },
+  );
+  assert.equal(reported.value.id, AGENT);
+  assert.equal(reported.value.snapshot?.state, "working");
+  assert.equal("report" in reported.value, false);
   const request = (operation: string): Envelope =>
     transport.requests.find((item) => item.operation === operation)!;
   assert.deepEqual(request("workspace.rename").params, {
@@ -380,6 +414,20 @@ test("optional fields and expected revisions reach the wire", async () => {
     TERMINAL,
   );
   assert.equal((request("agent.list").params as Envelope).state, "working");
+  assert.equal(request("agent.report").idempotency_key, "agent-status");
+  assert.deepEqual(request("agent.report").params, {
+    machine: "current",
+    session: SESSION,
+    terminal_id: TERMINAL,
+    state: "working",
+    source: "socket",
+    source_session: "codex-1",
+    expected_revision: "9",
+  });
+  assert.equal(
+    Object.hasOwn(request("agent.report").params as Envelope, "agent"),
+    false,
+  );
   client.close();
 });
 

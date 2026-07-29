@@ -439,7 +439,7 @@ class Operations:
     )
     AGENT_LIST = _op("agent.list", "read", ("session",), "agent_list")
     AGENT_REPORT = _op(
-        "agent.report", "mutation", ("session", "agent"), "agent"
+        "agent.report", "mutation", ("session",), "agent"
     )
 
     SIDEBAR_VIEW_GET = _op(

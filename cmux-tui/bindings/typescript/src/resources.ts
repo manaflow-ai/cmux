@@ -2863,6 +2863,25 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       return new Agent(this.client, selectId(snapshot.id), scope, snapshot);
     });
   }
+
+  reportAgent(
+    report: AgentReportOptions,
+    options: MutationOptions = {},
+  ): Promise<MutationResult<Agent>> {
+    const scope = this.nestedScope();
+    return this.client[mutateOperation](
+      operations.agentReport,
+      { ...scope, ...optionFields(report) },
+      options,
+      (value) => auxiliarySnapshot<AgentId, AgentSnapshot>(
+        value,
+        "agent",
+        agentId,
+        { key: "session", property: "sessionId", factory: sessionId },
+      ),
+      (snapshot) => new Agent(this.client, selectId(snapshot.id), scope, snapshot),
+    );
+  }
 }
 
 export class Workspace extends Handle<WorkspaceId, WorkspaceSnapshot> {
@@ -3841,23 +3860,6 @@ export class Notification extends Handle<NotificationId, NotificationSnapshot> {
 
 export class Agent extends Handle<AgentId, AgentSnapshot> {
   protected readonly selectorKey = "agent";
-  report(
-    report: AgentReportOptions,
-    options: MutationOptions = {},
-  ): Promise<MutationResult<Agent>> {
-    return this.client[mutateOperation](
-      operations.agentReport,
-      { ...this.scope, ...optionFields(report) },
-      options,
-      (value) => auxiliarySnapshot<AgentId, AgentSnapshot>(
-        value,
-        "agent",
-        agentId,
-        { key: "session", property: "sessionId", factory: sessionId },
-      ),
-      (snapshot) => this.acceptSnapshot(snapshot),
-    );
-  }
 }
 
 export class SidebarView extends Handle<SidebarViewId, SidebarViewSnapshot> {

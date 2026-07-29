@@ -2998,6 +2998,35 @@ class Session(_Handle[SessionId, SessionSnapshot]):
             )
         ]
 
+    def report_agent(
+        self,
+        options: AgentReportOptions,
+        *,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult["Agent"]:
+        scope = {**self._scope, "session": self.selector.encode()}
+        return self._client._mutation_handle(
+            Operations.AGENT_REPORT,
+            {**scope, **_options(options)},
+            idempotency_key,
+            expected_revision,
+            lambda value: _aux_snapshot(
+                value,
+                "agent",
+                AgentId,
+                AgentSnapshot,
+                parent_key="session",
+                parent_type=SessionId,
+            ),
+            lambda snapshot: Agent(
+                self._client,
+                Selector.by_id(snapshot.id),
+                scope,
+                snapshot,
+            ),
+        )
+
 
 class Workspace(_Handle[WorkspaceId, WorkspaceSnapshot]):
     _id_type = WorkspaceId
@@ -4238,33 +4267,6 @@ class Notification(_Handle[NotificationId, NotificationSnapshot]):
 class Agent(_Handle[AgentId, AgentSnapshot]):
     _id_type = AgentId
     _selector_key = "agent"
-
-    def report(
-        self,
-        options: AgentReportOptions,
-        *,
-        idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
-    ) -> MutationResult["Agent"]:
-        return self._client._mutation_handle(
-            Operations.AGENT_REPORT,
-            {**self._scope, **_options(options)},
-            idempotency_key,
-            expected_revision,
-            lambda value: _aux_snapshot(
-                value,
-                "agent",
-                AgentId,
-                AgentSnapshot,
-                parent_key="session",
-                parent_type=SessionId,
-            ),
-            lambda snapshot: Agent(
-                self._client,
-                Selector.by_id(snapshot.id),
-                self._scope,
-                snapshot,
-            ),
-        )
 
 
 class SidebarView(_Handle[SidebarViewId, SidebarViewSnapshot]):

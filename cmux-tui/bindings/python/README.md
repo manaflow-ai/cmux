@@ -80,6 +80,19 @@ idempotency key.
 All eight creation option dataclasses expose `correlation_key`. Values contain
 1 to 128 UTF-8 bytes and remain stable across creation attempts.
 
+Agent state reporting starts from the session, so a new terminal does not need
+an existing agent-list result:
+
+```python
+from cmux import AgentReportOptions
+
+reported = session.report_agent(AgentReportOptions(
+    terminal_id=terminal_id,
+    state="working",
+    source="socket",
+))
+```
+
 Each async stream owns its blocking reader worker. A waiting stream does not
 occupy a request worker. Canceling a call removes only that pending request;
 canceling a stream closes only that stream. Closing the client releases all

@@ -60,6 +60,8 @@ import {
   type CreatedPath,
   type CreatedTerminalPath,
   type CreationResolution,
+  type Agent,
+  type AgentReportOptions,
   type MutationResult,
   type MutationReceipt,
   type Terminal,
@@ -73,13 +75,22 @@ import { CmuxClient, COMMAND_METADATA } from "cmux/raw";
 declare const transport: Transport;
 const client = new Client({ transport, timeoutMs: 5_000 });
 const session = client.session(sessionId("session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-const terminal = session.terminal(terminalId("term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+const selectedTerminalId = terminalId("term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+const terminal = session.terminal(selectedTerminalId);
 const write: Promise<MutationReceipt> = terminal.write(
   "printf",
   { idempotencyKey: "consumer-write", expectedRevision: decimalString("7") },
 );
 const creation: Promise<CreationResolution> =
   session.creation.resolve("create-key");
+const reportOptions: AgentReportOptions = {
+  terminalId: selectedTerminalId,
+  state: "working",
+  source: "socket",
+  sourceSession: "package-consumer",
+};
+const reported: Promise<MutationResult<Agent>> =
+  session.reportAgent(reportOptions);
 const workspace = session.workspace(
   workspaceId("ws_cccccccccccccccccccccccccccccccc"),
 );
@@ -115,6 +126,8 @@ void launched;
 void narrow;
 void node;
 void raw;
+void reportOptions;
+void reported;
 void session;
 void terminal;
 void write;

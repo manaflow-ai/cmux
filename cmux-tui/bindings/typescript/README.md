@@ -48,6 +48,16 @@ if (created.value.kind === "workspace") {
 `Session.creation.resolve()` remains union-valued because a correlation key can
 refer to any creation operation.
 
+Report a terminal's first agent state directly through its session:
+
+```ts
+const reported = await session.reportAgent({
+  terminalId: created.value.terminal.id,
+  state: "working",
+  source: "socket",
+});
+```
+
 Streams retain at most 256 unread messages and 16 MiB. Overflow ends only that
 stream with a recoverable gap and sends best-effort cancellation. Pass an
 `AbortSignal`, call `cancel()`, or close the client to release work.

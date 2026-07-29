@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type {
+  Agent,
+  AgentReportOptions,
   Browser,
   BrowserViewerResizeResult,
   CellPixelsResult,
@@ -117,6 +119,15 @@ type _Defaults = Expect<
     Result<Session["updateTerminalDefaults"]>,
     MutationResult<TerminalDefaultsSnapshot>
   >
+>;
+type _ReportAgent = Expect<
+  Equal<Result<Session["reportAgent"]>, MutationResult<Agent>>
+>;
+type _ReportAgentOptions = Expect<
+  Equal<Parameters<Session["reportAgent"]>[0], AgentReportOptions>
+>;
+type _AgentHasNoReport = Expect<
+  Equal<"report" extends keyof Agent ? true : false, false>
 >;
 type _Screen = Expect<
   Equal<Result<Terminal["readScreen"]>, TerminalScreenResult>

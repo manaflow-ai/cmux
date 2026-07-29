@@ -10,6 +10,7 @@ import cmux._protocol as resource_protocol
 import cmux.aio
 import cmux.raw
 from cmux import (
+    AgentId,
     CancelledError,
     CancellationToken,
     Client,
@@ -33,6 +34,7 @@ from cmux import (
     shell_executable,
 )
 from cmux.options import (
+    AgentReportOptions,
     CreateBrowserOptions,
     CreatePaneOptions,
     CreateScreenOptions,
@@ -58,6 +60,7 @@ PANE = PaneId(f"pane_{HEX_A}")
 TAB = TabId(f"tab_{HEX_B}")
 CONNECTED_CLIENT = ConnectedClientId(f"client_{HEX_C}")
 PAIRING_REQUEST = PairingRequestId(f"pairing_{HEX_A}")
+AGENT = AgentId(f"agent_{HEX_B}")
 
 
 def frames(connection):
@@ -91,6 +94,8 @@ class ResourceApiTests(unittest.TestCase):
         self.assertTrue(hasattr(cmux.raw, "MISSING"))
         self.assertFalse(hasattr(cmux, "SidebarPlugin"))
         self.assertFalse(hasattr(cmux, "SidebarPluginId"))
+        self.assertTrue(hasattr(cmux.Session, "report_agent"))
+        self.assertFalse(hasattr(cmux.Agent, "report"))
 
     def test_exact_shell_and_chosen_shell_keep_exact_wire_shape(self) -> None:
         observed = []
@@ -354,6 +359,25 @@ class ResourceApiTests(unittest.TestCase):
                 observed.append(request)
                 if request["operation"] in {"notification.list", "agent.list"}:
                     ok(connection, request, [])
+                elif request["operation"] == "agent.report":
+                    ok(
+                        connection,
+                        request,
+                        {
+                            "value": {
+                                "id": str(AGENT),
+                                "session_id": str(SESSION),
+                                "terminal_id": str(TERMINAL),
+                                "state": "working",
+                                "source": "socket",
+                                "source_session": "codex-1",
+                                "updated_at_ms": "10",
+                            },
+                            "generation": "generation-a",
+                            "revision": "9",
+                            "replayed": False,
+                        },
+                    )
                 elif request["operation"] == "screen.layout.undo":
                     send_frame(
                         connection,
@@ -429,6 +453,18 @@ class ResourceApiTests(unittest.TestCase):
                     ),
                     [],
                 )
+                reported = session.report_agent(
+                    AgentReportOptions(
+                        terminal_id=TERMINAL,
+                        state="working",
+                        source="socket",
+                        source_session="codex-1",
+                    ),
+                    idempotency_key="agent-status",
+                    expected_revision="9",
+                )
+                self.assertEqual(reported.value.id, AGENT)
+                self.assertEqual(reported.value.snapshot.state, "working")
 
         by_operation = {item["operation"]: item for item in observed}
         self.assertEqual(
@@ -455,6 +491,23 @@ class ResourceApiTests(unittest.TestCase):
             by_operation["agent.list"]["params"]["state"],
             "working",
         )
+        self.assertEqual(
+            by_operation["agent.report"]["idempotency_key"],
+            "agent-status",
+        )
+        self.assertEqual(
+            by_operation["agent.report"]["params"],
+            {
+                "machine": "current",
+                "session": str(SESSION),
+                "terminal_id": str(TERMINAL),
+                "state": "working",
+                "source": "socket",
+                "source_session": "codex-1",
+                "expected_revision": "9",
+            },
+        )
+        self.assertNotIn("agent", by_operation["agent.report"]["params"])
 
     def test_indeterminate_mutation_is_typed_and_never_retried(self) -> None:
         observed = []
