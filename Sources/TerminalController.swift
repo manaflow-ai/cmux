@@ -14873,9 +14873,6 @@ class TerminalController {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
-        #if DEBUG
-        HostLatencyTrace.stamp("host.in.recv", "bytes=\(text.utf8.count)")
-        #endif
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -14887,6 +14884,13 @@ class TerminalController {
               let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        #if DEBUG
+        let latencySurfaceToken = surfaceId.uuidString.prefix(8).lowercased()
+        HostLatencyTrace.stamp(
+            "host.in.recv",
+            "s=\(latencySurfaceToken) bytes=\(text.utf8.count)"
+        )
+        #endif
 
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
@@ -14921,7 +14925,10 @@ class TerminalController {
             payload["terminal_seq"] = seq
             #if DEBUG
             if sendResult == .sent {
-                HostLatencyTrace.stamp("host.in.applied", "seq=\(seq)")
+                HostLatencyTrace.stamp(
+                    "host.in.applied",
+                    "s=\(latencySurfaceToken) seq=\(seq)"
+                )
             }
             #endif
         }

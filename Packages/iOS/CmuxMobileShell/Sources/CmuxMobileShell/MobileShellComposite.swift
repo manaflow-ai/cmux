@@ -5430,14 +5430,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "in.send",
                 "n=\(latencyBatchNumber) bytes=\(chunk.text.utf8.count)"
             )
+            let latencyBatchNumberForSend: UInt64? = latencyBatchNumber
+            #else
+            let latencyBatchNumberForSend: UInt64? = nil
             #endif
-            await sendRemoteTerminalInput(
+            let settlesAsynchronously = await sendRemoteTerminalInput(
                 chunk.text,
                 workspaceID: chunk.workspaceID,
-                terminalID: chunk.terminalID
+                terminalID: chunk.terminalID,
+                latencyBatchNumber: latencyBatchNumberForSend
             )
             #if DEBUG
-            MobileLatencyTrace.stamp("in.settled", "n=\(latencyBatchNumber)")
+            if !settlesAsynchronously, let latencyBatchNumber = latencyBatchNumberForSend {
+                MobileLatencyTrace.stamp("in.settled", "n=\(latencyBatchNumber)")
+            }
             #endif
         }
     }
@@ -6710,19 +6716,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
-        await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        _ = await sendRemoteTerminalInput(
+            text,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
     }
 
+    /// Sends terminal input and reports whether the pipeline callback owns its latency settlement stamp.
     private func sendRemoteTerminalInput(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) async {
+        terminalID: MobileTerminalPreview.ID,
+        latencyBatchNumber: UInt64? = nil
+    ) async -> Bool {
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal input remoteClient=0")
             #endif
-            return
+            return false
         }
         let generation = connectionGeneration
         if let terminalLaneCoordinator {
@@ -6752,7 +6764,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // belong to the previous connection.
                     guard generation == connectionGeneration,
                           client === remoteClient else {
-                        return
+                        return false
                     }
                     if terminalInputRPCPipeline.hasAmbiguousFailure(
                         surfaceID: terminalID.rawValue
@@ -6777,12 +6789,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             switch laneResult {
             case .sent:
-                return
+                return false
             case .failed:
                 mobileShellLog.error(
                     "independent terminal input failed surface=\(terminalID.rawValue, privacy: .public)"
                 )
-                return
+                return false
             case .unavailable:
                 break
             }
@@ -6808,6 +6820,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                     },
                     settlementHandler: { [weak self, weak client] result in
+                        #if DEBUG
+                        if let latencyBatchNumber {
+                            MobileLatencyTrace.stamp(
+                                "in.settled",
+                                "n=\(latencyBatchNumber)"
+                            )
+                        }
+                        #endif
                         guard let self, let client else { return }
                         switch result {
                         case let .success(responseData):
@@ -6828,19 +6848,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         }
                     }
                 )
+                return true
             } catch {
                 // A generation change mid-enqueue (pipeline clear) surfaces as
                 // CancellationError; that is a benign teardown, not an
                 // operational failure, regardless of whether the caller also
                 // rotated connectionGeneration.
-                if error is CancellationError { return }
+                if error is CancellationError { return false }
                 handleTerminalInputFailure(
                     error,
                     client: client,
                     generation: generation
                 )
             }
-            return
+            return false
         }
         do {
             #if DEBUG
@@ -6852,7 +6873,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params: params
                 )
             )
-            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
+            guard isCurrentRemoteOperation(client: client, generation: generation) else {
+                return false
+            }
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
         } catch {
             handleTerminalInputFailure(
@@ -6861,6 +6884,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 generation: generation
             )
         }
+        return false
     }
 
     private func terminalInputParameters(
@@ -6922,7 +6946,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Deliver a composed block to the Mac surface via `terminal.paste`: a
     /// bracketed paste (so multi-line text is inserted as one literal block)
-    /// followed by an optional submit key. Mirrors ``sendRemoteTerminalInput(_:workspaceID:terminalID:)``
+    /// followed by an optional submit key. Mirrors
+    /// ``sendRemoteTerminalInput(_:workspaceID:terminalID:latencyBatchNumber:)``
     /// but takes the dedicated paste path instead of the raw `terminal.input`
     /// path, which rewrites newlines to carriage returns.
     ///
@@ -7755,7 +7780,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         #if DEBUG
-        MobileLatencyTrace.stamp("in.resp", "ack_seq=\(remoteSeq)")
+        let latencySurfaceToken = surfaceID.prefix(8).lowercased()
+        MobileLatencyTrace.stamp(
+            "in.resp",
+            "s=\(latencySurfaceToken) ack_seq=\(remoteSeq)"
+        )
         #endif
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
@@ -8388,10 +8417,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         if let latencyReceiveTime {
             let decodeDuration = MobileLatencyTrace.elapsedMicroseconds(since: latencyReceiveTime)
+            let latencySurfaceToken = renderGrid.surfaceID.prefix(8).lowercased()
             MobileLatencyTrace.stamp(
                 "ev.grid",
                 at: latencyReceiveTime,
-                "seq=\(renderGrid.stateSeq) bytes=\(json.count) dec_us=\(decodeDuration)"
+                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) " +
+                    "bytes=\(json.count) dec_us=\(decodeDuration)"
             )
         }
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")

@@ -3139,10 +3139,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard let self else { return }
                 guard self.surfaceGeneration == generation else { return }
                 #if DEBUG
-                if let sequence = self.latencyLastAppliedSequence {
-                    MobileLatencyTrace.stamp("rd.present", "seq=\(sequence)")
-                } else {
-                    MobileLatencyTrace.stamp("rd.present")
+                if let surfaceID = self.hostSurfaceID {
+                    let latencySurfaceToken = surfaceID.prefix(8).lowercased()
+                    if let sequence = self.latencyLastAppliedSequence {
+                        MobileLatencyTrace.stamp(
+                            "rd.present",
+                            "s=\(latencySurfaceToken) seq=\(sequence)"
+                        )
+                    } else {
+                        MobileLatencyTrace.stamp(
+                            "rd.present",
+                            "s=\(latencySurfaceToken)"
+                        )
+                    }
                 }
                 #endif
                 self.renderInFlight = false

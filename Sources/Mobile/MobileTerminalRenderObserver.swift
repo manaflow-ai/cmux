@@ -276,6 +276,9 @@ final class MobileTerminalRenderObserver {
     ) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
+        #if DEBUG
+        let latencySurfaceToken = surfaceID.uuidString.prefix(8).lowercased()
+        #endif
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               surface.surface != nil else {
             clearRenderGridCache(surfaceID: surfaceID)
@@ -323,7 +326,8 @@ final class MobileTerminalRenderObserver {
                 "host.grid",
                 since: latencyExportStart
             ) {
-                "seq=\(emitted.stateSeq) exp_us=\($0) bytes=\(payloadJSON.count) " +
+                "s=\(latencySurfaceToken) seq=\(emitted.stateSeq) " +
+                    "exp_us=\($0) bytes=\(payloadJSON.count) " +
                     "kind=\(emitted.full ? "full" : "delta")"
             }
             #endif

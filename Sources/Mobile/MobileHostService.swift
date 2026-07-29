@@ -529,6 +529,7 @@ final class MobileHostService {
         guard !connections.isEmpty else { return }
         #if DEBUG
         cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
+        let latencySurfaceToken = coalesceKey?.prefix(8).lowercased()
         #endif
         var resyncSurfaceIDs = Set<String>()
         for connection in connections {
@@ -541,8 +542,17 @@ final class MobileHostService {
                 stateSeq: stateSeq
             )
             #if DEBUG
-            if let stateSeq, result.admitted, let depth = result.depthAfterEnqueue {
-                HostLatencyTrace.stamp("host.enq", "seq=\(stateSeq) depth=\(depth)")
+            if let stateSeq,
+               let latencySurfaceToken,
+               result.admitted,
+               let depth = result.depthAfterEnqueue {
+                let latencyConnectionToken = connection.connectionID.uuidString
+                    .prefix(8).lowercased()
+                HostLatencyTrace.stamp(
+                    "host.enq",
+                    "s=\(latencySurfaceToken) conn=\(latencyConnectionToken) " +
+                        "seq=\(stateSeq) depth=\(depth)"
+                )
             }
             #endif
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
@@ -2608,11 +2618,17 @@ actor MobileHostConnection {
                 return
             }
             #if DEBUG
-            if let stateSeq = event.stateSeq {
+            if let stateSeq = event.stateSeq,
+               let surfaceID = event.coalesceKey {
+                let latencySurfaceToken = surfaceID.prefix(8).lowercased()
+                let latencyConnectionToken = id.uuidString.prefix(8).lowercased()
                 HostLatencyTrace.stampElapsed(
                     "host.write",
                     since: latencyWriteStart
-                ) { "seq=\(stateSeq) us=\($0)" }
+                ) {
+                    "s=\(latencySurfaceToken) conn=\(latencyConnectionToken) " +
+                        "seq=\(stateSeq) us=\($0)"
+                }
             }
             #endif
             let resyncSurfaceIDs = eventQueue.takeResyncAfterDrainRequests()

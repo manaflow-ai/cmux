@@ -45,3 +45,26 @@ duration arrays. Run the embedded fixture check with:
 ```bash
 python3 scripts/mobile-latency-trace/analyze.py --selftest
 ```
+
+## Trace format
+
+Every per-surface render/input-ack stamp carries `s=<surface>`, where
+`<surface>` is the first eight lowercase hexadecimal characters of the surface
+UUID:
+
+- Mac: `host.tee`, `host.grid`, `host.enq`, `host.write`, `host.in.recv`, and
+  `host.in.applied`.
+- iOS: `ev.grid`, `gate`, `ap.yield`, `ap.done`, `rd.present`, and `in.resp`.
+
+Mac `host.enq` and `host.write` stamps also carry `conn=<connection>`, the first
+eight characters of the subscriber connection ID. The analyzer joins render
+and input-ack stages by `(s, seq)`. When the same `(s, seq)` appears repeatedly,
+it preserves first-at-or-after time ordering; for host fan-out, the earliest
+connection write supplies each wire sample.
+
+Raw-input batches continue to use their process-local `n=<batch>` identity:
+`in.send` marks departure from the iOS drain loop and `in.settled` marks the
+actual response/error settlement. Because `in.resp` and `in.settled` are emitted
+from the same pipelined settlement, the analyzer associates the next
+`in.resp` at or after each `in.send` even if its log timestamp follows
+`in.settled`.

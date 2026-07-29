@@ -61,10 +61,16 @@ extension MobileShellComposite {
         expectedSurfaceID: String? = nil,
         source: String
     ) {
+        #if DEBUG
+        let latencySurfaceToken = renderGrid.surfaceID.prefix(8).lowercased()
+        #endif
         guard expectedSurfaceID == nil || renderGrid.surfaceID == expectedSurfaceID,
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             #if DEBUG
-            MobileLatencyTrace.stamp("gate", "seq=\(renderGrid.stateSeq) out=drop_stale")
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=drop_stale"
+            )
             #endif
             return
         }
@@ -93,7 +99,10 @@ extension MobileShellComposite {
                 "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(max(deliveredSeqValue, preBarrierFloorSeq ?? 0)) frame=\(renderGrid.stateSeq)"
             )
             #if DEBUG
-            MobileLatencyTrace.stamp("gate", "seq=\(renderGrid.stateSeq) out=drop_stale")
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=drop_stale"
+            )
             #endif
             return
         }
@@ -102,7 +111,10 @@ extension MobileShellComposite {
         // frame or establish a baseline from pre-input content.
         guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else {
             #if DEBUG
-            MobileLatencyTrace.stamp("gate", "seq=\(renderGrid.stateSeq) out=drop_pending_input")
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=drop_pending_input"
+            )
             #endif
             return
         }
@@ -144,12 +156,18 @@ extension MobileShellComposite {
             if terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] != nil {
                 _ = deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
                 #if DEBUG
-                MobileLatencyTrace.stamp("gate", "seq=\(renderGrid.stateSeq) out=barrier")
+                MobileLatencyTrace.stamp(
+                    "gate",
+                    "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=barrier"
+                )
                 #endif
             } else {
                 requestTerminalReplayForMissingRenderGridBaseline(surfaceID: renderGrid.surfaceID)
                 #if DEBUG
-                MobileLatencyTrace.stamp("gate", "seq=\(renderGrid.stateSeq) out=replay_req")
+                MobileLatencyTrace.stamp(
+                    "gate",
+                    "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=replay_req"
+                )
                 #endif
             }
             return
@@ -183,7 +201,8 @@ extension MobileShellComposite {
             #if DEBUG
             MobileLatencyTrace.stamp(
                 "gate",
-                "seq=\(renderGrid.stateSeq) out=\(deliveryDecision.requestReplay ? "replay_req" : "delivered")"
+                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) " +
+                    "out=\(deliveryDecision.requestReplay ? "replay_req" : "delivered")"
             )
             #endif
             return
@@ -211,7 +230,10 @@ extension MobileShellComposite {
                 )
                 terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
                 #if DEBUG
-                MobileLatencyTrace.stamp("gate", "seq=\(renderGrid.stateSeq) out=replay_req")
+                MobileLatencyTrace.stamp(
+                    "gate",
+                    "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=replay_req"
+                )
                 #endif
                 return
             }
@@ -243,7 +265,10 @@ extension MobileShellComposite {
             bypassReplayBarrier: bypassLiveBaselineBarrier
         ) else {
             #if DEBUG
-            MobileLatencyTrace.stamp("gate", "seq=\(renderGrid.stateSeq) out=barrier")
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=barrier"
+            )
             #endif
             return
         }
@@ -264,7 +289,10 @@ extension MobileShellComposite {
             terminalMirrorHydrationNeededSurfaceIDs.remove(renderGrid.surfaceID)
         }
         #if DEBUG
-        MobileLatencyTrace.stamp("gate", "seq=\(renderGrid.stateSeq) out=delivered")
+        MobileLatencyTrace.stamp(
+            "gate",
+            "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=delivered"
+        )
         #endif
     }
 

@@ -180,7 +180,11 @@ final class MobileTerminalByteTee {
         }
         statesBySurfaceID[surfaceID] = state
         #if DEBUG
-        HostLatencyTrace.stamp("host.tee", "seq=\(state.seq) bytes=\(data.count)")
+        let latencySurfaceToken = surfaceID.uuidString.prefix(8).lowercased()
+        HostLatencyTrace.stamp(
+            "host.tee",
+            "s=\(latencySurfaceToken) seq=\(state.seq) bytes=\(data.count)"
+        )
         #endif
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
 

@@ -329,6 +329,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 for await _ in outputStartSignal { break }
                 guard !Task.isCancelled else { return }
                 guard let store else { return }
+                #if DEBUG
+                let latencySurfaceToken = surfaceID.prefix(8).lowercased()
+                #endif
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
@@ -337,7 +340,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     let latencySequence = chunk.sourceRenderGridFrame?.stateSeq
                         ?? chunk.endSequence
                         ?? 0
-                    MobileLatencyTrace.stamp("ap.yield", "seq=\(latencySequence)")
+                    MobileLatencyTrace.stamp(
+                        "ap.yield",
+                        "s=\(latencySurfaceToken) seq=\(latencySequence)"
+                    )
                     let latencyApplyStart = MobileLatencyTrace.captureTime()
                     #endif
                     switch terminalOutputApplicationPath(
@@ -358,7 +364,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             MobileLatencyTrace.stampElapsed(
                                 "ap.done",
                                 since: latencyApplyStart
-                            ) { "seq=\(frame.stateSeq) path=verified us=\($0)" }
+                            ) {
+                                "s=\(latencySurfaceToken) seq=\(frame.stateSeq) " +
+                                    "path=verified us=\($0)"
+                            }
                             #endif
                             store.terminalOutputDidProcess(
                                 surfaceID: surfaceID,
@@ -438,7 +447,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     MobileLatencyTrace.stampElapsed(
                         "ap.done",
                         since: latencyApplyStart
-                    ) { "seq=\(latencySequence) path=legacy us=\($0)" }
+                    ) {
+                        "s=\(latencySurfaceToken) seq=\(latencySequence) " +
+                            "path=legacy us=\($0)"
+                    }
                     #endif
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
