@@ -1716,6 +1716,31 @@ struct ComputerUseUXTests {
             desiredEnabled: true,
             helperStopped: false
         ))
+        #expect(
+            ComputerUseRuntimeService.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: 0
+            ) == .seconds(1)
+        )
+        #expect(
+            ComputerUseRuntimeService.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: 1
+            ) == .seconds(2)
+        )
+        #expect(
+            ComputerUseRuntimeService.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: 2
+            ) == .seconds(4)
+        )
+        #expect(
+            ComputerUseRuntimeService.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: 3
+            ) == .seconds(8)
+        )
+        #expect(
+            ComputerUseRuntimeService.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: 4
+            ) == nil
+        )
     }
 
     @Test

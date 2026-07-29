@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import CmuxControlSocket
+import CmuxExtensionKit
 import CmuxSettings
 import Testing
 #if canImport(cmux_DEV)
@@ -290,6 +291,49 @@ struct ApplicationSurfaceTests {
                 deltaY: -200
             ),
         ])
+    }
+
+    @Test func inputPumpBatchesBacklogWithoutDelayingFirstEvent() async {
+        var batches: [[ApplicationSurfaceInputEvent]] = []
+        var releaseFirstBatch: CheckedContinuation<Void, Never>?
+        let pump = ApplicationSurfaceInputPump(
+            maximumQueuedEventCount: 64,
+            batchSender: { events in
+                batches.append(events)
+                if batches.count == 1 {
+                    await withCheckedContinuation { continuation in
+                        releaseFirstBatch = continuation
+                    }
+                }
+                return true
+            }
+        )
+        let first = ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: 1,
+            keyDown: true
+        )
+        #expect(pump.enqueue(first) == .accepted)
+        while batches.isEmpty {
+            await Task.yield()
+        }
+        #expect(batches == [[first]])
+
+        let backlog = (2 ... 33).map {
+            ApplicationSurfaceInputEvent(
+                kind: .key,
+                keyCode: UInt16($0),
+                keyDown: true
+            )
+        }
+        for event in backlog {
+            #expect(pump.enqueue(event) == .accepted)
+        }
+        releaseFirstBatch?.resume()
+        await pump.waitUntilIdle()
+
+        #expect(batches.count == 2)
+        #expect(batches[1] == backlog)
     }
 
     @Test func inputPumpSynthesizesReleasesForDeliveredPresses() async {
@@ -612,6 +656,64 @@ struct ApplicationSurfaceTests {
         #expect(!TerminalController.applicationSurfaceSocketControlIsAllowed(
             accessMode: .off
         ))
+    }
+
+    @Test func implicitSendKeyTargetsFocusedApplicationSurface() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: "Dictionary",
+            focus: true
+        ))
+
+        let target = workspace.controlDefaultSurfaceTarget(paneID: nil)
+
+        #expect(target?.surfaceID == panel.id)
+        #expect(target?.panel === panel)
+        panel.close()
+    }
+
+    @Test func implicitSendKeyTargetsApplicationSurfaceInRoutedPane() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let rootPane = try #require(
+            workspace.bonsplitController.allPaneIds.first
+        )
+        let applicationPane = try #require(
+            workspace.bonsplitController.splitPane(
+                rootPane,
+                orientation: .horizontal,
+                withTab: nil,
+                initialDividerPosition: 0.5
+            )
+        )
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: applicationPane,
+            windowID: 42,
+            processID: 43,
+            title: "Dictionary",
+            focus: false
+        ))
+
+        let target = workspace.controlDefaultSurfaceTarget(
+            paneID: applicationPane.id
+        )
+
+        #expect(target?.surfaceID == panel.id)
+        #expect(target?.panel === panel)
+        panel.close()
+    }
+
+    @Test func applicationSurfaceHasPublicSidebarKind() {
+        #expect(CmuxSidebarSurfaceKind.application.rawValue == "application")
+        #expect(
+            CmuxSidebarSurfaceKind(panelType: .application)
+                == .application
+        )
     }
 
     @Test func applicationTitleChangesFollowPanelAcrossWorkspaces() throws {
