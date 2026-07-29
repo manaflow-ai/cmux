@@ -1012,6 +1012,38 @@ struct MobileIrohRuntimeCompositionTests {
         // snapshot). The discovery and the three revokes reuse that pair.
         #expect(await fixture.authClient.observedMintedAccessTokenCount() - baseline == 1)
     }
+
+    /// Regression: the ACTIVATION broker's credentials are pinned to the
+    /// session that started the activation, exactly like the forget path. An
+    /// unpinned source keeps vending whatever the live session's tokens are,
+    /// so an account switch mid-activation lets later registration/discovery
+    /// legs mutate broker state in the NEW account against the old account's
+    /// endpoint identity, before the lifecycle revision guard runs. After the
+    /// switch, the pinned source must yield nil so those legs fail closed.
+    @Test
+    func activationBrokerCredentialsFailClosedAfterAccountSwitch() async throws {
+        let sources = MobileIrohTokenSourceCapture()
+        let fixture = try await MobileIrohSignOutFixture.make(brokerFactory: { tokenSource in
+            sources.append(tokenSource)
+            return MobileIrohRevocationBroker()
+        })
+        // The first broker the composition builds is the activation-time one.
+        let source = try #require(sources.first)
+        // While the activation's session is live, the pinned pair resolves.
+        #expect(await source.credentialPair() != nil)
+
+        // Auth switches to a DIFFERENT user whose tokens are equally valid: a
+        // live-session source would happily vend them.
+        await fixture.auth.signOut()
+        await fixture.authClient.setUser(fixture.otherUser)
+        try await fixture.auth.signInWithPassword(
+            email: "b@example.com",
+            password: "pw"
+        )
+
+        // The activation-pinned source fails closed instead.
+        #expect(await source.credentialPair() == nil)
+    }
 }
 
 private actor MobileIrohTerminalLaneSendStream: CmxIrohSendStream {
@@ -1645,6 +1677,22 @@ private final class MobileIrohBrokerCapture: @unchecked Sendable {
 
     func get() -> MobileIrohCredentialFetchingBroker? {
         lock.withLock { broker }
+    }
+}
+
+/// Collects every token source handed to the broker factory, in construction
+/// order, so a test can exercise the credential source a specific broker
+/// (e.g. the activation-time one) was built with.
+private final class MobileIrohTokenSourceCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var sources: [CmxIrohBrokerTokenSource] = []
+
+    func append(_ source: CmxIrohBrokerTokenSource) {
+        lock.withLock { sources.append(source) }
+    }
+
+    var first: CmxIrohBrokerTokenSource? {
+        lock.withLock { sources.first }
     }
 }
 

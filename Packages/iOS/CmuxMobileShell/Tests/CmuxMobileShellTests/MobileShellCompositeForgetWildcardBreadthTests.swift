@@ -227,6 +227,73 @@ private final class WildcardRecordingForget: MobileIrohMacForgetting {
         #expect(await backup.fetches() - fetchesBefore <= 1)
     }
 
+    /// The wildcard revoke kills the device's bindings for the WHOLE account,
+    /// across teams. Cleanup must match: a same-device row stored under another
+    /// team just lost its binding too, and an offline Mac never re-registers,
+    /// so leaving that row (and its backup) makes the supposedly forgotten
+    /// computer reappear when the user switches teams or restores.
+    @Test func wildcardForgetDeletesSameDeviceRowsInOtherTeams() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // A tagged row in ANOTHER team, then the team-less untagged row the user
+        // forgets. Tagged/teamed first so later upserts cannot claim it.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (feature)",
+            routes: [try Self.route("100.82.214.113")],
+            instanceTag: "feature",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-b",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        )
+        let forget = WildcardRecordingForget()
+        // Realistic rail: the team-scoping decorator is what normally hides
+        // other teams' rows from the composite, so the cross-team cleanup must
+        // work through it. "team-a" is selected the whole time — the team-less
+        // row is shown under it (legacy visibility) and forgotten from there,
+        // while the device's team-b row is invisible to the display scope.
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: TeamScopedPairedMacStore(inner: base, teamIDProvider: { "team-a" }),
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == nil
+        })
+
+        let ok = await store.forgetHiddenComputer(hidden)
+
+        #expect(ok)
+        #expect(forget.revokes.count == 1)
+        #expect(forget.revokes.first?.instanceTag == nil)
+        // EVERY row of the device is gone, including the other team's: its
+        // binding was revoked account-wide and an offline Mac cannot self-heal.
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }

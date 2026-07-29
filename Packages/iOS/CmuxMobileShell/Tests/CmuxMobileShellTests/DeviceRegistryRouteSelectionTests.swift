@@ -355,6 +355,27 @@ import Testing
         #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
     }
 
+    @Test func durableDeviceIDDefersWhenLegacyMigrationCannotPersist() {
+        // The Keychain is READABLE (it reports the id absent) but WRITES fail,
+        // and a legacy UserDefaults id exists. Nothing durable holds the id in
+        // that state: advertising the legacy value as durable registers a
+        // binding under an id only the reinstall-volatile mirror holds, so a
+        // delete-and-reinstall wipes it, mints a DIFFERENT Keychain id, and
+        // strands the existing (user, device, tag) slot — the exact failure the
+        // durable store exists to prevent. The binding path must defer instead
+        // and retry until the Keychain confirms the migration persisted.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
+
+        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+
+        #expect(resolved == nil)
+    }
+
     @Test func deviceIdentityKeychainWinsOverUserDefaults() {
         // If both stores hold a value, the Keychain (authoritative) one wins.
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
@@ -424,20 +445,6 @@ import Testing
         let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
         #expect(resolved == nil)
         #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
-    }
-
-    @Test func durableDeviceIDAdoptsLegacyEvenWhenPersistFails() {
-        // An adopted pre-Keychain id is already the id the existing binding uses,
-        // so it is durable regardless of whether the upgrade-persist succeeds.
-        let suite = "test.deviceRegistry.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
-        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
-        let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
-
-        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
-        #expect(resolved == legacy)
     }
 
     @Test func durableDeviceIDAdoptsConcurrentWinnerInsteadOfMintingSecondID() {
