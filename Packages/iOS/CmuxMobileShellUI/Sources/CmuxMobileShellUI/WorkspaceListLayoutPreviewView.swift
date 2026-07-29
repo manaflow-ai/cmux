@@ -52,12 +52,20 @@ private final class WorkspaceListLayoutPreviewModel {
                     // Restamp relative to the row's own clock: the seeded
                     // timestamps are hours old, so jumping them to `Date()`
                     // would change the rendered minute on every row's first
-                    // tick and do real row work. A one-second bump keeps
-                    // every tick a sub-minute, render-equivalent delta.
-                    let restamped = (workspaces[index].lastActivityAt
+                    // tick and do real row work. The bump also wraps back to
+                    // the start of the row's current minute rather than
+                    // crossing into the next one, so EVERY tick is a
+                    // render-equivalent delta (this mode's zero-work
+                    // contract), not just the first fifty-nine.
+                    let current = workspaces[index].lastActivityAt
                         ?? workspaces[index].previewAt
-                        ?? Date())
-                        .addingTimeInterval(1)
+                        ?? Date()
+                    let minute = (current.timeIntervalSinceReferenceDate / 60)
+                        .rounded(.down)
+                    var restamped = current.addingTimeInterval(1)
+                    if (restamped.timeIntervalSinceReferenceDate / 60).rounded(.down) != minute {
+                        restamped = Date(timeIntervalSinceReferenceDate: minute * 60)
+                    }
                     workspaces[index].previewAt = restamped
                     workspaces[index].lastActivityAt = restamped
                 }

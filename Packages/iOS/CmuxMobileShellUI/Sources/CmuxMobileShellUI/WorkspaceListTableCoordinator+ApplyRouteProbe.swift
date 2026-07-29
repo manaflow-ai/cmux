@@ -29,25 +29,32 @@ extension WorkspaceListTableCoordinator {
     }
 }
 
-/// Registry keyed by coordinator identity. Entries for deallocated
-/// coordinators linger, which is acceptable for a DEBUG facility whose
-/// population is bounded by the coordinators a test run creates.
+/// Registry with weak coordinator keys: an entry dies with its coordinator,
+/// so nothing accumulates over a DEBUG session and a new coordinator reusing
+/// a freed address can never read a predecessor's route.
 @MainActor
 private enum WorkspaceListApplyRouteProbe {
-    private static var lastRoutesByCoordinator:
-        [ObjectIdentifier: WorkspaceListTableCoordinator.PayloadApplyRoute] = [:]
+    private final class RouteBox {
+        let route: WorkspaceListTableCoordinator.PayloadApplyRoute
+        init(_ route: WorkspaceListTableCoordinator.PayloadApplyRoute) {
+            self.route = route
+        }
+    }
+
+    private static let lastRoutesByCoordinator =
+        NSMapTable<WorkspaceListTableCoordinator, RouteBox>.weakToStrongObjects()
 
     static func record(
         _ route: WorkspaceListTableCoordinator.PayloadApplyRoute,
         for coordinator: WorkspaceListTableCoordinator
     ) {
-        lastRoutesByCoordinator[ObjectIdentifier(coordinator)] = route
+        lastRoutesByCoordinator.setObject(RouteBox(route), forKey: coordinator)
     }
 
     static func lastRoute(
         for coordinator: WorkspaceListTableCoordinator
     ) -> WorkspaceListTableCoordinator.PayloadApplyRoute? {
-        lastRoutesByCoordinator[ObjectIdentifier(coordinator)]
+        lastRoutesByCoordinator.object(forKey: coordinator)?.route
     }
 }
 #endif
