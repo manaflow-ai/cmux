@@ -13,6 +13,10 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
     case requestTimedOut
     /// A request timed out while its frame was blocked in the transport write.
     case transportWriteTimedOut
+    /// The connect-attempt registry refused a new dial because the route is
+    /// still held by an in-flight or recently abandoned dial, or is hard-gated
+    /// after repeated abandoned attempts. Transient; retry like a timeout.
+    case connectAttemptGated
     /// A manual host did not advertise a secure route.
     case insecureManualRoute
     /// The attach ticket expired and no fallback was available.
@@ -37,6 +41,11 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
                 "mobile.connection.requestTimedOut",
                 defaultValue: "Mobile sync request timed out"
             )
+        case .connectAttemptGated:
+            return L10n.string(
+                "mobile.connection.connectAttemptGated",
+                defaultValue: "Mobile sync connection is retrying"
+            )
         case .insecureManualRoute:
             return "Manual host did not advertise a secure mobile sync route"
         case .attachTicketExpired:
@@ -58,6 +67,8 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
             .connectionClosed
         case .requestTimedOut, .transportWriteTimedOut:
             .timedOut
+        case .connectAttemptGated:
+            .routeGated
         case .insecureManualRoute:
             .unsupportedRoute
         case .attachTicketExpired:

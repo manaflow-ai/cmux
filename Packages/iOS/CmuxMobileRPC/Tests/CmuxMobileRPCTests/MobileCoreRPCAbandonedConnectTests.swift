@@ -195,7 +195,9 @@ import Testing
             allowsStackAuthFallback: true
         )
 
-        for id in ["stuck-connect-1", "stuck-connect-2", "stuck-connect-3"] {
+        // The first request burns its own deadline on the hung connect; the
+        // rest are refused up front by the gated connect-attempt registry.
+        for (index, id) in ["stuck-connect-1", "stuck-connect-2", "stuck-connect-3"].enumerated() {
             let request = try MobileCoreRPCClient.requestData(
                 method: "terminal.input",
                 params: [
@@ -208,9 +210,10 @@ import Testing
             do {
                 _ = try await client.sendRequest(request)
                 Issue.record("Expected \(id) to time out")
-            } catch MobileShellConnectionError.requestTimedOut {
+            } catch MobileShellConnectionError.requestTimedOut where index == 0 {
+            } catch MobileShellConnectionError.connectAttemptGated where index > 0 {
             } catch {
-                Issue.record("Expected requestTimedOut for \(id), got \(error)")
+                Issue.record("Expected timeout/gated refusal for \(id), got \(error)")
             }
         }
 
@@ -278,9 +281,9 @@ import Testing
             do {
                 _ = try await client.sendRequest(retryRequest)
                 Issue.record("Expected \(id) to be rejected while cancelled connect cleanup is stuck")
-            } catch MobileShellConnectionError.requestTimedOut {
+            } catch MobileShellConnectionError.connectAttemptGated {
             } catch {
-                Issue.record("Expected requestTimedOut for \(id), got \(error)")
+                Issue.record("Expected connectAttemptGated for \(id), got \(error)")
             }
         }
 
@@ -392,6 +395,52 @@ import Testing
 
         await registry.clearFinishedConnect(lease: secondLease)
         #expect(await registry.beginConnect(key: key) != nil)
+    }
+
+    @Test func networkChangeResetClearsHardGateAndStrikeCounts() async {
+        let registry = MobileRPCConnectAttemptRegistry(
+            hardGateResetNanoseconds: 3_600_000_000_000
+        )
+        let key = "debugLoopback|test|127.0.0.1:59140"
+
+        let firstLease = await registry.beginConnect(key: key)
+        #expect(firstLease != nil)
+        await registry.markAbandoned(lease: firstLease)
+        await registry.clearTimedOutAbandonedCleanup(lease: firstLease)
+
+        let secondLease = await registry.beginConnect(key: key)
+        #expect(secondLease != nil)
+        await registry.markAbandoned(lease: secondLease)
+        await registry.clearTimedOutAbandonedCleanup(lease: secondLease)
+        #expect(await registry.beginConnect(key: key) == nil)
+
+        await registry.resetRouteHealthForNetworkChange()
+        let retryLease = await registry.beginConnect(key: key)
+        #expect(retryLease != nil)
+        await registry.clearFinishedConnect(lease: retryLease)
+    }
+
+    @Test func networkChangeResetKeepsInFlightDialSingleFlightButClearsStrikes() async {
+        let registry = MobileRPCConnectAttemptRegistry(
+            hardGateResetNanoseconds: 3_600_000_000_000
+        )
+        let key = "debugLoopback|test|127.0.0.1:59141"
+
+        let lease = await registry.beginConnect(key: key)
+        #expect(lease != nil)
+        await registry.markAbandoned(lease: lease)
+
+        await registry.resetRouteHealthForNetworkChange()
+        // The in-flight dial keeps its reservation: connects stay single-flight.
+        #expect(await registry.beginConnect(key: key) == nil)
+
+        // Its strike history restarted, so one more timed-out abandon lands on
+        // a retryable release instead of the two-strike hard gate.
+        await registry.markAbandoned(lease: lease)
+        await registry.clearTimedOutAbandonedCleanup(lease: lease)
+        let retryLease = await registry.beginConnect(key: key)
+        #expect(retryLease != nil)
+        await registry.clearFinishedConnect(lease: retryLease)
     }
 
     @Test func abandonedConnectHardGateExpiresAfterBoundedReset() async throws {
