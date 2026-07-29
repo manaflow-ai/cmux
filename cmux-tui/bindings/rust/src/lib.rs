@@ -1,158 +1,53 @@
-//! Blocking, dependency-light Rust SDK for the cmux-tui protocol.
+//! Handwritten, blocking Rust SDK for the cmux resource API.
 //!
-//! The protocol models and one canonical method per wire command are generated
-//! from `spec/sdk-schema.json`. Transport policy, lifecycle, errors, and
-//! ergonomic helpers remain handwritten in this crate.
+//! Resource handles are cheap clones containing an opaque typed ID and a
+//! shared [`Client`]. Copying or dropping a handle performs no I/O. Reads,
+//! mutations, stream cancellation, and resource deletion are always explicit.
+//!
+//! The generated prelaunch wire client remains available through [`raw`] for
+//! protocol debugging and migration tooling. Its numeric mux slots and legacy
+//! models are deliberately absent from this crate's root.
+//!
+//! ```no_run
+//! use cmux::{Client, Config, RunCommand};
+//!
+//! # fn main() -> cmux::Result<()> {
+//! let client = Client::connect(Config::default())?;
+//! let session = client.current_session();
+//! let created = session.create_workspace(Some("build".to_string()))?;
+//! let terminal = created.resource.run(RunCommand::argv(["cargo", "test"])?)?;
+//! terminal.resource.write_text("q")?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Legacy generated types are intentionally namespaced:
+//!
+//! ```compile_fail
+//! use cmux::Id;
+//! ```
+//!
+//! Local sidebar plugin installation and selection are CLI-only:
+//!
+//! ```compile_fail
+//! use cmux::SidebarPlugin;
+//! ```
 
 mod client;
 mod codec;
 mod convenience;
+mod generated;
 mod presence;
+pub mod raw;
+mod raw_support;
+mod resource;
 mod topology;
 
-pub mod generated;
+// Private aliases keep the checked-in legacy generator compiling without
+// making its names root-level public API.
+use client::{CmuxClient, CmuxStream};
+use presence::{Nullable, Optional};
+use raw_support::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
-pub use client::{
-    ClientConfig, CmuxClient, CmuxError, CmuxStream, Result, ServerInfo, StreamCloser,
-    default_socket_path, env_socket_path,
-};
-pub use convenience::{AttachBuilder, SubscriptionBuilder};
-pub use generated::*;
-pub use presence::{Nullable, Optional};
-pub use topology::SurfaceContext;
-
-use serde::de::Visitor;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::fmt;
-use std::marker::PhantomData;
-use std::result::Result as StdResult;
-
-/// Static compatibility and authorization information for a command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CommandMetadata {
-    pub name: &'static str,
-    pub since: u32,
-    pub capability: Option<&'static str>,
-    pub authority: &'static str,
-    pub stream: Option<StreamMetadata>,
-}
-
-/// Static lifecycle information for a streaming command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StreamMetadata {
-    pub kind: &'static str,
-    pub terminal_event: Option<&'static str>,
-}
-
-/// Static compatibility and routing information for an event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EventMetadata {
-    pub name: &'static str,
-    pub since: u32,
-    pub capability: Option<&'static str>,
-    pub streams: &'static [&'static str],
-    pub emission: &'static str,
-}
-
-/// Static description of a protocol profile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProfileMetadata {
-    pub name: &'static str,
-    pub description: &'static str,
-    pub inherits: &'static [&'static str],
-    pub transport: Option<&'static str>,
-    pub requires_authority: bool,
-}
-
-/// A required JSON field whose value may explicitly be `null`.
-///
-/// Unlike `Option<T>` in a Serde model, a missing `Nullable<T>` field is an
-/// error. This preserves the protocol's missing-versus-null distinction.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RequiredNullable<T>(pub Option<T>);
-
-impl<T> RequiredNullable<T> {
-    pub const fn null() -> Self {
-        Self(None)
-    }
-
-    pub const fn value(value: T) -> Self {
-        Self(Some(value))
-    }
-
-    /// Returns `true` when the field contains an explicit JSON `null`.
-    pub const fn is_null(&self) -> bool {
-        self.0.is_none()
-    }
-
-    /// Borrows the contained value without changing its required-field state.
-    pub fn as_ref(&self) -> RequiredNullable<&T> {
-        RequiredNullable(self.0.as_ref())
-    }
-
-    /// Returns the contained option.
-    pub fn into_option(self) -> Option<T> {
-        self.0
-    }
-}
-
-impl<T> RequiredNullable<T>
-where
-    T: std::ops::Deref,
-{
-    /// Borrows through a pointer-like contained value.
-    pub fn as_deref(&self) -> RequiredNullable<&T::Target> {
-        RequiredNullable(self.0.as_deref())
-    }
-}
-
-impl<T> From<Option<T>> for RequiredNullable<T> {
-    fn from(value: Option<T>) -> Self {
-        Self(value)
-    }
-}
-
-impl<T> Serialize for RequiredNullable<T>
-where
-    T: Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> StdResult<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.serialize(serializer)
-    }
-}
-
-impl<'de, T> Deserialize<'de> for RequiredNullable<T>
-where
-    T: Deserialize<'de>,
-{
-    fn deserialize<D>(deserializer: D) -> StdResult<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct RequiredNullableVisitor<T>(PhantomData<T>);
-
-        impl<'de, T> Visitor<'de> for RequiredNullableVisitor<T>
-        where
-            T: Deserialize<'de>,
-        {
-            type Value = RequiredNullable<T>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("an explicit null or value")
-            }
-
-            fn visit_newtype_struct<D>(self, deserializer: D) -> StdResult<Self::Value, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                Option::<T>::deserialize(deserializer).map(RequiredNullable)
-            }
-        }
-
-        deserializer
-            .deserialize_newtype_struct("RequiredNullable", RequiredNullableVisitor(PhantomData))
-    }
-}
+pub use client::{CmuxError as Error, Result};
+pub use resource::*;

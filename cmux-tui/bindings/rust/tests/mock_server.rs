@@ -1,170 +1,690 @@
-use cmux_client::{
-    ClientConfig, CmuxClient, CmuxError, MarkWorkspacesProviderManagedRequest, Optional,
-    PingRequest, SubscribeRequest, SubscribeRequestTreeEvents,
+use cmux::{
+    ClientMetadataOptions, ClientSizingOptions, Config, Error, EventStreamOptions, InitialContent,
+    LabelOptions, MachineConnectOptions, MutationOptions, ProviderActionId, ProviderActionOptions,
+    ReadScreenOptions, RendererGrantOptions, RunCommand, Selector, SessionEvent, SessionId,
+    StreamEndReason, TerminalId, Update, WorkspaceId,
 };
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
+
+const MACHINE: &str = "machine_00000000000000000000000000000001";
+const SESSION: &str = "session_00000000000000000000000000000002";
+const WORKSPACE_A: &str = "ws_00000000000000000000000000000003";
+const WORKSPACE_B: &str = "ws_00000000000000000000000000000004";
+const SCREEN: &str = "screen_00000000000000000000000000000005";
+const PANE: &str = "pane_00000000000000000000000000000006";
+const TAB: &str = "tab_00000000000000000000000000000007";
+const TERMINAL: &str = "term_00000000000000000000000000000008";
+const CLIENT: &str = "client_00000000000000000000000000000009";
+const PROVIDER_SCOPE: &str = "provider_scope_0000000000000000000000000000000a";
+const PROVIDER_ACTION: &str = "provider_action_0000000000000000000000000000000b";
 
 static NEXT_SOCKET: AtomicU64 = AtomicU64::new(1);
 
 fn socket_path() -> PathBuf {
     std::env::temp_dir().join(format!(
-        "cmux-rust-sdk-test-{}-{}.sock",
+        "cmux-resource-rust-test-{}-{}.sock",
         std::process::id(),
         NEXT_SOCKET.fetch_add(1, Ordering::Relaxed)
     ))
 }
 
-fn read_request(reader: &mut BufReader<UnixStream>) -> Value {
+fn request(reader: &mut BufReader<UnixStream>) -> Value {
     let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
-    serde_json::from_str(&line).unwrap()
+    assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+    let value: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(value["protocol"], "cmux.protocol/1");
+    assert_eq!(value["type"], "request");
+    assert!(value["id"].is_string());
+    assert!(value["params"].is_object());
+    value
 }
 
-fn send_response(stream: &mut UnixStream, request: &Value, data: Value) {
-    writeln!(stream, "{}", json!({"id": request["id"], "ok": true, "data": data})).unwrap();
-}
-
-#[test]
-fn external_consumer_uses_typed_commands_and_field_capability_guards() {
-    let path = socket_path();
-    let listener = UnixListener::bind(&path).unwrap();
-    let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-
-        let identify = read_request(&mut reader);
-        assert_eq!(identify["cmd"], "identify");
-        send_response(
-            &mut stream,
-            &identify,
-            json!({
-                "app": "cmux-tui",
-                "version": "0.4.0",
-                "protocol": 10,
-                "capabilities": [],
-                "session": "test",
-                "pid": 42,
-                "registry_id": "registry",
-                "generation": "generation",
-                "workspace_revision": 3,
-                "terminal_revision": 7,
-                "daemon_handoff": 1
-            }),
-        );
-
-        let ping = read_request(&mut reader);
-        assert_eq!(ping["cmd"], "ping");
-        send_response(&mut stream, &ping, json!({"ok": true, "version": "0.4.0", "protocol": 10}));
-    });
-
-    let mut client = CmuxClient::connect(
-        ClientConfig::from_socket_path(&path).with_timeout(Duration::from_secs(1)),
+fn success(stream: &mut UnixStream, request: &Value, result: Value) {
+    writeln!(
+        stream,
+        "{}",
+        json!({
+            "protocol": "cmux.protocol/1",
+            "type": "response",
+            "id": request["id"],
+            "ok": true,
+            "result": result,
+        })
     )
     .unwrap();
-    let identify = client.identify_server().unwrap();
-    assert_eq!(identify.protocol, 10);
-    assert_eq!(client.ping(PingRequest::default()).unwrap().protocol, 10);
+}
 
-    let error = match client.subscribe(SubscribeRequest {
-        tree_events: Optional::Value(SubscribeRequestTreeEvents::Coarse),
-        surface: Optional::Value(7),
-    }) {
-        Ok(_) => panic!("surface subscribe unexpectedly bypassed capability guard"),
-        Err(error) => error,
-    };
-    assert!(matches!(
-        error,
-        CmuxError::MissingCapability {
-            command: "subscribe",
-            capability: "surface-subscribe-filter",
-        }
-    ));
+fn mutation_result(request: &Value, value: Value) -> Value {
+    assert!(request["idempotency_key"].is_string());
+    json!({
+        "value": value,
+        "generation": "generation-a",
+        "revision": "17",
+        "replayed": false
+    })
+}
 
-    client.close();
+fn connect(path: &PathBuf) -> cmux::Client {
+    cmux::Client::connect(Config::from_socket_path(path).with_timeout(Duration::from_secs(2)))
+        .unwrap()
+}
+
+#[test]
+fn duplicate_names_return_all_exact_matches_without_collapsing() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = request(&mut BufReader::new(stream.try_clone().unwrap()));
+        assert_eq!(request["operation"], "workspace.list");
+        assert_eq!(request["params"], json!({"machine": "current", "session": "current"}));
+        assert!(request.get("idempotency_key").is_none());
+        success(
+            &mut stream,
+            &request,
+            json!([
+                {"id": WORKSPACE_A, "name": "api", "session_id": SESSION, "index": 0, "focused": true},
+                {"id": WORKSPACE_B, "name": "api", "session_id": SESSION, "index": 1, "focused": false},
+                {
+                    "id": "ws_0000000000000000000000000000000a",
+                    "name": "other",
+                    "session_id": SESSION,
+                    "index": 2,
+                    "focused": false
+                }
+            ]),
+        );
+    });
+
+    let client = connect(&path);
+    let workspaces = client.current_session().find_workspaces_by_name("api").unwrap();
+    assert_eq!(workspaces.len(), 2);
+    assert_eq!(workspaces[0].id().unwrap().as_str(), WORKSPACE_A);
+    assert_eq!(workspaces[1].id().unwrap().as_str(), WORKSPACE_B);
+    client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
 }
 
 #[test]
-fn provider_authority_is_denied_before_typed_or_known_raw_writes() {
+fn create_and_run_preserve_receipts_paths_and_command_modes() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
-    let (observed_tx, observed_rx) = mpsc::channel();
     let server = thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut observed = Vec::new();
-        loop {
-            let mut line = String::new();
-            if reader.read_line(&mut line).unwrap() == 0 {
-                break;
-            }
-            let request: Value = serde_json::from_str(&line).unwrap();
-            observed.push(request["cmd"].as_str().unwrap().to_string());
-            send_response(&mut stream, &request, json!({}));
-        }
-        observed_tx.send(observed).unwrap();
+
+        let create = request(&mut reader);
+        assert_eq!(create["operation"], "workspace.create");
+        assert_eq!(create["idempotency_key"], "create-key");
+        assert_eq!(
+            create["params"],
+            json!({
+                "machine": "current",
+                "session": SESSION,
+                "name": "",
+                "initial_content": "empty"
+            })
+        );
+        success(
+            &mut stream,
+            &create,
+            mutation_result(&create, json!({"kind": "workspace", "workspace_id": WORKSPACE_A})),
+        );
+
+        let exact = request(&mut reader);
+        assert_eq!(exact["operation"], "workspace.run");
+        assert_eq!(exact["params"]["workspace"], WORKSPACE_A);
+        assert_eq!(exact["params"]["argv"], json!(["printf", "", "$HOME"]));
+        assert!(exact["params"].get("shell").is_none());
+        success(
+            &mut stream,
+            &exact,
+            mutation_result(
+                &exact,
+                json!({
+                    "kind": "terminal",
+                    "workspace_id": WORKSPACE_A,
+                    "screen_id": SCREEN,
+                    "pane_id": PANE,
+                    "tab_id": TAB,
+                    "terminal_id": TERMINAL
+                }),
+            ),
+        );
+
+        let shell = request(&mut reader);
+        assert_eq!(shell["operation"], "workspace.run");
+        assert_eq!(shell["params"]["shell"], "printf '%s' \"$HOME\"");
+        assert!(shell["params"].get("argv").is_none());
+        success(
+            &mut stream,
+            &shell,
+            mutation_result(
+                &shell,
+                json!({
+                    "kind": "terminal",
+                    "workspace_id": WORKSPACE_A,
+                    "screen_id": SCREEN,
+                    "pane_id": PANE,
+                    "tab_id": TAB,
+                    "terminal_id": TERMINAL
+                }),
+            ),
+        );
     });
 
-    let mut client = CmuxClient::connect(ClientConfig::from_socket_path(&path)).unwrap();
-    let typed = client.mark_workspaces_provider_managed(MarkWorkspacesProviderManagedRequest {
-        authority: "provider.example".to_string(),
-    });
-    let Value::Object(raw_request) =
-        json!({"cmd": "mark-workspaces-provider-managed", "authority": "provider.example"})
-    else {
-        unreachable!()
-    };
-    let raw = client.request_raw(raw_request);
-    client.close();
+    let client = connect(&path);
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    let created = session
+        .create_workspace_with(
+            cmux::CreateWorkspaceOptions {
+                name: Some(String::new()),
+                initial_content: InitialContent::Empty,
+            },
+            MutationOptions::new("create-key").unwrap(),
+        )
+        .unwrap();
+    assert_eq!(created.resource.id().unwrap().as_str(), WORKSPACE_A);
+    assert_eq!(created.generation, "generation-a");
+    assert_eq!(created.revision, 17);
+    assert!(!created.replayed);
 
-    assert!(matches!(
-        typed,
-        Err(CmuxError::AuthorityDenied {
-            command: "mark-workspaces-provider-managed",
-            authority: "provider-authority",
-        })
-    ));
-    assert!(matches!(
-        raw,
-        Err(CmuxError::AuthorityDenied {
-            command: "mark-workspaces-provider-managed",
-            authority: "provider-authority",
-        })
-    ));
+    let exact = created.resource.run(RunCommand::argv(["printf", "", "$HOME"]).unwrap()).unwrap();
+    assert_eq!(exact.resource.id().unwrap().as_str(), TERMINAL);
+    assert_eq!(exact.value.tab_id().unwrap().as_str(), TAB);
+
+    created.resource.run(RunCommand::shell("printf '%s' \"$HOME\"").unwrap()).unwrap();
+    client.close().unwrap();
     server.join().unwrap();
-    assert!(observed_rx.recv().unwrap().is_empty());
     std::fs::remove_file(path).unwrap();
 }
 
 #[test]
-fn provider_authority_can_be_explicitly_enabled() {
+fn workspace_rename_preserves_the_flat_canonical_value_and_explicit_route() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
     let server = thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        let request = read_request(&mut BufReader::new(stream.try_clone().unwrap()));
-        assert_eq!(request["cmd"], "mark-workspaces-provider-managed");
-        send_response(&mut stream, &request, json!({}));
+        let rename = request(&mut BufReader::new(stream.try_clone().unwrap()));
+        assert_eq!(rename["operation"], "workspace.rename");
+        assert_eq!(rename["idempotency_key"], "rename-key");
+        assert_eq!(
+            rename["params"],
+            json!({
+                "machine": "current",
+                "session": SESSION,
+                "workspace": WORKSPACE_A,
+                "name": "renamed",
+                "expected_revision": "16"
+            })
+        );
+        success(
+            &mut stream,
+            &rename,
+            mutation_result(
+                &rename,
+                json!({
+                    "id": WORKSPACE_A,
+                    "session_id": SESSION,
+                    "name": "renamed",
+                    "index": 2,
+                    "focused": true
+                }),
+            ),
+        );
     });
 
-    let config = ClientConfig::from_socket_path(&path).with_provider_authority(true);
-    assert!(config.allow_provider_authority);
-    let mut client = CmuxClient::connect(config).unwrap();
+    let client = connect(&path);
+    let renamed = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .workspace(WorkspaceId::parse(WORKSPACE_A).unwrap())
+        .rename_with(
+            "renamed",
+            MutationOptions::new("rename-key").unwrap().with_expected_revision(16),
+        )
+        .unwrap();
+    assert_eq!(renamed.value.id.as_str(), WORKSPACE_A);
+    assert_eq!(renamed.value.name.as_deref(), Some("renamed"));
+    assert_eq!(renamed.generation, "generation-a");
+    assert_eq!(renamed.revision, 17);
+    assert!(!renamed.replayed);
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn nullable_names_encode_clear_and_empty_distinctly() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        for expected in [Value::Null, Value::String(String::new())] {
+            let rename = request(&mut reader);
+            assert_eq!(rename["operation"], "screen.rename");
+            assert_eq!(rename["params"]["name"], expected);
+            success(
+                &mut stream,
+                &rename,
+                mutation_result(&rename, json!({"id": SCREEN, "name": expected})),
+            );
+        }
+    });
+
+    let client = connect(&path);
+    let screen = client
+        .current_session()
+        .workspace(WorkspaceId::parse(WORKSPACE_A).unwrap())
+        .screen(cmux::ScreenId::parse(SCREEN).unwrap());
+    screen.set_name_with(LabelOptions::clear(), MutationOptions::new("clear").unwrap()).unwrap();
+    screen.set_name_with(LabelOptions::set(""), MutationOptions::new("empty").unwrap()).unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn structured_errors_retain_all_protocol_fields() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = request(&mut BufReader::new(stream.try_clone().unwrap()));
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "response",
+                "id": request["id"],
+                "ok": false,
+                "error": {
+                    "code": "selector.ambiguous",
+                    "message": "two workspaces match",
+                    "details": {"candidates": [WORKSPACE_A, WORKSPACE_B]},
+                    "retryable": false
+                }
+            })
+        )
+        .unwrap();
+    });
+
+    let client = connect(&path);
+    let error = client.current_session().workspace(Selector::name("api")).refresh().unwrap_err();
+    match error {
+        Error::Protocol { code, message, details, retryable } => {
+            assert_eq!(code, "selector.ambiguous");
+            assert_eq!(message, "two workspaces match");
+            assert_eq!(details["candidates"].as_array().unwrap().len(), 2);
+            assert!(!retryable);
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn indeterminate_mutations_preserve_recovery_details_and_are_never_retried() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let request = request(&mut reader);
+        assert_eq!(request["operation"], "workspace.rename");
+        assert_eq!(request["idempotency_key"], "rename-once");
+        let details = json!({
+            "idempotency_key": "rename-once",
+            "operation": "workspace.rename",
+            "recovery": "inspect_state_then_retry_with_new_key"
+        });
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "response",
+                "id": request["id"],
+                "ok": false,
+                "error": {
+                    "code": "mutation.indeterminate",
+                    "message": "external effect outcome is unknown",
+                    "details": details,
+                    "retryable": false
+                }
+            })
+        )
+        .unwrap();
+
+        stream.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+        let mut possible_retry = String::new();
+        match reader.read_line(&mut possible_retry) {
+            Ok(0) => {}
+            Ok(_) => panic!("SDK retried an indeterminate mutation: {possible_retry}"),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => panic!("unexpected read error: {error}"),
+        }
+    });
+
+    let client = connect(&path);
+    let error = client
+        .current_session()
+        .workspace(WorkspaceId::parse(WORKSPACE_A).unwrap())
+        .rename_with("renamed", MutationOptions::new("rename-once").unwrap())
+        .unwrap_err();
+    match error {
+        Error::Protocol { code, details, retryable, .. } => {
+            assert_eq!(code, "mutation.indeterminate");
+            assert_eq!(
+                details,
+                json!({
+                    "idempotency_key": "rename-once",
+                    "operation": "workspace.rename",
+                    "recovery": "inspect_state_then_retry_with_new_key"
+                })
+            );
+            assert!(!retryable);
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (control, _) = listener.accept().unwrap();
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let open = request(&mut reader);
+        assert_eq!(open["operation"], "session.events");
+        let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+        success(&mut stream, &open, json!({"stream_id": stream_id}));
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_item",
+                "stream_id": stream_id,
+                "sequence": "0",
+                "item": {"kind": "future_event", "payload": 1}
+            })
+        )
+        .unwrap();
+
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "stream.cancel");
+        assert_eq!(
+            cancel["params"],
+            json!({"machine": "current", "session": SESSION, "stream": stream_id})
+        );
+        success(&mut stream, &cancel, json!({}));
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_end",
+                "stream_id": stream_id,
+                "reason": "canceled"
+            })
+        )
+        .unwrap();
+        drop(control);
+    });
+
+    let client = connect(&path);
+    let mut events = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .events(EventStreamOptions::default())
+        .unwrap();
+    assert!(matches!(events.recv().unwrap().unwrap(), SessionEvent::Unknown { .. }));
+    events.cancel().unwrap();
+    events.cancel().unwrap();
+    assert!(events.recv().unwrap().is_none());
+    assert_eq!(events.end().unwrap().reason, StreamEndReason::Canceled);
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn renderer_grant_is_typed_and_redacts_the_one_use_token() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let grant = request(&mut BufReader::new(stream.try_clone().unwrap()));
+        assert_eq!(grant["operation"], "terminal.renderer_grant.create");
+        assert_eq!(grant["params"]["ttl_ms"], 5_000);
+        assert!(grant.get("idempotency_key").is_none());
+        success(
+            &mut stream,
+            &grant,
+            json!({
+                "endpoint": "unix:///tmp/renderer.sock",
+                "terminal_id": TERMINAL,
+                "token": "secret-token",
+                "rights": ["render"],
+                "ttl_ms": 5_000
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let grant = client
+        .current_session()
+        .terminal(TerminalId::parse(TERMINAL).unwrap())
+        .create_renderer_grant(RendererGrantOptions { ttl_ms: Some(5_000) })
+        .unwrap();
+    assert_eq!(grant.expose_token(), "secret-token");
+    assert_eq!(grant.terminal_id.as_str(), TERMINAL);
+    let debug = format!("{grant:?}");
+    assert!(debug.contains("[REDACTED]"));
+    assert!(!debug.contains("secret-token"));
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn provider_machine_operations_are_scope_first_and_redacted() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        let create = request(&mut reader);
+        assert_eq!(create["operation"], "machine.create");
+        assert_eq!(create["params"], json!({"provider_scope": PROVIDER_SCOPE}));
+        success(
+            &mut stream,
+            &create,
+            mutation_result(
+                &create,
+                json!({"id": MACHINE, "connection": "local", "deleted": false}),
+            ),
+        );
+
+        let connect = request(&mut reader);
+        assert_eq!(connect["operation"], "machine.connect_external");
+        assert_eq!(
+            connect["params"],
+            json!({
+                "provider_scope": PROVIDER_SCOPE,
+                "specifier": "ssh://user:secret@host"
+            })
+        );
+        success(
+            &mut stream,
+            &connect,
+            mutation_result(
+                &connect,
+                json!({"id": MACHINE, "connection": "external", "deleted": false}),
+            ),
+        );
+
+        let action = request(&mut reader);
+        assert_eq!(action["operation"], "provider_action.invoke");
+        assert_eq!(
+            action["params"],
+            json!({
+                "machine": MACHINE,
+                "provider_scope": PROVIDER_SCOPE,
+                "provider_action": PROVIDER_ACTION,
+                "parameters": {
+                    "region": "west",
+                    "replicas": 3
+                }
+            })
+        );
+        success(&mut stream, &action, mutation_result(&action, json!({"accepted": true})));
+    });
+
+    let client = connect(&path);
+    let provider = client.provider_scope(cmux::ProviderScopeId::parse(PROVIDER_SCOPE).unwrap());
+    provider.create_machine().unwrap();
+    let options = MachineConnectOptions::new("ssh://user:secret@host").unwrap();
+    assert!(!format!("{options:?}").contains("secret"));
+    provider.connect_external_machine(options).unwrap();
     client
-        .mark_workspaces_provider_managed(MarkWorkspacesProviderManagedRequest {
-            authority: "provider.example".to_string(),
+        .machine(cmux::MachineId::parse(MACHINE).unwrap())
+        .provider_scope(cmux::ProviderScopeId::parse(PROVIDER_SCOPE).unwrap())
+        .action(ProviderActionId::parse(PROVIDER_ACTION).unwrap())
+        .invoke(
+            ProviderActionOptions::new().parameter("region", "west").parameter("replicas", 3_i32),
+        )
+        .unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn connection_controls_have_no_idempotency_key_and_sizing_is_terminal_scoped() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        let metadata = request(&mut reader);
+        assert_eq!(metadata["operation"], "client.metadata.update");
+        assert!(metadata.get("idempotency_key").is_none());
+        assert_eq!(metadata["params"]["name"], Value::Null);
+        assert_eq!(metadata["params"]["kind"], "");
+        success(&mut stream, &metadata, json!({"id": CLIENT}));
+
+        let sizing = request(&mut reader);
+        assert_eq!(sizing["operation"], "client.sizing.set");
+        assert!(sizing.get("idempotency_key").is_none());
+        assert_eq!(
+            sizing["params"],
+            json!({
+                "machine": "current",
+                "session": SESSION,
+                "terminal": TERMINAL,
+                "client": CLIENT,
+                "enabled": true,
+                "exclusive": false
+            })
+        );
+        success(&mut stream, &sizing, json!({"id": CLIENT}));
+    });
+
+    let client = connect(&path);
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    let connected = session.connected_client(cmux::ConnectedClientId::parse(CLIENT).unwrap());
+    connected
+        .update_metadata(ClientMetadataOptions {
+            name: Update::Clear,
+            kind: Update::Set(String::new()),
         })
         .unwrap();
-    client.close();
+    let terminal = session.terminal(TerminalId::parse(TERMINAL).unwrap());
+    connected
+        .set_sizing(&terminal, ClientSizingOptions { enabled: true, exclusive: Some(false) })
+        .unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
 
+#[test]
+fn opaque_nested_ids_omit_structural_ancestors_but_names_supply_the_current_chain() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let by_id = request(&mut reader);
+        assert_eq!(
+            by_id["params"],
+            json!({"machine": "current", "session": SESSION, "terminal": TERMINAL})
+        );
+        success(&mut stream, &by_id, json!({"text": "id"}));
+
+        let by_name = request(&mut reader);
+        assert_eq!(
+            by_name["params"],
+            json!({
+                "machine": "current",
+                "session": SESSION,
+                "workspace": "current",
+                "screen": "current",
+                "pane": "current",
+                "tab": "current",
+                "terminal": "name:build"
+            })
+        );
+        success(&mut stream, &by_name, json!({"text": "name"}));
+    });
+
+    let client = connect(&path);
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    session.terminal(TerminalId::parse(TERMINAL).unwrap()).read_screen(ReadScreenOptions).unwrap();
+    session.terminal(Selector::name("build")).read_screen(ReadScreenOptions).unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn dropping_handles_never_sends_delete_or_close() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        assert_eq!(reader.read_line(&mut line).unwrap(), 0);
+    });
+
+    let client = connect(&path);
+    {
+        let _workspace = client.current_session().workspace(Selector::name(""));
+    }
+    client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
 }

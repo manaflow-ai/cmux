@@ -1,0 +1,785 @@
+use super::id::*;
+use super::model::Cursor;
+use super::typed_stream::ColorHex;
+use crate::{Error, Result};
+use serde_json::Value;
+use std::collections::BTreeMap;
+
+/// Idempotency and optimistic-concurrency policy for one mutation.
+///
+/// The SDK never retries mutations. Reuse the same value explicitly when
+/// retrying an operation whose outcome is unknown.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MutationOptions {
+    pub idempotency_key: String,
+    pub expected_revision: Option<u64>,
+}
+
+impl MutationOptions {
+    pub fn new(idempotency_key: impl Into<String>) -> Result<Self> {
+        let idempotency_key = idempotency_key.into();
+        if idempotency_key.is_empty() || idempotency_key.len() > 128 {
+            return Err(Error::InvalidArgument(
+                "idempotency key must contain 1 to 128 UTF-8 bytes".to_string(),
+            ));
+        }
+        Ok(Self { idempotency_key, expected_revision: None })
+    }
+
+    /// Generates a cryptographically random key for a single, non-retried call.
+    pub fn unique() -> Result<Self> {
+        let mut bytes = [0_u8; 16];
+        getrandom::fill(&mut bytes).map_err(|error| {
+            Error::Connection(format!("cannot allocate idempotency key: {error}"))
+        })?;
+        Ok(Self { idempotency_key: format!("rust-{}", encode_hex(bytes)), expected_revision: None })
+    }
+
+    pub fn with_expected_revision(mut self, revision: u64) -> Self {
+        self.expected_revision = Some(revision);
+        self
+    }
+}
+
+/// Exact executable and arguments, or a target-side shell script.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunCommand {
+    Exact { argv: Vec<String> },
+    Shell { script: String },
+}
+
+impl RunCommand {
+    pub fn argv<I, S>(argv: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let argv = argv.into_iter().map(Into::into).collect::<Vec<_>>();
+        if argv.first().is_none_or(String::is_empty) {
+            return Err(Error::InvalidArgument(
+                "argv must contain a non-empty executable".to_string(),
+            ));
+        }
+        Ok(Self::Exact { argv })
+    }
+
+    /// Requests evaluation by the target session's platform shell.
+    pub fn shell(script: impl Into<String>) -> Result<Self> {
+        let script = script.into();
+        if script.is_empty() {
+            return Err(Error::InvalidArgument("shell script must not be empty".to_string()));
+        }
+        Ok(Self::Shell { script })
+    }
+
+    /// Runs a specific shell executable without local `$SHELL` inspection.
+    pub fn shell_executable(
+        executable: impl Into<String>,
+        script: impl Into<String>,
+    ) -> Result<Self> {
+        Self::argv([executable.into(), "-lc".to_string(), script.into()])
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Size {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+impl Size {
+    pub fn new(cols: u16, rows: u16) -> Result<Self> {
+        if cols == 0 || rows == 0 {
+            return Err(Error::InvalidArgument(
+                "terminal dimensions must be greater than zero".to_string(),
+            ));
+        }
+        Ok(Self { cols, rows })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PixelSize {
+    pub width_px: u32,
+    pub height_px: u32,
+}
+
+impl PixelSize {
+    pub fn new(width_px: u32, height_px: u32) -> Result<Self> {
+        if width_px == 0 || height_px == 0 {
+            return Err(Error::InvalidArgument(
+                "pixel dimensions must be greater than zero".to_string(),
+            ));
+        }
+        Ok(Self { width_px, height_px })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunOptions {
+    pub command: RunCommand,
+    pub cwd: Option<String>,
+    pub name: Option<String>,
+    pub size: Option<Size>,
+}
+
+impl RunOptions {
+    pub fn command(command: RunCommand) -> Self {
+        Self { command, cwd: None, name: None, size: None }
+    }
+
+    pub fn cwd(mut self, cwd: impl Into<String>) -> Self {
+        self.cwd = Some(cwd.into());
+        self
+    }
+
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn size(mut self, size: Size) -> Self {
+        self.size = Some(size);
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CreateWorkspaceOptions {
+    pub name: Option<String>,
+    pub initial_content: InitialContent,
+}
+
+impl Default for CreateWorkspaceOptions {
+    fn default() -> Self {
+        Self { name: None, initial_content: InitialContent::Terminal }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InitialContent {
+    Terminal,
+    Empty,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CreateScreenOptions {
+    pub name: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CreatePaneOptions {
+    pub cwd: Option<String>,
+    pub size: Option<Size>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl Direction {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Up => "up",
+            Self::Down => "down",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SplitOptions {
+    pub direction: Direction,
+    pub ratio: Option<f64>,
+    pub cwd: Option<String>,
+    pub size: Option<Size>,
+}
+
+impl SplitOptions {
+    pub fn new(direction: Direction) -> Self {
+        Self { direction, ratio: None, cwd: None, size: None }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SplitRatioOptions {
+    pub split_id: SplitId,
+    pub ratio: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ViewportWidthOptions {
+    pub columns: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MoveDestination {
+    pub workspace: Selector<WorkspaceId>,
+    pub screen: Selector<ScreenId>,
+    pub pane: Selector<PaneId>,
+    pub index: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PaneSwapOptions {
+    pub other_workspace: Selector<WorkspaceId>,
+    pub other_screen: Selector<ScreenId>,
+    pub other_pane: Selector<PaneId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LabelOptions {
+    /// `None` explicitly clears the optional name.
+    pub name: Option<String>,
+}
+
+impl LabelOptions {
+    pub fn set(name: impl Into<String>) -> Self {
+        Self { name: Some(name.into()) }
+    }
+
+    pub const fn clear() -> Self {
+        Self { name: None }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MachineRenameOptions {
+    pub name: String,
+    pub confirm_close: bool,
+}
+
+impl MachineRenameOptions {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into(), confirm_close: false }
+    }
+
+    pub fn confirmed(mut self) -> Self {
+        self.confirm_close = true;
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LayoutOptions {
+    pub document: Value,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UndoLayoutOptions {
+    pub confirm_close: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ZoomOptions {
+    pub enabled: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TerminalCreateOptions {
+    pub cwd: Option<String>,
+    pub name: Option<String>,
+    pub size: Option<Size>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrowserCreateOptions {
+    pub url: String,
+    pub name: Option<String>,
+    pub size: Option<PixelSize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalKeysOptions {
+    pub keys: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
+}
+
+impl MouseButton {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Middle => "middle",
+            Self::Right => "right",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputModifier {
+    Shift,
+    Control,
+    Alt,
+    Meta,
+}
+
+impl InputModifier {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Shift => "shift",
+            Self::Control => "control",
+            Self::Alt => "alt",
+            Self::Meta => "meta",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TerminalMouseKind {
+    Down,
+    Up,
+    Move,
+    Wheel,
+}
+
+impl TerminalMouseKind {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Down => "down",
+            Self::Up => "up",
+            Self::Move => "move",
+            Self::Wheel => "wheel",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalMouseOptions {
+    pub kind: TerminalMouseKind,
+    pub row: u16,
+    pub column: u16,
+    pub button: Option<MouseButton>,
+    pub delta_rows: Option<i32>,
+    pub modifiers: Vec<InputModifier>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FocusInputOptions {
+    pub focused: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReadScreenOptions;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReadHistoryOptions {
+    pub before: Option<u64>,
+    pub limit: Option<u32>,
+    pub styled: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WaitOptions {
+    pub pattern: String,
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CopyMode {
+    Screen,
+    Selection,
+    Scrollback,
+}
+
+impl CopyMode {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Screen => "screen",
+            Self::Selection => "selection",
+            Self::Scrollback => "scrollback",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CopyOptions {
+    pub mode: Option<CopyMode>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TerminalAttachOptions {
+    pub size: Option<Size>,
+    pub read_only: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BrowserAttachOptions {
+    pub size: Option<PixelSize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScrollOptions {
+    pub delta_rows: i32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NavigateOptions {
+    pub url: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrowserKeyKind {
+    Down,
+    Up,
+}
+
+impl BrowserKeyKind {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Down => "down",
+            Self::Up => "up",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BrowserKeyOptions {
+    pub key: String,
+    pub kind: Option<BrowserKeyKind>,
+    pub modifiers: Vec<InputModifier>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TextInputOptions {
+    pub text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrowserMouseKind {
+    Down,
+    Up,
+    Move,
+}
+
+impl BrowserMouseKind {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Down => "down",
+            Self::Up => "up",
+            Self::Move => "move",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrowserMouseButton {
+    Left,
+    Middle,
+    Right,
+    Back,
+    Forward,
+}
+
+impl BrowserMouseButton {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Middle => "middle",
+            Self::Right => "right",
+            Self::Back => "back",
+            Self::Forward => "forward",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrowserMouseOptions {
+    pub kind: BrowserMouseKind,
+    pub x_px: f64,
+    pub y_px: f64,
+    pub button: Option<BrowserMouseButton>,
+    pub click_count: Option<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WheelOptions {
+    pub delta_x: f64,
+    pub delta_y: f64,
+    pub x_px: f64,
+    pub y_px: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClientMetadataOptions {
+    pub name: Update<String>,
+    pub kind: Update<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Update<T> {
+    #[default]
+    Unchanged,
+    Clear,
+    Set(T),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClientSizingOptions {
+    pub enabled: bool,
+    pub exclusive: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CellPixelsOptions {
+    pub width_px: u32,
+    pub height_px: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CursorStyle {
+    Block,
+    Bar,
+    Underline,
+}
+
+impl CursorStyle {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Block => "block",
+            Self::Bar => "bar",
+            Self::Underline => "underline",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TerminalDefaultsOptions {
+    pub foreground: Update<ColorHex>,
+    pub background: Update<ColorHex>,
+    pub cursor: Update<ColorHex>,
+    pub selection_background: Update<ColorHex>,
+    pub selection_foreground: Update<ColorHex>,
+    pub cursor_style: Update<CursorStyle>,
+    pub cursor_blink: Update<bool>,
+    pub palette: Update<BTreeMap<u8, ColorHex>>,
+    pub complete: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProjectionOptions {
+    pub projection: Value,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PairingDecision {
+    Approve,
+    Deny,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PairingResolveOptions {
+    pub decision: PairingDecision,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotificationLevel {
+    Info,
+    Warning,
+    Error,
+}
+
+impl NotificationLevel {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Info => "info",
+            Self::Warning => "warning",
+            Self::Error => "error",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NotificationOptions {
+    pub title: String,
+    pub body: String,
+    pub level: Option<NotificationLevel>,
+    pub terminal_id: Option<TerminalId>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NotificationListOptions {
+    pub limit: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentState {
+    Working,
+    Blocked,
+    Idle,
+    Done,
+    Unknown,
+}
+
+impl AgentState {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Working => "working",
+            Self::Blocked => "blocked",
+            Self::Idle => "idle",
+            Self::Done => "done",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentSource {
+    Hook,
+    Socket,
+}
+
+impl AgentSource {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Hook => "hook",
+            Self::Socket => "socket",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentReportOptions {
+    pub terminal_id: TerminalId,
+    pub state: AgentState,
+    pub source: AgentSource,
+    pub source_session: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AgentListOptions {
+    pub terminal_id: Option<TerminalId>,
+    pub state: Option<AgentState>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SidebarEnsureOptions {
+    pub size: Size,
+    pub relaunch: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SidebarInputOptions {
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProviderActionOptions {
+    pub parameters: BTreeMap<String, ProviderActionValue>,
+}
+
+impl ProviderActionOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn parameter(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<ProviderActionValue>,
+    ) -> Self {
+        self.parameters.insert(name.into(), value.into());
+        self
+    }
+}
+
+/// A provider-action argument, restricted to the public catalog's value union.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProviderActionValue {
+    String(String),
+    Integer(i32),
+}
+
+impl From<String> for ProviderActionValue {
+    fn from(value: String) -> Self {
+        Self::String(value)
+    }
+}
+
+impl From<&str> for ProviderActionValue {
+    fn from(value: &str) -> Self {
+        Self::String(value.to_string())
+    }
+}
+
+impl From<i32> for ProviderActionValue {
+    fn from(value: i32) -> Self {
+        Self::Integer(value)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EventStreamOptions {
+    pub cursor: Option<Cursor>,
+}
+
+/// Sensitive external-machine connection specifier.
+#[derive(Clone, PartialEq, Eq)]
+pub struct MachineConnectOptions {
+    specifier: String,
+}
+
+impl MachineConnectOptions {
+    pub fn new(specifier: impl Into<String>) -> Result<Self> {
+        let specifier = specifier.into();
+        if specifier.is_empty() || specifier.len() > 512 || specifier.chars().any(char::is_control)
+        {
+            return Err(Error::InvalidArgument(
+                "external machine specifier must contain 1 to 512 bytes and no control characters"
+                    .to_string(),
+            ));
+        }
+        Ok(Self { specifier })
+    }
+
+    pub(crate) fn expose_specifier(&self) -> &str {
+        &self.specifier
+    }
+}
+
+impl std::fmt::Debug for MachineConnectOptions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("MachineConnectOptions").field("specifier", &"[REDACTED]").finish()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionOpenOptions {
+    pub session: Selector<SessionId>,
+}
+
+impl Default for SessionOpenOptions {
+    fn default() -> Self {
+        Self { session: Selector::current() }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShutdownOptions {
+    pub force: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RendererGrantOptions {
+    pub ttl_ms: Option<u32>,
+}
+
+fn encode_hex(bytes: [u8; 16]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(32);
+    for byte in bytes {
+        output.push(char::from(HEX[(byte >> 4) as usize]));
+        output.push(char::from(HEX[(byte & 0x0f) as usize]));
+    }
+    output
+}

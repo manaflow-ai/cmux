@@ -20,16 +20,52 @@ pub type Result<T> = std::result::Result<T, CmuxError>;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum CmuxError {
-    Command { command: String, message: String, id: Option<Value> },
-    AuthorityDenied { command: &'static str, authority: &'static str },
+    Command {
+        command: String,
+        message: String,
+        id: Option<Value>,
+    },
+    /// Structured `cmux.protocol/1` operation failure.
+    Protocol {
+        code: String,
+        message: String,
+        details: Value,
+        retryable: bool,
+    },
+    AuthorityDenied {
+        command: &'static str,
+        authority: &'static str,
+    },
     Decode(String),
     Connection(String),
     Timeout(String),
-    ProtocolVersion { command: &'static str, required: u32, actual: u32 },
-    MissingCapability { command: &'static str, capability: &'static str },
+    ProtocolVersion {
+        command: &'static str,
+        required: u32,
+        actual: u32,
+    },
+    MissingCapability {
+        command: &'static str,
+        capability: &'static str,
+    },
     InvalidArgument(String),
-    FrameTooLarge { size: usize, limit: usize },
-    QueueOverflow { limit: usize },
+    FrameTooLarge {
+        size: usize,
+        limit: usize,
+    },
+    QueueOverflow {
+        limit: usize,
+    },
+    InvalidId {
+        expected_prefix: &'static str,
+        value: String,
+    },
+    UnexpectedEnvelope(String),
+    StreamEnded {
+        reason: String,
+        recovery: Option<String>,
+        error: Option<Box<CmuxError>>,
+    },
     Closed,
 }
 
@@ -37,6 +73,7 @@ impl fmt::Display for CmuxError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Command { command, message, .. } => write!(formatter, "{command}: {message}"),
+            Self::Protocol { code, message, .. } => write!(formatter, "{code}: {message}"),
             Self::AuthorityDenied { command, authority } => {
                 write!(
                     formatter,
@@ -61,6 +98,20 @@ impl fmt::Display for CmuxError {
             }
             Self::QueueOverflow { limit } => {
                 write!(formatter, "event queue exceeded configured limit {limit}")
+            }
+            Self::InvalidId { expected_prefix, value } => {
+                write!(formatter, "expected {expected_prefix}_ opaque ID, got {value:?}")
+            }
+            Self::UnexpectedEnvelope(message) => formatter.write_str(message),
+            Self::StreamEnded { reason, recovery, error } => {
+                write!(formatter, "stream ended: {reason}")?;
+                if let Some(error) = error {
+                    write!(formatter, ": {error}")?;
+                }
+                if let Some(recovery) = recovery {
+                    write!(formatter, " ({recovery})")?;
+                }
+                Ok(())
             }
             Self::Closed => formatter.write_str("stream is closed"),
         }

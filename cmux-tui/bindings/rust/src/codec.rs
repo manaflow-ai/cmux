@@ -1,4 +1,5 @@
-use crate::{CmuxError, Result};
+use crate::Result;
+use crate::client::CmuxError;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
@@ -56,13 +57,14 @@ impl JsonLineConnection {
     }
 
     pub(crate) fn send(&mut self, value: &Value) -> Result<()> {
+        self.send_with_limit(value, self.max_frame_bytes)
+    }
+
+    pub(crate) fn send_with_limit(&mut self, value: &Value, limit: usize) -> Result<()> {
         let encoded =
             serde_json::to_vec(value).map_err(|error| CmuxError::Decode(error.to_string()))?;
-        if encoded.len() > self.max_frame_bytes {
-            return Err(CmuxError::FrameTooLarge {
-                size: encoded.len(),
-                limit: self.max_frame_bytes,
-            });
+        if encoded.len() > limit {
+            return Err(CmuxError::FrameTooLarge { size: encoded.len(), limit });
         }
         self.writer
             .write_all(&encoded)

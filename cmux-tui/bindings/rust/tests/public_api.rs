@@ -1,310 +1,143 @@
-use cmux_client::{
-    COMMANDS, EVENTS, IdentifyResult, Layout, MUX_PROTOCOL_VERSION, Nullable, Optional,
-    OutputEvent, SDK_SCHEMA_VERSION, SendRequest, SetClientInfoRequest, Tree, UnknownEvent,
-    decode_event,
+use cmux::{
+    Client, Config, CreatedPath, MachineConnectOptions, MutationOptions, ProviderActionOptions,
+    ProviderActionValue, RendererGrant, RunCommand, Selector, SessionId, Size, TerminalId, Update,
+    WorkspaceId,
 };
+use std::collections::HashSet;
+
+const HEX: &str = "0123456789abcdef0123456789abcdef";
 
 #[test]
-fn generated_protocol_inventory_is_complete() {
-    assert_eq!(SDK_SCHEMA_VERSION, 2);
-    assert_eq!(MUX_PROTOCOL_VERSION, 10);
-    assert_eq!(COMMANDS.len(), 83);
-    assert_eq!(EVENTS.len(), 44);
-
-    let mut commands = COMMANDS.iter().map(|command| command.name).collect::<Vec<_>>();
-    commands.sort_unstable();
-    commands.dedup();
-    assert_eq!(commands.len(), COMMANDS.len());
-
-    let mut events = EVENTS.iter().map(|event| event.name).collect::<Vec<_>>();
-    events.sort_unstable();
-    events.dedup();
-    assert_eq!(events.len(), EVENTS.len());
+fn opaque_ids_validate_their_exact_prefix_and_payload() {
+    let workspace = WorkspaceId::parse(format!("ws_{HEX}")).unwrap();
+    assert_eq!(workspace.as_str(), format!("ws_{HEX}"));
+    assert!(TerminalId::parse(format!("ws_{HEX}")).is_err());
+    assert!(WorkspaceId::parse("ws_01").is_err());
+    assert!(WorkspaceId::parse(format!("ws_{}", HEX.to_uppercase())).is_err());
 }
 
 #[test]
-fn consumer_can_distinguish_missing_null_and_value() {
-    let missing = SetClientInfoRequest::default();
-    assert_eq!(serde_json::to_value(missing).unwrap(), serde_json::json!({}));
-
-    let null = SetClientInfoRequest { name: Optional::Null, kind: Optional::Null };
+fn selectors_are_tagged_public_values() {
+    let id = WorkspaceId::parse(format!("ws_{HEX}")).unwrap();
     assert_eq!(
-        serde_json::to_value(null).unwrap(),
-        serde_json::json!({"name": null, "kind": null})
+        serde_json::to_value(Selector::id(id)).unwrap(),
+        serde_json::json!({"kind": "id", "id": format!("ws_{HEX}")})
     );
-
-    let value = SetClientInfoRequest {
-        name: Optional::Value("phone".to_string()),
-        kind: Optional::Value("frontend".to_string()),
-    };
     assert_eq!(
-        serde_json::to_value(value).unwrap(),
-        serde_json::json!({"name": "phone", "kind": "frontend"})
+        serde_json::to_value(Selector::<WorkspaceId>::current()).unwrap(),
+        serde_json::json!({"kind": "current"})
+    );
+    assert_eq!(
+        serde_json::to_value(Selector::<WorkspaceId>::name("")).unwrap(),
+        serde_json::json!({"kind": "name", "name": ""})
     );
 }
 
 #[test]
-fn required_nullable_accessors_preserve_explicit_null() {
-    let value: Nullable<String> = Some("agent".to_string()).into();
-    assert!(!value.is_null());
-    assert_eq!(value.as_ref().into_option().map(String::as_str), Some("agent"));
-    assert_eq!(value.as_deref().into_option(), Some("agent"));
-
-    let null: Nullable<String> = None.into();
-    assert!(null.is_null());
-    assert_eq!(serde_json::to_value(&null).unwrap(), serde_json::Value::Null);
-
-    #[derive(serde::Deserialize)]
-    struct RequiredField {
-        value: Nullable<String>,
-    }
-
-    assert!(serde_json::from_value::<RequiredField>(serde_json::json!({})).is_err());
-    let decoded: RequiredField =
-        serde_json::from_value(serde_json::json!({"value": null})).unwrap();
-    assert!(decoded.value.is_null());
+fn exact_and_shell_commands_remain_distinct() {
+    assert_eq!(
+        RunCommand::argv(["printf", "", "$HOME"]).unwrap(),
+        RunCommand::Exact { argv: vec!["printf".into(), "".into(), "$HOME".into()] }
+    );
+    assert_eq!(
+        RunCommand::shell("printf '%s' \"$HOME\"").unwrap(),
+        RunCommand::Shell { script: "printf '%s' \"$HOME\"".into() }
+    );
+    assert!(RunCommand::shell("").is_err());
+    assert_eq!(
+        RunCommand::shell_executable("/bin/zsh", "echo ok").unwrap(),
+        RunCommand::Exact { argv: vec!["/bin/zsh".into(), "-lc".into(), "echo ok".into()] }
+    );
 }
 
-fn assert_optional_non_null_field<T>(
-    omitted: serde_json::Value,
-    field: &str,
-    value: serde_json::Value,
-) where
-    T: serde::de::DeserializeOwned + serde::Serialize,
-{
-    let omitted_model: T = serde_json::from_value(omitted.clone()).unwrap();
-    assert_eq!(serde_json::to_value(omitted_model).unwrap(), omitted);
+#[test]
+fn idempotency_keys_are_injectable_and_random_defaults_do_not_reuse_a_counter_space() {
+    assert_eq!(
+        MutationOptions::new("deterministic-retry").unwrap().idempotency_key,
+        "deterministic-retry"
+    );
+    let keys = (0..1024)
+        .map(|_| MutationOptions::unique().unwrap().idempotency_key)
+        .collect::<HashSet<_>>();
+    assert_eq!(keys.len(), 1024);
+    assert!(keys.iter().all(|key| {
+        key.starts_with("rust-")
+            && key.len() == 37
+            && key[5..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    }));
+}
 
-    let mut present = omitted.clone();
-    present.as_object_mut().unwrap().insert(field.to_string(), value);
-    let present_model: T = serde_json::from_value(present.clone()).unwrap();
-    assert_eq!(serde_json::to_value(present_model).unwrap(), present);
+#[test]
+fn sensitive_debug_output_is_redacted() {
+    let grant = RendererGrant::new(
+        "renderer-secret",
+        "unix:///tmp/cmux-renderer.sock",
+        TerminalId::parse("term_00000000000000000000000000000001").unwrap(),
+        vec!["render".to_string()],
+        5_000,
+    )
+    .unwrap();
+    let grant_debug = format!("{grant:?}");
+    assert!(grant_debug.contains("[REDACTED]"));
+    assert!(!grant_debug.contains("renderer-secret"));
 
-    let mut explicit_null = omitted;
-    explicit_null.as_object_mut().unwrap().insert(field.to_string(), serde_json::Value::Null);
-    let error = match serde_json::from_value::<T>(explicit_null) {
-        Ok(_) => panic!("{field} accepted explicit null"),
-        Err(error) => error,
-    };
+    let provider = MachineConnectOptions::new("ssh://user:super-secret@host").unwrap();
+    let debug = format!("{provider:?}");
+    assert!(debug.contains("[REDACTED]"));
+    assert!(!debug.contains("super-secret"));
+
+    fn assert_renderer_api(_: fn(&RendererGrant) -> &str) {}
+    assert_renderer_api(RendererGrant::expose_token);
     assert!(
-        error.to_string().contains("explicit null is not allowed"),
-        "unexpected error for {field}: {error}"
+        RendererGrant::new(
+            "",
+            "unix:///tmp/cmux-renderer.sock",
+            TerminalId::parse("term_00000000000000000000000000000001").unwrap(),
+            vec!["render".to_string()],
+            5_000,
+        )
+        .is_err()
     );
 }
 
 #[test]
-fn generated_optional_non_null_fields_reject_null_across_wire_models() {
-    assert_optional_non_null_field::<SendRequest>(
-        serde_json::json!({"surface": 1}),
-        "paste",
-        serde_json::json!(true),
-    );
-    assert_optional_non_null_field::<IdentifyResult>(
-        serde_json::json!({
-            "app": "cmux",
-            "daemon_handoff": 0,
-            "generation": "generation",
-            "pid": 1,
-            "protocol": 10,
-            "registry_id": "registry",
-            "session": "main",
-            "terminal_revision": 0,
-            "version": "0.1.0",
-            "workspace_revision": 0
-        }),
-        "capabilities",
-        serde_json::json!(["surface-subscribe-filter"]),
-    );
-    assert_optional_non_null_field::<OutputEvent>(
-        serde_json::json!({"data": "", "surface": 1}),
-        "colors",
-        serde_json::json!({
-            "bg": null,
-            "fg": null,
-            "selection_bg": null,
-            "selection_fg": null
-        }),
-    );
-    assert_optional_non_null_field::<Layout>(
-        serde_json::json!({
-            "type": "split",
-            "a": {"type": "leaf", "pane": 1},
-            "b": {"type": "leaf", "pane": 2},
-            "dir": "right",
-            "ratio": 0.5
-        }),
-        "split",
-        serde_json::json!(3),
-    );
+fn created_paths_are_explicit_variants_and_sizes_reject_zero() {
+    let workspace_id = WorkspaceId::parse("ws_00000000000000000000000000000001").unwrap();
+    let path = CreatedPath::Workspace { workspace_id: workspace_id.clone() };
+    assert_eq!(path.workspace_id(), &workspace_id);
+    assert!(path.terminal_id().is_none());
+    assert!(Size::new(80, 24).is_ok());
+    assert!(Size::new(0, 24).is_err());
 }
 
 #[test]
-fn invalid_known_event_preserves_raw_frame_and_decode_error() {
-    let raw = serde_json::json!({
-        "event": "output",
-        "surface": 1,
-        "data": "",
-        "colors": null
-    });
-    let event = decode_event(raw.clone());
-
-    assert!(matches!(
-        event,
-        cmux_client::Event::Unknown(UnknownEvent {
-            name: Some(name),
-            raw: actual,
-            decode_error: Some(error),
-        }) if name == "output"
-            && actual == raw
-            && error.contains("explicit null is not allowed")
-    ));
+fn root_and_raw_clients_are_distinct_and_both_importable() {
+    fn high_level(_: Option<Client>, _: Config, _: Selector<SessionId>) {}
+    fn low_level(_: Option<cmux::raw::Client>, _: cmux::raw::ClientConfig) {}
+    high_level(None, Config::default(), Selector::current());
+    low_level(None, cmux::raw::ClientConfig::default());
 }
 
 #[test]
-fn consumer_receives_unknown_events_without_decode_failure() {
-    let raw = serde_json::json!({"event": "future-event", "answer": 42});
-    let event = decode_event(raw.clone());
-    assert!(matches!(
-        event,
-        cmux_client::Event::Unknown(UnknownEvent {
-            name: Some(name),
-            raw: actual,
-            decode_error: None,
-        }) if name == "future-event" && actual == raw
-    ));
+fn optional_metadata_updates_distinguish_unchanged_clear_and_empty() {
+    assert_ne!(Update::<String>::Unchanged, Update::Clear);
+    assert_ne!(Update::<String>::Clear, Update::Set(String::new()));
 }
 
 #[test]
-fn consumer_can_find_surface_context_and_strict_active_live_pty() {
-    let tree = topology_fixture();
+fn generated_numeric_models_are_only_under_raw() {
+    let numeric: cmux::raw::Id = 42;
+    assert_eq!(numeric, 42);
+    let _legacy_type: Option<cmux::raw::SurfaceResult> = None;
+}
 
-    let found = tree.find_surface(42).expect("surface context");
-    assert_eq!(found.workspace.name, "active workspace");
-    assert_eq!(found.screen.id, 20);
-    assert_eq!(found.pane.id, 30);
-    assert_eq!(found.tab.title, "active pty");
-    assert!(tree.find_surface(999).is_none());
-
-    let active = tree.active_live_pty().expect("active live PTY");
-    assert_eq!(active.tab.surface, 42);
-
-    let mut browser_active = tree.clone();
-    browser_active.workspaces[1].screens[1].active_pane = 31;
-    assert!(
-        browser_active.active_live_pty().is_none(),
-        "a browser active tab must not fall back to another live PTY"
+#[test]
+fn provider_action_arguments_are_catalog_typed() {
+    let options =
+        ProviderActionOptions::new().parameter("region", "west").parameter("replicas", 3_i32);
+    assert_eq!(
+        options.parameters.get("region"),
+        Some(&ProviderActionValue::String("west".to_string()))
     );
-}
-
-fn topology_fixture() -> Tree {
-    serde_json::from_value(serde_json::json!({
-        "workspaces": [
-            {
-                "active": false,
-                "id": 1,
-                "name": "inactive workspace",
-                "screens": [{
-                    "active": true,
-                    "active_pane": 3,
-                    "id": 2,
-                    "layout": {"type": "leaf", "pane": 3},
-                    "name": null,
-                    "panes": [{
-                        "active_tab": 0,
-                        "id": 3,
-                        "name": null,
-                        "tabs": [{
-                            "browser_source": null,
-                            "dead": false,
-                            "kind": "pty",
-                            "name": null,
-                            "size": null,
-                            "surface": 7,
-                            "title": "inactive pty"
-                        }]
-                    }],
-                    "zoomed_pane": null
-                }]
-            },
-            {
-                "active": true,
-                "id": 10,
-                "name": "active workspace",
-                "screens": [
-                    {
-                        "active": false,
-                        "active_pane": 12,
-                        "id": 11,
-                        "layout": {"type": "leaf", "pane": 12},
-                        "name": null,
-                        "panes": [{
-                            "active_tab": 0,
-                            "id": 12,
-                            "name": null,
-                            "tabs": [{
-                                "browser_source": null,
-                                "dead": false,
-                                "kind": "pty",
-                                "name": null,
-                                "size": null,
-                                "surface": 17,
-                                "title": "inactive screen pty"
-                            }]
-                        }],
-                        "zoomed_pane": null
-                    },
-                    {
-                        "active": true,
-                        "active_pane": 30,
-                        "id": 20,
-                        "layout": {"type": "leaf", "pane": 30},
-                        "name": "agents",
-                        "panes": [
-                            {
-                                "active_tab": 1,
-                                "id": 30,
-                                "name": "runner",
-                                "tabs": [
-                                    {
-                                        "browser_source": null,
-                                        "dead": false,
-                                        "kind": "pty",
-                                        "name": null,
-                                        "size": null,
-                                        "surface": 41,
-                                        "title": "inactive tab"
-                                    },
-                                    {
-                                        "browser_source": null,
-                                        "dead": false,
-                                        "kind": "pty",
-                                        "name": null,
-                                        "size": null,
-                                        "surface": 42,
-                                        "title": "active pty"
-                                    }
-                                ]
-                            },
-                            {
-                                "active_tab": 0,
-                                "id": 31,
-                                "name": null,
-                                "tabs": [{
-                                    "browser_source": "launched",
-                                    "dead": false,
-                                    "kind": "browser",
-                                    "name": null,
-                                    "size": null,
-                                    "surface": 43,
-                                    "title": "browser"
-                                }]
-                            }
-                        ],
-                        "zoomed_pane": null
-                    }
-                ]
-            }
-        ]
-    }))
-    .expect("valid generated tree")
+    assert_eq!(options.parameters.get("replicas"), Some(&ProviderActionValue::Integer(3)));
 }
