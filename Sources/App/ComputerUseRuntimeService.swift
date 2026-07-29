@@ -943,21 +943,20 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     ) throws {
         guard response["ok"] as? Bool == true else {
             let detail = response["error"] as? String ?? ""
-            if detail.contains("permission_required") {
+            switch response["error_code"] as? String {
+            case "permission_required":
                 throw ApplicationSurfaceRuntimeError.permissionRequired
-            }
-            if detail.contains("window_unavailable") {
+            case "window_unavailable":
                 throw ApplicationSurfaceRuntimeError.windowUnavailable
-            }
-            if detail.contains("point_outside_content") {
+            case "point_outside_content":
                 throw ApplicationSurfaceRuntimeError.pointOutsideContent
-            }
-            if detail.contains("session_unavailable") {
+            case "session_unavailable":
                 throw ApplicationSurfaceRuntimeError.helperUnavailable
+            default:
+                throw detail.isEmpty
+                    ? ApplicationSurfaceRuntimeError.invalidResponse
+                    : ApplicationSurfaceRuntimeError.failed(detail)
             }
-            throw detail.isEmpty
-                ? ApplicationSurfaceRuntimeError.invalidResponse
-                : ApplicationSurfaceRuntimeError.failed(detail)
         }
     }
 

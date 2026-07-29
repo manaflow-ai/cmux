@@ -590,9 +590,6 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             applicationSnapshot = SessionApplicationPanelSnapshot(
-                windowID: applicationPanel.windowID,
-                processID: applicationPanel.processID,
-                title: applicationPanel.selectedWindowTitle,
                 targetFrameRate: applicationPanel.targetFrameRate
             )
             markdownSnapshot = nil
@@ -1697,17 +1694,6 @@ extension Workspace {
             return browserPanel.id
         case .application:
             let applicationSnapshot = snapshot.application
-            let target: (windowID: CGWindowID, processID: pid_t)? = {
-                guard
-                    let windowID = applicationSnapshot?.windowID,
-                    let processID = applicationSnapshot?.processID,
-                    windowID > 0,
-                    processID > 0
-                else {
-                    return nil
-                }
-                return (CGWindowID(windowID), pid_t(processID))
-            }()
             let requestedFrameRate =
                 applicationSnapshot?.targetFrameRate ?? 60
             let targetFrameRate = (1...120).contains(requestedFrameRate)
@@ -1715,9 +1701,6 @@ extension Workspace {
                 : 60
             guard let applicationPanel = newApplicationSurface(
                 inPane: paneId,
-                windowID: target?.windowID,
-                processID: target?.processID,
-                title: target == nil ? nil : applicationSnapshot?.title,
                 targetFrameRate: targetFrameRate,
                 focus: false
             ) else {

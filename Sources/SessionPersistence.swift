@@ -1495,9 +1495,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     }
 }
 struct SessionApplicationPanelSnapshot: Codable, Sendable {
-    var windowID: UInt32?
-    var processID: Int32?
-    var title: String?
     var targetFrameRate: Int?
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
