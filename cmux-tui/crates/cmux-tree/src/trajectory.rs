@@ -568,6 +568,71 @@ mod tests {
     }
 
     #[test]
+    fn turn_header_and_speakers_have_spacing_and_relative_times() {
+        let now: i64 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .try_into()
+            .unwrap();
+        let mut conversation = stopped_conversation();
+        conversation.turns[0].started_at = Some(now - 90);
+        conversation.turns[0].completed_at = Some(now - 10);
+        let view = build_trajectory(
+            &conversation,
+            80,
+            Catalog::new(crate::localization::Locale::English),
+            &ExpansionState::default(),
+        );
+        let turn = view.lines.iter().position(|line| line.text.starts_with("turn 1")).unwrap();
+        let you = view.lines.iter().position(|line| line.text.starts_with("you · ")).unwrap();
+        let codex = view.lines.iter().position(|line| line.text.starts_with("codex · ")).unwrap();
+
+        assert_eq!(view.lines[turn + 1].text, "");
+        assert_eq!(view.lines[you].text, "you · 1m");
+        assert!(view.lines[codex].text.ends_with('s'));
+        assert_eq!(view.lines[codex - 1].text, "");
+    }
+
+    #[test]
+    fn work_group_includes_reasoning_and_commentary_thinking_blocks() {
+        let conversation = Conversation {
+            id: "thread".into(),
+            status: json!({"type": "idle"}),
+            turns: vec![Turn {
+                id: "turn".into(),
+                status: "completed".into(),
+                items: vec![
+                    json!({"type": "userMessage", "id": "user", "content": [{"type": "text", "text": "Inspect"}]}),
+                    json!({"type": "reasoning", "id": "reasoning", "summary": ["Reading the code"], "content": []}),
+                    json!({"type": "agentMessage", "id": "commentary", "phase": "commentary", "text": "Checking the renderer"}),
+                    json!({"type": "commandExecution", "id": "tool", "command": "cargo test", "status": "completed"}),
+                    json!({"type": "agentMessage", "id": "final", "phase": "final_answer", "text": "Done"}),
+                ],
+                ..Turn::default()
+            }],
+        };
+        let catalog = Catalog::new(crate::localization::Locale::English);
+        let mut expansion = ExpansionState::default();
+
+        let collapsed = build_trajectory(&conversation, 80, catalog, &expansion);
+        assert!(collapsed.lines.iter().any(|line| line.text.contains("work · 3 steps")));
+        assert_eq!(collapsed.lines.iter().filter(|line| line.text.starts_with("codex")).count(), 1);
+
+        expansion.toggle("turn:turn:work", false);
+        let expanded = build_trajectory(&conversation, 80, catalog, &expansion);
+        assert!(
+            expanded.lines.iter().any(|line| line.text.contains("thinking · Reading the code"))
+        );
+        assert!(
+            expanded
+                .lines
+                .iter()
+                .any(|line| line.text.contains("thinking · Checking the renderer"))
+        );
+    }
+
+    #[test]
     fn running_tool_is_expanded_incrementally() {
         let mut conversation = stopped_conversation();
         conversation.status = json!({"type": "active", "activeFlags": []});

@@ -951,6 +951,29 @@ mod tests {
     }
 
     #[test]
+    fn selected_sidebar_entries_draw_two_row_rails() {
+        let mut app = long_conversation_app();
+        let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();
+
+        app.focus = Focus::Machines;
+        terminal.draw(|frame| draw(&mut app, frame)).unwrap();
+        let machines = app.columns.machines;
+        let machine_y = machines.y + 2;
+        assert_eq!(terminal.backend().buffer()[(machines.x, machine_y)].symbol(), "▎");
+        assert_eq!(terminal.backend().buffer()[(machines.x, machine_y + 1)].symbol(), "▎");
+
+        app.focus = Focus::Conversations;
+        terminal.draw(|frame| draw(&mut app, frame)).unwrap();
+        let conversations = app.columns.conversations;
+        let conversation_y = conversations.y + 2;
+        assert_eq!(terminal.backend().buffer()[(conversations.x, conversation_y)].symbol(), "▎");
+        assert_eq!(
+            terminal.backend().buffer()[(conversations.x, conversation_y + 1)].symbol(),
+            "▎"
+        );
+    }
+
+    #[test]
     fn conversation_mouse_wheel_scroll_survives_redraw() {
         let mut app = long_conversation_app();
         let mut terminal = Terminal::new(TestBackend::new(90, 14)).unwrap();
