@@ -433,6 +433,72 @@ extension DockSocketLifecycleTests {
         #expect(store.agentRuntimeByPanelId[panel.id]?.agentLifecycleStates["local-agent"] == .idle)
     }
 
+    @Test("Dock detach preserves binding-only resume state")
+    @MainActor
+    func dockDetachPreservesBindingOnlyResumeState() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "omp-binding-only-\(UUID().uuidString)"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "OMP",
+            kind: "omp",
+            command: "'omp' '--resume' '\(sessionId)'",
+            cwd: "/tmp/cmux-omp-binding-only",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_888_888_888
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgentResumeState: .awaitingAutoResumeCommand,
+            resumeBinding: binding
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == .awaitingAutoResumeCommand)
+        #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
+    }
+
+    @Test("Dock detach preserves a completed generation without a snapshot")
+    @MainActor
+    func dockDetachPreservesCompletedGenerationWithoutSnapshot() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let completedGeneration = RestoredAgentCompletedGeneration(
+            completedAt: 1_888_888_888,
+            processIdentities: []
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgentResumeState: .completedAgentExit,
+            restoredAgentCompletedGeneration: completedGeneration
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == .completedAgentExit)
+        #expect(roundTripped.restoredAgentCompletedGeneration?.completedAt == completedGeneration.completedAt)
+        #expect(roundTripped.restoredAgentCompletedGeneration?.processIdentities.isEmpty == true)
+    }
+
     @Test("Dock detach drops agent metadata whose recorded processes all exited")
     @MainActor
     func dockDetachDropsAgentMetadataWhoseRecordedProcessesAllExited() throws {
