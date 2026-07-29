@@ -644,17 +644,35 @@ extension MobileShellComposite {
         workspace: MobileWorkspacePreview,
         temporaryName: String
     ) async throws {
-        let result = await renameWorkspace(id: workspace.id, title: temporaryName)
+        guard let currentWorkspace = irohReleaseGateCurrentWorkspace(
+            matching: workspace
+        ) else {
+            throw MobileIrohReleaseGateProbeFailure.workspaceMutationFailed
+        }
+        let result = await renameWorkspace(
+            id: currentWorkspace.id,
+            title: temporaryName
+        )
         guard case .success = result,
-              workspaces.first(where: { $0.id == workspace.id })?.name == temporaryName else {
+              irohReleaseGateCurrentWorkspace(matching: workspace)?.name
+                == temporaryName else {
             throw MobileIrohReleaseGateProbeFailure.workspaceMutationFailed
         }
     }
 
     private func restoreWorkspace(_ workspace: MobileWorkspacePreview) async throws {
-        let result = await renameWorkspace(id: workspace.id, title: workspace.name)
+        guard let currentWorkspace = irohReleaseGateCurrentWorkspace(
+            matching: workspace
+        ) else {
+            throw MobileIrohReleaseGateProbeFailure.workspaceRestorationFailed
+        }
+        let result = await renameWorkspace(
+            id: currentWorkspace.id,
+            title: workspace.name
+        )
         guard case .success = result,
-              workspaces.first(where: { $0.id == workspace.id })?.name == workspace.name else {
+              irohReleaseGateCurrentWorkspace(matching: workspace)?.name
+                == workspace.name else {
             throw MobileIrohReleaseGateProbeFailure.workspaceRestorationFailed
         }
     }

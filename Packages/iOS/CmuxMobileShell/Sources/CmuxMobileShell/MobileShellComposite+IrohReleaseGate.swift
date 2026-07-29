@@ -30,6 +30,27 @@ extension MobileShellComposite {
         return (workspace, terminalID)
     }
 
+    /// Reacquires the current aggregate row for a workspace captured earlier in
+    /// a long-running release gate. Account/device reconciliation may replace a
+    /// SwiftUI row id while the Mac-local RPC workspace id remains stable.
+    public func irohReleaseGateCurrentWorkspace(
+        matching captured: MobileWorkspacePreview
+    ) -> MobileWorkspacePreview? {
+        let remoteWorkspaceID = captured.rpcWorkspaceID
+        let expectedMacDeviceID = captured.macDeviceID ?? foregroundMacDeviceID
+        let candidates = workspaces.filter {
+            $0.rpcWorkspaceID == remoteWorkspaceID
+                && $0.actionCapabilities.supportsWorkspaceActions
+        }
+        guard let expectedMacDeviceID else {
+            return candidates.count == 1 ? candidates[0] : nil
+        }
+        let canonicalExpectedMacDeviceID = cmxCanonicalDeviceID(expectedMacDeviceID)
+        return candidates.first {
+            $0.macDeviceID.map(cmxCanonicalDeviceID) == canonicalExpectedMacDeviceID
+        }
+    }
+
     private static func releaseGateTerminal(
         in workspace: MobileWorkspacePreview
     ) -> MobileTerminalPreview? {
