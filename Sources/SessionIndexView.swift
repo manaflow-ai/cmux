@@ -132,7 +132,7 @@ struct SessionIndexView: View {
                     .cmuxFont(size: 10, weight: .medium)
             }
             .buttonStyle(.borderless)
-            .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
+            .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload sessions"))
             .disabled(store.isLoading)
             .titlebarInteractiveControl()
         }
@@ -144,7 +144,7 @@ struct SessionIndexView: View {
     private var loadingView: some View {
         VStack(spacing: 6) {
             ProgressView().controlSize(.small)
-            Text(String(localized: "sessionIndex.loading", defaultValue: "Loading Vault…"))
+            Text(String(localized: "sessionIndex.loading", defaultValue: "Loading sessions…"))
                 .cmuxFont(size: 11)
                 .foregroundColor(.secondary)
         }
@@ -153,7 +153,7 @@ struct SessionIndexView: View {
 
     private var emptyView: some View {
         VStack(spacing: 4) {
-            Text(String(localized: "sessionIndex.empty.title", defaultValue: "Vault is empty"))
+            Text(String(localized: "sessionIndex.empty.title", defaultValue: "No sessions yet"))
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
             Text(String(localized: "sessionIndex.empty.subtitle",
@@ -2186,7 +2186,7 @@ struct SectionPopoverView: View {
                     .foregroundColor(.secondary)
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
-                           defaultValue: "Search Vault"),
+                           defaultValue: "Search sessions"),
                     text: $query
                 )
                 .textFieldStyle(.plain)

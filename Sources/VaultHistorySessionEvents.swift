@@ -16,6 +16,7 @@ struct VaultHistorySessionEventProjection: Sendable {
                 subject: VaultHistorySubject(
                     sessionId: entry.sessionId,
                     agent: entry.agent.rawValue,
+                    agentDisplayName: entry.agent.displayName,
                     directory: entry.cwd
                 )
             )

@@ -184,6 +184,11 @@ final class ClosedItemHistoryStore: ObservableObject {
         !records.isEmpty
     }
 
+    /// Stable record IDs currently available for a targeted restore.
+    var recordIdsSnapshot: Set<UUID> {
+        Set(records.lazy.map(\.id))
+    }
+
     func push(_ entry: ClosedItemHistoryEntry) {
         push(ClosedItemHistoryRecord(entry: entry))
     }

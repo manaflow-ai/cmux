@@ -16519,12 +16519,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !snapshot.tabManager.workspaces.isEmpty else {
             return
         }
-        ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
+        let record = ClosedItemHistoryRecord(
+            entry: .window(ClosedWindowHistoryEntry(
+                windowId: context.windowId,
+                snapshot: snapshot,
+                workspaceIds: snapshot.tabManager.workspaces.compactMap(\.workspaceId)
+            ))
+        )
+        ClosedItemHistoryStore.shared.push(record)
+        recordVaultHistoryWindowClosed(
             windowId: context.windowId,
             snapshot: snapshot,
-            workspaceIds: snapshot.tabManager.workspaces.compactMap(\.workspaceId)
-        )))
-        recordVaultHistoryWindowClosed(windowId: context.windowId, snapshot: snapshot)
+            closedItemId: record.id
+        )
     }
 
 #if DEBUG

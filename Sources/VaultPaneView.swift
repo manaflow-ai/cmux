@@ -1,8 +1,7 @@
 import CmuxFoundation
 import SwiftUI
 
-/// Sub-navigation inside the Vault sidebar mode: the existing agent session
-/// index ("Sessions") and the unified activity timeline ("History").
+/// Sub-navigation inside History: the unified timeline and agent-session index.
 enum VaultPaneTab: String, CaseIterable, Identifiable {
     case sessions
     case history
@@ -14,7 +13,7 @@ enum VaultPaneTab: String, CaseIterable, Identifiable {
         case .sessions:
             return String(localized: "vaultPane.tab.sessions", defaultValue: "Sessions")
         case .history:
-            return String(localized: "vaultPane.tab.history", defaultValue: "History")
+            return String(localized: "vaultPane.tab.history", defaultValue: "Timeline")
         }
     }
 
@@ -26,16 +25,18 @@ enum VaultPaneTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// Hosts the Vault mode's content behind a Sessions/History tab bar. Both
+/// Hosts History behind Timeline/Sessions tabs. Both
 /// the right-sidebar mount and the pop-out pane mount render this view so
 /// the two entrypoints share one implementation.
 struct VaultPaneView: View {
     @ObservedObject var store: SessionIndexStore
+    @ObservedObject var closedItemStore: ClosedItemHistoryStore
     let onResume: ((SessionEntry) -> Void)?
-    @AppStorage("vaultPane.tab") private var selectedTabRawValue = VaultPaneTab.sessions.rawValue
+    let onReopenClosedItem: ((UUID) -> Bool)?
+    @AppStorage("vaultPane.tab") private var selectedTabRawValue = VaultPaneTab.history.rawValue
 
     private var selectedTab: VaultPaneTab {
-        VaultPaneTab(rawValue: selectedTabRawValue) ?? .sessions
+        VaultPaneTab(rawValue: selectedTabRawValue) ?? .history
     }
 
     var body: some View {
@@ -45,7 +46,13 @@ struct VaultPaneView: View {
             case .sessions:
                 SessionIndexView(store: store, onResume: onResume)
             case .history:
-                VaultHistoryView(sessionStore: store, log: .shared)
+                VaultHistoryView(
+                    sessionStore: store,
+                    closedItemStore: closedItemStore,
+                    log: .shared,
+                    onResume: onResume,
+                    onReopenClosedItem: onReopenClosedItem
+                )
             }
         }
     }

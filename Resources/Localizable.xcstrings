@@ -46992,13 +46992,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"
+            "value": "right-sidebar set requires a mode: files, find, history, sessions, vault, feed, or dock"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock"
+            "value": "right-sidebar set にはモードが必要です: files, find, history, sessions, vault, feed, dock"
           }
         }
       }
@@ -47145,13 +47145,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock>\n                                 Show, switch mode, and focus\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|history|sessions|vault|feed|dock>\n                                 Show, switch mode, and focus\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|history|sessions|vault|feed|dock\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set history --no-focus\n  cmux right-sidebar mode"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock>\n                                 表示して、モードを切り替え、フォーカスします\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|history|sessions|vault|feed|dock>\n                                 表示して、モードを切り替え、フォーカスします\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|history|sessions|vault|feed|dock\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set history --no-focus\n  cmux right-sidebar mode"
           }
         }
       }
@@ -62160,13 +62160,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Vault as Pane"
+            "value": "Open History as Pane"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vaultをペインで開く"
+            "value": "履歴をペインで開く"
           }
         }
       }
@@ -141816,19 +141816,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vault"
+            "value": "History"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ボールト"
+            "value": "履歴"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "볼트"
+            "value": "기록"
           }
         }
       }
@@ -142162,13 +142162,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Usage: right_sidebar set <files|find|history|sessions|vault|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 使用法: right_sidebar set <files|find|history|sessions|vault|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -142996,19 +142996,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vault is empty"
+            "value": "No sessions yet"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ボールトは空です"
+            "value": "セッションはまだありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "볼트가 비어 있습니다"
+            "value": "아직 세션이 없습니다"
           }
         }
       }
@@ -143070,19 +143070,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Loading Vault…"
+            "value": "Loading sessions…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ボールトを読み込み中…"
+            "value": "セッションを読み込み中…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "볼트를 불러오는 중…"
+            "value": "세션을 불러오는 중…"
           }
         }
       }
@@ -143161,19 +143161,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search Vault"
+            "value": "Search sessions"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ボールトを検索"
+            "value": "セッションを検索"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "볼트 검색"
+            "value": "세션 검색"
           }
         }
       }
@@ -143388,19 +143388,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload Vault"
+            "value": "Reload sessions"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ボールトを再読み込み"
+            "value": "セッションを再読み込み"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "볼트 새로고침"
+            "value": "세션 새로고침"
           }
         }
       }
@@ -208612,19 +208612,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Sidebar Vault"
+            "value": "Show Sidebar History"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのボールトを表示"
+            "value": "サイドバーに履歴を表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 볼트 표시"
+            "value": "사이드바 기록 표시"
           }
         }
       }
@@ -259120,6 +259120,295 @@
         }
       }
     },
+    "vaultHistory.action.reopen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reopen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再度開く"
+          }
+        }
+      }
+    },
+    "vaultHistory.empty.filtered.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try another search or time range."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索条件または期間を変更してください。"
+          }
+        }
+      }
+    },
+    "vaultHistory.empty.filtered.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching history"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該当する履歴はありません"
+          }
+        }
+      }
+    },
+    "vaultHistory.filters.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear filters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルタをクリア"
+          }
+        }
+      }
+    },
+    "vaultHistory.group.directory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディレクトリ"
+          }
+        }
+      }
+    },
+    "vaultHistory.group.unknownDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown directory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なディレクトリ"
+          }
+        }
+      }
+    },
+    "vaultHistory.range.allTime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All time"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての期間"
+          }
+        }
+      }
+    },
+    "vaultHistory.range.last24Hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last 24 hours"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過去24時間"
+          }
+        }
+      }
+    },
+    "vaultHistory.range.last30Days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last 30 days"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過去30日間"
+          }
+        }
+      }
+    },
+    "vaultHistory.range.last7Days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last 7 days"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過去7日間"
+          }
+        }
+      }
+    },
+    "vaultHistory.rangePicker.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter history by time"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期間で履歴を絞り込む"
+          }
+        }
+      }
+    },
+    "vaultHistory.search.clear.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear history search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴の検索をクリア"
+          }
+        }
+      }
+    },
+    "vaultHistory.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search history"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴を検索"
+          }
+        }
+      }
+    },
+    "vaultHistory.sort.newestFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Newest first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい順"
+          }
+        }
+      }
+    },
+    "vaultHistory.sort.oldestFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oldest first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古い順"
+          }
+        }
+      }
+    },
+    "vaultHistory.sort.titleAscending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title A–Z"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトル順"
+          }
+        }
+      }
+    },
+    "vaultHistory.sortPicker.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sort history"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴を並べ替え"
+          }
+        }
+      }
+    },
     "vaultPane.tab.sessions": {
       "extractionState": "manual",
       "localizations": {
@@ -259143,13 +259432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "History"
+            "value": "Timeline"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "履歴"
+            "value": "タイムライン"
           }
         }
       }

@@ -75,14 +75,15 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         }
     }
 
-    func testCLIArgumentNormalizerMapsVaultAndSessionsToSessions() {
+    func testCLIArgumentNormalizerMapsHistoryAndLegacyNamesToSessions() {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "files"), .files)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "history"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vault"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "sessions"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
-        XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: " History "), .sessions)
         XCTAssertNil(RightSidebarMode.from(cliArgument: "custom-sidebar"))
         XCTAssertNil(RightSidebarMode.from(cliArgument: "custom"))
         XCTAssertNil(RightSidebarMode.from(cliArgument: "unknown"))

@@ -25,7 +25,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
-        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
+        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "History")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
@@ -36,7 +36,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return "folder"
         case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
+        case .sessions: return "clock.arrow.circlepath"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         case .customSidebar: return "wand.and.stars"
@@ -393,7 +393,14 @@ struct RightSidebarPanelView: View {
                     presentation: .find
                 )
             case .sessions:
-                VaultPaneView(store: sessionIndexStore, onResume: onResumeSession)
+                VaultPaneView(
+                    store: sessionIndexStore,
+                    closedItemStore: .shared,
+                    onResume: onResumeSession,
+                    onReopenClosedItem: { id in
+                        tabManager.reopenClosedHistoryItem(id: id)
+                    }
+                )
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }

@@ -52,29 +52,37 @@ enum VaultHistoryEventKind: String, Codable, CaseIterable, Sendable {
 struct VaultHistorySubject: Hashable, Codable, Sendable {
     var workspaceId: UUID?
     var windowId: UUID?
+    /// Recently-closed record that can restore this workspace or window.
+    var closedItemId: UUID?
     /// Native agent session identifier for `sessionActivity` events.
     var sessionId: String?
     /// `SessionAgent` raw value for `sessionActivity` events.
     var agent: String?
+    /// User-facing agent name captured from the session index.
+    var agentDisplayName: String?
     /// Working directory associated with the subject, when known.
     var directory: String?
 
     init(
         workspaceId: UUID? = nil,
         windowId: UUID? = nil,
+        closedItemId: UUID? = nil,
         sessionId: String? = nil,
         agent: String? = nil,
+        agentDisplayName: String? = nil,
         directory: String? = nil
     ) {
         self.workspaceId = workspaceId
         self.windowId = windowId
+        self.closedItemId = closedItemId
         self.sessionId = sessionId
         self.agent = agent
+        self.agentDisplayName = agentDisplayName
         self.directory = directory
     }
 }
 
-/// One entry in the unified Vault history timeline.
+/// One entry in the unified History timeline.
 ///
 /// The model is deliberately flat and locale-independent: display strings
 /// (kind labels, "N workspaces" details) are derived in the UI layer so a

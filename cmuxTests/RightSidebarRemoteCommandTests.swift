@@ -43,6 +43,9 @@ extension TerminalControllerSocketSecurityTests {
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set sessions --no-focus") == "OK")
         #expect(fileExplorerState.mode == .sessions)
 
+        #expect(TerminalController.shared.handleSocketLine("right_sidebar set history --no-focus") == "OK")
+        #expect(fileExplorerState.mode == .sessions)
+
         #expect(TerminalController.shared.handleSocketLine("right_sidebar hide") == "OK")
         #expect(!fileExplorerState.isVisible)
 
@@ -137,6 +140,10 @@ extension TerminalControllerSocketSecurityTests {
                 RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: RightSidebarRemoteTarget())
             ),
             (
+                "right_sidebar history",
+                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
                 "right_sidebar sessions",
                 RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: RightSidebarRemoteTarget())
             ),
@@ -187,6 +194,7 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar show", true),
             ("right_sidebar focus", true),
             ("right_sidebar set find", true),
+            ("right_sidebar history", true),
             ("right_sidebar sessions", true),
             ("right_sidebar set vault --no-focus", false),
             ("right_sidebar hide", false),

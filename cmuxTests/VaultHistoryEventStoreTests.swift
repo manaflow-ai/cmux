@@ -50,7 +50,7 @@ import Testing
             kind: .windowClosed,
             title: "win",
             workspaceCount: 3,
-            subject: VaultHistorySubject(windowId: UUID())
+            subject: VaultHistorySubject(windowId: UUID(), closedItemId: UUID())
         )
         await store.append(created)
         await store.append(closed)
@@ -61,6 +61,7 @@ import Testing
         #expect(events.count == 2)
         #expect(events.first?.id == "e2")
         #expect(events.first?.workspaceCount == 3)
+        #expect(events.first?.subject.closedItemId == closed.subject.closedItemId)
         #expect(events.last?.id == "e1")
         #expect(events.last?.previousTitle == "original")
         #expect(events.last?.subject.directory == "/tmp/project")

@@ -8,7 +8,7 @@ extension RightSidebarMode {
             return .files
         case "find":
             return .find
-        case "vault", "sessions":
+        case "history", "vault", "sessions":
             return .sessions
         case "feed":
             return .feed
