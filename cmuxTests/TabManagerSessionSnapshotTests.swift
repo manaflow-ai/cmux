@@ -2490,7 +2490,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(terminalStartupCommand.contains(expectedSessionID), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("--require-existing"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("--command-b64 "), terminalStartupCommand)
-        XCTAssertTrue(terminalStartupCommand.contains("251|254|255"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("251)") && terminalStartupCommand.contains("254)") && terminalStartupCommand.contains("255)"), terminalStartupCommand)
         let restoredDefaultRemoteCommand = try XCTUnwrap(
             Self.decodedSSHPTYCommandB64(in: terminalStartupCommand)
         )
@@ -2559,7 +2559,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredInitialCommand.contains("workspace.remote.foreground_auth_ready"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(restoredForegroundAuthToken), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("--require-existing"), restoredInitialCommand)
-        XCTAssertTrue(restoredInitialCommand.contains("251|254|255"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("251)") && restoredInitialCommand.contains("254)") && restoredInitialCommand.contains("255)"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("CMUX_SURFACE_ID"), restoredInitialCommand)
         XCTAssertFalse(restoredInitialCommand.contains("--command-b64 "), restoredInitialCommand)

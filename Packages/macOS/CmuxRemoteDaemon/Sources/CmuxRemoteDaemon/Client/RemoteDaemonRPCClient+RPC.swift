@@ -333,7 +333,13 @@ extension RemoteDaemonRPCClient {
         let response: [String: Any]
         switch pendingCalls.wait(for: pendingCall, timeout: timeout) {
         case .timedOut:
-            stop(suppressTerminationCallback: false)
+            // pty.attach is dispatched independently by the daemon because
+            // PTY allocation can block inside the operating system. Its
+            // deadline removes only this pending call; it is not evidence
+            // that the shared transport or existing PTY subscriptions died.
+            if method != "pty.attach" {
+                stop(suppressTerminationCallback: false)
+            }
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "daemon RPC timeout waiting for \(method) response",
             ])

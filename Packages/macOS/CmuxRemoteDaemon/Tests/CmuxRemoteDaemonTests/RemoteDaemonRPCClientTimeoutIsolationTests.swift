@@ -102,7 +102,8 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         fi
         if IFS= read -r line; then
           id=$(read_id "$line")
-          printf '{"id":%s,"ok":true,"result":{"attachment_id":"existing-attachment","attachment_token":"existing-token"}}\\n' "$id"
+          existing_token=$(printf '%s\\n' "$line" | sed -n 's/.*"client_attachment_token":"\\([^"]*\\)".*/\\1/p')
+          printf '{"id":%s,"ok":true,"result":{"attachment_id":"existing-attachment","attachment_token":"%s"}}\\n' "$id" "$existing_token"
         else
           exit 1
         fi
@@ -111,7 +112,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         fi
         if IFS= read -r line; then
           id=$(read_id "$line")
-          printf '{"event":"pty.data","session_id":"existing-session","attachment_id":"existing-attachment","attachment_token":"existing-token","data_base64":"c3RpbGwtYWxpdmU="}\\n'
+          printf '{"event":"pty.data","session_id":"existing-session","attachment_id":"existing-attachment","attachment_token":"%s","data_base64":"c3RpbGwtYWxpdmU="}\\n' "$existing_token"
           printf '{"id":%s,"ok":true,"result":{"transport":"alive"}}\\n' "$id"
         fi
         while IFS= read -r _line; do :; done
