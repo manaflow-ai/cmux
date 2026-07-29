@@ -26,7 +26,7 @@ zig build -Doptimize=ReleaseSafe
 `zig version` should print `0.15.2`. The deterministic Unix socket tests cover
 not-applied workspace recovery, committed run recovery, exact argv encoding,
 typed exit status, event cancellation, inherited stream timeouts, duplicate
-workspace names, opaque IDs, and allocator cleanup.
+workspace names, pending-to-exited polling, opaque IDs, and allocator cleanup.
 
 Run against an explicit resource socket:
 

@@ -35,16 +35,20 @@ pub const ExitOutcome = union(enum) {
     unknown,
 };
 
+pub const PendingExit = struct {
+    lifecycle: cmux.TerminalLifecycle,
+    revision: u64,
+};
+
+pub const ExitedTerminal = struct {
+    outcome: ExitOutcome,
+    exited_at: u64,
+    revision: u64,
+};
+
 pub const ExitObservation = union(enum) {
-    pending: struct {
-        lifecycle: cmux.TerminalLifecycle,
-        revision: u64,
-    },
-    exited: struct {
-        outcome: ExitOutcome,
-        exited_at: u64,
-        revision: u64,
-    },
+    pending: PendingExit,
+    exited: ExitedTerminal,
 };
 
 pub const EventKind = enum {
@@ -314,6 +318,24 @@ pub const SessionSupervisor = struct {
                 } };
             },
         };
+    }
+
+    /// Polls durable terminal state so each socket read stays bounded.
+    pub fn waitUntilExit(
+        self: *SessionSupervisor,
+        terminal_id: cmux.TerminalId,
+        poll_timeout_ms: u64,
+    ) !ExitedTerminal {
+        if (poll_timeout_ms == 0) return error.InvalidWaitPoll;
+        while (true) {
+            switch (try self.waitForExit(
+                terminal_id,
+                poll_timeout_ms,
+            )) {
+                .pending => {},
+                .exited => |exited| return exited,
+            }
+        }
     }
 
     /// `next` and `cancel` are both bounded by the client's connection timeout.

@@ -201,6 +201,26 @@ const FakeServer = struct {
             },
         );
 
+        var wait_pending = try self.receive(
+            control,
+            "terminal.wait_exit",
+        );
+        defer wait_pending.deinit();
+        try expectRoute(wait_pending.value, true, true, false);
+        const pending_params = try requestParams(wait_pending.value);
+        try expectString(pending_params, "terminal", terminal_text);
+        try expectString(pending_params, "timeout_ms", "250");
+        try self.respond(
+            control,
+            try requestId(wait_pending.value),
+            .{
+                .state = "pending",
+                .terminal_id = terminal_text,
+                .lifecycle = "running",
+                .revision = "12",
+            },
+        );
+
         var wait_exit = try self.receive(
             control,
             "terminal.wait_exit",
@@ -513,25 +533,17 @@ test "session supervisor recovers create and run, waits for exit, and cancels ev
         run.path.terminal_id.slice(),
     );
 
-    const exit = try supervisor.waitForExit(
+    const exit = try supervisor.waitUntilExit(
         run.path.terminal_id,
         250,
     );
-    switch (exit) {
-        .exited => |exited| {
-            try std.testing.expectEqual(
-                @as(u64, 13),
-                exited.revision,
-            );
-            switch (exited.outcome) {
-                .exit => |status| try std.testing.expectEqual(
-                    @as(i32, 0),
-                    status,
-                ),
-                else => return error.ExpectedExitStatus,
-            }
-        },
-        .pending => return error.ExpectedExitedTerminal,
+    try std.testing.expectEqual(@as(u64, 13), exit.revision);
+    switch (exit.outcome) {
+        .exit => |status| try std.testing.expectEqual(
+            @as(i32, 0),
+            status,
+        ),
+        else => return error.ExpectedExitStatus,
     }
 
     const event = try supervisor.observeOneEvent();
@@ -548,7 +560,7 @@ test "session supervisor recovers create and run, waits for exit, and cancels ev
 
     try fixture.join();
     try std.testing.expectEqual(
-        @as(usize, 11),
+        @as(usize, 12),
         fixture.server.requests_seen,
     );
 }

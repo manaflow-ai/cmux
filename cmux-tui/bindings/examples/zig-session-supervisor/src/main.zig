@@ -57,7 +57,10 @@ pub fn main() !void {
         run_correlation,
         .{ run_key_1, run_key_2 },
     );
-    const exit = try supervisor.waitForExit(run.path.terminal_id, null);
+    const exit = try supervisor.waitUntilExit(
+        run.path.terminal_id,
+        5_000,
+    );
     const event = try supervisor.observeOneEvent();
 
     std.debug.print(
@@ -77,29 +80,23 @@ pub fn main() !void {
             run.revision,
         },
     );
-    switch (exit) {
-        .pending => |pending| std.debug.print(
-            "exit=pending lifecycle={s} revision={d}\n",
-            .{ pending.lifecycle.wireName(), pending.revision },
+    switch (exit.outcome) {
+        .exit => |status| std.debug.print(
+            "exit=status:{d} revision={d}\n",
+            .{ status, exit.revision },
         ),
-        .exited => |exited| switch (exited.outcome) {
-            .exit => |status| std.debug.print(
-                "exit=status:{d} revision={d}\n",
-                .{ status, exited.revision },
-            ),
-            .signal => |signal| std.debug.print(
-                "exit=signal:{d} core_dumped={} revision={d}\n",
-                .{
-                    signal.signal,
-                    signal.core_dumped,
-                    exited.revision,
-                },
-            ),
-            .unknown => std.debug.print(
-                "exit=unknown revision={d}\n",
-                .{exited.revision},
-            ),
-        },
+        .signal => |signal| std.debug.print(
+            "exit=signal:{d} core_dumped={} revision={d}\n",
+            .{
+                signal.signal,
+                signal.core_dumped,
+                exit.revision,
+            },
+        ),
+        .unknown => std.debug.print(
+            "exit=unknown revision={d}\n",
+            .{exit.revision},
+        ),
     }
     std.debug.print(
         "event={s} sequence={d} cursor={?d} canceled_at={?d}\n",
