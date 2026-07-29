@@ -220,6 +220,81 @@ import Testing
         #expect(candidates.first?.macDeviceID == representative.macDeviceID)
     }
 
+    @Test func onlineIrohAliasSelectsCurrentAuthenticatedIdentity() throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let route = try CmxAttachRoute(
+            id: "renamed-iroh-route",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+        func paired(
+            id: String,
+            displayName: String,
+            instanceTag: String,
+            seenAt: Date
+        ) -> MobilePairedMac {
+            MobilePairedMac(
+                macDeviceID: id,
+                displayName: displayName,
+                routes: [route],
+                createdAt: .distantPast,
+                lastSeenAt: seenAt,
+                isActive: false,
+                stackUserID: "user-1",
+                teamID: "team-1",
+                instanceTag: instanceTag
+            )
+        }
+        let historicalAlias = paired(
+            id: "mac-before-rename",
+            displayName: "Old Name",
+            instanceTag: "old-tag",
+            seenAt: .distantPast
+        )
+        let currentIdentity = paired(
+            id: "mac-after-rename",
+            displayName: "New Name",
+            instanceTag: "new-tag",
+            seenAt: Date()
+        )
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: LivenessHostRouter(),
+                    box: TransportBox()
+                ),
+                now: { Date() },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: false,
+            presence: IdlePresence()
+        )
+        shell.applyPresenceUpdate(
+            Self.snapshot([
+                Self.instance(
+                    deviceID: historicalAlias.macDeviceID,
+                    tag: "old-tag",
+                    online: true
+                ),
+            ]),
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-1",
+                generation: 0
+            )
+        )
+
+        let candidates = shell.secondaryAggregationCandidateMacs(
+            from: [historicalAlias, currentIdentity]
+        )
+
+        #expect(candidates.map(\.macDeviceID) == [
+            currentIdentity.macDeviceID,
+        ])
+    }
+
     @Test
     func targetedOfflineAliasRetiresRepresentativeControlConnection()
         async throws {
@@ -3859,6 +3934,82 @@ import Testing
         #expect(shell.remoteClient !== originalClient)
         #expect(shell.foregroundMacDeviceIDForTesting() == "test-mac")
         #expect(shell.connections["test-mac"]?.client === shell.remoteClient)
+    }
+
+    @Test func anonymousTargetRetiresWarmControlOnSamePhysicalRoute()
+        async throws {
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-after-rename",
+            instanceTag: "new-tag",
+            displayName: "New Name"
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "anonymous-warm-control-route",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_590)
+        )
+        let controlTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-before-rename",
+            macDisplayName: "Old Name",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let targetTicket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true
+        )
+        let controlClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: controlTicket,
+            allowsStackAuthFallback: true,
+            connectAttemptRegistry: shell.connectAttemptRegistry
+        )
+        let control = SecondaryMacSubscription(
+            macDeviceID: controlTicket.macDeviceID,
+            client: controlClient,
+            route: route,
+            ticket: controlTicket,
+            storedInstanceTag: "old-tag",
+            authenticatedInstanceTag: "old-tag",
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none,
+            displayName: "Old Name"
+        )
+        shell.secondaryMacSubscriptions[control.macDeviceID] = control
+        shell.startSecondaryEventConsumer(control, displayName: "Old Name")
+        #expect(await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 1
+        ))
+
+        _ = try await shell.connect(
+            ticket: targetTicket,
+            allowsStackAuthFallback: true
+        )
+
+        #expect(control.isTransitioningToFocus)
+        #expect(shell.secondaryMacSubscriptions[control.macDeviceID] == nil)
+        #expect(shell.connectionState == .connected)
+        #expect(shell.foregroundMacDeviceIDForTesting() == "mac-after-rename")
     }
 
     @Test func sameMacRedialWaitsForLeaseHandoffButNotPhysicalClose()
