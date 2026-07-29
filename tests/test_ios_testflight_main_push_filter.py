@@ -168,6 +168,7 @@ def run_decision_scenario(
     prior_event: str = "schedule",
     prior_artifact: str = "ios-testflight-build-metadata",
     prior_uploads: tuple[tuple[str, str], ...] = (),
+    prior_run_ids: tuple[int, ...] = (),
     head_sha: str = "head-sha",
     changed_files: tuple[str, ...] = (),
     blocking_prior_run: bool = False,
@@ -192,14 +193,20 @@ def run_decision_scenario(
     upload_history = prior_uploads
     if prior_sha:
         upload_history = ((prior_sha, prior_artifact),)
+    assert not prior_run_ids or len(prior_run_ids) == len(
+        upload_history
+    ), "prior_run_ids must match the upload history"
+    run_ids = prior_run_ids or tuple(
+        50 - index for index in range(len(upload_history))
+    )
     prior_runs = [
         {
-            "id": 50 - index,
+            "id": run_id,
             "sha": sha,
             "artifact": artifact,
             "event": prior_event,
         }
-        for index, (sha, artifact) in enumerate(upload_history)
+        for (sha, artifact), run_id in zip(upload_history, run_ids)
     ]
     scenario = {
         "eventName": event_name,
