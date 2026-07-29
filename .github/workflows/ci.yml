@@ -1261,6 +1261,7 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxMobileShellModel
             CmuxSettings
             CmuxSettingsUI
             CmuxTerminal
