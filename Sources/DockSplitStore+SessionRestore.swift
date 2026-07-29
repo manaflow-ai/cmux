@@ -133,6 +133,26 @@ extension DockSplitStore {
             terminalSnapshot.resumeBinding,
             restorableAgent: restorableAgent
         )
+        let managedResumeBinding = (
+            terminalSnapshot.managedAgentResumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            }
+                ?? terminalSnapshot.resumeBinding.flatMap {
+                    $0.hasCompleteManagedSessionIdentity ? $0 : nil
+                }
+        ).flatMap { candidate -> SurfaceResumeBindingSnapshot? in
+            if restorableAgent != nil,
+               Workspace.restorableAgentForSessionRestore(
+                   restorableAgent,
+                   resumeBinding: candidate
+               ) == nil {
+                return nil
+            }
+            return Workspace.resumeBindingForSessionRestore(
+                candidate,
+                restorableAgent: restorableAgent
+            )
+        }
         let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
@@ -245,6 +265,9 @@ extension DockSplitStore {
         if let resumeBinding {
             surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
         }
+        if let managedResumeBinding {
+            managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding
+        }
         if let restoredScrollback {
             restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
         }
@@ -255,7 +278,7 @@ extension DockSplitStore {
         seedSessionRestoredAgentState(
             panelId: terminal.id,
             restorableAgent: restorableAgent,
-            resumeBinding: resumeBinding,
+            resumeBinding: managedResumeBinding ?? resumeBinding,
             willRunStartupCommand: willRunAgentCommand,
             willRunStartupInput: willRunAgentInput
         )

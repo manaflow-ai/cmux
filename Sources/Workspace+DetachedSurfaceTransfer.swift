@@ -48,6 +48,9 @@ extension Workspace {
         let shellActivityState: PanelShellActivityState?
         let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
+        /// Authoritative hook identity when `resumeBinding` is an effective
+        /// process-detected binding.
+        let managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
         /// Retry attempts only when the source proved this binding owned the running command.
         let agentSessionRetryCompletedAttempts: Int?
         var agentRuntime: DetachedAgentRuntimeState?
@@ -58,6 +61,14 @@ extension Workspace {
 
         var sessionRestoreWorkspaceId: UUID {
             sessionRestoreSourceWorkspaceId ?? sourceWorkspaceId
+        }
+
+        var resolvedManagedAgentResumeBinding: SurfaceResumeBindingSnapshot? {
+            managedAgentResumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            } ?? resumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            }
         }
 
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
@@ -87,6 +98,7 @@ extension Workspace {
                 shellActivityState: shellActivityState,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
+                managedAgentResumeBinding: managedAgentResumeBinding,
                 agentSessionRetryCompletedAttempts: agentSessionRetryCompletedAttempts,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,

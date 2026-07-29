@@ -122,35 +122,18 @@ extension TerminalController: ControlSidebarContext {
         guard CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }
-        let snapshot: (tabResolved: Bool, workingDirectory: String?) = v2MainSync {
-            guard let tab = self.controlSidebarResolveMutationTab(target) else {
-                return (false, nil)
+        let scope: ControlSidebarAgentLifecycleRegistryScope? = v2MainSync {
+            guard let owner = self.controlSidebarResolvePanelOwner(
+                target: target,
+                panelID: panelID
+            ) else {
+                return nil
             }
-            return (true, self.controlSidebarAgentLifecycleRegistryWorkingDirectory(tab: tab, panelId: panelID))
+            return owner.agentLifecycleRegistryScope(panelId: panelID)
         }
-        guard snapshot.tabResolved else {
-            return false
-        }
-        let registry = CmuxVaultAgentRegistry.load(workingDirectory: snapshot.workingDirectory)
+        guard let scope else { return false }
+        let registry = scope.loadRegistry()
         return registry.registration(id: key) != nil
-    }
-
-    /// Mirrors the v2 lifecycle registry cwd resolver while preserving remote cwd trust.
-    private func controlSidebarAgentLifecycleRegistryWorkingDirectory(tab: Workspace, panelId: UUID?) -> String? {
-        let candidates = [
-            panelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
-            tab.focusedPanelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
-            tab.usesRemoteDirectoryProvenance ? tab.presentedCurrentDirectory : tab.currentDirectory,
-        ]
-        return candidates.compactMap(controlSidebarNormalizedOptionValue).first
-    }
-
-    /// The byte-faithful twin of the deleted file-private
-    /// `normalizedOptionValue(_:)` (trim; empty becomes `nil`).
-    private func controlSidebarNormalizedOptionValue(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     nonisolated func controlSidebarScheduleAgentLifecycle(

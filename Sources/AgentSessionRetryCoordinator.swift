@@ -469,10 +469,27 @@ final class AgentSessionRetryCoordinator {
 }
 
 extension SurfaceResumeBindingSnapshot {
+    var hasCompleteManagedSessionIdentity: Bool {
+        managedSessionIdentity != nil
+    }
+
     func isSameManagedSession(as other: SurfaceResumeBindingSnapshot) -> Bool {
-        source == "agent-hook" &&
-            other.source == "agent-hook" &&
-            kind == other.kind &&
-            checkpointId == other.checkpointId
+        guard let identity = managedSessionIdentity,
+              let otherIdentity = other.managedSessionIdentity else {
+            return false
+        }
+        return identity.kind == otherIdentity.kind &&
+            identity.checkpointId == otherIdentity.checkpointId
+    }
+
+    private var managedSessionIdentity: (kind: String, checkpointId: String)? {
+        guard source == "agent-hook",
+              let kind = kind?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !kind.isEmpty,
+              let checkpointId = checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !checkpointId.isEmpty else {
+            return nil
+        }
+        return (kind, checkpointId)
     }
 }

@@ -101,27 +101,30 @@ extension DockSplitStore {
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
+            let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
-                detected: detectedResumeBinding,
-                transfer: transfer
+                detected: detectedResumeBinding
             )
             let restorableAgent = effectiveSessionRestorableAgent(
                 panelId: panelId,
                 observation: observation,
                 resumeBinding: resumeBinding,
+                managedResumeBinding: managedResumeBinding,
                 terminal: terminal,
                 transfer: transfer
             )
+            let agentCompatibilityBinding = managedResumeBinding ?? resumeBinding
             let hibernation = terminal.agentHibernationState.flatMap { state in
                 Workspace.restorableAgentForSessionRestore(
                     state.agent,
-                    resumeBinding: resumeBinding
+                    resumeBinding: agentCompatibilityBinding
                 ) == nil ? nil : state
             }
             let agentWasRunning = sessionAgentWasRunning(
                 restorableAgent: restorableAgent,
                 resumeBinding: resumeBinding,
+                managedResumeBinding: managedResumeBinding,
                 terminal: terminal,
                 transfer: transfer,
                 observation: observation,
@@ -178,6 +181,7 @@ extension DockSplitStore {
                     )
                 },
                 resumeBinding: resumeBinding,
+                managedAgentResumeBinding: managedResumeBinding,
                 textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
@@ -253,10 +257,14 @@ extension DockSplitStore {
 
     private func effectiveSessionResumeBinding(
         panelId: UUID,
-        detected: SurfaceResumeBindingSnapshot?,
-        transfer: Workspace.DetachedSurfaceTransfer?
+        detected: SurfaceResumeBindingSnapshot?
     ) -> SurfaceResumeBindingSnapshot? {
-        let stored = surfaceResumeBindingsByPanelId[panelId] ?? transfer?.resumeBinding
+        let stored = surfaceResumeBindingsByPanelId[panelId]
+        if let stored,
+           stored.hasCompleteManagedSessionIdentity,
+           managedAgentResumeBindingsByPanelId[panelId] == nil {
+            managedAgentResumeBindingsByPanelId[panelId] = stored
+        }
         let effective: SurfaceResumeBindingSnapshot?
         if let stored, let detected {
             effective = stored.shouldYieldToDetectedSurfaceResumeBinding(detected) ? detected : stored
@@ -279,6 +287,7 @@ extension DockSplitStore {
         panelId: UUID,
         observation: RestorableAgentSessionIndex.Entry?,
         resumeBinding: SurfaceResumeBindingSnapshot?,
+        managedResumeBinding: SurfaceResumeBindingSnapshot?,
         terminal: TerminalPanel,
         transfer: Workspace.DetachedSurfaceTransfer?
     ) -> SessionRestorableAgentSnapshot? {
@@ -297,15 +306,33 @@ extension DockSplitStore {
         let observed = restoredAgentLifecycle.resumeStatesByPanelId[panelId] == .completedAgentExit
             ? nil
             : observation?.snapshot
+        let requiresCurrentManagedSession =
+            invalidatedCachedTransferAgentSessionPanelIds.contains(panelId)
+        let agentCompatibilityBinding = managedResumeBinding ?? resumeBinding
+        let cachedTransferAgent: SessionRestorableAgentSnapshot? = {
+            guard let candidate = transfer?.restorableAgent else { return nil }
+            if let cachedBinding = transfer?.resumeBinding,
+               cachedBinding.isAgentHookBinding {
+                if let managedResumeBinding,
+                   !cachedBinding.isSameManagedSession(as: managedResumeBinding) {
+                    return nil
+                }
+            }
+            return candidate
+        }()
         let compatible = [
             terminal.agentHibernationState?.agent,
             observed,
             coordinated,
-            transfer?.restorableAgent,
+            cachedTransferAgent,
         ].compactMap { candidate in
-            Workspace.restorableAgentForSessionRestore(
+            if requiresCurrentManagedSession,
+               managedResumeBinding?.hasCompleteManagedSessionIdentity != true {
+                return nil
+            }
+            return Workspace.restorableAgentForSessionRestore(
                 candidate,
-                resumeBinding: resumeBinding
+                resumeBinding: agentCompatibilityBinding
             )
         }.first
         if let compatible {
@@ -317,18 +344,21 @@ extension DockSplitStore {
     private func sessionAgentWasRunning(
         restorableAgent: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?,
+        managedResumeBinding: SurfaceResumeBindingSnapshot?,
         terminal: TerminalPanel,
         transfer: Workspace.DetachedSurfaceTransfer?,
         observation: RestorableAgentSessionIndex.Entry?,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
         agentProcessPresence: (Int) -> PIDPresence
     ) -> Bool? {
-        guard restorableAgent != nil || resumeBinding?.isAgentHookBinding == true else { return nil }
-        let expectedKind = resumeBinding?.isAgentHookBinding == true
-            ? resumeBinding?.kind.flatMap(RestorableAgentKind.init(rawValue:))
+        let managedBinding = managedResumeBinding
+            ?? resumeBinding.flatMap { $0.isAgentHookBinding ? $0 : nil }
+        guard restorableAgent != nil || managedBinding != nil else { return nil }
+        let expectedKind = managedBinding != nil
+            ? managedBinding?.kind.flatMap(RestorableAgentKind.init(rawValue:))
             : restorableAgent?.kind
-        let expectedSessionId = resumeBinding?.isAgentHookBinding == true
-            ? resumeBinding?.checkpointId
+        let expectedSessionId = managedBinding != nil
+            ? managedBinding?.checkpointId
             : restorableAgent?.sessionId
         let relevantObservation = observation.flatMap { entry -> RestorableAgentSessionIndex.Entry? in
             guard entry.snapshot.kind == expectedKind, entry.snapshot.sessionId == expectedSessionId else {
@@ -349,7 +379,7 @@ extension DockSplitStore {
             }
             return [recordedIdentity]
         }()
-        if resumeBinding?.isAgentHookBinding == true,
+        if managedBinding != nil,
            relevantObservation == nil,
            confirmedRuntimeIdentities.isEmpty {
             return false

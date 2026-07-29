@@ -10,6 +10,9 @@ extension DockSplitStore {
         restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
+        invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
+        replacedCachedTransferAgentSessionPanelIds.remove(panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         agentRuntimeByPanelId.removeValue(forKey: panelId)
     }
@@ -29,20 +32,7 @@ extension DockSplitStore {
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
             if restoredAgent != nil {
-                let runtimeIdentities = Set(
-                    (agentRuntimeByPanelId[panelId]
-                        ?? detachedSurfaceTransfersByPanelId[panelId]?.agentRuntime)?
-                        .agentPIDProcessIdentities.values.map { $0 } ?? []
-                )
-                restoredAgentLifecycle.markCompleted(
-                    panelId: panelId,
-                    observation: SharedLiveAgentIndex.shared.index?.entry(
-                        workspaceId: detachedSurfaceTransfersByPanelId[panelId]?.sessionRestoreWorkspaceId
-                            ?? workspaceId,
-                        panelId: panelId
-                    ),
-                    runtimeProcessIdentities: runtimeIdentities
-                )
+                markRestoredAgentCompleted(panelId: panelId)
             } else {
                 restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
             }
@@ -54,14 +44,20 @@ extension DockSplitStore {
     }
 
     func adoptSessionRestoreState(from detached: Workspace.DetachedSurfaceTransfer) {
+        invalidatedCachedTransferAgentSessionPanelIds.remove(detached.panelId)
+        replacedCachedTransferAgentSessionPanelIds.remove(detached.panelId)
         restoredAgentLifecycle.seedTransferredState(
             panelId: detached.panelId,
             snapshot: detached.restorableAgent,
             resumeState: detached.restorableAgentResumeState,
             completedGeneration: detached.restoredAgentCompletedGeneration
         )
+        managedAgentResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         if let resumeBinding = detached.resumeBinding {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
+        }
+        if let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
+            managedAgentResumeBindingsByPanelId[detached.panelId] = transferredManagedBinding
         }
         if let directory = detached.restoredResumeSessionWorkingDirectory {
             restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = directory
@@ -103,9 +99,33 @@ extension DockSplitStore {
     }
 
     private func clearAgentHookResumeBinding(panelId: UUID) {
-        if surfaceResumeBindingsByPanelId[panelId]?.isAgentHookBinding == true {
-            surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        if let binding = managedAgentResumeBinding(panelId: panelId) {
+            _ = clearSurfaceResumeBinding(
+                panelId: panelId,
+                binding: binding
+            )
         }
+    }
+
+    func markRestoredAgentCompleted(panelId: UUID) {
+        // A live completion belongs to the current session generation. Keep
+        // older cached metadata invalidated, but no longer classify this
+        // current tombstone as the cached generation that was replaced.
+        replacedCachedTransferAgentSessionPanelIds.remove(panelId)
+        let runtimeIdentities = Set(
+            (agentRuntimeByPanelId[panelId]
+                ?? detachedSurfaceTransfersByPanelId[panelId]?.agentRuntime)?
+                .agentPIDProcessIdentities.values.map { $0 } ?? []
+        )
+        restoredAgentLifecycle.markCompleted(
+            panelId: panelId,
+            observation: SharedLiveAgentIndex.shared.index?.entry(
+                workspaceId: detachedSurfaceTransfersByPanelId[panelId]?.sessionRestoreWorkspaceId
+                    ?? workspaceId,
+                panelId: panelId
+            ),
+            runtimeProcessIdentities: runtimeIdentities
+        )
     }
 
     func agentRuntimeStatusEntry(key: String, panelId: UUID) -> SidebarStatusEntry? {

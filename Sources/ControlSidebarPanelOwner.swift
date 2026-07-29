@@ -15,6 +15,23 @@ enum ControlSidebarPanelOwner {
         }
     }
 
+    func agentLifecycleRegistryScope(panelId: UUID?) -> ControlSidebarAgentLifecycleRegistryScope {
+        switch self {
+        case .workspace(let workspace):
+            let candidates = [
+                panelId.flatMap { workspace.effectivePanelDirectory(panelId: $0) },
+                workspace.focusedPanelId.flatMap { workspace.effectivePanelDirectory(panelId: $0) },
+                workspace.usesRemoteDirectoryProvenance
+                    ? workspace.presentedCurrentDirectory
+                    : workspace.currentDirectory,
+            ]
+            return .project(candidates.compactMap(Self.normalizedOptionValue).first)
+        case .dock(let dock):
+            guard let panelId else { return .project(nil) }
+            return dock.agentLifecycleRegistryScope(for: panelId)
+        }
+    }
+
     func statusEntry(key: String, panelId: UUID?) -> SidebarStatusEntry? {
         switch self {
         case .workspace(let workspace): workspace.statusEntries[key]
@@ -90,5 +107,11 @@ enum ControlSidebarPanelOwner {
                 requireOwnedKey: requireOwnedKey
             )
         }
+    }
+
+    private static func normalizedOptionValue(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

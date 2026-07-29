@@ -20,6 +20,9 @@ extension DockSplitStore {
         restoredAgentLifecycle.resumeStatesByPanelId.removeAll()
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeAll()
         surfaceResumeBindingsByPanelId.removeAll()
+        managedAgentResumeBindingsByPanelId.removeAll()
+        invalidatedCachedTransferAgentSessionPanelIds.removeAll()
+        replacedCachedTransferAgentSessionPanelIds.removeAll()
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
