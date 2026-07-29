@@ -1,11 +1,14 @@
 #include "test.hpp"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <set>
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 #include "cmux/raw/client.hpp"
 
@@ -27,13 +30,49 @@ static_assert(std::is_same_v<
               decltype(std::declval<cmux::raw::Client&>().attach_browser(
                   std::declval<const cmux::raw::AttachSurfaceRequest&>())),
               cmux::raw::Result<cmux::raw::BrowserStream>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::raw::Client&>().clear_history(
+                  std::declval<const cmux::raw::ClearHistoryRequest&>())),
+              cmux::raw::Result<cmux::raw::EmptyResult>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::raw::Client&>().new_pane_right(
+                  std::declval<const cmux::raw::NewPaneRightRequest&>())),
+              cmux::raw::Result<cmux::raw::SurfaceResult>>);
+static_assert(std::is_same_v<
+              decltype(
+                  std::declval<cmux::raw::Client&>().set_viewport_pane_width(
+                      std::declval<
+                          const cmux::raw::SetViewportPaneWidthRequest&>())),
+              cmux::raw::Result<cmux::raw::EmptyResult>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::raw::Client&>().undo_layout(
+                  std::declval<const cmux::raw::UndoLayoutRequest&>())),
+              cmux::raw::Result<cmux::raw::LayoutUndoResult>>);
+static_assert(
+    std::variant_size_v<cmux::raw::LayoutUndoResult::Variant> == 2U);
+static_assert(std::is_same_v<
+              std::variant_alternative_t<
+                  0, cmux::raw::LayoutUndoResult::Variant>,
+              cmux::raw::LayoutUndoUndone>);
+static_assert(std::is_same_v<
+              std::variant_alternative_t<
+                  1, cmux::raw::LayoutUndoResult::Variant>,
+              cmux::raw::LayoutUndoConfirmationRequired>);
 static_assert(!std::is_copy_constructible_v<cmux::raw::EventStream>);
 static_assert(std::is_move_constructible_v<cmux::raw::EventStream>);
+
+constexpr std::size_t kExpectedRawCommandCount = 87U;
+constexpr std::array<std::string_view, 4> kViewportHistoryCommandNames{
+    "clear-history",
+    "new-pane-right",
+    "set-viewport-pane-width",
+    "undo-layout",
+};
 
 TEST("generated command and event metadata is exhaustive and unique") {
     const auto commands = cmux::raw::command_metadata();
     const auto events = cmux::raw::event_metadata();
-    CHECK_EQ(commands.size(), 83U);
+    CHECK_EQ(commands.size(), kExpectedRawCommandCount);
     CHECK_EQ(events.size(), 44U);
 
     std::set<std::string_view> command_names;
@@ -62,6 +101,9 @@ TEST("generated command and event metadata is exhaustive and unique") {
     }
     CHECK_EQ(command_names.size(), commands.size());
     CHECK(checked_attach_fields);
+    for (const auto name : kViewportHistoryCommandNames) {
+        CHECK(command_names.contains(name));
+    }
 
     std::set<std::string_view> event_names;
     for (const auto& event : events) {
@@ -70,6 +112,57 @@ TEST("generated command and event metadata is exhaustive and unique") {
         event_names.insert(event.name);
     }
     CHECK_EQ(event_names.size(), events.size());
+}
+
+TEST("layout undo result variants round trip without losing their branch") {
+    cmux::raw::LayoutUndoUndone undone;
+    undone.confirmation_required = false;
+    undone.revision = std::numeric_limits<std::uint64_t>::max();
+    undone.screen = cmux::raw::Id{7};
+    cmux::raw::LayoutUndoResult undone_result{
+        cmux::raw::LayoutUndoResult::Variant(undone),
+    };
+    auto encoded_undone = cmux::raw::encode_value(undone_result);
+    CHECK(encoded_undone);
+    auto decoded_undone =
+        cmux::raw::decode_value<cmux::raw::LayoutUndoResult>(
+            encoded_undone.value());
+    CHECK(decoded_undone);
+    const auto* decoded_undone_value =
+        std::get_if<cmux::raw::LayoutUndoUndone>(
+            &decoded_undone.value().value);
+    CHECK(decoded_undone_value != nullptr);
+    CHECK_EQ(decoded_undone_value->revision, undone.revision);
+    CHECK_EQ(decoded_undone_value->screen, undone.screen);
+
+    cmux::raw::LayoutUndoConfirmationRequired confirmation;
+    confirmation.closes_panes = {
+        cmux::raw::Id{11},
+        cmux::raw::Id{12},
+    };
+    confirmation.revision = 42;
+    confirmation.screen = cmux::raw::Id{9};
+    cmux::raw::LayoutUndoResult confirmation_result{
+        cmux::raw::LayoutUndoResult::Variant(confirmation),
+    };
+    auto encoded_confirmation =
+        cmux::raw::encode_value(confirmation_result);
+    CHECK(encoded_confirmation);
+    auto decoded_confirmation =
+        cmux::raw::decode_value<cmux::raw::LayoutUndoResult>(
+            encoded_confirmation.value());
+    CHECK(decoded_confirmation);
+    const auto* decoded_confirmation_value =
+        std::get_if<cmux::raw::LayoutUndoConfirmationRequired>(
+            &decoded_confirmation.value().value);
+    CHECK(decoded_confirmation_value != nullptr);
+    CHECK_EQ(
+        decoded_confirmation_value->closes_panes,
+        confirmation.closes_panes);
+    CHECK_EQ(
+        decoded_confirmation_value->revision,
+        confirmation.revision);
+    CHECK_EQ(decoded_confirmation_value->screen, confirmation.screen);
 }
 
 TEST("generated uint64 aliases retain values above JavaScript's safe range") {
