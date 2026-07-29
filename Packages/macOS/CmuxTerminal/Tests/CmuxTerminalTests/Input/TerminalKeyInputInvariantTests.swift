@@ -154,6 +154,7 @@ import Testing
 
             let committedActions = planner.actions(for: snapshot(
                 hadMarkedText: true,
+                textInputConsumed: true,
                 committedText: [text],
                 translatedText: nil,
                 rawText: nil
@@ -185,6 +186,7 @@ import Testing
             ))
             let committedActions = planner.actions(for: snapshot(
                 hadMarkedText: true,
+                textInputConsumed: true,
                 committedText: [text],
                 translatedText: nil,
                 rawText: nil
@@ -240,7 +242,8 @@ import Testing
                     committedText,
                     translatedText: snapshot.event.translatedText
                 )
-            if snapshot.event.replaysPhysicalKeyAfterPreeditCommit ||
+            if !snapshot.textInputConsumed ||
+                snapshot.event.replaysPhysicalKeyAfterPreeditCommit ||
                 replaysDistinctCommand {
                 actions.append(.sendKey(text: nil, composing: false))
             }

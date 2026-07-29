@@ -119,6 +119,21 @@ import Testing
         #expect(!plan.forwardsPhysicalKey)
     }
 
+    @Test func unconsumedPhysicalKeyFollowsPreeditCommit() {
+        let plan = planner.plan(for: snapshot(
+            hadMarkedText: true,
+            textInputConsumed: false,
+            committedText: ["opaque"],
+            translatedText: "\r"
+        ))
+
+        #expect(plan.actions == [
+            .sendCommittedText("opaque"),
+            .sendKey(text: nil, composing: false),
+        ])
+        #expect(plan.forwardsPhysicalKey)
+    }
+
     @Test func committedPreeditTextPrecedesDelegatedCommand() {
         let actions = planner.actions(for: snapshot(
             hadMarkedText: true,
@@ -259,6 +274,7 @@ import Testing
     ) {
         let actions = planner.actions(for: snapshot(
             hadMarkedText: true,
+            textInputConsumed: true,
             committedText: [text],
             translatedText: nil
         ))
