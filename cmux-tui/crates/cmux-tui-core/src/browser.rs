@@ -8272,6 +8272,31 @@ mod tests {
     }
 
     #[test]
+    fn pointer_release_retry_supersedes_expired_lease_deadline() {
+        let now = Instant::now();
+        let retry_at = now + Duration::from_millis(250);
+        let mut press = super::ActivePointerPress::new(
+            super::BrowserPointerOwner::Legacy,
+            1,
+            1,
+            1,
+            1,
+            (1.0, 1.0),
+            Some(1),
+        );
+        press.compatibility_expires_at = Some(now - Duration::from_millis(1));
+        press.release_retry_at = Some(retry_at);
+        let mut failures = super::BrowserWorkerErrorState::default();
+        failures.active_pointer_presses.insert("left".to_string(), press);
+
+        assert_eq!(
+            super::next_pointer_lifecycle_deadline(&failures),
+            Some(retry_at),
+            "an abandoned-release retry must replace the expired compatibility deadline"
+        );
+    }
+
+    #[test]
     fn disconnected_client_pointer_capture_is_balanced() {
         let (runtime, server) = runtime_accepting_mouse_dispatches(vec!["mouseReleased"]);
         let surface = test_surface();
