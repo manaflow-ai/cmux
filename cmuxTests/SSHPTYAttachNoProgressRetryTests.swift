@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -15,29 +16,35 @@ struct SSHPTYAttachNoProgressRetryTests {
         let timedOut: Bool
     }
 
+    private struct ScenarioResult {
+        let attempts: String
+        let policyLog: String
+        let process: ProcessResult
+    }
+
     @Test("Only pre-limit no-progress attempts preserve the surface for another retry")
     func noProgressRetryBoundary() {
-        #expect(SSHPTYAttachRetryLoop.hasNoProgressRetryRemaining(currentRetry: 0, limit: 3))
-        #expect(SSHPTYAttachRetryLoop.hasNoProgressRetryRemaining(currentRetry: 1, limit: 3))
-        #expect(!SSHPTYAttachRetryLoop.hasNoProgressRetryRemaining(currentRetry: 2, limit: 3))
+        #expect(SSHPTYAttachExitCode.hasNoProgressRetryRemaining(currentRetry: 0, limit: 3))
+        #expect(SSHPTYAttachExitCode.hasNoProgressRetryRemaining(currentRetry: 1, limit: 3))
+        #expect(!SSHPTYAttachExitCode.hasNoProgressRetryRemaining(currentRetry: 2, limit: 3))
     }
 
     @Test("Output or a sustained connection proves bridge progress")
     func bridgeProgressClassification() {
         #expect(
-            SSHPTYAttachRetryLoop.bridgeClosureMadeNoProgress(
+            SSHPTYAttachExitCode.bridgeClosureMadeNoProgress(
                 receivedOutput: false,
                 bridgeUptime: 1
             )
         )
         #expect(
-            !SSHPTYAttachRetryLoop.bridgeClosureMadeNoProgress(
+            !SSHPTYAttachExitCode.bridgeClosureMadeNoProgress(
                 receivedOutput: true,
                 bridgeUptime: 1
             )
         )
         #expect(
-            !SSHPTYAttachRetryLoop.bridgeClosureMadeNoProgress(
+            !SSHPTYAttachExitCode.bridgeClosureMadeNoProgress(
                 receivedOutput: false,
                 bridgeUptime: 30
             )
@@ -46,70 +53,62 @@ struct SSHPTYAttachNoProgressRetryTests {
 
     @Test("Repeated zero-progress bridge closures stop after the health budget")
     func repeatedZeroProgressClosuresStop() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-pty-no-progress-\(UUID().uuidString)", isDirectory: true)
-        let fakeCLI = root.appendingPathComponent("cmux")
-        let fakeSleep = root.appendingPathComponent("sleep")
-        let attemptFile = root.appendingPathComponent("attempts")
-        let policyLog = root.appendingPathComponent("policy-log")
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        try Self.writeShellFile(at: fakeCLI, lines: [
-            "#!/bin/sh",
-            "case \" $* \" in",
-            "  *\" ssh-pty-attach \"*)",
-            "    count=$(cat \"$CMUX_TEST_ATTEMPT_FILE\" 2>/dev/null || printf 0)",
-            "    count=$((count + 1))",
-            "    printf '%s' \"$count\" > \"$CMUX_TEST_ATTEMPT_FILE\"",
-            "    printf '%s/%s\\n' \"${CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY:-missing}\" \"${CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT:-missing}\" >> \"$CMUX_TEST_POLICY_LOG\"",
-            "    exit 252",
-            "    ;;",
-            "  *) exit 0 ;;",
-            "esac",
-        ])
-        try Self.writeShellFile(at: fakeSleep, lines: ["#!/bin/sh", "exit 0"])
-        for executable in [fakeCLI, fakeSleep] {
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-        }
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
-        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
-        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
-        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
-        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
-        environment["CMUX_TEST_POLICY_LOG"] = policyLog.path
-        environment["CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT"] = "3"
-        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "1"
-        environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "1"
-
-        let result = Self.run(
-            command: SSHPTYAttachStartupCommandBuilder.command(sessionID: "ssh-test-session"),
-            environment: environment
+        let scenario = try Self.runNoProgressScenario(
+            namePrefix: "no-progress",
+            decisionLines: [
+                "    exit \(SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue)",
+            ]
         )
 
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 1, Comment(rawValue: result.stderr))
-        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "3")
+        #expect(!scenario.process.timedOut, Comment(rawValue: scenario.process.stderr))
+        #expect(scenario.process.status == 1, Comment(rawValue: scenario.process.stderr))
+        #expect(scenario.attempts == "3")
         #expect(
-            try String(contentsOf: policyLog, encoding: .utf8) == """
+            scenario.policyLog == """
             0/3
             1/3
             2/3
 
             """
         )
-        #expect(result.stderr.contains("made no progress after 3 attempts"), Comment(rawValue: result.stderr))
+        #expect(
+            scenario.process.stderr.contains("made no progress after 3 attempts"),
+            Comment(rawValue: scenario.process.stderr)
+        )
     }
 
     @Test("A normal retryable closure resets the no-progress streak")
     func normalRetryableClosureResetsNoProgressStreak() throws {
+        let scenario = try Self.runNoProgressScenario(
+            namePrefix: "progress-reset",
+            decisionLines: [
+                "    if [ \"$count\" -eq 2 ]; then exit \(SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue); fi",
+                "    exit \(SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue)",
+            ]
+        )
+
+        #expect(!scenario.process.timedOut, Comment(rawValue: scenario.process.stderr))
+        #expect(scenario.process.status == 1, Comment(rawValue: scenario.process.stderr))
+        #expect(scenario.attempts == "5")
+        #expect(
+            scenario.policyLog == """
+            0/3
+            1/3
+            0/3
+            1/3
+            2/3
+
+            """
+        )
+    }
+
+    private static func runNoProgressScenario(
+        namePrefix: String,
+        decisionLines: [String]
+    ) throws -> ScenarioResult {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-pty-progress-reset-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-ssh-pty-\(namePrefix)-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSleep = root.appendingPathComponent("sleep")
         let attemptFile = root.appendingPathComponent("attempts")
@@ -125,8 +124,7 @@ struct SSHPTYAttachNoProgressRetryTests {
             "    count=$((count + 1))",
             "    printf '%s' \"$count\" > \"$CMUX_TEST_ATTEMPT_FILE\"",
             "    printf '%s/%s\\n' \"${CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY:-missing}\" \"${CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT:-missing}\" >> \"$CMUX_TEST_POLICY_LOG\"",
-            "    if [ \"$count\" -eq 2 ]; then exit 254; fi",
-            "    exit 252",
+        ] + decisionLines + [
             "    ;;",
             "  *) exit 0 ;;",
             "esac",
@@ -148,23 +146,15 @@ struct SSHPTYAttachNoProgressRetryTests {
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "1"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "1"
 
-        let result = Self.run(
+        let process = Self.run(
             command: SSHPTYAttachStartupCommandBuilder.command(sessionID: "ssh-test-session"),
             environment: environment
         )
 
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 1, Comment(rawValue: result.stderr))
-        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "5")
-        #expect(
-            try String(contentsOf: policyLog, encoding: .utf8) == """
-            0/3
-            1/3
-            0/3
-            1/3
-            2/3
-
-            """
+        return ScenarioResult(
+            attempts: try String(contentsOf: attemptFile, encoding: .utf8),
+            policyLog: try String(contentsOf: policyLog, encoding: .utf8),
+            process: process
         )
     }
 

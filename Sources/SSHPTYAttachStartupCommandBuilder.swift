@@ -49,7 +49,7 @@ enum SSHPTYAttachStartupCommandBuilder {
             " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"
         } ?? ""
         let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
-        lines += SSHPTYAttachRetryLoop.lines(
+        lines += SSHPTYAttachExitCode.retryLoopLines(
             command: attachCommand,
             reauthenticates: foregroundAuth != nil
         )

@@ -12422,7 +12422,7 @@ struct CMUXCLI {
             "trap 'cmux_ssh_attach_signal_exit 129' HUP",
             "trap 'cmux_ssh_attach_signal_exit 130' INT",
             "trap 'cmux_ssh_attach_signal_exit 143' TERM",
-        ] + SSHPTYAttachRetryLoop.lines(
+        ] + SSHPTYAttachExitCode.retryLoopLines(
             command: attachCommand,
             reauthenticates: false
         )).joined(separator: "\n")

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxFoundation
 
 extension CLIError {
     init(message: String, exitCode: SSHPTYAttachExitCode) {
@@ -26,7 +27,7 @@ extension CMUXCLI {
                   limit > 0 else {
                 return false
             }
-            return SSHPTYAttachRetryLoop.hasNoProgressRetryRemaining(
+            return SSHPTYAttachExitCode.hasNoProgressRetryRemaining(
                 currentRetry: retry,
                 limit: limit
             )
@@ -43,7 +44,7 @@ extension CMUXCLI {
         guard sshPTYAttachWrapperRetryPending(),
               environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY"] != nil,
               environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT"] != nil,
-              SSHPTYAttachRetryLoop.bridgeClosureMadeNoProgress(
+              SSHPTYAttachExitCode.bridgeClosureMadeNoProgress(
                   receivedOutput: receivedOutput,
                   bridgeUptime: bridgeUptime
               ) else {
