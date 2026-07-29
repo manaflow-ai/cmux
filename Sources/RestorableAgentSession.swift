@@ -25,10 +25,17 @@ enum TerminalStartupShellQuoting {
     }
 
     private static func asciiPrintfCommandSubstitution(for value: String) -> String {
-        let octalBytes = value.utf8
-            .map { String(format: #"\%03o"#, Int($0)) }
-            .joined()
-        return #""$(printf '"# + octalBytes + #"')""#
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(value.utf8.count * 4 + 16)
+        bytes.append(contentsOf: #""$(printf '"#.utf8)
+        for byte in value.utf8 {
+            bytes.append(0x5C)
+            bytes.append(0x30 + ((byte >> 6) & 0x07))
+            bytes.append(0x30 + ((byte >> 3) & 0x07))
+            bytes.append(0x30 + (byte & 0x07))
+        }
+        bytes.append(contentsOf: #"')""#.utf8)
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 
