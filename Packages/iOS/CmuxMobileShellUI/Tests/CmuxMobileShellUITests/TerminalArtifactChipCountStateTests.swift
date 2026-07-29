@@ -51,10 +51,13 @@ struct TerminalArtifactChipCountStateTests {
         #expect(state.complete(
             first,
             sessionTotal: 12,
+            sessionID: "session-a",
             currentSurfaceGeneration: 7,
             freshestLocalCount: 3
         ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
 
+        // Production-shaped failure: the scan explicitly did NOT succeed, so
+        // neither the no-session clearing branch nor the success path runs.
         let second = try request(from: state.trigger(
             localCount: 1,
             surfaceGeneration: 7,
@@ -63,9 +66,45 @@ struct TerminalArtifactChipCountStateTests {
         #expect(state.complete(
             second,
             sessionTotal: nil,
+            sessionID: nil,
+            scanSucceeded: false,
             currentSurfaceGeneration: 7,
             freshestLocalCount: 1
         ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+    }
+
+    @Test("a successful response with no session clears the held total")
+    func successfulNoSessionResponseClearsHeldTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            first,
+            sessionTotal: 12,
+            sessionID: "session-a",
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+
+        // The session moved off this surface: the scan SUCCEEDS but resolves
+        // no session. Unlike a transport failure, this proves the binding is
+        // gone, so the held 12 must yield to the local count.
+        let second = try request(from: state.trigger(
+            localCount: 2,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            second,
+            sessionTotal: nil,
+            sessionID: nil,
+            scanSucceeded: true,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 2
+        ).outcome == .reported(.init(count: 2, surfaceGeneration: 7)))
     }
 
     @Test("session-count triggers report the local count immediately and refine async")
