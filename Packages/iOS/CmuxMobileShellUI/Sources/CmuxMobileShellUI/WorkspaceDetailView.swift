@@ -288,26 +288,6 @@ struct WorkspaceDetailView: View {
                 ) { reconnectToWorkspaceMac() }
             }
         }
-        .onChange(
-            of: ConnectionStatusChange(workspaceID: workspace.id, status: connectionStatus),
-            initial: true
-        ) { previous, current in
-            // Split layout reuses this view across selection changes, so a
-            // cross-workspace status diff is a selection, not a recovery;
-            // treat it like an initial attach.
-            let previousStatus = previous.workspaceID == current.workspaceID
-                ? previous.status
-                : current.status
-            presentConnectionStatusToast(from: previousStatus, to: current.status)
-        }
-        .onChange(of: toasts.isEnabled) { _, isEnabled in
-            // Flipping the flag doesn't re-fire the status onChange, so a
-            // workspace that is already disconnected when Toasts turns on
-            // would otherwise show only the pill.
-            if isEnabled {
-                presentConnectionStatusToast(from: connectionStatus, to: connectionStatus)
-            }
-        }
         #if os(iOS) && DEBUG
         // DEBUG/UI-test-only store-side composer probe.
         .overlay {
@@ -366,41 +346,6 @@ struct WorkspaceDetailView: View {
                 return
             }
             await store.reconnectOrRefresh()
-        }
-    }
-
-    private struct ConnectionStatusChange: Equatable {
-        var workspaceID: MobileWorkspacePreview.ID
-        var status: MobileMacConnectionStatus
-    }
-
-    private func presentConnectionStatusToast(
-        from previous: MobileMacConnectionStatus,
-        to status: MobileMacConnectionStatus
-    ) {
-        guard toasts.isEnabled else { return }
-        // While reauth is required, the recovery overlay owns the
-        // never-dismissing account-mismatch toast on the same coalescing key.
-        // A transient status toast would replace it and then auto-dismiss,
-        // losing the persistent sign-out affordance.
-        guard !store.connectionRequiresReauth else { return }
-        switch status {
-        case .unavailable:
-            toasts.present(.connectionUnavailable {
-                reconnectToWorkspaceMac()
-            })
-        case .reconnecting:
-            toasts.present(.connectionReconnecting())
-        case .connected:
-            // A workspace-scoped recovery (markMacConnectionHealthy on an
-            // existing client) reaches .connected with no connectionState
-            // transition, so the shell's observer never fires for it. Present
-            // the success toast here for a genuine recovery; on the initial
-            // fire previous == status, so mounting stays silent. Presenting
-            // (never bare-dismissing) can't kill the shell's success toast:
-            // same coalescing key means the later present replaces in place.
-            guard previous != .connected else { break }
-            toasts.present(.connectionReconnected())
         }
     }
 

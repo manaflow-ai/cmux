@@ -169,17 +169,14 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
-    @Environment(ToastCenter.self) var toasts
     /// Legacy fallback while the Toasts beta flag is off: the old dismissible
     /// bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
+    @Environment(ToastCenter.self) var toasts
     @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
-    /// True once this shell has held a live connection, so only genuine
-    /// reconnections toast (the expected first attach stays silent).
-    @State private var hasHeldConnection = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -330,16 +327,7 @@ struct WorkspaceShellView: View {
             )
         }
         #endif
-        // `initial: true` primes `hasHeldConnection` when the view mounts
-        // already connected, so the first genuine reconnect still toasts.
-        .onChange(of: store.connectionState, initial: true) { _, state in
-            guard state == .connected else { return }
-            toasts.dismiss(coalescingKey: Toast.connectionStatusKey)
-            if hasHeldConnection {
-                toasts.present(.connectionReconnected())
-            }
-            hasHeldConnection = true
-        }
+        .connectionStatusToastPresenter(store: store)
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 

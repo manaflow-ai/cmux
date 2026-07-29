@@ -1,3 +1,4 @@
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileToast
 
@@ -48,29 +49,6 @@ extension Toast {
         )
     }
 
-    static func connectionReauthRequired(
-        message: String?,
-        signOut: (@MainActor @Sendable () -> Void)?
-    ) -> Toast {
-        .failure(
-            message ?? L10n.string(
-                "mobile.recovery.accountMismatch",
-                defaultValue: "This computer is signed in to a different cmux account. Sign out and sign back in with that account."
-            ),
-            autoDismiss: .never,
-            action: signOut.map { signOut in
-                Toast.Action(
-                    label: L10n.string(
-                        "mobile.recovery.switchAccount",
-                        defaultValue: "Sign Out & Switch Account"
-                    ),
-                    handler: signOut
-                )
-            },
-            coalescingKey: Self.connectionStatusKey
-        )
-    }
-
     static func connectionReconnected() -> Toast {
         .success(
             L10n.string(
@@ -82,27 +60,93 @@ extension Toast {
     }
 }
 
-enum ConnectionRecoveryToastPhase: Equatable {
-    case reauth(message: String?)
+/// One display state for the connection-status capsule, derived from the
+/// authoritative store signals. Recovery flags outrank the workspace status
+/// because a same-client probe (`markMacConnectionReconnecting` /
+/// `markMacConnectionHealthy`) can cycle while both the transport state and
+/// the workspace's Mac status stay `.connected`.
+enum ConnectionStatusDisplayState: Equatable {
+    /// Reauth is a blocking action with a durable banner surface; the
+    /// transient capsule stays clear while it is active.
+    case suppressed
     case lost
-    case recovering
-    case idle
+    case reconnecting
+    case unavailable
+    case connected
 
     static func derive(
         requiresReauth: Bool,
         recoveryFailed: Bool,
         isRecovering: Bool,
-        connectionError: String?
+        connectionState: MobileConnectionState,
+        workspaceStatus: MobileMacConnectionStatus
     ) -> Self {
         if requiresReauth {
-            return .reauth(message: connectionError)
+            return .suppressed
         }
         if recoveryFailed {
             return .lost
         }
         if isRecovering {
-            return .recovering
+            return .reconnecting
         }
-        return .idle
+        guard connectionState == .connected else {
+            return .unavailable
+        }
+        switch workspaceStatus {
+        case .unavailable:
+            return .unavailable
+        case .reconnecting:
+            return .reconnecting
+        case .connected:
+            return .connected
+        }
+    }
+}
+
+/// What the capsule should reflect, scoped to the workspace whose status
+/// produced it so cross-workspace selection changes never read as recovery.
+struct ConnectionStatusSnapshot: Equatable {
+    var workspaceID: MobileWorkspacePreview.ID?
+    var display: ConnectionStatusDisplayState
+}
+
+/// The single presentation decision for a snapshot transition.
+enum ConnectionStatusToastTransition: Equatable {
+    case none
+    case dismiss
+    case unavailable
+    case reconnecting
+    case lost
+    case reconnected
+
+    static func decide(
+        from previous: ConnectionStatusSnapshot,
+        to current: ConnectionStatusSnapshot
+    ) -> Self {
+        switch current.display {
+        case .suppressed:
+            // The durable reauth banner takes over the surface.
+            return .dismiss
+        case .lost:
+            return .lost
+        case .reconnecting:
+            return .reconnecting
+        case .unavailable:
+            return .unavailable
+        case .connected:
+            guard previous.workspaceID == current.workspaceID else {
+                // Selecting a healthy workspace is not a recovery, but a
+                // lingering toast for the previous workspace would keep a
+                // Reconnect action aimed at the wrong Mac.
+                return .dismiss
+            }
+            switch previous.display {
+            case .lost, .reconnecting, .unavailable:
+                return .reconnected
+            case .connected, .suppressed:
+                return .none
+            }
+        }
     }
 }
