@@ -61,7 +61,7 @@ struct ClaudeTeamsLaunchOptionTests {
     func recognizesManagementCommands() {
         let classifier = AgentLaunchInvocationClassifier()
         for command in [
-            "auth", "auto-mode", "doctor", "gateway", "import", "install", "kill", "logs", "mcp",
+            "auth", "auto-mode", "doctor", "gateway", "install", "kill", "logs", "mcp",
             "plugin", "plugins", "project", "rm", "setup-token", "stop", "update", "upgrade",
         ] {
             #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: [command]))
@@ -71,7 +71,6 @@ struct ClaudeTeamsLaunchOptionTests {
             args: ["--tmux", "classic", "auth"]
         ))
         #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["logs", "session-id"]))
-        #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["import", "codex", "--dry-run"]))
         for subcommand in ["logs", "status", "stop", "uninstall"] {
             #expect(classifier.claudeTeamsLaunchIsManagementCommand(args: ["daemon", subcommand]))
         }
@@ -110,6 +109,8 @@ struct ClaudeTeamsLaunchOptionTests {
             ["config"],
             ["rc"],
             ["remote-control"],
+            ["import"],
+            ["import", "codex", "--dry-run"],
             ["ultrareview"],
         ]
         for args in launches {

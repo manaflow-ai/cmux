@@ -10,7 +10,7 @@ func TestAgentLaunchNonLaunchClassification(t *testing.T) {
 		want       bool
 	}{
 		{"claude management", claudeTeamsLaunchIsNonLaunch, []string{"--verbose", "auth"}, true},
-		{"claude import dry run", claudeTeamsLaunchIsNonLaunch, []string{"import", "codex", "--dry-run"}, true},
+		{"claude import starts a session", claudeTeamsLaunchIsNonLaunch, []string{"import", "codex", "--dry-run"}, false},
 		{"claude background management", claudeTeamsLaunchIsNonLaunch, []string{"logs", "session-id"}, true},
 		{"claude daemon status", claudeTeamsLaunchIsNonLaunch, []string{"daemon", "status"}, true},
 		{"claude daemon stop with config", claudeTeamsLaunchIsNonLaunch, []string{"daemon", "--json-path", "/tmp/daemon.json", "stop", "--any"}, true},
