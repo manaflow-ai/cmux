@@ -876,6 +876,99 @@ def verify_clear_handoff_outlives_session_end_budget(cli_path: str) -> None:
             )
 
 
+def verify_repeated_clear_end_does_not_retire_replacement(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    old_session_id = f"repeated-old-{uuid.uuid4().hex}"
+    clear_session_id = f"repeated-clear-{uuid.uuid4().hex}"
+
+    with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
+        state_path = Path(server.root.name) / "repeated-clear-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": old_session_id, "turn_id": "turn-1", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": old_session_id,
+                "turn_id": "turn-1",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work continues",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": clear_session_id, "source": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        # Claude can deliver a repeated or late SessionEnd for the retired ID.
+        # It must not fall back to the replacement session on the same surface.
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {"session_id": old_session_id, "reason": "clear", "cwd": "/tmp"},
+            env,
+        )
+
+        state = json.loads(state_path.read_text())
+        clear_record = state.get("sessions", {}).get(clear_session_id)
+        if clear_record is None:
+            raise RuntimeError(
+                "A repeated clear end retired the replacement session:\n"
+                f"state={state!r}"
+            )
+        if clear_record.get("agentLifecycle") != "running":
+            raise RuntimeError(
+                "A repeated clear end changed the replacement lifecycle:\n"
+                f"clear_record={clear_record!r}"
+            )
+
+        prompt_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": clear_session_id,
+                "turn_id": "turn-2",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        prompt_commands = server.commands[prompt_start:]
+        if not has_command_with(
+            prompt_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "The repeated clear end tombstoned the replacement session:\n"
+                f"prompt_commands={prompt_commands!r}"
+            )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -1077,6 +1170,7 @@ def main() -> int:
         verify_guessed_surface_does_not_consume_clear_handoff(cli_path)
         verify_stale_clear_start_preserves_handoff(cli_path)
         verify_clear_handoff_outlives_session_end_budget(cli_path)
+        verify_repeated_clear_end_does_not_retire_replacement(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
