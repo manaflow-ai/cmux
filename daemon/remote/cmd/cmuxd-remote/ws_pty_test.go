@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -122,9 +123,12 @@ func TestAttachRPCStalledSessionStartDoesNotBlockHealthyReattach(t *testing.T) {
 	openPTY := hub.openPTY
 	startEntered := make(chan struct{})
 	releaseStart := make(chan struct{})
+	var startCount atomic.Int32
 	hub.openPTY = func() (*os.File, *os.File, error) {
-		close(startEntered)
-		<-releaseStart
+		if startCount.Add(1) == 1 {
+			close(startEntered)
+			<-releaseStart
+		}
 		return openPTY()
 	}
 
@@ -180,9 +184,172 @@ func TestAttachRPCStalledSessionStartDoesNotBlockHealthyReattach(t *testing.T) {
 		t.Fatal("healthy reattach blocked behind another session's stalled PTY allocation")
 	}
 
+	independentResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			context.Background(),
+			"independent-session",
+			"independent-attachment",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		independentResult <- err
+	}()
+	select {
+	case err := <-independentResult:
+		if err != nil {
+			close(releaseStart)
+			<-stalledResult
+			t.Fatalf("start independent session: %v", err)
+		}
+	case <-time.After(time.Second):
+		close(releaseStart)
+		<-stalledResult
+		<-independentResult
+		t.Fatal("independent session start blocked behind another session's stalled PTY allocation")
+	}
+
 	close(releaseStart)
 	if err := <-stalledResult; err != nil {
 		t.Fatalf("finish formerly stalled session start: %v", err)
+	}
+}
+
+func TestAttachRPCConcurrentSameSessionStartsOnce(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{}, 2)
+	releaseStart := make(chan struct{})
+	var startCount atomic.Int32
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		startCount.Add(1)
+		startEntered <- struct{}{}
+		<-releaseStart
+		return openPTY()
+	}
+
+	attach := func(attachmentID string) <-chan error {
+		result := make(chan error, 1)
+		go func() {
+			_, _, _, err := hub.attachRPC(
+				context.Background(),
+				"shared-session",
+				attachmentID,
+				80,
+				24,
+				"sleep 30",
+				"",
+				false,
+				false,
+			)
+			result <- err
+		}()
+		return result
+	}
+
+	firstResult := attach("first-attachment")
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first attach never attempted PTY allocation")
+	}
+	secondResult := attach("second-attachment")
+	close(releaseStart)
+
+	if err := <-firstResult; err != nil {
+		t.Fatalf("first attach: %v", err)
+	}
+	if err := <-secondResult; err != nil {
+		t.Fatalf("second attach: %v", err)
+	}
+	if got := startCount.Load(); got != 1 {
+		t.Fatalf("PTY start count = %d, want 1 for concurrent attaches to one session", got)
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey("shared-session")]
+	pendingStarts := len(hub.startingSessions)
+	attachmentCount := 0
+	if session != nil {
+		attachmentCount = len(session.attachments)
+	}
+	hub.mu.Unlock()
+	if pendingStarts != 0 {
+		t.Fatalf("pending session starts = %d, want 0 after successful start", pendingStarts)
+	}
+	if attachmentCount != 2 {
+		t.Fatalf("shared session attachments = %d, want 2", attachmentCount)
+	}
+}
+
+func TestCloseAllDoesNotWaitForStalledSessionStart(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	attachResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			context.Background(),
+			"closing-session",
+			"closing-attachment",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		attachResult <- err
+	}()
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("session start never attempted PTY allocation")
+	}
+
+	closeDone := make(chan struct{})
+	go func() {
+		hub.closeAll()
+		close(closeDone)
+	}()
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		close(releaseStart)
+		<-attachResult
+		t.Fatal("closeAll blocked behind a stalled session start")
+	}
+
+	close(releaseStart)
+	err := <-attachResult
+	if !errors.Is(err, errWSPTYHubClosed) {
+		t.Fatalf("attach after closeAll error = %v, want PTY hub closed", err)
+	}
+
+	hub.mu.Lock()
+	sessionCount := len(hub.sessions)
+	pendingStarts := len(hub.startingSessions)
+	hub.mu.Unlock()
+	if sessionCount != 0 {
+		t.Fatalf("published sessions after closeAll = %d, want 0", sessionCount)
+	}
+	if pendingStarts != 0 {
+		t.Fatalf("pending session starts after completion = %d, want 0", pendingStarts)
 	}
 }
 
@@ -549,7 +716,7 @@ func TestWebSocketPTYPersistentInteractiveBashChildSurvivesHangup(t *testing.T) 
 		hub.mu.Lock()
 		defer hub.mu.Unlock()
 		startupCommand := `/bin/true; if [ -n "${CMUX_PERSISTENT_PTY_EXEC_HELPER:-}" ]; then exec "$CMUX_PERSISTENT_PTY_EXEC_HELPER" --internal-persistent-pty-exec /bin/bash /bin/bash --noprofile --norc -i; fi; exec /bin/bash --noprofile --norc -i`
-		session, err := hub.startSessionLocked(
+		session, err := hub.startSession(
 			persistentPTYSessionKey(sessionID),
 			sessionID,
 			80,
@@ -560,6 +727,7 @@ func TestWebSocketPTYPersistentInteractiveBashChildSurvivesHangup(t *testing.T) 
 			return err
 		}
 		hub.sessions[session.key] = session
+		hub.runSession(session)
 		return nil
 	}(); err != nil {
 		t.Fatalf("start persistent interactive Bash session: %v", err)
