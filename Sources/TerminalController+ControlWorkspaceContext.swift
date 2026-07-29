@@ -143,20 +143,22 @@ extension TerminalController: ControlWorkspaceContext {
         windowID: UUID,
         focusRequested: Bool
     ) -> ControlWorkspaceMoveToWindowResolution {
-        guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else {
+        guard let app = AppDelegate.shared else {
             return .workspaceNotFound
         }
-        guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowID) else {
+        guard app.tabManagerFor(tabId: workspaceID) != nil else {
+            return .workspaceNotFound
+        }
+        guard app.tabManagerFor(windowId: windowID) != nil else {
             return .windowNotFound
         }
-        guard let ws = srcTM.detachWorkspace(tabId: workspaceID) else {
-            return .workspaceNotFound
-        }
         let focus = v2FocusAllowed(requested: focusRequested)
-        dstTM.attachWorkspace(ws, select: focus)
-        if focus {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
-            setActiveTabManager(dstTM)
+        guard app.moveWorkspaceToWindow(
+            workspaceId: workspaceID,
+            windowId: windowID,
+            focus: focus
+        ) else {
+            return focus ? .windowNotFound : .workspaceNotFound
         }
         return .resolved
     }

@@ -12046,18 +12046,11 @@ class TerminalController {
         var ok = false
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
-                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
-                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
-                ok = false
-                return
-            }
-            dstTM.attachWorkspace(ws, select: focus)
-            if focus {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(dstTM)
-            }
-            ok = true
+            ok = AppDelegate.shared?.moveWorkspaceToWindow(
+                workspaceId: wsId,
+                windowId: windowId,
+                focus: focus
+            ) ?? false
         }
 
         return ok ? "OK" : "ERROR: Move failed"

@@ -4826,7 +4826,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
         return orderedSummaries.compactMap { summary in
-            guard let manager = tabManagerFor(windowId: summary.windowId) else { return nil }
+            guard let manager = registeredMainWindowTabManager(windowId: summary.windowId) else { return nil }
             let label = labels[summary.windowId] ?? "Window"
             return WindowMoveTarget(
                 windowId: summary.windowId,
@@ -4847,7 +4847,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         })
 
         for summary in orderedSummaries {
-            guard let manager = tabManagerFor(windowId: summary.windowId) else { continue }
+            guard let manager = registeredMainWindowTabManager(windowId: summary.windowId) else { continue }
             let windowLabel = labels[summary.windowId] ?? "Window"
             let isCurrentWindow = summary.windowId == referenceWindowId
             for workspace in manager.tabs {
@@ -4876,11 +4876,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let destinationManager = tabManagerFor(windowId: windowId) else {
             return false
         }
+        if focus, !focusMainWindow(windowId: windowId) {
+            return false
+        }
 
         if sourceManager === destinationManager {
             if focus {
                 destinationManager.focusTab(workspaceId, suppressFlash: true)
-                _ = focusMainWindow(windowId: windowId)
                 TerminalController.shared.setActiveTabManager(destinationManager)
             }
             return true
@@ -4890,7 +4892,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         destinationManager.attachWorkspace(workspace, at: atIndex, select: focus)
 
         if focus {
-            _ = focusMainWindow(windowId: windowId)
             TerminalController.shared.setActiveTabManager(destinationManager)
         }
         return true
