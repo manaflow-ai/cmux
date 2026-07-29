@@ -1917,7 +1917,6 @@ impl Terminal {
         }
         self.ensure_history_anchor();
         let previous_history_rows = self.scrollback_rows();
-        let previous_graphics_generation = kitty::generation(self).unwrap_or(0);
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
         if self.mouse_mode_scan.feed(&normalized) {
@@ -1931,13 +1930,9 @@ impl Terminal {
         self.color_overrides.write(&normalized);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         let history_rows = self.scrollback_rows();
-        let graphics_generation = kitty::generation(self).unwrap_or(0);
         let history_anchor_evicted = !self.history_anchor.is_null()
             && !unsafe { sys::ghostty_tracked_grid_ref_has_value(self.history_anchor) };
-        if previous_history_rows != history_rows
-            || previous_graphics_generation != graphics_generation
-            || history_anchor_missing
-            || history_anchor_evicted
+        if previous_history_rows != history_rows || history_anchor_missing || history_anchor_evicted
         {
             self.bump_history_epoch();
         }
@@ -4076,16 +4071,6 @@ mod tests {
         assert!(after_output > initial);
         assert!(after_resize > after_output);
         assert_ne!(second.history_epoch(), after_resize);
-    }
-
-    #[test]
-    fn history_epoch_changes_for_kitty_anchor_mutations() {
-        let mut terminal = Terminal::new(8, 2, 1_000, Callbacks::default()).unwrap();
-        let initial = terminal.history_epoch();
-
-        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=8,p=1,s=1,v=1,c=1,r=1,C=1,q=2;/wAA\x1b\\");
-
-        assert!(terminal.history_epoch() > initial);
     }
 
     #[test]
