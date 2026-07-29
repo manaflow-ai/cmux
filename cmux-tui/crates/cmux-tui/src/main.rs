@@ -1579,9 +1579,36 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn failed_server_publication_preserves_live_socket() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let socket_dir =
+            std::env::temp_dir().join(format!("cg-publish-{}-{suffix:x}", std::process::id()));
+        std::fs::create_dir(&socket_dir).unwrap();
+        let socket_path = socket_dir.join("server.sock");
+        let existing = UnixListener::bind(&socket_path).unwrap();
+        let mux = Mux::new("server-publication-test", SurfaceOptions::default());
+        let guard = ServerProcessShutdownGuard::start(&mux, socket_path.clone()).unwrap();
+
+        assert!(cmux_tui_core::server::serve(mux, Some(socket_path.clone())).is_err());
+        guard.shutdown();
+        guard.complete();
+
+        let client = UnixStream::connect(&socket_path)
+            .expect("failed publication cleanup unlinked the live server socket");
+        drop(client);
+        drop(existing);
+        cmux_tui_core::server::cleanup(&socket_path);
+        std::fs::remove_dir(socket_dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn completed_server_guard_never_unlinks_a_replacement_socket() {
         use std::os::unix::net::{UnixListener, UnixStream};
-        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        use std::time::{SystemTime, UNIX_EPOCH};
 
         let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let socket_path =
@@ -1592,13 +1619,7 @@ mod tests {
         let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
         cleanup.state.lock().unwrap().complete = true;
         let (completion, completed) = std::sync::mpsc::channel();
-        let (replacement_tx, replacement_rx) = std::sync::mpsc::sync_channel(1);
-        let replacement_path = socket_path.clone();
-        let worker = std::thread::spawn(move || {
-            completed.recv().unwrap();
-            let replacement = UnixListener::bind(&replacement_path).unwrap();
-            replacement_tx.send(replacement).unwrap();
-        });
+        let worker = std::thread::spawn(move || completed.recv().unwrap());
         let guard = ServerProcessShutdownGuard {
             socket_path: socket_path.clone(),
             shutdown_watch,
@@ -1606,10 +1627,11 @@ mod tests {
             completion: Some(completion),
             worker: Some(worker),
         };
+        std::fs::remove_file(&socket_path).unwrap();
+        let replacement = UnixListener::bind(&socket_path).unwrap();
 
         guard.complete();
 
-        let replacement = replacement_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         let client = UnixStream::connect(&socket_path)
             .expect("guard completion unlinked the replacement server socket");
         drop(client);
