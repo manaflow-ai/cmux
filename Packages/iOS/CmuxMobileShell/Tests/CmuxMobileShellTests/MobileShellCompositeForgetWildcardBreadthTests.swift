@@ -153,6 +153,80 @@ private final class WildcardRecordingForget: MobileIrohMacForgetting {
         #expect(remaining.contains { $0.macDeviceID == "mac-a" && $0.instanceTag == nil })
     }
 
+    /// A wildcard forget's cleanup must be BATCHED: delete every row first,
+    /// then refresh the paired list (and with it the backup restore) ONCE.
+    /// Refreshing per deleted row re-runs the backup restore fetch for every
+    /// sibling — a device can hold up to the discovery snapshot's 256 bindings,
+    /// so per-row refreshes turn one forget into hundreds of sequential network
+    /// round-trips while the row stays busy.
+    @Test func wildcardForgetRefreshesOnceNotPerSibling() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // Three tagged siblings plus one untagged row of the same device, seeded
+        // raw so no upload traffic muddies the fetch counting. Tagged rows are
+        // seeded FIRST: a tagged upsert CLAIMS an existing untagged row of the
+        // same device, but an untagged upsert never claims a tagged row, so this
+        // order leaves all four rows coexisting.
+        for (index, tag) in ["one", "two", "three"].enumerated() {
+            try await base.upsert(
+                macDeviceID: "mac-a",
+                displayName: "Desk Mac (\(tag))",
+                routes: [try Self.route("100.82.214.11\(index + 3)")],
+                instanceTag: tag,
+                markActive: false,
+                stackUserID: "user-1",
+                teamID: nil,
+                now: Date(timeIntervalSince1970: TimeInterval(index + 1))
+            )
+        }
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 4)
+        )
+        let backup = FakeBackup()
+        let backingUp = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { nil }
+        )
+        let forget = WildcardRecordingForget()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: backingUp,
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { nil },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == nil
+        })
+        let fetchesBefore = await backup.fetches()
+
+        let ok = await store.forgetHiddenComputer(hidden)
+
+        #expect(ok)
+        // Every row of the device is gone (breadth), and the whole cleanup
+        // triggered at most ONE list refresh's backup restore, not one per row.
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+        #expect(await backup.fetches() - fetchesBefore <= 1)
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }

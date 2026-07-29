@@ -85,7 +85,13 @@ actor FakeBackup: PairedMacBackingUp {
             failNextFetches -= 1
             return nil
         }
-        return PairedMacBackupSnapshot(records: records, deletedMacDeviceIDs: deletedMacDeviceIDs)
+        return PairedMacBackupSnapshot(
+            records: records,
+            deletedMacDeviceIDs: deletedMacDeviceIDs,
+            // Mirror the worker's echo of its verified resolved team on the
+            // restore read too, matching uploadReportingResolvedTeam.
+            resolvedTeamID: echoedResolvedTeamID ?? teamID
+        )
     }
 
     func uploadedOps() -> [PairedMacBackupOp] { uploaded }
