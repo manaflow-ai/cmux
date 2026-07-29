@@ -1377,6 +1377,65 @@ func TestStdioRPCAsyncAttachWriteFailureInterruptsReadLoop(t *testing.T) {
 	}
 }
 
+func TestPTYAttachmentPumpCancellationDropsHubAttachment(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:          "/bin/sh",
+		SessionIdleTTL: time.Hour,
+	}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	attachment, attachmentCtx, sessionDone, err := hub.attachRPC(
+		ctx,
+		"pump-canceled-session",
+		"pump-canceled-attachment",
+		80,
+		24,
+		"sleep 30",
+		"",
+		false,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("attach PTY: %v", err)
+	}
+	server := &rpcServer{
+		ptyHub:      hub,
+		frameWriter: &stdioFrameWriter{writer: bufio.NewWriter(io.Discard)},
+	}
+	if !server.trackPTYAttachment(attachment) {
+		t.Fatal("track PTY attachment")
+	}
+	pumpDone := make(chan struct{})
+	go func() {
+		server.ptyAttachmentPump(attachmentCtx, attachment, sessionDone)
+		close(pumpDone)
+	}()
+
+	cancel()
+	select {
+	case <-pumpDone:
+	case <-time.After(time.Second):
+		t.Fatal("PTY attachment pump did not stop after context cancellation")
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey("pump-canceled-session")]
+	attachmentCount := 0
+	hasIdleTimer := false
+	if session != nil {
+		attachmentCount = len(session.attachments)
+		hasIdleTimer = session.idleTimer != nil
+	}
+	hub.mu.Unlock()
+	if attachmentCount != 0 {
+		t.Fatalf("hub attachments after pump cancellation = %d, want 0", attachmentCount)
+	}
+	if !hasIdleTimer {
+		t.Fatal("pump cancellation did not schedule the empty session for idle reaping")
+	}
+}
+
 func TestPersistentStdioProxyReturnsWhenDaemonClosesFirst(t *testing.T) {
 	client, server := net.Pipe()
 	stdinReader, stdinWriter := io.Pipe()

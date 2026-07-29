@@ -50497,7 +50497,24 @@
         }
       }
     },
-    "cli.sshPtyAttach.noProgressRetryLimitReached": {
+    "cli.sshPtyAttach.noProgressRetryLimitReached.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge made no progress after %s attempt; stopping retries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジは %s 回試行しても進行しなかったため、再試行を停止します。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.noProgressRetryLimitReached.other": {
       "extractionState": "manual",
       "localizations": {
         "en": {

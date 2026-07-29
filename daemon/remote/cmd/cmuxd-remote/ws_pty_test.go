@@ -41,6 +41,22 @@ func (c doneObservedContext) Done() <-chan struct{} {
 	return c.Context.Done()
 }
 
+type cancelAfterFirstErrContext struct {
+	context.Context
+	cancel context.CancelFunc
+	calls  atomic.Int32
+}
+
+func (c *cancelAfterFirstErrContext) Err() error {
+	if err := c.Context.Err(); err != nil {
+		return err
+	}
+	if c.calls.Add(1) == 1 {
+		c.cancel()
+	}
+	return nil
+}
+
 func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server, *wsPTYHub) {
 	t.Helper()
 	stderr := &bytes.Buffer{}
@@ -317,6 +333,129 @@ func TestAttachRPCConcurrentSameSessionStartsOnce(t *testing.T) {
 	}
 	if attachmentCount != 2 {
 		t.Fatalf("shared session attachments = %d, want 2", attachmentCount)
+	}
+}
+
+func TestAttachRPCSharedStartSurvivesOwnerCancellation(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	ownerCtx, cancelOwner := context.WithCancel(context.Background())
+	ownerResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			ownerCtx,
+			"owner-canceled-session",
+			"owner",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		ownerResult <- err
+	}()
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("start owner never attempted PTY allocation")
+	}
+
+	waiterJoined := make(chan struct{}, 1)
+	waiterResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			doneObservedContext{Context: context.Background(), observed: waiterJoined},
+			"owner-canceled-session",
+			"waiter",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		waiterResult <- err
+	}()
+	select {
+	case <-waiterJoined:
+	case <-time.After(time.Second):
+		close(releaseStart)
+		t.Fatal("live waiter did not join the owner's in-flight start")
+	}
+
+	cancelOwner()
+	close(releaseStart)
+	if err := <-ownerResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled start owner error = %v, want context canceled", err)
+	}
+	if err := <-waiterResult; err != nil {
+		t.Fatalf("live waiter failed after start owner cancellation: %v", err)
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey("owner-canceled-session")]
+	attachmentCount := 0
+	if session != nil {
+		attachmentCount = len(session.attachments)
+	}
+	hub.mu.Unlock()
+	if attachmentCount != 1 {
+		t.Fatalf("shared session attachments = %d, want live waiter only", attachmentCount)
+	}
+}
+
+func TestAttachRPCLateCancellationSchedulesPublishedSessionReap(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:          "/bin/sh",
+		SessionIdleTTL: time.Hour,
+	}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	baseCtx, cancel := context.WithCancel(context.Background())
+	ctx := &cancelAfterFirstErrContext{Context: baseCtx, cancel: cancel}
+	_, _, _, err := hub.attachRPC(
+		ctx,
+		"late-canceled-session",
+		"late-canceled-attachment",
+		80,
+		24,
+		"sleep 30",
+		"",
+		false,
+		false,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("late-canceled attach error = %v, want context canceled", err)
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey("late-canceled-session")]
+	attachmentCount := 0
+	hasIdleTimer := false
+	if session != nil {
+		attachmentCount = len(session.attachments)
+		hasIdleTimer = session.idleTimer != nil
+	}
+	hub.mu.Unlock()
+	if session == nil {
+		t.Fatal("late-canceled published session was not retained for idle reaping")
+	}
+	if attachmentCount != 0 {
+		t.Fatalf("late-canceled session attachments = %d, want 0", attachmentCount)
+	}
+	if !hasIdleTimer {
+		t.Fatal("late-canceled published session has no idle reap timer")
 	}
 }
 

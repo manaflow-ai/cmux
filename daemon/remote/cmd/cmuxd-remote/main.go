@@ -384,9 +384,12 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 		ownsPTYHub:    ownsPTYHub,
 		frameWriter:   writer,
 	}
-	defer server.closeAll()
 	connectionCtx, cancelConnection := context.WithCancel(context.Background())
-	defer cancelConnection()
+	defer func() {
+		cancelConnection()
+		server.closeAll()
+		_ = writer.flush()
+	}()
 	interruptRead := func() {
 		if closer, ok := stdin.(io.Closer); ok {
 			_ = closer.Close()
@@ -395,7 +398,6 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 	dispatcher := newRPCRequestDispatcher(connectionCtx, cancelConnection, interruptRead, server)
 
 	reader := bufio.NewReaderSize(stdin, 64*1024)
-	defer writer.flush()
 
 	for {
 		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
@@ -1314,11 +1316,13 @@ func runRPCServerWithReader(
 		ownsPTYHub:    ownsPTYHub,
 		frameWriter:   writer,
 	}
-	defer server.closeAll()
 	connectionCtx, cancelConnection := context.WithCancel(context.Background())
-	defer cancelConnection()
+	defer func() {
+		cancelConnection()
+		server.closeAll()
+		_ = writer.flush()
+	}()
 	dispatcher := newRPCRequestDispatcher(connectionCtx, cancelConnection, interruptRead, server)
-	defer writer.flush()
 
 	for {
 		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
@@ -1632,7 +1636,11 @@ func (s *rpcServer) handleRequestAndWriteResponse(req rpcRequest) error {
 }
 
 func (s *rpcServer) handlePTYAttachAndWriteResponse(ctx context.Context, req rpcRequest) error {
-	return s.frameWriter.writeResponse(s.handlePTYAttachContext(ctx, req))
+	response := s.handlePTYAttachContext(ctx, req)
+	if ctx.Err() != nil {
+		return nil
+	}
+	return s.frameWriter.writeResponse(response)
 }
 
 func rpcRequestExpectsResponse(req rpcRequest) bool {
@@ -2257,7 +2265,7 @@ func (s *rpcServer) handlePTYAttachContext(ctx context.Context, req rpcRequest) 
 			OK: false,
 			Error: &rpcError{
 				Code:    ptyAttachErrorCode(requireExisting),
-				Message: err.Error(),
+				Message: ptyAttachErrorMessage(err),
 			},
 		}
 	}
@@ -2268,7 +2276,7 @@ func (s *rpcServer) handlePTYAttachContext(ctx context.Context, req rpcRequest) 
 			OK: false,
 			Error: &rpcError{
 				Code:    ptyAttachErrorCode(requireExisting),
-				Message: err.Error(),
+				Message: ptyAttachErrorMessage(err),
 			},
 		}
 	}
@@ -2295,6 +2303,13 @@ func (s *rpcServer) handlePTYAttachContext(ctx context.Context, req rpcRequest) 
 			"attached":         true,
 		},
 	}
+}
+
+func ptyAttachErrorMessage(err error) string {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "RPC connection closed before PTY attachment completed"
+	}
+	return err.Error()
 }
 
 func ptyAttachErrorCode(requireExisting bool) string {
@@ -2506,6 +2521,9 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 	for {
 		select {
 		case <-ctx.Done():
+			if s.ptyHub != nil {
+				s.ptyHub.dropAttachment(attachment)
+			}
 			_ = s.frameWriter.writeEvent(rpcPTYExitEvent(attachment))
 			return
 		case <-sessionDone:

@@ -140,9 +140,13 @@ public enum SSHPTYAttachExitCode: Int32 {
         status: Int32,
         limitReachedCommand: String
     ) {
-        let format = String(
-            localized: "cli.sshPtyAttach.noProgressRetryLimitReached",
+        let pluralFormat = String(
+            localized: "cli.sshPtyAttach.noProgressRetryLimitReached.other",
             defaultValue: "[cmux] remote PTY bridge made no progress after %s attempts; stopping retries."
+        ).remoteCommandShellQuoted
+        let singularFormat = String(
+            localized: "cli.sshPtyAttach.noProgressRetryLimitReached.one",
+            defaultValue: "[cmux] remote PTY bridge made no progress after %s attempt; stopping retries."
         ).remoteCommandShellQuoted
         return (
             configurationLines: [
@@ -150,7 +154,7 @@ public enum SSHPTYAttachExitCode: Int32 {
                 "case \"$cmux_ssh_attach_no_progress_limit\" in ''|*[!0-9]*|0*) cmux_ssh_attach_no_progress_limit=3 ;; esac",
             ],
             status: bridgeClosedWithoutProgress.rawValue,
-            limitReachedCommand: "if [ \"$cmux_ssh_attach_no_progress_retry\" -ge \"$cmux_ssh_attach_no_progress_limit\" ]; then printf '\\n\\033[31m%s\\033[0m\\n' \"$(printf \(format) \"$cmux_ssh_attach_no_progress_limit\")\" >&2 || true; exit 1; fi"
+            limitReachedCommand: "if [ \"$cmux_ssh_attach_no_progress_retry\" -ge \"$cmux_ssh_attach_no_progress_limit\" ]; then if [ \"$cmux_ssh_attach_no_progress_limit\" -eq 1 ]; then cmux_ssh_attach_limit_format=\(singularFormat); else cmux_ssh_attach_limit_format=\(pluralFormat); fi; printf '\\n\\033[31m%s\\033[0m\\n' \"$(printf \"$cmux_ssh_attach_limit_format\" \"$cmux_ssh_attach_no_progress_limit\")\" >&2 || true; exit 1; fi"
         )
     }
 

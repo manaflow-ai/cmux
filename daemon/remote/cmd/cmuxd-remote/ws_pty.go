@@ -200,8 +200,11 @@ type wsPTYSession struct {
 }
 
 type wsPTYSessionStart struct {
-	done chan struct{}
-	err  error
+	done    chan struct{}
+	err     error
+	// waiters counts joiners only until the owner publishes or discards the
+	// completed start; the count is never consulted after done closes.
+	waiters int
 }
 
 type wsPTYHub struct {
@@ -870,6 +873,7 @@ func (h *wsPTYHub) prepareAttachment(
 			break
 		}
 		if start := h.startingSessions[sessionKey]; start != nil {
+			start.waiters++
 			closedCh := h.closedCh
 			h.mu.Unlock()
 			select {
@@ -878,8 +882,14 @@ func (h *wsPTYHub) prepareAttachment(
 					return nil, nil, nil, start.err
 				}
 			case <-closedCh:
+				h.mu.Lock()
+				start.waiters--
+				h.mu.Unlock()
 				return nil, nil, nil, errWSPTYHubClosed
 			case <-ctx.Done():
+				h.mu.Lock()
+				start.waiters--
+				h.mu.Unlock()
 				return nil, nil, nil, ctx.Err()
 			}
 			continue
@@ -910,13 +920,14 @@ func (h *wsPTYHub) prepareAttachment(
 			case h.closed:
 				startErr = errWSPTYHubClosed
 				discardStartedSession = true
-			case ctx.Err() != nil:
+			case ctx.Err() != nil && start.waiters == 0:
 				startErr = ctx.Err()
 				discardStartedSession = true
 			case existingSession != nil && !existingSession.closed:
 				discardStartedSession = true
 			default:
 				h.sessions[sessionKey] = startedSession
+				h.scheduleIdleReapLocked(startedSession)
 			}
 		}
 		start.err = startErr
@@ -936,6 +947,9 @@ func (h *wsPTYHub) prepareAttachment(
 	}
 
 	if err := ctx.Err(); err != nil {
+		if len(session.attachments) == 0 {
+			h.scheduleIdleReapLocked(session)
+		}
 		h.mu.Unlock()
 		return nil, nil, nil, err
 	}

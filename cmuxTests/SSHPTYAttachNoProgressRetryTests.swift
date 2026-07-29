@@ -148,9 +148,31 @@ struct SSHPTYAttachNoProgressRetryTests {
         )
     }
 
+    @Test("A one-attempt health budget uses a singular diagnostic")
+    func oneAttemptBudgetUsesSingularDiagnostic() throws {
+        let scenario = try Self.runNoProgressScenario(
+            namePrefix: "singular-exhaustion",
+            decisionLines: [
+                "    exit \(SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue)",
+            ],
+            retryLimit: 1,
+            commandBuilder: Self.nestedPolicyCommand
+        )
+
+        #expect(!scenario.process.timedOut, Comment(rawValue: scenario.process.stderr))
+        #expect(scenario.process.status == 1, Comment(rawValue: scenario.process.stderr))
+        #expect(scenario.attempts == "1")
+        #expect(
+            scenario.process.stderr.contains("made no progress after 1 attempt;"),
+            Comment(rawValue: scenario.process.stderr)
+        )
+        #expect(!scenario.process.stderr.contains("1 attempts"))
+    }
+
     private static func runNoProgressScenario(
         namePrefix: String,
         decisionLines: [String],
+        retryLimit: Int = 3,
         commandBuilder: ((URL) -> String)? = nil
     ) throws -> ScenarioResult {
         let fileManager = FileManager.default
@@ -189,7 +211,7 @@ struct SSHPTYAttachNoProgressRetryTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_TEST_POLICY_LOG"] = policyLog.path
-        environment["CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT"] = "3"
+        environment["CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT"] = String(retryLimit)
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "1"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "1"
         environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
