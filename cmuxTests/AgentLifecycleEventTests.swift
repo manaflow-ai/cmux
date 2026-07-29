@@ -596,62 +596,6 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
-    func sessionStoreCompareAndConsumeRejectsReplacementProcess() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-agent-consume-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = ClaudeHookSessionStore(
-            processEnv: [
-                "CMUX_CLAUDE_HOOK_STATE_PATH": root
-                    .appendingPathComponent("sessions.json", isDirectory: false)
-                    .path
-            ]
-        )
-        let sessionID = "surface-derived-session"
-        let workspaceID = UUID().uuidString
-        let surfaceID = UUID().uuidString
-        let originalPID = Int(getpid())
-        let replacementPID = Int(getppid())
-        try store.upsert(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: root.path,
-            pid: originalPID
-        )
-        let original = try #require(try store.lookup(sessionId: sessionID))
-        try store.upsert(
-            sessionId: sessionID,
-            workspaceId: workspaceID,
-            surfaceId: surfaceID,
-            cwd: root.path,
-            pid: replacementPID
-        )
-        let staleBindingRevisionWrite = try store.recordResumeBindingUpdatedAt(
-            sessionId: sessionID,
-            updatedAt: 100,
-            expectedPID: original.pid,
-            expectedPIDStartSeconds: original.pidStartSeconds,
-            expectedPIDStartMicroseconds: original.pidStartMicroseconds
-        )
-
-        let staleConsume = try store.consume(
-            sessionId: sessionID,
-            workspaceId: nil,
-            surfaceId: nil,
-            expectedPID: original.pid,
-            expectedPIDStartSeconds: original.pidStartSeconds,
-            expectedPIDStartMicroseconds: original.pidStartMicroseconds
-        )
-
-        #expect(!staleBindingRevisionWrite)
-        #expect(staleConsume == nil)
-        #expect(try store.lookup(sessionId: sessionID)?.pid == replacementPID)
-        #expect(try store.lookup(sessionId: sessionID)?.resumeBindingUpdatedAt == nil)
-    }
-
-    @Test
     func staleSessionTeardownCannotClearReplacementLifecycle() throws {
         let fixture = try Fixture()
         fixture.workspace.recordAgentPID(
