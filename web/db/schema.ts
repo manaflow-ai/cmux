@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  bigserial,
   boolean,
   check,
   index,
@@ -730,6 +731,13 @@ export const irohEndpointBindings = pgTable(
     deviceLimitOverrideUsed: boolean("device_limit_override_used").notNull().default(false),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
+    // Issuance sequence of the challenge whose registration last landed on this
+    // slot, paired with registeredAt as the staleness high-water mark. Challenge
+    // mint times come from a millisecond clock, so two concurrent challenges can
+    // tie on registeredAt; the strictly monotonic mint sequence breaks that tie
+    // deterministically in issuance order. 0 = predates the sequence column, so
+    // any real challenge (seq >= 1) beats it on a timestamp tie.
+    registeredMintSeq: bigint("registered_mint_seq", { mode: "number" }).notNull().default(0),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     revokedReason: text("revoked_reason"),
@@ -799,6 +807,11 @@ export const irohRegistrationChallenges = pgTable(
     payloadSha256: text("payload_sha256").notNull(),
     nonceHash: text("nonce_hash").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Strictly monotonic issuance order. `createdAt` is a millisecond JS Date,
+    // so two concurrent mints can share a timestamp; the sequence gives the
+    // registration staleness gate a deterministic tie-breaker so a stale
+    // same-millisecond challenge cannot land after (and overwrite) a newer one.
+    mintSeq: bigserial("mint_seq", { mode: "number" }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
   },

@@ -321,14 +321,23 @@ function makeLiveRepository(): IrohRepositoryShape {
         // second and overwrite — or reincarnate away — the newer incarnation,
         // reintroducing an out-of-order wedge. A live heartbeat's own challenge is
         // always newer than the row it refreshes, so it passes; only a delayed or
-        // replayed older challenge trips this. registeredAt is the mint time of
-        // the newest challenge that has landed: every applied registration —
-        // insert, reincarnation, AND in-place heartbeat — stamps it to its own
-        // challenge.createdAt, so it is a monotonic high-water mark. (If a
-        // heartbeat left registeredAt frozen at the original insert, two reversed
-        // heartbeats would both clear this gate and the older one would clobber
-        // the newer refresh.)
-        if (existingSlot && challenge.createdAt < existingSlot.registeredAt) {
+        // replayed older challenge trips this. The high-water mark is the
+        // (registeredAt, registeredMintSeq) pair of the newest challenge that has
+        // landed: every applied registration — insert, reincarnation, AND
+        // in-place heartbeat — stamps both from its own challenge, so the pair is
+        // monotonic. registeredAt alone is not enough: mint times come from a
+        // millisecond clock, so two concurrent challenges can TIE on it, and a
+        // `<`-only gate would let the stale one land second and clobber the newer
+        // registration. The strictly monotonic mint sequence breaks the tie in
+        // issuance order; `<=` on the sequence also rejects a replay of the very
+        // challenge that stamped the mark.
+        if (existingSlot && (
+          challenge.createdAt < existingSlot.registeredAt
+          || (
+            challenge.createdAt.getTime() === existingSlot.registeredAt.getTime()
+            && challenge.mintSeq <= existingSlot.registeredMintSeq
+          )
+        )) {
           throw new IrohConflictError({ code: "challenge_superseded" });
         }
 
@@ -378,11 +387,12 @@ function makeLiveRepository(): IrohRepositoryShape {
               lastSeenAt: input.now,
               updatedAt: input.now,
               // Advance the slot's registration high-water mark to this
-              // challenge's mint time so a later-landing OLDER heartbeat is
-              // rejected by the staleness gate instead of overwriting this
-              // refresh. The gate above guarantees challenge.createdAt >=
-              // existingSlot.registeredAt, so this only ever moves forward.
+              // challenge's mint time AND issuance sequence so a later-landing
+              // OLDER (or same-millisecond older) heartbeat is rejected by the
+              // staleness gate instead of overwriting this refresh. The gate
+              // above guarantees this pair only ever moves forward.
               registeredAt: challenge.createdAt,
+              registeredMintSeq: challenge.mintSeq,
             })
             .where(eq(irohEndpointBindings.id, existingSlot.id))
             .returning();
@@ -450,8 +460,10 @@ function makeLiveRepository(): IrohRepositoryShape {
             // challenge (its mint time falls below the landing time) and strand
             // the older registration. Mint time keeps registeredAt a true,
             // ordering-consistent high-water mark across insert, reincarnation,
-            // and heartbeat alike.
+            // and heartbeat alike; the mint sequence carries the same ordering
+            // at sub-millisecond resolution for the tie-break gate.
             registeredAt: challenge.createdAt,
+            registeredMintSeq: challenge.mintSeq,
             updatedAt: input.now,
           })
           .returning();

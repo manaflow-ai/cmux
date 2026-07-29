@@ -721,6 +721,9 @@ class MemoryRepository implements IrohRepositoryShape {
       payloadSha256: input.payloadSha256,
       nonceHash: input.nonceHash,
       createdAt: input.now,
+      // Mirror the DB's strictly monotonic issuance sequence: array growth
+      // order is issuance order.
+      mintSeq: this.challenges.length + 1,
       expiresAt: input.expiresAt,
       consumedAt: null,
     };
@@ -812,6 +815,7 @@ class MemoryRepository implements IrohRepositoryShape {
       directPortV6: directPorts?.ipv6 ?? null,
       pathHints: [...input.payload.pathHints],
       registeredAt: input.now,
+      registeredMintSeq: challenge.mintSeq,
       updatedAt: input.now,
       lastSeenAt: input.now,
     });
@@ -1136,6 +1140,7 @@ function binding(overrides: Partial<MutableBinding> = {}): MutableBinding {
     deviceLimitOverrideUsed: false,
     lastSeenAt: now,
     registeredAt: now,
+    registeredMintSeq: 0,
     updatedAt: now,
     revokedAt: null,
     revokedReason: null,
