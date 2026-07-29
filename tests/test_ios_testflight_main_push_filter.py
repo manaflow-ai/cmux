@@ -167,9 +167,11 @@ def run_decision_scenario(
     prior_sha: Optional[str] = None,
     prior_event: str = "schedule",
     prior_artifact: str = "ios-testflight-build-metadata",
+    prior_uploads: tuple[tuple[str, str], ...] = (),
     head_sha: str = "head-sha",
     changed_files: tuple[str, ...] = (),
     blocking_prior_run: bool = False,
+    upload_job_starts_late: bool = False,
 ) -> dict[str, object]:
     decision_job = mapping_block(workflow_text(), "decide", indent=2)
     decision_script = literal_block(decision_job, "script", indent=10)
@@ -177,16 +179,30 @@ def run_decision_scenario(
         workflow_text(),
         "ios-testflight-build-metadata-override",
     )
+    assert not (
+        prior_sha and prior_uploads
+    ), "use prior_sha or prior_uploads, not both"
+    upload_history = prior_uploads
+    if prior_sha:
+        upload_history = ((prior_sha, prior_artifact),)
+    prior_runs = [
+        {
+            "id": 50 - index,
+            "sha": sha,
+            "artifact": artifact,
+            "event": prior_event,
+        }
+        for index, (sha, artifact) in enumerate(upload_history)
+    ]
     scenario = {
         "eventName": event_name,
         "schedule": schedule,
         "inputVariant": input_variant,
-        "priorSha": prior_sha,
-        "priorEvent": prior_event,
-        "priorArtifact": prior_artifact,
+        "priorRuns": prior_runs,
         "headSha": head_sha,
         "changedFiles": changed_files,
         "blockingPriorRun": blocking_prior_run,
+        "uploadJobStartsLate": upload_job_starts_late,
     }
     harness = f"""
 const scenario = {json.dumps(scenario)};
@@ -197,18 +213,21 @@ const waitCalls = [];
 const priorRunStatuses = [];
 const uploadJobStatuses = [];
 let workflowRunCalls = 0;
-let uploadReleased = !scenario.blockingPriorRun;
-const priorRuns = () => scenario.priorSha
-  ? [{{
-      id: 50,
-      status: scenario.blockingPriorRun ? 'in_progress' : 'completed',
-      event: scenario.priorEvent,
-      head_sha: scenario.priorSha,
-    }}]
-  : [];
+let uploadPhase = scenario.blockingPriorRun
+  ? (scenario.uploadJobStartsLate ? 0 : 1)
+  : 2;
+const priorRuns = () => scenario.priorRuns.map((run, index) => ({{
+  id: run.id,
+  status:
+    scenario.blockingPriorRun && index === 0
+      ? 'in_progress'
+      : 'completed',
+  event: run.event,
+  head_sha: run.sha,
+}}));
 const setTimeout = (resolve, milliseconds) => {{
   waitCalls.push(milliseconds);
-  uploadReleased = true;
+  uploadPhase = Math.min(uploadPhase + 1, 2);
   resolve();
 }};
 const context = {{
@@ -239,24 +258,40 @@ const github = {{
           data: {{ workflow_runs: workflowRuns }},
         }};
       }},
-      listJobsForWorkflowRun: async () => {{
-        const status = uploadReleased ? 'completed' : 'in_progress';
+      listJobsForWorkflowRun: async (request) => {{
+        const priorRun = scenario.priorRuns.find(
+          (run) => run.id === Number(request.run_id)
+        );
+        const isBlockingRun =
+          scenario.blockingPriorRun &&
+          priorRun?.id === scenario.priorRuns[0]?.id;
+        const phase = isBlockingRun ? uploadPhase : 2;
+        if (phase === 0) {{
+          uploadJobStatuses.push(null);
+          return {{ data: {{ jobs: [] }} }};
+        }}
+        const status = phase === 2 ? 'completed' : 'in_progress';
         uploadJobStatuses.push(status);
         return {{
           data: {{
             jobs: [{{
               name: 'Upload to TestFlight',
               status,
-              conclusion: uploadReleased ? 'success' : null,
+              conclusion: phase === 2 ? 'success' : null,
             }}],
           }},
         }};
       }},
-      listWorkflowRunArtifacts: async () => ({{
-        data: {{
-          artifacts: [{{ name: scenario.priorArtifact }}],
-        }},
-      }}),
+      listWorkflowRunArtifacts: async (request) => {{
+        const priorRun = scenario.priorRuns.find(
+          (run) => run.id === Number(request.run_id)
+        );
+        return {{
+          data: {{
+            artifacts: priorRun ? [{{ name: priorRun.artifact }}] : [],
+          }},
+        }};
+      }},
     }},
     repos: {{
       compareCommits: async (request) => {{
