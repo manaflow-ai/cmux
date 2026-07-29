@@ -745,6 +745,40 @@ func TestAttachRPCLateCancellationSchedulesPublishedSessionReap(t *testing.T) {
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
+func TestAnonymousAttachLateCancellationDropsPublishedSession(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:          "/bin/sh",
+		SessionIdleTTL: time.Hour,
+	}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	baseCtx, cancel := context.WithCancel(context.Background())
+	ctx := &cancelAfterFirstErrContext{Context: baseCtx, cancel: cancel}
+	_, _, _, err := hub.prepareAttachment(
+		ctx,
+		nil,
+		"late-canceled-anonymous",
+		"",
+		80,
+		24,
+		false,
+		"sleep 30",
+		"",
+		false,
+		false,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("late-canceled anonymous attach error = %v, want context canceled", err)
+	}
+
+	hub.mu.Lock()
+	sessionCount := len(hub.sessions)
+	hub.mu.Unlock()
+	if sessionCount != 0 {
+		t.Fatalf("anonymous sessions after late cancellation = %d, want 0", sessionCount)
+	}
+}
+
 func TestAttachRPCBoundsStalledSessionStartOwners(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
 	t.Cleanup(hub.closeAll)
