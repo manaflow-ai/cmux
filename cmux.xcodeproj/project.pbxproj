@@ -222,6 +222,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */; };
 		AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
 		B424PNRQ0000000000000001 /* BrowserAddressBarFocusSelectionIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PNRQ0000000000000002 /* BrowserAddressBarFocusSelectionIntent.swift */; };
+		B5A5E5510000000000000001 /* BrowserAppSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E5510000000000000002 /* BrowserAppSessionController.swift */; };
 		D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */; };
 		D7032A070000000000000001 /* BrowserAuthPromptTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */; };
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
@@ -2680,6 +2681,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarPassThrough.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
 		B424PNRQ0000000000000002 /* BrowserAddressBarFocusSelectionIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAddressBarFocusSelectionIntent.swift; sourceTree = "<group>"; };
+		B5A5E5510000000000000002 /* BrowserAppSessionController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSessionController.swift; sourceTree = "<group>"; };
 		D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAuthPromptTextFormatter.swift; sourceTree = "<group>"; };
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
@@ -4910,6 +4912,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXGroup;
 			children = (
 				43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */,
+				B5A5E5510000000000000002 /* BrowserAppSessionController.swift */,
 				DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */,
 				53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */,
 				CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */,
@@ -7907,6 +7910,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
 				D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */,
 				B424PNRQ0000000000000001 /* BrowserAddressBarFocusSelectionIntent.swift in Sources */,
+				B5A5E5510000000000000001 /* BrowserAppSessionController.swift in Sources */,
 				D7032A070000000000000001 /* BrowserAuthPromptTextFormatter.swift in Sources */,
 				B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */,
 				8054A0050000000000000005 /* BrowserAutomationProbeChannel.swift in Sources */,

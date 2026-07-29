@@ -15,7 +15,8 @@ public struct BrowserAppSessionHandoff: Sendable {
         destinationURL: URL,
         tokens: BrowserAppSessionTokens
     ) -> URLRequest? {
-        guard shouldHandoff(to: destinationURL),
+        guard !tokens.refreshToken.isEmpty,
+              shouldHandoff(to: destinationURL),
               let handoffURL = URL(
                   string: "/handler/app-session-handoff",
                   relativeTo: webOrigin
@@ -39,7 +40,6 @@ public struct BrowserAppSessionHandoff: Sendable {
             forHTTPHeaderField: "Content-Type"
         )
         request.setValue("1", forHTTPHeaderField: "X-Cmux-App-Session-Handoff")
-        request.setValue("no-referrer", forHTTPHeaderField: "Referrer-Policy")
         request.httpBody = body.data(using: .utf8)
         return request
     }
@@ -70,29 +70,24 @@ public struct BrowserAppSessionHandoff: Sendable {
     }
 
     private func isStackCookie(_ name: String, projectID: String) -> Bool {
-        let refreshName = "stack-refresh-\(projectID)"
-        let hexclaveRefreshName = "hexclave-refresh-\(projectID)"
-        return name == "stack-access"
-            || name == "__Host-stack-access"
-            || name == "__Secure-stack-access"
-            || name == "hexclave-access"
-            || name == "__Host-hexclave-access"
-            || name == "__Secure-hexclave-access"
-            || name == "stack-refresh"
-            || name == "__Host-stack-refresh"
-            || name == "__Secure-stack-refresh"
-            || name == refreshName
-            || name == "__Host-\(refreshName)"
-            || name == "__Secure-\(refreshName)"
-            || name.hasPrefix("\(refreshName)--")
-            || name.hasPrefix("__Host-\(refreshName)--")
-            || name.hasPrefix("__Secure-\(refreshName)--")
-            || name == hexclaveRefreshName
-            || name == "__Host-\(hexclaveRefreshName)"
-            || name == "__Secure-\(hexclaveRefreshName)"
-            || name.hasPrefix("\(hexclaveRefreshName)--")
-            || name.hasPrefix("__Host-\(hexclaveRefreshName)--")
-            || name.hasPrefix("__Secure-\(hexclaveRefreshName)--")
+        let prefixes = ["", "__Host-", "__Secure-"]
+        let exactNames = [
+            "stack-access",
+            "hexclave-access",
+            "stack-refresh",
+            "hexclave-refresh",
+        ]
+        let scopedRefreshNames = [
+            "stack-refresh-\(projectID)",
+            "hexclave-refresh-\(projectID)",
+        ]
+
+        return prefixes.contains { prefix in
+            exactNames.contains { name == "\(prefix)\($0)" }
+                || scopedRefreshNames.contains {
+                    name == "\(prefix)\($0)" || name.hasPrefix("\(prefix)\($0)--")
+                }
+        }
     }
 
     private func formURLEncode(_ value: String) -> String {

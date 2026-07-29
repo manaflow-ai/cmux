@@ -321,11 +321,18 @@ def _select_groups(
 ) -> List[Dict]:
     selected = [_select_group(groups, group_id, group_name)]
     selected_ids = {selected[0]["id"]}
+    groups_by_id = {group["id"]: group for group in groups}
     for additional_group_id in additional_group_ids:
         normalized_id = additional_group_id.strip()
         if not normalized_id:
             continue
-        group = _select_group(groups, normalized_id, "")
+        group = groups_by_id.get(normalized_id)
+        if group is None:
+            raise RuntimeError(f"no beta group found for id {normalized_id}")
+        if group["is_internal"]:
+            raise RuntimeError(
+                f"group {normalized_id} is internal, expected an external beta group"
+            )
         if group["id"] in selected_ids:
             continue
         selected.append(group)

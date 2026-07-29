@@ -556,7 +556,7 @@ jobs:
 
   # Normal and demo runs assign their internal group after upload. A manual
   # external marketing-version override assigns Founder's Edition and Pro
-  # inline in upload-testflight.sh, so it must skip this internal-app lookup.
+  # inline in cloud-testflight.sh, so it must skip this internal-app lookup.
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
