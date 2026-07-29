@@ -6,8 +6,9 @@
 //! stream lease; it never deletes or disables the sidebar view.
 
 use cmux::{
-    ColorHex, Error, RenderCursor, RenderPatch, RenderRow, RenderRun, RenderScroll, RenderSnapshot,
-    Result, SidebarInputOptions, SidebarView, SidebarViewItem, SidebarViewStream, Size, StreamEnd,
+    ColorHex, Document, Error, RenderCursor, RenderPatch, RenderRow, RenderRun, RenderScroll,
+    RenderSnapshot, Result, SidebarInputOptions, SidebarView, SidebarViewItem, SidebarViewStream,
+    Size, StreamEnd,
 };
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MediaKeyCode, ModifierKeyCode,
@@ -43,7 +44,7 @@ impl Default for SidebarConfig {
 }
 
 /// Latest renderable sidebar state.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SidebarModel {
     pub title: String,
     pub size: Option<Size>,
@@ -55,6 +56,15 @@ pub struct SidebarModel {
     pub scroll: Option<RenderScroll>,
     pub status: Option<String>,
     pub error: Option<String>,
+    pub unknown_events: u64,
+    pub last_unknown: Option<UnknownSidebarEvent>,
+}
+
+/// Preserved payload for a future sidebar event unknown to this SDK version.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnknownSidebarEvent {
+    pub kind: String,
+    pub raw: Document,
 }
 
 impl SidebarModel {
@@ -70,6 +80,8 @@ impl SidebarModel {
             scroll: None,
             status: None,
             error: None,
+            unknown_events: 0,
+            last_unknown: None,
         }
     }
 
@@ -90,8 +102,10 @@ impl SidebarModel {
             SidebarViewItem::Scroll { scroll, .. } => {
                 self.scroll = Some(scroll);
             }
-            SidebarViewItem::Unknown { kind, .. } => {
+            SidebarViewItem::Unknown { kind, raw } => {
                 self.status = Some(format!("unknown event: {kind}"));
+                self.unknown_events += 1;
+                self.last_unknown = Some(UnknownSidebarEvent { kind, raw });
             }
         }
     }
@@ -714,6 +728,8 @@ mod tests {
             scroll: None,
             status: Some("live".to_string()),
             error: Some("problem".to_string()),
+            unknown_events: 0,
+            last_unknown: None,
         };
         let backend = TestBackend::new(24, 8);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -740,5 +756,24 @@ mod tests {
         let styled = terminal.backend().buffer().cell((1, 1)).unwrap();
         assert_eq!(styled.fg, Color::Rgb(255, 0, 0));
         assert!(styled.modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn reducer_preserves_unknown_event_payloads_for_future_telemetry() {
+        let raw = Document::from_serializable(&json!({
+            "kind": "future_badge",
+            "badge": {"text": "new"}
+        }))
+        .unwrap();
+        let mut model = SidebarModel::new("Agents");
+        model.apply_item(SidebarViewItem::Unknown {
+            kind: "future_badge".to_string(),
+            raw: raw.clone(),
+        });
+        assert_eq!(model.unknown_events, 1);
+        assert_eq!(
+            model.last_unknown,
+            Some(UnknownSidebarEvent { kind: "future_badge".to_string(), raw })
+        );
     }
 }

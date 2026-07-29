@@ -36,7 +36,8 @@ typed state. `reattach` opens a fresh lease while retaining the last frame.
 attachment lease and never deletes or disables the view.
 
 Applications that own their stream and recovery policy can reuse the public
-pieces independently:
+pieces independently. The reducer preserves unknown event counts, kinds, and
+raw documents so newer server events remain observable:
 
 ```rust
 # use cmux::{SidebarViewItem, StreamEnd};
