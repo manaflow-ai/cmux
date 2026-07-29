@@ -581,6 +581,19 @@ import Testing
         #expect(elapsed < .milliseconds(200))
         #expect(!(await stalled.closed()))
 
+        // The cancelled gated request must unregister its coalesced waiter;
+        // the write is intentionally still unresolved here, so a leaked
+        // continuation would sit in the waiter map until teardown.
+        var waitersDrained = false
+        for _ in 0..<1000 {
+            if await session.writeResolutionWaiterCount == 0 {
+                waitersDrained = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(waitersDrained)
+
         await session.tearDown(error: .connectionClosed)
         await stalled.failStalledSend()
     }

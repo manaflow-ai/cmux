@@ -813,16 +813,27 @@ actor MobileCoreRPCSession {
 
     /// Suspends until the cancelled active write completes, fails, or is
     /// recycled. Waiters are coalesced on this actor and resumed by those
-    /// resolution events, so an abandoned wait never strands a task parked
-    /// on the stalled send itself.
+    /// resolution events — or unregistered by their own cancellation — so an
+    /// abandoned wait never strands a task or continuation parked on the
+    /// stalled send itself.
     private func awaitCancelledWriteResolution() async {
-        await withCheckedContinuation { continuation in
-            guard activeWrite?.cancelledRequestResolutionTask != nil else {
-                continuation.resume()
-                return
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard activeWrite?.cancelledRequestResolutionTask != nil,
+                      !Task.isCancelled else {
+                    continuation.resume()
+                    return
+                }
+                writeResolutionWaiters[waiterID] = continuation
             }
-            writeResolutionWaiters[UUID()] = continuation
+        } onCancel: {
+            Task { await self.cancelWriteResolutionWaiter(waiterID) }
         }
+    }
+
+    private func cancelWriteResolutionWaiter(_ waiterID: UUID) {
+        writeResolutionWaiters.removeValue(forKey: waiterID)?.resume()
     }
 
     private func resumeWriteResolutionWaiters() {
