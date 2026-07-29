@@ -208,14 +208,33 @@ extension MobileShellComposite {
         // the marker was keyed when the row was hidden). Skipping this would report
         // success while leaving the row behind, so returning to the old scope would
         // show the supposedly forgotten computer.
-        let primaryCleaned = await removeStoredPairedMacRow(
+        let primaryCleaned = await deleteStoredPairedMacRow(
             macDeviceID: computer.macDeviceID,
             instanceTag: computer.instanceTag,
             rowStackUserID: computer.stackUserID ?? scope.userID,
             rowTeamID: computer.teamID,
             displayScope: scope
         )
+        // ONE refresh for the whole cleanup. Refreshing per deleted row re-runs
+        // the paired list load (and with it the backup restore fetch) and the
+        // registry fetch for every sibling — a wildcard forget can cover up to
+        // the discovery snapshot's 256 bindings, which would turn one tap into
+        // hundreds of sequential network round-trips.
+        await refreshAfterForget(displayScope: scope)
         return siblingsCleaned && primaryCleaned
+    }
+
+    /// The single post-forget refresh: reload the paired list and registry and
+    /// drop the saved reconnect hint once the last stored Mac is gone. Skipped
+    /// when the display scope changed mid-forget (the new scope's own loads
+    /// already reflect its stores).
+    private func refreshAfterForget(displayScope: MobileShellScopeSnapshot) async {
+        guard await isScopeCurrent(displayScope) else { return }
+        await loadPairedMacs()
+        await loadRegistryDevices()
+        // Mirror the hide path: once the last stored Mac is gone, drop the saved
+        // reconnect hint so the app does not keep trying to redial a forgotten Mac.
+        clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
     }
 
     /// Deletes the device's OTHER (tagged) rows after a wildcard forget, so the
@@ -244,7 +263,7 @@ extension MobileShellComposite {
         where cmxCanonicalDeviceID(row.macDeviceID) == canonical
             && row.instanceTag != nil
             && row.stackUserID == pinnedAccountID {
-            let cleaned = await removeStoredPairedMacRow(
+            let cleaned = await deleteStoredPairedMacRow(
                 macDeviceID: row.macDeviceID,
                 instanceTag: row.instanceTag,
                 rowStackUserID: pinnedAccountID,
@@ -264,7 +283,7 @@ extension MobileShellComposite {
     /// caller surfaces a retryable error instead of a silent partial cleanup. The
     /// marker is cleared only after the row is gone, so a still-online Mac that
     /// re-registers a fresh row is not re-hidden by a stale marker.
-    private func removeStoredPairedMacRow(
+    private func deleteStoredPairedMacRow(
         macDeviceID: String,
         instanceTag: String?,
         rowStackUserID: String,
@@ -303,18 +322,14 @@ extension MobileShellComposite {
             }
         }
         // The hidden marker was keyed by the display scope when the row was hidden,
-        // so clear it (and gate the on-screen refresh) against that scope.
+        // so clear it against that scope. The on-screen refresh is NOT done here:
+        // the forget flow batches one ``refreshAfterForget(displayScope:)`` after
+        // ALL of a wildcard's rows are deleted.
         await clearHiddenMacDeviceID(
             macDeviceID,
             instanceTag: instanceTag,
             scope: displayScope
         )
-        guard await isScopeCurrent(displayScope) else { return true }
-        await loadPairedMacs()
-        await loadRegistryDevices()
-        // Mirror the hide path: once the last stored Mac is gone, drop the saved
-        // reconnect hint so the app does not keep trying to redial a forgotten Mac.
-        clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
         return true
     }
 

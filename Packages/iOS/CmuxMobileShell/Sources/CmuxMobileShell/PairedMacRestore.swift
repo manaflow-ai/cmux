@@ -32,10 +32,17 @@ public struct PairedMacRestore: Sendable {
     /// local store untouched and reports `completed: false` so the caller can
     /// retry; a successful fetch (even of an empty list) reports `completed:
     /// true`.
-    /// - Parameter teamID: the Stack team this restore is for. The backup fetch is
-    ///   already server-scoped to that team (`X-Cmux-Team-Id`), so every restored
-    ///   row is stamped with it; this is what scopes the local list per team. `nil`
-    ///   when no team is selected (rows stay team-less / visible everywhere).
+    /// - Parameters:
+    ///   - teamID: the Stack team this restore is for. The backup fetch is
+    ///     already server-scoped to that team (`X-Cmux-Team-Id`), so every restored
+    ///     row is stamped with it; this is what scopes the local list per team. `nil`
+    ///     when no team is selected (rows stay team-less / visible everywhere).
+    ///   - onResolvedBackupTeam: called once when the snapshot carries the
+    ///     worker's echoed resolved team, with the pairing ids of EVERY live
+    ///     record in the snapshot (not just the ones written locally — each
+    ///     record lives in that team's backup regardless of the local merge
+    ///     outcome). Lets the owner persist where each record's backup lives so
+    ///     a later delete tombstone routes there.
     @discardableResult
     public func run(
         accountID: String,
@@ -43,7 +50,8 @@ public struct PairedMacRestore: Sendable {
         now: Date = Date(),
         boundary: PairedMacRestoreBoundary? = nil,
         boundaryGeneration: UInt64? = nil,
-        locallyDeletedMacDeviceIDs: Set<String> = []
+        locallyDeletedMacDeviceIDs: Set<String> = [],
+        onResolvedBackupTeam: (@Sendable ([String], String) async -> Void)? = nil
     ) async -> RestoreOutcome {
         func isCurrent() -> Bool {
             guard !Task.isCancelled else { return false }
@@ -60,6 +68,17 @@ public struct PairedMacRestore: Sendable {
         // `completed: false` so the caller does not memoize a non-restore.
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
+        }
+        if let onResolvedBackupTeam, let resolvedTeamID = snapshot.resolvedTeamID {
+            let pairingIDs = snapshot.records.map {
+                MobilePairedMac.pairingID(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                )
+            }
+            if !pairingIDs.isEmpty {
+                await onResolvedBackupTeam(pairingIDs, resolvedTeamID)
+            }
         }
         func canonicalPairingID(_ value: String) -> String? {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

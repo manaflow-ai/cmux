@@ -72,6 +72,21 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         "\(account)\u{0}\(pairingID)"
     }
 
+    /// Persist the server-verified backup team for a batch of pairings (the
+    /// restore snapshot's echo).
+    private func recordResolvedBackupTeams(
+        _ pairingIDs: [String],
+        teamID: String,
+        account: String
+    ) async {
+        for pairingID in pairingIDs {
+            await backupTeamStore.save(
+                teamID,
+                key: backupTeamKey(account: account, pairingID: pairingID)
+            )
+        }
+    }
+
     /// Upsert a paired Mac locally, then mirror the changed backup records.
     public func upsert(
         macDeviceID: String,
@@ -580,13 +595,25 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             let restore = PairedMacRestore(store: inner, backup: backup)
             let pendingDeletes = await pendingDeleteIDs(scope: scope)
             let boundaryGeneration = restoreBoundary.generation
+            let restoreBoundary = restoreBoundary
             let created = Task {
                 await restore.run(
                     accountID: account,
                     teamID: restoreTeam,
                     boundary: restoreBoundary,
                     boundaryGeneration: boundaryGeneration,
-                    locallyDeletedMacDeviceIDs: pendingDeletes
+                    locallyDeletedMacDeviceIDs: pendingDeletes,
+                    // Persist where the server SAID this snapshot's records live,
+                    // so a restored row forgotten later (the reinstall case, when
+                    // no upload ever recorded a mapping) still routes its delete
+                    // tombstone to the right team's backup.
+                    onResolvedBackupTeam: { [weak self] pairingIDs, resolvedTeamID in
+                        await self?.recordResolvedBackupTeams(
+                            pairingIDs,
+                            teamID: resolvedTeamID,
+                            account: account
+                        )
+                    }
                 )
             }
             inFlight[scope] = created
@@ -746,13 +773,25 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             let restore = PairedMacRestore(store: inner, backup: backup)
             let pendingDeletes = await pendingDeleteIDs(scope: scope)
             let boundaryGeneration = restoreBoundary.generation
+            let restoreBoundary = restoreBoundary
             let created = Task {
                 await restore.run(
                     accountID: account,
                     teamID: restoreTeam,
                     boundary: restoreBoundary,
                     boundaryGeneration: boundaryGeneration,
-                    locallyDeletedMacDeviceIDs: pendingDeletes
+                    locallyDeletedMacDeviceIDs: pendingDeletes,
+                    // Persist where the server SAID this snapshot's records live,
+                    // so a restored row forgotten later (the reinstall case, when
+                    // no upload ever recorded a mapping) still routes its delete
+                    // tombstone to the right team's backup.
+                    onResolvedBackupTeam: { [weak self] pairingIDs, resolvedTeamID in
+                        await self?.recordResolvedBackupTeams(
+                            pairingIDs,
+                            teamID: resolvedTeamID,
+                            account: account
+                        )
+                    }
                 )
             }
             inFlight[scope] = created
