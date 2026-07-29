@@ -1093,8 +1093,8 @@ struct ApplicationSurfaceTests {
             isRegularApplication: regularApplication
         ))
         #expect(listed["window_id"] as? Int == 42)
-        #expect(listed["width"] as? Double == 800)
-        #expect(listed["height"] as? Double == 600)
+        #expect((listed["width"] as? NSNumber)?.doubleValue == 800)
+        #expect((listed["height"] as? NSNumber)?.doubleValue == 600)
 
         var invalid = base
         invalid[kCGWindowOwnerPID as String] = NSNumber(
