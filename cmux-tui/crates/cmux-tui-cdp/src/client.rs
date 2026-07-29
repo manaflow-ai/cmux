@@ -3176,6 +3176,93 @@ mod tests {
     }
 
     #[test]
+    fn loader_verified_capture_recovers_timestamped_screencast_stream() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            ws.get_mut().set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+
+            for expected in ["Page.createIsolatedWorld", "Runtime.evaluate"] {
+                let Ok(Message::Text(request)) = ws.read() else {
+                    return false;
+                };
+                let request: Value = serde_json::from_str(&request).unwrap();
+                assert_eq!(request["method"], expected);
+                let result = match expected {
+                    "Page.createIsolatedWorld" => json!({"executionContextId": 41}),
+                    "Runtime.evaluate" => {
+                        json!({"result": {"type": "number", "value": 10_000.0}})
+                    }
+                    _ => unreachable!(),
+                };
+                ws.send(Message::Text(
+                    json!({"id": request["id"], "result": result}).to_string().into(),
+                ))
+                .unwrap();
+            }
+            ws.send(Message::Text(
+                json!({
+                    "method": "Page.screencastFrame",
+                    "sessionId": "session-1",
+                    "params": {
+                        "data": "AAAA",
+                        "sessionId": 8,
+                        "metadata": {
+                            "deviceWidth": 80,
+                            "deviceHeight": 24,
+                            "timestamp": 10.002
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            let Ok(Message::Text(ack)) = ws.read() else {
+                return false;
+            };
+            let ack: Value = serde_json::from_str(&ack).unwrap();
+            ack["method"] == "Page.screencastFrameAck"
+        });
+        let (event_tx, event_rx) = sync_channel(1);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        client.register_frame_epoch("session-1", Arc::new(FrameEpoch::default()));
+        {
+            let mut frame_sessions = client.inner.frame_epochs.lock().unwrap();
+            let frame_session = frame_sessions.get_mut("session-1").unwrap();
+            frame_session.main_frame_id = Some("main-frame".to_string());
+            frame_session.main_loader_id = Some("loader-1".to_string());
+            frame_session.screencast_barrier = Some(ScreencastBarrier::LoaderVerifiedCapture);
+            frame_session.pending_timestampless_capture = Some(PendingTimestamplessCapture {
+                request_id: 7,
+                frame_epoch: 0,
+                navigation_epoch: 0,
+            });
+        }
+
+        let settled = client.settle_timestampless_screencast_capture("session-1", 7, 0, 0);
+        let event = event_rx.recv_timeout(Duration::from_millis(250));
+
+        drop(client);
+        let probe_completed = server.join().unwrap();
+        assert!(settled);
+        assert!(
+            probe_completed,
+            "a verified capture must retry the clock probe before returning to streamed frames"
+        );
+        assert!(
+            matches!(
+                event,
+                Ok(CdpEvent::ScreencastFrame(ScreencastFrame { ack_id: 8, frame_epoch: 0, .. }))
+            ),
+            "a recovered timestamp barrier did not restore the streamed frame rate: {event:?}"
+        );
+    }
+
+    #[test]
     fn http_discovery_rejects_response_over_limit() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

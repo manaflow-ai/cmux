@@ -8099,6 +8099,41 @@ mod tests {
     }
 
     #[test]
+    fn stationary_legacy_pointer_hold_outlives_five_seconds() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        let capture_generation = browser.state.lock().unwrap().pointer_capture_generation;
+        let motion_generation = browser.state.lock().unwrap().pointer_motion_generation;
+        let ingress_motion_generation = browser.frame_epoch.pointer_motion_generation();
+        let started = Instant::now();
+        let press = super::ActivePointerPress::new(
+            super::BrowserPointerOwner::Legacy,
+            capture_generation,
+            motion_generation,
+            ingress_motion_generation,
+            1,
+            (1.0, 1.0),
+            Some(1),
+        );
+        let mut failures = super::BrowserWorkerErrorState::default();
+        failures.active_pointer_presses.insert("left".to_string(), press);
+
+        super::release_abandoned_pointer_presses(
+            &surface,
+            &Weak::new(),
+            surface.id,
+            &mut failures,
+            started + Duration::from_millis(5_100),
+        );
+
+        assert!(
+            failures.active_pointer_presses.contains_key("left"),
+            "a live stationary legacy hold must not synthesize mouseReleased after five seconds"
+        );
+    }
+
+    #[test]
     fn local_pointer_capture_has_a_bounded_worker_lease() {
         let surface = test_surface();
         let press = super::ActivePointerPress::new(
