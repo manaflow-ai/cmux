@@ -80,6 +80,8 @@ variants. Open stream unions preserve an unrecognized variant as an immutable
 `Session.resolveCreation(...)` resolves a durable creation correlation key.
 `Terminal.waitExit(...)` waits for process lifecycle state. It is separate
 from `Terminal.waitFor(...)`, which matches terminal text.
+`Options.NotificationCreate` accepts an optional typed `TerminalId`. The
+four-argument constructor creates a session-scoped notification.
 
 `Screen.undoLayout(...)` requires the preview's confirmation token when
 `confirmClose` is true. A `confirmation.required` error exposes typed

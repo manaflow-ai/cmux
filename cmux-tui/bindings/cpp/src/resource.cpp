@@ -805,6 +805,49 @@ Result<Json::Object> UndoLayoutOptions::to_params() const {
     return params;
 }
 
+Result<Json::Object> TerminalHistoryOptions::to_params() const {
+    if (limit && (*limit == 0 || *limit > 10'000)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "history limit must be between 1 and 10000");
+    }
+    Json::Object params;
+    if (before) {
+        params.emplace("before", Json(std::to_string(*before)));
+    }
+    if (limit) {
+        params.emplace(
+            "limit",
+            Json(static_cast<std::uint64_t>(*limit)));
+    }
+    if (styled) {
+        params.emplace("styled", Json(true));
+    }
+    return params;
+}
+
+Result<Json::Object> TerminalAttachOptions::to_params() const {
+    if (cols.has_value() != rows.has_value()) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "cols and rows must be supplied together");
+    }
+    Json::Object params;
+    if (cols) {
+        if (*cols == 0 || *rows == 0) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "cols and rows must be positive");
+        }
+        params.emplace("cols", Json(static_cast<std::uint64_t>(*cols)));
+        params.emplace("rows", Json(static_cast<std::uint64_t>(*rows)));
+    }
+    if (read_only) {
+        params.emplace("read_only", Json(true));
+    }
+    return params;
+}
+
 namespace detail {
 
 void complete_structural_route(
@@ -1561,7 +1604,8 @@ Result<MutationResult<EmptyResult>> Workspace::close(MutationOptions options) co
 
 Result<MutationResult<CreatedTerminalPath>> Workspace::run(
     RunOptions run,
-    MutationOptions options) const {
+    MutationOptions options,
+    CallOptions call) const {
     auto params = run.to_params();
     if (!params) {
         return std::move(params).error();
@@ -1569,7 +1613,8 @@ Result<MutationResult<CreatedTerminalPath>> Workspace::run(
     return mutate(
         Operation::workspace_run,
         std::move(params).value(),
-        std::move(options));
+        std::move(options),
+        std::move(call));
 }
 
 Result<MutationResult<WorkspaceSnapshot>> Workspace::apply_layout(
@@ -1914,8 +1959,15 @@ Result<TerminalStateResult> Terminal::read_state() const {
     return read(Operation::terminal_state_read);
 }
 
-Result<TerminalHistoryResult> Terminal::read_history(Json::Object params) const {
-    return read(Operation::terminal_history_read, std::move(params));
+Result<TerminalHistoryResult> Terminal::read_history(
+    TerminalHistoryOptions options) const {
+    auto params = options.to_params();
+    if (!params) {
+        return std::move(params).error();
+    }
+    return read(
+        Operation::terminal_history_read,
+        std::move(params).value());
 }
 
 Result<MutationResult<EmptyResult>> Terminal::clear_history(
@@ -2014,13 +2066,16 @@ Result<MutationResult<TerminalSnapshot>> Terminal::move(
 }
 
 Result<TerminalAttachmentStream> Terminal::attach(
-    Json::Object params,
+    TerminalAttachOptions options,
     CallOptions call) const {
-    params = routed_params(std::move(params));
+    auto params = options.to_params();
+    if (!params) {
+        return std::move(params).error();
+    }
     auto stream = detail::resource_open_stream(
         state_,
         Operation::terminal_attach,
-        std::move(params),
+        routed_params(std::move(params).value()),
         std::move(call));
     if (!stream) {
         return std::move(stream).error();

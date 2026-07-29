@@ -600,8 +600,29 @@ public final class Options {
     public record BrowserAttach(Stream stream, Optional<Integer> width, Optional<Integer> height) {
         public BrowserAttach { stream = Options.stream(stream); width = opt(width); height = opt(height); }
     }
-    public record NotificationCreate(Mutation mutation, String title, String body, Optional<String> level) {
-        public NotificationCreate { mutation = mut(mutation); Objects.requireNonNull(title, "title"); Objects.requireNonNull(body, "body"); level = opt(level); }
+    public record NotificationCreate(
+        Mutation mutation,
+        String title,
+        String body,
+        Optional<String> level,
+        Optional<Ids.TerminalId> terminalId
+    ) {
+        public NotificationCreate {
+            mutation = mut(mutation);
+            Objects.requireNonNull(title, "title");
+            Objects.requireNonNull(body, "body");
+            level = opt(level);
+            terminalId = opt(terminalId);
+        }
+
+        public NotificationCreate(
+            Mutation mutation,
+            String title,
+            String body,
+            Optional<String> level
+        ) {
+            this(mutation, title, body, level, Optional.empty());
+        }
     }
     public record AgentReport(
         Mutation mutation,

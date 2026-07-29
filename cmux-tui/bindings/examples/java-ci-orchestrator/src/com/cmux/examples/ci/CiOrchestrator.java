@@ -191,6 +191,7 @@ public final class CiOrchestrator {
         if (!isSuccess(exited.outcome())) {
             notification = notifyFailure(
                 session,
+                terminalId,
                 "cmux CI task failed",
                 "Command " + describeExit(exited.outcome())
             );
@@ -401,14 +402,36 @@ public final class CiOrchestrator {
         String title,
         String body
     ) {
+        return notifyFailure(session, new Options.NotificationCreate(
+            Options.Mutation.defaults(),
+            title,
+            body,
+            Optional.of("error")
+        ));
+    }
+
+    private static Optional<Ids.NotificationId> notifyFailure(
+        Session session,
+        Ids.TerminalId terminalId,
+        String title,
+        String body
+    ) {
+        return notifyFailure(session, new Options.NotificationCreate(
+            Options.Mutation.defaults(),
+            title,
+            body,
+            Optional.of("error"),
+            Optional.of(terminalId)
+        ));
+    }
+
+    private static Optional<Ids.NotificationId> notifyFailure(
+        Session session,
+        Options.NotificationCreate notification
+    ) {
         try {
             MutationResult<Notification> result = session.createNotification(
-                new Options.NotificationCreate(
-                    Options.Mutation.defaults(),
-                    title,
-                    body,
-                    Optional.of("error")
-                )
+                notification
             );
             return Optional.of(result.value().snapshot().id());
         } catch (RuntimeException notificationError) {

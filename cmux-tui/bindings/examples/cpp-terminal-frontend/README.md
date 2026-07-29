@@ -9,7 +9,8 @@ With `--command`, it launches a shell command in the current or selected
 workspace. Stable correlation and idempotency keys recover the exact
 `CreatedTerminalPath` if the `workspace.run` response is lost. After the
 attachment ends, `terminal.wait_exit(0)` and `terminal.refresh()` expose and
-cross-check the durable exit outcome.
+cross-check the durable exit outcome. The initial history read uses validated
+styled-history options, and the attachment uses the typed read-only flag.
 
 From the cmux checkout root:
 

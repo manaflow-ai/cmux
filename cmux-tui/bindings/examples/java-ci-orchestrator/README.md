@@ -46,9 +46,10 @@ cmux-tui/bindings/examples/java-ci-orchestrator/scripts/run.sh \
 
 The task string is sent as an explicit `ShellCommand`, so the target session
 chooses its platform shell. Exit status `0` prints the captured screen and
-history. A nonzero exit or signal also creates an error notification and becomes
-the process exit status. Transport or orchestration failures exit with status
-`2`.
+history. A nonzero exit or signal creates an error notification targeted to
+the task terminal and becomes the process exit status. Transport or
+orchestration failures create a session-scoped notification and exit with
+status `2`.
 
 `CMUX_JAVA_SDK_JAR=/path/to/cmux-java-sdk.jar` compiles against an external SDK
 artifact. Without it, the scripts build the adjacent local SDK.

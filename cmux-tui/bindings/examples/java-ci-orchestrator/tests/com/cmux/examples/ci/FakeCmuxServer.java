@@ -256,6 +256,17 @@ final class FakeCmuxServer implements Transport {
             throw new AssertionError("successful path must not notify");
         }
         requireEquals("error", params.get("level"), "notification level");
+        if (scenario == Scenario.COMMAND_FAILURE) {
+            requireEquals(
+                TERMINAL_ID,
+                params.get("terminal_id"),
+                "command failure notification terminal"
+            );
+        } else if (params.containsKey("terminal_id")) {
+            throw new AssertionError(
+                "orchestration failure notification must be session-scoped"
+            );
+        }
         String title = string(params.get("title"), "notification title");
         String body = string(params.get("body"), "notification body");
         if (title.isBlank() || body.isBlank()) {

@@ -22,6 +22,7 @@ public final class ResourceApiTest {
         exactCommandAndRouting();
         creationCorrelationIsFirstClass();
         nullableMetadata();
+        notificationTargetingIsOptionalAndTyped();
         strictTypedModels();
         layoutUndoUsesTypedConfirmation();
         creationResolutionAndWaitExitStaySeparate();
@@ -136,6 +137,51 @@ public final class ResourceApiTest {
             require(params.containsKey("name"), "nullable name is present");
             require(params.get("name") == null, "nullable name clears with null");
             require(params.get("kind").equals(""), "empty kind is preserved");
+        }
+    }
+
+    private static void notificationTargetingIsOptionalAndTyped() {
+        FakeTransport transport = new FakeTransport();
+        try (Client client = client(transport)) {
+            Session session = client.machine(Selector.current())
+                .session(Selector.current());
+
+            session.createNotification(new Options.NotificationCreate(
+                Options.Mutation.defaults(),
+                "Session warning",
+                "No terminal owns this warning",
+                Optional.of("warning")
+            ));
+            Map<String, Object> sessionParams = object(
+                transport.lastSent().get("params")
+            );
+            require(
+                !sessionParams.containsKey("terminal_id"),
+                "session-scoped notification omits terminal_id"
+            );
+
+            Ids.TerminalId terminalId =
+                new Ids.TerminalId("term_" + HEX);
+            MutationResult<Notification> targeted =
+                session.createNotification(new Options.NotificationCreate(
+                    Options.Mutation.defaults(),
+                    "Task failed",
+                    "The selected terminal exited",
+                    Optional.of("error"),
+                    Optional.of(terminalId)
+                ));
+            Map<String, Object> terminalParams = object(
+                transport.lastSent().get("params")
+            );
+            require(
+                terminalParams.get("terminal_id").equals(terminalId.value()),
+                "terminal-targeted notification serializes terminal_id"
+            );
+            require(
+                targeted.value().snapshot().terminalId()
+                    .equals(Optional.of(terminalId)),
+                "terminal-targeted notification decodes terminal_id"
+            );
         }
     }
 
@@ -778,6 +824,8 @@ public final class ResourceApiTest {
                     "exited_at", "10",
                     "revision", "11"
                 );
+                case "notification.create" ->
+                    notificationCreateResult(params);
                 case "session.events" -> Map.of(
                     "stream_id",
                     String.valueOf(params.get("stream_id"))
@@ -871,6 +919,28 @@ public final class ResourceApiTest {
                     "tab_id", "tab_" + HEX,
                     "browser_id", "browser_" + HEX
                 ),
+                "generation", "generation-1",
+                "revision", "18446744073709551615",
+                "replayed", false
+            );
+        }
+
+        private static Map<String, Object> notificationCreateResult(
+            Map<String, Object> params
+        ) {
+            Map<String, Object> notification = new LinkedHashMap<>();
+            notification.put("id", "notification_" + HEX);
+            notification.put("session_id", "session_" + HEX);
+            notification.put("title", params.get("title"));
+            notification.put("body", params.get("body"));
+            notification.put("level", params.getOrDefault("level", "info"));
+            if (params.containsKey("terminal_id")) {
+                notification.put("terminal_id", params.get("terminal_id"));
+            }
+            notification.put("created_at_ms", "100");
+            notification.put("unread", true);
+            return Map.of(
+                "value", notification,
                 "generation", "generation-1",
                 "revision", "18446744073709551615",
                 "replayed", false

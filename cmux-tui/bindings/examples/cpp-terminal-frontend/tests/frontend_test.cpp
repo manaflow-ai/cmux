@@ -305,6 +305,9 @@ std::shared_ptr<FakeScenario> make_scenario() {
             return {};
         }
         if (op == "terminal.history.read") {
+            CHECK(uint_field(input, "limit") == 10'000);
+            CHECK(input.at("styled").as_bool().value());
+            CHECK(input.find("before") == input.end());
             respond(
                 endpoint,
                 request,
@@ -341,6 +344,9 @@ std::shared_ptr<FakeScenario> make_scenario() {
 
         if (op == "terminal.attach") {
             CHECK(string_field(input, "terminal") == terminal_id);
+            CHECK(input.at("read_only").as_bool().value());
+            CHECK(input.find("cols") == input.end());
+            CHECK(input.find("rows") == input.end());
             const std::string id = string_field(input, "stream_id");
             endpoint.incoming.push_back(stream_item(
                 id,

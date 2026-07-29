@@ -436,6 +436,22 @@ struct UndoLayoutOptions {
     [[nodiscard]] Result<Json::Object> to_params() const;
 };
 
+struct TerminalHistoryOptions {
+    std::optional<std::uint64_t> before;
+    std::optional<std::uint32_t> limit;
+    bool styled = false;
+
+    [[nodiscard]] Result<Json::Object> to_params() const;
+};
+
+struct TerminalAttachOptions {
+    std::optional<std::uint16_t> cols;
+    std::optional<std::uint16_t> rows;
+    bool read_only = false;
+
+    [[nodiscard]] Result<Json::Object> to_params() const;
+};
+
 struct Cursor {
     std::string generation;
     std::uint64_t revision = 0;
@@ -1787,7 +1803,8 @@ public:
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<MutationResult<CreatedTerminalPath>> run(
         RunOptions run,
-        MutationOptions options = MutationOptions::unique()) const;
+        MutationOptions options = MutationOptions::unique(),
+        CallOptions call = {}) const;
     [[nodiscard]] Result<MutationResult<WorkspaceSnapshot>> apply_layout(
         Json document,
         MutationOptions options = MutationOptions::unique()) const;
@@ -1911,7 +1928,7 @@ public:
         Json::Object params = {}) const;
     [[nodiscard]] Result<TerminalStateResult> read_state() const;
     [[nodiscard]] Result<TerminalHistoryResult> read_history(
-        Json::Object params = {}) const;
+        TerminalHistoryOptions options = {}) const;
     [[nodiscard]] Result<MutationResult<EmptyResult>> clear_history(
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<TerminalWaitResult> wait(
@@ -1935,7 +1952,7 @@ public:
         PaneDestination destination,
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<TerminalAttachmentStream> attach(
-        Json::Object params = {},
+        TerminalAttachOptions options = {},
         CallOptions call = {}) const;
     [[nodiscard]] Result<MutationResult<EmptyResult>> close(
         MutationOptions options = MutationOptions::unique()) const;

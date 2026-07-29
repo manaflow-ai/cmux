@@ -12,6 +12,22 @@ static_assert(std::is_same_v<
               decltype(std::declval<cmux::Terminal&>().wait_exit()),
               cmux::Result<cmux::TerminalWaitExitResult>>);
 static_assert(std::is_same_v<
+              decltype(std::declval<cmux::Terminal&>().read_history(
+                  std::declval<cmux::TerminalHistoryOptions>())),
+              cmux::Result<cmux::TerminalHistoryResult>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::Terminal&>().attach(
+                  std::declval<cmux::TerminalAttachOptions>(),
+                  std::declval<cmux::CallOptions>())),
+              cmux::Result<cmux::TerminalAttachmentStream>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::Workspace&>().run(
+                  std::declval<cmux::RunOptions>(),
+                  std::declval<cmux::MutationOptions>(),
+                  std::declval<cmux::CallOptions>())),
+              cmux::Result<
+                  cmux::MutationResult<cmux::CreatedTerminalPath>>>);
+static_assert(std::is_same_v<
               decltype(std::declval<cmux::raw::Client&>().identify()),
               cmux::Result<cmux::raw::IdentifyResult>>);
 static_assert(!std::is_copy_constructible_v<cmux::SessionEventStream>);
@@ -58,11 +74,23 @@ int main() {
     browser_create.correlation_key = "consumer-browser";
     auto browser_params = browser_create.to_params();
 
+    cmux::TerminalHistoryOptions history;
+    history.before = 50;
+    history.limit = 100;
+    history.styled = true;
+    auto history_params = history.to_params();
+
+    cmux::TerminalAttachOptions attach;
+    attach.cols = 120;
+    attach.rows = 40;
+    attach.read_only = true;
+    auto attach_params = attach.to_params();
+
     cmux::raw::IdentifyRequest raw_request;
     return selector.wire() != "name:current" ||
                    !workspace_params || !run_params || !screen_params ||
                    !pane_params || !split_params || !terminal_params ||
-                   !browser_params ||
+                   !browser_params || !history_params || !attach_params ||
                    workspace_params.value()
                            .at("correlation_key")
                            .as_string()
@@ -91,6 +119,22 @@ int main() {
                            .at("correlation_key")
                            .as_string()
                            .value() != "consumer-browser" ||
+                   history_params.value()
+                           .at("before")
+                           .as_string()
+                           .value() != "50" ||
+                   history_params.value()
+                           .at("limit")
+                           .as_uint64()
+                           .value() != 100 ||
+                   attach_params.value()
+                           .at("cols")
+                           .as_uint64()
+                           .value() != 120 ||
+                   !attach_params.value()
+                            .at("read_only")
+                            .as_bool()
+                            .value() ||
                    !(raw_request == cmux::raw::IdentifyRequest{}) ||
                    cmux::kSdkVersion != "1.0.0"
                ? 1

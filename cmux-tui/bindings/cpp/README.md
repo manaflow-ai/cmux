@@ -47,8 +47,13 @@ and idempotency key. `Client::mutate` remains the explicit raw JSON escape
 hatch.
 
 `CallOptions` supplies a steady-clock deadline and `std::stop_token` for an
-individual raw call or stream open. `ResourceStream::poll(timeout)` bounds a
-stream wait.
+individual raw call, `Workspace::run`, or stream open.
+`ResourceStream::poll(timeout)` bounds a stream wait.
+
+`TerminalHistoryOptions` validates `limit` in the range 1 through 10000 and
+encodes the full unsigned `before` cursor as a decimal string.
+`TerminalAttachOptions` requires `cols` and `rows` together and exposes a
+typed `read_only` flag.
 
 The socket binds a client to its current machine and session. The client adds
 those routing selectors when callers supply only an opaque target ID.

@@ -469,13 +469,18 @@ cmux::Result<void> TerminalFrontend::run(
         return std::move(screen).error();
     }
     initial_screen_ = std::move(screen).value();
-    auto history = terminal.read_history();
+    cmux::TerminalHistoryOptions history_options;
+    history_options.limit = 10'000;
+    history_options.styled = true;
+    auto history = terminal.read_history(history_options);
     if (!history) {
         return std::move(history).error();
     }
     initial_history_ = std::move(history).value();
 
-    auto attached = terminal.attach();
+    cmux::TerminalAttachOptions attach_options;
+    attach_options.read_only = true;
+    auto attached = terminal.attach(attach_options);
     if (!attached) {
         return std::move(attached).error();
     }

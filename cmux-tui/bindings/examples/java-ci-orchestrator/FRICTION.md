@@ -17,12 +17,9 @@ Remaining friction:
 2. `Session.resolveCreation` correctly returns the closed `CreatedPath` union,
    but a caller recovering a known operation must still verify the expected
    path variant at runtime.
-3. `Session.createNotification` has no terminal selector even though
-   `NotificationSnapshot` can contain a terminal ID. Failure notifications are
-   therefore session-scoped.
-4. Workspace ownership requires a custom shutdown hook and idempotent cleanup
+3. Workspace ownership requires a custom shutdown hook and idempotent cleanup
    guard. An `AutoCloseable` workspace lease would make this lifecycle explicit.
-5. Typed history preserves styled runs, so a plain-text CLI must concatenate
+4. Typed history preserves styled runs, so a plain-text CLI must concatenate
    runs and pages itself. A standard plain-text projection helper would avoid
    each consumer implementing this conversion.
 

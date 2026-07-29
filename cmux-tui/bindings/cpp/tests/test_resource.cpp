@@ -3,6 +3,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -221,6 +222,110 @@ TEST("run commands preserve exact argv and keep shell evaluation remote") {
     CHECK(explicit_shell);
     CHECK_EQ(explicit_shell.value().argv().at(0), std::string("/bin/zsh"));
     CHECK_EQ(explicit_shell.value().argv().at(1), std::string("-lc"));
+}
+
+TEST("terminal history and attach options validate and encode") {
+    cmux::TerminalHistoryOptions history;
+    history.before = std::numeric_limits<std::uint64_t>::max();
+    history.limit = 10'000;
+    history.styled = true;
+    auto history_params = history.to_params();
+    CHECK(history_params);
+    CHECK_EQ(
+        history_params.value().at("before").as_string().value(),
+        std::string_view("18446744073709551615"));
+    CHECK_EQ(
+        history_params.value().at("limit").as_uint64().value(),
+        10'000U);
+    CHECK(history_params.value().at("styled").as_bool().value());
+
+    cmux::TerminalHistoryOptions zero_limit;
+    zero_limit.limit = 0;
+    auto invalid_zero_limit = zero_limit.to_params();
+    CHECK(!invalid_zero_limit);
+    CHECK_EQ(
+        invalid_zero_limit.error().code,
+        cmux::ErrorCode::invalid_argument);
+
+    cmux::TerminalHistoryOptions oversized_limit;
+    oversized_limit.limit = 10'001;
+    CHECK(!oversized_limit.to_params());
+
+    cmux::TerminalAttachOptions attach;
+    attach.cols = 120;
+    attach.rows = 40;
+    attach.read_only = true;
+    auto attach_params = attach.to_params();
+    CHECK(attach_params);
+    CHECK_EQ(
+        attach_params.value().at("cols").as_uint64().value(),
+        120U);
+    CHECK_EQ(
+        attach_params.value().at("rows").as_uint64().value(),
+        40U);
+    CHECK(attach_params.value().at("read_only").as_bool().value());
+
+    cmux::TerminalAttachOptions unpaired;
+    unpaired.cols = 80;
+    auto invalid_unpaired = unpaired.to_params();
+    CHECK(!invalid_unpaired);
+    CHECK_EQ(
+        invalid_unpaired.error().code,
+        cmux::ErrorCode::invalid_argument);
+
+    cmux::TerminalAttachOptions zero_size;
+    zero_size.cols = 0;
+    zero_size.rows = 24;
+    CHECK(!zero_size.to_params());
+
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    auto terminal_id = cmux::TerminalId::parse(
+        "term_0123456789abcdef0123456789abcdef");
+    CHECK(terminal_id);
+    auto terminal = client.terminal(std::move(terminal_id).value());
+    auto rejected_history = terminal.read_history(zero_limit);
+    CHECK(!rejected_history);
+    auto rejected_attach = terminal.attach(unpaired);
+    CHECK(!rejected_attach);
+    std::lock_guard lock(state->mutex);
+    CHECK(state->outgoing.empty());
+}
+
+TEST("terminal history handle sends only validated typed fields") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(
+        state,
+        response(
+            "cpp-request-1",
+            R"({"start":"0","next":null,"rows":[]})"));
+    auto id = cmux::TerminalId::parse(
+        "term_0123456789abcdef0123456789abcdef");
+    CHECK(id);
+    cmux::TerminalHistoryOptions options;
+    options.before = 42;
+    options.limit = 250;
+    options.styled = true;
+    auto history = client.terminal(std::move(id).value())
+                       .read_history(options);
+    CHECK(history);
+
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 1U);
+    auto envelope = cmux::Json::parse(state->outgoing.front());
+    CHECK(envelope);
+    const auto* params =
+        envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        params->at("terminal").as_string().value(),
+        std::string_view(
+            "term_0123456789abcdef0123456789abcdef"));
+    CHECK_EQ(
+        params->at("before").as_string().value(),
+        std::string_view("42"));
+    CHECK_EQ(params->at("limit").as_uint64().value(), 250U);
+    CHECK(params->at("styled").as_bool().value());
 }
 
 TEST("all creation options validate and encode correlation keys") {
@@ -497,6 +602,30 @@ TEST("cancellation before send and uncertain mutation outcomes are typed") {
         cmux::Operation::machine_list, {}, std::move(canceled));
     CHECK(!read);
     CHECK_EQ(read.error().code, cmux::ErrorCode::canceled);
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK(state->outgoing.empty());
+    }
+
+    auto workspace_id = cmux::WorkspaceId::parse(
+        "ws_0123456789abcdef0123456789abcdef");
+    CHECK(workspace_id);
+    auto command = cmux::RunCommand::exact({"true"});
+    CHECK(command);
+    cmux::RunOptions run(std::move(command).value());
+    auto run_key =
+        cmux::MutationOptions::with_key("canceled-workspace-run");
+    CHECK(run_key);
+    cmux::CallOptions canceled_run;
+    canceled_run.cancel = stopped.get_token();
+    auto workspace_run =
+        client.workspace(std::move(workspace_id).value())
+            .run(
+                std::move(run),
+                std::move(run_key).value(),
+                std::move(canceled_run));
+    CHECK(!workspace_run);
+    CHECK_EQ(workspace_run.error().code, cmux::ErrorCode::canceled);
     {
         std::lock_guard lock(state->mutex);
         CHECK(state->outgoing.empty());
@@ -917,9 +1046,14 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
     auto control = std::make_shared<FakeState>();
     auto stream_state = std::make_shared<FakeState>();
     auto client = client_for(control, stream_state);
-    std::atomic<bool> route_ok{false};
+    std::atomic<bool> open_route_ok{false};
+    std::atomic<bool> resize_route_ok{false};
 
-    std::thread server([stream_state, &route_ok] {
+    std::thread server([
+        stream_state,
+        &open_route_ok,
+        &resize_route_ok
+    ] {
         wait_for_writes(stream_state, 1);
         cmux::Json open;
         {
@@ -931,6 +1065,15 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
         const auto* open_params = open.find("params")->as_object().value();
         const auto stream_id =
             std::string(open_params->at("stream_id").as_string().value());
+        open_route_ok.store(
+            open.find("operation")->as_string().value() ==
+                    "terminal.attach" &&
+                open_params->at("terminal").as_string().value() ==
+                    "term_0123456789abcdef0123456789abcdef" &&
+                open_params->at("cols").as_uint64().value() == 80U &&
+                open_params->at("rows").as_uint64().value() == 24U &&
+                open_params->at("read_only").as_bool().value(),
+            std::memory_order_release);
         enqueue(
             stream_state,
             stream_open_response(request_id, stream_id));
@@ -945,7 +1088,7 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
             std::string(resize.find("id")->as_string().value());
         const auto* resize_params =
             resize.find("params")->as_object().value();
-        route_ok.store(
+        resize_route_ok.store(
             resize.find("operation")->as_string().value() ==
                     "terminal.viewer.resize" &&
                 resize_params->at("terminal").as_string().value() ==
@@ -971,13 +1114,15 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
         enqueue(stream_state, response(release_id));
     });
 
-    auto stream = client.open_terminal_attachment({
-        {
-            "terminal",
-            cmux::Json(
-                "term_0123456789abcdef0123456789abcdef"),
-        },
-    });
+    auto terminal_id = cmux::TerminalId::parse(
+        "term_0123456789abcdef0123456789abcdef");
+    CHECK(terminal_id);
+    cmux::TerminalAttachOptions attach;
+    attach.cols = 80;
+    attach.rows = 24;
+    attach.read_only = true;
+    auto stream = client.terminal(std::move(terminal_id).value())
+                      .attach(attach);
     CHECK(stream);
     auto resized = stream.value().resize_viewer(100, 40);
     CHECK(resized);
@@ -986,7 +1131,8 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
     auto released = stream.value().release_viewer();
     CHECK(released);
     server.join();
-    CHECK(route_ok.load(std::memory_order_acquire));
+    CHECK(open_route_ok.load(std::memory_order_acquire));
+    CHECK(resize_route_ok.load(std::memory_order_acquire));
     std::lock_guard lock(control->mutex);
     CHECK(control->outgoing.empty());
 }

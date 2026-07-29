@@ -290,6 +290,9 @@ public final class Session {
         params.put(Wire.TITLE, options.title());
         params.put(Wire.BODY, options.body());
         options.level().ifPresent(level -> params.put(Wire.LEVEL, level));
+        options.terminalId().ifPresent(
+            terminalId -> params.put("terminal_id", terminalId)
+        );
         Client.MutationResponse response = client.mutation(
             Operations.NOTIFICATION_CREATE, params, options.mutation()
         );
