@@ -307,6 +307,7 @@ struct FilePreviewReviewFeedbackTests {
         #expect(!coordinator.focus(.textEditor))
 
         let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         defer {
             window.contentView = nil
             window.close()
