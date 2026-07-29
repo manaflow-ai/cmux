@@ -5262,9 +5262,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func addWorkspace(windowId: UUID, workingDirectory: String? = nil, bringToFront shouldBringToFront: Bool = false) -> UUID? {
         guard let state = scriptableMainWindow(windowId: windowId) else { return nil }
-        if shouldBringToFront, let window = state.window {
-            setActiveMainWindow(window)
-            bringToFront(window)
+        if shouldBringToFront {
+            guard let window = state.window, bringToFront(window) else { return nil }
         }
         let workspace = state.tabManager.addWorkspace(
             workingDirectory: workingDirectory,
@@ -5966,7 +5965,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            self.bringToFront(destinationWindow)
+            guard self.bringToFront(destinationWindow) else { return }
             destinationManager.focusTab(
                 destinationWorkspaceId,
                 surfaceId: destinationPanelId,
@@ -8301,10 +8300,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
         guard let context else { return false }
 
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-        if shouldBringToFront, let window {
-            bringToFront(window)
-            setActiveMainWindow(window)
+        if shouldBringToFront {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId),
+                  bringToFront(window) else {
+                return false
+            }
         }
 
         let workspace = context.tabManager.selectedWorkspace
@@ -8348,10 +8348,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
         guard let context else { return false }
 
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-        if let window {
-            bringToFront(window)
-            setActiveMainWindow(window)
+        guard let window = context.window ?? windowForMainWindowId(context.windowId),
+              bringToFront(window) else {
+            return false
         }
 
         let workspace = context.tabManager.selectedWorkspace
@@ -8423,9 +8422,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             discardOrphanedMainWindowContext(context)
             return nil
         }
-        setActiveMainWindow(window)
         if shouldBringToFront {
-            bringToFront(window)
+            guard bringToFront(window, reason: .workspaceCreation) else { return nil }
+        } else {
+            setActiveMainWindow(window)
         }
 
         let workspace: Workspace
@@ -9075,9 +9075,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context = preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: "welcome") else {
             return
         }
-        if let window = context.window ?? windowForMainWindowId(context.windowId) {
-            setActiveMainWindow(window)
-            bringToFront(window)
+        guard let window = context.window ?? windowForMainWindowId(context.windowId),
+              bringToFront(window, reason: .workspaceCreation) else {
+            return
         }
         let workspace = context.tabManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
         sendWelcomeCommandWhenReady(to: workspace)
@@ -9485,10 +9485,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return mainWindowContexts.values.first(where: { $0.windowId == windowId })
         }()
 
-        if let context,
-           let window = context.window ?? windowForMainWindowId(context.windowId) {
-            setActiveMainWindow(window)
-            bringToFront(window)
+        guard let context,
+              let window = context.window ?? windowForMainWindowId(context.windowId),
+              bringToFront(window, reason: .menuBar) else {
+            return
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -13744,8 +13744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   let targetWindow = targetContext.window ?? windowForMainWindowId(targetContext.windowId) else {
                 return false
             }
-            setActiveMainWindow(targetWindow)
-            bringToFront(targetWindow)
+            guard bringToFront(targetWindow, reason: .feedback) else { return false }
             NotificationCenter.default.post(name: .feedbackComposerRequested, object: targetWindow)
             return true
         }

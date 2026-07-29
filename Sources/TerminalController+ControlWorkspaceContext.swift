@@ -111,7 +111,9 @@ extension TerminalController: ControlWorkspaceContext {
         // is visible.
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         if let windowId {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            guard AppDelegate.shared?.focusMainWindow(windowId: windowId) == true else {
+                return .tabManagerUnavailable
+            }
             setActiveTabManager(tabManager)
         }
         tabManager.selectWorkspace(ws)

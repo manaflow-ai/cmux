@@ -5,17 +5,25 @@ import ObjectiveC.runtime
 
 @MainActor
 final class RecoverableMainWindowRoute {
+    enum Lifecycle {
+        case awaitingPresentation
+        case presented
+        case retired
+    }
+
     let windowId: UUID
     weak var tabManager: TabManager?
     weak var window: NSWindow?
-    var hasBeenPresented: Bool
+    var lifecycle: Lifecycle
     let order: UInt64
 
     init(windowId: UUID, tabManager: TabManager, window: NSWindow?, order: UInt64) {
         self.windowId = windowId
         self.tabManager = tabManager
         self.window = window
-        self.hasBeenPresented = window.map { $0.isVisible || $0.isMiniaturized } ?? false
+        self.lifecycle = window.map {
+            $0.isVisible || $0.isMiniaturized ? .presented : .awaitingPresentation
+        } ?? .retired
         self.order = order
     }
 }
@@ -68,23 +76,32 @@ extension AppDelegate {
     }
 
     private func liveRecoverableMainWindow(_ route: RecoverableMainWindowRoute) -> NSWindow? {
+        if case .retired = route.lifecycle { return nil }
         guard let window = route.window,
               !isMainWindowCloseCommitted(window),
               NSApp.windows.contains(where: { $0 === window }),
               mainWindowId(from: window) == route.windowId else {
+            route.lifecycle = .retired
             return nil
         }
 
         if window.isVisible || window.isMiniaturized {
-            route.hasBeenPresented = true
+            route.lifecycle = .presented
             return window
         }
 
-        // A route may be captured while SwiftUI is still mounting an as-yet
-        // unpresented window. Once AppKit has presented that exact window,
-        // ordering it out terminates the route instead of leaving a hidden
-        // owner alive indefinitely.
-        return route.hasBeenPresented ? nil : window
+        // A route may be captured while SwiftUI is still mounting an
+        // as-yet unpresented window. Once AppKit has presented that exact
+        // window, ordering it out retires its ownership permanently.
+        switch route.lifecycle {
+        case .awaitingPresentation:
+            return window
+        case .presented:
+            route.lifecycle = .retired
+            return nil
+        case .retired:
+            return nil
+        }
     }
 
     private func sortedRecoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
