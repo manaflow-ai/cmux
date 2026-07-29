@@ -5005,7 +5005,6 @@ impl Mux {
                 tasks
             };
 
-            let mut deferred = 0_usize;
             if !tasks.is_empty() {
                 let deadline =
                     Instant::now() + crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
@@ -5049,7 +5048,11 @@ impl Mux {
                             });
                         }
                         DeadlineMapResult::Unscheduled => {
-                            deferred += 1;
+                            failed_surface_ids.insert(*id);
+                            failures.push(format!(
+                                "surface {id}: update was rejected because the deadline worker \
+                                 pool is saturated"
+                            ));
                         }
                     }
                 }
@@ -5067,9 +5070,6 @@ impl Mux {
             mux.kitty_image_budget_changed.notify_all();
             if failures.is_empty() {
                 failure_streak = 0;
-                if deferred > 0 || !pending_operations.is_empty() {
-                    std::thread::sleep(KITTY_IMAGE_BUDGET_RETRY_INITIAL);
-                }
                 continue;
             }
 
@@ -11509,7 +11509,7 @@ mod tests {
         }
         let (stopped, blocked) = {
             let budget = mux.kitty_image_budget.lock().unwrap();
-            (!budget.worker_running, budget.blocked_surfaces.contains(&first.id))
+            (!budget.worker_running, budget.blocked_surfaces.contains(&second.id))
         };
 
         {
