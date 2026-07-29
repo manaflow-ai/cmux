@@ -1420,7 +1420,7 @@ enum SessionTranscriptLoader {
         try Task.checkCancellation()
 
         var openingUser: SessionTranscriptTurn?
-        reader.fromStart(
+        _ = reader.fromStart(
             url: url,
             maxBytes: openingTranscriptByteLimit
         ) { object in
@@ -1502,7 +1502,9 @@ enum SessionTranscriptLoader {
                 return true
             }
             try Task.checkCancellation()
-        } else if didHitTurnLimit || !metrics.didReachStart {
+        } else if didHitTurnLimit
+                    || !metrics.didReachStart
+                    || metrics.didSkipOversizedRecord {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
         turns.reverse()

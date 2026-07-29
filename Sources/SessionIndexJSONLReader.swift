@@ -47,12 +47,14 @@ struct SessionIndexJSONLReader: Sendable {
         var isSkippingOversizedRecord = false
         var bytesRead = 0
         var recordsVisited = 0
+        var didSkipOversizedRecord = false
 
         func append(_ segment: Data.SubSequence) {
             guard !segment.isEmpty, !isSkippingOversizedRecord else { return }
             guard lineData.count + segment.count <= maximumRecordBytes else {
                 lineData = Data()
                 isSkippingOversizedRecord = true
+                didSkipOversizedRecord = true
                 return
             }
             lineData.append(contentsOf: segment)
@@ -83,7 +85,8 @@ struct SessionIndexJSONLReader: Sendable {
                 if finishRecord() {
                     return SessionIndexJSONLReadMetrics(
                         bytesRead: bytesRead,
-                        recordsVisited: recordsVisited
+                        recordsVisited: recordsVisited,
+                        didSkipOversizedRecord: didSkipOversizedRecord
                     )
                 }
                 segmentStart = chunk.index(after: newline)
@@ -98,7 +101,8 @@ struct SessionIndexJSONLReader: Sendable {
         }
         return SessionIndexJSONLReadMetrics(
             bytesRead: bytesRead,
-            recordsVisited: recordsVisited
+            recordsVisited: recordsVisited,
+            didSkipOversizedRecord: didSkipOversizedRecord
         )
     }
 
@@ -143,7 +147,15 @@ struct SessionIndexJSONLReader: Sendable {
             ? firstNewline.map { payload.index(after: $0) } ?? payload.endIndex
             : payload.startIndex
 
+        // `data.first` is the byte immediately before `payload`. If the visible
+        // suffix already reaches the record limit, the complete record exceeds it.
+        let leadingFragmentEnd = firstNewline ?? payload.endIndex
+        let skippedLeadingFragmentByteCount = startsWithinRecord
+            ? payload.distance(from: payload.startIndex, to: leadingFragmentEnd)
+            : 0
         var recordsVisited = 0
+        var didSkipOversizedRecord =
+            startsWithinRecord && skippedLeadingFragmentByteCount >= maximumRecordBytes
         var lineEnd = payload.endIndex
         while lineEnd > completeRecordsStart {
             while lineEnd > completeRecordsStart,
@@ -164,8 +176,11 @@ struct SessionIndexJSONLReader: Sendable {
             guard lineStart < currentLineEnd else { continue }
             recordsVisited += 1
             let recordLength = payload.distance(from: lineStart, to: currentLineEnd)
-            if recordLength <= maximumRecordBytes,
-               Self.visit(line: Data(payload[lineStart..<currentLineEnd]), body: body) {
+            guard recordLength <= maximumRecordBytes else {
+                didSkipOversizedRecord = true
+                continue
+            }
+            if Self.visit(line: Data(payload[lineStart..<currentLineEnd]), body: body) {
                 break
             }
         }
@@ -192,6 +207,7 @@ struct SessionIndexJSONLReader: Sendable {
             bytesRead: data.count,
             recordsVisited: recordsVisited,
             didReachStart: !includesBoundaryContext,
+            didSkipOversizedRecord: didSkipOversizedRecord,
             nextEndOffset: nextEndOffset
         )
     }
@@ -208,6 +224,7 @@ struct SessionIndexJSONLReader: Sendable {
         var bytesRead = 0
         var recordsVisited = 0
         var didReachStart = false
+        var didSkipOversizedRecord = false
         var stoppedEarly = false
         var pagesRead = 0
 
@@ -223,6 +240,8 @@ struct SessionIndexJSONLReader: Sendable {
             bytesRead += page.bytesRead
             recordsVisited += page.recordsVisited
             didReachStart = page.didReachStart
+            didSkipOversizedRecord =
+                didSkipOversizedRecord || page.didSkipOversizedRecord
             endOffset = page.nextEndOffset
             pagesRead += 1
         } while !stoppedEarly
@@ -235,6 +254,7 @@ struct SessionIndexJSONLReader: Sendable {
             bytesRead: bytesRead,
             recordsVisited: recordsVisited,
             didReachStart: didReachStart,
+            didSkipOversizedRecord: didSkipOversizedRecord,
             nextEndOffset: endOffset
         )
     }
