@@ -49,6 +49,55 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func overlappingPurposeUpdatesReconcileToLatestRole()
+        async throws {
+        let transport = InterleavingSessionPurposeTransport()
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59_123
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            sessionPurpose: .foregroundControl
+        )
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                id: "purpose-probe"
+            )
+        )
+        await transport.blockNextUpdate(to: .backgroundControl)
+        let olderDemotion = Task {
+            await client.updateTransportSessionPurpose(.backgroundControl)
+        }
+        await transport.waitUntilUpdateIsBlocked(on: .backgroundControl)
+        await client.updateTransportSessionPurpose(.foregroundControl)
+        await transport.releaseBlockedUpdate()
+        await olderDemotion.value
+
+        #expect(await transport.currentPurpose() == .foregroundControl)
+        #expect(await transport.recordedCompletedPurposes().suffix(3) == [
+            .foregroundControl,
+            .backgroundControl,
+            .foregroundControl,
+        ])
+        await client.disconnect()
+    }
+
     @Test func cancelledQueuedRPCIsNotWrittenAfterEarlierSendCompletes() async throws {
         let transport = QueuedCancellationProbeTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59123)

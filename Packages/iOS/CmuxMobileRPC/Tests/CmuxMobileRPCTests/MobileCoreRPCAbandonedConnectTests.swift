@@ -581,6 +581,31 @@ import Testing
         #expect(initialKey != otherPeerKey)
         #expect(initialKey != otherMacKey)
 
+        let firstWebSocketRoute = try CmxAttachRoute(
+            id: "websocket-first",
+            kind: .websocket,
+            endpoint: .url(
+                "wss://example.test/mobile?token=first-secret"
+            )
+        )
+        let rotatedWebSocketRoute = try CmxAttachRoute(
+            id: "websocket-rotated",
+            kind: .websocket,
+            endpoint: .url(
+                "wss://example.test/mobile?token=second-secret"
+            )
+        )
+        #expect(
+            MobileRPCConnectAttemptKey(
+                route: firstWebSocketRoute,
+                expectedPeerDeviceID: "mac-websocket"
+            )
+                == MobileRPCConnectAttemptKey(
+                    route: rotatedWebSocketRoute,
+                    expectedPeerDeviceID: "mac-websocket"
+                )
+        )
+
         let registry = MobileRPCConnectAttemptRegistry()
         guard case let .granted(initialLease) =
                 await registry.beginConnect(key: initialKey) else {

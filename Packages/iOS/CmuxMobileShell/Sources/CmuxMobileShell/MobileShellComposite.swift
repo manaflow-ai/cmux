@@ -985,6 +985,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var secondaryAggregationRetryTask: Task<Void, Never>?
     private var secondaryAggregationRetryTaskGeneration = UUID()
     private var secondaryAggregationRetryMacIDs: Set<String> = []
+    private var secondaryAggregationRetryEvidenceGeneration: UInt64 = 0
     private var secondaryAggregationRetryState = MobileControlPoolRetryState()
     /// One timer owner for the whole online control pool. Each tick reasserts
     /// every lightweight subscription, avoiding one long-lived timer per Mac.
@@ -4206,6 +4207,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         allowsNewConnections: Bool = true
     ) async {
         guard let pairedMacStore, multiMacAggregationEnabled else { return }
+        let retryEvidenceGenerationAtStart =
+            secondaryAggregationRetryEvidenceGeneration
         // Require a concrete signed-in user before any load/connection: a nil/empty
         // account would make `loadAll(stackUserID: nil)` read EVERY locally stored
         // Mac across Stack accounts and publish another account's workspaces into
@@ -4350,7 +4353,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Preserve every newly missing Mac in the existing timer's set so
             // a one-shot online/route edge cannot be lost behind another Mac's
             // backoff.
-            secondaryAggregationRetryMacIDs.formUnion(
+            retainSecondaryAggregationRetryEvidence(
                 wanted.lazy
                     .filter { self.secondaryMacSubscriptions[$0] == nil }
                     .map(cmxCanonicalDeviceID)
@@ -4359,8 +4362,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let allWantedConnected = wanted.allSatisfy {
             secondaryMacSubscriptions[$0] != nil
         }
-        if onlyMacDeviceIDs == nil, allWantedConnected {
-            cancelSecondaryAggregationRetry()
+        if onlyMacDeviceIDs == nil,
+           allWantedConnected,
+           secondaryAggregationRetryEvidenceGeneration
+                == retryEvidenceGenerationAtStart {
+            clearSecondaryAggregationRetryEvidence(
+                for: Set(wanted.map(cmxCanonicalDeviceID))
+            )
         } else if onlyMacDeviceIDs != nil,
                   allWantedConnected,
                   secondaryAggregationRetryTask == nil,
@@ -5258,7 +5266,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func scheduleSecondaryAggregationRetry(
         macDeviceIDs: Set<String>
     ) {
-        secondaryAggregationRetryMacIDs.formUnion(
+        retainSecondaryAggregationRetryEvidence(
             macDeviceIDs.map(cmxCanonicalDeviceID)
         )
         guard presence != nil,
@@ -5298,11 +5306,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func cancelSecondaryAggregationRetry() {
+        secondaryAggregationRetryEvidenceGeneration &+= 1
         secondaryAggregationRetryTaskGeneration = UUID()
         secondaryAggregationRetryTask?.cancel()
         secondaryAggregationRetryTask = nil
         secondaryAggregationRetryMacIDs = []
         secondaryAggregationRetryState.reset()
+    }
+
+    private func retainSecondaryAggregationRetryEvidence<S: Sequence>(
+        _ macDeviceIDs: S
+    ) where S.Element == String {
+        let canonicalIDs = Set(macDeviceIDs.map(cmxCanonicalDeviceID))
+        guard !canonicalIDs.isEmpty else { return }
+        secondaryAggregationRetryEvidenceGeneration &+= 1
+        secondaryAggregationRetryMacIDs.formUnion(canonicalIDs)
+    }
+
+    private func clearSecondaryAggregationRetryEvidence(
+        for macDeviceIDs: Set<String>
+    ) {
+        secondaryAggregationRetryMacIDs.subtract(
+            macDeviceIDs.map(cmxCanonicalDeviceID)
+        )
+        guard secondaryAggregationRetryMacIDs.isEmpty else { return }
+        cancelSecondaryAggregationRetry()
     }
 
     /// Downgrade retained secondary rows without dropping them from the
@@ -5892,8 +5920,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markSecondaryMacUnavailable(macID)
     }
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
-    func beginSecondaryRetryBackoffForTesting() {
-        scheduleSecondaryAggregationRetry(macDeviceIDs: ["test-retry"])
+    func beginSecondaryRetryBackoffForTesting(
+        macDeviceIDs: Set<String> = ["test-retry"]
+    ) {
+        scheduleSecondaryAggregationRetry(macDeviceIDs: macDeviceIDs)
     }
     func resetSecondaryRetryBackoffForTesting() {
         cancelSecondaryAggregationRetry()

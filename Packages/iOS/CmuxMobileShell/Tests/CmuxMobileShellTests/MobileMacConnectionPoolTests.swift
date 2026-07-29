@@ -1185,6 +1185,38 @@ import Testing
         #expect(state.schedule() == .seconds(2))
     }
 
+    @Test func staleFullPassPreservesNewerTargetedRetryEvidence()
+        async {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["team-1": []],
+            blockedTeams: ["team-1"]
+        )
+        let shell = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        let staleFullPass = Task { @MainActor in
+            await shell.refreshSecondaryMacWorkspaces()
+        }
+        await pairedStore.waitUntilLoadStarted(teamID: "team-1")
+
+        shell.beginSecondaryRetryBackoffForTesting(
+            macDeviceIDs: ["mac-newer-targeted-failure"]
+        )
+        #expect(shell.secondaryRetryBackoffIsScheduledForTesting())
+
+        await pairedStore.release(teamID: "team-1")
+        await staleFullPass.value
+
+        #expect(shell.secondaryRetryBackoffIsScheduledForTesting())
+        #expect(shell.secondaryRetryMacIDsForTesting()
+            == ["mac-newer-targeted-failure"])
+        shell.resetSecondaryRetryBackoffForTesting()
+    }
+
     @Test func staleRetryCompletionCannotClearReplacementTimer() async throws {
         let clock = ControlPoolManualClock()
         let shell = MobileShellComposite(

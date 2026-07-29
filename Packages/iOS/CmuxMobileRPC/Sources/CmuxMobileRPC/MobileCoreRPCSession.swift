@@ -210,7 +210,15 @@ actor MobileCoreRPCSession {
             transport as? any CmxByteTransportSessionPurposeUpdating else {
             return
         }
-        await updating.updateSessionPurpose(purpose)
+        let connectionID = installedConnectionID
+        var appliedPurpose: CmxTransportSessionPurpose?
+        while installedConnectionID == connectionID,
+              transport != nil,
+              let currentPurpose = transportSessionPurpose,
+              currentPurpose != appliedPurpose {
+            await updating.updateSessionPurpose(currentPurpose)
+            appliedPurpose = currentPurpose
+        }
     }
 
     func tearDown(error: MobileShellConnectionError) async {

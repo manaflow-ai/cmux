@@ -11,7 +11,7 @@ struct MobileRPCConnectAttemptKey: Hashable, Sendable {
     enum EndpointIdentity: Hashable, Sendable {
         case iroh(endpointID: String)
         case hostPort(kind: String, host: String, port: Int)
-        case url(kind: String, value: String)
+        case transport(kind: String)
     }
 
     let expectedPeerDeviceID: String
@@ -30,11 +30,11 @@ struct MobileRPCConnectAttemptKey: Hashable, Sendable {
                 host: host.lowercased(),
                 port: port
             )
-        case let .url(value):
-            endpointIdentity = .url(
-                kind: route.kind.rawValue,
-                value: value
-            )
+        case .url:
+            // URL query parameters may contain rotating credentials and
+            // equivalent endpoint spellings. The authenticated Mac plus
+            // transport kind is the stable peer boundary for cleanup debt.
+            endpointIdentity = .transport(kind: route.kind.rawValue)
         }
     }
 }
