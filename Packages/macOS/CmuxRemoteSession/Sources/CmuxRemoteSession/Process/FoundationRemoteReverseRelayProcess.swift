@@ -1,3 +1,4 @@
+internal import Darwin
 internal import Foundation
 
 /// Foundation-backed handle for one dedicated SSH reverse-relay process.
@@ -12,15 +13,18 @@ final class FoundationRemoteReverseRelayProcess:
     private let process: Process
     private let stderrPipe: Pipe
     private let stderrDrainGracePeriod: TimeInterval
+    private let terminationGracePeriod: TimeInterval
 
     init(
         process: Process,
         stderrPipe: Pipe,
-        stderrDrainGracePeriod: TimeInterval = 0.5
+        stderrDrainGracePeriod: TimeInterval = 0.5,
+        terminationGracePeriod: TimeInterval = 2
     ) {
         self.process = process
         self.stderrPipe = stderrPipe
         self.stderrDrainGracePeriod = stderrDrainGracePeriod
+        self.terminationGracePeriod = terminationGracePeriod
     }
 
     var isRunning: Bool {
@@ -93,7 +97,19 @@ final class FoundationRemoteReverseRelayProcess:
     }
 
     func terminate() {
+        guard process.isRunning else { return }
+        let process = process
+        let processID = process.processIdentifier
         process.terminate()
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + max(0, terminationGracePeriod)
+        ) {
+            guard process.isRunning,
+                  process.processIdentifier == processID else {
+                return
+            }
+            _ = Darwin.kill(processID, SIGKILL)
+        }
     }
 }
 

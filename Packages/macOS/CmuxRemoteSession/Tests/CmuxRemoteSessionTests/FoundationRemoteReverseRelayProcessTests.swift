@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxRemoteSession
@@ -167,5 +168,56 @@ struct FoundationRemoteReverseRelayProcessTests {
         #expect(startupRecorder.count == 0)
         #expect(Date().timeIntervalSince(startedAt) < 1)
         #expect(!process.isRunning)
+    }
+
+    @Test("Startup deadline force-kills a process that ignores SIGTERM")
+    func startupDeadlineForceKillsAfterGracePeriod() async throws {
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            """
+            trap '' TERM
+            printf 'ready\\n'
+            while :; do :; done
+            """,
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        let relayProcess = FoundationRemoteReverseRelayProcess(
+            process: process,
+            stderrPipe: stderrPipe,
+            stderrDrainGracePeriod: 0.05,
+            terminationGracePeriod: 0.05
+        )
+        let startupRecorder = ResetEventRecorder()
+        let (terminations, continuation) = AsyncStream<String?>.makeStream()
+
+        try process.run()
+        let readiness = stdoutPipe.fileHandleForReading.readData(ofLength: 6)
+        #expect(String(data: readiness, encoding: .utf8) == "ready\n")
+        relayProcess.captureLifecycle(
+            startupMarker: "marker-that-never-arrives",
+            startupTimeout: 0.05,
+            startupHandler: {
+                startupRecorder.record()
+            },
+            terminationHandler: { detail in
+                continuation.yield(detail)
+                continuation.finish()
+            }
+        )
+        let startedAt = Date()
+
+        var iterator = terminations.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
+        #expect(startupRecorder.count == 0)
+        #expect(Date().timeIntervalSince(startedAt) < 1)
+        #expect(!process.isRunning)
+        #expect(process.terminationReason == .uncaughtSignal)
+        #expect(process.terminationStatus == SIGKILL)
     }
 }
