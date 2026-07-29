@@ -2281,7 +2281,14 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         revision: UInt64
     ) {
         relayPolicyRefreshTask?.cancel()
-        guard let service, let trustRoot else {
+        guard Self.shouldScheduleRelayPolicyRefresh(
+            automaticRelayCredentialRefreshEnabled:
+                automaticRelayCredentialRefreshEnabled,
+            serviceAvailable: service != nil,
+            trustRootAvailable: trustRoot != nil
+        ),
+        let service,
+        let trustRoot else {
             relayPolicyRefreshTask = nil
             return
         }
@@ -2381,6 +2388,19 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 }
             }
         }
+    }
+
+    /// The signed policy bootstrap includes a fresh relay credential. Tests
+    /// that suspend automatic credential renewal must therefore suspend this
+    /// lane as well as the credential coordinator's timer.
+    nonisolated static func shouldScheduleRelayPolicyRefresh(
+        automaticRelayCredentialRefreshEnabled: Bool,
+        serviceAvailable: Bool,
+        trustRootAvailable: Bool
+    ) -> Bool {
+        automaticRelayCredentialRefreshEnabled
+            && serviceAvailable
+            && trustRootAvailable
     }
 
     nonisolated static func relayPolicyRefreshAttemptDate(
