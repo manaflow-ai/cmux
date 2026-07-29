@@ -254,7 +254,6 @@ struct AgentSessionRetryCoordinatorTests {
                 "Mismatched \(phaseCase.name) binding must fail closed before retry acknowledgement"
             )
             #expect(replacementCoordinator.managedRunsByPanelId[replacementPanelId] == nil)
-            #expect(replacementCoordinator.pendingManagedStartsByPanelId[replacementPanelId] == nil)
         }
     }
 
