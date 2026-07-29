@@ -126,6 +126,28 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func openCodeTransferRetentionKeepsOpeningRequestAndNewestSuffix() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let database = fixture.appendingPathComponent("opencode.db")
+        try createOpenCodeRetentionDatabase(at: database)
+
+        let turns = try await SessionTranscriptLoader.load(source: .init(
+            agent: .opencode,
+            sessionId: "retention-session",
+            fileURL: nil,
+            openCodeDatabasePath: database.path,
+            retention: .openingUserAndLatest(3)
+        ))
+
+        #expect(turns.map(\.text) == [
+            "OpenCode turn 0",
+            "OpenCode turn 10",
+            "OpenCode turn 11",
+        ])
+    }
+
+    @Test
     func openCodeTargetUsesPromptFlag() throws {
         let command = try #require(
             AgentConversationForkRequest.TargetHarness.opencode.startupCommand(
@@ -353,6 +375,50 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func failedDestinationRemovesPrivateCrossHarnessLauncher() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let sessionID = "cleanup-\(UUID().uuidString)"
+        let snapshot = try makeCodexSnapshot(in: fixture, sessionID: sessionID)
+        let workspace = Workspace()
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let sourceSurfaceID = try #require(workspace.surfaceIdFromPanelId(sourcePanelID))
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelID)
+
+        let launcherDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume", isDirectory: true)
+        let safeSessionPrefix = String(sessionID.prefix(12))
+        let launcherNamePrefix = "codex-\(safeSessionPrefix)-"
+        let launcherURLsBefore = launcherScripts(
+            in: launcherDirectory,
+            namePrefix: launcherNamePrefix
+        )
+        defer {
+            let launcherURLsAfter = launcherScripts(
+                in: launcherDirectory,
+                namePrefix: launcherNamePrefix
+            )
+            for url in launcherURLsAfter.subtracting(launcherURLsBefore) {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        workspace.removeSurfaceMapping(forSurfaceId: sourceSurfaceID)
+        let didFork = await workspace.forkAgentConversation(
+            fromPanelId: sourcePanelID,
+            snapshot: snapshot,
+            request: .init(targetHarness: .claude, destination: .newTab)
+        )
+
+        let launcherURLsAfter = launcherScripts(
+            in: launcherDirectory,
+            namePrefix: launcherNamePrefix
+        )
+        #expect(!didFork)
+        #expect(launcherURLsAfter == launcherURLsBefore)
+    }
+
+    @Test
     func largeCrossHarnessCommandUsesPrivateSelfDeletingLauncher() throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
@@ -383,7 +449,10 @@ struct AgentConversationCrossHarnessForkTests {
         return url
     }
 
-    private func makeCodexSnapshot(in directory: URL) throws -> SessionRestorableAgentSnapshot {
+    private func makeCodexSnapshot(
+        in directory: URL,
+        sessionID: String = "codex-destination-session"
+    ) throws -> SessionRestorableAgentSnapshot {
         let transcript = directory.appendingPathComponent("rollout.jsonl")
         try [
             #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Preserve destination behavior"}]}}"#,
@@ -391,7 +460,7 @@ struct AgentConversationCrossHarnessForkTests {
         ].joined(separator: "\n").write(to: transcript, atomically: true, encoding: .utf8)
         return SessionRestorableAgentSnapshot(
             kind: .codex,
-            sessionId: "codex-destination-session",
+            sessionId: sessionID,
             workingDirectory: directory.path,
             transcriptPath: transcript.path
         )
@@ -414,6 +483,36 @@ struct AgentConversationCrossHarnessForkTests {
         guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
             throw OpenCodeFixtureError.sqlite
         }
+    }
+
+    private func createOpenCodeRetentionDatabase(at url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            throw OpenCodeFixtureError.sqlite
+        }
+        defer { sqlite3_close(database) }
+        let messages = (0..<12).map { index in
+            let role = index.isMultiple(of: 2) ? "user" : "assistant"
+            return "INSERT INTO message VALUES ('m\(index)', 'retention-session', \(index), '{\"role\":\"\(role)\"}');"
+        }
+        let parts = (0..<12).map { index in
+            "INSERT INTO part VALUES ('p\(index)', 'm\(index)', \(index), '{\"type\":\"text\",\"text\":\"OpenCode turn \(index)\"}');"
+        }
+        let sql = ([
+            "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);",
+            "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, time_created INTEGER, data TEXT);",
+        ] + messages + parts).joined(separator: "\n")
+        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
+            throw OpenCodeFixtureError.sqlite
+        }
+    }
+
+    private func launcherScripts(in directory: URL, namePrefix: String) -> Set<URL> {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return Set(urls.filter { $0.lastPathComponent.hasPrefix(namePrefix) })
     }
 }
 
