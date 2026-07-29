@@ -11279,6 +11279,48 @@ mod tests {
     }
 
     #[test]
+    fn kitty_quota_reconnect_clears_its_block_and_rebalances() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let first_id = first.id;
+        *mux.kitty_image_budget_operation.lock().unwrap() =
+            Some(Arc::new(move |surface, limits, _deadline| {
+                if surface.id == first_id {
+                    anyhow::bail!("injected disconnected Kitty quota surface");
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }));
+
+        assert!(mux.close_surface(second.id).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(mux.kitty_image_budget.lock().unwrap().blocked_surfaces.contains(&first.id));
+
+        *mux.kitty_image_budget_operation.lock().unwrap() = None;
+        let authoritative =
+            first.with_terminal(|terminal| terminal.kitty_graphics_limits().unwrap()).unwrap();
+        assert!(mux.reconcile_reconnected_kitty_image_surface(&first, authoritative));
+        wait_for_kitty_image_budget(&mux);
+
+        let replacement = mux
+            .new_tab(Some(pane), None, Some((80, 24)))
+            .expect("a reconciled reconnect must admit later terminals");
+        wait_for_kitty_image_budget(&mux);
+        assert!(mux.close_surface(replacement.id).unwrap());
+    }
+
+    #[test]
     fn kitty_quota_worker_stops_waiting_for_an_operation_that_ignores_its_deadline() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();

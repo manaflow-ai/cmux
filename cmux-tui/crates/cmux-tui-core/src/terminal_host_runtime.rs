@@ -4820,6 +4820,90 @@ mod unix {
         }
 
         #[test]
+        fn adoption_quota_reconfiguration_finishes_before_snapshot_use() {
+            let (record_path, record, lease) = record_fixture("adoption-kitty-quota");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let reader = client.try_clone().unwrap();
+            let mut stale_state = test_kitty_state();
+            stale_state.limits = KittyGraphicsLimits {
+                image_bytes: 8_000,
+                inflight_bytes: 8_000,
+                images: 80,
+                placements: 160,
+            };
+            let ceiling = KittyGraphicsLimits {
+                image_bytes: 4_000,
+                inflight_bytes: 4_000,
+                images: 40,
+                placements: 80,
+            };
+            let mut attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: stale_state,
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                protocol_version: PROTOCOL_VERSION,
+                reader: Some(reader),
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: Arc::new(ControlResponses::new()),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+            };
+            let responder = thread::spawn(move || {
+                let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+                assert_eq!(request.kind, MessageKind::SetKittyGraphicsLimits);
+                let mut decoder = PayloadDecoder::new(&request.payload);
+                assert_eq!(decode_kitty_graphics_limits(&mut decoder).unwrap(), ceiling);
+                decoder.finish().unwrap();
+
+                let mut fresh_state = test_kitty_state();
+                fresh_state.limits = ceiling;
+                let mut resized = Frame::new(
+                    MessageKind::Resized,
+                    encode_resize(80, 24, &[], &[], DEFAULT_CELL_PIXELS, fresh_state).unwrap(),
+                );
+                resized.version = PROTOCOL_VERSION;
+                resized.flags = FLAG_COLORS_FOLLOW;
+                resized.sequence = 1;
+                write_frame(&mut host, &resized).unwrap();
+                let mut colors = Frame::new(
+                    MessageKind::Colors,
+                    encode_terminal_color_overrides(&TerminalColorOverrides::default()),
+                );
+                colors.version = PROTOCOL_VERSION;
+                colors.sequence = 2;
+                write_frame(&mut host, &colors).unwrap();
+
+                let mut payload = Vec::new();
+                encode_kitty_graphics_limits(&mut payload, ceiling).unwrap();
+                let mut ack = Frame::new(MessageKind::KittyGraphicsLimitsAck, payload);
+                ack.version = PROTOCOL_VERSION;
+                ack.request_id = request.request_id;
+                write_frame(&mut host, &ack).unwrap();
+            });
+
+            attachment.reconfigure_kitty_graphics_for_adoption(ceiling).unwrap();
+            responder.join().unwrap();
+
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
         fn upgraded_daemon_falls_back_to_a_live_protocol_one_host() {
             let (record_path, record, lease) = record_fixture("protocol-one-adoption");
             let endpoint = PathBuf::from(&record.endpoint);
