@@ -262,9 +262,16 @@ export function makeAppSessionHandoffHandler(
     const app = dependencies.stackServerApp;
     const projectId = dependencies.projectId;
     if (!app || !projectId) return handoffFailure(request, "/", 503);
-    if (!isVercelRuntime(dependencies)
-      && isLocallyRateLimited(dependencies.now?.() ?? Date.now())) {
-      return handoffFailure(request, "/", 429);
+    if (!isVercelRuntime(dependencies)) {
+      // Production token exchange requires the durable Vercel firewall. The
+      // process-local budget exists only for `next dev` and tests, where one
+      // developer owns the process and a shared bucket cannot affect customers.
+      if (process.env.NODE_ENV === "production") {
+        return handoffFailure(request, "/", 503);
+      }
+      if (isLocallyRateLimited(dependencies.now?.() ?? Date.now())) {
+        return handoffFailure(request, "/", 429);
+      }
     }
     if (await isDurablyRateLimited(request, dependencies)) {
       return handoffFailure(request, "/", 429);

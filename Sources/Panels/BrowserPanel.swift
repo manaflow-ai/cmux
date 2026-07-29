@@ -4940,6 +4940,14 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
+        // A non-persistent WebKit store cannot be reconstructed with the same
+        // account or cookies. Persisting only its URL and profile would reopen
+        // it inside a shared profile, which is unsafe for authenticated native
+        // app handoffs and misleading for every other ephemeral browser pane.
+        guard websiteDataStore === WKWebsiteDataStore.default()
+                || websiteDataStore.identifier != nil else {
+            return false
+        }
         // Diff viewer surfaces are otherwise treated as temporary. Persist them
         // only when they can actually be restored via the custom scheme (a
         // local-only, non-pending manifest); otherwise persisting would leave a

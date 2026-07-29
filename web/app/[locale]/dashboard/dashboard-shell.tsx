@@ -79,19 +79,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             {t("brand")}
           </Link>
         </div>
-        <DashboardNav groups={groups} className="flex-1 overflow-y-auto px-2 py-3" />
-        <div className="flex h-11 shrink-0 items-center justify-end gap-2 border-t border-border px-3">
-          <ThemeToggle />
-          <UserButton />
-        </div>
+        <DashboardNav groups={groups} className="flex-1 overflow-y-auto px-2 py-3 pb-14" />
       </aside>
 
       <div className="min-w-0">
-        <header className="sticky top-0 z-30 border-b border-border bg-background sm:hidden">
+        <header className="sticky top-0 z-30 border-b border-border bg-background sm:fixed sm:inset-x-auto sm:bottom-0 sm:left-0 sm:top-auto sm:w-[13rem] sm:border-b-0 sm:border-r sm:border-t">
           <div className="flex h-11 items-center justify-between px-3">
             <Link
               href="/dashboard"
-              className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+              className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground sm:hidden"
             >
               {t("brand")}
             </Link>
@@ -115,7 +111,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               id="dashboard-mobile-nav"
               groups={groups}
               onNavigate={() => setMobileNavOpen(false)}
-              className="max-h-[calc(100vh-2.75rem)] overflow-y-auto border-t border-border px-2 py-3"
+              className="max-h-[calc(100vh-2.75rem)] overflow-y-auto border-t border-border px-2 py-3 sm:hidden"
             />
           ) : null}
         </header>

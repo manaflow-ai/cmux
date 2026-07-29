@@ -56,7 +56,13 @@ export async function sendProSignupWelcome(
 ): Promise<void> {
   const email = checkoutEmail(input.session);
   if (!email) {
-    throw new Error("cmux Pro checkout is missing a customer email");
+    // Stripe cannot repair a permanently absent address by redelivering the
+    // webhook. Acknowledge the checkout and leave an operational breadcrumb
+    // instead of retrying the already-granted entitlement forever.
+    console.warn("cmux Pro welcome skipped: checkout is missing a customer email", {
+      checkoutSessionId: input.session.id,
+    });
+    return;
   }
 
   const customerName = checkoutCustomerName(input.session);

@@ -8892,6 +8892,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let browserPanel = browserPanel(for: panelId),
+              browserPanel.shouldPersistSessionSnapshot(),
               let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
             pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
             return
