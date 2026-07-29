@@ -800,6 +800,14 @@ private func setFontBindingResult(_ result: Bool)
             fittedRuntimePointSize: 8
         )
 
+        state.updateDurableBase(to: 7)
+        #expect(
+            state == MobileViewportFontFitState(
+                baseRuntimePointSize: 7,
+                fittedRuntimePointSize: 7
+            )
+        )
+
         state.updateDurableBase(to: 8)
         #expect(
             state == MobileViewportFontFitState(

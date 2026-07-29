@@ -441,6 +441,38 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         )
     }
 
+    func testDefaultWorkspaceTerminalFontSizeDrainScheduleIsOneShotAndCancellable() {
+        var firedCount = 0
+        let fired = expectation(
+            description: "default drain schedule fires"
+        )
+        let completedCancellation =
+            WorkspaceTerminalFontSizeCoordinator
+                .scheduleDefaultDrain(after: 0) {
+                    firedCount += 1
+                    fired.fulfill()
+                }
+
+        wait(for: [fired], timeout: 1)
+        completedCancellation()
+        RunLoop.main.run(
+            until: Date(timeIntervalSinceNow: 0.05)
+        )
+        XCTAssertEqual(firedCount, 1)
+
+        var cancelledFireCount = 0
+        let pendingCancellation =
+            WorkspaceTerminalFontSizeCoordinator
+                .scheduleDefaultDrain(after: 0.05) {
+                    cancelledFireCount += 1
+                }
+        pendingCancellation()
+        RunLoop.main.run(
+            until: Date(timeIntervalSinceNow: 0.1)
+        )
+        XCTAssertEqual(cancelledFireCount, 0)
+    }
+
     func testWorkspaceTerminalFontSizeResetRepeatDoesNotQueueFanout() {
         withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
