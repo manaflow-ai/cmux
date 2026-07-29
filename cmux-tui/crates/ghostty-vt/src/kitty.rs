@@ -1160,6 +1160,21 @@ mod tests {
     }
 
     #[test]
+    fn inflight_tracker_uses_numeric_final_chunk_semantics() {
+        let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
+        let final_chunk = b"\x1b_Gm=00;AAAA\x1b\\";
+        let mut tracker = KittyInFlightTracker::default();
+
+        tracker.write(first);
+        tracker.write(final_chunk);
+
+        assert!(
+            tracker.replay_prefix(usize::MAX).is_empty(),
+            "a zero-valued numeric m parameter kept the completed transmission in flight"
+        );
+    }
+
+    #[test]
     fn inflight_tracker_handles_c1_apc_and_terminal_reset() {
         let first = b"\x9fGa=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x9c";
         let mut tracker = KittyInFlightTracker::default();
