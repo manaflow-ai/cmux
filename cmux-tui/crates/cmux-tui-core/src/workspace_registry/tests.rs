@@ -1716,7 +1716,10 @@ fn schema_four_backfills_safe_browser_restart_metadata() {
             .unwrap();
     }
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
-    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "5");
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
     assert_eq!(
         migrated.resource_topology_snapshot().unwrap().browsers,
         vec![RegistryBrowser::recreate(browser, "https://cmux.dev/migrate".into(), 80, 24,)]
@@ -1745,7 +1748,10 @@ fn schema_one_migrates_transactionally_to_terminal_registry() {
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
     assert_eq!(migrated.terminal_snapshot().unwrap().revision, 0);
     assert!(migrated.terminal_snapshot().unwrap().terminals.is_empty());
-    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "5");
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
