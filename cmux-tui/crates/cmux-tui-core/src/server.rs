@@ -3167,11 +3167,12 @@ fn handle_resource_connection_message(
         }
     };
     let id = request.envelope.id.clone();
+    let operation = request.envelope.operation;
     debug_assert_eq!(
-        handles_resource_connection_operation(request.envelope.operation),
-        crate::resource_router::requires_connection_context(request.envelope.operation)
+        handles_resource_connection_operation(operation),
+        crate::resource_router::requires_connection_context(operation)
     );
-    match request.envelope.operation {
+    match operation {
         ResourceOperation::ClientList
         | ResourceOperation::ClientGet
         | ResourceOperation::ClientMetadataUpdate
@@ -3184,13 +3185,13 @@ fn handle_resource_connection_message(
         | ResourceOperation::BrowserViewerResize
         | ResourceOperation::BrowserViewerRelease => {
             let result = handle_resource_connection_control(mux, client, &request);
-            send_resource_response(writer, id, result)
+            send_resource_response(writer, id, operation, result)
         }
         ResourceOperation::ClientDetach => {
             let result = prepare_resource_client_detach(mux, client, &request);
             match result {
                 Ok(target) if target == client => {
-                    if !send_resource_response(writer, id, Ok(json!({}))) {
+                    if !send_resource_response(writer, id, operation, Ok(json!({}))) {
                         return false;
                     }
                     false
@@ -3204,73 +3205,73 @@ fn handle_resource_connection_message(
                             request.selectors.client.as_deref().unwrap_or("<missing>"),
                         ))
                     };
-                    send_resource_response(writer, id, result)
+                    send_resource_response(writer, id, operation, result)
                 }
-                Err(error) => send_resource_response(writer, id, Err(error)),
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
             }
         }
         ResourceOperation::TerminalAttach => {
             match prepare_terminal_resource_attach(mux, client, writer, &request) {
                 Ok((result, start)) => {
-                    if !send_resource_response(writer, id, Ok(result)) {
+                    if !send_resource_response(writer, id, operation, Ok(result)) {
                         cleanup_resource_attach(mux, client, &start.common);
                         return false;
                     }
                     start_terminal_resource_attach(mux.clone(), client, writer.clone(), start);
                     true
                 }
-                Err(error) => send_resource_response(writer, id, Err(error)),
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
             }
         }
         ResourceOperation::BrowserAttach => {
             match prepare_browser_resource_attach(mux, client, writer, &request) {
                 Ok((result, start)) => {
-                    if !send_resource_response(writer, id, Ok(result)) {
+                    if !send_resource_response(writer, id, operation, Ok(result)) {
                         cleanup_resource_attach(mux, client, &start.common);
                         return false;
                     }
                     start_browser_resource_attach(mux.clone(), client, writer.clone(), start);
                     true
                 }
-                Err(error) => send_resource_response(writer, id, Err(error)),
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
             }
         }
         ResourceOperation::SidebarViewAttach => {
             match prepare_sidebar_resource_attach(mux, client, writer, &request) {
                 Ok((result, start)) => {
-                    if !send_resource_response(writer, id, Ok(result)) {
+                    if !send_resource_response(writer, id, operation, Ok(result)) {
                         cleanup_resource_stream(mux, client, &start.stream_id);
                         return false;
                     }
                     start_sidebar_resource_attach(mux.clone(), client, writer.clone(), start);
                     true
                 }
-                Err(error) => send_resource_response(writer, id, Err(error)),
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
             }
         }
         ResourceOperation::SessionEvents => {
             match prepare_session_event_stream(mux, client, writer, &request) {
                 Ok((result, start)) => {
-                    if !send_resource_response(writer, id, Ok(result)) {
+                    if !send_resource_response(writer, id, operation, Ok(result)) {
                         let _ = mux.control_clients.take_resource_stream(client, &start.stream_id);
                         return false;
                     }
                     start_session_event_stream(mux.clone(), client, writer.clone(), start);
                     true
                 }
-                Err(error) => send_resource_response(writer, id, Err(error)),
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
             }
         }
         ResourceOperation::SessionSnapshot => {
             let result = resource_session_snapshot(mux, client, &request.selectors);
-            send_resource_response(writer, id, result)
+            send_resource_response(writer, id, operation, result)
         }
         ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit => {
             start_resource_wait(mux.clone(), writer.clone(), request, id)
         }
         ResourceOperation::StreamCancel => {
             let result = cancel_resource_stream(mux, client, writer, &request);
-            send_resource_response(writer, id, result)
+            send_resource_response(writer, id, operation, result)
         }
         _ => {
             debug_assert!(
@@ -3315,6 +3316,7 @@ fn start_resource_wait(
         Err(error) => send_resource_response(
             &writer,
             id,
+            operation,
             Err(ResourceError::operation_failed(name, error.to_string(), json!({}))),
         ),
     }
@@ -4186,7 +4188,10 @@ fn start_terminal_resource_attach(
             "error",
             None,
             Some("open a fresh terminal attachment"),
-            Some(ResourceError::operation_failed("terminal.attach", error.to_string(), json!({}))),
+            Some((
+                ResourceOperation::TerminalAttach,
+                ResourceError::operation_failed("terminal.attach", error.to_string(), json!({})),
+            )),
         );
         let _ = writer.send_terminal(&end, &outbound);
         lifecycle.cancel();
@@ -4211,7 +4216,10 @@ fn start_terminal_resource_attach(
             "error",
             None,
             Some("open a fresh terminal attachment"),
-            Some(ResourceError::operation_failed("terminal.attach", error.to_string(), json!({}))),
+            Some((
+                ResourceOperation::TerminalAttach,
+                ResourceError::operation_failed("terminal.attach", error.to_string(), json!({})),
+            )),
         );
         let _ = writer.send_terminal(&end, &outbound);
         cleanup_resource_stream(&mux, client, &stream_id);
@@ -4422,7 +4430,10 @@ fn start_browser_resource_attach(
             "error",
             None,
             Some("open a fresh browser attachment"),
-            Some(ResourceError::operation_failed("browser.attach", error.to_string(), json!({}))),
+            Some((
+                ResourceOperation::BrowserAttach,
+                ResourceError::operation_failed("browser.attach", error.to_string(), json!({})),
+            )),
         );
         let _ = writer.send_terminal(&end, &outbound);
         lifecycle.cancel();
@@ -4447,7 +4458,10 @@ fn start_browser_resource_attach(
             "error",
             None,
             Some("open a fresh browser attachment"),
-            Some(ResourceError::operation_failed("browser.attach", error.to_string(), json!({}))),
+            Some((
+                ResourceOperation::BrowserAttach,
+                ResourceError::operation_failed("browser.attach", error.to_string(), json!({})),
+            )),
         );
         let _ = writer.send_terminal(&end, &outbound);
         cleanup_resource_stream(&mux, client, &stream_id);
@@ -4563,10 +4577,13 @@ fn start_sidebar_resource_attach(
             "error",
             None,
             Some("open a fresh sidebar attachment"),
-            Some(ResourceError::operation_failed(
-                "sidebar_view.attach",
-                error.to_string(),
-                json!({}),
+            Some((
+                ResourceOperation::SidebarViewAttach,
+                ResourceError::operation_failed(
+                    "sidebar_view.attach",
+                    error.to_string(),
+                    json!({}),
+                ),
             )),
         );
         let _ = writer.send_terminal(&end, &outbound);
@@ -4577,8 +4594,10 @@ fn start_sidebar_resource_attach(
 fn send_resource_response(
     writer: &MessageWriter,
     id: ResourceRequestId,
+    operation: ResourceOperation,
     result: Result<Value, ResourceError>,
 ) -> bool {
+    let result = crate::resource_router::validate_operation_outcome(operation, result);
     let envelope = match result {
         Ok(result) => ResourceResponseEnvelope::success(id, result),
         Err(error) => ResourceResponseEnvelope::failure(id, error),
@@ -4781,10 +4800,13 @@ fn start_session_event_stream(
             "error",
             None,
             Some("open a new session event stream"),
-            Some(ResourceError::operation_failed(
-                "session.events",
-                "could not start the session event stream",
-                json!({}),
+            Some((
+                ResourceOperation::SessionEvents,
+                ResourceError::operation_failed(
+                    "session.events",
+                    "could not start the session event stream",
+                    json!({}),
+                ),
             )),
         );
         let _ = writer.send_terminal(&end, &outbound);
@@ -4941,7 +4963,7 @@ fn resource_stream_end(
     reason: &str,
     cursor: Option<Value>,
     recovery: Option<&str>,
-    error: Option<ResourceError>,
+    error: Option<(ResourceOperation, ResourceError)>,
 ) -> Value {
     let mut end = json!({
         "protocol":"cmux.protocol/1",
@@ -4955,7 +4977,8 @@ fn resource_stream_end(
     if let Some(recovery) = recovery {
         end["recovery"] = json!(recovery);
     }
-    if let Some(error) = error {
+    if let Some((operation, error)) = error {
+        let error = crate::resource_router::validate_operation_error(operation, error);
         end["error"] = json!(error);
     }
     end

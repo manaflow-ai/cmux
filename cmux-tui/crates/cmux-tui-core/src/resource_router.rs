@@ -33,10 +33,9 @@ fn operation_catalog() -> &'static Value {
     })
 }
 
-fn validate_catalog_params(
+fn operation_descriptor(
     operation: ResourceOperation,
-    params: &Value,
-) -> Result<(ResourceSelectors, Map<String, Value>), ResourceError> {
+) -> Result<(String, &'static Map<String, Value>), ResourceError> {
     let operation_name = operation_name(operation);
     let descriptor = operation_catalog()["operations"]
         .get(&operation_name)
@@ -48,6 +47,14 @@ fn validate_catalog_params(
                 json!({}),
             )
         })?;
+    Ok((operation_name, descriptor))
+}
+
+fn validate_catalog_params(
+    operation: ResourceOperation,
+    params: &Value,
+) -> Result<(ResourceSelectors, Map<String, Value>), ResourceError> {
+    let (operation_name, descriptor) = operation_descriptor(operation)?;
     let params_descriptor = descriptor["params"].as_object().ok_or_else(|| {
         ResourceError::operation_failed(
             operation_name.clone(),
@@ -139,6 +146,94 @@ fn validate_catalog_params(
         )
     })?;
     Ok((selectors, fields))
+}
+
+fn contract_failure(
+    operation_name: &str,
+    contract: &str,
+    violation: &ResourceError,
+) -> ResourceError {
+    ResourceError::operation_failed(
+        operation_name,
+        format!("operation {contract} violates the embedded catalog"),
+        json!({
+            "contract":contract,
+            "violation_code":violation.code,
+            "violation":violation.details,
+        }),
+    )
+}
+
+fn validate_operation_result(
+    operation: ResourceOperation,
+    result: &Value,
+) -> Result<(), ResourceError> {
+    let (operation_name, descriptor) = operation_descriptor(operation)?;
+    validate_catalog_value(
+        result,
+        &descriptor["result"],
+        &format!("{operation_name}.result"),
+        &HashMap::new(),
+    )
+    .map_err(|violation| contract_failure(&operation_name, "result", &violation))
+}
+
+pub(crate) fn validate_operation_error(
+    operation: ResourceOperation,
+    error: ResourceError,
+) -> ResourceError {
+    let (operation_name, descriptor) = match operation_descriptor(operation) {
+        Ok(descriptor) => descriptor,
+        Err(violation) => return contract_failure("catalog.validate", "error", &violation),
+    };
+    let declared = descriptor["errors"]
+        .as_array()
+        .is_some_and(|errors| errors.iter().any(|code| code.as_str() == Some(&error.code)));
+    if !declared {
+        return ResourceError::operation_failed(
+            operation_name,
+            "operation emitted an error code absent from its catalog contract",
+            json!({"contract":"error","emitted_code":error.code}),
+        );
+    }
+    let Some(error_descriptor) = operation_catalog()["errors"].get(&error.code) else {
+        return ResourceError::operation_failed(
+            operation_name,
+            "operation emitted an error absent from the catalog",
+            json!({"contract":"error","emitted_code":error.code}),
+        );
+    };
+    let retryable_matches = error_descriptor["retryable"].as_bool() == Some(error.retryable);
+    let details = validate_catalog_value(
+        &error.details,
+        &error_descriptor["details"],
+        &format!("{operation_name}.error.{}.details", error.code),
+        &HashMap::new(),
+    );
+    if retryable_matches && details.is_ok() {
+        error
+    } else {
+        let violation = details.err().unwrap_or_else(|| {
+            ResourceError::validation_invalid(
+                Some("retryable"),
+                "error retryability differs from the catalog",
+            )
+        });
+        contract_failure(&operation_name, "error", &violation)
+    }
+}
+
+pub(crate) fn validate_operation_outcome(
+    operation: ResourceOperation,
+    outcome: Result<Value, ResourceError>,
+) -> Result<Value, ResourceError> {
+    match outcome {
+        Ok(result) => {
+            validate_operation_result(operation, &result)?;
+            Ok(result)
+        }
+        Err(error) => Err(validate_operation_error(operation, error)),
+    }
 }
 
 fn validate_catalog_value(
@@ -624,7 +719,8 @@ pub(crate) fn handle_parsed_resource_request(
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let id = request.envelope.id.clone();
-    let result = dispatch_resource_request(mux, request);
+    let operation = request.envelope.operation;
+    let result = validate_operation_outcome(operation, dispatch_resource_request(mux, request));
     serde_json::to_value(match result {
         Ok(result) => ResponseEnvelope::success(id, result),
         Err(error) => ResponseEnvelope::failure(id, error),
@@ -639,11 +735,17 @@ pub(crate) fn handle_parsed_resource_request(
 }
 
 pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -> Value {
-    let id = serde_json::from_str::<Value>(message)
-        .ok()
+    let request = serde_json::from_str::<Value>(message).ok();
+    let id = request
+        .as_ref()
         .and_then(|value| value.get("id").and_then(Value::as_str).map(str::to_string))
         .and_then(|id| RequestId::parse(id).ok())
         .unwrap_or_else(|| RequestId::parse("invalid").expect("static request id"));
+    let error = request
+        .as_ref()
+        .and_then(|value| value.get("operation").cloned())
+        .and_then(|operation| serde_json::from_value(operation).ok())
+        .map_or(error.clone(), |operation| validate_operation_error(operation, error));
     serde_json::to_value(ResponseEnvelope::failure(id, error))
         .expect("resource failure envelopes are serializable")
 }
@@ -1341,6 +1443,89 @@ mod tests {
     use super::*;
     use crate::SurfaceOptions;
 
+    fn catalog_fixture(descriptor: &Value, parameters: &HashMap<String, Value>) -> Value {
+        match descriptor["kind"].as_str().expect("fixture descriptor kind") {
+            "primitive" => match descriptor["name"].as_str().expect("fixture primitive name") {
+                "json" => Value::Null,
+                "string" => Value::String(
+                    "x".repeat(descriptor["min_length"].as_u64().unwrap_or(0) as usize),
+                ),
+                "base64" => Value::String(String::new()),
+                "boolean" => Value::Bool(false),
+                "decimal" => Value::String("0".to_string()),
+                "float64" => json!(descriptor["minimum"].as_f64().unwrap_or(0.0)),
+                "uint16" | "uint32" => json!(descriptor["minimum"].as_u64().unwrap_or(0)),
+                "int32" => json!(descriptor["minimum"].as_i64().unwrap_or(0)),
+                name => panic!("unsupported fixture primitive {name}"),
+            },
+            "enum" => descriptor["values"]
+                .as_array()
+                .and_then(|values| values.first())
+                .cloned()
+                .expect("fixture enum value"),
+            "array" => {
+                let item = catalog_fixture(&descriptor["items"], parameters);
+                Value::Array(vec![item; descriptor["min_items"].as_u64().unwrap_or(0) as usize])
+            }
+            "map" => Value::Object(Map::new()),
+            "nullable" => Value::Null,
+            "object" => {
+                let mut object = Map::new();
+                for (name, field) in descriptor["fields"].as_object().expect("fixture fields") {
+                    if field["required"] == Value::Bool(true) {
+                        object.insert(name.clone(), catalog_fixture(&field["type"], parameters));
+                    }
+                }
+                Value::Object(object)
+            }
+            "ref" => {
+                let name = descriptor["name"].as_str().expect("fixture ref name");
+                catalog_fixture(&operation_catalog()["types"][name], parameters)
+            }
+            "apply" => {
+                let name = descriptor["name"].as_str().expect("fixture generic name");
+                let generic = &operation_catalog()["generics"][name];
+                let mut bindings = parameters.clone();
+                for (parameter, argument) in generic["parameters"]
+                    .as_array()
+                    .expect("fixture generic parameters")
+                    .iter()
+                    .zip(descriptor["arguments"].as_array().expect("fixture generic arguments"))
+                {
+                    bindings.insert(
+                        parameter.as_str().expect("fixture parameter name").to_string(),
+                        argument.clone(),
+                    );
+                }
+                catalog_fixture(&generic["body"], &bindings)
+            }
+            "parameter" => {
+                let name = descriptor["name"].as_str().expect("fixture parameter");
+                catalog_fixture(parameters.get(name).expect("bound fixture parameter"), parameters)
+            }
+            "selector" => Value::String("current".to_string()),
+            "resource_id" => {
+                let resource = descriptor["resource"].as_str().expect("fixture resource");
+                let prefix = match resource {
+                    "workspace" => "ws",
+                    "terminal" => "term",
+                    "frontend_projection" => "projection",
+                    "pairing_request" => "pairing",
+                    other => other,
+                };
+                Value::String(format!("{prefix}_{}", "0".repeat(32)))
+            }
+            "union" => catalog_fixture(
+                descriptor["variants"]
+                    .as_array()
+                    .and_then(|variants| variants.first())
+                    .expect("fixture union variant"),
+                parameters,
+            ),
+            kind => panic!("unsupported fixture kind {kind}"),
+        }
+    }
+
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("resource-router", SurfaceOptions::default())
     }
@@ -1362,6 +1547,89 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
+        let operations = operation_catalog()["operations"].as_object().unwrap();
+        assert_eq!(operations.len(), 111);
+        for (name, descriptor) in operations {
+            let operation: ResourceOperation =
+                serde_json::from_value(Value::String(name.clone())).unwrap();
+            let result = catalog_fixture(&descriptor["result"], &HashMap::new());
+            assert_eq!(
+                validate_operation_outcome(operation, Ok(result.clone())).unwrap(),
+                result,
+                "{name} rejected its catalog result fixture"
+            );
+            let errors = descriptor["errors"].as_array().expect("operation error list");
+            assert!(
+                errors.iter().any(|code| code == "operation.failed"),
+                "{name} cannot fail closed"
+            );
+            for (code, error_descriptor) in
+                operation_catalog()["errors"].as_object().expect("catalog errors")
+            {
+                let error = ResourceError {
+                    code: code.to_string(),
+                    message: "fixture".to_string(),
+                    details: catalog_fixture(&error_descriptor["details"], &HashMap::new()),
+                    retryable: error_descriptor["retryable"].as_bool().expect("error retryability"),
+                };
+                let validated =
+                    validate_operation_outcome(operation, Err(error.clone())).unwrap_err();
+                if errors.iter().any(|declared| declared == code) {
+                    assert_eq!(validated, error, "{name} rejected declared error {code}");
+                } else {
+                    assert_eq!(
+                        validated.code, "operation.failed",
+                        "{name} emitted undeclared error {code}"
+                    );
+                    assert_eq!(validated.details["operation"], *name);
+                    assert_eq!(validated.details["extra"]["emitted_code"], *code);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn operation_contract_validation_rejects_nested_results_and_undeclared_errors() {
+        let (_, descriptor) = operation_descriptor(ResourceOperation::TabCreateTerminal).unwrap();
+        let mut wrong_nested_id = catalog_fixture(&descriptor["result"], &HashMap::new());
+        wrong_nested_id["value"]["terminal_id"] = json!(format!("browser_{}", "0".repeat(32)));
+        let invalid_result =
+            validate_operation_outcome(ResourceOperation::TabCreateTerminal, Ok(wrong_nested_id))
+                .unwrap_err();
+        assert_eq!(invalid_result.code, "operation.failed");
+        assert_eq!(invalid_result.details["operation"], "tab.create_terminal");
+        assert_eq!(invalid_result.details["extra"]["contract"], "result");
+        assert_eq!(
+            invalid_result.details["extra"]["violation"]["field"],
+            "tab.create_terminal.result.value.terminal_id"
+        );
+
+        let undeclared = validate_operation_outcome(
+            ResourceOperation::SessionPing,
+            Err(ResourceError::revision_conflict(1, 2)),
+        )
+        .unwrap_err();
+        assert_eq!(undeclared.code, "operation.failed");
+        assert_eq!(undeclared.details["operation"], "session.ping");
+        assert_eq!(undeclared.details["extra"]["contract"], "error");
+        assert_eq!(undeclared.details["extra"]["emitted_code"], "revision.conflict");
+
+        let malformed_declared_error = validate_operation_outcome(
+            ResourceOperation::SessionPing,
+            Err(ResourceError {
+                code: "validation.invalid".to_string(),
+                message: "malformed".to_string(),
+                details: json!({}),
+                retryable: false,
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(malformed_declared_error.code, "operation.failed");
+        assert_eq!(malformed_declared_error.details["extra"]["contract"], "error");
     }
 
     fn request(id: &str, operation: &str, params: Value, idempotency_key: Option<&str>) -> String {
