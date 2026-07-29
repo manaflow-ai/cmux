@@ -4,7 +4,8 @@ import Foundation
 struct FailingRemoteProcessStdinWriter: RemoteProcessStdinWriting {
     func write(
         _ data: Data,
-        to handle: FileHandle
+        to handle: FileHandle,
+        shouldStop: @escaping @Sendable () -> Bool
     ) throws {
         throw POSIXError(.EIO)
     }

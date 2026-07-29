@@ -61,11 +61,18 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         struct Snapshot {
             let didExit: Bool
             let stdinWriteError: (any Error)?
+            let stdinWriteFinished: Bool
         }
 
         private let lock = NSLock()
         private var didExit = false
         private var stdinWriteError: (any Error)?
+        private var stdinWriteFinished: Bool
+        private var shouldStopStdinWrite = false
+
+        init(stdinWriteFinished: Bool) {
+            self.stdinWriteFinished = stdinWriteFinished
+        }
 
         func markExited() {
             lock.withLock {
@@ -79,9 +86,31 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             }
         }
 
+        func markStdinWriteFinished() {
+            lock.withLock {
+                stdinWriteFinished = true
+            }
+        }
+
+        func requestStdinWriteStop() {
+            lock.withLock {
+                shouldStopStdinWrite = true
+            }
+        }
+
+        func stdinWriteShouldStop() -> Bool {
+            lock.withLock {
+                shouldStopStdinWrite
+            }
+        }
+
         func snapshot() -> Snapshot {
             lock.withLock {
-                Snapshot(didExit: didExit, stdinWriteError: stdinWriteError)
+                Snapshot(
+                    didExit: didExit,
+                    stdinWriteError: stdinWriteError,
+                    stdinWriteFinished: stdinWriteFinished
+                )
             }
         }
     }
@@ -123,9 +152,10 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let writesInlineStdin = stdinFileHandle == nil && stdin != nil
         if let stdinFileHandle {
             process.standardInput = stdinFileHandle
-        } else if stdin != nil {
+        } else if writesInlineStdin {
             process.standardInput = Pipe()
         } else {
             process.standardInput = FileHandle.nullDevice
@@ -136,7 +166,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         let captureQueue = DispatchQueue(label: "cmux.remote.process.capture")
         let exitSemaphore = DispatchSemaphore(value: 0)
         let lifecycleSemaphore = DispatchSemaphore(value: 0)
-        let completionState = ProcessCompletionState()
+        let completionState = ProcessCompletionState(stdinWriteFinished: !writesInlineStdin)
         let captureState = PipeCaptureState()
         let captureGroup = DispatchGroup()
         process.terminationHandler = { _ in
@@ -221,6 +251,8 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         try? stdoutPipe.fileHandleForWriting.close()
         try? stderrPipe.fileHandleForWriting.close()
         operation?.installCancellationHandler {
+            completionState.requestStdinWriteStop()
+            lifecycleSemaphore.signal()
             if process.isRunning {
                 process.terminate()
             }
@@ -254,11 +286,18 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             DispatchQueue.global(qos: .utility).async {
                 defer {
                     try? inputHandle.close()
+                    completionState.markStdinWriteFinished()
                     stdinWriteGroup.leave()
                     lifecycleSemaphore.signal()
                 }
                 do {
-                    try stdinWriter.write(stdin, to: inputHandle)
+                    try stdinWriter.write(
+                        stdin,
+                        to: inputHandle,
+                        shouldStop: {
+                            completionState.stdinWriteShouldStop()
+                        }
+                    )
                 } catch let error as POSIXError where error.code == .EPIPE {
                     // A child may exit before consuming optional stdin. The
                     // POSIX helper turns that race into EPIPE instead of SIGPIPE.
@@ -272,12 +311,16 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         var didTimeOut = false
         while true {
             let state = completionState.snapshot()
-            if state.didExit || state.stdinWriteError != nil {
+            if state.stdinWriteError != nil || (state.didExit && state.stdinWriteFinished) {
                 break
             }
             if lifecycleSemaphore.wait(timeout: timeoutDeadline) == .timedOut {
                 let stateAtDeadline = completionState.snapshot()
-                didTimeOut = !stateAtDeadline.didExit && stateAtDeadline.stdinWriteError == nil
+                didTimeOut = stateAtDeadline.stdinWriteError == nil
+                    && !(stateAtDeadline.didExit && stateAtDeadline.stdinWriteFinished)
+                if didTimeOut {
+                    completionState.requestStdinWriteStop()
+                }
                 break
             }
         }
@@ -291,14 +334,18 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             throw stdinWriteFailure(stdinWriteError)
         }
 
-        if didTimeOut, process.isRunning {
+        if didTimeOut {
             if let operation, operation.isCancelled {
-                terminateProcessAndWait()
+                if process.isRunning {
+                    terminateProcessAndWait()
+                }
                 stdinWriteGroup.wait()
                 finishCaptureAndCloseReadHandles()
                 throw operation.cancellationError
             }
-            terminateProcessAndWait()
+            if process.isRunning {
+                terminateProcessAndWait()
+            }
             stdinWriteGroup.wait()
             finishCaptureAndCloseReadHandles()
             debugLog(
