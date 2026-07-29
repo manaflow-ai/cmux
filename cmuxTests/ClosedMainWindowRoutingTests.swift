@@ -307,8 +307,8 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.windowId(for: managerB) == nil)
     }
 
-    @Test("Recovered visible window stays listed and focusable")
-    func recoveredVisibleWindowStaysListedAndFocusable() throws {
+    @Test("Recovered visible window stays routable but cannot focus without context")
+    func recoveredVisibleWindowStaysRoutableButCannotFocusWithoutContext() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -348,7 +348,7 @@ struct ClosedMainWindowRoutingTests {
         )
         windowA.makeKeyAndOrderFront(nil)
         windowC.makeKeyAndOrderFront(nil)
-        TerminalController.shared.setActiveTabManager(managerA)
+        app.setActiveMainWindow(windowA)
 
         let workspaceC = try #require(managerC.selectedWorkspace)
         let terminalPanelC = try #require(workspaceC.focusedTerminalPanel)
@@ -358,9 +358,10 @@ struct ClosedMainWindowRoutingTests {
 
         #expect(windowC.isVisible)
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
-        #expect(app.focusMainWindow(windowId: windowCId))
-        #expect(app.tabManager === managerC)
-        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerC)
+        #expect(app.tabManagerFor(windowId: windowCId) === managerC)
+        #expect(!app.focusMainWindow(windowId: windowCId))
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
     }
 }
 
