@@ -37,13 +37,16 @@ extension TerminalSurface {
         )
     }
 
-    /// Records the native font delta and ownership produced by the input.
+    /// Records the native font mutation and ownership produced by the input.
     ///
-    /// The delta is replayed against the new configuration after reload, so a
-    /// local Ghostty zoom or reset cannot be overwritten by reconciliation.
-    /// Ownership is separate because native bounds can produce a zero delta.
+    /// Relative changes replay their delta against the new configuration.
+    /// Absolute changes preserve their post-action point size. Ownership is
+    /// separate because native bounds can produce a zero delta.
     @MainActor
-    public func finishFontSizeExplicitInputObservation() {
+    public func finishFontSizeExplicitInputObservation(
+        preservingAbsoluteRuntimePoints:
+            (Float32) -> Bool = { _ in false }
+    ) {
         guard let baseline =
                 pendingFontSizeExplicitInputBaseline else {
             return
@@ -64,6 +67,11 @@ extension TerminalSurface {
         let isAdjusted =
             ghostty_surface_font_size_adjusted(runtimeSurface)
         let delta = runtimePoints - baseline.runtimePoints
+        let preservesAbsoluteRuntimePoints =
+            isAdjusted
+            && preservingAbsoluteRuntimePoints(
+                runtimePoints
+            )
         if baseline.isAdjusted, !isAdjusted {
             reloadState.recordLocalFontInput(
                 runtimePointDelta: 0,
@@ -71,10 +79,15 @@ extension TerminalSurface {
                 isExplicitOverride: false
             )
         } else if isAdjusted,
-                  !baseline.isAdjusted
+                  preservesAbsoluteRuntimePoints
+                    || !baseline.isAdjusted
                     || abs(delta) > 0.000_1 {
             reloadState.recordLocalFontInput(
                 runtimePointDelta: delta,
+                absoluteRuntimePoints:
+                    preservesAbsoluteRuntimePoints
+                    ? runtimePoints
+                    : nil,
                 usesConfiguredBase: !baseline.isAdjusted,
                 isExplicitOverride: true
             )

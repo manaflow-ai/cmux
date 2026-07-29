@@ -32,11 +32,15 @@ extension TerminalSurface {
     @discardableResult
     public func performExplicitInputBindingAction(_ action: String) -> Bool {
         beginFontSizeExplicitInputObservation()
-        defer {
-            finishFontSizeExplicitInputObservation()
-        }
         didReceiveExplicitInput()
-        return performBindingAction(action)
+        let performed = performBindingAction(action)
+        finishFontSizeExplicitInputObservation(
+            preservingAbsoluteRuntimePoints: { _ in
+                performed
+                && action.hasPrefix("set_font_size:")
+            }
+        )
+        return performed
     }
 
     /// Toggles keyboard copy mode through the surface view.

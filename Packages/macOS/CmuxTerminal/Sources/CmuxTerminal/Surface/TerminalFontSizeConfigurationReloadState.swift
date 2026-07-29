@@ -16,19 +16,33 @@ public struct TerminalFontSizeConfigurationReloadState: Sendable {
     let targetConfiguredRuntimePoints: Float32?
     let targetMagnificationPercent: Int?
     var localRuntimePointDelta: Float32 = 0
+    var localAbsoluteRuntimePoints: Float32?
     var localInputUsesConfiguredBase = false
     var localInputIsExplicitOverride: Bool?
 
     mutating func recordLocalFontInput(
         runtimePointDelta: Float32,
+        absoluteRuntimePoints: Float32? = nil,
         usesConfiguredBase: Bool,
         isExplicitOverride: Bool
     ) {
-        if usesConfiguredBase {
+        if let absoluteRuntimePoints {
+            localAbsoluteRuntimePoints =
+                absoluteRuntimePoints
+            localInputUsesConfiguredBase = false
+            localRuntimePointDelta = 0
+        } else if usesConfiguredBase {
+            localAbsoluteRuntimePoints = nil
             localInputUsesConfiguredBase = true
             localRuntimePointDelta = 0
+        } else if let currentAbsoluteRuntimePoints =
+                    localAbsoluteRuntimePoints {
+            localAbsoluteRuntimePoints =
+                currentAbsoluteRuntimePoints
+                + runtimePointDelta
+        } else {
+            localRuntimePointDelta += runtimePointDelta
         }
-        localRuntimePointDelta += runtimePointDelta
         localInputIsExplicitOverride = isExplicitOverride
         inheritanceLineage = resolvedTargetLineage()
     }
@@ -64,7 +78,10 @@ public struct TerminalFontSizeConfigurationReloadState: Sendable {
             localInputUsesConfiguredBase
             || !originallyRetainsExplicitBase
         let baselineRuntimePoints: Float32
-        if startsFromConfiguredBase {
+        if let localAbsoluteRuntimePoints {
+            baselineRuntimePoints =
+                localAbsoluteRuntimePoints
+        } else if startsFromConfiguredBase {
             baselineRuntimePoints = configuredRuntimePoints
         } else if let lineage {
             baselineRuntimePoints = policy.clampedRuntimePoints(
@@ -82,11 +99,14 @@ public struct TerminalFontSizeConfigurationReloadState: Sendable {
         let isExplicitOverride =
             localInputIsExplicitOverride
             ?? (
+                localAbsoluteRuntimePoints != nil
+                ||
                 !startsFromConfiguredBase
                 || abs(localRuntimePointDelta) > 0.000_1
             )
         let targetLineage: TerminalFontSizeLineage
         if isExplicitOverride,
+           localAbsoluteRuntimePoints == nil,
            !localInputUsesConfiguredBase,
            abs(localRuntimePointDelta) <= 0.000_1,
            let lineage {

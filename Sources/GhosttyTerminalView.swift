@@ -467,6 +467,55 @@ class GhosttyApp {
     private(set) var hasUserGhosttyCommand = false
     private(set) var resolvedUserShell: String?
 
+    func storedShortcut(
+        forBindingAction action: String
+    ) -> StoredShortcut? {
+        guard let config else { return nil }
+        let trigger = action.withCString { pointer in
+            ghostty_config_trigger(
+                config,
+                pointer,
+                UInt(action.utf8.count)
+            )
+        }
+        let tag: GhosttyTriggerInput.Tag
+        switch trigger.tag {
+        case GHOSTTY_TRIGGER_PHYSICAL:
+            tag = .physical(
+                GhosttyTriggerPhysicalKey(
+                    ghosttyPhysicalKey:
+                        trigger.key.physical
+                )
+            )
+        case GHOSTTY_TRIGGER_UNICODE:
+            tag = .unicode(
+                UnicodeScalar(trigger.key.unicode)
+            )
+        case GHOSTTY_TRIGGER_CATCH_ALL:
+            tag = .catchAll
+        default:
+            return nil
+        }
+
+        let input = GhosttyTriggerInput(
+            tag: tag,
+            modifiers: GhosttyModifierMask(
+                rawValue: trigger.mods.rawValue
+            )
+        )
+        guard let shortcut =
+                GhosttyTriggerShortcut(decoding: input) else {
+            return nil
+        }
+        return StoredShortcut(
+            key: shortcut.key,
+            command: shortcut.command,
+            shift: shortcut.shift,
+            option: shortcut.option,
+            control: shortcut.control
+        )
+    }
+
     @MainActor
     func deferRuntimeSurfaceCreationForConfigurationReload(
         _ action: @escaping @MainActor () -> Void
@@ -5596,7 +5645,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.beginFontSizeExplicitInputObservation()
         defer {
             terminalSurface?
-                .finishFontSizeExplicitInputObservation()
+                .finishFontSizeExplicitInputObservation(
+                    preservingAbsoluteRuntimePoints: {
+                        runtimePoints in
+                        currentKeyBindingSetsAbsoluteFontSize(
+                            event,
+                            runtimePoints: runtimePoints
+                        )
+                    }
+                )
         }
         terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
@@ -6035,6 +6092,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
+    }
+
+    private func currentKeyBindingSetsAbsoluteFontSize(
+        _ event: NSEvent,
+        runtimePoints: Float32
+    ) -> Bool {
+        return GhosttyApp.shared
+            .storedShortcut(
+                forBindingAction:
+                    "set_font_size:"
+                    + String(runtimePoints)
+            )?
+            .matches(event: event) == true
     }
 
     @discardableResult

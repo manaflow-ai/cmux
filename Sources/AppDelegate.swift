@@ -12868,60 +12868,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func refreshGhosttyGotoSplitShortcuts() {
-        guard let config = GhosttyApp.shared.config else {
-            ghosttyGotoSplitLeftShortcut = nil
-            ghosttyGotoSplitRightShortcut = nil
-            ghosttyGotoSplitUpShortcut = nil
-            ghosttyGotoSplitDownShortcut = nil
-            ghosttyGotoSplitPreviousShortcut = nil
-            ghosttyGotoSplitNextShortcut = nil
-            return
-        }
-
-        ghosttyGotoSplitLeftShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:left", UInt("goto_split:left".utf8.count))
+        ghosttyGotoSplitLeftShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:left"
         )
-        ghosttyGotoSplitRightShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:right", UInt("goto_split:right".utf8.count))
+        ghosttyGotoSplitRightShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:right"
         )
-        ghosttyGotoSplitUpShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:up", UInt("goto_split:up".utf8.count))
+        ghosttyGotoSplitUpShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:up"
         )
-        ghosttyGotoSplitDownShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:down", UInt("goto_split:down".utf8.count))
+        ghosttyGotoSplitDownShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:down"
         )
-        ghosttyGotoSplitPreviousShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:previous", UInt("goto_split:previous".utf8.count))
+        ghosttyGotoSplitPreviousShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:previous"
         )
-        ghosttyGotoSplitNextShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:next", UInt("goto_split:next".utf8.count))
-        )
-    }
-
-    private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
-        let tag: GhosttyTriggerInput.Tag
-        switch trigger.tag {
-        case GHOSTTY_TRIGGER_PHYSICAL:
-            tag = .physical(GhosttyTriggerPhysicalKey(ghosttyPhysicalKey: trigger.key.physical))
-        case GHOSTTY_TRIGGER_UNICODE:
-            tag = .unicode(UnicodeScalar(trigger.key.unicode))
-        case GHOSTTY_TRIGGER_CATCH_ALL:
-            tag = .catchAll
-        default:
-            return nil
-        }
-
-        let input = GhosttyTriggerInput(
-            tag: tag,
-            modifiers: GhosttyModifierMask(rawValue: trigger.mods.rawValue)
-        )
-        guard let shortcut = GhosttyTriggerShortcut(decoding: input) else { return nil }
-        return StoredShortcut(
-            key: shortcut.key,
-            command: shortcut.command,
-            shift: shortcut.shift,
-            option: shortcut.option,
-            control: shortcut.control
+        ghosttyGotoSplitNextShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:next"
         )
     }
 
