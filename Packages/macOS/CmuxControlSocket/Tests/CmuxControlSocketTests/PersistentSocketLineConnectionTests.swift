@@ -56,6 +56,52 @@ import Testing
         #expect(handledResult == .success)
     }
 
+    @Test func changingCommandTimeoutPreservesConnectionOwnership()
+        async throws
+    {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+        let handled = UnixSocketFixture.acceptSingleClient(
+            on: listenerFD
+        ) { clientFD in
+            for expected in ["start", "attach"] {
+                #expect(readLine(from: clientFD) == expected)
+                #expect(SocketTransport().writeAll(
+                    Data("{\"ok\":true}\n".utf8),
+                    to: clientFD
+                ))
+            }
+        }
+        let connection = PersistentSocketLineConnection()
+
+        let start = await connection.command(
+            "start",
+            at: path,
+            timeout: 0.5
+        )
+        let attach = await connection.command(
+            "attach",
+            at: path,
+            timeout: 0.25
+        )
+
+        #expect(start?.response == "{\"ok\":true}")
+        #expect(attach?.response == "{\"ok\":true}")
+        await connection.invalidate()
+        let handledResult = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(
+                    returning: handled.wait(timeout: .now() + 1.0)
+                )
+            }
+        }
+        #expect(handledResult == .success)
+    }
+
     private func readLine(from socket: Int32) -> String? {
         var bytes: [UInt8] = []
         while bytes.count < 4_096 {

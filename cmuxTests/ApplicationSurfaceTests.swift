@@ -100,19 +100,23 @@ struct ApplicationSurfaceTests {
         await view.waitUntilForwardedInputReleased()
     }
 
-    @Test func applicationInputConnectionsAreScopedToEachSession() {
+    @Test func applicationInputConnectionCanOwnStartBeforeSessionIDExists() {
         let registry = ApplicationSurfaceInputConnectionRegistry(
             transport: SocketTransport()
         )
 
-        let first = registry.connection(for: "first")
-        let repeatedFirst = registry.connection(for: "first")
-        let second = registry.connection(for: "second")
-
-        #expect(first === repeatedFirst)
+        let first = registry.makeConnection()
+        let second = registry.makeConnection()
         #expect(first !== second)
+        #expect(registry.connection(for: "first") == nil)
+
+        registry.register(first, for: "first")
+        registry.register(second, for: "second")
+
+        #expect(registry.connection(for: "first") === first)
+        #expect(registry.connection(for: "second") === second)
         registry.removeConnection(for: "first")
-        #expect(first !== registry.connection(for: "first"))
+        #expect(registry.connection(for: "first") == nil)
     }
 
     @Test func helperFailureFansOutWithoutPerSurfacePolling() async {
