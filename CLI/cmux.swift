@@ -25435,27 +25435,27 @@ struct CMUXCLI {
             // Clearing the record's stale workspace instead leaves the moved
             // pane stuck and `clear_notifications --tab=` would wipe unrelated
             // panes' notifications in the old workspace.
-            guard let liveEndTarget = try? resolveClaudeHookDeliveryTarget(
+            let liveEndTarget = try? resolveClaudeHookDeliveryTarget(
                 mappedSession: mappedSession,
                 routing: hookRouting,
                 client: client
-            ) else {
-                // Keep the persisted route so a later authoritative cleanup
-                // can still clear the visible state this attempt could not.
+            )
+            guard liveEndTarget != nil || (isClearSessionEnd && mappedSession != nil) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-end.unresolved")
                 printClaudeHookAck()
                 return
             }
-            let consumeStoredRoute = isClearSessionEnd && !liveEndTarget.isAuthoritative
+            let liveRouteIsAuthoritative = liveEndTarget?.isAuthoritative == true
+            let consumeStoredRoute = isClearSessionEnd && !liveRouteIsAuthoritative
             let consumption = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
-                workspaceId: consumeStoredRoute ? nil : liveEndTarget.workspaceId,
-                surfaceId: consumeStoredRoute ? nil : liveEndTarget.surfaceId,
+                workspaceId: consumeStoredRoute ? nil : liveEndTarget?.workspaceId,
+                surfaceId: consumeStoredRoute ? nil : liveEndTarget?.surfaceId,
                 turnId: parsedInput.turnId,
                 authorization: .claudeSessionEnd(
                     incomingPID: incomingClaudePid,
-                    routeIsAuthoritative: liveEndTarget.isAuthoritative
+                    routeIsAuthoritative: liveRouteIsAuthoritative
                 ),
                 preservePendingBackgroundWorkForClear: isClearSessionEnd
             )
@@ -25476,7 +25476,7 @@ struct CMUXCLI {
                 // keep the record's own address.
                 let workspaceId: String
                 let cleanupSurfaceId: String
-                if liveEndTarget.isAuthoritative {
+                if let liveEndTarget, liveEndTarget.isAuthoritative {
                     workspaceId = liveEndTarget.workspaceId
                     cleanupSurfaceId = liveEndTarget.surfaceId
                 } else {
@@ -25503,7 +25503,7 @@ struct CMUXCLI {
                 // Staleness is judged on the pane being CLEANED: gating on a
                 // polluted record surface (#7391) could false-skip cleanup of
                 // the real pane, stranding its ring/status after exit.
-                let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
+                let shouldClearVisibleState = liveRouteIsAuthoritative && shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
                     turnId: parsedInput.turnId,
