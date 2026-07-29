@@ -10231,7 +10231,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func scheduleWorkspaceListRefreshFromEvent() {
         guard remoteClient != nil else { return }
-        workspaceListEventGeneration &+= 1
         // With state sync v2 negotiated, `workspace.updated` is redundant with
         // the `mobile.sync.delta` stream (the Mac emits both on the same tick
         // for old and new phones); the delta already carried the change, so
@@ -10240,6 +10239,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // "Events were missed" recovery has its own dedicated entry
         // (``repairMissedEventWindow``); ordinary paired events stay silent.
         guard !stateSyncActive else { return }
+        // This generation represents a scheduled legacy full-list refresh.
+        // State-sync events above have their own revision authority and must
+        // not look like unawaited legacy work to pooled-client promotion.
+        workspaceListEventGeneration &+= 1
         // Keep the event path's "latest event wins" semantics: a `workspace.updated`
         // arriving mid-fetch restarts the fetch so the applied list reflects the
         // change the Mac pushed *after* this fetch started. This cancels only the
