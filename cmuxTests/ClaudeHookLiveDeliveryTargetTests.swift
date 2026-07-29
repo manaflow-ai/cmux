@@ -213,11 +213,18 @@ struct ClaudeHookLiveDeliveryTargetTests {
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
         environment["CMUX_CLI_TTY_NAME"] = ttyName
-        environment["CMUX_CLAUDE_PID"] = "43212"
+        environment["CMUX_CLAUDE_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         environment["CMUX_AGENT_LAUNCH_KIND"] = "claude"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/claude"
         environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
 
+        let transfer = Harness.establishClearTransfer(
+            context: context,
+            environment: environment,
+            sourceSessionId: "\(sessionId)-source"
+        )
+        assertSuccessfulHook(transfer.start)
+        assertSuccessfulHook(transfer.end)
         let result = Harness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "session-start"],

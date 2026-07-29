@@ -3610,6 +3610,17 @@ def main() -> int:
             print(f"second_turn_commands={second_turn_commands!r}")
             return 1
 
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-end",
+            {
+                "session_id": old_session_id,
+                "reason": "clear",
+                "cwd": "/tmp",
+            },
+            old_pid_env,
+        )
         clear_start = len(server.commands)
         run_claude_hook(
             cli_path,

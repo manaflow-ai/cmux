@@ -31,7 +31,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": leakedSurfaceId,
             "CMUX_CLI_TTY_NAME": ttyName,
-            "CMUX_CLAUDE_PID": "42424",
+            "CMUX_CLAUDE_PID": String(ProcessInfo.processInfo.processIdentifier),
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
@@ -41,6 +41,11 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
+        establishClearTransfer(
+            context: context,
+            environment: environment,
+            sourceSessionId: "\(sessionId)-source"
+        )
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -103,6 +108,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_WORKSPACE_ID": leakedWorkspaceId,
             "CMUX_SURFACE_ID": leakedSurfaceId,
             "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_PID": String(ProcessInfo.processInfo.processIdentifier),
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
@@ -112,6 +118,11 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
+        establishClearTransfer(
+            context: context,
+            environment: environment,
+            sourceSessionId: "\(sessionId)-source"
+        )
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -153,7 +164,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let leakedSurfaceId = context.surfaceId
         let pidWorkspaceId = "77777777-7777-7777-7777-777777777777"
         let pidSurfaceId = "33333333-3333-3333-3333-333333333333"
-        let claudePID = 42_424
+        let claudePID = Int(ProcessInfo.processInfo.processIdentifier)
         let socketPassword = "claude-pid-secret"
         let sessionId = "claude-pid-surface-session"
 
@@ -189,6 +200,11 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
+        establishClearTransfer(
+            context: context,
+            environment: environment,
+            sourceSessionId: "\(sessionId)-source"
+        )
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -230,7 +246,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let pidWorkspaceId = "77777777-7777-7777-7777-777777777777"
         let pidSurfaceId = "33333333-3333-3333-3333-333333333333"
         let ttyName = "ttys-claude-stale-tty-pid"
-        let claudePID = 42_425
+        let claudePID = Int(ProcessInfo.processInfo.processIdentifier)
         let socketPassword = "claude-stale-tty-pid-secret"
         let sessionId = "claude-stale-tty-pid-session"
 
@@ -269,6 +285,11 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
+        establishClearTransfer(
+            context: context,
+            environment: environment,
+            sourceSessionId: "\(sessionId)-source"
+        )
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -331,6 +352,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": context.surfaceId,
             "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_PID": String(ProcessInfo.processInfo.processIdentifier),
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
@@ -340,6 +362,11 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
+        establishClearTransfer(
+            context: context,
+            environment: environment,
+            sourceSessionId: "\(sessionId)-source"
+        )
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -709,6 +736,29 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         ]
         let storeData = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try storeData.write(to: storeURL)
+    }
+
+    private func establishClearTransfer(
+        context: ClaudeHookContext,
+        environment: [String: String],
+        sourceSessionId: String
+    ) {
+        let start = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sourceSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        assertSuccessfulHook(start)
+        let end = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sourceSessionId)","reason":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            timeout: 5
+        )
+        assertSuccessfulHook(end)
     }
 
     private func assertPromptSubmitRoutes(

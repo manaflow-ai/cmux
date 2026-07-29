@@ -235,6 +235,26 @@ enum ClaudeHookLiveDeliveryHarness {
         )
     }
 
+    static func establishClearTransfer(
+        context: Context,
+        environment: [String: String],
+        sourceSessionId: String
+    ) -> (start: ProcessRunResult, end: ProcessRunResult) {
+        let start = runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sourceSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        let end = runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sourceSessionId)","reason":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+        return (start, end)
+    }
+
     private static func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)

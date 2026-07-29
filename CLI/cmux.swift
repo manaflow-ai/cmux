@@ -278,7 +278,6 @@ final class ClaudeHookSessionStore {
 
     enum PendingBackgroundWorkBoundary {
         case unchanged
-        case discardTransfer
         case inheritAcrossClear
         case resumeSessionStart
     }
@@ -287,6 +286,11 @@ final class ClaudeHookSessionStore {
         case unrestricted
         case ordinaryActivity(incomingPID: Int?)
         case turnStart(incomingPID: Int?)
+    }
+
+    enum ConsumptionAuthorization {
+        case unrestricted
+        case claudeSessionEnd(incomingPID: Int?, routeIsAuthoritative: Bool)
     }
 
     struct SessionConsumption {
@@ -799,16 +803,9 @@ final class ClaudeHookSessionStore {
                     return nil
                 }
                 inheritedPendingBackgroundWork = false
-            case .discardTransfer:
-                inheritedPendingBackgroundWork = false
-                if let normalizedSurfaceId {
-                    state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
-                }
             case .inheritAcrossClear:
                 guard let transferredPendingWork = authorizeClearSessionStart(
                     in: &state,
-                    sessionId: normalized,
-                    workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     incomingPID: pid
                 ) else {
@@ -1536,45 +1533,6 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    func canReplaceActiveSession(
-        sessionId: String?,
-        workspaceId: String,
-        surfaceId: String? = nil
-    ) throws -> Bool {
-        guard let normalizedSessionId = normalizeOptional(sessionId),
-              let normalizedWorkspace = normalizeOptional(workspaceId) else {
-            return false
-        }
-        return try withLockedState { state in
-            activeSessionAllowsReplacement(
-                in: state,
-                sessionId: normalizedSessionId,
-                workspaceId: normalizedWorkspace,
-                surfaceId: normalizeOptional(surfaceId)
-            )
-        }
-    }
-
-    private func activeSessionAllowsReplacement(
-        in state: ClaudeHookSessionStoreFile,
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String?
-    ) -> Bool {
-        // Replacement is pane-scoped like staleness: a stopped session in
-        // THIS surface allows its own pane to start a new session even when
-        // another pane currently holds the workspace-active slot.
-        // https://github.com/manaflow-ai/cmux/issues/5908
-        guard let active = activeSessionBoundary(
-            in: state,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId
-        ), active.sessionId != sessionId else {
-            return false
-        }
-        return active.allowsNewSessionReplacement == true
-    }
-
     private func activeSessionBoundary(
         in state: ClaudeHookSessionStoreFile,
         workspaceId: String,
@@ -1691,62 +1649,21 @@ final class ClaudeHookSessionStore {
 
     private func authorizeClearSessionStart(
         in state: inout ClaudeHookSessionStoreFile,
-        sessionId: String,
-        workspaceId: String,
         surfaceId: String,
         incomingPID: Int?
     ) -> Bool? {
-        guard let normalizedWorkspaceId = normalizeOptional(workspaceId),
-              let normalizedSurfaceId = normalizeOptional(surfaceId),
-              let incomingPID,
-              processStartIdentity(pid: incomingPID) != nil else {
+        guard let normalizedSurfaceId = normalizeOptional(surfaceId),
+              let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId],
+              compareProcessGeneration(
+                  recordedPID: transfer.pid,
+                  recordedStartSeconds: transfer.pidStartSeconds,
+                  recordedStartMicroseconds: transfer.pidStartMicroseconds,
+                  incomingPID: incomingPID
+              ) == .same else {
             return nil
         }
-        if let transfer = state.clearBackgroundWorkTransfersBySurface[normalizedSurfaceId] {
-            guard compareProcessGeneration(
-                recordedPID: transfer.pid,
-                recordedStartSeconds: transfer.pidStartSeconds,
-                recordedStartMicroseconds: transfer.pidStartMicroseconds,
-                incomingPID: incomingPID
-            ) == .same else {
-                return nil
-            }
-            state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
-            return transfer.preservedPendingBackgroundWork ?? true
-        }
-
-        let activeOwner = activeSessionBoundary(
-            in: state,
-            workspaceId: normalizedWorkspaceId,
-            surfaceId: normalizedSurfaceId
-        )
-        let activeRecord: ClaudeHookSessionRecord?
-        if let activeOwner {
-            guard let record = state.sessions[activeOwner.sessionId],
-                  compareProcessGeneration(
-                      recordedPID: record.pid,
-                      recordedStartSeconds: record.pidStartSeconds,
-                      recordedStartMicroseconds: record.pidStartMicroseconds,
-                      incomingPID: incomingPID
-                  ) == .same else {
-                return nil
-            }
-            activeRecord = record
-        } else {
-            activeRecord = nil
-        }
-
-        if let targetRecord = state.sessions[sessionId] {
-            guard compareProcessGeneration(
-                recordedPID: targetRecord.pid,
-                recordedStartSeconds: targetRecord.pidStartSeconds,
-                recordedStartMicroseconds: targetRecord.pidStartMicroseconds,
-                incomingPID: incomingPID
-            ) == .same else {
-                return nil
-            }
-        }
-        return activeRecord?.hadSurvivingBackgroundWorkAtStop == true
+        state.clearBackgroundWorkTransfersBySurface.removeValue(forKey: normalizedSurfaceId)
+        return transfer.preservedPendingBackgroundWork ?? true
     }
 
     private func clearBackgroundWorkTransferBlocksSourceEvent(
@@ -1909,8 +1826,7 @@ final class ClaudeHookSessionStore {
         workspaceId: String?,
         surfaceId: String?,
         turnId: String? = nil,
-        incomingPID: Int? = nil,
-        requiresCurrentProcessGeneration: Bool = false,
+        authorization: ConsumptionAuthorization = .unrestricted,
         preservePendingBackgroundWorkForClear: Bool = false
     ) throws -> SessionConsumption? {
         let normalizedSessionId = normalizeOptional(sessionId)
@@ -1939,14 +1855,40 @@ final class ClaudeHookSessionStore {
                 }
                 record = fallback
             }
-            if requiresCurrentProcessGeneration {
-                guard compareProcessGeneration(
-                    recordedPID: record.pid,
-                    recordedStartSeconds: record.pidStartSeconds,
-                    recordedStartMicroseconds: record.pidStartMicroseconds,
-                    incomingPID: incomingPID
-                ) == .same else {
-                    return nil
+            var claimedPID = record.pid
+            var claimedPIDStartSeconds = record.pidStartSeconds
+            var claimedPIDStartMicroseconds = record.pidStartMicroseconds
+            switch authorization {
+            case .unrestricted:
+                break
+            case .claudeSessionEnd(let incomingPID, let routeIsAuthoritative):
+                let hasNoStoredIdentity =
+                    record.pid == nil
+                    && record.pidStartSeconds == nil
+                    && record.pidStartMicroseconds == nil
+                let hasCompleteStoredIdentity =
+                    record.pid != nil
+                    && record.pidStartSeconds != nil
+                    && record.pidStartMicroseconds != nil
+                if hasNoStoredIdentity {
+                    guard routeIsAuthoritative,
+                          let incomingPID,
+                          let incomingIdentity = processStartIdentity(pid: incomingPID) else {
+                        return nil
+                    }
+                    claimedPID = incomingPID
+                    claimedPIDStartSeconds = incomingIdentity.seconds
+                    claimedPIDStartMicroseconds = incomingIdentity.microseconds
+                } else {
+                    guard hasCompleteStoredIdentity,
+                          compareProcessGeneration(
+                              recordedPID: record.pid,
+                              recordedStartSeconds: record.pidStartSeconds,
+                              recordedStartMicroseconds: record.pidStartMicroseconds,
+                              incomingPID: incomingPID
+                          ) == .same else {
+                        return nil
+                    }
                 }
                 let authorizationSurfaceId =
                     normalizedSurface ?? normalizeOptional(record.surfaceId)
@@ -1978,9 +1920,9 @@ final class ClaudeHookSessionStore {
                     ClaudeHookClearBackgroundWorkTransfer(
                         sourceSessionId: record.sessionId,
                         workspaceId: transferWorkspaceId,
-                        pid: record.pid,
-                        pidStartSeconds: record.pidStartSeconds,
-                        pidStartMicroseconds: record.pidStartMicroseconds,
+                        pid: claimedPID,
+                        pidStartSeconds: claimedPIDStartSeconds,
+                        pidStartMicroseconds: claimedPIDStartMicroseconds,
                         updatedAt: transferCreatedAt,
                         expiresAt: transferCreatedAt + maxClearBackgroundWorkTransferAgeSeconds,
                         preservedPendingBackgroundWork: preservesPendingBackgroundWork
@@ -24816,33 +24758,15 @@ struct CMUXCLI {
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
             let isResumeSessionStart = isClaudeResumeSessionStart(parsedInput)
-            let canReplaceStoppedSession =
-                isResumeSessionStart
-                    ? false
-                    : shouldReplaceStoppedClaudeSession(
-                        sessionStore: sessionStore,
-                        parsedInput: parsedInput,
-                        workspaceId: workspaceId,
-                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                        telemetry: telemetry
-                    )
             let shouldAttemptActiveSessionBoundary =
                 !isForkSessionLaunch
-                && (
-                    isClearSessionStart
-                        ? resolvedSurface.isAuthoritative
-                        : (
-                            isResumeSessionStart && resolvedSurface.isAuthoritative
-                                || canReplaceStoppedSession
-                        )
-                )
+                && resolvedSurface.isAuthoritative
+                && (isClearSessionStart || isResumeSessionStart)
             let pendingBackgroundWorkBoundary: ClaudeHookSessionStore.PendingBackgroundWorkBoundary
             if isClearSessionStart, shouldAttemptActiveSessionBoundary {
                 pendingBackgroundWorkBoundary = .inheritAcrossClear
             } else if isResumeSessionStart, shouldAttemptActiveSessionBoundary {
                 pendingBackgroundWorkBoundary = .resumeSessionStart
-            } else if shouldAttemptActiveSessionBoundary {
-                pendingBackgroundWorkBoundary = .discardTransfer
             } else {
                 pendingBackgroundWorkBoundary = .unchanged
             }
@@ -24856,9 +24780,9 @@ struct CMUXCLI {
                         || shouldAttemptActiveSessionBoundary
                 )
             if let sessionId = parsedInput.sessionId, shouldPersistSessionStart {
-                // Only /clear or replacement of a stopped owner establishes a
-                // boundary. SessionStart does not start a turn; /clear carries
-                // independently observed background work that survives the boundary.
+                // Only an authorized /clear or resume establishes a lifecycle
+                // boundary. Other SessionStart events update metadata without
+                // starting a turn or replacing the accepted lifecycle.
                 do {
                     let updatedRecord = try sessionStore.upsert(
                         sessionId: sessionId,
@@ -24870,10 +24794,13 @@ struct CMUXCLI {
                         launchCommand: launchCommand,
                         lastPermissionMode: observedHookPermissionMode,
                         isRestorable: false,
-                        agentLifecycle: shouldAttemptActiveSessionBoundary ? .idle : .unknown,
+                        agentLifecycle: shouldAttemptActiveSessionBoundary ? .idle : nil,
                         markActive: shouldAttemptActiveSessionBoundary,
                         turnId: parsedInput.turnId,
-                        pendingBackgroundWorkBoundary: pendingBackgroundWorkBoundary
+                        pendingBackgroundWorkBoundary: pendingBackgroundWorkBoundary,
+                        authorization: shouldAttemptActiveSessionBoundary
+                            ? .unrestricted
+                            : .ordinaryActivity(incomingPID: claudePid)
                     )
                     acceptedSessionStartRecord = updatedRecord
                     if shouldAttemptActiveSessionBoundary,
@@ -24925,6 +24852,8 @@ struct CMUXCLI {
             } else if isClearSessionStart || isResumeSessionStart {
                 // A guessed pane cannot own a session boundary or its PID routing.
                 shouldRegisterPID = false
+            } else if acceptedSessionStartRecord == nil {
+                shouldRegisterPID = false
             } else if !shouldAttemptActiveSessionBoundary {
                 shouldRegisterPID = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -24950,7 +24879,7 @@ struct CMUXCLI {
                 sendClaudeFeedTelemetry(
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    lifecycle: establishedLifecycle
+                    lifecycle: acceptedSessionStartRecord?.agentLifecycle
                 )
             } else {
                 // Rejected/guessed/nested starts must not reach Feed, where
@@ -25524,8 +25453,10 @@ struct CMUXCLI {
                 workspaceId: consumeStoredRoute ? nil : liveEndTarget.workspaceId,
                 surfaceId: consumeStoredRoute ? nil : liveEndTarget.surfaceId,
                 turnId: parsedInput.turnId,
-                incomingPID: incomingClaudePid,
-                requiresCurrentProcessGeneration: true,
+                authorization: .claudeSessionEnd(
+                    incomingPID: incomingClaudePid,
+                    routeIsAuthoritative: liveEndTarget.isAuthoritative
+                ),
                 preservePendingBackgroundWorkForClear: isClearSessionEnd
             )
             guard consumption != nil else {
@@ -25983,32 +25914,6 @@ struct CMUXCLI {
                 ]
             )
             return true
-        }
-    }
-
-    private func shouldReplaceStoppedClaudeSession(
-        sessionStore: ClaudeHookSessionStore,
-        parsedInput: ClaudeHookParsedInput,
-        workspaceId: String,
-        surfaceId: String?,
-        telemetry: CLISocketSentryTelemetry
-    ) -> Bool {
-        do {
-            return try sessionStore.canReplaceActiveSession(
-                sessionId: parsedInput.sessionId,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
-        } catch {
-            telemetry.breadcrumb(
-                "claude-hook.can-replace-active.error",
-                data: [
-                    "error": String(describing: error),
-                    "session_id": parsedInput.sessionId ?? "",
-                    "workspace_id": workspaceId,
-                ]
-            )
-            return false
         }
     }
 

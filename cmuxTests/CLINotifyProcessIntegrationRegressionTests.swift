@@ -12,6 +12,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "clear-session"
+        let sourceSessionId = "clear-source-session"
+        let sourceStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sourceSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(sourceStart.timedOut, sourceStart.stderr)
+        XCTAssertEqual(sourceStart.status, 0, sourceStart.stderr)
+        let sourceEnd = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(sourceSessionId)","reason":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+        XCTAssertFalse(sourceEnd.timedOut, sourceEnd.stderr)
+        XCTAssertEqual(sourceEnd.status, 0, sourceEnd.stderr)
+
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
@@ -527,6 +543,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
         XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
+        let oldEnd = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"old-session","reason":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+        XCTAssertFalse(oldEnd.timedOut, oldEnd.stderr)
+        XCTAssertEqual(oldEnd.status, 0, oldEnd.stderr)
 
         let clearStart = runClaudeHook(
             context: context,
