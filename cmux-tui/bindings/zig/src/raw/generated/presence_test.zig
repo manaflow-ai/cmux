@@ -59,6 +59,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RenderRun, "width_hint");
     try expectExplicitNullRejected(protocol.Screen, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
+    try expectExplicitNullRejected(protocol.Tab, "supports_clear_history_key_fallback");
     try expectExplicitNullRejected(protocol.TerminalColors, "palette");
     try expectExplicitNullRejected(protocol.TerminalKeyInput, "composing");
     try expectExplicitNullRejected(protocol.Tree, "generation");

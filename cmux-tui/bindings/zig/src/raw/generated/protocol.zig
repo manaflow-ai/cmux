@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223";
+pub const ir_sha256 = "6ec4faf7e81bef34601b18d0f7f608f4685a4c90d428d31aacdc3de352c1c9de";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -823,6 +823,7 @@ pub const Tab = struct {
     notification: wire.Field(NotificationMarker) = .absent,
     short_id: ?[]const u8 = null,
     size: wire.Nullable(Size),
+    supports_clear_history_key_fallback: ?bool = null,
     surface: Id,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
@@ -830,6 +831,7 @@ pub const Tab = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "short_id",
+        "supports_clear_history_key_fallback",
     };
 };
 

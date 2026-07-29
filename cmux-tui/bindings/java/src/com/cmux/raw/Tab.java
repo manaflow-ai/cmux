@@ -21,6 +21,7 @@ public final class Tab implements WireValue {
     private final Field<NotificationMarker> notification;
     private final Field<String> shortId;
     private final Size size;
+    private final Field<Boolean> supportsClearHistoryKeyFallback;
     private final UInt64 surface;
     private final Field<String> terminalId;
     private final Field<String> terminalIncarnation;
@@ -42,6 +43,7 @@ public final class Tab implements WireValue {
         this.shortId = builder.shortId;
         if (!builder.sizeSet) throw new IllegalArgumentException("size is required");
         this.size = builder.size;
+        this.supportsClearHistoryKeyFallback = builder.supportsClearHistoryKeyFallback;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
         this.terminalId = builder.terminalId;
@@ -62,6 +64,7 @@ public final class Tab implements WireValue {
     public Field<NotificationMarker> notification() { return notification; }
     public Field<String> shortId() { return shortId; }
     public Size size() { return size; }
+    public Field<Boolean> supportsClearHistoryKeyFallback() { return supportsClearHistoryKeyFallback; }
     public UInt64 surface() { return surface; }
     public Field<String> terminalId() { return terminalId; }
     public Field<String> terminalIncarnation() { return terminalIncarnation; }
@@ -100,6 +103,10 @@ public final class Tab implements WireValue {
         }
         Object rawSize = Wire.required(object, "size");
         builder.size(rawSize == null ? null : Size.fromWire(rawSize));
+        Object rawSupportsClearHistoryKeyFallback = Wire.optional(object, "supports_clear_history_key_fallback");
+        if (!Wire.isMissing(rawSupportsClearHistoryKeyFallback)) {
+            builder.supportsClearHistoryKeyFallback(Wire.bool(rawSupportsClearHistoryKeyFallback, "Tab.supports_clear_history_key_fallback"));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "Tab.surface"));
         Object rawTerminalId = Wire.optional(object, "terminal_id");
@@ -128,6 +135,7 @@ public final class Tab implements WireValue {
         Wire.put(object, "notification", notification);
         Wire.put(object, "short_id", shortId);
         Wire.put(object, "size", size);
+        Wire.put(object, "supports_clear_history_key_fallback", supportsClearHistoryKeyFallback);
         Wire.put(object, "surface", surface);
         Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "terminal_incarnation", terminalIncarnation);
@@ -138,11 +146,11 @@ public final class Tab implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Tab that)) return false;
-        return Objects.equals(browserError, that.browserError) && Objects.equals(browserFramesStalled, that.browserFramesStalled) && Objects.equals(browserSource, that.browserSource) && Objects.equals(browserStatus, that.browserStatus) && Objects.equals(dead, that.dead) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(notification, that.notification) && Objects.equals(shortId, that.shortId) && Objects.equals(size, that.size) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(title, that.title);
+        return Objects.equals(browserError, that.browserError) && Objects.equals(browserFramesStalled, that.browserFramesStalled) && Objects.equals(browserSource, that.browserSource) && Objects.equals(browserStatus, that.browserStatus) && Objects.equals(dead, that.dead) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(notification, that.notification) && Objects.equals(shortId, that.shortId) && Objects.equals(size, that.size) && Objects.equals(supportsClearHistoryKeyFallback, that.supportsClearHistoryKeyFallback) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(title, that.title);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(browserError, browserFramesStalled, browserSource, browserStatus, dead, kind, name, notification, shortId, size, surface, terminalId, terminalIncarnation, title); }
+    public int hashCode() { return Objects.hash(browserError, browserFramesStalled, browserSource, browserStatus, dead, kind, name, notification, shortId, size, supportsClearHistoryKeyFallback, surface, terminalId, terminalIncarnation, title); }
 
     @Override
     public String toString() { return "Tab" + toWire(); }
@@ -163,6 +171,7 @@ public final class Tab implements WireValue {
         private Field<String> shortId = Field.omitted();
         private Size size;
         private boolean sizeSet;
+        private Field<Boolean> supportsClearHistoryKeyFallback = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
         private Field<String> terminalId = Field.omitted();
@@ -213,6 +222,10 @@ public final class Tab implements WireValue {
         public Builder size(Size value) {
             this.size = value;
             this.sizeSet = true;
+            return this;
+        }
+        public Builder supportsClearHistoryKeyFallback(Boolean value) {
+            this.supportsClearHistoryKeyFallback = Field.of(value);
             return this;
         }
         public Builder surface(UInt64 value) {

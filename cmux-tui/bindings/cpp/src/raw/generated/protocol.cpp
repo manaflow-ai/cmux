@@ -3456,6 +3456,11 @@ Result<Json> Codec<Tab>::encode(const Tab& value) {
     } else {
         object.emplace("size", Json(nullptr));
     }
+    if (value.supports_clear_history_key_fallback) {
+        auto encoded = encode_value(*value.supports_clear_history_key_fallback);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("supports_clear_history_key_fallback", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -3581,6 +3586,12 @@ Result<Tab> Codec<Tab>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.size = std::move(decoded).value();
         }
+    }
+    const Json* field_supports_clear_history_key_fallback = value.find("supports_clear_history_key_fallback");
+    if (field_supports_clear_history_key_fallback) {
+        auto decoded = decode_value<bool>(*field_supports_clear_history_key_fallback);
+        if (!decoded) return std::move(decoded).error();
+        result.supports_clear_history_key_fallback = std::move(decoded).value();
     }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {

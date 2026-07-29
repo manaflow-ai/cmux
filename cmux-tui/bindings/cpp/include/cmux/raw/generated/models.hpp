@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223";
+inline constexpr std::string_view kProtocolIrSha256 = "6ec4faf7e81bef34601b18d0f7f608f4685a4c90d428d31aacdc3de352c1c9de";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1121,6 +1121,7 @@ struct Tab {
     Field<NotificationMarker> notification{};
     std::optional<std::string> short_id{};
     std::optional<Size> size{};
+    std::optional<bool> supports_clear_history_key_fallback{};
     Id surface{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};

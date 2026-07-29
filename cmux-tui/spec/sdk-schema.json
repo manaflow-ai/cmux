@@ -849,6 +849,16 @@
           "nullable": true,
           "since": 6
         },
+        "supports_clear_history_key_fallback": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "optional",
+          "nullable": false,
+          "since": 9,
+          "capability": "clear-history-key-v1"
+        },
         "notification": {
           "type": {
             "kind": "ref",

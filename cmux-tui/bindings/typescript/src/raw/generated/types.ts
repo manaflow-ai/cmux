@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 5863d0daf0c4945c9a9c9da9f24e4ba7cc56e3a321f6003060db397109f6f223. */
+/* cmux-tui mux protocol 10, IR 6ec4faf7e81bef34601b18d0f7f608f4685a4c90d428d31aacdc3de352c1c9de. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -407,6 +407,7 @@ export type Tab = {
   "notification"?: (NotificationMarker) | null;
   "short_id"?: string;
   "size": (Size) | null;
+  "supports_clear_history_key_fallback"?: boolean;
   "surface": Id;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
