@@ -30,6 +30,29 @@ impl BuildFixture {
         fs::create_dir_all(&manifest_dir).unwrap();
         fs::write(root.join(".gitignore"), "cmux-tui/target/\n").unwrap();
         fs::write(root.join("cmux-tui/source.txt"), "clean\n").unwrap();
+        fs::write(
+            manifest_dir.join("Cargo.toml"),
+            "[package]\nname = \"cmux-build-identity-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(manifest_dir.join("src")).unwrap();
+        fs::write(
+            manifest_dir.join("src/main.rs"),
+            "fn main() { println!(\"{}\", env!(\"CMUX_TUI_BUILD_IDENTITY\")); }\n",
+        )
+        .unwrap();
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("build.rs"),
+            manifest_dir.join("build.rs"),
+        )
+        .unwrap();
+        let lockfile = Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+            .arg("generate-lockfile")
+            .arg("--manifest-path")
+            .arg(manifest_dir.join("Cargo.toml"))
+            .output()
+            .unwrap();
+        assert_success("generate fixture lockfile", &lockfile);
 
         run_git(&root, ["init", "--quiet"]);
         run_git(&root, ["add", "."]);
@@ -101,6 +124,26 @@ impl BuildFixture {
             .find_map(|line| line.strip_prefix(BUILD_IDENTITY_PREFIX))
             .expect("build script did not emit a build identity")
             .to_owned()
+    }
+
+    fn cargo_identity(&self) -> String {
+        let target = self.root.join("cargo-target");
+        let output = Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+            .arg("build")
+            .arg("--quiet")
+            .arg("--manifest-path")
+            .arg(self.manifest_dir.join("Cargo.toml"))
+            .arg("--target-dir")
+            .arg(&target)
+            .output()
+            .unwrap();
+        assert_success("build fixture with Cargo", &output);
+        let binary = target
+            .join("debug")
+            .join(format!("cmux-build-identity-fixture{}", env::consts::EXE_SUFFIX));
+        let output = Command::new(binary).output().unwrap();
+        assert_success("run Cargo-built fixture", &output);
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
     }
 }
 
@@ -196,6 +239,19 @@ fn cargo_tracks_source_inputs_without_watching_target() {
         tracked.iter().all(|path| !Path::new(path).starts_with(&target_dir)),
         "Cargo watched target output: {tracked:?}"
     );
+}
+
+#[test]
+fn incremental_cargo_detects_a_new_untracked_source_input() {
+    let fixture = BuildFixture::new();
+    let clean = fixture.cargo_identity();
+    assert_eq!(clean, fixture.head(), "the initial Cargo build was not clean");
+
+    let untracked = fixture.root.join("cmux-tui/crates/new-source.rs");
+    fs::write(&untracked, "const NEW_SOURCE: bool = true;\n").unwrap();
+    let dirty = fixture.cargo_identity();
+
+    assert_ne!(dirty, clean, "Cargo reused a build identity that omitted a new source input");
 }
 
 #[cfg(unix)]

@@ -252,6 +252,7 @@ fn search_line_bounds(text: &str, start: usize) -> Option<(usize, usize)> {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum MutationTestPoint {
+    AfterReadResolve,
     AfterPrecondition,
     AfterTemporaryCreate,
     BeforeContentHashValidation,
@@ -503,6 +504,8 @@ pub(crate) async fn read_file(
     }
     let root = context.root;
     let resolved = root.resolve_existing(path).await?;
+    #[cfg(test)]
+    pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterReadResolve).await;
     let mut file = tokio::fs::File::open(&resolved)
         .await
         .map_err(|error| io_error("read", &resolved, error))?;
@@ -3070,6 +3073,39 @@ mod tests {
             "unexpected error: {error:?}"
         );
         assert!(!outside.path().join("value.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn read_file_does_not_follow_a_parent_swapped_to_an_outside_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        let outside = tempdir().unwrap();
+        let parent = root.canonical_root().join("parent");
+        tokio::fs::create_dir(&parent).await.unwrap();
+        tokio::fs::write(parent.join("value.txt"), b"inside").await.unwrap();
+        tokio::fs::write(outside.path().join("value.txt"), b"outside").await.unwrap();
+        let barrier = install_mutation_test_barrier(
+            &root,
+            "parent/value.txt",
+            MutationTestPoint::AfterReadResolve,
+        );
+        let reader = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                let (queries, owner) = query_context();
+                let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+                read_file(&context, "parent/value.txt", 0, MAX_READ_BYTES).await
+            })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::rename(&parent, root.canonical_root().join("original-parent")).await.unwrap();
+        symlink(outside.path(), &parent).unwrap();
+        barrier.resume();
+
+        reader.await.unwrap().unwrap_err();
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]

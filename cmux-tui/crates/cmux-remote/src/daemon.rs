@@ -2075,6 +2075,39 @@ mod tests {
         client.close().await.unwrap();
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn idle_partial_lane_group_expires_without_another_connection() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "partial-expiry", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let group = Arc::new(PartialStartupGroup {
+            daemon: daemon.clone(),
+            interactive_opens: AtomicUsize::new(0),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let config = ClientConnectionConfig {
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "partial-expiry-client".into(),
+            session: SessionId([34; 16]),
+            lane_policy: LanePolicy::Isolated,
+            limits: SessionLimits::default(),
+            reconnect: ReconnectPolicy { heartbeat_interval: None, ..ReconnectPolicy::default() },
+        };
+
+        ClientConnection::connect(group, config).await.unwrap_err();
+        assert_eq!(daemon.state.lock().await.pending.len(), 1);
+
+        tokio::time::advance(PENDING_LINK_TTL + Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+
+        assert!(
+            daemon.state.lock().await.pending.is_empty(),
+            "an idle partial link group outlived its admission deadline"
+        );
+    }
+
     async fn connected_fault_pair(
         lease: Duration,
         session: SessionId,
