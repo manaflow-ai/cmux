@@ -29,6 +29,51 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func authoritativeTranscriptFailureDoesNotReadFallback() async {
+        let fallback = ReadRecordingSourceAdapter()
+        let registry = AgentConversationReaderRegistry(adapters: [
+            FailingSourceAdapter(),
+            fallback,
+        ])
+        let source = AgentConversationSource(snapshot: SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "authoritative-session",
+            transcriptPath: "/captured/authoritative-rollout.jsonl"
+        ))
+
+        await #expect(throws: OpenCodeFixtureError.self) {
+            try await registry.read(source)
+        }
+        #expect(await fallback.readCount == 0)
+    }
+
+    @Test
+    func cancelledTransferStopsProviderDatabaseRead() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let database = fixture.appendingPathComponent("opencode.db")
+        try createOpenCodeDatabase(at: database)
+
+        let loadTask = Task {
+            try await SessionTranscriptLoader.load(source: .init(
+                agent: .opencode,
+                sessionId: "open-session",
+                fileURL: nil,
+                openCodeDatabasePath: database.path,
+                retention: .transferOpeningUserAndLatest(
+                    turnLimit: 1_000,
+                    textByteLimit: 32 * 1_024
+                )
+            ))
+        }
+        loadTask.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await loadTask.value
+        }
+    }
+
+    @Test
     func forkCacheIdentityChangesWhenTranscriptPathChanges() {
         let first = SessionRestorableAgentSnapshot(
             kind: .codex,
