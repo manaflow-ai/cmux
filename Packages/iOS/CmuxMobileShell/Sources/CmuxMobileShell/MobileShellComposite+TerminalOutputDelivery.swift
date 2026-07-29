@@ -34,10 +34,11 @@ extension MobileShellComposite {
     func recordTerminalRenderGridHistoryContinuity(
         _ renderGrid: MobileTerminalRenderGridFrame
     ) {
-        guard renderGrid.anchor == .screen, let historyRows = renderGrid.historyRows else {
-            return
+        if renderGrid.anchor == .screen, let historyRows = renderGrid.historyRows {
+            terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID] = historyRows
+        } else {
+            terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
         }
-        terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID] = historyRows
     }
 
     private func renderGridEventDeliveryDecision(

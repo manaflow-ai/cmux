@@ -14920,7 +14920,9 @@ class TerminalController {
         if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
             payload["terminal_seq"] = seq
             #if DEBUG
-            HostLatencyTrace.stamp("host.in.applied", "seq=\(seq)")
+            if sendResult == .sent {
+                HostLatencyTrace.stamp("host.in.applied", "seq=\(seq)")
+            }
             #endif
         }
         return .ok(payload)

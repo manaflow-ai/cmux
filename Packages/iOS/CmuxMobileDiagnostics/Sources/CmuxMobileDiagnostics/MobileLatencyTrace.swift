@@ -40,7 +40,7 @@ public enum MobileLatencyTrace {
         #endif
     }
 
-    /// Emits a stamp at a previously captured time without another gate check.
+    /// Emits a stamp at a previously captured time when tracing is enabled.
     ///
     /// - Parameters:
     ///   - stage: Stable stage token.
@@ -53,6 +53,7 @@ public enum MobileLatencyTrace {
         _ fields: @autoclosure () -> String = ""
     ) {
         #if DEBUG
+        guard isEnabled else { return }
         write(stage, uptimeMicroseconds: uptimeMicroseconds, fields: fields())
         #endif
     }
@@ -83,6 +84,7 @@ public enum MobileLatencyTrace {
         since start: UInt64?,
         _ fields: (_ elapsedMicroseconds: UInt64) -> String
     ) {
+        guard isEnabled else { return }
         guard let start else { return }
         let completionTime = nowUptimeMicroseconds()
         write(
