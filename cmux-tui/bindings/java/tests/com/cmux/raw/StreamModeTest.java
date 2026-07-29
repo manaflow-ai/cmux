@@ -1,10 +1,10 @@
-package com.cmux;
+package com.cmux.raw;
 
-import com.cmux.generated.BrowserAttachEvent;
-import com.cmux.generated.BrowserStateEvent;
-import com.cmux.generated.ByteAttachEvent;
-import com.cmux.generated.SubscribeEvent;
-import com.cmux.generated.VtStateEvent;
+import com.cmux.raw.BrowserAttachEvent;
+import com.cmux.raw.BrowserStateEvent;
+import com.cmux.raw.ByteAttachEvent;
+import com.cmux.raw.SubscribeEvent;
+import com.cmux.raw.VtStateEvent;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.StandardProtocolFamily;

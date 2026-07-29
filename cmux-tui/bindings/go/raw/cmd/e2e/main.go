@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go"
+	cmux "github.com/manaflow-ai/cmux/cmux-tui/bindings/go/raw"
 )
 
 func main() {
@@ -83,19 +83,11 @@ func run() error {
 	if !ok {
 		return fmt.Errorf("pane not found")
 	}
-	width := float32(0.5)
-	if _, err := client.NewPaneRight(ctx, pane, cmux.NewPaneRightOptions{Width: &width}); err != nil {
+	if _, err := client.Split(ctx, pane, cmux.SplitDirectionRight, cmux.SplitOptions{}); err != nil {
 		return err
 	}
-	viewportTree, err := client.ListWorkspaces(ctx)
-	if err != nil {
+	if err := client.SetRatio(ctx, pane, cmux.SplitDirectionRight, 0.5); err != nil {
 		return err
-	}
-	viewportScreen, ok := findScreenForSurface(viewportTree, created.Surface)
-	if !ok || viewportScreen.ViewportBaseWidth == nil || *viewportScreen.ViewportBaseWidth != 1 ||
-		len(viewportScreen.ViewportSplits) != 1 ||
-		absFloat32(viewportScreen.ViewportSplits[0].Width-0.5) >= 0.0001 {
-		return fmt.Errorf("viewport metadata missing or incorrect: %+v", viewportScreen)
 	}
 	if err := client.RenameSurface(ctx, created.Surface, marker+"-renamed"); err != nil {
 		return err
@@ -277,9 +269,13 @@ func findPaneForSurface(tree cmux.Tree, surface uint64) (uint64, bool) {
 	for _, workspace := range tree.Workspaces {
 		for _, screen := range workspace.Screens {
 			for _, pane := range screen.Panes {
-				for _, tab := range pane.Tabs {
+				live, ok := pane.AsLivePane()
+				if !ok {
+					continue
+				}
+				for _, tab := range live.Tabs {
 					if tab.Surface == surface {
-						return pane.ID, true
+						return live.ID, true
 					}
 				}
 			}
@@ -292,7 +288,11 @@ func findScreenForSurface(tree cmux.Tree, surface uint64) (cmux.Screen, bool) {
 	for _, workspace := range tree.Workspaces {
 		for _, screen := range workspace.Screens {
 			for _, pane := range screen.Panes {
-				for _, tab := range pane.Tabs {
+				live, ok := pane.AsLivePane()
+				if !ok {
+					continue
+				}
+				for _, tab := range live.Tabs {
 					if tab.Surface == surface {
 						return screen, true
 					}
@@ -301,13 +301,6 @@ func findScreenForSurface(tree cmux.Tree, surface uint64) (cmux.Screen, bool) {
 		}
 	}
 	return cmux.Screen{}, false
-}
-
-func absFloat32(value float32) float32 {
-	if value < 0 {
-		return -value
-	}
-	return value
 }
 
 func findClientSurfaceSize(

@@ -1,7 +1,7 @@
-package com.cmux;
+package com.cmux.raw;
 
-import com.cmux.generated.RenderRow;
-import com.cmux.generated.RenderRun;
+import com.cmux.raw.RenderRow;
+import com.cmux.raw.RenderRun;
 import java.util.List;
 import java.util.Objects;
 

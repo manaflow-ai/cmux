@@ -1,8 +1,8 @@
-package com.cmux;
+package com.cmux.raw;
 
-import com.cmux.generated.ProtocolEvent;
-import com.cmux.generated.SubscribeEvent;
-import com.cmux.generated.UnknownEvent;
+import com.cmux.raw.ProtocolEvent;
+import com.cmux.raw.SubscribeEvent;
+import com.cmux.raw.UnknownEvent;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.StandardProtocolFamily;

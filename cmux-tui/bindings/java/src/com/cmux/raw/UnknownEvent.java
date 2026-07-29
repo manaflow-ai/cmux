@@ -1,7 +1,7 @@
 // Generated from cmux-tui/spec/sdk-schema.json. DO NOT EDIT.
-package com.cmux.generated;
+package com.cmux.raw;
 
-import com.cmux.Wire;
+import com.cmux.raw.Wire;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;

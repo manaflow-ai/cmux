@@ -1,4 +1,4 @@
-package com.cmux;
+package com.cmux.raw;
 
 /** The server sent more pre-acknowledgement events than the configured stream buffer allows. */
 public final class CmuxStreamBufferOverflowException extends CmuxException {

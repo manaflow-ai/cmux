@@ -1,10 +1,10 @@
-package com.cmux.examples;
+package com.cmux.raw.examples;
 
-import com.cmux.CmuxClient;
-import com.cmux.UInt64;
-import com.cmux.generated.IdentifyResult;
-import com.cmux.generated.ReadScreenRequest;
-import com.cmux.generated.SendRequest;
+import com.cmux.raw.CmuxClient;
+import com.cmux.raw.UInt64;
+import com.cmux.raw.IdentifyResult;
+import com.cmux.raw.ReadScreenRequest;
+import com.cmux.raw.SendRequest;
 
 public final class Quickstart {
     private Quickstart() {}

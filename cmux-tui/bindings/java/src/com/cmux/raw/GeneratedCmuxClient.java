@@ -1,10 +1,10 @@
 // Generated from cmux-tui/spec/sdk-schema.json. DO NOT EDIT.
-package com.cmux.generated;
+package com.cmux.raw;
 
 
-import com.cmux.CmuxException;
-import com.cmux.CmuxStream;
-import com.cmux.Wire;
+import com.cmux.raw.CmuxException;
+import com.cmux.raw.CmuxStream;
+import com.cmux.raw.Wire;
 import java.util.List;
 import java.util.Map;
 

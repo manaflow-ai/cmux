@@ -1,4 +1,4 @@
-package com.cmux;
+package com.cmux.raw;
 
 public final class CmuxTransportException extends CmuxException {
     private static final long serialVersionUID = 1L;

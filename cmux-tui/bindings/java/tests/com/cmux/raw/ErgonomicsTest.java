@@ -1,9 +1,9 @@
-package com.cmux;
+package com.cmux.raw;
 
-import com.cmux.generated.CreateWorkspaceRequest;
-import com.cmux.generated.ReadScrollbackResult;
-import com.cmux.generated.RenderRow;
-import com.cmux.generated.RenderRun;
+import com.cmux.raw.CreateWorkspaceRequest;
+import com.cmux.raw.ReadScrollbackResult;
+import com.cmux.raw.RenderRow;
+import com.cmux.raw.RenderRun;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.StandardProtocolFamily;

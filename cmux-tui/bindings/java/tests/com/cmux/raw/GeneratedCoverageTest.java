@@ -1,13 +1,13 @@
-package com.cmux;
+package com.cmux.raw;
 
-import com.cmux.generated.CommandMetadata;
-import com.cmux.generated.Commands;
-import com.cmux.generated.EventMetadata;
-import com.cmux.generated.Events;
-import com.cmux.generated.GeneratedCmuxClient;
-import com.cmux.generated.Protocol;
-import com.cmux.generated.ProtocolEvent;
-import com.cmux.generated.UnknownEvent;
+import com.cmux.raw.CommandMetadata;
+import com.cmux.raw.Commands;
+import com.cmux.raw.EventMetadata;
+import com.cmux.raw.Events;
+import com.cmux.raw.GeneratedCmuxClient;
+import com.cmux.raw.Protocol;
+import com.cmux.raw.ProtocolEvent;
+import com.cmux.raw.UnknownEvent;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
@@ -33,7 +33,7 @@ public final class GeneratedCoverageTest {
             check(command.since() <= Protocol.VERSION, "future command version " + command.wireName());
             check(command.authority() != null, "command authority " + command.wireName());
 
-            String requestName = "com.cmux.generated." + pascal(command.wireName()) + "Request";
+            String requestName = "com.cmux.raw." + pascal(command.wireName()) + "Request";
             Class<?> requestClass = Class.forName(requestName);
             if (method.getParameterCount() == 1) {
                 check(

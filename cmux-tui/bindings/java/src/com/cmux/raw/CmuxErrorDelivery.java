@@ -1,4 +1,4 @@
-package com.cmux;
+package com.cmux.raw;
 
 public enum CmuxErrorDelivery {
     KNOWN_NOT_DELIVERED,

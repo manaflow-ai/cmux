@@ -1,8 +1,8 @@
 // Generated from cmux-tui/spec/sdk-schema.json. DO NOT EDIT.
-package com.cmux.generated;
+package com.cmux.raw;
 
-import com.cmux.CmuxDecodeException;
-import com.cmux.WireEnum;
+import com.cmux.raw.CmuxDecodeException;
+import com.cmux.raw.WireEnum;
 import java.util.Objects;
 
 public enum IdsRequestKind implements WireEnum {

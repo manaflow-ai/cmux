@@ -1,4 +1,4 @@
-package com.cmux;
+package com.cmux.raw;
 
 public enum TerminalKey {
     UNIDENTIFIED("unidentified"),

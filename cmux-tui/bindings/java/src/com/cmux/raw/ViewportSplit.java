@@ -1,4 +1,4 @@
-package com.cmux;
+package com.cmux.raw;
 
 import java.util.Map;
 
@@ -8,6 +8,9 @@ public record ViewportSplit(long split, double width) {
         double parsedWidth = width instanceof Number number
             ? number.doubleValue()
             : Double.parseDouble(String.valueOf(width));
-        return new ViewportSplit(CmuxClient.asLong(data.get("split")), parsedWidth);
+        return new ViewportSplit(
+            Wire.int64(data.get("split"), "viewport split"),
+            parsedWidth
+        );
     }
 }

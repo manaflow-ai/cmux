@@ -1,4 +1,4 @@
-package com.cmux;
+package com.cmux.raw;
 
 /** The client was not configured for the authority required by a command. */
 public final class CmuxAuthorityException extends CmuxException {

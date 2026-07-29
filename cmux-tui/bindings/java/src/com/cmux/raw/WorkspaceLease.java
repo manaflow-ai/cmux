@@ -1,7 +1,7 @@
-package com.cmux;
+package com.cmux.raw;
 
-import com.cmux.generated.CloseWorkspaceRequest;
-import com.cmux.generated.WorkspaceMutationResult;
+import com.cmux.raw.CloseWorkspaceRequest;
+import com.cmux.raw.WorkspaceMutationResult;
 import java.util.Objects;
 
 /**

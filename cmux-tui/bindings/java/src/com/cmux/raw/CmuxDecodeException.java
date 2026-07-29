@@ -1,4 +1,4 @@
-package com.cmux;
+package com.cmux.raw;
 
 /**
  * Unchecked protocol-shape error. Transport and command failures remain

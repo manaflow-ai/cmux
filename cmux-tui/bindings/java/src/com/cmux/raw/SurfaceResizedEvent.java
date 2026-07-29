@@ -1,13 +1,13 @@
 // Generated from cmux-tui/spec/sdk-schema.json. DO NOT EDIT.
-package com.cmux.generated;
+package com.cmux.raw;
 
 
-import com.cmux.Bytes;
-import com.cmux.Field;
-import com.cmux.UInt64;
-import com.cmux.Wire;
-import com.cmux.WireEnum;
-import com.cmux.WireValue;
+import com.cmux.raw.Bytes;
+import com.cmux.raw.Field;
+import com.cmux.raw.UInt64;
+import com.cmux.raw.Wire;
+import com.cmux.raw.WireEnum;
+import com.cmux.raw.WireValue;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;

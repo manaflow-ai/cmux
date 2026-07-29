@@ -1,4 +1,4 @@
-package cmux_test
+package raw_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	cmux "github.com/manaflow-ai/cmux/cmux-tui/bindings/go"
+	cmux "github.com/manaflow-ai/cmux/cmux-tui/bindings/go/raw"
 )
 
 func TestZeroOptionsClientAndPublicStreamAPIs(t *testing.T) {

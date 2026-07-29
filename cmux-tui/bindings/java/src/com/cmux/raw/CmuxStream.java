@@ -1,7 +1,7 @@
-package com.cmux;
+package com.cmux.raw;
 
-import com.cmux.generated.Protocol;
-import com.cmux.generated.ProtocolEvent;
+import com.cmux.raw.Protocol;
+import com.cmux.raw.ProtocolEvent;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Map;

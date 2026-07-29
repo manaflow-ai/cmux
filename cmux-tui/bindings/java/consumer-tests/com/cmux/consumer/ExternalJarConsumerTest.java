@@ -1,12 +1,17 @@
 package com.cmux.consumer;
 
-import com.cmux.CmuxClient;
-import com.cmux.RenderText;
-import com.cmux.UInt64;
-import com.cmux.WorkspaceLease;
-import com.cmux.generated.CreateWorkspaceRequest;
-import com.cmux.generated.RenderRow;
-import com.cmux.generated.RenderRun;
+import com.cmux.Client;
+import com.cmux.ExactCommand;
+import com.cmux.ResourceStream;
+import com.cmux.Session;
+import com.cmux.Transport;
+import com.cmux.raw.CmuxClient;
+import com.cmux.raw.RenderText;
+import com.cmux.raw.UInt64;
+import com.cmux.raw.WorkspaceLease;
+import com.cmux.raw.CreateWorkspaceRequest;
+import com.cmux.raw.RenderRow;
+import com.cmux.raw.RenderRun;
 import java.util.List;
 
 public final class ExternalJarConsumerTest {
@@ -33,6 +38,26 @@ public final class ExternalJarConsumerTest {
         require(
             AutoCloseable.class.isAssignableFrom(WorkspaceLease.class),
             "workspace lease is closeable"
+        );
+        require(
+            AutoCloseable.class.isAssignableFrom(Client.class),
+            "resource client is closeable"
+        );
+        require(
+            AutoCloseable.class.isAssignableFrom(ResourceStream.class),
+            "resource stream is closeable"
+        );
+        require(
+            !AutoCloseable.class.isAssignableFrom(Session.class),
+            "resource handles are not closeable"
+        );
+        require(
+            Transport.class.isInterface(),
+            "resource transport can be injected"
+        );
+        require(
+            ExactCommand.of("printf", "%s", "hello").argv().size() == 3,
+            "exact argv is public from the jar"
         );
     }
 
