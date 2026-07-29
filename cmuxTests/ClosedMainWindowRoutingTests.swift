@@ -325,6 +325,8 @@ struct ClosedMainWindowRoutingTests {
         defer {
             app.unregisterMainWindowContextForTesting(windowId: windowAId)
             app.unregisterMainWindowContextForTesting(windowId: windowCId)
+            managerA.tabs.forEach { $0.teardownAllPanels() }
+            managerC.tabs.forEach { $0.teardownAllPanels() }
             windowA.orderOut(nil)
             windowC.orderOut(nil)
         }
@@ -356,6 +358,15 @@ struct ClosedMainWindowRoutingTests {
         let unselectedWorkspaceC = managerC.addWorkspace(title: "Unavailable target", select: false)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelC.id) === terminalPanelC.surface)
         let workspaceA = try #require(managerA.selectedWorkspace)
+        let routingC = ControlRoutingSelectors(
+            hasWindowIDParam: true,
+            windowID: windowCId,
+            groupID: nil,
+            workspaceID: nil,
+            surfaceID: nil,
+            paneID: nil
+        )
+        #expect(app.recoverableMainWindowRoute(windowId: windowCId)?.tabManager === managerC)
 
         app.unregisterMainWindowContextForTesting(windowId: windowCId)
 
@@ -368,20 +379,66 @@ struct ClosedMainWindowRoutingTests {
         #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
         #expect(
             TerminalController.shared.controlSelectWorkspace(
-                routing: ControlRoutingSelectors(
-                    hasWindowIDParam: true,
-                    windowID: windowCId,
-                    groupID: nil,
-                    workspaceID: nil,
-                    surfaceID: nil,
-                    paneID: nil
-                ),
+                routing: routingC,
                 workspaceID: unselectedWorkspaceC.id
             ) == .tabManagerUnavailable
         )
         #expect(managerC.selectedTabId == workspaceC.id)
         #expect(app.tabManager === managerA)
         #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+
+        #expect(
+            TerminalController.shared.controlSelectNextWorkspace(routing: routingC)
+                == .tabManagerUnavailable
+        )
+        #expect(managerC.selectedTabId == workspaceC.id)
+        #expect(
+            TerminalController.shared.controlSelectPreviousWorkspace(routing: routingC)
+                == .tabManagerUnavailable
+        )
+        #expect(managerC.selectedTabId == workspaceC.id)
+        #expect(
+            TerminalController.shared.controlSelectLastWorkspace(routing: routingC)
+                == .tabManagerUnavailable
+        )
+        #expect(managerC.selectedTabId == workspaceC.id)
+
+        let paneC = try #require(workspaceC.bonsplitController.focusedPaneId)
+        #expect(
+            TerminalController.shared.controlPaneFocus(
+                workspace: workspaceC,
+                paneID: paneC.id,
+                tabManager: managerC
+            ) == .tabManagerUnavailable
+        )
+        #expect(
+            TerminalController.shared.controlSurfaceFocus(
+                workspace: workspaceC,
+                surfaceID: terminalPanelC.id,
+                tabManager: managerC
+            ) == .tabManagerUnavailable
+        )
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+
+        let panelCountBeforeProjectOpen = workspaceC.panels.count
+        let projectOpenResult = TerminalController.shared.withSocketCommandPolicy(
+            commandKey: "project.open",
+            isV2: true,
+            params: ["focus": true]
+        ) {
+            TerminalController.shared.controlProjectOpen(
+                routing: routingC,
+                path: FileManager.default.temporaryDirectory.path,
+                requestedFocus: true
+            )
+        }
+        if case .opened = projectOpenResult {
+            Issue.record("Rejected window focus still created a project surface")
+        }
+        #expect(workspaceC.panels.count == panelCountBeforeProjectOpen)
+        #expect(managerC.selectedTabId == workspaceC.id)
+
         #expect(!app.workspaceMoveTargets(
             excludingWorkspaceId: workspaceA.id,
             referenceWindowId: windowAId
@@ -404,6 +461,57 @@ struct ClosedMainWindowRoutingTests {
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.tabManagerFor(windowId: windowCId) == nil)
         #expect(app.windowId(for: managerC) == nil)
+    }
+
+    @Test("Initial and menu-bar routing skip close-committed contexts")
+    func initialAndMenuBarRoutingSkipCloseCommittedContexts() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let closingManager = TabManager()
+        let closingWindowId = UUID()
+        let closingWindow = makeMainWindow(id: closingWindowId)
+        let previousConfirmationHandler = app.debugCloseMainWindowConfirmationHandler
+
+        AppDelegate.shared = app
+        app.tabManager = closingManager
+        app.debugCloseMainWindowConfirmationHandler = { _ in true }
+        TerminalController.shared.setActiveTabManager(closingManager)
+        app.registerMainWindow(
+            closingWindow,
+            windowId: closingWindowId,
+            tabManager: closingManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.markMainWindowCloseCommitted(closingWindow)
+
+        var replacementWindowId: UUID?
+        defer {
+            if let replacementWindowId,
+               let replacementWindow = app.windowForMainWindowId(replacementWindowId) {
+                replacementWindow.close()
+            }
+            app.unregisterMainWindowContextForTesting(windowId: closingWindowId)
+            closingManager.tabs.forEach { $0.teardownAllPanels() }
+            closingWindow.orderOut(nil)
+            app.debugCloseMainWindowConfirmationHandler = previousConfirmationHandler
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let ensuredWindowId = app.ensureInitialMainWindowIfNeeded(
+            shouldActivate: false,
+            suppressWelcome: true
+        )
+        replacementWindowId = ensuredWindowId
+        #expect(ensuredWindowId != closingWindowId)
+
+        let shownWindow = try #require(app.showMainWindowFromMenuBar())
+        #expect(shownWindow !== closingWindow)
+        #expect(!app.isMainWindowCloseCommitted(shownWindow))
     }
 
     @Test("Rejected focus blocks external input and notification acknowledgement")
