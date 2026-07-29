@@ -129,11 +129,12 @@ fn list_resources(
 ) -> Result<Value, ResourceError> {
     let path = mux.resolve_resource_path(scope, selectors)?;
     let snapshot = public_session_snapshot(mux)?;
+    let path_index = SnapshotPathIndex::new(&snapshot);
     let values = snapshot[collection]
         .as_array()
         .ok_or_else(|| malformed_collection(operation, collection))?
         .iter()
-        .filter(|value| resource_is_in_path(&snapshot, collection, value, &path))
+        .filter(|value| path_index.contains(collection, value, &path))
         .cloned()
         .collect();
     Ok(Value::Array(values))
@@ -147,55 +148,62 @@ fn malformed_collection(operation: &str, collection: &str) -> ResourceError {
     )
 }
 
-fn resource_is_in_path(
-    snapshot: &Value,
-    collection: &str,
-    value: &Value,
-    path: &ResolvedResourcePath,
-) -> bool {
-    let workspace_by_screen = snapshot["screens"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|screen| Some((screen["id"].as_str()?, screen["workspace_id"].as_str()?)))
-        .collect::<HashMap<_, _>>();
-    let screen_by_pane = snapshot["panes"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|pane| Some((pane["id"].as_str()?, pane["screen_id"].as_str()?)))
-        .collect::<HashMap<_, _>>();
-    let pane_by_tab = snapshot["tabs"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|tab| Some((tab["id"].as_str()?, tab["pane_id"].as_str()?)))
-        .collect::<HashMap<_, _>>();
-    let id = value["id"].as_str();
-    let (workspace, screen, pane, tab) = match collection {
-        "workspaces" => (id, None, None, None),
-        "screens" => (value["workspace_id"].as_str(), id, None, None),
-        "panes" => {
-            let screen = value["screen_id"].as_str();
-            (screen.and_then(|id| workspace_by_screen.get(id).copied()), screen, id, None)
-        }
-        "tabs" => {
-            let pane = value["pane_id"].as_str();
-            let screen = pane.and_then(|id| screen_by_pane.get(id).copied());
-            (screen.and_then(|id| workspace_by_screen.get(id).copied()), screen, pane, id)
-        }
-        "terminals" | "browsers" => {
-            let tab = value["tab_id"].as_str();
-            let pane = tab.and_then(|id| pane_by_tab.get(id).copied());
-            let screen = pane.and_then(|id| screen_by_pane.get(id).copied());
-            (screen.and_then(|id| workspace_by_screen.get(id).copied()), screen, pane, tab)
-        }
-        _ => return false,
-    };
-    path.workspace.as_ref().is_none_or(|id| workspace == Some(id.as_str()))
-        && path.screen.as_ref().is_none_or(|id| screen == Some(id.as_str()))
-        && path.pane.as_ref().is_none_or(|id| pane == Some(id.as_str()))
-        && path.tab.as_ref().is_none_or(|id| tab == Some(id.as_str()))
+struct SnapshotPathIndex<'a> {
+    workspace_by_screen: HashMap<&'a str, &'a str>,
+    screen_by_pane: HashMap<&'a str, &'a str>,
+    pane_by_tab: HashMap<&'a str, &'a str>,
+}
+
+impl<'a> SnapshotPathIndex<'a> {
+    fn new(snapshot: &'a Value) -> Self {
+        let workspace_by_screen = snapshot["screens"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|screen| Some((screen["id"].as_str()?, screen["workspace_id"].as_str()?)))
+            .collect();
+        let screen_by_pane = snapshot["panes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|pane| Some((pane["id"].as_str()?, pane["screen_id"].as_str()?)))
+            .collect();
+        let pane_by_tab = snapshot["tabs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|tab| Some((tab["id"].as_str()?, tab["pane_id"].as_str()?)))
+            .collect();
+        Self { workspace_by_screen, screen_by_pane, pane_by_tab }
+    }
+
+    fn contains(&self, collection: &str, value: &Value, path: &ResolvedResourcePath) -> bool {
+        let id = value["id"].as_str();
+        let (workspace, screen, pane, tab) = match collection {
+            "workspaces" => (id, None, None, None),
+            "screens" => (value["workspace_id"].as_str(), id, None, None),
+            "panes" => {
+                let screen = value["screen_id"].as_str();
+                (screen.and_then(|id| self.workspace_by_screen.get(id).copied()), screen, id, None)
+            }
+            "tabs" => {
+                let pane = value["pane_id"].as_str();
+                let screen = pane.and_then(|id| self.screen_by_pane.get(id).copied());
+                (screen.and_then(|id| self.workspace_by_screen.get(id).copied()), screen, pane, id)
+            }
+            "terminals" | "browsers" => {
+                let tab = value["tab_id"].as_str();
+                let pane = tab.and_then(|id| self.pane_by_tab.get(id).copied());
+                let screen = pane.and_then(|id| self.screen_by_pane.get(id).copied());
+                (screen.and_then(|id| self.workspace_by_screen.get(id).copied()), screen, pane, tab)
+            }
+            _ => return false,
+        };
+        path.workspace.as_ref().is_none_or(|id| workspace == Some(id.as_str()))
+            && path.screen.as_ref().is_none_or(|id| screen == Some(id.as_str()))
+            && path.pane.as_ref().is_none_or(|id| pane == Some(id.as_str()))
+            && path.tab.as_ref().is_none_or(|id| tab == Some(id.as_str()))
+    }
 }
 
 fn get_resource(
@@ -373,8 +381,14 @@ fn snapshot_mutation_result(
     collection: &str,
 ) -> Result<Value, ResourceError> {
     let id = result_id(&commit.result, operation, result_field)?;
-    let value = find_snapshot(&public_session_snapshot(mux)?, collection, id)?;
-    mutation_result(mux, value, commit.revision, commit.replayed)
+    let snapshot = public_session_snapshot(mux)?;
+    let value = find_snapshot(&snapshot, collection, id)?;
+    Ok(json!({
+        "value": value,
+        "generation": snapshot["cursor"]["generation"],
+        "revision": commit.revision.to_string(),
+        "replayed": commit.replayed,
+    }))
 }
 
 fn result_id<'a>(
@@ -405,7 +419,10 @@ mod tests {
 
     use super::*;
     use crate::SurfaceOptions;
-    use crate::resource::{EnvelopeType, RequestId};
+    use crate::resource::{
+        EnvelopeType, MachinePublicId, PanePublicId, RequestId, ScreenPublicId, SessionPublicId,
+        TabPublicId, WorkspacePublicId,
+    };
 
     fn mux() -> Arc<Mux> {
         Mux::new_for_test("topology-router", SurfaceOptions::default())
@@ -456,6 +473,28 @@ mod tests {
         }
     }
 
+    fn public_id(prefix: &str, index: usize) -> String {
+        format!("{prefix}_{index:032x}")
+    }
+
+    fn resolved_path(
+        workspace: Option<&str>,
+        screen: Option<&str>,
+        pane: Option<&str>,
+        tab: Option<&str>,
+    ) -> ResolvedResourcePath {
+        ResolvedResourcePath {
+            machine: MachinePublicId::parse(public_id("machine", 1)).unwrap(),
+            session: Some(SessionPublicId::parse(public_id("session", 1)).unwrap()),
+            workspace: workspace.map(|id| WorkspacePublicId::parse(id.to_string()).unwrap()),
+            screen: screen.map(|id| ScreenPublicId::parse(id.to_string()).unwrap()),
+            pane: pane.map(|id| PanePublicId::parse(id.to_string()).unwrap()),
+            tab: tab.map(|id| TabPublicId::parse(id.to_string()).unwrap()),
+            terminal: None,
+            browser: None,
+        }
+    }
+
     fn terminal_workspace(mux: &Arc<Mux>, key: &str) -> Value {
         dispatch(
             mux,
@@ -467,6 +506,91 @@ mod tests {
             ),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn thousand_resource_path_filter_builds_ancestry_once_and_stays_exact() {
+        const RESOURCE_COUNT: usize = 1_000;
+        const SCREENS_PER_WORKSPACE: usize = 10;
+
+        let workspaces = (0..RESOURCE_COUNT / SCREENS_PER_WORKSPACE)
+            .map(|index| json!({"id":public_id("ws", index)}))
+            .collect::<Vec<_>>();
+        let screens = (0..RESOURCE_COUNT)
+            .map(|index| {
+                json!({
+                    "id":public_id("screen", index),
+                    "workspace_id":public_id("ws", index / SCREENS_PER_WORKSPACE),
+                })
+            })
+            .collect::<Vec<_>>();
+        let panes = (0..RESOURCE_COUNT)
+            .map(|index| {
+                json!({
+                    "id":public_id("pane", index),
+                    "screen_id":public_id("screen", index),
+                })
+            })
+            .collect::<Vec<_>>();
+        let tabs = (0..RESOURCE_COUNT)
+            .map(|index| {
+                json!({
+                    "id":public_id("tab", index),
+                    "pane_id":public_id("pane", index),
+                })
+            })
+            .collect::<Vec<_>>();
+        let terminals = (0..RESOURCE_COUNT)
+            .map(|index| {
+                json!({
+                    "id":public_id("term", index),
+                    "tab_id":public_id("tab", index),
+                })
+            })
+            .collect::<Vec<_>>();
+        let snapshot = json!({
+            "workspaces":workspaces,
+            "screens":screens,
+            "panes":panes,
+            "tabs":tabs,
+            "terminals":terminals,
+        });
+
+        // The three topology-sized indexes are built once. Every result below
+        // then performs a fixed number of hash lookups instead of rebuilding
+        // all three maps for each of the 1,000 candidates.
+        let index = SnapshotPathIndex::new(&snapshot);
+        assert_eq!(index.workspace_by_screen.len(), RESOURCE_COUNT);
+        assert_eq!(index.screen_by_pane.len(), RESOURCE_COUNT);
+        assert_eq!(index.pane_by_tab.len(), RESOURCE_COUNT);
+
+        let target = 427;
+        let workspace_id = public_id("ws", target / SCREENS_PER_WORKSPACE);
+        let screen_id = public_id("screen", target);
+        let pane_id = public_id("pane", target);
+        let tab_id = public_id("tab", target);
+        let terminal_values = snapshot["terminals"].as_array().unwrap();
+        let workspace_path = resolved_path(Some(&workspace_id), None, None, None);
+
+        let workspace_matches = terminal_values
+            .iter()
+            .filter(|value| index.contains("terminals", value, &workspace_path))
+            .count();
+        assert_eq!(workspace_matches, SCREENS_PER_WORKSPACE);
+
+        let exact_path =
+            resolved_path(Some(&workspace_id), Some(&screen_id), Some(&pane_id), Some(&tab_id));
+        let exact_matches = terminal_values
+            .iter()
+            .filter(|value| index.contains("terminals", value, &exact_path))
+            .collect::<Vec<_>>();
+        assert_eq!(exact_matches.len(), 1);
+        assert_eq!(exact_matches[0]["id"], public_id("term", target));
+
+        let wrong_workspace = public_id("ws", target / SCREENS_PER_WORKSPACE + 1);
+        let mismatched_path =
+            resolved_path(Some(&wrong_workspace), Some(&screen_id), Some(&pane_id), Some(&tab_id));
+        assert!(!index.contains("terminals", exact_matches[0], &mismatched_path,));
     }
 
     #[test]
