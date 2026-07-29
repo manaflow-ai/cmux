@@ -94,4 +94,106 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "The current anonymous occupant must continue reporting lifecycle state: \(currentCommands)"
         )
     }
+
+    func testLateRovoDevHookCannotMutateReplacementOccupantSharingInferredSessionID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("rovo-occupant")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rovo-occupant-\(UUID().uuidString)", isDirectory: true)
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let workspaceID = "33333333-3333-3333-3333-333333333333"
+        let surfaceID = "44444444-4444-4444-4444-444444444444"
+
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try writeRovoDevSessionMetadata(
+            sessionsRoot: sessionsRoot,
+            sessionId: "workspace-scoped-session",
+            workspacePath: workspace.path,
+            modified: Date(timeIntervalSince1970: 200)
+        )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+        startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            surfaceId: surfaceID,
+            connectionCount: 80
+        )
+
+        func runRovoDevHook(_ subcommand: String, pid: Int, eventName: String) -> ProcessRunResult {
+            runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "rovodev", subcommand],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": workspace.path,
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_WORKSPACE_ID": workspaceID,
+                    "CMUX_SURFACE_ID": surfaceID,
+                    "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                    "CMUX_ROVODEV_SESSIONS_DIR": sessionsRoot.path,
+                    "CMUX_ROVODEV_PID": String(pid),
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                standardInput: #"{"cwd":"\#(workspace.path)","hook_event_name":"\#(eventName)"}"#,
+                timeout: 5
+            )
+        }
+
+        let firstPID = 42_001
+        let replacementPID = 42_002
+        for pid in [firstPID, replacementPID] {
+            let start = runRovoDevHook(
+                "session-start",
+                pid: pid,
+                eventName: "session_start"
+            )
+            XCTAssertFalse(start.timedOut, start.stderr)
+            XCTAssertEqual(start.status, 0, start.stderr)
+            XCTAssertEqual(start.stdout, "{}\n")
+        }
+
+        let lateCommandStart = state.snapshot().count
+        let latePrompt = runRovoDevHook(
+            "prompt-submit",
+            pid: firstPID,
+            eventName: "on_tool_permission"
+        )
+        XCTAssertFalse(latePrompt.timedOut, latePrompt.stderr)
+        XCTAssertEqual(latePrompt.status, 0, latePrompt.stderr)
+        XCTAssertEqual(latePrompt.stdout, "{}\n")
+        let lateCommands = Array(state.snapshot().dropFirst(lateCommandStart))
+        XCTAssertFalse(
+            lateCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle ")
+                    || $0.hasPrefix("set_status ")
+                    || $0.hasPrefix("clear_notifications ")
+            },
+            "A late Rovo Dev hook sharing an inferred workspace session must not mutate the current occupant: \(lateCommands)"
+        )
+
+        let currentCommandStart = state.snapshot().count
+        let currentPrompt = runRovoDevHook(
+            "prompt-submit",
+            pid: replacementPID,
+            eventName: "on_tool_permission"
+        )
+        XCTAssertFalse(currentPrompt.timedOut, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.status, 0, currentPrompt.stderr)
+        XCTAssertEqual(currentPrompt.stdout, "{}\n")
+        let currentCommands = Array(state.snapshot().dropFirst(currentCommandStart))
+        XCTAssertTrue(
+            currentCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle rovodev running ")
+            },
+            "The replacement Rovo Dev occupant must continue reporting lifecycle state: \(currentCommands)"
+        )
+    }
 }
