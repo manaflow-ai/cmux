@@ -9,6 +9,7 @@ import Testing
 @testable import cmux
 #endif
 
+@Suite(.serialized)
 struct AgentHibernationProcessTerminationTests {
     private nonisolated static let signalScopeKey = AgentHibernationPanelKey(
         workspaceId: UUID(),
@@ -242,8 +243,6 @@ struct AgentHibernationProcessTerminationTests {
             )
         #expect(didExit)
         #expect(escalatedTargets.withLock { $0 } == [-101])
-        #expect(!escalatedTargets.withLock { $0 }.contains(202))
-        #expect(!escalatedTargets.withLock { $0 }.contains(-202))
         postKillDeadline.continuation.finish()
     }
 

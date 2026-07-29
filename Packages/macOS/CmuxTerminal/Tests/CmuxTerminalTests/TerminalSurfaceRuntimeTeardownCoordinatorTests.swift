@@ -166,6 +166,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         let secondReservation = try #require(
             await coordinator.reserveIsolatedHibernationTeardown()
         )
+        #expect(await coordinator.reserveIsolatedHibernationTeardown() == nil)
         let secondIsolatedTicket = coordinator.enqueueRuntimeTeardown(
             id: UUID(),
             workspaceId: UUID(),
@@ -180,7 +181,6 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 secondIsolatedFreeCount.withLock { $0 += 1 }
             }
         )
-        #expect(await coordinator.reserveIsolatedHibernationTeardown() == nil)
         let serializedTicket = coordinator.enqueueRuntimeTeardown(
             id: UUID(),
             workspaceId: UUID(),
@@ -209,6 +209,35 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             await coordinator.reserveIsolatedHibernationTeardown()
         )
         await coordinator.cancelIsolatedHibernationTeardown(nextReservation)
+    }
+
+    @Test func staleIsolatedReservationFallsBackToSerializedFree() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let freeCount = OSAllocatedUnfairLock(initialState: 0)
+        let staleReservation = try #require(
+            await coordinator.reserveIsolatedHibernationTeardown()
+        )
+        await coordinator.cancelIsolatedHibernationTeardown(staleReservation)
+
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.staleIsolatedReservation",
+            surface: surface,
+            callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: nil,
+            executionLane: .isolatedHibernation,
+            isolatedHibernationReservation: staleReservation,
+            freeSurface: { _ in
+                freeCount.withLock { $0 += 1 }
+            }
+        )
+
+        #expect(await ticket.wait(timeout: .seconds(1)))
+        #expect(freeCount.withLock { $0 } == 1)
     }
 
     @Test func byteTeeCallbackOwnerIsReleasedOnlyAfterNativeFreeReturns() async {
