@@ -5,7 +5,13 @@ import Foundation
 /// attached and what the process title was at that moment.
 struct AgentTabBrandingAttachState: Equatable {
     let definitionID: String
-    let processTitleAtAttach: String?
+    var processTitleAtAttach: String?
+    let attachedAt: Date
+
+    /// Shells emit their own title writes (preexec/prompt hooks) racing the
+    /// launch of the agent binary; a title arriving this soon after attach is
+    /// launch noise to absorb into the snapshot, not the CLI taking ownership.
+    static let launchNoiseGracePeriod: TimeInterval = 3
 }
 
 /// Terminal-tab agent branding: while the hook-driven runtime maps that drive
@@ -165,11 +171,25 @@ extension Workspace {
         if agentTabBrandingAttachState[panelId]?.definitionID != definition.id {
             agentTabBrandingAttachState[panelId] = AgentTabBrandingAttachState(
                 definitionID: definition.id,
-                processTitleAtAttach: panelTitles[panelId]
+                processTitleAtAttach: panelTitles[panelId],
+                attachedAt: Date()
             )
             cmuxDebugLog(
                 "agentTabBranding.attach panel=\(panelId.uuidString.prefix(5)) agent=\(definition.id)"
             )
         }
+    }
+
+    /// Absorbs a title update that lands inside the launch-noise grace period
+    /// into the attach snapshot, so a shell's own racing title write does not
+    /// read as the agent CLI taking ownership of the tab title.
+    func absorbAgentTabBrandingLaunchNoiseTitle(panelId: UUID, title: String) {
+        guard var state = agentTabBrandingAttachState[panelId],
+              Date().timeIntervalSince(state.attachedAt)
+                < AgentTabBrandingAttachState.launchNoiseGracePeriod else {
+            return
+        }
+        state.processTitleAtAttach = title
+        agentTabBrandingAttachState[panelId] = state
     }
 }
