@@ -207,10 +207,14 @@ struct SSHConfiguredRemoteCommandHostTests {
         )
     }
 
-    @Test
-    func sshStartupFallsBackToUnmanagedSessionWhenConfigurationResolutionIsUnavailable() throws {
+    @Test(arguments: [false, true])
+    func sshStartupFallsBackToUnmanagedSessionWhenConfigurationResolutionIsUnavailable(
+        usesMosh: Bool
+    ) throws {
         let cliPath = try processSupport.bundledCLIPath()
-        let socketPath = processSupport.makeSocketPath("ssh-config-unavailable")
+        let socketPath = processSupport.makeSocketPath(
+            usesMosh ? "mosh-config-unavailable" : "ssh-config-unavailable"
+        )
         let listenerFD = try processSupport.bindUnixSocket(at: socketPath)
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let surfaceID = "22222222-2222-2222-2222-222222222222"
@@ -253,15 +257,21 @@ struct SSHConfiguredRemoteCommandHostTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
+        var arguments = [
+            "ssh",
+            "--no-focus",
+        ]
+        if usesMosh {
+            arguments += ["--transport", "mosh"]
+        }
+        arguments += [
+            "--ssh-option", "RemoteCommand=printf explicit-fallback",
+            "--ssh-option", "CmuxTestInvalidOption=yes",
+            "cmux-config-unavailable-host",
+        ]
         let result = processSupport.runProcess(
             executablePath: cliPath,
-            arguments: [
-                "ssh",
-                "--no-focus",
-                "--ssh-option", "RemoteCommand=printf explicit-fallback",
-                "--ssh-option", "CmuxTestInvalidOption=yes",
-                "cmux-config-unavailable-host",
-            ],
+            arguments: arguments,
             environment: environment,
             timeout: 20
         )
@@ -284,6 +294,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             : startupCommand
         #expect(startupArtifact.contains("RemoteCommand=printf explicit-fallback"), "\(startupArtifact)")
         #expect(!startupArtifact.contains("ssh-pty-attach"), "\(startupArtifact)")
+        #expect(!startupArtifact.contains("cmux_mosh"), "\(startupArtifact)")
         let configureParams = try #require(
             requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"]
                 as? [String: Any]
