@@ -6,7 +6,7 @@ import CmuxCore
 
 @Suite("RemoteDaemonRPCClient timeout isolation")
 struct RemoteDaemonRPCClientTimeoutIsolationTests {
-    @Test("a timed-out PTY attach preserves the transport and existing PTY subscriptions")
+    @Test("a timed-out PTY attach cancels remotely while preserving the transport and subscriptions")
     func timedOutPTYAttachPreservesHealthyTransportState() throws {
         let executable = try makeTransport()
         defer {
@@ -51,6 +51,7 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
                 params: [
                     "session_id": "stalled-session",
                     "attachment_id": "stalled-attachment",
+                    "client_attachment_token": "stalled-token",
                 ],
                 timeout: 0.05
             )
@@ -107,7 +108,23 @@ struct RemoteDaemonRPCClientTimeoutIsolationTests {
         else
           exit 1
         fi
-        if ! IFS= read -r _stalled_attach; then
+        if ! IFS= read -r stalled_attach; then
+          exit 1
+        fi
+        stalled_id=$(read_id "$stalled_attach")
+        if IFS= read -r line; then
+          cancel_request_id=$(printf '%s\\n' "$line" | sed -n 's/.*"request_id":\\([0-9][0-9]*\\).*/\\1/p')
+          cancel_session=$(printf '%s\\n' "$line" | sed -n 's/.*"session_id":"\\([^"]*\\)".*/\\1/p')
+          cancel_attachment=$(printf '%s\\n' "$line" | sed -n 's/.*"attachment_id":"\\([^"]*\\)".*/\\1/p')
+          cancel_token=$(printf '%s\\n' "$line" | sed -n 's/.*"client_attachment_token":"\\([^"]*\\)".*/\\1/p')
+          case "$line" in *'"method":"pty.attach.cancel"'*) ;; *) exit 2 ;; esac
+          if [ "$cancel_request_id" != "$stalled_id" ] ||
+             [ "$cancel_session" != "stalled-session" ] ||
+             [ "$cancel_attachment" != "stalled-attachment" ] ||
+             [ "$cancel_token" != "stalled-token" ]; then
+            exit 3
+          fi
+        else
           exit 1
         fi
         if IFS= read -r line; then
