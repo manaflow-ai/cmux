@@ -281,6 +281,39 @@ export function checkDeviceOwner(
   return { ok: false, error: "device_owner_mismatch" };
 }
 
+/** The per-socket facts the nudge delivery decision reads, extracted from the
+ * socket's hibernation attachment by the DO. */
+export interface NudgeSocketView {
+  /** Device id this socket is directed at; null for a normal presence/sync
+   * subscriber. */
+  deviceScope: string | null;
+  /** Verified Stack user id pinned on the socket; null for a legacy
+   * connection that predates user-id forwarding. */
+  userId: string | null;
+  /** Token-derived stream deadline (epoch ms). */
+  expiresAt: number;
+}
+
+/** Owner-only delivery filter for directed nudges. A frame goes to a socket
+ * only when ALL hold: the socket is device-scoped to exactly the nudged
+ * device (normal presence subscribers never receive nudges), the socket's
+ * verified user is the device's CURRENT pinned owner, and the stream deadline
+ * has not passed. The owner is re-checked here — not just at subscribe time —
+ * because an unpinned device may accept a scoped subscription from a user who
+ * then LOSES the first-heartbeat pin race; that stale socket must not receive
+ * owner-only frames. A legacy socket without a user id can never match the
+ * pinned owner. Pure for tests. */
+export function shouldDeliverNudge(
+  socket: NudgeSocketView,
+  deviceId: string,
+  pinnedOwner: string,
+  nowMs: number,
+): boolean {
+  if (socket.deviceScope !== deviceId) return false;
+  if (socket.userId !== pinnedOwner) return false;
+  return socket.expiresAt > nowMs;
+}
+
 export interface ExpiryResult {
   /** Instances flipped to offline, with their updated records. */
   expired: PresenceInstance[];

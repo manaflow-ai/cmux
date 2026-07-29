@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import { checkDeviceOwner, shouldDeliverNudge, type NudgeSocketView } from "../src/core";
 import { MAX_TAG_LENGTH, parseDeviceScope, parseNudge } from "../src/validate";
 
 const DEVICE_ID = "11111111-2222-4333-8444-555555555555";
+const OTHER_DEVICE_ID = "99999999-8888-4777-8666-555555555555";
 
 describe("parseNudge", () => {
   it("accepts a device-wide iroh-binding-changed nudge", () => {
@@ -67,5 +69,78 @@ describe("parseDeviceScope", () => {
 
   it("flags a malformed value so the subscribe can 400 instead of silently downgrading", () => {
     expect(parseDeviceScope("mac-1")).toEqual({ scope: "invalid" });
+  });
+});
+
+// Delivery is the security boundary: an accepted subscription is NOT a grant.
+// Ownership is re-checked per frame against the CURRENT pin, so these tests
+// drive the exact decision the DO's nudge() loop runs per socket.
+describe("shouldDeliverNudge", () => {
+  const NOW = 1_800_000_000_000;
+  const owner = "user-owner";
+  const ownerSocket: NudgeSocketView = {
+    deviceScope: DEVICE_ID,
+    userId: owner,
+    expiresAt: NOW + 60_000,
+  };
+
+  it("delivers only to an unexpired socket scoped to the device and owned by the pinned user", () => {
+    expect(shouldDeliverNudge(ownerSocket, DEVICE_ID, owner, NOW)).toBe(true);
+  });
+
+  it("never delivers to a normal presence/sync subscriber", () => {
+    expect(
+      shouldDeliverNudge({ ...ownerSocket, deviceScope: null }, DEVICE_ID, owner, NOW),
+    ).toBe(false);
+  });
+
+  it("never delivers to a socket scoped to a different device", () => {
+    expect(
+      shouldDeliverNudge({ ...ownerSocket, deviceScope: OTHER_DEVICE_ID }, DEVICE_ID, owner, NOW),
+    ).toBe(false);
+  });
+
+  it("excludes a subscriber who lost the first-heartbeat pin race", () => {
+    // The subscribe gate admits a scoped socket for an UNPINNED device (the
+    // Mac subscribes at startup, before its first heartbeat pins it)...
+    const early = checkDeviceOwner(undefined, "user-competitor");
+    expect(early).toEqual({ ok: true, pin: true });
+    // ...but the pin is only written by a heartbeat, and the owner won it.
+    // The competitor's still-open socket must not receive owner-only frames.
+    expect(
+      shouldDeliverNudge(
+        { ...ownerSocket, userId: "user-competitor" },
+        DEVICE_ID,
+        owner,
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("excludes a legacy socket that carries no verified user id", () => {
+    expect(
+      shouldDeliverNudge({ ...ownerSocket, userId: null }, DEVICE_ID, owner, NOW),
+    ).toBe(false);
+  });
+
+  it("excludes a socket past its token-derived stream deadline", () => {
+    expect(
+      shouldDeliverNudge({ ...ownerSocket, expiresAt: NOW }, DEVICE_ID, owner, NOW),
+    ).toBe(false);
+  });
+
+  it("picks exactly the owner's directed socket out of a mixed subscriber set", () => {
+    const sockets: NudgeSocketView[] = [
+      { deviceScope: null, userId: owner, expiresAt: NOW + 60_000 }, // team presence subscriber
+      { deviceScope: OTHER_DEVICE_ID, userId: owner, expiresAt: NOW + 60_000 }, // owner's other Mac
+      { deviceScope: DEVICE_ID, userId: "user-competitor", expiresAt: NOW + 60_000 }, // lost pin race
+      { deviceScope: DEVICE_ID, userId: null, expiresAt: NOW + 60_000 }, // legacy, no user id
+      { deviceScope: DEVICE_ID, userId: owner, expiresAt: NOW - 1 }, // expired
+      ownerSocket,
+    ];
+    const delivered = sockets.filter((socket) =>
+      shouldDeliverNudge(socket, DEVICE_ID, owner, NOW),
+    );
+    expect(delivered).toEqual([ownerSocket]);
   });
 });

@@ -29,6 +29,7 @@ import {
   OFFLINE_TIMEOUT_MS,
   resolveSubscribeDeadline,
   routesEqual,
+  shouldDeliverNudge,
   shouldPrune,
   type HeartbeatInput,
   type NudgeEvent,
@@ -425,13 +426,15 @@ export class TeamPresence extends DurableObject {
     const json = JSON.stringify(event);
     let delivered = 0;
     for (const ws of this.ctx.getWebSockets()) {
-      if (wsDeviceScope(ws) !== input.deviceId) continue;
-      // Revalidate ownership at delivery, not just at subscribe: an unpinned
-      // device may have accepted a scoped subscription from a user who then
-      // LOST the first-heartbeat pin race, and that stale socket must not
-      // receive owner-only frames.
-      if (wsUserId(ws) !== pinned) continue;
-      if (wsExpiresAt(ws) <= now) continue;
+      // Owner-only, device-scoped, unexpired — the full rationale (including
+      // why ownership is revalidated at delivery, not just subscribe) lives on
+      // shouldDeliverNudge in core.ts, where the decision is tested.
+      const view = {
+        deviceScope: wsDeviceScope(ws),
+        userId: wsUserId(ws),
+        expiresAt: wsExpiresAt(ws),
+      };
+      if (!shouldDeliverNudge(view, input.deviceId, pinned, now)) continue;
       try {
         ws.send(json);
         delivered += 1;
